@@ -24,6 +24,7 @@ import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
 /**
@@ -41,7 +42,7 @@ import java.util.function.UnaryOperator;
  * end) vanishes by construction because no sentinel re-resolution survives in the relation.
  *
  * <p>Two shapes, mirroring legacy's own asymmetry: a COW relation yields native {@link HudiScanRange}s directly
- * ({@link #collectSplits(List, boolean, UnaryOperator)}); a MOR relation yields merged {@link FileSlice}s
+ * ({@link #collectSplits(Function, UnaryOperator)}); a MOR relation yields merged {@link FileSlice}s
  * ({@link #collectFileSlices()}) that
  * the scan planner later turns into JNI ranges at {@code endTs}. Each relation supports only its own shape and
  * throws {@link UnsupportedOperationException} for the other.
@@ -62,12 +63,12 @@ interface IncrementalRelation {
      * {@code nativePathNormalizer} rewrites each range's raw storage URI to BE's canonical scheme
      * (s3a-&gt;s3) for the native reader; implementations that emit no native ranges here ignore it.
      */
-    List<HudiScanRange> collectSplits(List<String> partitionFieldNames, boolean hiveStylePartitioning,
+    List<HudiScanRange> collectSplits(Function<String, Map<String, String>> partitionValueResolver,
             UnaryOperator<String> nativePathNormalizer);
 
     /**
      * Whether the window fell back to a full-table scan (archived instant / missing file). The scan planner
-     * checks this BEFORE calling {@link #collectSplits(List, boolean, UnaryOperator)}/{@link #collectFileSlices()}
+     * checks this BEFORE calling {@link #collectSplits(Function, UnaryOperator)}/{@link #collectFileSlices()}
      * and, when true, degrades
      * to the normal latest-snapshot partition scan instead of the incremental path (legacy
      * {@code HudiScanNode.getSplits:470}).
@@ -125,7 +126,7 @@ interface IncrementalRelation {
      * ({@code COWIncrementalRelation:206} / {@code MORIncrementalRelation:177}), re-typed to the connector's
      * {@link DorisConnectorException}. A DEFENSIVE invariant: the scan planner is contracted to check
      * {@link #fallbackFullTableScan()} and degrade to the snapshot path BEFORE calling
-     * {@link #collectSplits(List, boolean, UnaryOperator)} / {@link #collectFileSlices()}, so this normally never
+     * {@link #collectSplits(Function, UnaryOperator)} / {@link #collectFileSlices()}, so this normally never
      * fires. Extracted (like the other guards) so the message is byte-verifiable offline.
      */
     static void checkNotFullTableScan(boolean fullTableScan) {

@@ -17,9 +17,12 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -28,8 +31,9 @@ import java.util.Map;
  * base path for MetaClient, Hudi table type (COW/MOR), and scan-related
  * metadata populated by {@link HudiConnectorMetadata#getTableHandle}.
  *
- * <p>After {@code applyFilter}, a new handle may carry
- * {@link #getPrunedPartitionPaths()} for partition-pruned scans.</p>
+ * <p>After {@code applyFilter}, a new handle may carry physical
+ * {@link #getPrunedPartitionPaths()} for Hudi-metadata pruning, or
+ * {@link #getPrunedPartitions()} when Hive Sync supplies authoritative locations and logical values.</p>
  */
 public class HudiTableHandle implements ConnectorTableHandle {
 
@@ -48,6 +52,7 @@ public class HudiTableHandle implements ConnectorTableHandle {
 
     // Set after applyFilter for partition pruning
     private final List<String> prunedPartitionPaths;
+    private final List<HmsPartitionInfo> prunedPartitions;
 
     // Set after applySnapshot for FOR TIME AS OF time travel: the completed-timeline instant the scan reads
     // BEFORE-OR-ON (a String like "20240101120000", not a numeric snapshot id). Null = no time travel; the scan
@@ -78,17 +83,22 @@ public class HudiTableHandle implements ConnectorTableHandle {
         this.inputFormat = builder.inputFormat;
         this.serdeLib = builder.serdeLib;
         this.partitionKeyNames = builder.partitionKeyNames != null
-                ? Collections.unmodifiableList(builder.partitionKeyNames)
+                ? Collections.unmodifiableList(new ArrayList<>(builder.partitionKeyNames))
                 : Collections.emptyList();
         this.tableParameters = builder.tableParameters != null
-                ? Collections.unmodifiableMap(builder.tableParameters)
+                ? Collections.unmodifiableMap(new LinkedHashMap<>(builder.tableParameters))
                 : Collections.emptyMap();
-        this.prunedPartitionPaths = builder.prunedPartitionPaths;
+        this.prunedPartitionPaths = builder.prunedPartitionPaths != null
+                ? Collections.unmodifiableList(new ArrayList<>(builder.prunedPartitionPaths))
+                : null;
+        this.prunedPartitions = builder.prunedPartitions != null
+                ? Collections.unmodifiableList(new ArrayList<>(builder.prunedPartitions))
+                : null;
         this.queryInstant = builder.queryInstant;
         this.beginInstant = builder.beginInstant;
         this.endInstant = builder.endInstant;
         this.incrementalParams = builder.incrementalParams != null
-                ? Collections.unmodifiableMap(builder.incrementalParams)
+                ? Collections.unmodifiableMap(new LinkedHashMap<>(builder.incrementalParams))
                 : Collections.emptyMap();
     }
 
@@ -133,6 +143,10 @@ public class HudiTableHandle implements ConnectorTableHandle {
         return prunedPartitionPaths;
     }
 
+    public List<HmsPartitionInfo> getPrunedPartitions() {
+        return prunedPartitions;
+    }
+
     /** The FOR TIME AS OF instant the scan reads before-or-on, or {@code null} for a latest read. */
     public String getQueryInstant() {
         return queryInstant;
@@ -167,6 +181,7 @@ public class HudiTableHandle implements ConnectorTableHandle {
         b.partitionKeyNames = this.partitionKeyNames;
         b.tableParameters = this.tableParameters;
         b.prunedPartitionPaths = this.prunedPartitionPaths;
+        b.prunedPartitions = this.prunedPartitions;
         b.queryInstant = this.queryInstant;
         b.beginInstant = this.beginInstant;
         b.endInstant = this.endInstant;
@@ -193,6 +208,7 @@ public class HudiTableHandle implements ConnectorTableHandle {
         private List<String> partitionKeyNames;
         private Map<String, String> tableParameters;
         private List<String> prunedPartitionPaths;
+        private List<HmsPartitionInfo> prunedPartitions;
         private String queryInstant;
         private String beginInstant;
         private String endInstant;
@@ -227,6 +243,11 @@ public class HudiTableHandle implements ConnectorTableHandle {
 
         public Builder prunedPartitionPaths(List<String> val) {
             this.prunedPartitionPaths = val;
+            return this;
+        }
+
+        public Builder prunedPartitions(List<HmsPartitionInfo> val) {
+            this.prunedPartitions = val;
             return this;
         }
 

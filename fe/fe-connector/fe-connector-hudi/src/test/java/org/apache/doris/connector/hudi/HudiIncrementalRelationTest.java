@@ -195,7 +195,8 @@ public class HudiIncrementalRelationTest {
         // The empty-timeline relation selects no files on either shape and never falls back. Its end bound is the
         // legacy "000" sentinel. Guards against a mutation returning non-empty / a non-"000" bound.
         EmptyIncrementalRelation empty = new EmptyIncrementalRelation();
-        Assertions.assertTrue(empty.collectSplits(Collections.emptyList(), false, UnaryOperator.identity()).isEmpty(),
+        Assertions.assertTrue(empty.collectSplits(
+                path -> Collections.emptyMap(), UnaryOperator.identity()).isEmpty(),
                 "empty relation must select no splits");
         Assertions.assertTrue(empty.collectFileSlices().isEmpty(), "empty relation must select no file slices");
         Assertions.assertFalse(empty.fallbackFullTableScan(), "empty relation never falls back to a full scan");

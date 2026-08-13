@@ -17,7 +17,10 @@
 
 package org.apache.doris.connector.hms;
 
+import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -25,7 +28,9 @@ import java.util.Objects;
 /**
  * HMS partition metadata DTO using connector-SPI types.
  */
-public final class HmsPartitionInfo {
+public final class HmsPartitionInfo implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     private final List<String> values;
     private final String location;
@@ -39,14 +44,14 @@ public final class HmsPartitionInfo {
             String serializationLib, Map<String, String> parameters) {
         this.values = values == null
                 ? Collections.emptyList()
-                : Collections.unmodifiableList(values);
+                : Collections.unmodifiableList(new ArrayList<>(values));
         this.location = location;
         this.inputFormat = inputFormat;
         this.outputFormat = outputFormat;
         this.serializationLib = serializationLib;
         this.parameters = parameters == null
                 ? Collections.emptyMap()
-                : Collections.unmodifiableMap(parameters);
+                : Collections.unmodifiableMap(new LinkedHashMap<>(parameters));
     }
 
     /** Partition column values in declaration order. */

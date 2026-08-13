@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
@@ -35,6 +37,7 @@ import org.apache.avro.Schema;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
+import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.BaseFile;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
@@ -72,6 +75,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -116,10 +120,19 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
 
     private final Map<String, String> properties;
     private final ConnectorContext context;
+    private final Supplier<HmsClient> hmsClientSupplier;
 
     public HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context) {
+        this(properties, context, () -> {
+            throw new IllegalStateException("HMS client is required for Hive Sync partition planning");
+        });
+    }
+
+    HudiScanPlanProvider(Map<String, String> properties, ConnectorContext context,
+            Supplier<HmsClient> hmsClientSupplier) {
         this.properties = properties;
         this.context = context;
+        this.hmsClientSupplier = hmsClientSupplier;
     }
 
     @Override
@@ -278,8 +291,9 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         if (hudiHandle.getBeginInstant() != null) {
             IncrementalRelation relation = buildIncrementalRelation(metaClient, conf, hudiHandle, isCow);
             Optional<List<ConnectorScanRange>> incrementalRanges = incrementalRanges(relation, isCow, forceJni,
-                    basePath, inputFormat, serdeLib, columnNames, columnTypes, partitionFieldNames(metaClient),
-                    hiveStylePartitioning, this::normalizeNativeUri);
+                    basePath, inputFormat, serdeLib, columnNames, columnTypes,
+                    () -> incrementalPartitionValueResolver(hudiHandle, metaClient, hiveStylePartitioning),
+                    this::normalizeNativeUri);
             if (incrementalRanges.isPresent()) {
                 LOG.info("Hudi incremental scan planning: {}.{} window=({}, {}] splits={}",
                         hudiHandle.getDbName(), hudiHandle.getTableName(),
@@ -299,26 +313,24 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 engineCtx, metaClient, metadataConfig);
 
         // Resolve partitions
-        List<String> partitionPaths = resolvePartitions(hudiHandle, metaClient);
+        List<PartitionScanInfo> partitions = resolvePartitions(
+                hudiHandle, metaClient, hiveStylePartitioning);
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
-        for (String partitionPath : partitionPaths) {
-            Map<String, String> partValues = parsePartitionValues(
-                    partitionPath, hudiHandle.getPartitionKeyNames(), hiveStylePartitioning);
-
+        for (PartitionScanInfo partition : partitions) {
             if (useNativeCowPath) {
-                collectCowSplits(fsView, partitionPath, queryInstant,
-                        partValues, ranges, schemaIdResolver);
+                collectCowSplits(fsView, partition.partitionPath, queryInstant,
+                        partition.partitionValues, ranges, schemaIdResolver);
             } else {
-                collectMorSplits(fsView, partitionPath, queryInstant,
+                collectMorSplits(fsView, partition.partitionPath, queryInstant,
                         basePath, inputFormat, serdeLib,
-                        columnNames, columnTypes, partValues, forceJni, ranges, schemaIdResolver);
+                        columnNames, columnTypes, partition.partitionValues, forceJni, ranges, schemaIdResolver);
             }
         }
 
         LOG.info("Hudi scan planning: {}.{} type={} partitions={} splits={}",
                 hudiHandle.getDbName(), hudiHandle.getTableName(),
-                hudiHandle.getHudiTableType(), partitionPaths.size(), ranges.size());
+                hudiHandle.getHudiTableType(), partitions.size(), ranges.size());
 
         return ranges;
     }
@@ -614,7 +626,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      * <ul>
      *   <li>{@code relation.fallbackFullTableScan()} (an archived instant / missing file) &rarr;
      *       {@link Optional#empty()} = degrade to the latest-snapshot scan (NOT an error), legacy {@code :470}.</li>
-     *   <li>COW &rarr; {@link IncrementalRelation#collectSplits(List, boolean, UnaryOperator)} yields native ranges
+     *   <li>COW &rarr; {@link IncrementalRelation#collectSplits(Function, UnaryOperator)} yields native ranges
      *       directly.
      *       <b>{@code force_jni} is intentionally IGNORED for a COW incremental read</b> (it always reads native)
      *       &mdash; a signed, deliberate deviation from legacy, which routes {@code force_jni}+COW to the MOR-style
@@ -622,32 +634,33 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      *       (a latent legacy crash). Routing on the relation type never calls the unsupported shape.</li>
      *   <li>MOR &rarr; {@link IncrementalRelation#collectFileSlices()} (a FLAT cross-partition slice list) turned
      *       into JNI ranges at the resolved window END ({@code relation.getEndTs()}), with per-slice partition
-     *       values parsed from the slice's own partition path against the Hudi table-config partition fields
-     *       (the same non-handle source the COW relation uses). {@code force_jni} still keeps a no-log MOR slice
-     *       on JNI via {@link #buildMorRange}.</li>
+     *       values resolved from the slice's own partition path. For Hive Sync tables the resolver is built from
+     *       HMS locations and extractor-produced logical values; otherwise it parses the Hudi physical layout.
+     *       {@code force_jni} still keeps a no-log MOR slice on JNI via {@link #buildMorRange}.</li>
      * </ul>
      * Package-private static, pure over the {@link IncrementalRelation} contract, so file-selection routing +
      * the degrade decision are unit-testable with a fake relation (no live metaClient).
      */
     static Optional<List<ConnectorScanRange>> incrementalRanges(IncrementalRelation relation, boolean isCow,
             boolean forceJni, String basePath, String inputFormat, String serdeLib,
-            List<String> columnNames, List<String> columnTypes, List<String> partitionFieldNames,
-            boolean hiveStylePartitioning, UnaryOperator<String> nativePathNormalizer) {
+            List<String> columnNames, List<String> columnTypes,
+            Supplier<Function<String, Map<String, String>>> partitionValueResolverSupplier,
+            UnaryOperator<String> nativePathNormalizer) {
         if (relation.fallbackFullTableScan()) {
             return Optional.empty();
         }
+        Function<String, Map<String, String>> partitionValueResolver =
+                new LazyPartitionValueResolver(partitionValueResolverSupplier);
         List<ConnectorScanRange> ranges = new ArrayList<>();
         if (isCow) {
             // COW @incr yields native ranges directly; normalize their scheme (s3a->s3) for BE's native reader
             // (COWIncrementalRelation.collectSplits builds .path() from the raw HMS base path).
-            ranges.addAll(relation.collectSplits(
-                    partitionFieldNames, hiveStylePartitioning, nativePathNormalizer));
+            ranges.addAll(relation.collectSplits(partitionValueResolver, nativePathNormalizer));
             return Optional.of(ranges);
         }
         String endTs = relation.getEndTs();
         for (FileSlice fileSlice : relation.collectFileSlices()) {
-            Map<String, String> partValues = parsePartitionValues(
-                    fileSlice.getPartitionPath(), partitionFieldNames, hiveStylePartitioning);
+            Map<String, String> partValues = partitionValueResolver.apply(fileSlice.getPartitionPath());
             // @incr lists the LATEST schema (no per-file schema_id dict on the incremental path) -> null resolver.
             ranges.add(buildMorRange(fileSlice, partValues, endTs, forceJni,
                     basePath, inputFormat, serdeLib, columnNames, columnTypes, null, nativePathNormalizer));
@@ -655,10 +668,57 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         return Optional.of(ranges);
     }
 
+    private Function<String, Map<String, String>> incrementalPartitionValueResolver(
+            HudiTableHandle handle, HoodieTableMetaClient metaClient, boolean hiveStylePartitioning) {
+        return incrementalPartitionValueResolver(
+                partitionFieldNames(metaClient), handle.getPartitionKeyNames(),
+                useHiveSyncPartition(), hiveStylePartitioning,
+                () -> listHiveSyncPartitions(handle));
+    }
+
+    static Function<String, Map<String, String>> incrementalPartitionValueResolver(
+            List<String> tableConfigPartitionFields, List<String> hmsPartitionFields,
+            boolean useHiveSyncPartition, boolean hiveStylePartitioning,
+            Supplier<Optional<List<PartitionScanInfo>>> hiveSyncPartitionsSupplier) {
+        List<String> fields = tableConfigPartitionFields.isEmpty()
+                ? hmsPartitionFields : tableConfigPartitionFields;
+        Function<String, Map<String, String>> physicalPathResolver =
+                path -> parsePartitionValues(path, fields, hiveStylePartitioning);
+        if (!useHiveSyncPartition || hmsPartitionFields.isEmpty()) {
+            return physicalPathResolver;
+        }
+        Optional<List<PartitionScanInfo>> hiveSyncPartitions = hiveSyncPartitionsSupplier.get();
+        return hiveSyncPartitions.isPresent()
+                ? exactPartitionValueResolver(hiveSyncPartitions.get())
+                : physicalPathResolver;
+    }
+
+    /** Builds a fail-loud physical-path to logical-value resolver for Hive Sync incremental scans. */
+    static Function<String, Map<String, String>> exactPartitionValueResolver(
+            List<PartitionScanInfo> partitions) {
+        Map<String, Map<String, String>> valuesByPath = new HashMap<>();
+        for (PartitionScanInfo partition : partitions) {
+            Map<String, String> old = valuesByPath.put(
+                    partition.partitionPath, partition.partitionValues);
+            if (old != null) {
+                throw new DorisConnectorException(
+                        "Multiple Hudi Hive Sync partitions point to " + partition.partitionPath);
+            }
+        }
+        return partitionPath -> {
+            Map<String, String> values = valuesByPath.get(partitionPath);
+            if (values == null) {
+                throw new DorisConnectorException(
+                        "Hudi partition path " + partitionPath + " is missing from Hive Sync metadata");
+            }
+            return values;
+        };
+    }
+
     /**
      * The Hudi table-config partition-field names, canonicalized to Hudi's lower-case Doris-column convention.
-     * This is the source the incremental MOR path parses per-slice partition values against &mdash; NOT the
-     * HMS-sourced handle partition keys the snapshot path uses (the two coincide only for hive-synced tables).
+     * Incremental scans prefer these names when present and fall back to the HMS-backed handle keys for legacy
+     * Hudi tables whose table config predates the partition-fields property.
      */
     private static List<String> partitionFieldNames(HoodieTableMetaClient metaClient) {
         Option<String[]> fields = metaClient.getTableConfig().getPartitionFields();
@@ -677,26 +737,210 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Resolve partition paths from handle or by listing all partitions.
      */
-    private List<String> resolvePartitions(
-            HudiTableHandle handle, HoodieTableMetaClient metaClient) {
-        // Check if partitions were pruned via applyFilter
+    List<PartitionScanInfo> resolvePartitions(
+            HudiTableHandle handle, HoodieTableMetaClient metaClient, boolean hiveStylePartitioning) {
+        // Hive Sync pruning carries both the exact storage location and the extractor-produced logical values.
+        List<HmsPartitionInfo> prunedPartitions = handle.getPrunedPartitions();
+        if (prunedPartitions != null) {
+            return hmsPartitionScanInfos(
+                    handle.getBasePath(), handle.getPartitionKeyNames(), prunedPartitions);
+        }
+
+        // Non-Hive-Sync pruning carries physical relative paths from Hudi metadata.
         List<String> prunedPaths = handle.getPrunedPartitionPaths();
         if (prunedPaths != null) {
-            return prunedPaths;
+            return physicalPartitionScanInfos(
+                    prunedPaths, handle.getPartitionKeyNames(), hiveStylePartitioning);
         }
 
         // No pruning — list all partitions
         List<String> partKeyNames = handle.getPartitionKeyNames();
         if (partKeyNames == null || partKeyNames.isEmpty()) {
             // Unpartitioned table
-            return Collections.singletonList("");
+            return Collections.singletonList(new PartitionScanInfo("", Collections.emptyMap()));
+        }
+
+        Optional<List<PartitionScanInfo>> hiveSyncPartitions = listHiveSyncPartitions(handle);
+        if (hiveSyncPartitions.isPresent()) {
+            return hiveSyncPartitions.get();
         }
 
         try {
-            return listAllPartitionPaths(metaClient);
+            return physicalPartitionScanInfos(
+                    listAllPartitionPaths(metaClient), partKeyNames, hiveStylePartitioning);
         } catch (Exception e) {
             throw new DorisConnectorException(
                     "Failed to list partitions for " + handle.getBasePath(), e);
+        }
+    }
+
+    /**
+     * Returns every Hive Sync partition with its authoritative physical location and logical values. An empty
+     * HMS listing deliberately returns {@link Optional#empty()} so callers retain the legacy Hudi-metadata
+     * fallback for tables whose sync has not run yet.
+     */
+    private Optional<List<PartitionScanInfo>> listHiveSyncPartitions(HudiTableHandle handle) {
+        if (!useHiveSyncPartition()) {
+            return Optional.empty();
+        }
+        HmsClient hmsClient = hmsClientSupplier.get();
+        List<String> partitionNames = hmsClient.listPartitionNames(
+                handle.getDbName(), handle.getTableName(), -1);
+        if (partitionNames == null || partitionNames.isEmpty()) {
+            LOG.warn("hive-sync hudi table {}.{} has no HMS partitions; "
+                            + "falling back to hudi metadata partition listing",
+                    handle.getDbName(), handle.getTableName());
+            return Optional.empty();
+        }
+        List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
+                handle.getDbName(), handle.getTableName(), partitionNames);
+        if (partitions.size() != partitionNames.size()) {
+            throw new DorisConnectorException(String.format(
+                    "HMS returned %d of %d partitions for Hudi table %s.%s",
+                    partitions.size(), partitionNames.size(),
+                    handle.getDbName(), handle.getTableName()));
+        }
+        return Optional.of(hmsPartitionScanInfos(
+                handle.getBasePath(), handle.getPartitionKeyNames(), partitions));
+    }
+
+    private boolean useHiveSyncPartition() {
+        return Boolean.parseBoolean(properties.get(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION));
+    }
+
+    private static List<PartitionScanInfo> physicalPartitionScanInfos(
+            List<String> partitionPaths, List<String> partKeyNames, boolean hiveStylePartitioning) {
+        List<PartitionScanInfo> result = new ArrayList<>(partitionPaths.size());
+        for (String partitionPath : partitionPaths) {
+            result.add(new PartitionScanInfo(partitionPath,
+                    parsePartitionValues(partitionPath, partKeyNames, hiveStylePartitioning)));
+        }
+        return result;
+    }
+
+    /**
+     * Converts one Hive Sync partition into the two values the scan consumes: an exact Hudi-relative physical
+     * path for FileSystemView lookup, and the extractor-produced logical HMS values for columns-from-path. The
+     * HMS client returns values in partition-key declaration order. Package-private for the extractor regression.
+     */
+    static PartitionScanInfo hmsPartitionScanInfo(
+            String basePath, List<String> partKeyNames, HmsPartitionInfo partition) {
+        List<String> values = partition.getValues();
+        if (values.size() != partKeyNames.size()) {
+            throw new DorisConnectorException(String.format(
+                    "Hudi partition at %s has %d values for %d partition columns",
+                    partition.getLocation(), values.size(), partKeyNames.size()));
+        }
+        String location = partition.getLocation();
+        if (location == null || location.isEmpty()) {
+            throw new DorisConnectorException("Hudi Hive Sync partition has no storage location");
+        }
+        String partitionPath;
+        try {
+            StoragePath baseStoragePath = new StoragePath(basePath);
+            StoragePath partitionStoragePath = new StoragePath(location);
+            String baseScheme = canonicalStorageScheme(baseStoragePath);
+            String partitionScheme = canonicalStorageScheme(partitionStoragePath);
+            if (!baseScheme.equals(partitionScheme)) {
+                throw new IllegalArgumentException("partition scheme differs from the table base path");
+            }
+            String baseAuthority = baseStoragePath.toUri().getAuthority();
+            String partitionAuthority = partitionStoragePath.toUri().getAuthority();
+            String normalizedBaseAuthority = baseAuthority == null
+                    ? "" : baseAuthority.toLowerCase(Locale.ROOT);
+            String normalizedPartitionAuthority = partitionAuthority == null
+                    ? "" : partitionAuthority.toLowerCase(Locale.ROOT);
+            if (!normalizedBaseAuthority.equals(normalizedPartitionAuthority)) {
+                throw new IllegalArgumentException("partition authority differs from the table base path");
+            }
+            String basePathWithoutScheme = baseStoragePath.getPathWithoutSchemeAndAuthority().toString();
+            String locationWithoutScheme = partitionStoragePath.getPathWithoutSchemeAndAuthority().toString();
+            String descendantPrefix = basePathWithoutScheme.endsWith("/")
+                    ? basePathWithoutScheme : basePathWithoutScheme + "/";
+            if (!locationWithoutScheme.equals(basePathWithoutScheme)
+                    && !locationWithoutScheme.startsWith(descendantPrefix)) {
+                throw new IllegalArgumentException("partition path is outside the table base path");
+            }
+            partitionPath = FSUtils.getRelativePartitionPath(baseStoragePath, partitionStoragePath);
+        } catch (IllegalArgumentException e) {
+            throw new DorisConnectorException(String.format(
+                    "Hudi partition location %s does not belong to table base path %s", location, basePath), e);
+        }
+        Map<String, String> partitionValues = new LinkedHashMap<>();
+        for (int i = 0; i < partKeyNames.size(); i++) {
+            partitionValues.put(partKeyNames.get(i), values.get(i));
+        }
+        return new PartitionScanInfo(partitionPath, partitionValues);
+    }
+
+    private static List<PartitionScanInfo> hmsPartitionScanInfos(
+            String basePath, List<String> partKeyNames, List<HmsPartitionInfo> partitions) {
+        List<PartitionScanInfo> result = new ArrayList<>(partitions.size());
+        Map<String, HmsPartitionInfo> partitionByPhysicalPath = new HashMap<>();
+        for (HmsPartitionInfo partition : partitions) {
+            PartitionScanInfo scanInfo = hmsPartitionScanInfo(basePath, partKeyNames, partition);
+            HmsPartitionInfo old = partitionByPhysicalPath.put(scanInfo.partitionPath, partition);
+            if (old != null) {
+                throw new DorisConnectorException(
+                        "Multiple Hudi Hive Sync partitions point to " + scanInfo.partitionPath);
+            }
+            result.add(scanInfo);
+        }
+        return result;
+    }
+
+    /** Canonicalizes only URI schemes that select the same Hadoop filesystem implementation. */
+    private static String canonicalStorageScheme(StoragePath path) {
+        String scheme = path.toUri().getScheme();
+        if (scheme == null) {
+            return "";
+        }
+        switch (scheme.toLowerCase(Locale.ROOT)) {
+            case "s3a":
+            case "s3n":
+                return "s3";
+            case "cosn":
+                return "cos";
+            default:
+                return scheme.toLowerCase(Locale.ROOT);
+        }
+    }
+
+    /** Defers HMS-backed resolver construction until an incremental split actually consumes a partition path. */
+    private static final class LazyPartitionValueResolver
+            implements Function<String, Map<String, String>> {
+        private final Supplier<Function<String, Map<String, String>>> resolverSupplier;
+        private Function<String, Map<String, String>> resolver;
+
+        private LazyPartitionValueResolver(
+                Supplier<Function<String, Map<String, String>>> resolverSupplier) {
+            this.resolverSupplier = resolverSupplier;
+        }
+
+        @Override
+        public Map<String, String> apply(String partitionPath) {
+            if (resolver == null) {
+                resolver = resolverSupplier.get();
+            }
+            return resolver.apply(partitionPath);
+        }
+    }
+
+    static final class PartitionScanInfo {
+        private final String partitionPath;
+        private final Map<String, String> partitionValues;
+
+        private PartitionScanInfo(String partitionPath, Map<String, String> partitionValues) {
+            this.partitionPath = partitionPath;
+            this.partitionValues = Collections.unmodifiableMap(new LinkedHashMap<>(partitionValues));
+        }
+
+        String getPartitionPath() {
+            return partitionPath;
+        }
+
+        Map<String, String> getPartitionValues() {
+            return partitionValues;
         }
     }
 

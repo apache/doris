@@ -41,6 +41,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
@@ -51,7 +52,7 @@ import java.util.stream.Collectors;
  * here, see {@link IncrementalRelation}) and the split type re-homed from fe-core {@code HudiSplit} to
  * {@link HudiScanRange}. Everything from the archived-flag computation onward is byte-faithful to legacy.
  *
- * <p>{@link #collectSplits(List, boolean, UnaryOperator)} yields native ranges directly (COW has only base files);
+ * <p>{@link #collectSplits(Function, UnaryOperator)} yields native ranges directly (COW has only base files);
  * {@link #collectFileSlices()} is unsupported (the MOR shape).
  */
 final class COWIncrementalRelation implements IncrementalRelation {
@@ -181,7 +182,8 @@ final class COWIncrementalRelation implements IncrementalRelation {
     }
 
     @Override
-    public List<HudiScanRange> collectSplits(List<String> partitionFieldNames, boolean hiveStylePartitioning,
+    public List<HudiScanRange> collectSplits(
+            Function<String, Map<String, String>> partitionValueResolver,
             UnaryOperator<String> nativePathNormalizer) {
         IncrementalRelation.checkNotFullTableScan(fullTableScan);
         if (filteredRegularFullPaths.isEmpty() && filteredMetaBootstrapFullPaths.isEmpty()) {
@@ -200,8 +202,7 @@ final class COWIncrementalRelation implements IncrementalRelation {
                     .length(stat.getFileSizeInBytes())
                     .fileSize(stat.getFileSizeInBytes())
                     .fileFormat(HudiScanPlanProvider.detectFileFormat(baseFile))
-                    .partitionValues(HudiScanPlanProvider.parsePartitionValues(
-                            stat.getPartitionPath(), partitionFieldNames, hiveStylePartitioning))
+                    .partitionValues(partitionValueResolver.apply(stat.getPartitionPath()))
                     .build());
         };
 

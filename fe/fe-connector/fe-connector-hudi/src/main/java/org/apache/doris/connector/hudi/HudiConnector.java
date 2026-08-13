@@ -140,7 +140,7 @@ public class HudiConnector implements Connector {
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new HudiScanPlanProvider(properties, context);
+        return new HudiScanPlanProvider(properties, context, this::getOrCreateClient);
     }
 
     /**

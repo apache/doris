@@ -21,6 +21,8 @@ import org.apache.hudi.common.model.FileSlice;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
 /**
@@ -44,7 +46,8 @@ final class EmptyIncrementalRelation implements IncrementalRelation {
     }
 
     @Override
-    public List<HudiScanRange> collectSplits(List<String> partitionFieldNames, boolean hiveStylePartitioning,
+    public List<HudiScanRange> collectSplits(
+            Function<String, Map<String, String>> partitionValueResolver,
             UnaryOperator<String> nativePathNormalizer) {
         return Collections.emptyList();
     }
