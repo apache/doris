@@ -66,7 +66,6 @@ public:
 
     virtual RuntimeProfile* scanner_profile() = 0;
 
-    [[nodiscard]] virtual const TupleDescriptor* input_tuple_desc() const = 0;
     [[nodiscard]] virtual const TupleDescriptor* output_tuple_desc() const = 0;
 
     virtual int64_t limit_per_scanner() = 0;
@@ -244,7 +243,6 @@ class ScanLocalState : public ScanLocalStateBase {
 
     RuntimeProfile* scanner_profile() override { return _scanner_profile.get(); }
 
-    [[nodiscard]] const TupleDescriptor* input_tuple_desc() const override;
     [[nodiscard]] const TupleDescriptor* output_tuple_desc() const override;
 
     int64_t limit_per_scanner() override;
@@ -432,7 +430,6 @@ protected:
     // For query scan node, there is only output_tuple_desc.
     TupleId _input_tuple_id = -1;
     TupleId _output_tuple_id = -1;
-    const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
     phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;
