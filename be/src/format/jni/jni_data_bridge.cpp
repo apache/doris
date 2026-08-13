@@ -104,7 +104,7 @@ Status JniDataBridge::fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     auto logical_type = data_type->get_primitive_type();
     void* null_map_ptr = address.next_meta_as_ptr();
     if (null_map_ptr == nullptr) {
-        // org.apache.doris.common.jni.vec.ColumnType.Type#UNSUPPORTED will set column address as 0
+        // org.apache.doris.jni.spi.vec.ColumnType.Type#UNSUPPORTED will set column address as 0
         return Status::InternalError("Unsupported type {} in java side", data_type->get_name());
     }
     auto mutable_doris_column = IColumn::mutate(std::move(doris_column));

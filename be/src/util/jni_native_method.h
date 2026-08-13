@@ -24,7 +24,7 @@
 namespace doris {
 
 /**
- * Java native methods for org.apache.doris.common.jni.utils.JNINativeMethod.
+ * Java native methods for org.apache.doris.jni.spi.utils.JNINativeMethod.
  */
 struct JavaNativeMethods {
     /**
