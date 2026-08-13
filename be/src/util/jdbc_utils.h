@@ -43,16 +43,6 @@ public:
      * @return Status::OK on success, or InternalError if the file is not found
      */
     static Status resolve_driver_url(const std::string& url, std::string* result_url);
-
-    /**
-     * Resolve a driver URL and bind a bare local artifact to its persisted checksum.
-     *
-     * The checksum-addressed URL is immutable for the lifetime of JDBC classloaders. This keeps
-     * replayed catalogs and replaced cloud objects from reusing classes loaded from another
-     * generation at the same bare pathname.
-     */
-    static Status resolve_driver_url(const std::string& url, const std::string& checksum,
-                                     std::string* result_url);
 };
 
 } // namespace doris

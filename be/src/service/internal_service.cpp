@@ -1037,10 +1037,7 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
 
         // Resolve driver URL to absolute file:// path
         std::string driver_url;
-        std::string driver_checksum =
-                jdbc_table.__isset.jdbc_driver_checksum ? jdbc_table.jdbc_driver_checksum : "";
-        st = JdbcUtils::resolve_driver_url(jdbc_table.jdbc_driver_url, driver_checksum,
-                                           &driver_url);
+        st = JdbcUtils::resolve_driver_url(jdbc_table.jdbc_driver_url, &driver_url);
         if (!st.ok()) {
             st.to_protobuf(result->mutable_status());
             return;
@@ -1053,7 +1050,6 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         params["jdbc_password"] = jdbc_table.jdbc_password;
         params["jdbc_driver_class"] = jdbc_table.jdbc_driver_class;
         params["jdbc_driver_url"] = driver_url;
-        params["jdbc_driver_checksum"] = driver_checksum;
         params["query_sql"] = request->query_str();
         params["catalog_id"] = std::to_string(jdbc_table.catalog_id);
         params["connection_pool_min_size"] = std::to_string(jdbc_table.connection_pool_min_size);
