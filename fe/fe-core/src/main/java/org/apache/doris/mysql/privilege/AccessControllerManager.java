@@ -50,6 +50,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -102,6 +103,23 @@ public class AccessControllerManager {
 
     /** Family label in the process-wide {@link PluginRegistry}, i.e. in information_schema.extensions. */
     private static final String PLUGIN_FAMILY = "AUTHORIZATION";
+
+    /**
+     * Authorization sources that used to be published by a factory class of fe-core's own, and the name each
+     * is published under now.
+     *
+     * <p>A catalog names its source in {@code access_controller.class}, and that value is persisted with the
+     * catalog: an FE upgraded across the release that moved a source out of fe-core reads back the class name
+     * written when the catalog was created. {@link #accessControllerClassNameMapping} answers for every
+     * factory class that still exists, being filled from the classes actually registered; this table answers
+     * for the ones that no longer do.
+     *
+     * <p>It lives here, and not in the plugin, because the class it names was fe-core's: whoever owned an
+     * identifier owns remembering it. Trino, renaming its Hive connector, put the superseded name in the Hive
+     * plugin for that same reason - there the identifier that went stale was the plugin's own.
+     */
+    private static final Map<String, String> SOURCES_THAT_LEFT_THE_KERNEL = ImmutableMap.of(
+            "org.apache.doris.mysql.privilege.RangerDorisAccessControllerFactory", "ranger-doris");
 
     private Auth auth;
     // Governs everything no catalog-bound source governs; the built-in model unless configured otherwise
@@ -161,8 +179,7 @@ public class AccessControllerManager {
         }
         if (!isKnownAuthorizationSource(accessControllerName)) {
             throw new RuntimeException("No authorization plugin factory found for " + accessControllerName
-                    + ". Please confirm that your plugin is placed in the correct location."
-                    + apiVersionRejectionHint());
+                    + "." + pluginLocationHint() + apiVersionRejectionHint());
         }
         Map<String, String> prop;
         try {
@@ -442,7 +459,15 @@ public class AccessControllerManager {
         return currentCatalog == catalog && currentCatalog.getId() == catalog.getId();
     }
 
-    private String getPluginIdentifierForAccessController(String acClassName) {
+    /**
+     * The authorization source a catalog's {@code access_controller.class} names, whichever way it names it:
+     * by the name the source is published under, by the class name of the factory publishing it, or - for a
+     * source that has since moved out of fe-core - by the class name that used to publish it.
+     *
+     * <p>Package-private so that the strings older releases accepted here can be pinned by a test; this is
+     * the only place that decides what any of them mean.
+     */
+    String getPluginIdentifierForAccessController(String acClassName) {
         String pluginIdentifier = null;
         if (accessControllerClassNameMapping.containsKey(acClassName)) {
             pluginIdentifier = accessControllerClassNameMapping.get(acClassName);
@@ -450,11 +475,34 @@ public class AccessControllerManager {
         if (isKnownAuthorizationSource(acClassName)) {
             pluginIdentifier = acClassName;
         }
+        if (pluginIdentifier == null) {
+            pluginIdentifier = SOURCES_THAT_LEFT_THE_KERNEL.get(acClassName);
+            if (pluginIdentifier != null) {
+                LOG.warn("Catalog property {} = {} names a class this FE no longer has; that source is now"
+                                + " published as '{}'. It is still resolved, but set the property to '{}'.",
+                        CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, acClassName, pluginIdentifier,
+                        pluginIdentifier);
+            }
+        }
         if (null == pluginIdentifier || !isKnownAuthorizationSource(pluginIdentifier)) {
             throw new RuntimeException("Access Controller Plugin Factory not found for " + acClassName
-                    + "." + apiVersionRejectionHint());
+                    + "." + pluginLocationHint() + apiVersionRejectionHint());
         }
         return pluginIdentifier;
+    }
+
+    /**
+     * Where an authorization plugin has to be for this FE to find it.
+     *
+     * <p>Spelled out because the commonest way to reach either "not found" is an upgrade rather than a typo:
+     * sources that used to be part of the FE itself are installed like any other plugin now, so a deployment
+     * whose lib directory was assembled by hand loses them with nothing else having changed.
+     */
+    private static String pluginLocationHint() {
+        return " An authorization plugin is installed as a subdirectory of " + Config.authorization_plugins_dir
+                + " holding the plugin jar and its lib/ directory, and the release package ships the sources"
+                + " that used to be part of the FE there. An FE upgraded in place needs that directory"
+                + " copied across too.";
     }
 
     public void removeAccessController(String ctl, long catalogId) {
