@@ -910,6 +910,23 @@ public class LocalShuffleNodeCoverageTest {
     }
 
     @Test
+    public void testAggregationNodeNoPartitionNonFinalizeBaseClassRequire() {
+        // COUNT(*)-style non-finalize (LOCAL) agg: no partition requirement, so
+        // the non-finalize arm of the first branch falls back to base class
+        // behavior (NOOP for a non-serial child). The agg exprs are non-empty
+        // (a plain count function) so the AggSink branch is exercised rather
+        // than DistinctStreamingAgg.
+        AggContext agg = buildAggContext(
+                Collections.singletonList(plainAggregateFunction("count")), /* groupByExprs */ true,
+                /* merge */ false, /* needsFinalize */ false, LocalExchangeType.NOOP, null);
+        Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
+                agg.ctx, null, LocalExchangeTypeRequire.noRequire());
+        Assertions.assertEquals(LocalExchangeNode.NoRequire.class, agg.child.lastRequire.getClass());
+        Assertions.assertEquals(LocalExchangeType.NOOP, output.second);
+        Assertions.assertSame(agg.child, agg.node.getChild(0));
+    }
+
+    @Test
     public void testAggregationNodeNoPartitionFinalizeStaysNoRequire() {
         // COUNT(*)-style agg (no group keys, no DISTINCT aggregates) genuinely has no
         // partition requirement: the input distribution is irrelevant.
@@ -1077,6 +1094,14 @@ public class LocalShuffleNodeCoverageTest {
             agg.unsetNeedsFinalize();
         }
         return new AggContext(agg, ctx, child, connectContext);
+    }
+
+    private static FunctionCallExpr plainAggregateFunction(String functionName) {
+        FunctionCallExpr fce = Mockito.mock(FunctionCallExpr.class);
+        FunctionName fnName = Mockito.mock(FunctionName.class);
+        Mockito.when(fnName.getFunction()).thenReturn(functionName);
+        Mockito.when(fce.getFnName()).thenReturn(fnName);
+        return fce;
     }
 
     private static FunctionCallExpr multiDistinctFunction(String functionName) {
