@@ -1352,7 +1352,6 @@ EOF
 
     extensions_modules=("java-udf")
     extensions_modules+=("hadoop-hudi-scanner")
-    extensions_modules+=("paimon-scanner")
     extensions_modules+=("trino-connector-scanner")
     # lakesoul-scanner has been deprecated
     # extensions_modules+=("lakesoul-scanner")
@@ -1409,6 +1408,7 @@ EOF
     plugin_modules+=("jdbc-scanner:jdbc")
     plugin_modules+=("iceberg-metadata-scanner:iceberg")
     plugin_modules+=("max-compute-connector:max-compute")
+    plugin_modules+=("paimon-scanner:paimon")
 
     if [[ -n "${BE_EXTENSION_IGNORE}" ]]; then
         IFS=',' read -r -a ignore_modules <<<"${BE_EXTENSION_IGNORE}"
@@ -1493,39 +1493,30 @@ EOF
         fi
     done        
 
-    # Guard the Paimon FileIO SPI classloader boundary on the built artifacts. The FileIOLoader
-    # interface (paimon-common) and every provider implementing it must sit in the same jar:
-    # JniScannerClassLoader delegates parent-first, so a provider left on the shared
-    # preload-extensions (JVM app) classpath cannot resolve the child-only interface and
-    # ServiceLoader discovery aborts at runtime with "NoClassDefFoundError: FileIOLoader". Unit
-    # tests all run in one classloader and cannot reproduce that, so assert it on the packages.
-    PAIMON_SCANNER_JAR="${BE_JAVA_EXTENSIONS_DIR}/paimon-scanner/paimon-scanner-jar-with-dependencies.jar"
-    PRELOAD_JAR="${BE_JAVA_EXTENSIONS_DIR}/preload-extensions/preload-extensions-jar-with-dependencies.jar"
-    if [[ -f "${PAIMON_SCANNER_JAR}" ]]; then
-        # Tolerate a missing entry (unzip exits 11) so the message below is what the build prints.
-        FILE_IO_SERVICES="$(unzip -p "${PAIMON_SCANNER_JAR}" \
-            META-INF/services/org.apache.paimon.fs.FileIOLoader 2>/dev/null || true)"
-        for loader in org.apache.paimon.s3.S3Loader org.apache.paimon.jindo.JindoLoader; do
-            if ! echo "${FILE_IO_SERVICES}" | grep -q -x "${loader}"; then
-                echo "ERROR: ${loader} is missing from META-INF/services/org.apache.paimon.fs.FileIOLoader"
-                echo "       in ${PAIMON_SCANNER_JAR}. Paimon object-store reads on BE would fail;"
-                echo "       keep the FileIO plugins bundled in paimon-scanner."
-                exit 1
-            fi
-        done
-    fi
-    # No "grep -q" here: it exits on the first match and SIGPIPEs unzip halfway through this jar's
-    # 120k-entry listing, which under "set -o pipefail" makes the pipeline 141 and silently skips
-    # the error below - exactly when a provider did leak in. Let grep consume the whole listing.
-    if [[ -f "${PRELOAD_JAR}" ]] &&
-        unzip -l "${PRELOAD_JAR}" | grep -E 'org/apache/paimon/(s3|jindo)/' >/dev/null; then
-        echo "ERROR: ${PRELOAD_JAR} bundles a Paimon FileIOLoader provider. It would be defined by"
-        echo "       the JVM app classloader, which carries no FileIOLoader interface."
-        exit 1
-    fi
-
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
     bash "${DORIS_HOME}/post-build.sh" --be --output "${DORIS_OUTPUT}"
+
+    # ...and then copied into the plugins that read through hadoop, because a plugin sees only its
+    # own directory. These two are not maven artifacts, so unlike every other filesystem
+    # implementation they cannot be a dependency of the plugin that needs them; the FE paimon
+    # connector plugin is given its copy the same way. Naturally a no-op unless they were packaged
+    # (--jindofs / --juicefs), which they are not by default.
+    #
+    # CAVEAT: jindo-core carries a native library, and a JVM binds one of those to exactly one
+    # classloader. A BE that reads oss-hdfs:// natively through libhdfs loads it from the system
+    # classpath; a plugin loading its own copy in the same process is the second bind, which fails.
+    # The two paths are therefore mutually exclusive until that is measured on a real deployment.
+    for fs_plugin in paimon iceberg; do
+        fs_plugin_dir="${BE_JAVA_PLUGINS_DIR}/${fs_plugin}"
+        [[ -d "${fs_plugin_dir}" ]] || continue
+        for fs_libs in jindofs juicefs; do
+            if [[ -d "${DORIS_OUTPUT}/be/lib/java_extensions/${fs_libs}" ]]; then
+                echo "Copy ${fs_libs} jars into the ${fs_plugin} plugin"
+                cp -p "${DORIS_OUTPUT}/be/lib/java_extensions/${fs_libs}"/*.jar "${fs_plugin_dir}/"
+            fi
+        done
+    done
+    unset fs_plugin fs_plugin_dir fs_libs
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
