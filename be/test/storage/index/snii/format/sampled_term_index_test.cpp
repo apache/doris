@@ -252,6 +252,89 @@ TEST(SniiSampledTermIndex, TrailingFramedSectionBytesRejected) {
                         .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
 }
 
+// An attacker-inflated n_blocks count must hit a reserve-bomb guard in parse_payload
+// BEFORE the vector reserve, returning Corruption rather than attempting a
+// multi-gigabyte allocation. The payload is framed through SectionFramer::write so
+// the section crc is VALID over the crafted bytes: this proves the inner
+// n_blocks-vs-capacity check fires, not an outer crc flip. min_term/max_term are
+// each encoded as a valid (empty) term key so parse_payload gets past those two
+// reads before the guard on the loop bound is evaluated.
+//
+// The error CODE alone (INVERTED_INDEX_FILE_CORRUPTED) is identical whether the
+// guard fires or not: with n_blocks this large and no payload bytes left, the
+// UNGUARDED loop's first read_term_key call also fails immediately (truncated
+// varint) and returns the same code via a different path. The MESSAGE differs,
+// though, so assert on it (same style as SniiNullBitmap's message check) to prove
+// the guard itself -- not merely eventual truncation detection -- is what fires.
+TEST(SniiSampledTermIndex, InflatedNBlocksHitsReserveGuard) {
+    ByteSink payload;
+    payload.put_varint32(0xFFFFFFFFU); // n_blocks = ~4.29 billion (impossible)
+    // min_term: prefix=0, suffix_len=0 (empty term key, 2 bytes).
+    payload.put_varint32(0);
+    payload.put_varint32(0);
+    // max_term: prefix=0, suffix_len=0 (empty term key, 2 bytes).
+    payload.put_varint32(0);
+    payload.put_varint32(0);
+    // No bytes remain for any sample_term entries.
+    ByteSink sink;
+    SectionFramer::write(sink, static_cast<uint8_t>(SectionType::kSampledTermIndex),
+                         payload.view());
+    SampledTermIndexReader reader;
+    // remaining()/kMinTermKeyBytes == 0/2 == 0, so n_blocks > 0 trips the guard.
+    Status status = SampledTermIndexReader::open(Slice(sink.buffer()), &reader);
+    EXPECT_TRUE(status.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status.to_string();
+    EXPECT_NE(status.to_string().find("n_blocks exceeds payload capacity"), std::string::npos)
+            << status.to_string();
+}
+
+// Pins the exact guard boundary (divisor == kMinTermKeyBytes == 2), which the
+// larger multi-block round-trip below does NOT: with all-distinct "term_%04d"
+// keys, front-coding still leaves >= 3 bytes per entry once suffixes are
+// accounted for, so that test only discriminates a divisor >= 4 (a divisor of 3
+// would silently under-reject and still pass it). A single block whose only
+// first_term is the EMPTY string is representable through the public builder API
+// (add_block_first_term takes any std::string_view, no non-empty validation) and
+// front-codes to exactly 2 bytes (prefix=0, suffix_len=0) for min_term, max_term,
+// and the one entry alike. After consuming n_blocks(1 byte) + min_term(2 bytes) +
+// max_term(2 bytes), remaining() == 2 with n_blocks == 1: divisor 2 accepts
+// (1 > 2/2 == false) while divisor 3 wrongly rejects (1 > 2/3 == 1 > 0 == true).
+TEST(SniiSampledTermIndex, SingleEmptyTermPinsGuardDivisor) {
+    auto bytes = BuildIndex({std::string()});
+    auto reader = OpenOrDie(bytes);
+    ASSERT_EQ(reader.n_blocks(), 1U);
+
+    bool maybe_present = false;
+    uint32_t ord = 0xFFFFFFFFU;
+    ASSERT_TRUE(reader.locate("anything", &maybe_present, &ord).ok());
+    EXPECT_TRUE(maybe_present);
+    EXPECT_EQ(ord, 0U);
+}
+
+// A legitimate index with many blocks must still round-trip cleanly through the
+// new bound check (catches a divisor >= 4; see SingleEmptyTermPinsGuardDivisor
+// above for the test that pins the exact divisor == 2 boundary).
+TEST(SniiSampledTermIndex, LegitimateManyBlocksRoundTrip) {
+    std::vector<std::string> terms;
+    char buf[16];
+    for (int i = 0; i < 500; ++i) {
+        // Zero-padded so lexicographic byte order matches ascending numeric order:
+        // sample_terms_ must be built from already-sorted first_terms.
+        snprintf(buf, sizeof(buf), "term_%04d", i);
+        terms.emplace_back(buf);
+    }
+    auto bytes = BuildIndex(terms);
+    auto reader = OpenOrDie(bytes);
+    ASSERT_EQ(reader.n_blocks(), terms.size());
+
+    for (uint32_t i = 0; i < terms.size(); ++i) {
+        bool maybe_present = false;
+        uint32_t ord = 0xFFFFFFFFU;
+        ASSERT_TRUE(reader.locate(terms[i], &maybe_present, &ord).ok());
+        EXPECT_TRUE(maybe_present) << "term=" << terms[i];
+        EXPECT_EQ(ord, i) << "term=" << terms[i];
+    }
+}
+
 // Empty builder (n_blocks=0): valid build, locate on any term is out of range.
 TEST(SniiSampledTermIndex, EmptyIndexLocateOutOfRange) {
     auto bytes = BuildIndex({});

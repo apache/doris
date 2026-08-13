@@ -105,6 +105,15 @@ Status parse_payload(Slice payload, std::vector<std::string>* terms) {
     RETURN_IF_ERROR(read_term_key(&src, std::string_view {}, &min_term));
     RETURN_IF_ERROR(read_term_key(&src, std::string_view {}, &max_term));
 
+    // Guard against a corrupted, inflated count from untrusted bytes: each term key
+    // needs >= 2 bytes (prefix varint + suffix_len varint, each >= 1 byte; the
+    // suffix itself may be empty), so cap before reserve to avoid a huge allocation.
+    constexpr size_t kMinTermKeyBytes = 2;
+    if (n_blocks > src.remaining() / kMinTermKeyBytes) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "sampled_term_index: n_blocks exceeds payload capacity");
+    }
+
     std::vector<std::string> out;
     out.reserve(n_blocks);
     std::string prev;
