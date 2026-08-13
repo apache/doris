@@ -143,8 +143,8 @@ public class VariableMgrTest {
 
             VariableMgr.forceUpdateVariables();
 
-            Assertions.assertTrue(VariableMgr.newSessionVariable().isEnableNereidsDistributePlanner());
-            Assertions.assertEquals(GlobalVariable.CURRENT_VARIABLE_VERSION, GlobalVariable.variableVersion);
+            Assert.assertTrue(VariableMgr.newSessionVariable().isEnableNereidsDistributePlanner());
+            Assert.assertEquals(GlobalVariable.CURRENT_VARIABLE_VERSION, GlobalVariable.variableVersion);
         } finally {
             defaultSessionVariable.setEnableNereidsDistributePlanner(originalValue);
             defaultSessionVariable.setEnableSqlCache(originalEnableSqlCache);
