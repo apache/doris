@@ -76,11 +76,13 @@ TEST(ReadSchemaTest, ProjectionPreservesRequestedOrder) {
                                                   create_int_column(11, "dropped"),
                                                   create_struct_column(12)};
 
-    ReadSchema read_schema(storage_columns, std::vector<ColumnId> {2, 0});
-    ASSERT_EQ(2, read_schema.num_block_columns());
-    ASSERT_EQ(2, read_schema.num_read_columns());
+    ReadSchema read_schema(
+            project_columns_by_ordinal(storage_columns, std::vector<ColumnId> {2, 0, 2}));
+    ASSERT_EQ(3, read_schema.num_block_columns());
+    ASSERT_EQ(3, read_schema.num_read_columns());
     EXPECT_EQ("s", read_schema.column(0)->name());
     EXPECT_EQ("k", read_schema.column(1)->name());
+    EXPECT_EQ("s", read_schema.column(2)->name());
     EXPECT_EQ(0, read_schema.ordinal_by_uid(12));
     EXPECT_EQ(1, read_schema.ordinal_by_uid(10));
     EXPECT_EQ(-1, read_schema.ordinal_by_uid(11));
@@ -105,16 +107,19 @@ TEST(ReadSchemaTest, ExpectedTypesDefineReadBlock) {
     EXPECT_TRUE(block.get_by_position(1).type->equals(*int_type));
 }
 
-TEST(ReadSchemaTest, AppendedStorageColumnDoesNotExtendReadBlock) {
+TEST(ReadSchemaTest, AppendedDroppedColumnDoesNotExtendReadBlock) {
     std::vector<TabletColumnPtr> read_columns {create_int_column(10, "k", true),
                                                create_struct_column(12)};
-    auto dropped_column = create_int_column(11, "dropped");
+    auto dropped_column = create_int_column(11, "dropped", true);
     ReadSchema read_schema(std::move(read_columns));
 
-    ColumnId suffix_ordinal = read_schema.append_column(dropped_column);
+    EXPECT_EQ(1, read_schema.num_key_columns());
+    read_schema.append_dropped_columns({*dropped_column});
+    ColumnId suffix_ordinal = read_schema.ordinal_by_uid(11);
     EXPECT_EQ(2, suffix_ordinal);
     EXPECT_EQ(2, read_schema.num_block_columns());
     EXPECT_EQ(3, read_schema.num_read_columns());
+    EXPECT_EQ(1, read_schema.num_key_columns());
     EXPECT_EQ(suffix_ordinal, read_schema.ordinal_by_uid(11));
     EXPECT_TRUE(read_schema.data_type(suffix_ordinal)->equals(*dropped_column->get_vec_type()));
     EXPECT_EQ(2, read_schema.create_read_block().columns());

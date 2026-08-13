@@ -64,10 +64,8 @@ protected:
         rs_meta->set_delete_predicate(delete_predicate);
         *read_schema = std::make_shared<ReadSchema>(schema->columns());
         std::vector<TabletColumn> dropped_columns;
-        ASSERT_TRUE(handler.init({rs_meta}, /*version=*/100, *read_schema, dropped_columns).ok());
-        for (auto& column : dropped_columns) {
-            (*read_schema)->append_column(std::make_shared<TabletColumn>(std::move(column)));
-        }
+        ASSERT_TRUE(handler.init({rs_meta}, /*version=*/100, *read_schema, &dropped_columns).ok());
+        (*read_schema)->append_dropped_columns(std::move(dropped_columns));
     }
 };
 

@@ -328,7 +328,7 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
                             std::to_string(uid) +
                             " in tablet schema, tablet_id=" + std::to_string(_tablet->tablet_id()));
                 }
-                int32_t ordinal = _read_schema->ordinal_by_column(_tablet_schema->column(index));
+                int32_t ordinal = _read_schema->ordinal_by_uid(uid);
                 if (ordinal < 0) {
                     break; // size check below reports the error
                 }
@@ -338,7 +338,8 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
             // the orderby keys are the leading storage key columns; resolve
             // each to its ordinal in the read schema
             for (uint32_t i = 0; i < read_params.read_orderby_key_num_prefix_columns; i++) {
-                int32_t ordinal = _read_schema->ordinal_by_column(_tablet_schema->column(i));
+                int32_t ordinal =
+                        _read_schema->ordinal_by_uid(_tablet_schema->column(i).unique_id());
                 if (ordinal < 0) {
                     break; // size check below reports the error
                 }
@@ -360,6 +361,8 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
 Status TabletReader::_init_column_predicates(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_conditions_param_timer_ns);
     auto predicates = read_params.predicates;
+    // LIKE is already normalized to a ColumnPredicate by the scanner. It is handled specially here
+    // only to bind the TabletSchema's NGRAM bloom-filter metadata to that predicate.
     for (const auto& predicate : predicates) {
         if (predicate->type() != PredicateType::LIKE) {
             continue;
@@ -428,10 +431,8 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     _filter_delete = _delete_sign_available || cumu_delete;
     std::vector<TabletColumn> dropped_columns;
     RETURN_IF_ERROR(_delete_handler.init(read_params.delete_predicates, read_params.version.second,
-                                         _read_schema, dropped_columns));
-    for (auto& column : dropped_columns) {
-        _read_schema->append_column(std::make_shared<TabletColumn>(std::move(column)));
-    }
+                                         _read_schema, &dropped_columns));
+    _read_schema->append_dropped_columns(std::move(dropped_columns));
     return Status::OK();
 }
 

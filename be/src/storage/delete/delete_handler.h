@@ -44,17 +44,8 @@ struct DeleteConditions {
     std::vector<std::shared_ptr<const ColumnPredicate>> column_predicate_vec;
 };
 
-// This class is used for checking whether a row should be deleted.
-// It is used in the following processes：
-// 1. Create and initialize a DeleteHandler object:
-//    Status res;
-//    DeleteHandler delete_handler;
-//    res = delete_handler.init(tablet, condition_version);
-// 2. After all rows have been checked, you should release this object by calling:
-//    delete_handler.finalize();
-//
-// NOTE：
-//    * In the first step, before calling delete_handler.init(), you should lock the tablet's header file.
+// This class resolves persisted delete conditions to read-schema ordinals and evaluates them while
+// reading rows.
 class DeleteHandler {
     ENABLE_FACTORY_CREATOR(DeleteHandler);
 
@@ -117,7 +108,7 @@ public:
     //     * Status::Error<DELETE_INVALID_PARAMETERS>(): input parameters are not valid
     //     * Status::Error<MEM_ALLOC_FAILED>(): alloc memory failed
     Status init(const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version,
-                const ReadSchemaSPtr& read_schema, std::vector<TabletColumn>& dropped_columns);
+                const ReadSchemaSPtr& read_schema, std::vector<TabletColumn>* dropped_columns);
 
     [[nodiscard]] bool empty() const { return _del_conds.empty(); }
 
@@ -131,16 +122,24 @@ private:
         requires(std::is_same_v<SubPredType, DeleteSubPredicatePB> or
                  std::is_same_v<SubPredType, std::string>)
     Status _parse_column_pred(
-            const ReadSchema& read_schema, std::vector<TabletColumn>& dropped_columns,
-            const TabletSchemaSPtr& delete_pred_related_schema,
+            const ReadSchema& read_schema, const TabletSchemaSPtr& delete_pred_related_schema,
             const ::google::protobuf::RepeatedPtrField<SubPredType>& sub_pred_list,
-            DeleteConditions* delete_conditions);
+            DeleteConditions* delete_conditions, std::vector<TabletColumn>* dropped_columns);
 
-    static Status _resolve_column(const ReadSchema& read_schema,
-                                  std::vector<TabletColumn>& dropped_columns, int32_t col_unique_id,
+    // Resolve in order:
+    // 1. Look up ReadSchema by predicate UID when present.
+    // 2. Resolve the historical TabletColumn in the predicate rowset schema by predicate UID, or
+    //    by predicate name for legacy metadata without a UID.
+    // 3. Look up ReadSchema by the historical TabletColumn's UID.
+    // 4. Look up dropped_columns by the historical column's UID.
+    // 5. Append the historical column to dropped_columns when no match exists.
+    // Example: if old x(uid=10) is dropped and x(uid=20) is added, step 2 recovers uid=10 and avoids
+    // binding the predicate to uid=20.
+    static Status _resolve_column(const ReadSchema& read_schema, int32_t col_unique_id,
                                   const std::string& column_name,
                                   const TabletSchemaSPtr& delete_pred_related_schema,
-                                  ColumnId* column_id, const TabletColumn** column);
+                                  ColumnId* column_id, const TabletColumn** column,
+                                  std::vector<TabletColumn>* dropped_columns);
 
     bool _is_inited = false;
     // DeleteConditions in _del_conds are in 'OR' relationship

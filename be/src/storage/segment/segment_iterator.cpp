@@ -484,27 +484,27 @@ void SegmentIterator::_init_column_states() {
     _opts.delete_condition_predicates->get_all_column_predicate(delete_predicates);
     for (const auto& predicate : delete_predicates) {
         auto cid = predicate->column_id();
-        _column_states[cid].is_delete_predicate = true;
+        _column_states[cid].has_delete_pred = true;
     }
 
-    _rebuild_row_predicate_columns();
+    _rebuild_scan_predicate_states();
 }
 
-void SegmentIterator::_rebuild_row_predicate_columns() {
+void SegmentIterator::_rebuild_scan_predicate_states() {
     for (auto& state : _column_states) {
-        state.is_row_predicate = false;
+        state.has_scan_pred = false;
     }
     for (const auto& predicate : _col_predicates) {
-        _column_states[predicate->column_id()].is_row_predicate = true;
+        _column_states[predicate->column_id()].has_scan_pred = true;
     }
 }
 
-void SegmentIterator::_extract_common_expr_columns(const VExprSPtr& expr) {
+void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr) {
     if (expr->is_slot_ref()) {
         const auto ordinal =
                 cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id());
         DORIS_CHECK_LT(ordinal, _schema->num_block_columns());
-        _column_states[ordinal].is_common_expr = true;
+        _column_states[ordinal].has_common_expr = true;
         _is_need_expr_eval = true;
         return;
     }
@@ -512,11 +512,11 @@ void SegmentIterator::_extract_common_expr_columns(const VExprSPtr& expr) {
         const auto& virtual_expr =
                 assert_cast<const VirtualSlotRef*>(expr.get())->get_virtual_column_expr();
         DORIS_CHECK(virtual_expr != nullptr);
-        _extract_common_expr_columns(virtual_expr);
+        _mark_common_expr_states(virtual_expr);
         return;
     }
     for (const auto& child : expr->children()) {
-        _extract_common_expr_columns(child);
+        _mark_common_expr_states(child);
     }
 }
 
@@ -586,7 +586,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
     _current_columns.resize(_schema->num_read_columns());
 
     for (size_t i = 0; i < _schema->num_read_columns(); i++) {
-        if (_column_states[i].is_predicate()) {
+        if (_column_states[i].has_predicate()) {
             RETURN_IF_CATCH_EXCEPTION(
                     _current_columns[i] = ReadSchema::get_predicate_column_ptr(
                             _storage_name_and_type[i].second, _opts.io_ctx.reader_type));
@@ -747,26 +747,36 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
 
 // Set up environment for the following seek.
 Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_range) {
-    // Both bound keys carry a dense prefix of the tablet key columns,
-    const doris::ReadSchema* key_schema =
+    // TabletReader builds every bound from the same TabletSchema and scan-key width. The seek
+    // block and iterators are initialized once and reused by all ranges, so their schemas must be
+    // identical.
+    auto check_same_key_schema = [](const ReadSchema& lhs, const ReadSchema& rhs) {
+        DORIS_CHECK_EQ(lhs.num_read_columns(), rhs.num_read_columns());
+        for (size_t ordinal = 0; ordinal < lhs.num_read_columns(); ++ordinal) {
+            DORIS_CHECK(*lhs.column(ordinal) == *rhs.column(ordinal));
+        }
+    };
+
+    const auto* lower_schema =
             key_range.lower_key != nullptr ? key_range.lower_key->schema() : nullptr;
-    if (key_range.upper_key != nullptr &&
-        (key_schema == nullptr ||
-         key_range.upper_key->schema()->num_read_columns() > key_schema->num_read_columns())) {
-        key_schema = key_range.upper_key->schema();
+    const auto* upper_schema =
+            key_range.upper_key != nullptr ? key_range.upper_key->schema() : nullptr;
+    if (lower_schema != nullptr && upper_schema != nullptr) {
+        check_same_key_schema(*lower_schema, *upper_schema);
     }
+    const auto* key_schema = lower_schema != nullptr ? lower_schema : upper_schema;
     if (key_schema == nullptr) {
         return Status::OK();
     }
     if (!_seek_schema) {
         _seek_schema = std::make_unique<ReadSchema>(*key_schema);
+    } else {
+        check_same_key_schema(*_seek_schema, *key_schema);
     }
     // todo(wb) need refactor here, when using pk to search, _seek_block is useless
     if (_seek_block.empty()) {
-        _seek_block.resize(_seek_schema->num_read_columns());
-        for (size_t i = 0; i < _seek_schema->num_read_columns(); ++i) {
-            _seek_block[i] = _seek_schema->data_type(i)->create_column();
-        }
+        auto seek_block = _seek_schema->create_read_block();
+        _seek_block = std::move(seek_block).mutate_columns();
     }
 
     // The seek key schema covers the leading key columns of the TABLET schema;
@@ -780,7 +790,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             continue;
         }
         const TabletColumn* col = _seek_schema->column(i);
-        int32_t read_ordinal = _schema->ordinal_by_column(*col);
+        int32_t read_ordinal = _schema->ordinal_by_uid(col->unique_id());
         if (read_ordinal >= 0 && _column_iterators[read_ordinal] != nullptr) {
             _seek_column_iterators[i] = _column_iterators[read_ordinal].get();
             continue;
@@ -922,13 +932,13 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     IndexIterator* ann_index_iterator = _index_iterators[src_cid].get();
     bool has_ann_index = _column_has_ann_index(src_cid);
     bool has_common_expr_push_down = !_common_expr_ctxs_push_down.empty();
-    bool has_column_predicate = std::ranges::any_of(
-            _column_states, [](const auto& state) { return state.is_predicate(); });
-    if (!has_ann_index || has_common_expr_push_down || has_column_predicate) {
+    bool has_predicate_column = std::ranges::any_of(
+            _column_states, [](const auto& state) { return state.has_predicate(); });
+    if (!has_ann_index || has_common_expr_push_down || has_predicate_column) {
         VLOG_DEBUG << fmt::format(
                 "Ann topn can not be evaluated by ann index, has_ann_index: {}, "
-                "has_common_expr_push_down: {}, has_column_predicate: {}",
-                has_ann_index, has_common_expr_push_down, has_column_predicate);
+                "has_common_expr_push_down: {}, has_predicate_column: {}",
+                has_ann_index, has_common_expr_push_down, has_predicate_column);
         // Disable index-only scan on ann indexed column.
         _column_states[src_cid].need_read_data = true;
         _opts.stats->ann_fall_back_brute_force_cnt += 1;
@@ -1541,7 +1551,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     }
 
     // if there is a delete predicate, we always need to read data
-    if (_has_delete_predicate(cid)) {
+    if (_has_delete_pred(cid)) {
         return true;
     }
     if (_output_column_uids.count(-1)) {
@@ -1564,7 +1574,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     // A column can skip data reads when its predicates have already been fully resolved.
     // zonemap_always_true_pred_cols is produced only for non-key columns because key columns
     // must remain readable for short-key range seeks.
-    const bool used_by_common_expr = _column_states[cid].is_common_expr;
+    const bool used_by_common_expr = _column_states[cid].has_common_expr;
     const bool zonemap_always_true_filter_column =
             _opts.zonemap_always_true_pred_cols.contains(cid);
     DCHECK(!zonemap_always_true_filter_column || !column.is_key());
@@ -1645,7 +1655,7 @@ Status SegmentIterator::_init_column_iterators() {
     }
 
     for (uint32_t cid = 0; cid < _schema->num_read_columns(); ++cid) {
-        if (!_is_active_read_column(cid)) {
+        if (cid >= _schema->num_block_columns() && !_column_states[cid].has_delete_pred) {
             continue;
         }
         if (_schema->column(cid)->name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
@@ -1670,7 +1680,7 @@ Status SegmentIterator::_init_column_iterators() {
                     .use_page_cache = _opts.use_page_cache,
                     // If the col is predicate column, then should read the last page to check
                     // if the column is full dict encoding
-                    .is_predicate_column = _column_states[cid].is_predicate(),
+                    .is_predicate_column = _column_states[cid].has_predicate(),
                     .file_reader = _file_reader.get(),
                     .stats = _opts.stats,
                     .io_ctx = _opts.io_ctx,
@@ -2011,9 +2021,9 @@ Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
 // todo(wb) need a UT here
 Status SegmentIterator::_vec_init_lazy_materialization() {
     // Inverted-index evaluation may have removed fully evaluated predicates
-    // from _col_predicates. Rebuild only the row-predicate part; delete
+    // from _col_predicates. Rebuild only the scan-predicate state; delete
     // predicate membership is stable for the lifetime of this iterator.
-    _rebuild_row_predicate_columns();
+    _rebuild_scan_predicate_states();
 
     // Step1: extract columns that can be lazy materialization
     for (const auto& predicate : _col_predicates) {
@@ -2032,12 +2042,12 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     // Step2: extract columns that can execute expr context
     if (!_common_expr_ctxs_push_down.empty()) {
         for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
-            _extract_common_expr_columns(expr_ctx->root());
+            _mark_common_expr_states(expr_ctx->root());
         }
         if (_is_need_expr_eval) {
             for (uint32_t cid = 0; cid < _schema->num_block_columns(); ++cid) {
                 const auto field_type = _schema->column(cid)->type();
-                if (_column_states[cid].is_common_expr && _enable_prune_nested_column &&
+                if (_column_states[cid].has_common_expr && _enable_prune_nested_column &&
                     (field_type == FieldType::OLAP_FIELD_TYPE_STRUCT ||
                      field_type == FieldType::OLAP_FIELD_TYPE_ARRAY ||
                      field_type == FieldType::OLAP_FIELD_TYPE_MAP)) {
@@ -2058,17 +2068,22 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         }
     }
 
-    // Step 3: assign every active column to its earliest materialization role.
-    for (uint32_t cid = 0; cid < _schema->num_read_columns(); ++cid) {
-        if (!_is_active_read_column(cid)) {
-            continue;
-        }
-        if (_column_states[cid].is_predicate()) {
+    // Step 3: assign every Block column to its earliest materialization role.
+    for (uint32_t cid = 0; cid < _schema->num_block_columns(); ++cid) {
+        if (_column_states[cid].has_predicate()) {
             _predicate_ordinals.push_back(cid);
-        } else if (_column_states[cid].is_common_expr) {
+        } else if (_column_states[cid].has_common_expr) {
             _common_expr_ordinals.push_back(cid);
         } else {
             _output_ordinals.push_back(cid);
+        }
+    }
+    // The ReadSchema suffix only contains storage columns appended for historical delete
+    // predicates. It is never part of common-expression evaluation or caller output.
+    for (ColumnId cid = cast_set<ColumnId>(_schema->num_block_columns());
+         cid < _schema->num_read_columns(); ++cid) {
+        if (_column_states[cid].has_delete_pred) {
+            _predicate_ordinals.push_back(cid);
         }
     }
 
@@ -2144,8 +2159,8 @@ bool SegmentIterator::_can_skip_reading_extra_column(ColumnId cid) {
     // extra_columns is only an optimization hint. The real value is still
     // required when the column participates in expression materialization or
     // any predicate path.
-    return !_virtual_column_exprs.contains(cid) && !_column_states[cid].is_predicate() &&
-           !_column_states[cid].is_common_expr;
+    return !_virtual_column_exprs.contains(cid) && !_column_states[cid].has_predicate() &&
+           !_column_states[cid].has_common_expr;
 }
 
 Status SegmentIterator::_init_current_block(Block* block,
@@ -2154,14 +2169,11 @@ Status SegmentIterator::_init_current_block(Block* block,
     block->clear_column_data(cast_set<int64_t>(_schema->num_block_columns()));
 
     for (ColumnId i = 0; i < _schema->num_read_columns(); i++) {
-        if (!_is_active_read_column(i)) {
-            continue;
-        }
         const auto* column_desc = _schema->column(i);
-
-        const auto& file_column_type = _storage_name_and_type[i].second;
-        const auto& expected_type = _schema->data_type(i);
-        if (_column_states[i].is_predicate()) {
+        if (i >= _schema->num_block_columns()) {
+            if (!_column_states[i].has_delete_pred) {
+                continue;
+            }
             if (current_columns[i].get() == nullptr) {
                 return Status::InternalError("SegmentIterator meet invalid column, id={}, name={}",
                                              i, column_desc->name());
@@ -2170,7 +2182,17 @@ Status SegmentIterator::_init_current_block(Block* block,
             continue;
         }
 
-        DCHECK_LT(i, _schema->num_block_columns());
+        const auto& file_column_type = _storage_name_and_type[i].second;
+        const auto& expected_type = _schema->data_type(i);
+        if (_column_states[i].has_predicate()) {
+            if (current_columns[i].get() == nullptr) {
+                return Status::InternalError("SegmentIterator meet invalid column, id={}, name={}",
+                                             i, column_desc->name());
+            }
+            current_columns[i]->clear();
+            continue;
+        }
+
         if (!file_column_type->equals(*expected_type)) {
             // The column iterator writes a different type from the read-schema type, so
             // materialize into an intermediate column and convert it after reading.
@@ -2395,7 +2417,7 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& ord
     DCHECK_EQ(_opts.commit_tso.start_tso(), _opts.commit_tso.end_tso());
     Int64 commit_tso = _opts.commit_tso.end_tso() == -1 ? 0 : _opts.commit_tso.end_tso();
 
-    if (_column_states[tso_ordinal].is_predicate()) {
+    if (_column_states[tso_ordinal].has_predicate()) {
         // Nullable predicate column is represented as ColumnNullable(predicate_col)
         if (auto* tso_nullable =
                     check_and_get_column<ColumnNullable>(_current_columns[tso_ordinal].get())) {
@@ -2764,7 +2786,7 @@ Status SegmentIterator::next_batch(Block* block) {
 }
 
 Status SegmentIterator::_convert_column_to_expected_type(ColumnId column_id) {
-    if (!_current_columns[column_id] || _column_states[column_id].is_predicate()) {
+    if (!_current_columns[column_id] || _column_states[column_id].has_predicate()) {
         return Status::OK();
     }
     const TabletColumn* column_desc = _schema->column(column_id);
@@ -2853,7 +2875,6 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     RETURN_IF_ERROR(_init_current_block(block, _current_columns, nrows_read_limit));
 
     const bool need_predicate_eval = _is_need_vec_eval || _is_need_short_eval;
-    const bool has_residual_eval = need_predicate_eval || _is_need_expr_eval;
     const auto& initial_read_ordinals =
             need_predicate_eval ? _predicate_ordinals
                                 : (_is_need_expr_eval ? _common_expr_ordinals : _output_ordinals);
@@ -2871,7 +2892,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
         return _process_eof(block);
     }
 
-    if (has_residual_eval) {
+    if (_is_need_vec_eval || _is_need_short_eval || _is_need_expr_eval) {
         _sel_rowid_idx.resize(_selected_size);
 
         if (need_predicate_eval) {
@@ -3031,14 +3052,12 @@ Status SegmentIterator::_check_output_block(Block* block) {
 
 Status SegmentIterator::_process_eof(Block* block) {
     DCHECK_EQ(block->columns(), _schema->num_block_columns());
-    // Convert all current columns to the exact read-schema types.
-    for (ColumnId column_id = 0; column_id < _schema->num_read_columns(); ++column_id) {
-        if (_is_active_read_column(column_id)) {
-            RETURN_IF_ERROR(_convert_column_to_expected_type(column_id));
-        }
+    // Convert all current Block columns to the exact read-schema types.
+    for (ColumnId column_id = 0; column_id < _schema->num_block_columns(); ++column_id) {
+        RETURN_IF_ERROR(_convert_column_to_expected_type(column_id));
     }
     for (size_t i = 0; i < block->columns(); i++) {
-        if (!_column_states[i].is_predicate()) {
+        if (!_column_states[i].has_predicate()) {
             block->replace_by_position(i, std::move(_current_columns[i]));
         }
     }
@@ -3455,7 +3474,7 @@ bool SegmentIterator::_no_need_read_key_data_eligible(ColumnId cid) {
         return false;
     }
 
-    if (_has_delete_predicate(cid)) {
+    if (_has_delete_pred(cid)) {
         return false;
     }
 
@@ -3475,12 +3494,8 @@ bool SegmentIterator::_no_need_read_key_data(ColumnId cid, MutableColumnPtr& col
     return true;
 }
 
-bool SegmentIterator::_has_delete_predicate(ColumnId cid) const {
-    return _column_states[cid].is_delete_predicate;
-}
-
-bool SegmentIterator::_is_active_read_column(ColumnId cid) const {
-    return cid < _schema->num_block_columns() || _column_states[cid].is_predicate();
+bool SegmentIterator::_has_delete_pred(ColumnId cid) const {
+    return _column_states[cid].has_delete_pred;
 }
 
 bool SegmentIterator::_has_lazy_pruned_children(ColumnId cid) const {

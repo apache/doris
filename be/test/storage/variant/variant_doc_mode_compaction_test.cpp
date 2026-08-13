@@ -427,8 +427,8 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
             input_reader_context.tablet_schema = tablet_schema;
             input_reader_context.need_ordered_result = false;
             std::vector<uint32_t> input_return_columns = {1};
-            auto input_read_schema =
-                    std::make_shared<ReadSchema>(tablet_schema->columns(), input_return_columns);
+            auto input_read_schema = std::make_shared<ReadSchema>(
+                    project_columns_by_ordinal(tablet_schema->columns(), input_return_columns));
             input_reader_context.read_schema = input_read_schema;
             RowsetReaderSharedPtr input_rs_reader;
             create_and_init_rowset_reader(rowset.get(), input_reader_context, &input_rs_reader);
@@ -476,7 +476,8 @@ TEST_F(VariantDocModeCompactionTest, variant_doc_mode_compaction_merge_10_segmen
     reader_context.tablet_schema = tablet_schema;
     reader_context.need_ordered_result = false;
     std::vector<uint32_t> return_columns = {0};
-    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), return_columns);
+    auto read_schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(tablet_schema->columns(), return_columns));
     reader_context.read_schema = read_schema;
     RowsetReaderSharedPtr output_rs_reader;
     create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);

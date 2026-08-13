@@ -188,8 +188,8 @@ private:
     inline bool _inverted_index_not_support_pred_type(const PredicateType& type);
 
     void _init_column_states();
-    void _rebuild_row_predicate_columns();
-    void _extract_common_expr_columns(const VExprSPtr& expr);
+    void _rebuild_scan_predicate_states();
+    void _mark_common_expr_states(const VExprSPtr& expr);
     Status _vec_init_lazy_materialization();
 
     uint32_t segment_id() const { return _segment->id(); }
@@ -291,8 +291,7 @@ private:
     // proof so the two can never drift.
     bool _no_need_read_key_data_eligible(ColumnId cid);
 
-    bool _is_active_read_column(ColumnId cid) const;
-    bool _has_delete_predicate(ColumnId cid) const;
+    bool _has_delete_pred(ColumnId cid) const;
     bool _has_lazy_pruned_children(ColumnId cid) const;
     bool _can_skip_reading_extra_column(ColumnId cid);
 
@@ -323,17 +322,30 @@ private:
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 
+    // Example:
+    //   SELECT k, s.b, o FROM t
+    //   WHERE k > 1 AND abs(k) < 10 AND abs(s.a) < 5;
+    //   ReadSchema ordinals: [0:k, 1:s STRUCT<a,b>, 2:o]
+    // When no filter is fully evaluated by an index:
+    //   state[0:k] = {has_delete_pred=false, has_scan_pred=true,
+    //                 has_common_expr=true, need_read_data=true}
+    //   state[1:s] = {has_delete_pred=false, has_scan_pred=false,
+    //                 has_common_expr=true, need_read_data=true}
+    //   state[2:o] = {has_delete_pred=false, has_scan_pred=false,
+    //                 has_common_expr=false, need_read_data=true}
+    // A storage-only column appended for a delete condition would have
+    // has_delete_pred=true.
     struct ColumnReadState {
-        bool is_delete_predicate = false;
-        // Mirrors the mutable _col_predicates list: initially all safe row
+        bool has_delete_pred = false;
+        // Mirrors the mutable _col_predicates list: initially all safe scan
         // predicates, then only residual predicates after index evaluation.
-        bool is_row_predicate = false;
-        bool is_common_expr = false;
+        bool has_scan_pred = false;
+        bool has_common_expr = false;
         // Index evaluation sets this to false when it fully supplies the column result.
         // _need_read_data() applies the remaining read constraints.
         bool need_read_data = true;
 
-        bool is_predicate() const { return is_delete_predicate || is_row_predicate; }
+        bool has_predicate() const { return has_delete_pred || has_scan_pred; }
     };
 
     std::shared_ptr<Segment> _segment;
@@ -368,11 +380,20 @@ private:
     MutableColumns _current_columns;
     std::vector<std::shared_ptr<ColumnPredicate>> _pre_eval_block_predicate;
     std::vector<std::shared_ptr<ColumnPredicate>> _short_cir_eval_predicate;
-    // Ordered, disjoint column-role lists built once and reused by every batch.
+    // Example:
+    //   SELECT k, s.b, o FROM t
+    //   WHERE k > 1 AND abs(k) < 10 AND abs(s.a) < 5;
+    //   ReadSchema ordinals: [0:k, 1:s STRUCT<a,b>, 2:o]
+    //
+    // The first three lists assign each active column to its earliest materialization stage:
+    //   _predicate_ordinals   = [0] // k is used by both k > 1 and abs(k) < 10; predicate wins.
+    //   _common_expr_ordinals = [1] // s is read for the abs(s.a) < 5 expression.
+    //   _output_ordinals      = [2] // o is needed only by output.
     std::vector<ColumnId> _predicate_ordinals;
     std::vector<ColumnId> _common_expr_ordinals;
     std::vector<ColumnId> _output_ordinals;
-    // Sparse, ordered execution list for recovering pruned nested children.
+    //   _lazy_pruned_ordinals = [1] // After filtering on s.a, read s.b for surviving rows.
+    // Unlike the first three disjoint lists, this recovery list may contain the same ordinal.
     std::vector<ColumnId> _lazy_pruned_ordinals;
 
     // the actual init process is delayed to the first call to next_batch()
@@ -416,7 +437,8 @@ private:
     size_t _rows_returned = 0;
 
     int64_t _tablet_id = 0;
-    // Stable column UIDs requested by the caller; -1 disables data-page skipping.
+    // Column UIDs requested by the caller. A -1 entry means light schema change is disabled and
+    // the column has no UID, so the _need_read_data() optimization is disabled.
     std::set<int32_t> _output_column_uids;
 
     std::vector<uint8_t> _ret_flags;

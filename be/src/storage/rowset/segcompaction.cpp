@@ -303,7 +303,8 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
         writer->clear();
         RETURN_IF_ERROR(writer->init(column_ids, is_key));
-        auto schema = std::make_shared<ReadSchema>(ctx.tablet_schema->columns(), column_ids);
+        auto schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(ctx.tablet_schema->columns(), column_ids));
         OlapReaderStatistics reader_stats;
         std::unique_ptr<VerticalBlockReader> reader;
         auto s = _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,

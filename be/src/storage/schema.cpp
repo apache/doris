@@ -29,19 +29,19 @@
 
 namespace doris {
 
-ReadSchema::ReadSchema(std::vector<TabletColumnPtr> columns)
-        : _read_columns(std::move(columns)), _num_block_columns(_read_columns.size()) {
-    _init_read_types();
-    _init_descriptors();
+std::vector<TabletColumnPtr> project_columns_by_ordinal(
+        const std::vector<TabletColumnPtr>& columns,
+        const std::vector<ColumnId>& source_column_ordinals) {
+    std::vector<TabletColumnPtr> projected_columns;
+    projected_columns.reserve(source_column_ordinals.size());
+    for (auto ordinal : source_column_ordinals) {
+        projected_columns.emplace_back(columns[ordinal]);
+    }
+    return projected_columns;
 }
 
-ReadSchema::ReadSchema(const std::vector<TabletColumnPtr>& columns,
-                       const std::vector<ColumnId>& cids)
-        : _num_block_columns(cids.size()) {
-    _read_columns.reserve(cids.size());
-    for (auto cid : cids) {
-        _read_columns.emplace_back(columns[cid]);
-    }
+ReadSchema::ReadSchema(std::vector<TabletColumnPtr> columns)
+        : _read_columns(std::move(columns)), _num_block_columns(_read_columns.size()) {
     _init_read_types();
     _init_descriptors();
 }
@@ -58,6 +58,21 @@ void ReadSchema::_init_read_types() {
     for (const auto& column : _read_columns) {
         auto data_type = column->get_vec_type();
         DORIS_CHECK(data_type != nullptr);
+        _read_types.emplace_back(std::move(data_type));
+    }
+}
+
+void ReadSchema::append_dropped_columns(std::vector<TabletColumn> columns) {
+    _read_columns.reserve(_read_columns.size() + columns.size());
+    _read_types.reserve(_read_types.size() + columns.size());
+    for (auto& column : columns) {
+        auto column_ptr = std::make_shared<TabletColumn>(std::move(column));
+        auto data_type = column_ptr->get_vec_type();
+        auto ordinal = cast_set<ColumnId>(_read_columns.size());
+        if (column_ptr->unique_id() >= 0) {
+            _uid_to_ordinal.emplace(column_ptr->unique_id(), ordinal);
+        }
+        _read_columns.emplace_back(std::move(column_ptr));
         _read_types.emplace_back(std::move(data_type));
     }
 }
@@ -132,13 +147,13 @@ Status ReadSchema::init_sequence_map(const TabletSchema& tablet_schema) {
     for (const auto& [sequence_cid, value_cids] : tablet_schema.seq_col_idx_to_value_cols_idx()) {
         std::vector<ColumnId> value_ordinals;
         for (auto value_cid : value_cids) {
-            int32_t value_ordinal = ordinal_by_column(tablet_schema.column(value_cid));
+            int32_t value_ordinal = ordinal_by_uid(tablet_schema.column(value_cid).unique_id());
             if (value_ordinal >= 0 && static_cast<size_t>(value_ordinal) < num_block_columns()) {
                 value_ordinals.emplace_back(value_ordinal);
             }
         }
 
-        int32_t sequence_ordinal = ordinal_by_column(tablet_schema.column(sequence_cid));
+        int32_t sequence_ordinal = ordinal_by_uid(tablet_schema.column(sequence_cid).unique_id());
         if (sequence_ordinal < 0 || static_cast<size_t>(sequence_ordinal) >= num_block_columns()) {
             if (value_ordinals.empty()) {
                 continue;

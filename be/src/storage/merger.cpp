@@ -286,7 +286,8 @@ Status Merger::vertical_compact_one_group(
         stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
     }
 
-    reader_params.read_schema = std::make_shared<ReadSchema>(tablet_schema.columns(), column_group);
+    reader_params.read_schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(tablet_schema.columns(), column_group));
     reader_params.batch_size = batch_size;
     RETURN_IF_ERROR(reader.init(reader_params, sample_info));
 

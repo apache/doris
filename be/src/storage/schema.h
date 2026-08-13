@@ -42,17 +42,27 @@ namespace doris {
 class ReadSchema;
 class Block;
 using ReadSchemaSPtr = std::shared_ptr<ReadSchema>;
+
+// Select columns by their ordinal in `columns`, preserving the requested order and duplicates.
+// Keeping this source-layout operation outside ReadSchema prevents those ordinals from being
+// confused with the dense ordinals of the resulting ReadSchema.
+std::vector<TabletColumnPtr> project_columns_by_ordinal(
+        const std::vector<TabletColumnPtr>& columns,
+        const std::vector<ColumnId>& source_column_ordinals);
+
+// The dense, ordered column layout consumed by one storage reader. For example, if the caller's
+// Block is [k1, v1] and a historical delete predicate needs dropped_v2, the layout is
+// [k1, v1, dropped_v2]: num_block_columns() is 2, num_read_columns() is 3, and every reader-side
+// ColumnId is an ordinal in this list. TabletColumn keeps physical storage metadata, while
+// data_type() records the expected materialized type, such as a pruned STRUCT type.
 class ReadSchema {
 public:
     using SequenceMap = std::unordered_map<ColumnId, std::vector<ColumnId>>;
 
     explicit ReadSchema(std::vector<TabletColumnPtr> columns);
 
-    explicit ReadSchema(const std::vector<TabletColumnPtr>& columns,
-                        const std::vector<ColumnId>& cids);
-
-    // Initially every column is a caller-visible FE slot. Storage-only columns
-    // may be appended later without changing `num_block_columns()`.
+    // Every column is initially caller-visible. Historical delete-predicate columns may be
+    // appended later without changing num_block_columns().
     explicit ReadSchema(std::vector<TabletColumnPtr> columns, std::vector<DataTypePtr> read_types);
 
     static IColumn::MutablePtr get_predicate_column_ptr(const DataTypePtr& data_type,
@@ -65,17 +75,8 @@ public:
         return _read_types[ordinal];
     }
 
-    // Append a storage-only column without extending the caller-visible slot prefix.
-    ColumnId append_column(TabletColumnPtr column) {
-        auto data_type = column->get_vec_type();
-        auto ordinal = cast_set<ColumnId>(_read_columns.size());
-        if (column->unique_id() >= 0) {
-            _uid_to_ordinal.emplace(column->unique_id(), ordinal);
-        }
-        _read_columns.emplace_back(std::move(column));
-        _read_types.emplace_back(std::move(data_type));
-        return ordinal;
-    }
+    // Append private historical delete-predicate columns without extending the Block prefix.
+    void append_dropped_columns(std::vector<TabletColumn> columns);
 
     // Create caller-visible Blocks from the FE-slot prefix.
     Block create_read_block() const;
@@ -86,26 +87,15 @@ public:
 
     const SequenceMap& sequence_map() const { return _sequence_map; }
 
+    // Return the matching before-image ordinal for a Row Binlog value column. For example, in
+    // [v1, v2, __BEFORE__v1__, __BEFORE__v2__], 0 maps to 2 and 1 maps to 3. Columns without a
+    // before image, including TSO/LSN/OP, map to themselves.
     ColumnId before_column_ordinal(ColumnId ordinal) const {
         DCHECK_LT(ordinal, _before_column_ordinals.size());
         return _before_column_ordinals[ordinal];
     }
 
     const TabletColumn* column(size_t ordinal) const { return _read_columns[ordinal].get(); }
-
-    // Resolve by unique id when one exists. Name identity is only for legacy
-    // columns without a unique id.
-    int32_t ordinal_by_column(const TabletColumn& column) const {
-        if (column.unique_id() >= 0) {
-            return ordinal_by_uid(column.unique_id());
-        }
-        for (uint32_t ordinal = 0; ordinal < _read_columns.size(); ++ordinal) {
-            if (_read_columns[ordinal]->name() == column.name()) {
-                return static_cast<int32_t>(ordinal);
-            }
-        }
-        return -1;
-    }
 
     // Total columns used inside storage, including appended storage-only columns.
     // Use this for per-column state and iteration over the complete ReadSchema.
@@ -115,20 +105,32 @@ public:
     // appended storage-only columns; use this for Block layout and position bounds.
     size_t num_block_columns() const { return _num_block_columns; }
 
+    // Number of key columns present in the caller-visible ReadSchema. This is deliberately not the
+    // full TabletSchema key count. Merge readers additionally require these columns to be the full,
+    // leading storage-key prefix; direct/projected readers may contain fewer key columns.
     size_t num_key_columns() const { return _num_key_columns; }
 
+    // All special-column ordinals below address the caller-visible Block prefix and are -1 when
+    // absent. A Row Binlog layout may be [k1, v1, __BEFORE__v1__, TSO, LSN, OP]; a snapshot layout
+    // may instead contain COMMIT_TSO.
+    // Logical-delete marker used by unique-key reads.
     int32_t delete_sign_ordinal() const { return _delete_sign_ordinal; }
+    // Sequence column used to choose the winning row during merge.
     int32_t sequence_ordinal() const { return _sequence_ordinal; }
+    // Synthetic row identifier returned by rowid-producing scans.
     int32_t rowid_ordinal() const { return _rowid_ordinal; }
+    // Rowset version synthesized for single-version reads.
     int32_t version_ordinal() const { return _version_ordinal; }
+    // Row Binlog transaction timestamp.
     int32_t tso_ordinal() const { return _tso_ordinal; }
+    // Row Binlog log-sequence number.
     int32_t lsn_ordinal() const { return _lsn_ordinal; }
+    // Row Binlog operation kind, such as INSERT, UPDATE, or DELETE.
     int32_t op_ordinal() const { return _op_ordinal; }
+    // Snapshot commit timestamp.
     int32_t commit_tso_ordinal() const { return _commit_tso_ordinal; }
 
-    // -1 if no column with this unique id is present. Columns without a valid
-    // unique id (e.g. variant extracted subcolumns) are not in this map;
-    // resolve those with ordinal_by_column().
+    // -1 if no column with this unique id is present.
     int32_t ordinal_by_uid(int32_t unique_id) const {
         auto it = _uid_to_ordinal.find(unique_id);
         return it == _uid_to_ordinal.end() ? -1 : it->second;
@@ -193,8 +195,17 @@ private:
         }
     }
 
-    // The first `_num_block_columns` entries are the requested read columns. Any
-    // remaining entries are dropped columns appended for historical delete predicates.
+    // Example: storage has k(uid=1, INT) and
+    // s(uid=2, STRUCT<a:INT,b:STRING,c:BIGINT>). The scan needs k and only s.a/s.c, while
+    // a historical delete predicate `old_v = 0` needs the dropped column old_v(uid=3, INT):
+    //   [0] _read_columns: k:INT (uid=1)
+    //       _read_types:   INT
+    //   [1] _read_columns: s:STRUCT<a:INT,b:STRING,c:BIGINT> (uid=2)
+    //       _read_types:   STRUCT<a:INT,c:BIGINT>
+    //   [2] _read_columns: old_v:INT (uid=3, dropped)
+    //       _read_types:   INT
+    // `_num_block_columns` is 2, so create_read_block() materializes ordinals [0, 2). Ordinal 2
+    // is read only for delete filtering and never appears in the caller Block.
     std::vector<TabletColumnPtr> _read_columns;
     // Types aligned by ordinal with `_read_columns`.
     std::vector<DataTypePtr> _read_types;

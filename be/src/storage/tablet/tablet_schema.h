@@ -630,7 +630,8 @@ public:
     // If schema version is not set, it should be -1
     int32_t schema_version() const { return _schema_version; }
     void clear_columns();
-    // Create Blocks with physical TabletSchema column types and ordinals.
+    // Each column id is an ordinal in TabletSchema::_cols, not a unique id or ReadSchema ordinal.
+    // The resulting Block uses the selected physical TabletSchema column types.
     Block create_storage_block(const std::vector<uint32_t>& column_ids) const;
     Block create_storage_block() const;
     void set_schema_version(int32_t version) { _schema_version = version; }

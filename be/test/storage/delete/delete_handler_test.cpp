@@ -1064,7 +1064,8 @@ protected:
     Status init_delete_handler(int64_t version) {
         auto read_schema = create_read_schema();
         std::vector<TabletColumn> dropped_columns;
-        return _delete_handler.init(get_delete_predicates(), version, read_schema, dropped_columns);
+        return _delete_handler.init(get_delete_predicates(), version, read_schema,
+                                    &dropped_columns);
     }
 
     TabletSchemaSPtr create_single_column_schema(int32_t unique_id, const std::string& name,
@@ -1123,7 +1124,7 @@ TEST_F(TestDeleteHandler, ReturnsHistoricalInPredicateColumnByUid) {
 
     auto rowset_meta = create_delete_predicate_meta(delete_predicate, historical_schema);
     std::vector<TabletColumn> dropped_columns;
-    auto status = _delete_handler.init({rowset_meta}, 2, read_schema, dropped_columns);
+    auto status = _delete_handler.init({rowset_meta}, 2, read_schema, &dropped_columns);
     ASSERT_TRUE(status.ok()) << status;
 
     ASSERT_EQ(1, read_schema->num_block_columns());
@@ -1150,12 +1151,11 @@ TEST_F(TestDeleteHandler, ReturnsHistoricalInPredicateColumnByUid) {
 
 TEST_F(TestDeleteHandler, ReturnsHistoricalLegacyPredicateColumnAfterSecondDrop) {
     constexpr int32_t old_unique_id = 101;
-    constexpr int32_t retained_unique_id = 201;
+    constexpr int32_t new_unique_id = 201;
     constexpr auto column_name = "dropped_column";
 
     auto historical_schema = create_single_column_schema(old_unique_id, column_name, "INT");
-    auto current_schema =
-            create_single_column_schema(retained_unique_id, "retained_column", "STRING");
+    auto current_schema = create_single_column_schema(new_unique_id, column_name, "STRING");
     ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(current_schema->columns());
 
     DeletePredicatePB delete_predicate;
@@ -1164,12 +1164,12 @@ TEST_F(TestDeleteHandler, ReturnsHistoricalLegacyPredicateColumnAfterSecondDrop)
     delete_predicate.add_sub_predicates(fmt::format("{}='7'", column_name));
     auto rowset_meta = create_delete_predicate_meta(delete_predicate, historical_schema);
     std::vector<TabletColumn> dropped_columns;
-    auto status = _delete_handler.init({rowset_meta}, 2, read_schema, dropped_columns);
+    auto status = _delete_handler.init({rowset_meta}, 2, read_schema, &dropped_columns);
     ASSERT_TRUE(status.ok()) << status;
 
     ASSERT_EQ(1, read_schema->num_block_columns());
     ASSERT_EQ(1, read_schema->num_read_columns());
-    EXPECT_EQ(0, read_schema->ordinal_by_uid(retained_unique_id));
+    EXPECT_EQ(0, read_schema->ordinal_by_uid(new_unique_id));
     EXPECT_EQ(-1, read_schema->ordinal_by_uid(old_unique_id));
     ASSERT_EQ(1, dropped_columns.size());
     EXPECT_EQ(old_unique_id, dropped_columns[0].unique_id());
@@ -1187,6 +1187,106 @@ TEST_F(TestDeleteHandler, ReturnsHistoricalLegacyPredicateColumnAfterSecondDrop)
     const auto& predicate = predicates_for_zone_map.at(1)[0];
     EXPECT_EQ(1, predicate->column_id());
     EXPECT_EQ(PredicateType::EQ, predicate->type());
+}
+
+TEST_F(TestDeleteHandler, ResolvesLegacyPredicateThroughHistoricalColumnUid) {
+    constexpr int32_t unique_id = 102;
+    constexpr auto column_name = "legacy_column";
+
+    auto historical_schema = create_single_column_schema(unique_id, column_name, "INT");
+    auto current_schema = create_single_column_schema(unique_id, column_name, "INT");
+    ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(current_schema->columns());
+
+    DeletePredicatePB delete_predicate;
+    delete_predicate.set_version(-1);
+    delete_predicate.add_sub_predicates(fmt::format("{}='7'", column_name));
+    auto rowset_meta = create_delete_predicate_meta(delete_predicate, historical_schema);
+    std::vector<TabletColumn> dropped_columns;
+    auto status = _delete_handler.init({rowset_meta}, 2, read_schema, &dropped_columns);
+    ASSERT_TRUE(status.ok()) << status;
+
+    EXPECT_TRUE(dropped_columns.empty());
+    AndBlockColumnPredicate delete_conditions;
+    std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
+            predicates_for_zone_map;
+    _delete_handler.get_delete_conditions_after_version(0, &delete_conditions,
+                                                        &predicates_for_zone_map);
+    ASSERT_EQ(1, predicates_for_zone_map.size());
+    ASSERT_TRUE(predicates_for_zone_map.contains(0));
+    ASSERT_EQ(1, predicates_for_zone_map.at(0).size());
+    EXPECT_EQ(0, predicates_for_zone_map.at(0)[0]->column_id());
+}
+
+TEST_F(TestDeleteHandler, ResolvesPredicateUidDirectlyFromReadSchema) {
+    constexpr int32_t unique_id = 103;
+    constexpr auto column_name = "current_column";
+
+    auto schema = create_single_column_schema(unique_id, column_name, "INT");
+    ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(schema->columns());
+
+    DeletePredicatePB delete_predicate;
+    delete_predicate.set_version(-1);
+    auto* sub_predicate = delete_predicate.add_sub_predicates_v2();
+    sub_predicate->set_column_unique_id(unique_id);
+    sub_predicate->set_column_name(column_name);
+    sub_predicate->set_op("=");
+    sub_predicate->set_cond_value("7");
+    auto rowset_meta = create_delete_predicate_meta(delete_predicate, schema);
+    std::vector<TabletColumn> dropped_columns;
+    auto status = _delete_handler.init({rowset_meta}, 2, read_schema, &dropped_columns);
+    ASSERT_TRUE(status.ok()) << status;
+
+    EXPECT_TRUE(dropped_columns.empty());
+    AndBlockColumnPredicate delete_conditions;
+    std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
+            predicates_for_zone_map;
+    _delete_handler.get_delete_conditions_after_version(0, &delete_conditions,
+                                                        &predicates_for_zone_map);
+    ASSERT_TRUE(predicates_for_zone_map.contains(0));
+    ASSERT_EQ(1, predicates_for_zone_map.at(0).size());
+    EXPECT_EQ(0, predicates_for_zone_map.at(0)[0]->column_id());
+}
+
+TEST_F(TestDeleteHandler, ReusesResolvedDroppedColumnByUid) {
+    constexpr int32_t old_unique_id = 104;
+    constexpr int32_t new_unique_id = 204;
+    constexpr auto column_name = "replaced_column";
+
+    auto historical_schema = create_single_column_schema(old_unique_id, column_name, "INT");
+    auto current_schema = create_single_column_schema(new_unique_id, column_name, "STRING");
+    ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(current_schema->columns());
+
+    DeletePredicatePB delete_predicate;
+    delete_predicate.set_version(-1);
+    auto add_sub_predicate = [&](const std::string& op, const std::string& value) {
+        auto* sub_predicate = delete_predicate.add_sub_predicates_v2();
+        sub_predicate->set_column_unique_id(old_unique_id);
+        sub_predicate->set_column_name(column_name);
+        sub_predicate->set_op(op);
+        sub_predicate->set_cond_value(value);
+    };
+    add_sub_predicate("=", "7");
+    add_sub_predicate("!=", "8");
+
+    auto rowset_meta = create_delete_predicate_meta(delete_predicate, historical_schema);
+    std::vector<TabletColumn> dropped_columns;
+    auto status = _delete_handler.init({rowset_meta}, 2, read_schema, &dropped_columns);
+    ASSERT_TRUE(status.ok()) << status;
+
+    ASSERT_EQ(1, dropped_columns.size());
+    EXPECT_EQ(old_unique_id, dropped_columns[0].unique_id());
+    AndBlockColumnPredicate delete_conditions;
+    std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
+            predicates_for_zone_map;
+    _delete_handler.get_delete_conditions_after_version(0, &delete_conditions,
+                                                        &predicates_for_zone_map);
+    EXPECT_TRUE(predicates_for_zone_map.empty());
+    std::set<std::shared_ptr<const ColumnPredicate>> predicates;
+    delete_conditions.get_all_column_predicate(predicates);
+    ASSERT_EQ(2, predicates.size());
+    for (const auto& predicate : predicates) {
+        EXPECT_EQ(1, predicate->column_id());
+    }
 }
 
 TEST_F(TestDeleteHandler, ValueWithQuote) {

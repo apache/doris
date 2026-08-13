@@ -364,8 +364,8 @@ protected:
         RowsetReaderContext reader_context;
         reader_context.tablet_schema = tablet_schema;
         reader_context.need_ordered_result = false;
-        auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(),
-                                                        std::vector<ColumnId> {0, 1});
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0, 1}));
         reader_context.read_schema = read_schema;
         RowsetReaderSharedPtr output_rs_reader;
         create_and_init_rowset_reader(out_rowset.get(), reader_context, &output_rs_reader);

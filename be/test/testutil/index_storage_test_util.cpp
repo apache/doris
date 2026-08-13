@@ -1288,7 +1288,8 @@ Result<IndexReadResult> IndexStorageTestFixture::read_rowsets(
             }
         }
     }
-    auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), return_columns);
+    auto read_schema = std::make_shared<ReadSchema>(
+            project_columns_by_ordinal(tablet_schema->columns(), return_columns));
     // Test specs express predicate columns as tablet cids; the read path wants
     // ordinals into the read schema, so rebase them here (the role TabletReader
     // plays for real queries). Predicate columns must be read columns.

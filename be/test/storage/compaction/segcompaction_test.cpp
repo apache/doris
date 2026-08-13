@@ -415,7 +415,8 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
         reader_context.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
-        auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), return_columns);
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), return_columns));
         reader_context.read_schema = read_schema;
         reader_context.stats = &_stats;
 
@@ -922,7 +923,8 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
         reader_context.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
-        auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), return_columns);
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), return_columns));
         reader_context.read_schema = read_schema;
         reader_context.stats = &_stats;
         reader_context.is_unique = true;
@@ -1189,7 +1191,8 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         reader_context.reader_type = ReaderType::READER_CUMULATIVE_COMPACTION;
         reader_context.need_ordered_result = true;
         std::vector<uint32_t> return_columns = {0, 1, 2};
-        auto read_schema = std::make_shared<ReadSchema>(tablet_schema->columns(), return_columns);
+        auto read_schema = std::make_shared<ReadSchema>(
+                project_columns_by_ordinal(tablet_schema->columns(), return_columns));
         reader_context.read_schema = read_schema;
         reader_context.stats = &_stats;
         // reader_context.is_unique = true;

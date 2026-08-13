@@ -1037,15 +1037,13 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
                 del_preds.push_back(rs_meta);
             }
             std::vector<TabletColumn> dropped_columns;
-            res = delete_handler.init(del_preds, end_version, read_schema, dropped_columns);
+            res = delete_handler.init(del_preds, end_version, read_schema, &dropped_columns);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. base_tablet="
                              << _base_tablet->tablet_id() << ", end_version=" << end_version;
                 break;
             }
-            for (auto& column : dropped_columns) {
-                read_schema->append_column(std::make_shared<TabletColumn>(std::move(column)));
-            }
+            read_schema->append_dropped_columns(std::move(dropped_columns));
 
             reader_context.reader_type = ReaderType::READER_ALTER_TABLE;
             reader_context.tablet_schema = _base_tablet_schema;
