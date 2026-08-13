@@ -26,13 +26,22 @@ VJniFormatTransformer::VJniFormatTransformer(RuntimeState* state,
                                              const VExprContextSPtrs& output_vexpr_ctxs,
                                              Jni::PluginRef plugin_ref,
                                              std::map<std::string, std::string> writer_params)
+        : VJniFormatTransformer(state, output_vexpr_ctxs, std::string(plugin_ref.plugin),
+                                std::string(plugin_ref.factory), std::move(writer_params)) {}
+
+VJniFormatTransformer::VJniFormatTransformer(RuntimeState* state,
+                                             const VExprContextSPtrs& output_vexpr_ctxs,
+                                             std::string plugin, std::string factory,
+                                             std::map<std::string, std::string> writer_params)
         : VFileFormatTransformer(state, output_vexpr_ctxs, false),
-          _plugin_ref(plugin_ref),
+          _plugin(std::move(plugin)),
+          _factory(std::move(factory)),
           _writer_params(std::move(writer_params)) {}
 
 Status VJniFormatTransformer::_init_jni_writer(JNIEnv* env, int batch_size) {
-    return Jni::PluginRegistry::create_writer(env, _plugin_ref, batch_size, _writer_params,
-                                              &_jni_writer_obj, &_writer_api);
+    // Built here rather than stored: PluginRef holds views, and these members are the storage.
+    return Jni::PluginRegistry::create_writer(env, Jni::PluginRef {_plugin, _factory}, batch_size,
+                                              _writer_params, &_jni_writer_obj, &_writer_api);
 }
 
 Status VJniFormatTransformer::open() {
