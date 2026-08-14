@@ -860,46 +860,52 @@ public class CatalogRecycleBinTest extends TestWithFeService {
 
     @Test
     public void testRecreateTabletInvertIndexPreservesRowBinlogFlag() {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(CatalogTestUtil.testDbId1);
-        Assertions.assertNotNull(db);
-        OlapTable olapTable = (OlapTable) db.getTableNullable(CatalogTestUtil.testTableId1);
-        Assertions.assertNotNull(olapTable);
-        addRowBinlogIndex(olapTable);
+        try (FakeEnv ignored = new FakeEnv()) {
+            FakeEnv.setEnv(env);
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(CatalogTestUtil.testDbId1);
+            Assertions.assertNotNull(db);
+            OlapTable olapTable = (OlapTable) db.getTableNullable(CatalogTestUtil.testTableId1);
+            Assertions.assertNotNull(olapTable);
+            addRowBinlogIndex(olapTable);
 
-        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-        invertedIndex.clear();
-        Env.getCurrentInternalCatalog().recreateTabletInvertIndex();
+            TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+            invertedIndex.clear();
+            Env.getCurrentInternalCatalog().recreateTabletInvertIndex();
 
-        assertRowBinlogTabletMetaFlags(invertedIndex);
+            assertRowBinlogTabletMetaFlags(invertedIndex);
+        }
     }
 
     @Test
     public void testAddRecycledPartitionTabletPreservesRowBinlogFlag() {
-        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
-        Database db = Env.getCurrentInternalCatalog().getDbNullable(CatalogTestUtil.testDbId1);
-        Assertions.assertNotNull(db);
-        OlapTable olapTable = (OlapTable) db.getTableNullable(CatalogTestUtil.testTableId1);
-        Assertions.assertNotNull(olapTable);
-        addRowBinlogIndex(olapTable);
-        Partition partition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        try (FakeEnv ignored = new FakeEnv()) {
+            FakeEnv.setEnv(env);
+            CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(CatalogTestUtil.testDbId1);
+            Assertions.assertNotNull(db);
+            OlapTable olapTable = (OlapTable) db.getTableNullable(CatalogTestUtil.testTableId1);
+            Assertions.assertNotNull(olapTable);
+            addRowBinlogIndex(olapTable);
+            Partition partition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
 
-        Assertions.assertTrue(recycleBin.recyclePartition(
-                CatalogTestUtil.testDbId1,
-                CatalogTestUtil.testTableId1,
-                CatalogTestUtil.testTable1,
-                partition,
-                null,
-                null,
-                olapTable.getPartitionInfo().getDataProperty(partition.getId()),
-                olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()),
-                false,
-                false));
+            Assertions.assertTrue(recycleBin.recyclePartition(
+                    CatalogTestUtil.testDbId1,
+                    CatalogTestUtil.testTableId1,
+                    CatalogTestUtil.testTable1,
+                    partition,
+                    null,
+                    null,
+                    olapTable.getPartitionInfo().getDataProperty(partition.getId()),
+                    olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()),
+                    false,
+                    false));
 
-        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-        invertedIndex.clear();
-        recycleBin.addTabletToInvertedIndex();
+            TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+            invertedIndex.clear();
+            recycleBin.addTabletToInvertedIndex();
 
-        assertRowBinlogTabletMetaFlags(invertedIndex);
+            assertRowBinlogTabletMetaFlags(invertedIndex);
+        }
     }
 
     private void addRowBinlogIndex(OlapTable olapTable) {
