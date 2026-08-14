@@ -16,8 +16,12 @@
 // under the License.
 
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <vector>
 
+#include "core/block/block.h"
+#include "core/column/column_const.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
@@ -27,7 +31,9 @@
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 #include "exprs/function/like.h"
+#include "exprs/function_context.h"
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/runtime_state.h"
 #include "testutil/any_type.h"
 
 namespace doris {
@@ -36,6 +42,39 @@ class FunctionLikeTestHelper : public FunctionLikeBase {
 public:
     using FunctionLikeBase::should_fallback_to_re2;
 };
+
+template <typename Function>
+Status execute_pattern_with_fallback_disabled(const std::string& value, const std::string& pattern,
+                                              bool constant_known_at_open) {
+    TQueryOptions query_options;
+    query_options.__set_enable_hyperscan_fallback(false);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+
+    auto string_type = std::make_shared<DataTypeString>();
+    auto context = FunctionContext::create_context(
+            &runtime_state, std::make_shared<DataTypeUInt8>(), {string_type, string_type});
+
+    auto values = ColumnString::create();
+    values->insert_data(value.data(), value.size());
+    auto patterns = ColumnString::create();
+    patterns->insert_data(pattern.data(), pattern.size());
+    ColumnPtr pattern_column = ColumnConst::create(std::move(patterns), 1);
+
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(2);
+    if (constant_known_at_open) {
+        constant_columns[1] = std::make_shared<ColumnPtrWrapper>(pattern_column);
+    }
+    context->set_constant_cols(constant_columns);
+
+    Function function;
+    RETURN_IF_ERROR(function.open(context.get(), FunctionContext::THREAD_LOCAL));
+
+    Block block;
+    block.insert({std::move(values), string_type, "value"});
+    block.insert({std::move(pattern_column), string_type, "pattern"});
+    block.insert({nullptr, std::make_shared<DataTypeUInt8>(), "result"});
+    return function.execute_impl(context.get(), block, {0, 1}, 2, 1);
+}
 
 TEST(FunctionLikeTest, like) {
     std::string func_name = "like";
@@ -165,6 +204,34 @@ TEST(FunctionLikeTest, hyperscan_bounded_repeat_threshold) {
     EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{0,51}"));
     EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{51,51}"));
     EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{ 0, 1000 }"));
+    EXPECT_FALSE(FunctionLikeTestHelper::should_fallback_to_re2(R"(a\{51\})"));
+    EXPECT_FALSE(FunctionLikeTestHelper::should_fallback_to_re2("[a{51}]"));
+}
+
+TEST(FunctionLikeTest, hyperscan_bounded_repeat_fallback_disabled) {
+    for (bool constant_known_at_open : {false, true}) {
+        SCOPED_TRACE(constant_known_at_open ? "prepare during open" : "prepare during execute");
+        auto status = execute_pattern_with_fallback_disabled<FunctionRegexpLike>(
+                "prompt_rewrite.h03xxx429", R"(prompt_rewrite\.h03.{0,1000}429)",
+                constant_known_at_open);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("bounded repetition exceeds 50"), std::string::npos);
+    }
+}
+
+TEST(FunctionLikeTest, hyperscan_bounded_repeat_literal_with_fallback_disabled) {
+    for (bool constant_known_at_open : {false, true}) {
+        SCOPED_TRACE(constant_known_at_open ? "prepare during open" : "prepare during execute");
+        EXPECT_TRUE(execute_pattern_with_fallback_disabled<FunctionRegexpLike>(
+                            "a{51}", R"(a\{51\})", constant_known_at_open)
+                            .ok());
+        EXPECT_TRUE(execute_pattern_with_fallback_disabled<FunctionRegexpLike>(
+                            "a", "[a{51}]", constant_known_at_open)
+                            .ok());
+        EXPECT_TRUE(execute_pattern_with_fallback_disabled<FunctionLike>("a{51}", "_{51}",
+                                                                         constant_known_at_open)
+                            .ok());
+    }
 }
 
 TEST(FunctionLikeTest, regexp_extract) {

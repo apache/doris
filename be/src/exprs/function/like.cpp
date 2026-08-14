@@ -45,6 +45,44 @@ bool is_larger_than_fifty(std::string_view str) {
     return error == std::errc() && number > 50;
 }
 
+std::string mask_escaped_characters_and_character_classes(std::string_view regexp) {
+    std::string masked_regexp(regexp);
+    bool escaped = false;
+    bool in_character_class = false;
+    bool character_class_can_close = false;
+    for (char& masked_character : masked_regexp) {
+        const char current = masked_character;
+        if (escaped) {
+            masked_character = ' ';
+            escaped = false;
+            if (in_character_class) {
+                character_class_can_close = true;
+            }
+            continue;
+        }
+        if (current == '\\') {
+            masked_character = ' ';
+            escaped = true;
+            continue;
+        }
+        if (in_character_class) {
+            masked_character = ' ';
+            if (current == ']' && character_class_can_close) {
+                in_character_class = false;
+            } else if (current != '^' || character_class_can_close) {
+                character_class_can_close = true;
+            }
+            continue;
+        }
+        if (current == '[') {
+            masked_character = ' ';
+            in_character_class = true;
+            character_class_can_close = false;
+        }
+    }
+    return masked_regexp;
+}
+
 /// Bounded repetitions can expand Hyperscan's compiler graph and make compilation extremely
 /// expensive. This checker is adapted from ClickHouse's `SlowWithHyperscanChecker`.
 class SlowWithHyperscanChecker {
@@ -54,7 +92,8 @@ public:
               _searcher_two_repeats(R"(\{\s*([\d]+)\s*,\s*([\d]+)\s*\})") {}
 
     bool is_slow(std::string_view regexp) const {
-        return is_slow_one_repeat(regexp) || is_slow_two_repeats(regexp);
+        const std::string masked_regexp = mask_escaped_characters_and_character_classes(regexp);
+        return is_slow_one_repeat(masked_regexp) || is_slow_two_repeats(masked_regexp);
     }
 
 private:
@@ -248,8 +287,9 @@ struct VectorEndsWithSearchState : public VectorPatternSearchState {
     }
 };
 
-Status LikeSearchState::clone(LikeSearchState& cloned) {
+Status LikeSearchState::clone(LikeSearchState& cloned) const {
     cloned.set_search_string(search_string);
+    cloned.enable_hyperscan_fallback = enable_hyperscan_fallback;
 
     std::string re_pattern;
     FunctionLike::convert_like_pattern(this, pattern_str, &re_pattern);
@@ -517,7 +557,8 @@ Status FunctionLikeBase::regexp_fn(const LikeSearchState* state, const ColumnStr
 
     hs_database_t* database = nullptr;
     hs_scratch_t* scratch = nullptr;
-    if (hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch).ok()) { // use hyperscan
+    auto hs_status = hs_prepare(nullptr, re_pattern.c_str(), &database, &scratch);
+    if (hs_status.ok()) { // use hyperscan
         auto sz = val.size();
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
@@ -532,6 +573,9 @@ Status FunctionLikeBase::regexp_fn(const LikeSearchState* state, const ColumnStr
         hs_free_scratch(scratch);
         hs_free_database(database);
     } else { // fallback to re2
+        if (!state->enable_hyperscan_fallback) {
+            return hs_status;
+        }
         RE2::Options opts;
         opts.set_never_nl(false);
         opts.set_dot_nl(true);
@@ -562,7 +606,7 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
     if (should_fallback_to_re2(expression)) {
         *database = nullptr;
         *scratch = nullptr;
-        // Do not call FunctionContext::set_error here, since callers fall back to RE2.
+        // Callers either fall back to RE2 or return this status based on the session variable.
         return Status::RuntimeError<false>(
                 "Skip hyperscan compilation because bounded repetition exceeds 50");
     }
@@ -575,7 +619,7 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
         *database = nullptr;
         std::string error_message = compile_err->message;
         hs_free_compile_error(compile_err);
-        // Do not call FunctionContext::set_error here, since we do not want to cancel the query here.
+        // Callers either fall back to RE2 or return this status based on the session variable.
         return Status::RuntimeError<false>("hs_compile regex pattern error:" + error_message);
     }
     hs_free_compile_error(compile_err);
@@ -584,7 +628,7 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
         hs_free_database(*database);
         *database = nullptr;
         *scratch = nullptr;
-        // Do not call FunctionContext::set_error here, since we do not want to cancel the query here.
+        // Callers either fall back to RE2 or return this status based on the session variable.
         return Status::RuntimeError<false>("hs_alloc_scratch allocate scratch space error");
     }
 
@@ -1020,12 +1064,19 @@ Status FunctionLike::construct_like_const_state(FunctionContext* context, const 
 
         hs_database_t* database = nullptr;
         hs_scratch_t* scratch = nullptr;
-        if (try_hyperscan && hs_prepare(context, re_pattern.c_str(), &database, &scratch).ok()) {
+        Status hs_status;
+        if (try_hyperscan) {
+            hs_status = hs_prepare(context, re_pattern.c_str(), &database, &scratch);
+        }
+        if (try_hyperscan && hs_status.ok()) {
             // use hyperscan
             state->search_state.hs_database.reset(database);
             state->search_state.hs_scratch.reset(scratch);
         } else {
             // fallback to re2
+            if (try_hyperscan && !state->search_state.enable_hyperscan_fallback) {
+                return hs_status;
+            }
             // reset hs_database to nullptr to indicate not use hyperscan
             state->search_state.hs_database.reset();
             state->search_state.hs_scratch.reset();
@@ -1052,6 +1103,8 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
     }
     std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
     state->is_like_pattern = true;
+    state->search_state.enable_hyperscan_fallback =
+            context->state()->query_options().enable_hyperscan_fallback;
     state->function = like_fn;
     state->scalar_function = like_fn_scalar;
     if (context->is_col_constant(2)) {
@@ -1082,6 +1135,8 @@ Status FunctionRegexpLike::open(FunctionContext* context,
     std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
     context->set_function_state(scope, state);
     state->is_like_pattern = false;
+    state->search_state.enable_hyperscan_fallback =
+            context->state()->query_options().enable_hyperscan_fallback;
     state->function = regexp_fn;
     state->scalar_function = regexp_fn_scalar;
     if (context->is_col_constant(1)) {
@@ -1113,12 +1168,16 @@ Status FunctionRegexpLike::open(FunctionContext* context,
         } else {
             hs_database_t* database = nullptr;
             hs_scratch_t* scratch = nullptr;
-            if (hs_prepare(context, pattern_str.c_str(), &database, &scratch).ok()) {
+            auto hs_status = hs_prepare(context, pattern_str.c_str(), &database, &scratch);
+            if (hs_status.ok()) {
                 // use hyperscan
                 state->search_state.hs_database.reset(database);
                 state->search_state.hs_scratch.reset(scratch);
             } else {
                 // fallback to re2
+                if (!state->search_state.enable_hyperscan_fallback) {
+                    return hs_status;
+                }
                 // reset hs_database to nullptr to indicate not use hyperscan
                 state->search_state.hs_database.reset();
                 state->search_state.hs_scratch.reset();
