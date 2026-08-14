@@ -99,8 +99,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
           _file_writer(file_writer),
           _index_file_writer(index_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
-          _key_encoder(*_tablet_schema, _is_mow()),
-          _mow_context(std::move(opts.mow_ctx)) {
+          _key_encoder(*_tablet_schema, _is_mow()) {
     CHECK_NOTNULL(file_writer);
     _num_short_key_columns = _tablet_schema->num_short_key_columns();
 }
@@ -334,18 +333,6 @@ Status SegmentWriter::_create_writers(const TabletSchemaSPtr& tablet_schema,
 }
 
 Status SegmentWriter::append_block(const Block* block, size_t row_pos, size_t num_rows) {
-    // Fixed partial update blocks arrive full-width, already filled by the transform
-    // chain; only the flexible mode still needs the vertical writer.
-    if (_opts.rowset_ctx->partial_update_info &&
-        _opts.rowset_ctx->partial_update_info->is_partial_update() &&
-        _opts.write_type == DataWriteType::TYPE_DIRECT &&
-        !_opts.rowset_ctx->is_transient_rowset_writer &&
-        !_opts.rowset_ctx->partial_update_info->is_fixed_partial_update()) {
-        return Status::NotSupported<false>(
-                "SegmentWriter doesn't support flexible partial update, please set "
-                "enable_vertical_segment_writer=true in be.conf on all BEs to use "
-                "VerticalSegmentWriter.");
-    }
     if (block->columns() < _column_writers.size()) {
         return Status::InternalError(
                 "block->columns() < _column_writers.size(), block->columns()=" +
@@ -357,8 +344,6 @@ Status SegmentWriter::append_block(const Block* block, size_t row_pos, size_t nu
             << ", block->columns()=" << block->columns()
             << ", _column_writers.size()=" << _column_writers.size()
             << ", _tablet_schema->dump_structure()=" << _tablet_schema->dump_structure();
-    // Blocks from the seams arrive already transformed (variants parsed, row-store
-    // column materialized); compaction-family callers bring rows that are already final.
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
 
     // convert column data from engine format to storage layer format
