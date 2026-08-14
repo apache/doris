@@ -27,6 +27,8 @@ import java.util.Optional;
  */
 public interface ConnectorSession {
 
+    String ENABLE_EXTERNAL_SCAN_TASK_REUSE = "enable_external_scan_task_reuse";
+
     /** Returns the unique query identifier. */
     String getQueryId();
 
@@ -101,6 +103,16 @@ public interface ConnectorSession {
      */
     default Map<String, String> getSessionProperties() {
         return java.util.Collections.emptyMap();
+    }
+
+    /**
+     * Whether equivalent external scan split plans may be reused within this statement.
+     *
+     * <p>The default is enabled. Only the explicit session value {@code false} disables reuse, so connector
+     * implementations that predate this knob retain their existing behavior.</p>
+     */
+    default boolean isExternalScanTaskReuseEnabled() {
+        return !"false".equalsIgnoreCase(getSessionProperties().get(ENABLE_EXTERNAL_SCAN_TASK_REUSE));
     }
 
     /**
