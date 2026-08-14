@@ -51,12 +51,14 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -68,6 +70,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -102,6 +105,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     ImmutableSet.Builder<Expression> newConjuncts = new ImmutableSet.Builder<>();
                     LogicalPlan applyPlan = null;
                     LogicalPlan tmpPlan = (LogicalPlan) filter.child();
+                    ScalarSubqueryReuseContext scalarSubqueryReuseContext = new ScalarSubqueryReuseContext();
 
                     List<Set<SubqueryExpr>> subqueryExprsList = collectSubquerys.subqueies;
                     // Subquery traversal with the conjunct of and as the granularity.
@@ -114,8 +118,9 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
                         // first step: Replace the subquery of predicate in LogicalFilter
                         // second step: Replace subquery with LogicalApply
+                        scalarSubqueryReuseContext.register(subqueryExprs);
                         ReplaceSubquery replaceSubquery = new ReplaceSubquery(
-                                ctx.statementContext, shouldOutputMarkJoinSlot.get(i));
+                                ctx.statementContext, shouldOutputMarkJoinSlot.get(i), scalarSubqueryReuseContext);
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(oldConjuncts.get(i), context);
                         // TODO: The way to optimize null aware mark join is not right.
@@ -130,6 +135,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         Pair<LogicalPlan, Optional<Expression>> result = subqueryToApply(subqueryExprs.stream()
                                     .collect(ImmutableList.toImmutableList()), tmpPlan,
                                 context.getSubqueryToMarkJoinSlot(),
+                                scalarSubqueryReuseContext,
                                 ctx.cascadesContext,
                                 Optional.of(conjunct), isMarkSlotNotNull);
                         applyPlan = result.first;
@@ -155,6 +161,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 ImmutableList.Builder<NamedExpression> newProjects = new ImmutableList.Builder<>();
                 LogicalPlan childPlan = (LogicalPlan) project.child();
                 LogicalPlan applyPlan;
+                ScalarSubqueryReuseContext scalarSubqueryReuseContext = new ScalarSubqueryReuseContext();
                 for (int i = 0; i < subqueryExprsList.size(); ++i) {
                     Set<SubqueryExpr> subqueryExprs = subqueryExprsList.get(i);
                     if (subqueryExprs.isEmpty()) {
@@ -164,16 +171,17 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
                     // first step: Replace the subquery in logcialProject's project list
                     // second step: Replace subquery with LogicalApply
+                    scalarSubqueryReuseContext.register(subqueryExprs);
                     ReplaceSubquery replaceSubquery =
-                            new ReplaceSubquery(ctx.statementContext, true);
+                            new ReplaceSubquery(ctx.statementContext, true, scalarSubqueryReuseContext);
                     SubqueryContext context = new SubqueryContext(subqueryExprs);
                     Expression newProject =
                             replaceSubquery.replace(oldProjects.get(i), context);
 
                     Pair<LogicalPlan, Optional<Expression>> result =
                             subqueryToApply(Utils.fastToImmutableList(subqueryExprs), childPlan,
-                                    context.getSubqueryToMarkJoinSlot(), ctx.cascadesContext,
-                                    Optional.of(newProject), false);
+                                    context.getSubqueryToMarkJoinSlot(), scalarSubqueryReuseContext,
+                                    ctx.cascadesContext, Optional.of(newProject), false);
                     applyPlan = result.first;
                     childPlan = applyPlan;
                     newProjects.add(
@@ -234,7 +242,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
                         // first step: Replace the subquery of predicate in LogicalFilter
                         // second step: Replace subquery with LogicalApply
-                        ReplaceSubquery replaceSubquery = new ReplaceSubquery(ctx.statementContext, true);
+                        ReplaceSubquery replaceSubquery = new ReplaceSubquery(ctx.statementContext, true, null);
                         SubqueryContext context = new SubqueryContext(subqueryExprs);
                         Expression conjunct = replaceSubquery.replace(subqueryConjuncts.get(i), context);
                         /*
@@ -257,7 +265,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         Pair<LogicalPlan, Optional<Expression>> result = subqueryToApply(
                                 subqueryExprs.stream().collect(ImmutableList.toImmutableList()),
                                 relatedInfoList.get(i) == RelatedInfo.RelatedToLeft ? leftChildPlan : rightChildPlan,
-                                context.getSubqueryToMarkJoinSlot(),
+                                context.getSubqueryToMarkJoinSlot(), null,
                                 ctx.cascadesContext, Optional.of(conjunct), isMarkSlotNotNull);
                         applyPlan = result.first;
                         if (relatedInfoList.get(i) == RelatedInfo.RelatedToLeft) {
@@ -355,7 +363,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
     private Pair<LogicalPlan, Optional<Expression>> subqueryToApply(
             List<SubqueryExpr> subqueryExprs, LogicalPlan childPlan,
             Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
-            CascadesContext ctx, Optional<Expression> correlatedOuterExpr, boolean isMarkJoinSlotNotNull) {
+            ScalarSubqueryReuseContext scalarSubqueryReuseContext, CascadesContext ctx,
+            Optional<Expression> correlatedOuterExpr, boolean isMarkJoinSlotNotNull) {
         Pair<LogicalPlan, Optional<Expression>> tmpPlan = Pair.of(childPlan, correlatedOuterExpr);
         for (int i = 0; i < subqueryExprs.size(); ++i) {
             SubqueryExpr subqueryExpr = subqueryExprs.get(i);
@@ -366,6 +375,16 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 continue;
             }
 
+            if (scalarSubqueryReuseContext != null) {
+                SubqueryExpr representative = scalarSubqueryReuseContext.getRepresentative(subqueryExpr);
+                if (representative != null) {
+                    if (scalarSubqueryReuseContext.isApplied(representative)) {
+                        continue;
+                    }
+                    subqueryExpr = representative;
+                    scalarSubqueryReuseContext.markApplied(representative);
+                }
+            }
             if (!ctx.subqueryIsAnalyzed(subqueryExpr)) {
                 tmpPlan = addApply(subqueryExpr, tmpPlan.first,
                     subqueryToMarkJoinSlot, ctx, tmpPlan.second, isMarkJoinSlotNotNull);
@@ -614,11 +633,14 @@ public class SubqueryToApply implements AnalysisRuleFactory {
         private boolean isMarkJoin;
 
         private final boolean shouldOutputMarkJoinSlot;
+        private final ScalarSubqueryReuseContext scalarSubqueryReuseContext;
 
         public ReplaceSubquery(StatementContext statementContext,
-                               boolean shouldOutputMarkJoinSlot) {
+                               boolean shouldOutputMarkJoinSlot,
+                               ScalarSubqueryReuseContext scalarSubqueryReuseContext) {
             this.statementContext = Objects.requireNonNull(statementContext, "statementContext can't be null");
             this.shouldOutputMarkJoinSlot = shouldOutputMarkJoinSlot;
+            this.scalarSubqueryReuseContext = scalarSubqueryReuseContext;
         }
 
         public Expression replace(Expression expression, SubqueryContext subqueryContext) {
@@ -669,6 +691,12 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
         @Override
         public Expression visitScalarSubquery(ScalarSubquery scalar, SubqueryContext context) {
+            if (scalarSubqueryReuseContext != null) {
+                Expression cachedOutput = scalarSubqueryReuseContext.getOutput(scalar);
+                if (cachedOutput != null) {
+                    return cachedOutput;
+                }
+            }
             return scalar.getSubqueryOutput();
         }
 
@@ -687,6 +715,88 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     compound.children().stream().map(c -> replace(c, context)).collect(Collectors.toList())
             );
         }
+    }
+
+    private static class ScalarSubqueryReuseContext {
+        private final Map<String, SubqueryExpr> representatives = new HashMap<>();
+        private final Set<String> applied = new HashSet<>();
+        // Cache the reuse key per SubqueryExpr to avoid recomputing it (which calls toSql on the
+        // projection) on every register/getOutput/getRepresentative/isApplied/markApplied lookup.
+        // The value NULL_KEY marks a subquery that is not reusable, so we still cache the negative result.
+        private final Map<SubqueryExpr, String> keyCache = new HashMap<>();
+
+        private static final String NULL_KEY = "";
+
+        private String keyOf(SubqueryExpr subqueryExpr) {
+            String cached = keyCache.get(subqueryExpr);
+            if (cached != null) {
+                return cached == NULL_KEY ? null : cached;
+            }
+            String key = getReusableScalarSubqueryKey(subqueryExpr);
+            keyCache.put(subqueryExpr, key == null ? NULL_KEY : key);
+            return key;
+        }
+
+        private void register(Collection<SubqueryExpr> subqueryExprs) {
+            for (SubqueryExpr subqueryExpr : subqueryExprs) {
+                String key = keyOf(subqueryExpr);
+                if (key != null) {
+                    representatives.putIfAbsent(key, subqueryExpr);
+                }
+            }
+        }
+
+        private Expression getOutput(SubqueryExpr subqueryExpr) {
+            String key = keyOf(subqueryExpr);
+            if (key == null) {
+                return null;
+            }
+            SubqueryExpr representative = representatives.get(key);
+            return representative == null ? null : representative.getSubqueryOutput();
+        }
+
+        private SubqueryExpr getRepresentative(SubqueryExpr subqueryExpr) {
+            String key = keyOf(subqueryExpr);
+            return key == null ? null : representatives.get(key);
+        }
+
+        private boolean isApplied(SubqueryExpr subqueryExpr) {
+            String key = keyOf(subqueryExpr);
+            return key != null && applied.contains(key);
+        }
+
+        private void markApplied(SubqueryExpr subqueryExpr) {
+            String key = keyOf(subqueryExpr);
+            if (key != null) {
+                applied.add(key);
+            }
+        }
+    }
+
+    private static String getReusableScalarSubqueryKey(SubqueryExpr subqueryExpr) {
+        if (!(subqueryExpr instanceof ScalarSubquery)
+                || !subqueryExpr.getCorrelateSlots().isEmpty()
+                || subqueryExpr.getTypeCoercionExpr().isPresent()) {
+            return null;
+        }
+        LogicalPlan queryPlan = subqueryExpr.getQueryPlan();
+        if (!(queryPlan instanceof LogicalProject)
+                || ((LogicalProject<?>) queryPlan).isDistinct()
+                || queryPlan.getOutput().size() != 1) {
+            return null;
+        }
+        Plan cteConsumerPlan = queryPlan.child(0);
+        while (cteConsumerPlan instanceof LogicalSubQueryAlias) {
+            cteConsumerPlan = cteConsumerPlan.child(0);
+        }
+        if (!(cteConsumerPlan instanceof LogicalCTEConsumer)) {
+            return null;
+        }
+        LogicalProject<?> project = (LogicalProject<?>) queryPlan;
+        LogicalCTEConsumer consumer = (LogicalCTEConsumer) cteConsumerPlan;
+        Slot output = queryPlan.getOutput().get(0);
+        return consumer.getCteId() + "|" + consumer.getName() + "|"
+                + project.getProjects().get(0).toSql() + "|" + output.getDataType() + "|" + output.nullable();
     }
 
     /**
