@@ -22,6 +22,8 @@
 #include <cstdint>
 #include <string>
 
+#include "format/table/iceberg_delete_file_reader_helper.h"
+
 namespace doris::io {
 
 TEST(FileHandleCacheTest, CacheKeyIncludesHdfsFs) {
@@ -38,6 +40,32 @@ TEST(FileHandleCacheTest, CacheKeyIncludesHdfsFs) {
                                                           fname + ".other", mtime));
     EXPECT_FALSE(FileHandleCache::same_cache_key_for_test(first_fs, fname, mtime, first_fs, fname,
                                                           mtime + 1));
+}
+
+// Verify that init() with file_size > 0 does NOT open the file (lazy open).
+// The handle should know file_size but file() should be nullptr.
+TEST(FileHandleCacheTest, InitWithKnownFileSizeDoesNotOpenFile) {
+    auto mock_fs = reinterpret_cast<hdfsFS>(static_cast<uintptr_t>(0x1));
+    ExclusiveHdfsFileHandle handle(mock_fs, "/nonexistent/file.parquet", 12345);
+    auto st = handle.init(4096);
+    ASSERT_TRUE(st.ok()) << st;
+    // file_size should be set from parameter
+    EXPECT_EQ(handle.file_size(), 4096);
+    // file() should be nullptr — lazy open means no hdfsOpenFile was called
+    EXPECT_EQ(handle.file(), nullptr);
+}
+
+// Verify that build_iceberg_delete_file_range treats file_size <= 0 as unknown (-1).
+// This covers the case where thrift optional file_size defaults to 0.
+TEST(FileHandleCacheTest, BuildDeleteFileRangeTreatsZeroAsUnknown) {
+    auto range_known = build_iceberg_delete_file_range("s3://b/f.parquet", 1024);
+    EXPECT_EQ(range_known.file_size, 1024);
+
+    auto range_zero = build_iceberg_delete_file_range("s3://b/f.parquet", 0);
+    EXPECT_EQ(range_zero.file_size, -1);
+
+    auto range_neg = build_iceberg_delete_file_range("s3://b/f.parquet", -1);
+    EXPECT_EQ(range_neg.file_size, -1);
 }
 
 } // namespace doris::io

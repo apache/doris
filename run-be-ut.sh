@@ -436,6 +436,13 @@ if [[ -d "${DORIS_TEST_BINARY_DIR}/util/test_data" ]]; then
 fi
 cp -r "${DORIS_HOME}/be/test/util/test_data" "${DORIS_TEST_BINARY_DIR}/util"/
 
+# prepare exec test_data (iceberg delete file tests use ./be/test/exec/test_data/...)
+mkdir -p "${DORIS_TEST_BINARY_DIR}/be/test/exec"
+if [[ -d "${DORIS_TEST_BINARY_DIR}/be/test/exec/test_data" ]]; then
+    rm -rf "${DORIS_TEST_BINARY_DIR}/be/test/exec/test_data"
+fi
+cp -r "${DORIS_HOME}/be/test/exec/test_data" "${DORIS_TEST_BINARY_DIR}/be/test/exec"/
+
 # prepare ut temp dir
 UT_TMP_DIR="${DORIS_HOME}/ut_dir"
 rm -rf "${UT_TMP_DIR}"

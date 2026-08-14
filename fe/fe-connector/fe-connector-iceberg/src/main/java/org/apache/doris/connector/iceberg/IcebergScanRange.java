@@ -631,9 +631,11 @@ public class IcebergScanRange implements ConnectorScanRange {
         // deletion vector only (null otherwise).
         private final Long contentOffset;
         private final Long contentSizeInBytes;
+        private final long fileSize;
 
         private DeleteFile(String path, int content, TFileFormatType fileFormat, Long positionLowerBound,
-                Long positionUpperBound, List<Integer> fieldIds, Long contentOffset, Long contentSizeInBytes) {
+                Long positionUpperBound, List<Integer> fieldIds, Long contentOffset, Long contentSizeInBytes,
+                long fileSize) {
             this.path = path;
             this.content = content;
             this.fileFormat = fileFormat;
@@ -642,13 +644,14 @@ public class IcebergScanRange implements ConnectorScanRange {
             this.fieldIds = fieldIds != null ? Collections.unmodifiableList(new ArrayList<>(fieldIds)) : null;
             this.contentOffset = contentOffset;
             this.contentSizeInBytes = contentSizeInBytes;
+            this.fileSize = fileSize;
         }
 
         /** A position delete file (content 1): row positions to drop, with optional [lower,upper] bounds. */
         public static DeleteFile positionDelete(String path, TFileFormatType fileFormat,
-                Long positionLowerBound, Long positionUpperBound) {
+                Long positionLowerBound, Long positionUpperBound, long fileSize) {
             return new DeleteFile(path, CONTENT_POSITION_DELETE, fileFormat,
-                    positionLowerBound, positionUpperBound, null, null, null);
+                    positionLowerBound, positionUpperBound, null, null, null, fileSize);
         }
 
         /**
@@ -657,14 +660,16 @@ public class IcebergScanRange implements ConnectorScanRange {
          * bounds (legacy {@code DeletionVector extends PositionDelete}); {@code file_format} stays unset.
          */
         public static DeleteFile deletionVector(String path, Long positionLowerBound, Long positionUpperBound,
-                long contentOffset, long contentSizeInBytes) {
+                long contentOffset, long contentSizeInBytes, long fileSize) {
             return new DeleteFile(path, CONTENT_DELETION_VECTOR, null,
-                    positionLowerBound, positionUpperBound, null, contentOffset, contentSizeInBytes);
+                    positionLowerBound, positionUpperBound, null, contentOffset, contentSizeInBytes, fileSize);
         }
 
         /** An equality delete file (content 2): rows equal on {@code fieldIds} are dropped (BE re-projects). */
-        public static DeleteFile equalityDelete(String path, TFileFormatType fileFormat, List<Integer> fieldIds) {
-            return new DeleteFile(path, CONTENT_EQUALITY_DELETE, fileFormat, null, null, fieldIds, null, null);
+        public static DeleteFile equalityDelete(String path, TFileFormatType fileFormat, List<Integer> fieldIds,
+                long fileSize) {
+            return new DeleteFile(path, CONTENT_EQUALITY_DELETE, fileFormat, null, null,
+                    fieldIds, null, null, fileSize);
         }
 
         int getContent() {
@@ -693,6 +698,7 @@ public class IcebergScanRange implements ConnectorScanRange {
                 desc.setContentSizeInBytes(contentSizeInBytes);
             }
             desc.setContent(content);
+            desc.setFileSize(fileSize);
             return desc;
         }
     }

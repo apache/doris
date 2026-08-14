@@ -93,6 +93,7 @@ Status HdfsFileReader::close() {
 
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* io_ctx) {
+    RETURN_IF_ERROR(_handle->ensure_open());
     auto st = do_read_at_impl(offset, result, bytes_read, io_ctx);
     if (!st.ok()) {
         _handle = nullptr;

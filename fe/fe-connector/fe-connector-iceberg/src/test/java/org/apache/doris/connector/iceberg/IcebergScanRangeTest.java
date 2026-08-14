@@ -191,7 +191,7 @@ public class IcebergScanRangeTest {
         // A position delete (content 1) with parquet format + [lower,upper] bounds. MUTATION: dropping the
         // bounds, wrong content id, or wrong format -> red.
         IcebergScanRange.DeleteFile posDelete = IcebergScanRange.DeleteFile.positionDelete(
-                "s3://b/db/t/pos-delete.parquet", TFileFormatType.FORMAT_PARQUET, 10L, 99L);
+                "s3://b/db/t/pos-delete.parquet", TFileFormatType.FORMAT_PARQUET, 10L, 99L, 100L);
         IcebergScanRange range = new IcebergScanRange.Builder()
                 .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(2)
                 .deleteFiles(Collections.singletonList(posDelete)).build();
@@ -218,7 +218,7 @@ public class IcebergScanRangeTest {
         // No bounds present -> position_lower/upper_bound left UNSET (legacy emits them only when present).
         // MUTATION: defaulting an absent bound to 0 / -1 instead of unset -> red.
         IcebergScanRange.DeleteFile posDelete = IcebergScanRange.DeleteFile.positionDelete(
-                "s3://b/db/t/pos-delete.orc", TFileFormatType.FORMAT_ORC, null, null);
+                "s3://b/db/t/pos-delete.orc", TFileFormatType.FORMAT_ORC, null, null, 100L);
         IcebergScanRange range = new IcebergScanRange.Builder()
                 .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(2)
                 .deleteFiles(Collections.singletonList(posDelete)).build();
@@ -236,9 +236,9 @@ public class IcebergScanRangeTest {
         // A deletion vector (content 3, PUFFIN): blob content_offset/size set, file_format UNSET, bounds
         // carried (it IS a position delete). An equality delete (content 2): field-ids set, no bounds/blob.
         IcebergScanRange.DeleteFile dv = IcebergScanRange.DeleteFile.deletionVector(
-                "s3://b/db/t/dv.puffin", 5L, 42L, 16L, 64L);
+                "s3://b/db/t/dv.puffin", 5L, 42L, 16L, 64L, 100L);
         IcebergScanRange.DeleteFile eq = IcebergScanRange.DeleteFile.equalityDelete(
-                "s3://b/db/t/eq-delete.parquet", TFileFormatType.FORMAT_PARQUET, Arrays.asList(3, 7));
+                "s3://b/db/t/eq-delete.parquet", TFileFormatType.FORMAT_PARQUET, Arrays.asList(3, 7), 100L);
         IcebergScanRange range = new IcebergScanRange.Builder()
                 .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(2)
                 .deleteFiles(Arrays.asList(dv, eq)).build();
@@ -467,11 +467,11 @@ public class IcebergScanRangeTest {
         // rewritten, so they MUST be excluded (mirrors legacy deleteFilesDescByReferencedDataFile). MUTATION:
         // including the equality delete -> the BE would treat equality rows as positions / over-delete.
         IcebergScanRange.DeleteFile dv = IcebergScanRange.DeleteFile.deletionVector(
-                "s3://b/db/t/dv.puffin", 5L, 42L, 16L, 64L);
+                "s3://b/db/t/dv.puffin", 5L, 42L, 16L, 64L, 100L);
         IcebergScanRange.DeleteFile pos = IcebergScanRange.DeleteFile.positionDelete(
-                "s3://b/db/t/pos.parquet", TFileFormatType.FORMAT_PARQUET, 1L, 9L);
+                "s3://b/db/t/pos.parquet", TFileFormatType.FORMAT_PARQUET, 1L, 9L, 100L);
         IcebergScanRange.DeleteFile eq = IcebergScanRange.DeleteFile.equalityDelete(
-                "s3://b/db/t/eq.parquet", TFileFormatType.FORMAT_PARQUET, Arrays.asList(3, 7));
+                "s3://b/db/t/eq.parquet", TFileFormatType.FORMAT_PARQUET, Arrays.asList(3, 7), 100L);
         IcebergScanRange range = new IcebergScanRange.Builder()
                 .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(3)
                 .deleteFiles(Arrays.asList(dv, pos, eq)).build();
@@ -495,10 +495,34 @@ public class IcebergScanRangeTest {
         Assertions.assertTrue(none.rewritableDeleteDescs().isEmpty());
 
         IcebergScanRange.DeleteFile eq = IcebergScanRange.DeleteFile.equalityDelete(
-                "s3://b/db/t/eq.parquet", TFileFormatType.FORMAT_PARQUET, Arrays.asList(3));
+                "s3://b/db/t/eq.parquet", TFileFormatType.FORMAT_PARQUET, Arrays.asList(3), 100L);
         IcebergScanRange onlyEq = new IcebergScanRange.Builder()
                 .path("s3://b/db/t/f.parquet").fileFormat("parquet").formatVersion(3)
                 .deleteFiles(Collections.singletonList(eq)).build();
         Assertions.assertTrue(onlyEq.rewritableDeleteDescs().isEmpty());
+    }
+
+    @Test
+    public void deleteFileToThriftPropagatesFileSize() {
+        // Equality delete
+        IcebergScanRange.DeleteFile eq = IcebergScanRange.DeleteFile.equalityDelete(
+                "s3://b/db/t/eq.parquet", TFileFormatType.FORMAT_PARQUET, Arrays.asList(1), 482L);
+        TIcebergDeleteFileDesc eqDesc = eq.toThrift();
+        Assertions.assertTrue(eqDesc.isSetFileSize());
+        Assertions.assertEquals(482L, eqDesc.getFileSize());
+
+        // Position delete
+        IcebergScanRange.DeleteFile pos = IcebergScanRange.DeleteFile.positionDelete(
+                "s3://b/db/t/pos.parquet", TFileFormatType.FORMAT_PARQUET, 10L, 99L, 735L);
+        TIcebergDeleteFileDesc posDesc = pos.toThrift();
+        Assertions.assertTrue(posDesc.isSetFileSize());
+        Assertions.assertEquals(735L, posDesc.getFileSize());
+
+        // Deletion vector
+        IcebergScanRange.DeleteFile dv = IcebergScanRange.DeleteFile.deletionVector(
+                "s3://b/db/t/dv.puffin", 5L, 42L, 16L, 64L, 1000L);
+        TIcebergDeleteFileDesc dvDesc = dv.toThrift();
+        Assertions.assertTrue(dvDesc.isSetFileSize());
+        Assertions.assertEquals(1000L, dvDesc.getFileSize());
     }
 }
