@@ -15,11 +15,11 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Check a deployed be/lib/java tree against the rules the plugin isolation depends on.
+"""Check a deployed BE plugin tree against the rules the plugin isolation depends on.
 
 Run it on a built output tree:
 
-    tools/be-java-plugins/check_plugin_layout.py [output/be/lib/java]
+    tools/be-java-plugins/check_plugin_layout.py [output/be/lib/jni/spi] [output/be/plugins/jni]
 
 Four checks, each of which has caught a real regression during the plugin migration:
 
@@ -151,7 +151,7 @@ def check_plugin_ships_no_spi(plugin, jars, fail):
         if carried:
             fail("plugin-ships-no-spi",
                  "plugin '%s': %s carries %d SPI class(es), e.g. %s. Declare jni-spi as "
-                 "<scope>provided</scope> so the SPI comes from lib/java/spi instead."
+                 "<scope>provided</scope> so the SPI comes from lib/jni/spi instead."
                  % (plugin, os.path.basename(jar), len(carried), carried[0]))
 
 
@@ -227,12 +227,16 @@ def main(argv):
     if len(argv) > 1 and argv[1] in ("-h", "--help"):
         print(__doc__)
         return 0
-    root = argv[1] if len(argv) > 1 else os.path.join(
-        os.environ.get("DORIS_HOME", "."), "output", "be", "lib", "java")
-    spi_dir, plugins_dir = os.path.join(root, "spi"), os.path.join(root, "plugins")
-    if not os.path.isdir(spi_dir) or not os.path.isdir(plugins_dir):
-        sys.stderr.write("%s does not look like a deployed be/lib/java tree "
-                         "(expected spi/ and plugins/ under it)\n" % root)
+    home = os.environ.get("DORIS_HOME", ".")
+    spi_dir = argv[1] if len(argv) > 1 else os.path.join(
+        home, "output", "be", "lib", "jni", "spi")
+    plugins_dir = argv[2] if len(argv) > 2 else os.path.join(
+        home, "output", "be", "plugins", "jni")
+    if not os.path.isdir(spi_dir):
+        sys.stderr.write("%s is not a deployed spi directory\n" % spi_dir)
+        return 2
+    if not os.path.isdir(plugins_dir):
+        sys.stderr.write("%s is not a deployed plugin family root\n" % plugins_dir)
         return 2
     try:
         subprocess.run(["jdeps", "--version"], stdout=subprocess.DEVNULL,
