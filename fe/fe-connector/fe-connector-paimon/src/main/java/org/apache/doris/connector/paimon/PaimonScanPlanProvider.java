@@ -296,7 +296,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * is a no-op. Package-private static for offline unit testing.
      */
     static String resolveIgnoreSplitType(ConnectorSession session) {
-        if (session == null) {
+        if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return "NONE";
         }
         return session.getSessionProperties().getOrDefault(IGNORE_SPLIT_TYPE, "NONE");
@@ -502,7 +502,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) request.getTableHandle();
-        if (session == null) {
+        if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
                     request.getFilter(), request.getLimit(), request.isCountPushdown());
         }
