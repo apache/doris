@@ -349,7 +349,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -360,7 +359,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Random;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
@@ -987,15 +985,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
                 .getDbNullable(dbName);
         if (db != null) {
+            String skipTable = DebugPointUtil.getDebugParamOrDefault(
+                    "FE.describeTables.skipTable", "value", "");
             for (String tableName : tables) {
                 TableIf table = db.getTableNullableIfException(tableName);
-                if (table != null) {
-                    if (table.isTemporary()) {
-                        // because we return all table names to be,
-                        // so when we skip temporary table, we should add a offset here
-                        tablesOffset.add(columns.size());
-                        continue;
-                    }
+                if (!skipTable.isEmpty() && tableName.equals(skipTable)) {
+                    table = null;
+                }
+                if (table != null && !table.isTemporary()) {
                     table.readLock();
                     try {
                         List<Column> baseSchema = table.getBaseSchemaOrEmpty();
@@ -1021,8 +1018,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     } finally {
                         table.readUnlock();
                     }
-                    tablesOffset.add(columns.size());
                 }
+                // every requested table should have an offset, even if the table is missing,
+                // otherwise the BE can not map columns to the correct table name.
+                tablesOffset.add(columns.size());
             }
         }
         return result;
@@ -4706,7 +4705,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // build partition & tablets
         List<TTabletLocation> tablets = new ArrayList<>();
-        List<TTabletLocation> slaveTablets = new ArrayList<>();
         List<TOlapTablePartition> partitions = Lists.newArrayList();
         Backend requestBackend = request.isSetBeEndpoint() ? resolveBeEndpoint(request.getBeEndpoint()) : null;
         long adaptiveBucketBeId = requestBackend != null ? requestBackend.getId() : -1L;
@@ -4763,12 +4761,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // For thread safety, we preserve the tablet distribution information of each partition
             // before calling getOrSetAutoPartitionInfo, but not check the partition first
             List<TTabletLocation> partitionTablets = new ArrayList<>();
-            List<TTabletLocation> partitionSlaveTablets = new ArrayList<>();
             AtomicLong cachedLoadTabletIdx = new AtomicLong(-1);
             if (needUseCache
                     && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
-                            .getAutoPartitionInfo(txnId, partitionId, partitionTablets,
-                                    partitionSlaveTablets, cachedLoadTabletIdx)) {
+                            .getAutoPartitionInfo(txnId, partitionId, partitionTablets, cachedLoadTabletIdx)) {
                 if (cacheLoadTabletIdx) {
                     tPartition.setLoadTabletIdx(cachedLoadTabletIdx.get());
                 }
@@ -4776,7 +4772,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         enableAdaptiveRandomBucket);
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
-                slaveTablets.addAll(partitionSlaveTablets);
                 continue;
             }
             if (cacheLoadTabletIdx) {
@@ -4792,7 +4787,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
             int quorum = partitionSnapshot.quorum;
-            for (Tablet tablet : partitionSnapshot.tablets) {
+            for (TabletLocationSnapshot tabletSnapshot : partitionSnapshot.tablets) {
+                Tablet tablet = tabletSnapshot.tablet;
                 // we should ensure the replica backend is alive
                 // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 // BE id -> path hash
@@ -4809,6 +4805,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             }
                             bePathsMap = cloudTablet.getNormalReplicaBackendPathMapByClusterId(cachedClusterId);
                         }
+                    } else if (tabletSnapshot.isRowBinlog()) {
+                        bePathsMap = OlapTableSink.getBinlogColocatedReplicaBackendPathMap(
+                                tabletSnapshot.rowBinlogBaseTablet, tablet);
                     } else {
                         bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     }
@@ -4821,25 +4820,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (bePathsMap.keySet().size() < quorum) {
                     LOG.warn("auto go quorum exception");
                 }
-                if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
-                    Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
-                    Random random = new SecureRandom();
-                    Long masterNode = nodes[random.nextInt(nodes.length)];
-                    Multimap<Long, Long> slaveBePathsMap = bePathsMap;
-                    slaveBePathsMap.removeAll(masterNode);
-                    partitionTablets.add(new TTabletLocation(tablet.getId(),
-                            Lists.newArrayList(Sets.newHashSet(masterNode))));
-                    partitionSlaveTablets.add(new TTabletLocation(tablet.getId(),
-                            Lists.newArrayList(slaveBePathsMap.keySet())));
-                } else {
-                    partitionTablets.add(new TTabletLocation(tablet.getId(),
-                            Lists.newArrayList(bePathsMap.keySet())));
-                }
+                partitionTablets.add(tabletSnapshot.createLocation(
+                        Lists.newArrayList(bePathsMap.keySet())));
             }
 
-            // The purpose of this injected code is to simulate tablet rebalance.
-            // Before using this code to write tests, you should ensure that your
-            // configuration is set to single replica.
+            // Simulate tablet location changes between retries for idempotence tests.
             if (mockRebalance) {
                 List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
                 for (TTabletLocation oldTablet : partitionTablets) {
@@ -4861,8 +4846,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (needUseCache) {
                 long loadTabletIdx = cacheLoadTabletIdx ? tPartition.getLoadTabletIdx() : -1;
                 long cachedTabletIdx = Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
-                        .getOrSetAutoPartitionInfo(txnId, partitionId, partitionTablets,
-                                partitionSlaveTablets, loadTabletIdx);
+                        .getOrSetAutoPartitionInfo(txnId, partitionId, partitionTablets, loadTabletIdx);
                 if (cacheLoadTabletIdx) {
                     tPartition.setLoadTabletIdx(cachedTabletIdx);
                 }
@@ -4871,12 +4855,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     enableAdaptiveRandomBucket);
 
             tablets.addAll(partitionTablets);
-            slaveTablets.addAll(partitionSlaveTablets);
         }
 
         result.setPartitions(partitions);
         result.setTablets(tablets);
-        result.setSlaveTablets(slaveTablets);
 
         // build nodes
         List<TNodeInfo> nodeInfos = Lists.newArrayList();
@@ -5100,7 +5082,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // so they won't be changed again. if other transaction changing it. just let it fail.
         List<TOlapTablePartition> partitions = new ArrayList<>();
         List<TTabletLocation> tablets = new ArrayList<>();
-        List<TTabletLocation> slaveTablets = new ArrayList<>();
         // Lazy: resolved on the first CloudTablet that needs it.
         String replaceCachedClusterId = null;
         for (PartitionResultSnapshot partitionSnapshot : partitionSnapshots) {
@@ -5112,13 +5093,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // For thread safety, we preserve the tablet distribution information of each partition
             // before calling getOrSetAutoPartitionInfo, but not check the partition first
             List<TTabletLocation> partitionTablets = new ArrayList<>();
-            List<TTabletLocation> partitionSlaveTablets = new ArrayList<>();
             // tablet
             AtomicLong cachedLoadTabletIdx = new AtomicLong(-1);
             if (needUseCache && txnId != 0
                     && Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
-                            .getAutoPartitionInfo(txnId, partitionId, partitionTablets,
-                                    partitionSlaveTablets, cachedLoadTabletIdx)) {
+                            .getAutoPartitionInfo(txnId, partitionId, partitionTablets, cachedLoadTabletIdx)) {
                 if (cacheLoadTabletIdx) {
                     tPartition.setLoadTabletIdx(cachedLoadTabletIdx.get());
                 }
@@ -5126,7 +5105,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         enableAdaptiveRandomBucket);
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
-                slaveTablets.addAll(partitionSlaveTablets);
                 continue;
             }
             if (cacheLoadTabletIdx) {
@@ -5142,7 +5120,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
             int quorum = partitionSnapshot.quorum;
-            for (Tablet tablet : partitionSnapshot.tablets) {
+            for (TabletLocationSnapshot tabletSnapshot : partitionSnapshot.tablets) {
+                Tablet tablet = tabletSnapshot.tablet;
                 // we should ensure the replica backend is alive
                 // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
                 // BE id -> path hash
@@ -5160,6 +5139,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             bePathsMap = cloudTablet
                                     .getNormalReplicaBackendPathMapByClusterId(replaceCachedClusterId);
                         }
+                    } else if (tabletSnapshot.isRowBinlog()) {
+                        bePathsMap = OlapTableSink.getBinlogColocatedReplicaBackendPathMap(
+                                tabletSnapshot.rowBinlogBaseTablet, tablet);
                     } else {
                         bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     }
@@ -5172,25 +5154,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (bePathsMap.keySet().size() < quorum) {
                     LOG.warn("auto go quorum exception");
                 }
-                if (request.isSetWriteSingleReplica() && request.isWriteSingleReplica()) {
-                    Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
-                    Random random = new SecureRandom();
-                    Long masterNode = nodes[random.nextInt(nodes.length)];
-                    Multimap<Long, Long> slaveBePathsMap = bePathsMap;
-                    slaveBePathsMap.removeAll(masterNode);
-                    partitionTablets.add(new TTabletLocation(tablet.getId(),
-                            Lists.newArrayList(Sets.newHashSet(masterNode))));
-                    partitionSlaveTablets.add(new TTabletLocation(tablet.getId(),
-                            Lists.newArrayList(slaveBePathsMap.keySet())));
-                } else {
-                    partitionTablets.add(new TTabletLocation(tablet.getId(),
-                            Lists.newArrayList(bePathsMap.keySet())));
-                }
+                partitionTablets.add(tabletSnapshot.createLocation(
+                        Lists.newArrayList(bePathsMap.keySet())));
             }
 
-            // The purpose of this injected code is to simulate tablet rebalance.
-            // Before using this code to write tests, you should ensure that your
-            // configuration is set to single replica.
+            // Simulate tablet location changes between retries for idempotence tests.
             if (mockRebalance) {
                 List<Long> allBeIds = Env.getCurrentSystemInfo().getAllBackendIds(false);
                 for (TTabletLocation oldTablet : partitionTablets) {
@@ -5216,27 +5184,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (needUseCache) {
                 long loadTabletIdx = cacheLoadTabletIdx ? tPartition.getLoadTabletIdx() : -1;
                 long cachedTabletIdx = Env.getCurrentGlobalTransactionMgr().getAutoPartitionCacheMgr()
-                        .getOrSetAutoPartitionInfo(txnId, partitionId, partitionTablets,
-                                partitionSlaveTablets, loadTabletIdx);
+                        .getOrSetAutoPartitionInfo(txnId, partitionId, partitionTablets, loadTabletIdx);
                 if (cacheLoadTabletIdx) {
                     tPartition.setLoadTabletIdx(cachedTabletIdx);
                 }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Cache auto partition info, txnId: {}, partitionId: {}, "
-                            + "tablets: {}, slaveTablets: {}", txnId, partitionId,
-                            partitionTablets.size(), partitionSlaveTablets.size());
+                            + "tablets: {}", txnId, partitionId, partitionTablets.size());
                 }
             }
             assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, tableId, queryId,
                     enableAdaptiveRandomBucket);
 
             tablets.addAll(partitionTablets);
-            slaveTablets.addAll(partitionSlaveTablets);
         }
 
         result.setPartitions(partitions);
         result.setTablets(tablets);
-        result.setSlaveTablets(slaveTablets);
 
         // build nodes
         List<TNodeInfo> nodeInfos = Lists.newArrayList();
@@ -5259,18 +5223,41 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         private final Partition partition;
         private final long partitionId;
         private final TOlapTablePartition tPartition;
-        private final List<Tablet> tablets;
+        private final List<TabletLocationSnapshot> tablets;
         private final int quorum;
         private final boolean cacheLoadTabletIdx;
 
         private PartitionResultSnapshot(Partition partition, long partitionId,
-                TOlapTablePartition tPartition, List<Tablet> tablets, int quorum, boolean cacheLoadTabletIdx) {
+                TOlapTablePartition tPartition, List<TabletLocationSnapshot> tablets, int quorum,
+                boolean cacheLoadTabletIdx) {
             this.partition = partition;
             this.partitionId = partitionId;
             this.tPartition = tPartition;
             this.tablets = tablets;
             this.quorum = quorum;
             this.cacheLoadTabletIdx = cacheLoadTabletIdx;
+        }
+    }
+
+    private static final class TabletLocationSnapshot {
+        private final Tablet tablet;
+        private final Tablet rowBinlogBaseTablet;
+
+        private TabletLocationSnapshot(Tablet tablet, Tablet rowBinlogBaseTablet) {
+            this.tablet = tablet;
+            this.rowBinlogBaseTablet = rowBinlogBaseTablet;
+        }
+
+        private boolean isRowBinlog() {
+            return rowBinlogBaseTablet != null;
+        }
+
+        private TTabletLocation createLocation(List<Long> nodeIds) {
+            TTabletLocation location = new TTabletLocation(tablet.getId(), nodeIds);
+            if (isRowBinlog()) {
+                location.setBaseTabletId(rowBinlogBaseTablet.getId());
+            }
+            return location;
         }
     }
 
@@ -5326,13 +5313,26 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TOlapTablePartition tPartition = new TOlapTablePartition();
         tPartition.setId(partitionId);
         OlapTableSink.setPartitionKeys(tPartition, partitionItem, partColNum);
-        List<Tablet> partitionTabletSnapshot = new ArrayList<>();
+        List<TabletLocationSnapshot> partitionTabletSnapshot = new ArrayList<>();
         for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true)) {
             List<Tablet> indexTablets = new ArrayList<>(index.getTablets());
-            tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
-                    indexTablets.stream().map(Tablet::getId).collect(Collectors.toList()))));
-            tPartition.setNumBuckets(indexTablets.size());
-            partitionTabletSnapshot.addAll(indexTablets);
+            if (index.isRowBinlog()) {
+                for (Tablet tablet : indexTablets) {
+                    long baseTabletId = tablet.getRowBinlogBaseTabletId();
+                    Tablet baseTablet = partition.getBaseIndex().getTablet(baseTabletId);
+                    Preconditions.checkNotNull(baseTablet,
+                            "row binlog tablet %s's base tablet %s can not be found in partition %s",
+                            tablet.getId(), baseTabletId, partitionId);
+                    partitionTabletSnapshot.add(new TabletLocationSnapshot(tablet, baseTablet));
+                }
+            } else {
+                tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
+                        indexTablets.stream().map(Tablet::getId).collect(Collectors.toList()))));
+                tPartition.setNumBuckets(indexTablets.size());
+                for (Tablet tablet : indexTablets) {
+                    partitionTabletSnapshot.add(new TabletLocationSnapshot(tablet, null));
+                }
+            }
         }
         tPartition.setIsMutable(partitionInfo.getIsMutable(partitionId));
         boolean randomDistribution =

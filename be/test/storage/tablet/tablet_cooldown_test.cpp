@@ -366,7 +366,7 @@ static void write_rowset(TabletSharedPtr* tablet, PUniqueId load_id, int64_t rep
     ASSERT_EQ(Status::OK(), st);
     st = delta_writer->build_rowset();
     ASSERT_EQ(Status::OK(), st);
-    st = delta_writer->commit_txn(PSlaveTabletNodes());
+    st = delta_writer->commit_txn();
     ASSERT_EQ(Status::OK(), st);
 
     // publish version success

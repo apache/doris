@@ -41,6 +41,8 @@ import java.util.Map;
  *   <li>OAuth2 credential/token mutually exclusive (ParamRules)</li>
  *   <li>signing-name=glue requires signing-region + sigv4-enabled (ParamRules)</li>
  *   <li>signing-name=s3tables requires signing-region + sigv4-enabled (ParamRules)</li>
+ *   <li>signing-name=osstables requires signing-region + sigv4-enabled (ParamRules)</li>
+ *   <li>managed signing names require sigv4-enabled=true (ParamRules)</li>
  *   <li>access-key-id + secret-access-key set together (ParamRules)</li>
  * </ol>
  * No uri/warehouse requirement. The {@code Security}/{@code AwsCredentialsProviderMode} enum checks are
@@ -121,7 +123,7 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
     private String signingRegion = "";
 
     @ConnectorProperty(names = {"iceberg.rest.sigv4-enabled"}, required = false,
-            description = "True for Glue/S3Tables Rest Catalog.")
+            description = "True for Glue/S3Tables/OSS Tables Rest Catalog.")
     private String sigV4Enabled = "";
 
     @ConnectorProperty(names = {"iceberg.rest.access-key-id"}, required = false,
@@ -242,6 +244,13 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
         return sigV4Enabled;
     }
 
+    /** Whether REST signing reuses the selected S3-compatible storage credentials. */
+    public boolean usesS3CredentialsForRestSigning() {
+        return "glue".equals(signingName)
+                || "s3tables".equals(signingName)
+                || "osstables".equals(signingName);
+    }
+
     public String getAccessKeyId() {
         return accessKeyId;
     }
@@ -307,11 +316,15 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
                 throw new IllegalArgumentException("OAuth2 requires either credential or token");
             }
         }
-        // When signing-name is glue or s3tables: require signing-region and sigv4-enabled (registered).
+        // SigV4-backed REST catalogs require a signing region and SigV4 to be enabled (registered).
         rules.requireIf(signingName, "glue", new String[] {signingRegion, sigV4Enabled},
                 "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is glue");
         rules.requireIf(signingName, "s3tables", new String[] {signingRegion, sigV4Enabled},
                 "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is s3tables");
+        rules.requireIf(signingName, "osstables", new String[] {signingRegion, sigV4Enabled},
+                "Rest Catalog requires signing-region and sigv4-enabled set to true when signing-name is osstables");
+        rules.check(() -> usesS3CredentialsForRestSigning() && !"true".equalsIgnoreCase(sigV4Enabled),
+                "Rest Catalog requires sigv4-enabled set to true when signing-name is " + signingName);
         // AWS assume-role properties are not supported for the Iceberg REST catalog (eager).
         rejectUnsupportedAwsAssumeRoleProperty(ICEBERG_REST_ROLE_ARN);
         rejectUnsupportedAwsAssumeRoleProperty(ICEBERG_REST_EXTERNAL_ID);

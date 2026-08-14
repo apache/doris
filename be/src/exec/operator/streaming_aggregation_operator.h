@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "exec/common/agg_utils.h"
 #include "exec/operator/operator.h"
 #include "runtime/runtime_profile.h"
 

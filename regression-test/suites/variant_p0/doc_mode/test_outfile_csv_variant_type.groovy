@@ -22,6 +22,7 @@ import java.nio.file.Files
 import java.nio.file.Paths
 
 suite("outfile_csv_variant_doc_value", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     // open nereids
     sql """ set enable_nereids_planner=true """
     sql """ set enable_fallback_to_original_planner=false """
@@ -79,13 +80,13 @@ suite("outfile_csv_variant_doc_value", "p0") {
 
 
         // insert data
-        sql """ insert into ${export_table_name} values (1, 'doris1', '[9, 99, 999]'), (2, 'doris2', '[8, 88]'); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', '{"a" : 123}'); """
+        sql """ insert into ${export_table_name} values (1, 'doris1', ${variantV2Function}('[9, 99, 999]')), (2, 'doris2', ${variantV2Function}('[8, 88]')); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', ${variantV2Function}('{"a" : 123}')); """
         sql """ insert into ${export_table_name} values (4, 'doris4', null); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', '[1, null, 2]'); """
-        sql """ insert into ${export_table_name} values (6, 'doris6', '{"aaaa" : "111111"}'); """
-        sql """ insert into ${export_table_name} values (7, 'doris7', '{"bbbb" : 1.1111}'); """
-        sql """ insert into ${export_table_name} values (8, 'doris8', '{"xxx" : [111.11]}'); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', ${variantV2Function}('[1, null, 2]')); """
+        sql """ insert into ${export_table_name} values (6, 'doris6', ${variantV2Function}('{"aaaa" : "111111"}')); """
+        sql """ insert into ${export_table_name} values (7, 'doris7', ${variantV2Function}('{"bbbb" : 1.1111}')); """
+        sql """ insert into ${export_table_name} values (8, 'doris8', ${variantV2Function}('{"xxx" : [111.11]}')); """
 
 
         // test base data
@@ -116,12 +117,12 @@ suite("outfile_csv_variant_doc_value", "p0") {
 
         // insert data
         // insert data
-        sql """ insert into ${export_table_name} values (1, 'doris1', '[9, 99, 999]'), (2, 'doris2', '[8, 88]'); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', '{"a" : 123}'); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', '[1, null, 2]'); """
-        sql """ insert into ${export_table_name} values (6, 'doris6', '{"aaaa" : "111111"}'); """
-        sql """ insert into ${export_table_name} values (7, 'doris7', '{"bbbb" : 1.1111}'); """
-        sql """ insert into ${export_table_name} values (8, 'doris8', '{"xxx" : [111.11]}'); """
+        sql """ insert into ${export_table_name} values (1, 'doris1', ${variantV2Function}('[9, 99, 999]')), (2, 'doris2', ${variantV2Function}('[8, 88]')); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', ${variantV2Function}('{"a" : 123}')); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', ${variantV2Function}('[1, null, 2]')); """
+        sql """ insert into ${export_table_name} values (6, 'doris6', ${variantV2Function}('{"aaaa" : "111111"}')); """
+        sql """ insert into ${export_table_name} values (7, 'doris7', ${variantV2Function}('{"bbbb" : 1.1111}')); """
+        sql """ insert into ${export_table_name} values (8, 'doris8', ${variantV2Function}('{"xxx" : [111.11]}')); """
 
         // test base data
         qt_select_base2 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """

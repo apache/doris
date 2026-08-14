@@ -45,10 +45,13 @@ endif ()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     set (OS_LINUX 1)
-    add_definitions(-D OS_LINUX)
+    # No space after -D: "-D OS_LINUX" becomes two argv entries in some
+    # generators, and the dangling "-D" then swallows the next flag
+    # (doris_be_test lost its -fno-access-control this way).
+    add_definitions(-DOS_LINUX)
 elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     set (OS_MACOSX 1)
-    add_definitions(-D OS_MACOSX)
+    add_definitions(-DOS_MACOSX)
 endif ()
 
 if (OS_MACOSX)
@@ -773,7 +776,18 @@ endif ()
 
 # Add sanitize static link flags
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
+    if (OS_MACOSX AND ARCH_ARM AND (MAKE_TEST OR BUILD_BENCHMARK))
+        # doris_be_test's and benchmark_test's .text exceeds arm64's +/-128MB
+        # BL reach (BE_TEST/BE_BENCHMARK macros inflate it further) and Apple's
+        # linker emits no branch islands for tcmalloc's prebuilt archive
+        # ("fixup error ... B/BL out of range"). Tests and benchmarks don't
+        # need a custom allocator; fall back to system malloc here. ASAN
+        # builds never linked ${MALLOCLIB} anyway, which is why they never
+        # hit this. gperftools_stubs.cpp supplies the few symbols still
+        # referenced unconditionally.
+    else()
+        set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
+    endif()
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN" OR "${CMAKE_BUILD_TYPE}" STREQUAL "ASAN_UT")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${ASAN_LIBS})
     if (OS_LINUX)
@@ -1031,7 +1045,10 @@ if (BUILD_BENCHMARK)
     if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "RELEASE")
         message(FATAL_ERROR "Benchmark should be built with RELEASE build type, current build type is ${CMAKE_BUILD_TYPE}")
     endif()
-    add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp)
+    add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp
+        # No-ops everywhere except macOS/arm64, where benchmark_test links
+        # without tcmalloc (see the MALLOCLIB branch above).
+        ${BASE_DIR}/test/testutil/gperftools_stubs.cpp)
     set_target_properties(benchmark_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
     target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
     message(STATUS "Add benchmark to build")

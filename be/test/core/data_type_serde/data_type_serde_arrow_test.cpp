@@ -397,14 +397,31 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
             block->insert(std::move(type_and_name));
         } break;
         case TYPE_LARGEINT: {
-            auto vec = ColumnInt128::create();
-            auto& data = vec->get_data();
-            for (int i = 0; i < row_num; ++i) {
-                data.push_back(__int128_t(i));
+            if (is_nullable) {
+                auto column_int128 = ColumnInt128::create();
+                auto column_nullable = make_nullable(std::move(column_int128));
+                auto mutable_nullable = std::move(*column_nullable).mutate();
+                for (int i = 0; i < row_num; ++i) {
+                    if (i % 2 == 0) {
+                        mutable_nullable->insert_default();
+                    } else {
+                        mutable_nullable->insert(Field::create_field<TYPE_LARGEINT>(__int128_t(i)));
+                    }
+                }
+                auto data_type = make_nullable(std::make_shared<DataTypeInt128>());
+                ColumnWithTypeAndName type_and_name(mutable_nullable->get_ptr(), data_type,
+                                                    col_name);
+                block->insert(std::move(type_and_name));
+            } else {
+                auto vec = ColumnInt128::create();
+                auto& data = vec->get_data();
+                for (int i = 0; i < row_num; ++i) {
+                    data.push_back(__int128_t(i));
+                }
+                DataTypePtr data_type(std::make_shared<DataTypeInt128>());
+                ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+                block->insert(std::move(type_and_name));
             }
-            DataTypePtr data_type(std::make_shared<DataTypeInt128>());
-            ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
-            block->insert(std::move(type_and_name));
         } break;
         default:
             LOG(FATAL) << "error column type";

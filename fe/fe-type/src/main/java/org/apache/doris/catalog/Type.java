@@ -454,6 +454,26 @@ public abstract class Type {
         return false;
     }
 
+    /** Whether this type or a nested complex type contains Variant. */
+    public boolean typeContainsVariant() {
+        if (isVariantType()) {
+            return true;
+        } else if (isStructType()) {
+            return ((StructType) this).getFields().stream()
+                    .anyMatch(field -> field.getType().typeContainsVariant());
+        } else if (isMapType()) {
+            MapType mapType = (MapType) this;
+            return mapType.getKeyType().typeContainsVariant()
+                    || mapType.getValueType().typeContainsVariant();
+        } else if (isArrayType()) {
+            return ((ArrayType) this).getItemType().typeContainsVariant();
+        } else if (isAggStateType()) {
+            return ((AggStateType) this).getSubTypes().stream()
+                    .anyMatch(Type::typeContainsVariant);
+        }
+        return false;
+    }
+
     public String hideVersionForVersionColumn(Boolean isToSql) {
         return hideVersionForVersionColumn(isToSql, false);
     }
@@ -924,7 +944,8 @@ public abstract class Type {
     public static List<TTypeDesc> toThrift(ArrayList<Type> types, ArrayList<Type> realTypes) {
         ArrayList<TTypeDesc> result = Lists.newArrayList();
         for (int i = 0; i < types.size(); i++) {
-            if (PrimitiveType.typeWithPrecision.contains(realTypes.get(i).getPrimitiveType())) {
+            if (PrimitiveType.typeWithPrecision.contains(realTypes.get(i).getPrimitiveType())
+                    || realTypes.get(i).typeContainsVariant()) {
                 result.add(realTypes.get(i).toThrift());
             } else {
                 result.add(types.get(i).toThrift());
@@ -1197,8 +1218,7 @@ public abstract class Type {
                 VariantType variant1 = (VariantType) type1;
                 VariantType variant2 = (VariantType) type2;
                 if (variant1.getVariantMaxSubcolumnsCount() != variant2.getVariantMaxSubcolumnsCount()
-                        || variant1.getEnableVariantDocMode() != variant2.getEnableVariantDocMode()
-                        || variant1.isComputeV2() != variant2.isComputeV2()) {
+                        || variant1.getEnableVariantDocMode() != variant2.getEnableVariantDocMode()) {
                     return false;
                 }
                 ArrayList<VariantField> fields1 = variant1.getPredefinedFields();

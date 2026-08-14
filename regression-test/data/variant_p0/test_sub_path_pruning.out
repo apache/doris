@@ -246,7 +246,7 @@
 
 -- !sql --
 \N
-
+\N
 
 -- !sql --
 0	1
@@ -260,9 +260,9 @@
 1
 1
 
--- !sql --
-
-
+-- !const_nested_subpath_v1 --
+true
+true
 
 -- !sql --
 

@@ -435,6 +435,9 @@ public:
                           const CompactSnapshotRequest* request, CompactSnapshotResponse* response,
                           ::google::protobuf::Closure* done) override;
 
+    std::pair<MetaServiceCode, std::string> check_instance_recycle_completed(
+            const std::string& instance_id, bool& finished, std::string& reason);
+
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
