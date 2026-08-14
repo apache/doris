@@ -33,8 +33,9 @@ function json(data: unknown) {
   });
 }
 
-function renderPage(path: string, page: ReactNode) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderPage(path: string, page: ReactNode, client = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+})) {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
@@ -91,5 +92,21 @@ describe('M9 operational pages', () => {
     expect(screen.getByText('analyst')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+  });
+
+  it('refetches Sessions on entry even when a fresh empty result is cached', async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 15_000 } },
+    });
+    client.setQueryData(['operations', 'sessions'], { columnNames: ['Id'], rows: [] });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(json({
+      column_names: ['Id', 'User'],
+      rows: [{ Id: '7', User: 'root' }],
+    }));
+
+    renderPage('/sessions', <SessionsPage />, client);
+
+    await screen.findByText('root');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

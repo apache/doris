@@ -17,6 +17,8 @@
 
 package org.apache.doris.httpv2.websql;
 
+import org.apache.doris.common.Config;
+
 import com.google.common.collect.Lists;
 
 import java.nio.charset.StandardCharsets;
@@ -31,11 +33,23 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.LongSupplier;
 
 /** Executes one validated statement on an existing Web SQL connection and builds a bounded JSON result. */
 public class WebSqlStatementExecutor {
+    private final LongSupplier maxResultBytesSupplier;
+
+    public WebSqlStatementExecutor() {
+        this(() -> Config.web_sql_max_result_bytes);
+    }
+
+    WebSqlStatementExecutor(LongSupplier maxResultBytesSupplier) {
+        this.maxResultBytesSupplier = maxResultBytesSupplier;
+    }
+
     public WebSqlExecutionResult execute(WebSqlSession session, String sql, WebSqlLimits limits) {
         String validatedSql = SingleStatementValidator.requireSingleStatement(sql);
+        long maxResultBytes = currentMaxResultBytes();
         Connection connection = session.getConnection();
         long startTime = System.currentTimeMillis();
         QueryResult queryResult;
@@ -47,7 +61,7 @@ public class WebSqlStatementExecutor {
             boolean hasResultSet = statement.execute(validatedSql);
             if (hasResultSet) {
                 try (ResultSet resultSet = statement.getResultSet()) {
-                    queryResult = readResultSet(resultSet, limits);
+                    queryResult = readResultSet(resultSet, limits.maxResultRows, maxResultBytes);
                 }
             } else {
                 queryResult = new QueryResult(Collections.emptyList(), Collections.emptyList(),
@@ -68,7 +82,8 @@ public class WebSqlStatementExecutor {
                 metadata.catalog, metadata.database, queryResult.truncated);
     }
 
-    private QueryResult readResultSet(ResultSet resultSet, WebSqlLimits limits) throws SQLException {
+    private QueryResult readResultSet(ResultSet resultSet, int maxResultRows, long maxResultBytes)
+            throws SQLException {
         ResultSetMetaData metadata = resultSet.getMetaData();
         int columnCount = metadata.getColumnCount();
         List<WebSqlColumn> columns = Lists.newArrayListWithCapacity(columnCount);
@@ -80,7 +95,7 @@ public class WebSqlStatementExecutor {
         long resultBytes = 0;
         boolean truncated = false;
         while (resultSet.next()) {
-            if (rows.size() >= limits.maxResultRows) {
+            if (rows.size() >= maxResultRows) {
                 truncated = true;
                 break;
             }
@@ -92,7 +107,7 @@ public class WebSqlStatementExecutor {
                 row.add(value);
                 rowBytes += valueSize(value);
             }
-            if (resultBytes + rowBytes > limits.maxResultBytes) {
+            if (resultBytes + rowBytes > maxResultBytes) {
                 truncated = true;
                 break;
             }
@@ -100,6 +115,14 @@ public class WebSqlStatementExecutor {
             resultBytes += rowBytes;
         }
         return new QueryResult(columns, rows, 0, truncated);
+    }
+
+    long currentMaxResultBytes() {
+        long value = maxResultBytesSupplier.getAsLong();
+        if (value <= 0 || value > Config.WEB_SQL_MAX_RESULT_BYTES_UPPER_BOUND) {
+            throw new IllegalStateException("Invalid web_sql_max_result_bytes: " + value);
+        }
+        return value;
     }
 
     private boolean isDateType(String type) {

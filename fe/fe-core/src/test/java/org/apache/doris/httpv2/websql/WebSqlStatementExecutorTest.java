@@ -28,6 +28,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class WebSqlStatementExecutorTest {
     @Test
@@ -50,8 +51,8 @@ public class WebSqlStatementExecutorTest {
         Mockito.when(resultSet.getObject(1)).thenReturn("small", "this row exceeds the byte budget");
         WebSqlSession session = new WebSqlSession("id", "alice", connection, 0);
 
-        WebSqlExecutionResult result = new WebSqlStatementExecutor().execute(
-                session, "SELECT value", limits(20));
+        WebSqlExecutionResult result = new WebSqlStatementExecutor(() -> 20).execute(
+                session, "SELECT value", limits());
 
         Assertions.assertEquals(1, result.getColumns().size());
         Assertions.assertEquals(Collections.singletonList("small"), result.getRows().get(0));
@@ -75,7 +76,7 @@ public class WebSqlStatementExecutorTest {
         Mockito.when(statement.getUpdateCount()).thenReturn(0);
         activeSession = new WebSqlSession("id", "alice", connection, 0);
 
-        new WebSqlStatementExecutor().execute(activeSession, "USE tpcds", limits(100));
+        new WebSqlStatementExecutor().execute(activeSession, "USE tpcds", limits());
 
         Assertions.assertFalse(activeSession.cancel());
         Mockito.verify(statement).cancel();
@@ -93,7 +94,7 @@ public class WebSqlStatementExecutorTest {
         WebSqlSession session = new WebSqlSession("id", "alice", connection, 0);
 
         WebSqlException exception = Assertions.assertThrows(WebSqlException.class,
-                () -> new WebSqlStatementExecutor().execute(session, "SELECT * FROM missing", limits(100)));
+                () -> new WebSqlStatementExecutor().execute(session, "SELECT * FROM missing", limits()));
 
         Assertions.assertEquals(WebSqlError.QUERY_ERROR, exception.getError());
         Assertions.assertFalse(exception.getMessage().contains("secret_table"));
@@ -103,9 +104,19 @@ public class WebSqlStatementExecutorTest {
         Assertions.assertEquals(2, details.get("vendorCode"));
     }
 
+    @Test
+    void readsTheCurrentByteLimitForEachStatement() {
+        AtomicLong configuredLimit = new AtomicLong(32);
+        WebSqlStatementExecutor executor = new WebSqlStatementExecutor(configuredLimit::get);
+
+        Assertions.assertEquals(32, executor.currentMaxResultBytes());
+        configuredLimit.set(128);
+        Assertions.assertEquals(128, executor.currentMaxResultBytes());
+    }
+
     private WebSqlSession activeSession;
 
-    private WebSqlLimits limits(long bytes) {
-        return new WebSqlLimits(true, 1000, 5, 5, 10, bytes, 0, 1, 60);
+    private WebSqlLimits limits() {
+        return new WebSqlLimits(true, 1000, 5, 5, 10, 0, 1, 60);
     }
 }

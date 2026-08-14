@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.websql;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -43,6 +44,12 @@ public class WebSqlSessionController {
         WebSqlRequestContext.Authentication login = WebSqlRequestContext.authentication(request);
         WebSqlSession session = manager.createSession(login.getOwner(), login.getPassword());
         return new WebSqlSessionInfo(session);
+    }
+
+    @GetMapping("/{id}")
+    public WebSqlSessionInfo get(@PathVariable("id") String id, HttpServletRequest request) {
+        WebSqlRequestContext.Authentication login = WebSqlRequestContext.authentication(request);
+        return new WebSqlSessionInfo(manager.getSession(id, login.getOwner()));
     }
 
     @PostMapping("/{id}/statements")

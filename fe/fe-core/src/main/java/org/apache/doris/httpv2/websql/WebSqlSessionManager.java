@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.websql;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 
 import com.google.common.cache.Cache;
@@ -61,22 +62,30 @@ public class WebSqlSessionManager implements DisposableBean {
     private final WebSqlStatementExecutor statementExecutor;
     private final WebSqlLimits limits;
     private final LongSupplier clock;
+    private final boolean useRuntimeConfig;
     private final String frontendHint;
     private final ScheduledExecutorService cleaner;
 
     public WebSqlSessionManager() {
         this(new JdbcWebSqlConnectionFactory(), new WebSqlStatementExecutor(), WebSqlLimits.fromConfig(),
-                System::currentTimeMillis, true);
+                System::currentTimeMillis, true, true);
     }
 
     WebSqlSessionManager(WebSqlConnectionFactory connectionFactory, WebSqlStatementExecutor statementExecutor,
             WebSqlLimits limits, LongSupplier clock, boolean startCleaner) {
+        this(connectionFactory, statementExecutor, limits, clock, startCleaner, false);
+    }
+
+    private WebSqlSessionManager(WebSqlConnectionFactory connectionFactory,
+            WebSqlStatementExecutor statementExecutor, WebSqlLimits limits, LongSupplier clock,
+            boolean startCleaner, boolean useRuntimeConfig) {
         this.connectionFactory = connectionFactory;
         this.statementExecutor = statementExecutor;
         this.limits = limits;
         this.clock = clock;
+        this.useRuntimeConfig = useRuntimeConfig;
         this.frontendHint = randomToken(6);
-        if (startCleaner) {
+        if (startCleaner && (useRuntimeConfig ? Config.enable_web_ui : limits.enabled)) {
             cleaner = ThreadPoolManager.newDaemonScheduledThreadPool(1, "web-sql-session-cleaner", true);
             cleaner.scheduleWithFixedDelay(this::cleanupExpiredSafely, limits.cleanupIntervalSeconds,
                     limits.cleanupIntervalSeconds, TimeUnit.SECONDS);
@@ -88,8 +97,10 @@ public class WebSqlSessionManager implements DisposableBean {
     public WebSqlSession createSession(String owner, String password) {
         requireEnabled();
         synchronized (lifecycleLock) {
-            if (sessions.size() >= limits.maxSessions
-                    || sessionsPerOwner.getOrDefault(owner, 0) >= limits.maxSessionsPerUser) {
+            int maxSessions = currentMaxSessions();
+            int maxSessionsPerUser = Math.min(maxSessions, limits.maxSessionsPerUser);
+            if (sessions.size() >= maxSessions
+                    || sessionsPerOwner.getOrDefault(owner, 0) >= maxSessionsPerUser) {
                 throw new WebSqlException(WebSqlError.SESSION_LIMIT_EXCEEDED);
             }
             Connection connection;
@@ -104,6 +115,12 @@ public class WebSqlSessionManager implements DisposableBean {
             sessionsPerOwner.merge(owner, 1, Integer::sum);
             return session;
         }
+    }
+
+    /** Returns an existing owner-scoped session after applying the normal enabled, ID, and expiry checks. */
+    public WebSqlSession getSession(String id, String owner) {
+        requireEnabled();
+        return requireOwnedSession(id, owner);
     }
 
     public WebSqlExecutionResult execute(String id, String owner, String sql) {
@@ -187,12 +204,13 @@ public class WebSqlSessionManager implements DisposableBean {
 
     public int cleanupExpired() {
         long now = clock.getAsLong();
+        long idleTimeoutMillis = currentIdleTimeoutMillis();
         List<WebSqlSession> expired = new ArrayList<>();
         for (WebSqlSession session : sessions.values()) {
-            if (now - session.getLastAccessMillis() >= limits.idleTimeoutMillis
+            if (now - session.getLastAccessMillis() >= idleTimeoutMillis
                     && session.tryEnterForCleanup()) {
                 try {
-                    if (now - session.getLastAccessMillis() >= limits.idleTimeoutMillis) {
+                    if (now - session.getLastAccessMillis() >= idleTimeoutMillis) {
                         expired.add(session);
                         unregister(session, true);
                         closeConnection(session);
@@ -240,10 +258,11 @@ public class WebSqlSessionManager implements DisposableBean {
             throw new WebSqlException(WebSqlError.SESSION_NOT_FOUND);
         }
         verifyOwner(session, owner);
-        if (clock.getAsLong() - session.getLastAccessMillis() >= limits.idleTimeoutMillis) {
+        long idleTimeoutMillis = currentIdleTimeoutMillis();
+        if (clock.getAsLong() - session.getLastAccessMillis() >= idleTimeoutMillis) {
             if (session.tryEnterForCleanup()) {
                 try {
-                    if (clock.getAsLong() - session.getLastAccessMillis() >= limits.idleTimeoutMillis) {
+                    if (clock.getAsLong() - session.getLastAccessMillis() >= idleTimeoutMillis) {
                         unregister(session, true);
                         closeConnection(session);
                         throw new WebSqlException(WebSqlError.SESSION_EXPIRED);
@@ -263,9 +282,17 @@ public class WebSqlSessionManager implements DisposableBean {
     }
 
     private void requireEnabled() {
-        if (!limits.enabled) {
+        if (!(useRuntimeConfig ? Config.enable_web_ui && Config.enable_web_sql_session : limits.enabled)) {
             throw new WebSqlException(WebSqlError.DISABLED);
         }
+    }
+
+    private long currentIdleTimeoutMillis() {
+        return useRuntimeConfig ? Config.web_sql_session_idle_timeout_seconds * 1000L : limits.idleTimeoutMillis;
+    }
+
+    private int currentMaxSessions() {
+        return useRuntimeConfig ? Config.web_sql_max_sessions : limits.maxSessions;
     }
 
     private void requireValidSessionId(String id) {

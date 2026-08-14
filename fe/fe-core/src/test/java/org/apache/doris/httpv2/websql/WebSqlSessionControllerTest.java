@@ -76,6 +76,17 @@ public class WebSqlSessionControllerTest {
         Mockito.verify(manager).closeSession("session-1", owner);
     }
 
+    @Test
+    void getValidatesAndReturnsTheAuthenticatedOwnersSession() {
+        WebSqlSession session = session("session-1");
+        Mockito.when(manager.getSession("session-1", owner)).thenReturn(session);
+
+        WebSqlSessionInfo response = controller.get("session-1", request);
+
+        Assertions.assertEquals("session-1", response.getSessionId());
+        Mockito.verify(manager).getSession("session-1", owner);
+    }
+
     private WebSqlSession session(String id) {
         return new WebSqlSession(id, owner, Mockito.mock(Connection.class), 10);
     }

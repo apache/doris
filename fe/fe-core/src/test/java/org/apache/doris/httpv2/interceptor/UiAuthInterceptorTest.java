@@ -119,6 +119,19 @@ class UiAuthInterceptorTest {
                 request("PATCH", session.csrfToken), response, new Object()));
     }
 
+    @Test
+    void protectsConfigurationMutationsWithTheUiCookieCsrfToken() {
+        AuthInterceptor interceptor = interceptorReturning(session);
+        String path = "/rest/v2/manager/node/set_config/fe";
+
+        UiApiException missing = Assertions.assertThrows(
+                UiApiException.class,
+                () -> interceptor.preHandle(request("POST", null, path), response, new Object()));
+        Assertions.assertEquals("UI_CSRF_INVALID", missing.getCode());
+        Assertions.assertTrue(interceptor.preHandle(
+                request("POST", session.csrfToken, path), response, new Object()));
+    }
+
     private HttpServletRequest request(String method, String csrfToken) {
         return request(method, csrfToken, "/rest/v1/ui/me");
     }

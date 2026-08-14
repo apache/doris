@@ -46,6 +46,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -69,7 +70,11 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -327,8 +332,9 @@ public class NodeAction extends RestBaseController {
             @RequestBody(required = false) ConfigInfoRequestBody requestBody) {
         // Reads FE/BE config via fan-out to the per-node config endpoints, so it must be
         // ADMIN-gated too. Unconditional check (see config() above for why checkAdminAuth is not).
-        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
-        checkGlobalAuth(authInfo.userIdentity, PrivPredicate.ADMIN);
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, true);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        String authorization = resolveAuthorization(request.getHeader(AUTHORIZATION), authInfo);
 
         initHttpExecutor();
 
@@ -344,7 +350,7 @@ public class NodeAction extends RestBaseController {
             }
 
             List<Map.Entry<String, Integer>> errNodes = Lists.newArrayList();
-            List<List<String>> data = handleConfigurationInfo(hostPorts, request.getHeader(AUTHORIZATION),
+            List<List<String>> data = handleConfigurationInfo(hostPorts, authorization,
                     "/rest/v2/manager/node/config", "FE", requestBody.getConfNames(), errNodes);
             if (!errNodes.isEmpty()) {
                 LOG.warn("Failed to get fe node configuration information from:{}", errNodes.toString());
@@ -358,7 +364,7 @@ public class NodeAction extends RestBaseController {
             }
 
             List<Map.Entry<String, Integer>> errNodes = Lists.newArrayList();
-            List<List<String>> data = handleConfigurationInfo(hostPorts, request.getHeader(AUTHORIZATION),
+            List<List<String>> data = handleConfigurationInfo(hostPorts, authorization,
                     "/api/show_config", "BE", requestBody.getConfNames(), errNodes);
             if (!errNodes.isEmpty()) {
                 LOG.warn("Failed to get be node configuration information from:{}", errNodes.toString());
@@ -367,6 +373,14 @@ public class NodeAction extends RestBaseController {
         }
         return ResponseEntityBuilder.badRequest(
                 "Unsupported type: " + type + ". Only types of fe or be are " + "supported");
+    }
+
+    static String resolveAuthorization(String requestAuthorization, ActionAuthorizationInfo authInfo) {
+        if (!Strings.isNullOrEmpty(requestAuthorization)) {
+            return requestAuthorization;
+        }
+        String credentials = authInfo.fullUserName + ":" + authInfo.password;
+        return "Basic " + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
     }
 
     // Use thread pool to concurrently fetch configuration information from specified fe or be nodes.
@@ -503,8 +517,9 @@ public class NodeAction extends RestBaseController {
     @RequestMapping(path = "/set_config/fe", method = RequestMethod.POST)
     public Object setConfigFe(HttpServletRequest request, HttpServletResponse response,
             @RequestBody Map<String, SetConfigRequestBody> requestBody) {
-        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
-        checkAdminAuth(authInfo.userIdentity);
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, true);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        String authorization = resolveAuthorization(request.getHeader(AUTHORIZATION), authInfo);
 
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
@@ -514,7 +529,7 @@ public class NodeAction extends RestBaseController {
         checkNodeIsAlive(nodeConfigList, aliveFe, failedTotal);
 
         Map<String, String> header = Maps.newHashMap();
-        header.put(AUTHORIZATION, request.getHeader(AUTHORIZATION));
+        header.put(AUTHORIZATION, authorization);
 
         for (NodeConfigs nodeConfigs : nodeConfigList) {
             if (!nodeConfigs.getConfigs(true).isEmpty()) {
@@ -593,7 +608,8 @@ public class NodeAction extends RestBaseController {
                 sb.append("?");
                 addAnd = true;
             }
-            sb.append(entry.getKey()).append("=").append(entry.getValue());
+            sb.append(encodeQueryParameter(entry.getKey())).append("=")
+                    .append(encodeQueryParameter(entry.getValue()));
         }
         if (isPersist) {
             sb.append("&persist=true&reset_persist=false");
@@ -601,13 +617,22 @@ public class NodeAction extends RestBaseController {
         return sb.toString();
     }
 
+    static String encodeQueryParameter(String value) {
+        try {
+            return URLEncoder.encode(value, StandardCharsets.UTF_8.name());
+        } catch (UnsupportedEncodingException e) {
+            throw new IllegalStateException("UTF-8 is not available", e);
+        }
+    }
+
     // Modify fe configuration.
     // The request body and return data are in the same format as fe
     @RequestMapping(path = "/set_config/be", method = RequestMethod.POST)
     public Object setConfigBe(HttpServletRequest request, HttpServletResponse response,
             @RequestBody Map<String, SetConfigRequestBody> requestBody) {
-        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
-        checkAdminAuth(authInfo.userIdentity);
+        ActionAuthorizationInfo authInfo = checkWithCookie(request, response, true);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        String authorization = resolveAuthorization(request.getHeader(AUTHORIZATION), authInfo);
 
         List<Map<String, String>> failedTotal = Lists.newArrayList();
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
@@ -617,7 +642,7 @@ public class NodeAction extends RestBaseController {
         }).collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveBe, failedTotal);
 
-        handleBeSetConfig(nodeConfigList, request.getHeader(AUTHORIZATION), failedTotal);
+        handleBeSetConfig(nodeConfigList, authorization, failedTotal);
         failedTotal = failedTotal.stream().filter(e -> !e.isEmpty()).collect(Collectors.toList());
 
         Map<String, List<Map<String, String>>> data = Maps.newHashMap();
@@ -882,7 +907,7 @@ public class NodeAction extends RestBaseController {
             boolean isPersist) {
         StringBuilder stringBuffer = new StringBuilder();
         stringBuffer.append("http://").append(host).append(":").append(port).append("/api/update_config").append("?")
-                .append(configName).append("=").append(configValue);
+                .append(encodeQueryParameter(configName)).append("=").append(encodeQueryParameter(configValue));
         if (isPersist) {
             stringBuffer.append("&persist=true");
         }

@@ -19,6 +19,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { LoginPage } from '../pages/LoginPage';
+import { ConfigurationPage } from '../pages/ConfigurationPage';
 import { HomePage } from '../pages/HomePage';
 import { LogPage } from '../pages/LogPage';
 import { SessionsPage } from '../pages/SessionsPage';
@@ -29,6 +30,11 @@ import { ModulePlaceholder } from './ModulePlaceholder';
 const PlaygroundPage = lazy(async () => {
   const module = await import('../pages/PlaygroundPage');
   return { default: module.PlaygroundPage };
+});
+
+const QueryProfilesPage = lazy(async () => {
+  const module = await import('../pages/QueryProfilesPage');
+  return { default: module.QueryProfilesPage };
 });
 
 export function AppRoutes() {
@@ -44,9 +50,12 @@ export function AppRoutes() {
         />
         <Route path="/system/*" element={<SystemPage />} />
         <Route path="/log" element={<LogPage />} />
-        <Route path="/query-profiles/*" element={<ModulePlaceholder name="Query Profiles" milestone="M10" />} />
+        <Route
+          path="/query-profiles/:profileId?"
+          element={<Suspense fallback={<main className="full-page-state">Loading Query Profiles…</main>}><QueryProfilesPage /></Suspense>}
+        />
         <Route path="/sessions" element={<SessionsPage />} />
-        <Route path="/configuration" element={<ModulePlaceholder name="Configuration" milestone="M14" />} />
+        <Route path="/configuration" element={<ConfigurationPage />} />
         <Route path="*" element={<ModulePlaceholder name="Page not found" milestone="No module" />} />
       </Route>
     </Routes>
