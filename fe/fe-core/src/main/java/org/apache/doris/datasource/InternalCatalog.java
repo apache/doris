@@ -1012,7 +1012,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             table.writeUnlock();
         }
-        if (table instanceof OlapTable) {
+        // MTMVs persist streams as explicit relations, so dropping a stream must invalidate them immediately.
+        if (table instanceof OlapTable || table instanceof BaseTableStream) {
             Env.getCurrentEnv().getMtmvService().dropTable(table);
         }
         if (Config.isCloudMode()) {

@@ -17,7 +17,6 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.AnalysisException;
@@ -108,12 +107,12 @@ public class MTMVRelation implements GsonPostProcessable {
         compatible(catalogMgr, baseTables);
         compatible(catalogMgr, baseViews);
         compatible(catalogMgr, baseTablesOneLevel);
-        addStreamBaseTables(catalogMgr, baseTables);
+        addStreamBaseTables(baseTables);
         if (CollectionUtils.isEmpty(baseTablesOneLevelAndFromView)) {
             // Preserve the existing fallback for older images in a separate set before adding implicit stream bases.
             baseTablesOneLevelAndFromView = new HashSet<>(getBaseTablesOneLevel());
         }
-        addStreamBaseTables(catalogMgr, baseTablesOneLevelAndFromView);
+        addStreamBaseTables(baseTablesOneLevelAndFromView);
     }
 
     private void compatible(CatalogMgr catalogMgr, Set<BaseTableInfo> infos) throws Exception {
@@ -125,7 +124,7 @@ public class MTMVRelation implements GsonPostProcessable {
         }
     }
 
-    private void addStreamBaseTables(CatalogMgr catalogMgr, Set<BaseTableInfo> infos) throws Exception {
+    private void addStreamBaseTables(Set<BaseTableInfo> infos) throws Exception {
         if (CollectionUtils.isEmpty(infos)) {
             return;
         }
@@ -138,19 +137,12 @@ public class MTMVRelation implements GsonPostProcessable {
 
             // Recovery does not rerun MTMV compatibility, so an unresolved relation must not complete migration.
             TableIf currentTable = MTMVUtil.getTable(info);
+            // A same-name object with a different ID represents different data. Accepting it would let a replacement
+            // table, view, or stream reuse snapshots produced from the persisted relation.
+            if (currentTable.getId() != info.getTableId()) {
+                throw new AnalysisException("MTMV relation identity changed during compatibility: " + info);
+            }
             addStreamBaseTable(infos, info, currentTable);
-
-            // MTMV relations are name-based, but a same-name replacement must not hide the historical stream whose
-            // stable base was omitted from an older image.
-            TableIf stableTable = catalogMgr.getInternalCatalog().getDb(info.getDbId())
-                    .flatMap(db -> db.getTable(info.getTableId())).orElse(null);
-            if (stableTable == null) {
-                stableTable = Env.getCurrentRecycleBin().getRecycledTableNullable(
-                        info.getDbId(), info.getTableId());
-            }
-            if (stableTable != null && stableTable != currentTable) {
-                addStreamBaseTable(infos, info, stableTable);
-            }
         }
     }
 
