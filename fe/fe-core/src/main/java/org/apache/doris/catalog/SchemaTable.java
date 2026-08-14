@@ -189,7 +189,7 @@ public class SchemaTable extends Table {
                                     .column("DATETIME_PRECISION", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("CHARACTER_SET_NAME", ScalarType.createVarchar(32))
                                     .column("COLLATION_NAME", ScalarType.createVarchar(32))
-                                    .column("COLUMN_TYPE", ScalarType.createVarchar(32))
+                                    .column("COLUMN_TYPE", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
                                     .column("COLUMN_KEY", ScalarType.createVarchar(3))
                                     .column("EXTRA", ScalarType.createVarchar(27))
                                     .column("PRIVILEGES", ScalarType.createVarchar(80))

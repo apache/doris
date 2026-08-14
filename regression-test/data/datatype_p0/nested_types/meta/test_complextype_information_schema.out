@@ -9,8 +9,8 @@ array	array<bigint(20)>
 array	array<largeint>
 array	array<float>
 array	array<double>
-array	array<decimalv3(20, 3)>
-array	array<decimalv3(20, 3)>
+array	array<decimal(20,3)>
+array	array<decimal(20,3)>
 array	array<date>
 array	array<datetime>
 array	array<date>
@@ -28,9 +28,9 @@ map	map<int(11),bigint(20)>
 map	map<bigint(20),largeint>
 map	map<largeint,float>
 map	map<float,double>
-map	map<double,decimalv3(20, 3)>
-map	map<decimalv3(20, 3),decimalv3(20, 3)>
-map	map<decimalv3(20, 3),date>
+map	map<double,decimal(20,3)>
+map	map<decimal(20,3),decimal(20,3)>
+map	map<decimal(20,3),date>
 map	map<date,datetime>
 map	map<datetime,date>
 map	map<date,datetime>
@@ -41,21 +41,21 @@ map	map<string,tinyint(1)>
 
 -- !sql --
 bigint	bigint(20)
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
-struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimalv3(20, 3),decimalv3(20, 3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
+struct	struct<int(11),tinyint(4),smallint(6),tinyint(1),bigint(20),largeint,float,double,decimal(20,3),decimal(20,3),date,datetime,date,datetime,char(15),varchar(100),string>
 

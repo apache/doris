@@ -17,6 +17,7 @@
 
 suite("test_show_columns_command", "query_p0") {
     def dbName = "test_show_columns_db"
+    def otherDbName = "test_show_columns_other_db"
     def tableName = "test_show_columns_table"
 
     try {
@@ -28,7 +29,9 @@ suite("test_show_columns_command", "query_p0") {
                 score FLOAT,
                 event_date DATE,
                 event_time DATETIME,
-                decimal_col DECIMAL(10, 2)
+                event_time_v2 DATETIMEV2(3),
+                decimal_col DECIMALV3(10, 2),
+                decimal_v3_col DECIMALV3(12, 3)
             )
             DISTRIBUTED BY HASH(id) BUCKETS 3
             PROPERTIES ("replication_num" = "1");
@@ -50,10 +53,31 @@ suite("test_show_columns_command", "query_p0") {
         checkNereidsExecute("""SHOW COLUMNS FROM ${dbName}.${tableName} WHERE Field = 'id'""")
         qt_cmd("""SHOW COLUMNS FROM ${dbName}.${tableName} WHERE Field = 'id'""")
 
+        // WHERE must preserve the user-visible type, including DecimalV3 and DATETIMEV2 precision.
+        checkNereidsExecute("""SHOW COLUMNS FROM ${dbName}.${tableName} WHERE Field LIKE 'decimal%'""")
+        qt_cmd("""SHOW COLUMNS FROM ${dbName}.${tableName} WHERE Field LIKE 'decimal%'""")
+        checkNereidsExecute("""SHOW COLUMNS FROM ${dbName}.${tableName} WHERE Field = 'event_time_v2'""")
+        qt_cmd("""SHOW COLUMNS FROM ${dbName}.${tableName} WHERE Field = 'event_time_v2'""")
+        checkNereidsExecute("""SHOW COLUMNS FROM ${dbName}.${tableName} WHERE Type = 'decimal(10,2)'""")
+        qt_cmd("""SHOW COLUMNS FROM ${dbName}.${tableName} WHERE Type = 'decimal(10,2)'""")
+
         // Test SHOW FULL COLUMNS with WHERE clause
         checkNereidsExecute("""SHOW FULL COLUMNS FROM ${dbName}.${tableName} WHERE Field LIKE '%name%'""")
 
+        // A same-name table in another database must not affect the WHERE path.
+        sql """CREATE DATABASE IF NOT EXISTS ${otherDbName}"""
+        sql """
+            CREATE TABLE IF NOT EXISTS ${otherDbName}.${tableName} (
+                other_db_only INT
+            )
+            DISTRIBUTED BY HASH(other_db_only) BUCKETS 1
+            PROPERTIES ("replication_num" = "1");
+        """
+        qt_cmd("""SHOW COLUMNS FROM ${dbName}.${tableName} WHERE Field LIKE '%'""")
+
     } finally {
+        sql """DROP TABLE IF EXISTS ${otherDbName}.${tableName}"""
+        sql """DROP DATABASE IF EXISTS ${otherDbName}"""
         sql """DROP TABLE IF EXISTS ${dbName}.${tableName}"""
         sql """DROP DATABASE IF EXISTS ${dbName}"""
     }
