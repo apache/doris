@@ -1449,9 +1449,13 @@ EOF
         fi
     done
 
-    # The hadoop drop C++ libhdfs loads. Not a plugin and never was: libhdfs resolves it off the
-    # system classpath, so it is deployed whole into lib/hadoop_hdfs rather than into a plugin
-    # directory addressed by name.
+    # The hadoop drop C++ libhdfs loads, and the JindoFS/JuiceFS drops the same libhdfs resolves
+    # oss-hdfs:// and jfs:// through: none of the three is a plugin, so libhdfs finds each by a
+    # fixed directory name on the system classpath rather than through a plugin loader. Each is
+    # therefore wiped and deployed whole every build rather than merged with whatever a previous
+    # build using the same output directory left behind - unwiped, a version bump would leave two
+    # jar versions of the same filesystem side by side, and start_be.sh's *.jar glob would put
+    # both of them on the classpath.
     if [[ "${deploy_hadoop_deps}" -eq 1 ]]; then
         BE_HADOOP_HDFS_DIR="${DORIS_OUTPUT}/be/lib/hadoop_hdfs/"
         echo "Copy Be Extensions hadoop deps jars to ${BE_HADOOP_HDFS_DIR}"
@@ -1474,6 +1478,10 @@ EOF
             cp -r "${HADOOP_DEPS_JAR_DIR}/lib" "${BE_HADOOP_HDFS_DIR}/"
         fi
     fi
+
+    # Wiped here, unconditionally and before post-build.sh repopulates them below, for the same
+    # reason as lib/hadoop_hdfs above.
+    rm -rf "${DORIS_OUTPUT}/be/lib/juicefs" "${DORIS_OUTPUT}/be/lib/jindofs"
 
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
     bash "${DORIS_HOME}/post-build.sh" --be --output "${DORIS_OUTPUT}"

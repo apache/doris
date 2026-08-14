@@ -254,14 +254,20 @@ fi
 #
 # lib/<name> is where both FE and BE put them now; lib/java_extensions/<name> is where BE alone
 # used to, and is still read so an existing deployment keeps resolving those schemes.
+#
+# The choice is made on jar presence, not directory presence: post-build.sh creates lib/<name>
+# before it tries to populate it, so an empty lib/<name> is reachable (e.g. a --juicefs build with
+# no network to fetch the jar from) and must not silently win over a populated
+# lib/java_extensions/<name> - that would resolve neither, without a warning saying why.
 for fs_libs in jindofs juicefs; do
     fs_dir="${DORIS_HOME}/lib/${fs_libs}"
-    if [[ ! -d "${fs_dir}" ]] && [[ -d "${DORIS_HOME}/lib/java_extensions/${fs_libs}" ]]; then
+    if ! compgen -G "${fs_dir}/*.jar" > /dev/null \
+            && compgen -G "${DORIS_HOME}/lib/java_extensions/${fs_libs}/*.jar" > /dev/null; then
         fs_dir="${DORIS_HOME}/lib/java_extensions/${fs_libs}"
         echo "WARN: ${fs_libs} found under the deprecated lib/java_extensions/${fs_libs};" \
              "move it to lib/${fs_libs}, which is where this build deploys it." >&2
     fi
-    if [[ -d "${fs_dir}" ]]; then
+    if compgen -G "${fs_dir}/*.jar" > /dev/null; then
         for f in "${fs_dir}"/*.jar; do
             DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
         done
