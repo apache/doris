@@ -50,6 +50,7 @@ std::string mask_escaped_characters_and_character_classes(std::string_view regex
     bool escaped = false;
     bool in_character_class = false;
     bool character_class_can_close = false;
+    bool character_class_can_negate = false;
     for (char& masked_character : masked_regexp) {
         const char current = masked_character;
         if (escaped) {
@@ -57,6 +58,7 @@ std::string mask_escaped_characters_and_character_classes(std::string_view regex
             escaped = false;
             if (in_character_class) {
                 character_class_can_close = true;
+                character_class_can_negate = false;
             }
             continue;
         }
@@ -69,8 +71,11 @@ std::string mask_escaped_characters_and_character_classes(std::string_view regex
             masked_character = ' ';
             if (current == ']' && character_class_can_close) {
                 in_character_class = false;
-            } else if (current != '^' || character_class_can_close) {
+            } else if (current == '^' && character_class_can_negate) {
+                character_class_can_negate = false;
+            } else {
                 character_class_can_close = true;
+                character_class_can_negate = false;
             }
             continue;
         }
@@ -78,6 +83,7 @@ std::string mask_escaped_characters_and_character_classes(std::string_view regex
             masked_character = ' ';
             in_character_class = true;
             character_class_can_close = false;
+            character_class_can_negate = true;
         }
     }
     return masked_regexp;

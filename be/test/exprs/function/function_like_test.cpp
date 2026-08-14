@@ -206,6 +206,7 @@ TEST(FunctionLikeTest, hyperscan_bounded_repeat_threshold) {
     EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{ 0, 1000 }"));
     EXPECT_FALSE(FunctionLikeTestHelper::should_fallback_to_re2(R"(a\{51\})"));
     EXPECT_FALSE(FunctionLikeTestHelper::should_fallback_to_re2("[a{51}]"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("[^^](ab?c?d){1000,5000}"));
 }
 
 TEST(FunctionLikeTest, hyperscan_bounded_repeat_fallback_disabled) {
@@ -214,6 +215,11 @@ TEST(FunctionLikeTest, hyperscan_bounded_repeat_fallback_disabled) {
         auto status = execute_pattern_with_fallback_disabled<FunctionRegexpLike>(
                 "prompt_rewrite.h03xxx429", R"(prompt_rewrite\.h03.{0,1000}429)",
                 constant_known_at_open);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("bounded repetition exceeds 50"), std::string::npos);
+
+        status = execute_pattern_with_fallback_disabled<FunctionRegexpLike>(
+                "^abc", "[^^](ab?c?d){1000,5000}", constant_known_at_open);
         EXPECT_FALSE(status.ok());
         EXPECT_NE(status.to_string().find("bounded repetition exceeds 50"), std::string::npos);
     }
