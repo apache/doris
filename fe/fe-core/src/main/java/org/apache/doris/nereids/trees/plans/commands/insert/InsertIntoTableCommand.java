@@ -263,6 +263,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             // Each internal attempt must repin connector metadata; retaining the previous writer schema can
             // plan defaults and partition fields against the table version that triggered the retry.
             ctx.getStatementContext().resetConnectorStatementScope();
+            if (retryTimes > 1) {
+                ctx.getStatementContext().resetMaterializedViewStateForPlanningAttempt();
+            }
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
             // check auth

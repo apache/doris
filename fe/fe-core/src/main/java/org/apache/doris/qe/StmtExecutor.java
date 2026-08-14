@@ -616,6 +616,9 @@ public class StmtExecutor {
         }
         for (int i = 1; i <= retryTime; i++) {
             try {
+                if (i > 1) {
+                    statementContext.resetMaterializedViewStateForPlanningAttempt();
+                }
                 if (disableCloudVersionCacheOnRetry) {
                     executeWithVersionCacheDisabled(queryId);
                 } else {
