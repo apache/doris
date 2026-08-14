@@ -166,7 +166,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         // shares the result. The scope is NONE for offline planning and tests, in which case the
         // loader runs on every call. Session variables are constant within a statement and
         // deliberately absent from the key.
-        if (session == null) {
+        if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return doPlanScan(session, request);
         }
         String memoKey = "hudi.scan-reuse:" + session.getCatalogId() + ":" + session.getQueryId();
