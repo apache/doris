@@ -405,6 +405,74 @@ public class AnalysisManagerTest {
     }
 
     @Test
+    public void testHandleKillAnalyzeJobWithEvictedJobRecord() throws DdlException {
+        // The job record may have been evicted from analysisJobInfoMap while the job was
+        // still running: killing it must not NPE and must still cancel its running tasks.
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        AnalysisInfo job = new AnalysisInfoBuilder().setJobId(1).setPartitionUpdateRows(new ConcurrentHashMap<>())
+                .setCatalogId(10001L).setDBId(20001L).setTblId(30001L)
+                .setState(AnalysisState.RUNNING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(AnalysisInfo.JobType.MANUAL).build();
+        AnalysisInfo taskInfo = new AnalysisInfoBuilder(job).setJobId(1).setTaskId(2)
+                .setState(AnalysisState.RUNNING).setJobType(JobType.MANUAL)
+                .setAnalysisType(AnalysisType.FUNDAMENTALS).build();
+
+        BaseAnalysisTask task = Mockito.mock(BaseAnalysisTask.class);
+        task.info = taskInfo;
+        Mockito.when(task.getJobId()).thenReturn(1L);
+        Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
+        tasks.put(2L, task);
+        manager.addToJobIdTasksMap(1, tasks);
+
+        ConnectContext ctx = new ConnectContext();
+        MoreFieldsThread.setConnectContext(ctx);
+        Env env = Mockito.mock(Env.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(accessManager.checkTblPriv(Mockito.any(ConnectContext.class), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any())).thenReturn(true);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        DBObjects dbObjects = new DBObjects(Mockito.mock(CatalogIf.class), Mockito.mock(DatabaseIf.class),
+                Mockito.mock(TableIf.class));
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<StatisticsUtil> suStatic = Mockito.mockStatic(StatisticsUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            suStatic.when(() -> StatisticsUtil.convertIdToObjects(10001L, 20001L, 30001L))
+                    .thenReturn(dbObjects);
+            manager.handleKillAnalyzeJob(new KillAnalyzeJobCommand(1));
+        }
+        MoreFieldsThread.removeConnectContext();
+        Assertions.assertEquals(AnalysisState.FAILED, taskInfo.state,
+                "tasks of an evicted job must still be marked as killed");
+    }
+
+    @Test
+    public void testReplayCreateAnalysisJobEvictionClearsSharedMap() {
+        Config.analyze_record_limit = 2;
+        AnalysisManager manager = new AnalysisManager();
+        // The evicted job may still be running: its updateTaskStatus would return early
+        // on the "job == null" guard and never reach the terminal-state clear, so the
+        // shared map must be cleared at eviction time.
+        ConcurrentMap<Long, Long> evictedRows = new ConcurrentHashMap<>();
+        evictedRows.put(1L, 10L);
+        manager.replayCreateAnalysisJob(new AnalysisInfoBuilder().setJobId(1)
+                .setPartitionUpdateRows(evictedRows).setState(AnalysisState.RUNNING)
+                .setAnalysisType(AnalysisType.FUNDAMENTALS).setJobType(JobType.MANUAL).build());
+        manager.replayCreateAnalysisJob(new AnalysisInfoBuilder().setJobId(2)
+                .setState(AnalysisState.RUNNING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(JobType.MANUAL).build());
+        manager.replayCreateAnalysisJob(new AnalysisInfoBuilder().setJobId(3)
+                .setState(AnalysisState.RUNNING).setAnalysisType(AnalysisType.FUNDAMENTALS)
+                .setJobType(JobType.MANUAL).build());
+        Assertions.assertEquals(2, manager.analysisJobInfoMap.size());
+        Assertions.assertTrue(manager.analysisJobInfoMap.containsKey(2L));
+        Assertions.assertTrue(manager.analysisJobInfoMap.containsKey(3L));
+        Assertions.assertTrue(evictedRows.isEmpty(),
+                "the evicted job's shared map must be cleared at eviction");
+    }
+
+    @Test
     public void testRecordLimit1() {
         Config.analyze_record_limit = 2;
         AnalysisManager analysisManager = new AnalysisManager();

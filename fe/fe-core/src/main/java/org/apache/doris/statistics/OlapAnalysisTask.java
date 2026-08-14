@@ -368,7 +368,13 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             if (partition == null) {
                 columnStats.partitionUpdateRows.remove(partId);
                 tableStats.partitionUpdateRows.remove(partId);
-                jobInfo.partitionUpdateRows.remove(partId);
+                // Skip the write when the task is cancelled: the job may already be in a
+                // terminal state and have cleared the shared map, so no write should touch
+                // it afterwards (a remove is a no-op on the cleared map, but keep the
+                // invariant that cancelled tasks never write to the shared map).
+                if (!killed) {
+                    jobInfo.partitionUpdateRows.remove(partId);
+                }
                 expiredPartition.add(partId);
                 if (expiredPartition.size() == Config.max_allowed_in_element_num_of_delete) {
                     String partitionCondition = " AND part_id in (" + Joiner.on(", ").join(expiredPartition) + ")";

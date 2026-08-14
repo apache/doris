@@ -1007,14 +1007,19 @@ public class AnalysisManager implements Writable {
         }
         checkPriv(anyTask);
         AnalysisInfo job = analysisJobInfoMap.get(anyTask.getJobId());
-        logKilled(job);
+        // The job record may have been evicted from analysisJobInfoMap while the job was
+        // still running; its shared partitionUpdateRows map was already cleared at
+        // eviction time (see replayCreateAnalysisJob), so skip the job-level update.
+        if (job != null) {
+            logKilled(job);
+        }
         for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
             taskInfo.cancel();
             logKilled(taskInfo.info);
         }
         // The job reached a terminal state: all tasks share the job's partitionUpdateRows
         // map, so clearing it here releases the memory retained by every task record.
-        if (job.partitionUpdateRows != null) {
+        if (job != null && job.partitionUpdateRows != null) {
             job.partitionUpdateRows.clear();
         }
     }
@@ -1055,7 +1060,15 @@ public class AnalysisManager implements Writable {
     public void replayCreateAnalysisJob(AnalysisInfo jobInfo) {
         synchronized (analysisJobInfoMap) {
             while (analysisJobInfoMap.size() >= Config.analyze_record_limit) {
-                analysisJobInfoMap.remove(analysisJobInfoMap.pollFirstEntry().getKey());
+                // pollFirstEntry removes the oldest entry from the map.
+                AnalysisInfo evicted = analysisJobInfoMap.pollFirstEntry().getValue();
+                // The evicted job may still be running: its updateTaskStatus will return
+                // early on the "job == null" guard and never reach the terminal-state
+                // clear, so clear the shared partitionUpdateRows map here to release the
+                // memory held by the evicted job and all its task records at once.
+                if (evicted.partitionUpdateRows != null) {
+                    evicted.partitionUpdateRows.clear();
+                }
             }
             if (jobInfo.message != null && jobInfo.message.length() >= StatisticConstants.MSG_LEN_UPPER_BOUND) {
                 jobInfo.message = jobInfo.message.substring(0, StatisticConstants.MSG_LEN_UPPER_BOUND);

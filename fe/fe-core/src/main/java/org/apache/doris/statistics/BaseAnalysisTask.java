@@ -513,14 +513,22 @@ public abstract class BaseAnalysisTask {
                 if (partitionRowCount > hugePartitionThreshold && AnalysisInfo.JobType.SYSTEM.equals(info.jobType)) {
                     hasHughPartition = true;
                     // -1 means it's skipped because this partition is too large.
-                    jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), -1L);
+                    // Skip the write when the task is cancelled: the job may already be in a
+                    // terminal state and have cleared the shared map, so a late write would
+                    // re-populate it and keep the memory alive.
+                    if (!killed) {
+                        jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), -1L);
+                    }
                     LOG.info("Partition {} in table {} is too large, skip it.", part, tbl.getName());
                     continue;
                 }
                 batchRowCount += partitionRowCount;
                 // For cluster upgrade compatible (older version metadata doesn't have partition update rows map)
                 // and insert before first analyze, set partition update rows to 0.
-                jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
+                // Skip the write when the task is cancelled: see the comment above.
+                if (!killed) {
+                    jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
+                }
             }
             params.put("partId", partition == null ? "-1" : String.valueOf(partition.getId()));
             // Skip partitions that not changed after last analyze.
