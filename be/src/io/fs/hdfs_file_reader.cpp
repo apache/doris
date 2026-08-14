@@ -123,6 +123,7 @@ Status HdfsFileReader::close() {
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* io_ctx) {
     SCOPED_TIMER(_total_read_time);
+    RETURN_IF_ERROR(_handle->ensure_open());
     auto st = do_read_at_impl(offset, result, bytes_read, io_ctx);
     if (!st.ok()) {
         _handle = nullptr;
@@ -257,7 +258,7 @@ Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* byte
 void HdfsFileReader::_collect_profile_before_close() {
     if (_profile != nullptr && is_hdfs(_fs_name)) {
 #ifdef USE_HADOOP_HDFS
-        if (_handle == nullptr) [[unlikely]] {
+        if (_handle == nullptr || _handle->file() == nullptr) [[unlikely]] {
             return;
         }
 

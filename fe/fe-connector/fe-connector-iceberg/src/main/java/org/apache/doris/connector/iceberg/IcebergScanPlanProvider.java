@@ -1726,13 +1726,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 validateDeletionVectorMetadata(
                         delete.path().toString(), delete.fileSizeInBytes(), contentOffset, contentLength);
                 return IcebergScanRange.DeleteFile.deletionVector(path, lowerBound, upperBound,
-                        contentOffset, contentLength);
+                        contentOffset, contentLength, delete.fileSizeInBytes());
             }
             return IcebergScanRange.DeleteFile.positionDelete(path, deleteFileFormat(delete.format()),
-                    lowerBound, upperBound);
+                    lowerBound, upperBound, delete.fileSizeInBytes());
         } else if (content == FileContent.EQUALITY_DELETES) {
             return IcebergScanRange.DeleteFile.equalityDelete(path, deleteFileFormat(delete.format()),
-                    delete.equalityFieldIds());
+                    delete.equalityFieldIds(), delete.fileSizeInBytes());
         }
         // Defensive (legacy parity): delete files are only position or equality; DATA content here is a bug.
         throw new IllegalStateException("Unknown delete content: " + content);

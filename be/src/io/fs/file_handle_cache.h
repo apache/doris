@@ -26,6 +26,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 
@@ -49,8 +50,11 @@ public:
     /// Destructor will close the file handle
     ~HdfsFileHandle();
 
-    /// Init opens the file handle
+    /// Init only sets file_size (from param or hdfsGetPathInfo), does NOT open the file.
     Status init(int64_t file_size);
+
+    /// Lazily opens the file handle on first read. Thread-safe via std::call_once.
+    Status ensure_open();
 
     hdfsFS fs() const { return _fs; }
     hdfsFile file() const { return _hdfs_file; }
@@ -66,7 +70,8 @@ private:
     const std::string _fname;
     hdfsFile _hdfs_file = nullptr;
     int64_t _mtime;
-    int64_t _file_size;
+    int64_t _file_size = -1;
+    std::once_flag _open_once;
 };
 
 /// CachedHdfsFileHandles are owned by the file handle cache and are used for no

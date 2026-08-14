@@ -328,6 +328,7 @@ struct TIcebergDeleteFileDesc {
     9: optional string original_path;
     // Referenced data file path. Required to materialize rows from deletion vectors.
     10: optional string referenced_data_file_path;
+    11: optional i64 file_size;
 }
 
 struct TIcebergFileDesc {
