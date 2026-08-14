@@ -128,7 +128,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     // Snapshot-summary keys for table-level row count (getTableStatistics). Local literal copies of the
     // spec-stable iceberg strings — byte-identical to legacy IcebergUtils.TOTAL_*. These remain optimizer
-    // estimates only; exact COUNT(*) pushdown deliberately derives its result from live data-file manifests.
+    // estimates only; exact COUNT(*) pushdown deliberately derives its result from live manifest-list counters.
     // All THREE keys are read: legacy getIcebergRowCount (via
     // getCountFromSummary, upstream 32a2651f66b / #64648) nets out position deletes AND gates the count to
     // UNKNOWN on any equality delete — see computeRowCount.
@@ -823,7 +823,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * #64648): any equality delete ({@code total-equality-deletes} absent or {@code != "0"}) -> -1 (UNKNOWN),
      * since equality deletes re-project at read time and the summary cannot net them out; otherwise
      * {@code total-records - total-position-deletes}. This best-effort optimizer estimate is not used as an
-     * exact query result; COUNT(*) pushdown independently sums required record counts from live data manifests.
+     * exact query result; COUNT(*) pushdown independently sums live-row counters from the manifest list.
      * Empty table (no current snapshot) -> -1, which the caller maps to UNKNOWN.
      */
     private static long computeRowCount(Table table) {

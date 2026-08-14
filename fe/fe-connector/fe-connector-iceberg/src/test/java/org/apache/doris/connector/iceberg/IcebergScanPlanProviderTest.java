@@ -2923,8 +2923,8 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void countPushdownManifestCacheReadsAllLiveFilesWithoutMaterializingTasks() {
-        // Three appends -> three data manifests; required data-file record counts sum to 10+20+30 = 60.
+    public void countPushdownManifestCacheReadsOnlyRepresentativeFile() {
+        // Three appends -> three data manifests; manifest-list live-row aggregates sum to 10+20+30 = 60.
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2048, null, null)).commit();
@@ -2938,14 +2938,15 @@ public class IcebergScanPlanProviderTest {
         List<ConnectorScanRange> cached = planCount(manifestProvider(manifestCacheProps(), table, cache),
                 emptySession(), true);
 
-        // Same collapsed single range + same manifest-derived count. The placeholder file path may
+        // Same collapsed single range + same manifest-list-derived count. The placeholder file path may
         // differ (SDK planFiles' ParallelIterable order is non-deterministic), so assert count + shape, not path.
         Assertions.assertEquals(1, sdk.size());
         Assertions.assertEquals(1, cached.size());
         Assertions.assertEquals(60L, cached.get(0).getPushDownRowCount());
         Assertions.assertEquals(sdk.get(0).getPushDownRowCount(), cached.get(0).getPushDownRowCount());
-        // Exactness requires consuming every live data file, while the iterator still keeps FE memory bounded.
-        Assertions.assertEquals(totalManifests, cache.size());
+        // The manifest list already carries exact live-row aggregates. Only the first manifest's entries are
+        // needed to obtain a representative file for the collapsed range.
+        Assertions.assertEquals(1, cache.size());
     }
 
     @Test

@@ -700,10 +700,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // per-file path normalization below, instead of rebuilding it per data/delete file (C3).
         UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
 
-        // COUNT(*) pushdown (T05): derive an exact count from the live data-file manifests and collapse the scan
-        // to a single whole-file range. Snapshot summary fields are optional writer-provided metadata and must
-        // never become a query result. If deletes or invalid record counts prevent an exact proof, fall through
-        // to the normal scan so BE reads and counts.
+        // COUNT(*) pushdown (T05): derive an exact count from the current manifest list and collapse the scan to
+        // a single whole-file range. Snapshot summary fields are optional writer-provided metadata and must never
+        // become a query result. If manifest aggregates are absent, fall back to bounded per-file enumeration; if
+        // deletes or invalid record counts prevent an exact proof, use the normal scan so BE reads and counts.
         // A data-row predicate can leave partially matching files, whose file-level recordCount is only an
         // upper bound. Keep those scans on the normal path even if the engine supplies the count signal.
         if (countPushdown && filter.isEmpty()) {
@@ -1148,7 +1148,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * (profile) and {@code planWith(threadPool)} are intentionally dropped — the iceberg SDK default worker
      * pool plans, and the file set is identical (see design deviations). The MVCC / time-travel pin (T07) is
      * applied here ({@code useRef} for a tag/branch, else {@code useSnapshot}), mirroring legacy
-     * {@code createTableScan}; COUNT planning enumerates this pinned scan's live tasks, so the count follows.
+     * {@code createTableScan}; COUNT planning reads this pinned scan's manifest list, so the count follows.
      */
     private TableScan buildScan(Table table, IcebergTableHandle handle, Optional<ConnectorExpression> filter,
             ConnectorSession session) {
@@ -1235,12 +1235,58 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Build a collapsed COUNT(*) range while enumerating every live {@link FileScanTask}. The data-file
-     * {@code recordCount} field is required by the Iceberg spec, unlike optional snapshot summary fields. The
-     * optimization is valid only when every task has no attached delete file and every record count can be
-     * summed exactly. Otherwise the empty optional tells the caller to perform a normal scan.
+     * Build a collapsed COUNT(*) range from current manifest-list aggregates. Summing each data manifest's
+     * added and existing row counts is O(manifests), while only the first live {@link FileScanTask} is needed as
+     * the representative range. Old manifest lists that omit these aggregates use the bounded O(files) fallback.
+     * Any live delete file makes the optimization unsafe and tells the caller to perform a normal scan.
      */
     private Optional<List<ConnectorScanRange>> planCountPushdown(Table table, TableScan scan,
+            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter) {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null) {
+            return Optional.of(Collections.emptyList());
+        }
+
+        ManifestDeleteState deleteState = manifestDeleteState(snapshot.deleteManifests(table.io()));
+        if (deleteState == ManifestDeleteState.PRESENT) {
+            return Optional.empty();
+        }
+        if (deleteState == ManifestDeleteState.NONE) {
+            OptionalLong manifestCount = liveRowCountFromManifests(snapshot.dataManifests(table.io()));
+            if (manifestCount.isPresent()) {
+                return planManifestCountRange(table, scan, manifestCount.getAsLong(), formatVersion,
+                        partitioned, orderedPartitionKeys, zone, uriNormalizer, session, filter);
+            }
+        }
+
+        // Older manifest lists may omit aggregate counters. Preserve correctness by falling back to the
+        // bounded per-file enumeration instead of trusting snapshot summary metadata.
+        return planCountPushdownFromFileTasks(table, scan, formatVersion, partitioned,
+                orderedPartitionKeys, zone, uriNormalizer, session, filter);
+    }
+
+    private Optional<List<ConnectorScanRange>> planManifestCountRange(Table table, TableScan scan, long exactCount,
+            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter) {
+        try (CloseableIterable<FileScanTask> tasks = countPushdownFileScanTasks(scan, session, table, filter)) {
+            for (FileScanTask task : tasks) {
+                // Manifest-list delete counts are authoritative, but retain this defensive check for malformed
+                // metadata before exposing the aggregate as a query result.
+                if (!task.deletes().isEmpty() || task.file().recordCount() < 0) {
+                    return Optional.empty();
+                }
+                return Optional.of(Collections.singletonList(buildRange(table, task.file(), task, formatVersion,
+                        partitioned, orderedPartitionKeys, zone, uriNormalizer, exactCount, -1, null)));
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to plan iceberg count-pushdown file, error message is:"
+                    + e.getMessage(), e);
+        }
+        return exactCount == 0 ? Optional.of(Collections.emptyList()) : Optional.empty();
+    }
+
+    private Optional<List<ConnectorScanRange>> planCountPushdownFromFileTasks(Table table, TableScan scan,
             int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter) {
         FileScanTask representative = null;
@@ -1273,10 +1319,51 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer, exactCount, -1, null)));
     }
 
+    private enum ManifestDeleteState {
+        NONE,
+        PRESENT,
+        UNKNOWN
+    }
+
+    private static ManifestDeleteState manifestDeleteState(List<ManifestFile> manifests) {
+        for (ManifestFile manifest : manifests) {
+            Integer addedFiles = manifest.addedFilesCount();
+            Integer existingFiles = manifest.existingFilesCount();
+            if (manifest.content() != ManifestContent.DELETES || addedFiles == null || existingFiles == null
+                    || addedFiles < 0 || existingFiles < 0) {
+                return ManifestDeleteState.UNKNOWN;
+            }
+            if (addedFiles > 0 || existingFiles > 0) {
+                return ManifestDeleteState.PRESENT;
+            }
+        }
+        return ManifestDeleteState.NONE;
+    }
+
+    private static OptionalLong liveRowCountFromManifests(List<ManifestFile> manifests) {
+        long exactCount = 0;
+        for (ManifestFile manifest : manifests) {
+            Long addedRows = manifest.addedRowsCount();
+            Long existingRows = manifest.existingRowsCount();
+            if (manifest.content() != ManifestContent.DATA || addedRows == null || existingRows == null
+                    || addedRows < 0 || existingRows < 0) {
+                return OptionalLong.empty();
+            }
+            try {
+                exactCount = Math.addExact(exactCount, addedRows);
+                exactCount = Math.addExact(exactCount, existingRows);
+            } catch (ArithmeticException e) {
+                return OptionalLong.empty();
+            }
+        }
+        return OptionalLong.of(exactCount);
+    }
+
     /**
-     * The COUNT(*)-pushdown enumeration. PERF-04 (C18): when the manifest cache is enabled, read through the lazy
-     * {@link #cacheBackedFileScanTasks} (stats overload — this runs on the single planning thread) so manifest
-     * reads are cache hits without materializing the table's task list in FE memory.
+     * The COUNT(*)-pushdown representative/fallback enumeration. PERF-04 (C18): when the manifest cache is
+     * enabled, read through the lazy {@link #cacheBackedFileScanTasks} (stats overload — this runs on the single
+     * planning thread) so the fast path stops after one representative file and the old-metadata fallback remains
+     * bounded without materializing the table's task list in FE memory.
      * An eager cache failure falls back to the SDK path (mirrors {@link #planFileScanTask}). The first surviving
      * (pruned) file may differ from the SDK path's first file (its {@code ParallelIterable} order is
      * non-deterministic), but BE ignores the representative file. Cache disabled -> the SDK path, byte-unchanged.
