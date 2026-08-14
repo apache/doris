@@ -92,6 +92,7 @@ import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.DistributionSpecOlapTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecPaimonTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
@@ -248,6 +249,7 @@ import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
 import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TFetchOption;
+import org.apache.doris.thrift.TPaimonFixedBucketInfo;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
@@ -3363,6 +3365,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 case ICEBERG_TRANSFORM:
                     algorithm = TExternalTableSinkHashAlgorithm.ICEBERG_TRANSFORM;
                     break;
+                case PAIMON_FIXED_BUCKET:
+                    algorithm = TExternalTableSinkHashAlgorithm.PAIMON_FIXED_BUCKET;
+                    break;
                 default:
                     throw new RuntimeException("Unsupported external table sink hash algorithm: "
                             + externalSpec.getHashAlgorithm());
@@ -3379,9 +3384,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     throw new RuntimeException("Unsupported external table sink writer assignment: "
                             + externalSpec.getWriterAssignment());
             }
+            TPaimonFixedBucketInfo paimonFixedBucketInfo = null;
+            if (externalSpec instanceof DistributionSpecPaimonTableSinkHashPartitioned) {
+                DistributionSpecPaimonTableSinkHashPartitioned paimonSpec
+                        = (DistributionSpecPaimonTableSinkHashPartitioned) externalSpec;
+                paimonFixedBucketInfo = new TPaimonFixedBucketInfo();
+                paimonFixedBucketInfo.setNumBuckets(paimonSpec.getNumBuckets());
+                paimonFixedBucketInfo.setPartitionFieldIndexes(
+                        paimonSpec.getPartitionFieldIndexes());
+                paimonFixedBucketInfo.setBucketFieldIndexes(paimonSpec.getBucketFieldIndexes());
+            }
             return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED,
                     partitionExprs, algorithm, writerAssignment,
-                    externalSpec.getPartitionTransforms());
+                    externalSpec.getPartitionTransforms(), paimonFixedBucketInfo);
         } else if (distributionSpec instanceof DistributionSpecExternalTableSinkUnPartitioned) {
             return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_UNPARTITIONED);
         } else if (distributionSpec instanceof DistributionSpecMerge) {

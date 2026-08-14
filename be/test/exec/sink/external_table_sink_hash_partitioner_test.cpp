@@ -147,6 +147,67 @@ TEST_F(ExternalTableSinkHashPartitionerTest, DirectHashSupportsSkewedWriterAssig
     ASSERT_TRUE(partitioner.close(&_state).ok());
 }
 
+TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketUsesSdkCompatibleChannel) {
+    TPaimonFixedBucketInfo fixed_bucket_info;
+    fixed_bucket_info.__set_num_buckets(4);
+    fixed_bucket_info.__set_partition_field_indexes({});
+    fixed_bucket_info.__set_bucket_field_indexes({0});
+
+    TExternalTableSinkHashPartitionInfo info;
+    info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET);
+    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
+    info.__set_paimon_fixed_bucket_info(fixed_bucket_info);
+    ExternalTableSinkHashPartitioner partitioner(8, false, info);
+    ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
+    ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
+    ASSERT_TRUE(partitioner.open(&_state).ok());
+
+    Block input = block({1, 7, 1});
+    ASSERT_TRUE(partitioner.do_partitioning(&_state, &input).ok());
+    const auto& channels = partitioner.get_channel_ids();
+    ASSERT_EQ(3, channels.size());
+    EXPECT_EQ(5, channels[0]);
+    EXPECT_EQ(channels[0], channels[2]);
+
+    ASSERT_TRUE(partitioner.close(&_state).ok());
+}
+
+TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketIncludesPartitionHash) {
+    TPaimonFixedBucketInfo fixed_bucket_info;
+    fixed_bucket_info.__set_num_buckets(4);
+    fixed_bucket_info.__set_partition_field_indexes({0});
+    fixed_bucket_info.__set_bucket_field_indexes({0});
+
+    TExternalTableSinkHashPartitionInfo info;
+    info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET);
+    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
+    info.__set_paimon_fixed_bucket_info(fixed_bucket_info);
+    ExternalTableSinkHashPartitioner partitioner(8, false, info);
+    ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
+    ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
+    ASSERT_TRUE(partitioner.open(&_state).ok());
+
+    Block input = block({1, 1});
+    ASSERT_TRUE(partitioner.do_partitioning(&_state, &input).ok());
+    const auto& channels = partitioner.get_channel_ids();
+    ASSERT_EQ(2, channels.size());
+    EXPECT_EQ(0, channels[0]);
+    EXPECT_EQ(channels[0], channels[1]);
+
+    ASSERT_TRUE(partitioner.close(&_state).ok());
+}
+
+TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketRejectsMissingMetadata) {
+    TExternalTableSinkHashPartitionInfo info;
+    info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET);
+    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
+    ExternalTableSinkHashPartitioner partitioner(8, false, info);
+
+    Status status = partitioner.init({slot_ref()});
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("routing metadata is missing"), std::string::npos);
+}
+
 TEST_F(ExternalTableSinkHashPartitionerTest, IcebergTransformHashesTransformedValue) {
     TExternalTableSinkHashPartitionInfo info;
     info.__set_algorithm(TExternalTableSinkHashAlgorithm::ICEBERG_TRANSFORM);

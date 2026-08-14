@@ -85,7 +85,8 @@ public abstract class DistributionSpecExternalTableSinkHashPartitioned extends D
     /** Algorithms shared by FE planning and the external sink exchange protocol. */
     public enum HashAlgorithm {
         DIRECT_HASH,
-        ICEBERG_TRANSFORM
+        ICEBERG_TRANSFORM,
+        PAIMON_FIXED_BUCKET
     }
 
     /** Maps logical sink partitions to Doris exchange writers. */

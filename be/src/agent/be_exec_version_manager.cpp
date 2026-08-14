@@ -128,6 +128,7 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 //   a. enforce Iceberg SQL MERGE cardinality only when every executing BE supports it.
 // 12: start from Doris 4.1
 //   a. support strict ownership hash routing for external table sink writers.
+//   b. support Paimon default fixed-bucket routing in the external sink exchange.
 
 const int BeExecVersionManager::max_be_exec_version = 12;
 const int BeExecVersionManager::min_be_exec_version = 0;

@@ -114,7 +114,11 @@ struct TMergePartitionInfo {
 // Connector-specific FE distribution specs map to one of these algorithms.
 enum TExternalTableSinkHashAlgorithm {
   DIRECT_HASH = 0,
-  ICEBERG_TRANSFORM = 1
+  ICEBERG_TRANSFORM = 1,
+
+  // Paimon HASH_FIXED routing using the default bucket function and
+  // ChannelComputer. The partition expressions carry their Doris types.
+  PAIMON_FIXED_BUCKET = 2
 }
 
 // Maps the logical partitions produced by the hash algorithm to Doris exchange writers.
@@ -123,6 +127,14 @@ enum TExternalTableSinkHashAlgorithm {
 enum TExternalTableSinkWriterAssignment {
   IDENTITY = 0,
   SKEWED = 1
+}
+
+// Minimal metadata for Paimon's stateless HASH_FIXED route. Field indexes refer
+// to TDataPartition.partition_exprs, not to physical Block column positions.
+struct TPaimonFixedBucketInfo {
+  1: required i32 num_buckets
+  2: required list<i32> partition_field_indexes
+  3: required list<i32> bucket_field_indexes
 }
 
 // Connector-independent routing metadata for an external table sink hash
@@ -138,6 +150,9 @@ struct TExternalTableSinkHashPartitionInfo {
   // Kept optional on the wire so a new BE can reject an old FE with a clear
   // status instead of silently relying on the enum's default value.
   3: optional TExternalTableSinkWriterAssignment writer_assignment
+
+  // Required only by PAIMON_FIXED_BUCKET.
+  4: optional TPaimonFixedBucketInfo paimon_fixed_bucket_info
 }
 
 // Specification of how a single logical data stream is partitioned.

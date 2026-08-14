@@ -18,10 +18,13 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.properties.DistributionSpecPaimonTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -30,12 +33,17 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataTypeRoot;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -108,6 +116,11 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
         FileStoreTable paimonTable = writeTarget.getTable();
+        DistributionSpecPaimonTableSinkHashPartitioned fixedBucketSpec
+                = buildFixedBucketDistributionSpec(paimonTable);
+        if (fixedBucketSpec != null) {
+            return new PhysicalProperties(fixedBucketSpec);
+        }
         if (requiresSingleWriter(paimonTable)) {
             return PhysicalProperties.GATHER;
         }
@@ -115,8 +128,8 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         List<String> primaryKeys = paimonTable.primaryKeys();
         if (primaryKeys.isEmpty()) {
             // Keep the pre-refactoring Hive-style adaptive writer distribution for Paimon modes
-            // that are already safe without bucket ownership. Paimon bucket-aware exchange is
-            // intentionally deferred to the next phase.
+            // that are already safe without bucket ownership. Dynamic bucket assignment is
+            // intentionally deferred to a later phase.
             return PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED;
         }
 
@@ -147,6 +160,9 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
      * unsupported.
      */
     public boolean requiresSingleWriter() {
+        if (buildFixedBucketDistributionSpec(writeTarget.getTable()) != null) {
+            return false;
+        }
         return requiresSingleWriter(writeTarget.getTable());
     }
 
@@ -155,11 +171,9 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         CoreOptions coreOptions = CoreOptions.fromMap(paimonTable.options());
         if (bucketMode == BucketMode.HASH_DYNAMIC
                 || bucketMode == BucketMode.KEY_DYNAMIC
-                // Until Doris has a Paimon bucket-aware exchange, a fixed-bucket
-                // primary-key table must not let independent writers own the same bucket.
-                // An append-only writer has the same ownership requirement while automatic
-                // compaction is enabled, because two writers can restore and replace the same
-                // existing files in one Doris transaction.
+                // When the native fixed-bucket route is unavailable, a primary-key table must
+                // not let independent writers own the same bucket. An append-only writer has the
+                // same fallback requirement while automatic compaction is enabled.
                 || (bucketMode == BucketMode.HASH_FIXED
                         && (!paimonTable.primaryKeys().isEmpty() || !coreOptions.writeOnly()))) {
             return true;
@@ -169,6 +183,106 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
                 && (coreOptions.needLookup()
                         || coreOptions.changelogProducer()
                                 == CoreOptions.ChangelogProducer.FULL_COMPACTION);
+    }
+
+    private DistributionSpecPaimonTableSinkHashPartitioned buildFixedBucketDistributionSpec(
+            FileStoreTable paimonTable) {
+        if (Config.be_exec_version
+                < DistributionSpecExternalTableSinkHashPartitioned.MIN_BE_EXEC_VERSION) {
+            return null;
+        }
+        return buildFixedBucketDistributionSpec(paimonTable, cols, child().getOutput());
+    }
+
+    static DistributionSpecPaimonTableSinkHashPartitioned buildFixedBucketDistributionSpec(
+            FileStoreTable paimonTable, List<Column> sinkColumns, List<Slot> sinkOutput) {
+        if (paimonTable.bucketMode() != BucketMode.HASH_FIXED) {
+            return null;
+        }
+
+        TableSchema schema = paimonTable.schema();
+        CoreOptions coreOptions = CoreOptions.fromMap(schema.options());
+        if (coreOptions.bucketFunctionType() != CoreOptions.BucketFunctionType.DEFAULT) {
+            return null;
+        }
+
+        if (schema.numBuckets() <= 0 || schema.bucketKeys().isEmpty()
+                || sinkColumns.size() != sinkOutput.size()) {
+            return null;
+        }
+
+        Map<String, Slot> outputByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (int i = 0; i < sinkColumns.size(); i++) {
+            if (outputByName.put(sinkColumns.get(i).getName(), sinkOutput.get(i)) != null) {
+                return null;
+            }
+        }
+        Map<String, DataField> fieldsByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (DataField field : schema.fields()) {
+            fieldsByName.put(field.name(), field);
+        }
+
+        List<ExprId> routeExprIds = new ArrayList<>();
+        Map<String, Integer> routeIndexes = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        List<Integer> partitionFieldIndexes = appendRouteFields(
+                schema.partitionKeys(), outputByName, fieldsByName, routeExprIds, routeIndexes);
+        List<Integer> bucketFieldIndexes = appendRouteFields(
+                schema.bucketKeys(), outputByName, fieldsByName, routeExprIds, routeIndexes);
+        if (partitionFieldIndexes == null || bucketFieldIndexes == null
+                || bucketFieldIndexes.isEmpty()) {
+            return null;
+        }
+        return new DistributionSpecPaimonTableSinkHashPartitioned(
+                routeExprIds, schema.numBuckets(), partitionFieldIndexes, bucketFieldIndexes);
+    }
+
+    private static List<Integer> appendRouteFields(List<String> fieldNames,
+            Map<String, Slot> outputByName, Map<String, DataField> fieldsByName,
+            List<ExprId> routeExprIds, Map<String, Integer> routeIndexes) {
+        ImmutableList.Builder<Integer> indexes = ImmutableList.builder();
+        for (String fieldName : fieldNames) {
+            Slot slot = outputByName.get(fieldName);
+            DataField field = fieldsByName.get(fieldName);
+            if (slot == null || field == null
+                    || !supportsNativeRouting(field.type().getTypeRoot(), slot.getDataType())) {
+                return null;
+            }
+            Integer index = routeIndexes.get(fieldName);
+            if (index == null) {
+                index = routeExprIds.size();
+                routeExprIds.add(slot.getExprId());
+                routeIndexes.put(fieldName, index);
+            }
+            indexes.add(index);
+        }
+        return indexes.build();
+    }
+
+    private static boolean supportsNativeRouting(DataTypeRoot paimonType, DataType dorisType) {
+        switch (paimonType) {
+            case BOOLEAN:
+                return dorisType.isBooleanType();
+            case TINYINT:
+                return dorisType.isTinyIntType();
+            case SMALLINT:
+                return dorisType.isSmallIntType();
+            case INTEGER:
+                return dorisType.isIntegerType();
+            case BIGINT:
+                return dorisType.isBigIntType();
+            case FLOAT:
+                return dorisType.isFloatType();
+            case DOUBLE:
+                return dorisType.isDoubleType();
+            case CHAR:
+            case VARCHAR:
+                return dorisType.isStringLikeType();
+            case BINARY:
+            case VARBINARY:
+                return dorisType.isStringLikeType() || dorisType.isVarBinaryType();
+            default:
+                return false;
+        }
     }
 
     public PaimonWriteTarget getWriteTarget() {

@@ -22,6 +22,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
+#include "exec/sink/paimon_fixed_bucket_partition_function.h"
 #include "format/transformer/iceberg_partition_function.h"
 
 namespace doris {
@@ -65,7 +66,28 @@ Status ExternalTableSinkHashPartitioner::init(const std::vector<TExpr>& texprs) 
     }
     _logical_partition_count =
             logical_partition_count(_partition_count, _partition_info.writer_assignment);
+    if (_partition_info.algorithm == TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET) {
+        if (_partition_info.writer_assignment != TExternalTableSinkWriterAssignment::IDENTITY) {
+            return Status::InvalidArgument(
+                    "Paimon fixed-bucket routing requires identity writer assignment");
+        }
+        if (!_partition_info.__isset.paimon_fixed_bucket_info) {
+            return Status::InvalidArgument("Paimon fixed-bucket routing metadata is missing");
+        }
+        if (_partition_info.__isset.partition_transforms &&
+            !_partition_info.partition_transforms.empty()) {
+            return Status::InvalidArgument(
+                    "Paimon fixed-bucket routing must not contain Iceberg transforms");
+        }
+        _partition_function = std::make_unique<PaimonFixedBucketPartitionFunction>(
+                _logical_partition_count, _partition_info.paimon_fixed_bucket_info);
+        return _partition_function->init(texprs);
+    }
     if (_partition_info.algorithm == TExternalTableSinkHashAlgorithm::ICEBERG_TRANSFORM) {
+        if (_partition_info.__isset.paimon_fixed_bucket_info) {
+            return Status::InvalidArgument(
+                    "Iceberg external sink routing must not contain Paimon metadata");
+        }
         if (!_partition_info.__isset.partition_transforms) {
             return Status::InvalidArgument(
                     "Iceberg external sink partition transforms are missing");
@@ -96,6 +118,10 @@ Status ExternalTableSinkHashPartitioner::init(const std::vector<TExpr>& texprs) 
         !_partition_info.partition_transforms.empty()) {
         return Status::InvalidArgument(
                 "Direct external sink hash must not contain partition transforms");
+    }
+    if (_partition_info.__isset.paimon_fixed_bucket_info) {
+        return Status::InvalidArgument(
+                "Direct external sink hash must not contain Paimon metadata");
     }
 
     _partition_function =
