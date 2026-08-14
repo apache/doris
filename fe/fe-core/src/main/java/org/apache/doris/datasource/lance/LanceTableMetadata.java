@@ -19,6 +19,7 @@ package org.apache.doris.datasource.lance;
 
 import org.apache.arrow.vector.types.pojo.Schema;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -37,7 +38,7 @@ public class LanceTableMetadata {
         this.datasetUri = datasetUri;
         this.version = version;
         this.schema = schema;
-        this.fragments = Collections.unmodifiableList(fragments);
+        this.fragments = Collections.unmodifiableList(new ArrayList<>(fragments));
         this.backendStorageOptions = Collections.unmodifiableMap(new HashMap<>(backendStorageOptions));
     }
 
@@ -63,35 +64,5 @@ public class LanceTableMetadata {
 
     public long getRowCount() {
         return fragments.stream().mapToLong(LanceFragmentInfo::getRowCount).sum();
-    }
-
-    public static class LanceFragmentInfo {
-        private final long id;
-        private final long rowCount;
-        private final long physicalRows;
-
-        public LanceFragmentInfo(long id, long rowCount, long physicalRows) {
-            this.id = id;
-            this.rowCount = rowCount;
-            this.physicalRows = physicalRows;
-        }
-
-        public long getId() {
-            return id;
-        }
-
-        /** Logical rows after deletions, used for row-count statistics. */
-        public long getRowCount() {
-            return rowCount;
-        }
-
-        /**
-         * Physical rows on disk before deletions. The pinned BE legacy reader reads and merges
-         * physical batches before applying the deletion vector, so scan work scales with this
-         * value rather than the post-deletion row count. Used for split scheduling weight.
-         */
-        public long getPhysicalRows() {
-            return physicalRows;
-        }
     }
 }

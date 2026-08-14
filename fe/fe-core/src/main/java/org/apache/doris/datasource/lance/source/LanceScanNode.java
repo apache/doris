@@ -26,6 +26,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalTable;
+import org.apache.doris.datasource.lance.LanceFragmentInfo;
 import org.apache.doris.datasource.lance.LanceTableMetadata;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.planner.PlanNodeId;
@@ -56,9 +57,9 @@ import java.util.Set;
  *
  * <p>These modes share dataset metadata, storage properties, and BE scan-range serialization.
  * Keeping them in one node prevents those common parts from drifting apart. The search request is
- * also an explicit mode marker: ordinary scans are split by fragment, while the first version of
- * vector search deliberately sends one whole-snapshot split to one scanner so Lance can compute a
- * global TopK result.
+ * also an explicit mode marker. Both ordinary scans and vector searches are split by fragment.
+ * Each search split produces local candidates; a Doris TopN above this scan merges them into the
+ * requested snapshot-wide result.
  */
 public class LanceScanNode extends FileQueryScanNode {
     private LanceExternalTable lanceTable;
@@ -110,7 +111,7 @@ public class LanceScanNode extends FileQueryScanNode {
         if (isExternalSearch()) {
             // Search output comes from the FunctionGenTable because it adds generated columns such
             // as _distance. The real Lance table is still retained for storage and metadata access.
-            params.setExternalSearchRequest(externalSearchRequest.deepCopy());
+            params.setExternalSearchRequest(createFragmentSearchRequest(externalSearchRequest));
         }
     }
 
@@ -152,42 +153,34 @@ public class LanceScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
-        if (isExternalSearch()) {
-            plannedVersion = plannedMetadata.getVersion();
-            plannedFragments = plannedMetadata.getFragments().size();
-
-            // Do not attach fragment IDs. A vector index is a dataset-wide structure and one
-            // scanner must see every fragment visible in this pinned snapshot to produce global
-            // TopK. Fragment-level parallel search and result merging are intentionally deferred.
-            return Collections.singletonList(LanceSplit.wholeDatasetAtVersion(
-                    plannedMetadata.getDatasetUri(), plannedMetadata.getVersion(),
-                    plannedMetadata.getRowCount()));
-        } else {
-            LanceTableMetadata metadata = plannedMetadata;
-            plannedVersion = metadata.getVersion();
-            plannedFragments = metadata.getFragments().size();
-            Set<Long> fragmentIds = new HashSet<>();
-            long targetRows = 1;
-            for (LanceTableMetadata.LanceFragmentInfo fragment : metadata.getFragments()) {
-                if (!fragmentIds.add(fragment.getId())) {
-                    throw new UserException("Duplicate Lance fragment id " + fragment.getId()
-                            + " at dataset version " + metadata.getVersion());
-                }
-                targetRows = Math.max(targetRows, Math.max(fragment.getPhysicalRows(), 1));
-            }
-
-            // Use the largest fragment as one standard split so smaller fragments keep
-            // their relative row-count weight during backend assignment. Physical rows drive
-            // the weight because the BE legacy reader scans physical batches before deletions.
-            List<Split> splits = new ArrayList<>(plannedFragments);
-            for (LanceTableMetadata.LanceFragmentInfo fragment : metadata.getFragments()) {
-                LanceSplit split = new LanceSplit(metadata.getDatasetUri(), metadata.getVersion(),
-                        fragment.getId(), fragment.getPhysicalRows());
-                split.setTargetSplitSize(targetRows);
-                splits.add(split);
-            }
-            return splits;
+        LanceTableMetadata metadata = plannedMetadata;
+        plannedVersion = metadata.getVersion();
+        plannedFragments = metadata.getFragments().size();
+        if (isExternalSearch() && plannedVersion <= 0) {
+            throw new UserException(
+                    "Lance vector search requires a fixed positive dataset version");
         }
+        Set<Long> fragmentIds = new HashSet<>();
+        long targetRows = 1;
+        for (LanceFragmentInfo fragment : metadata.getFragments()) {
+            if (!fragmentIds.add(fragment.getId())) {
+                throw new UserException("Duplicate Lance fragment id " + fragment.getId()
+                        + " at dataset version " + metadata.getVersion());
+            }
+            targetRows = Math.max(targetRows, Math.max(fragment.getPhysicalRows(), 1));
+        }
+
+        // Keep one fragment per split. Use the largest fragment's physical row count as the
+        // normalization baseline for split weights, so backend scheduling reflects the relative
+        // amount of physical data each fragment scans, including rows covered by deletion metadata.
+        List<Split> splits = new ArrayList<>(plannedFragments);
+        for (LanceFragmentInfo fragment : metadata.getFragments()) {
+            LanceSplit split = new LanceSplit(metadata.getDatasetUri(), metadata.getVersion(),
+                    fragment.getId(), fragment.getPhysicalRows());
+            split.setTargetSplitSize(targetRows);
+            splits.add(split);
+        }
+        return splits;
     }
 
     @Override
@@ -199,25 +192,14 @@ public class LanceScanNode extends FileQueryScanNode {
         TLanceFileDesc lanceParams = new TLanceFileDesc();
         lanceParams.setDatasetUri(lanceSplit.getDatasetUri());
         lanceParams.setVersion(lanceSplit.getVersion());
-        if (isExternalSearch()) {
-            if (lanceSplit.hasFragmentId()) {
-                throw new IllegalArgumentException(
-                        "Lance external search split must cover the whole dataset");
-            }
-            // Leaving fragment_ids unset instructs lance-c to scan/search all fragments in the
-            // selected dataset version.
-        } else {
-            if (!lanceSplit.hasFragmentId()) {
-                throw new IllegalArgumentException(
-                        "Ordinary Lance scan split must contain one fragment");
-            }
-            lanceParams.setFragmentIds(Collections.singletonList(lanceSplit.getFragmentId()));
-            // Push LIMIT into each fragment scanner only when it is safe to truncate a single
-            // fragment early. See canPushDownLimit(). Each scanner still returns at most `limit`
-            // rows and the upper LIMIT operator enforces the final bound across fragments.
-            if (canPushDownLimit()) {
-                lanceParams.setLimit(getLimit());
-            }
+        if (lanceSplit.getFragmentIds().size() != 1) {
+            throw new IllegalArgumentException("Lance scan split must contain one fragment");
+        }
+        lanceParams.setFragmentIds(lanceSplit.getFragmentIds());
+        // Push LIMIT into each ordinary fragment scanner only when it is safe to truncate that
+        // fragment early. Vector search uses its own per-fragment candidate bound.
+        if (!isExternalSearch() && canPushDownLimit()) {
+            lanceParams.setLimit(getLimit());
         }
 
         TTableFormatFileDesc tableFormatParams = new TTableFormatFileDesc();
@@ -256,7 +238,7 @@ public class LanceScanNode extends FileQueryScanNode {
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder result = new StringBuilder(super.getNodeExplainString(prefix, detailLevel));
         if (isExternalSearch()) {
-            TVectorSearchParams vector = externalSearchRequest.getQuery().getVector();
+            TVectorSearchParams vector = externalSearchRequest.getSearchQuery().getVectorSearch();
             result.append(prefix).append("externalSearchType=VECTOR\n");
             result.append(prefix).append("lanceVectorColumn=").append(vector.getColumn()).append("\n");
             result.append(prefix).append("lanceTopK=").append(vector.getTopK()).append("\n");
@@ -266,7 +248,8 @@ public class LanceScanNode extends FileQueryScanNode {
                     .append("\n");
             result.append(prefix).append("lanceVersion=")
                     .append(plannedMetadata.getVersion()).append("\n");
-            result.append(prefix).append("lanceSearchScanners=1\n");
+            result.append(prefix).append("lanceSearchFragments=")
+                    .append(plannedFragments).append("\n");
         } else {
             result.append(prefix).append("lanceCatalogType=")
                     .append(((LanceExternalCatalog) lanceTable.getCatalog()).getLanceCatalogType()).append("\n");
@@ -285,6 +268,17 @@ public class LanceScanNode extends FileQueryScanNode {
 
     private boolean isExternalSearch() {
         return externalSearchRequest != null;
+    }
+
+    static TExternalSearchRequest createFragmentSearchRequest(TExternalSearchRequest searchRequest) {
+        TExternalSearchRequest fragmentRequest = searchRequest.deepCopy();
+        TVectorSearchParams vector = fragmentRequest.getSearchQuery().getVectorSearch();
+        // Every fragment must retain enough rows for the later global OFFSET/LIMIT. Applying the
+        // logical offset independently inside each fragment could discard rows that belong to the
+        // snapshot-wide result.
+        vector.setTopK(vector.getTopK() + vector.getOffset());
+        vector.setOffset(0);
+        return fragmentRequest;
     }
 
     private static String metricName(TVectorMetric metric) {

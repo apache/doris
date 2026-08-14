@@ -76,8 +76,6 @@ private:
         bool operator==(const DatasetKey&) const = default;
     };
 
-    Status _validate_range(const TFileRangeDesc& range) const;
-    Status _validate_external_search_request() const;
     Status _open_dataset(const DatasetKey& key);
     Status _open_scanner(const TFileRangeDesc& range);
     Status _configure_vector_search(LanceScanner* scanner) const;
@@ -95,7 +93,6 @@ private:
     cctz::time_zone _ctz;
     size_t _scanner_batch_size = 0;
     bool _vector_search = false;
-    bool _search_split_prepared = false;
     bool _eof = false;
 };
 

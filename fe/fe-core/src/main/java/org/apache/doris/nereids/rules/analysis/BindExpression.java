@@ -69,6 +69,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -101,6 +102,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.BooleanType;
@@ -114,6 +116,7 @@ import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -1762,7 +1765,7 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalSort<>(boundOrderKeys.build(), sort.child());
     }
 
-    private LogicalTVFRelation bindTableValuedFunction(MatchingContext<UnboundTVFRelation> ctx) {
+    private Plan bindTableValuedFunction(MatchingContext<UnboundTVFRelation> ctx) {
         UnboundTVFRelation unboundTVFRelation = ctx.root;
         StatementContext statementContext = ctx.statementContext;
         Env env = statementContext.getConnectContext().getEnv();
@@ -1780,8 +1783,28 @@ public class BindExpression implements AnalysisRuleFactory {
         if (sqlCacheContext.isPresent()) {
             sqlCacheContext.get().setCannotProcessExpression(true);
         }
-        return new LogicalTVFRelation(unboundTVFRelation.getRelationId(),
-                (TableValuedFunction) bindResult.first, ImmutableList.of());
+        TableValuedFunction tableValuedFunction = (TableValuedFunction) bindResult.first;
+        LogicalTVFRelation relation = new LogicalTVFRelation(
+                unboundTVFRelation.getRelationId(), tableValuedFunction, ImmutableList.of());
+        if (!(tableValuedFunction instanceof VectorSearch)) {
+            return relation;
+        }
+
+        // Each distributed Lance search split returns topK + offset candidates. Wrap the TVF
+        // relation with a Doris TopN to merge them into the snapshot-wide result. Predicates
+        // written outside vector_search() remain above this TopN because the TVF defines the
+        // search boundary: an outer WHERE filters the already selected nearest neighbors.
+        VectorSearchTableValuedFunction vectorSearch =
+                (VectorSearchTableValuedFunction) tableValuedFunction.getCatalogFunction();
+        Slot distance = relation.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase(
+                        VectorSearchTableValuedFunction.DISTANCE_COLUMN))
+                .findFirst()
+                .orElseThrow(() -> new AnalysisException("vector_search() output is missing '"
+                        + VectorSearchTableValuedFunction.DISTANCE_COLUMN + "'"));
+        OrderKey distanceAscending = new OrderKey(distance, true, false);
+        return new LogicalTopN<>(ImmutableList.of(distanceAscending),
+                vectorSearch.getTopK(), vectorSearch.getOffset(), relation);
     }
 
     private void checkIfOutputAliasNameDuplicatedForGroupBy(Collection<Expression> expressions,

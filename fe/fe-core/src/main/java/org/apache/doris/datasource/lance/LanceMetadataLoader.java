@@ -83,10 +83,10 @@ public final class LanceMetadataLoader {
         try (Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
                 .readOptions(LanceReadOptions.build(javaStorageOptions, version)).build()) {
             long resolvedVersion = dataset.version();
-            List<LanceTableMetadata.LanceFragmentInfo> fragments = new ArrayList<>();
+            List<LanceFragmentInfo> fragments = new ArrayList<>();
             for (Fragment fragment : dataset.getFragments()) {
-                fragments.add(new LanceTableMetadata.LanceFragmentInfo(
-                        fragment.getId(), fragment.metadata().getNumRows(),
+                fragments.add(new LanceFragmentInfo(
+                        Integer.toUnsignedLong(fragment.getId()), fragment.metadata().getNumRows(),
                         fragment.metadata().getPhysicalRows()));
             }
             return new LanceTableMetadata(datasetUri, resolvedVersion, dataset.getSchema(), fragments,
