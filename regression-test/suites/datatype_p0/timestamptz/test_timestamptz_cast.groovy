@@ -27,6 +27,10 @@ suite("test_timestamptz_cast") {
     qt_cast_from_string1 """
     select cast("2020-01-01 23:59:59.999999+08:00" as timestamptz(5));
     """
+    test {
+        sql """select cast(cast(20240229112233 as bigint) as timestamptz(6));"""
+        exception "cannot cast BIGINT to TIMESTAMPTZ(6)"
+    }
     sql " set debug_skip_fold_constant = true; "
     qt_cast_from_string2 """
     select cast("2020-01-01 00:00:00.123456+08:00" as timestamptz(5));

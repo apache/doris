@@ -123,6 +123,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -276,6 +277,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Expression rewritten = executor.rewrite(c, context);
         Literal expected = Literal.of((byte) 1);
         Assertions.assertEquals(rewritten, expected);
+
+        Cast unsupportedCast = new Cast(new BigIntLiteral(20240229112233L), TimeStampTzType.of(6));
+        Assertions.assertEquals(unsupportedCast, executor.rewrite(unsupportedCast, context));
     }
 
     @Test
