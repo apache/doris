@@ -21,7 +21,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.authenticate.Authenticator;
@@ -95,7 +94,7 @@ public class LdapAuthenticator implements Authenticator {
 
     /**
      * The LDAP authentication process is as follows:
-     * step1: Check the LDAP password (if ldap_allow_empty_pass is false login with empty pass is prohibited).
+     * step1: Check the LDAP password.
      * step2: Get the LDAP groups privileges as a role, saved into ConnectContext.
      * step3: Set current userIdentity. If the user account does not exist in Doris, login as a temporary user.
      * Otherwise, login to the Doris account.
@@ -108,18 +107,11 @@ public class LdapAuthenticator implements Authenticator {
         }
 
         // check user password by ldap server.
-        // extra check for login with empty LDAP password was added in checkUserPasswd.
         try {
             if (!Env.getCurrentEnv().getAuth().getLdapManager().checkUserPasswd(qualifiedUser, password)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("internalAuthenticate: user={}, success=false", userName);
                 }
-                // extra log to identify case covered by PR 61440 - login with empty LDAP password is allowed by default
-                // but can be disabled by specific flag
-                if (LOG.isDebugEnabled() && Strings.isNullOrEmpty(password) && !LdapConfig.ldap_allow_empty_pass) {
-                    LOG.debug(ErrorCode.ERR_EMPTY_PASSWORD.formatErrorMsg(qualifiedUser + "@" + remoteIp));
-                }
-
                 ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, remoteIp, usePasswd);
                 return AuthenticateResponse.failedResponse;
             }

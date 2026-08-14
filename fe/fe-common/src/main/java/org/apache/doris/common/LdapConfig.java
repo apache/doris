@@ -200,6 +200,12 @@ public class LdapConfig extends ConfigBase {
     public static boolean ldap_use_ssl = false;
 
     /**
+     * Flag to enable login with empty pass.
+     */
+    @ConfigBase.ConfField
+    public static boolean ldap_allow_empty_pass = false;
+
+    /**
      * The method constructs the correct URL connection string for the specified host and port depending on
      * the value of the {@code ldap_use_ssl} property.
      * If {@code ldap_use_ssl} is true, LDAPS is used as the protocol.
@@ -210,10 +216,4 @@ public class LdapConfig extends ConfigBase {
     public static String getConnectionURL(String hostPortInAccessibleFormat) {
         return ((LdapConfig.ldap_use_ssl ? "ldaps" : "ldap") + "://" + hostPortInAccessibleFormat);
     }
-
-    /**
-     * Flag to enable login with empty pass.
-     */
-    @ConfigBase.ConfField
-    public static boolean ldap_allow_empty_pass = true;
 }
