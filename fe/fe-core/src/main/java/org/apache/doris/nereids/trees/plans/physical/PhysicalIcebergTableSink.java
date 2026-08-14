@@ -179,7 +179,7 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
             Column sourceColumn = columnsByName.get(sourceField.name());
             String transform = field.transform().toString();
             if (sourceExprId == null || sourceColumn == null
-                    || !supportsPartitionTransform(transform, sourceColumn.getPrimitiveType())) {
+                    || !supportsPartitionTransform(transform, sourceColumn.getDataType())) {
                 return null;
             }
             sourceExprIds.add(sourceExprId);
