@@ -18,17 +18,24 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
+#include "runtime/memory/mem_tracker.h"
 #include "storage/index/snii/writer/compact_posting_pool.h"
 #include "storage/index/snii/writer/global_memory_limiter.h"
+#include "storage/index/snii/writer/memory_reporter.h"
+#include "storage/index/snii/writer/snii_build_memory_tracker.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii/writer/term_posting_test_utils.h"
+#include "util/mem_info.h"
 
 // G09: process-wide build-RAM limiter. The per-writer gate-2 cap bounds ONE
 // SPIMI accumulator; a concurrent load keeps (tablets x concurrency) writers
@@ -36,26 +43,34 @@
 // concurrency 16: 100+ writers x 300-500 MB, ~41 GiB, zero per-writer spills).
 // These tests pin the limiter's contract:
 //   (1) REGISTRY: register / absolute-report / unregister maintain the exact
-//       total and entry count; reports for unregistered flags are ignored;
-//   (2) SELECTION: over budget flags the largest-ARENA eligible buffers
+//       eligible-arena sum and entry count; reports for unregistered flags are
+//       ignored;
+//   (2) TRIGGER: the decision is judged against SNII's share of the process
+//       limit (from the observation tracker's consumption) plus the two
+//       process-level backstops; a zero share disables SNII's own trigger even
+//       for writers that registered while it was enabled;
+//   (3) SELECTION: over the share, the largest-ARENA eligible buffers
 //       (arena >= the victim floor -- only the arena is reclaimable by a
-//       forced spill) until the flagged arena covers the overage -- counting
-//       already-pending flags -- and under budget (or budget 0 = off) never
-//       flags anything;
-//   (3) HONOR: the owner's next add_token observes a pending request, spills
+//       forced spill) are flagged until the flagged arena covers the overage --
+//       counting already-pending flags -- and under it nothing is flagged;
+//   (4) HONOR: the owner's next add_token observes a pending request, spills
 //       (run_count increments; global_forced_spills seam bumps) BYPASSING the
 //       G08 anti-churn floor but respecting the FORCED-SPILL FLOOR, and
 //       clears the flag; requests are advisory;
-//   (4) LIFETIME: attach registers the current resident bytes, the debounced
-//       report path keeps the registry equal to resident_bytes(), and the
+//   (5) LIFETIME: attach registers the current arena bytes, the debounced
+//       report path keeps the registry equal to arena_bytes(), and the
 //       destructor un-registers;
-//   (5) THREADS: concurrent register / report / unregister (with flags dying
+//   (6) THREADS: concurrent register / report / unregister (with flags dying
 //       right after unregister) is race-free -- the TSAN canary;
-//   (6) ANTI-STORM (the conc=16 wikipedia field failure): the floor makes a
+//   (7) ANTI-STORM (the conc=16 wikipedia field failure): the floor makes a
 //       below-floor request a pending NO-OP, the cooldown exempts a
-//       just-spilled buffer until its arena regrows past the floor, and the
-//       budget-sanity check degrades to log-once-and-stop when the per-writer
-//       budget share cannot be met by spilling persistent-dominated buffers.
+//       just-spilled buffer until its arena regrows past the floor, and
+//       flagging is suspended whenever the reclaimable arena summed over the
+//       eligible victims cannot cover the overage.
+using doris::snii::writer::BuildMemorySignals;
+using doris::snii::writer::calc_process_max_snii_build_memory;
+using doris::snii::writer::MemoryReporter;
+using doris::snii::writer::read_build_memory_signals;
 using doris::snii::writer::CompactPostingPool;
 using doris::snii::writer::GlobalMemoryLimiter;
 using doris::snii::writer::SpimiTermBuffer;
@@ -78,57 +93,315 @@ std::string unigram(uint32_t i) {
     return s;
 }
 
+// A tunable stand-in for the process memory state the limiter judges against.
+// Production reads these from Doris (read_build_memory_signals); tests drive
+// them directly so the decision layer is deterministic. Declare one BEFORE the
+// limiter it feeds: the provider borrows it.
+struct FakeSignals {
+    std::atomic<int64_t> build_consumption {0};
+    std::atomic<int64_t> build_share_bytes {0};
+    std::atomic<int64_t> sys_avail_below_warning_water_mark {0};
+    std::atomic<int64_t> process_above_soft_mem_limit {0};
+
+    GlobalMemoryLimiter::SignalsFn provider() {
+        // Atomics throughout: the limiter invokes this from whichever thread
+        // happens to be reporting.
+        return [this] {
+            BuildMemorySignals signals;
+            signals.build_consumption = build_consumption.load();
+            signals.build_share_bytes = build_share_bytes.load();
+            signals.sys_avail_below_warning_water_mark = sys_avail_below_warning_water_mark.load();
+            signals.process_above_soft_mem_limit = process_above_soft_mem_limit.load();
+            return signals;
+        };
+    }
+
+    // Puts SNII exactly `overage` bytes above its share, with the two
+    // process-level backstops quiet.
+    void set_overage(int64_t overage, int64_t share = 1LL << 30) {
+        build_share_bytes.store(share);
+        build_consumption.store(share + overage);
+    }
+};
+
+// Restores the mutable share percent when a test that moves it finishes.
+struct SharePercentRestore {
+    int32_t saved = doris::config::snii_index_build_max_memory_limit_percent;
+    ~SharePercentRestore() { doris::config::snii_index_build_max_memory_limit_percent = saved; }
+};
+
 // ---- (1) registry bookkeeping ---------------------------------------------
 
-TEST(SniiGlobalMemoryLimiter, RegistryAddRemoveTotal) {
-    GlobalMemoryLimiter lim; // budget defaults to 0 (off): pure tracking
+TEST(SniiGlobalMemoryLimiter, RegistryAddRemoveEligibleArena) {
+    FakeSignals signals; // no pressure: pure tracking
+    GlobalMemoryLimiter lim;
+    lim.set_signals_provider(signals.provider());
+    lim.set_min_victim_arena_bytes(1); // byte-scale entries are all eligible
     std::atomic<bool> a {false};
     std::atomic<bool> b {false};
-    EXPECT_EQ(lim.total_bytes(), 0);
+    EXPECT_EQ(lim.eligible_arena_bytes(), 0);
     EXPECT_EQ(lim.registered_count(), 0U);
 
-    lim.register_buffer(&a, 100, 40);
-    lim.register_buffer(&b, 60, 10);
-    EXPECT_EQ(lim.total_bytes(), 160);
+    lim.register_buffer(&a, 40);
+    lim.register_buffer(&b, 10);
+    EXPECT_EQ(lim.eligible_arena_bytes(), 50);
     EXPECT_EQ(lim.registered_count(), 2U);
 
-    lim.report(&a, 150, 90); // ABSOLUTE totals, not deltas
-    EXPECT_EQ(lim.total_bytes(), 210);
+    lim.report(&a, 90); // ABSOLUTE arena bytes, not deltas
+    EXPECT_EQ(lim.eligible_arena_bytes(), 100);
 
-    lim.register_buffer(&a, 40, 5); // re-register updates in place, no duplicate
-    EXPECT_EQ(lim.total_bytes(), 100);
+    lim.register_buffer(&a, 5); // re-register updates in place, no duplicate
+    EXPECT_EQ(lim.eligible_arena_bytes(), 15);
     EXPECT_EQ(lim.registered_count(), 2U);
 
     lim.unregister_buffer(&a);
-    EXPECT_EQ(lim.total_bytes(), 60);
+    EXPECT_EQ(lim.eligible_arena_bytes(), 10);
     EXPECT_EQ(lim.registered_count(), 1U);
 
     lim.unregister_buffer(&a); // double-unregister is harmless
-    lim.report(&a, 999, 999);  // a report for an unregistered flag is ignored
-    EXPECT_EQ(lim.total_bytes(), 60);
+    lim.report(&a, 999);       // a report for an unregistered flag is ignored
+    EXPECT_EQ(lim.eligible_arena_bytes(), 10);
     EXPECT_EQ(lim.registered_count(), 1U);
 
     lim.unregister_buffer(&b);
-    EXPECT_EQ(lim.total_bytes(), 0);
+    EXPECT_EQ(lim.eligible_arena_bytes(), 0);
     EXPECT_EQ(lim.registered_count(), 0U);
     EXPECT_FALSE(a.load());
     EXPECT_FALSE(b.load());
 }
 
-// ---- (2) victim selection ---------------------------------------------------
+// ---- (2) the trigger: SNII's share, then the process backstops --------------
 
-// MiB-scale entries with arena == resident keep the pre-floor selection shape
-// visible while every entry clears the default 64 MiB victim floor AND every
-// budget keeps budget/count above the 96 MiB/writer sanity minimum.
-TEST(SniiGlobalMemoryLimiter, OverBudgetFlagsLargestUntilOverageCovered) {
+TEST(SniiGlobalMemoryLimiter, ShareIsDerivedFromTheProcessLimit) {
+    SharePercentRestore restore;
+    doris::config::snii_index_build_max_memory_limit_percent = 10;
+    EXPECT_EQ(calc_process_max_snii_build_memory(100LL * 1024 * kMiB), 10LL * 1024 * kMiB)
+            << "the share scales with the BE's process limit instead of being a "
+               "fixed budget";
+    EXPECT_EQ(calc_process_max_snii_build_memory(200LL * 1024 * kMiB), 20LL * 1024 * kMiB);
+    EXPECT_EQ(calc_process_max_snii_build_memory(-1), -1)
+            << "an unlimited process yields no derivable share";
+
+    doris::config::snii_index_build_max_memory_limit_percent = 0;
+    EXPECT_EQ(calc_process_max_snii_build_memory(100LL * 1024 * kMiB), 0)
+            << "0 percent disables SNII's own share trigger";
+}
+
+// THE TRAP the share exists to avoid: the process soft limit is a global valve
+// that trips late. If SNII's own share were not a small minority of the process
+// limit it would fire no earlier than the backstops, and the mechanism would be
+// worth nothing.
+TEST(SniiGlobalMemoryLimiter, DefaultShareIsAMinorityOfTheProcessLimit) {
+    const int32_t percent = doris::config::snii_index_build_max_memory_limit_percent;
+    EXPECT_GT(percent, 0) << "the share must be enabled by default";
+    EXPECT_LT(percent, doris::config::load_process_max_memory_limit_percent)
+            << "index build must shed memory well before the process-level valves";
+}
+
+TEST(SniiGlobalMemoryLimiter, UnlimitedProcessYieldsNoShare) {
+    SharePercentRestore restore;
+    doris::config::snii_index_build_max_memory_limit_percent = 10;
+    // Doris's "no limit" convention, and the unconfigured-cgroup value that
+    // would overflow a percent multiplication.
+    EXPECT_EQ(calc_process_max_snii_build_memory(-1), -1);
+    EXPECT_EQ(calc_process_max_snii_build_memory(0), -1);
+    EXPECT_EQ(calc_process_max_snii_build_memory(std::numeric_limits<int64_t>::max()), -1);
+}
+
+// I3: the share is floored against the per-writer spill threshold. Without the
+// floor a small BE starts permanently over its share -- back-pressure that can
+// never be relieved, because one writer alone may hold the threshold.
+TEST(SniiGlobalMemoryLimiter, ShareIsFlooredAgainstThePerWriterSpillThreshold) {
+    SharePercentRestore restore;
+    doris::config::snii_index_build_max_memory_limit_percent = 10;
+    const auto per_writer_cap =
+            static_cast<int64_t>(doris::config::inverted_index_ram_buffer_size * 1024 * 1024);
+    // An 8 GiB BE: 10% is 819 MiB, under two writers' own threshold.
+    const int64_t small_be = 8LL * 1024 * kMiB;
+    EXPECT_EQ(calc_process_max_snii_build_memory(small_be), 4 * per_writer_cap);
+    EXPECT_GE(calc_process_max_snii_build_memory(small_be), 4 * per_writer_cap)
+            << "a share below a few writers' worth of the per-writer threshold is unrelievable";
+    // A large BE is above the floor and keeps the derived percentage.
+    EXPECT_EQ(calc_process_max_snii_build_memory(100LL * 1024 * kMiB), 10LL * 1024 * kMiB);
+}
+
+// THE REVIEW FINDING, through the PRODUCTION signal reader: the old limiter
+// latched an absolute budget into the process singleton and only refreshed it
+// when a NEW writer registered, so lowering the mutable config could not
+// disable it for writers already running. read_build_memory_signals() re-derives
+// the share from the live process limit and the live percent at every decision.
+//
+// This drives the real singleton with the real reader, so the two process-level
+// backstop terms come from the HOST. They would mask the share term, so the
+// test skips when the host is itself under memory pressure.
+TEST(SniiGlobalMemoryLimiter, ProductionReaderReDerivesTheShareAndZeroDisablesIt) {
+    SharePercentRestore percent_restore;
+    const int64_t saved_mem_limit = doris::MemInfo::mem_limit();
+    // Small enough that a modest charge exceeds the share, but the floor tracks
+    // the per-writer threshold, so shrink that too for the duration.
+    const double saved_ram_buffer = doris::config::inverted_index_ram_buffer_size;
+    doris::config::inverted_index_ram_buffer_size = 1; // 1 MiB -> 4 MiB floor
+    doris::config::snii_index_build_max_memory_limit_percent = 10;
+    doris::MemInfo::set_mem_limit_for_test(80 * kMiB); // 10% = 8 MiB > the 4 MiB floor
+
+    struct Restore {
+        int64_t mem_limit;
+        double ram_buffer;
+        ~Restore() {
+            doris::MemInfo::set_mem_limit_for_test(mem_limit);
+            doris::config::inverted_index_ram_buffer_size = ram_buffer;
+        }
+    } restore {saved_mem_limit, saved_ram_buffer};
+
+    // The share really is re-derived from the live process limit and percent.
+    ASSERT_EQ(read_build_memory_signals().build_share_bytes, 8 * kMiB);
+    doris::MemInfo::set_mem_limit_for_test(160 * kMiB);
+    ASSERT_EQ(read_build_memory_signals().build_share_bytes, 16 * kMiB);
+    doris::MemInfo::set_mem_limit_for_test(80 * kMiB);
+
+    if (read_build_memory_signals().sys_avail_below_warning_water_mark > 0 ||
+        read_build_memory_signals().process_above_soft_mem_limit > 0) {
+        GTEST_SKIP() << "host is under memory pressure; the backstop terms would mask the share";
+    }
+
+    // Charge the real observation tracker past the share, then let the real
+    // reader drive a real limiter.
+    const int64_t baseline = read_build_memory_signals().build_consumption;
+    MemoryReporter reporter(doris::snii::writer::snii_build_consume_release(
+            doris::snii::writer::BuildMemoryPopulation::kRegistered));
+    reporter.report(20 * kMiB); // 20 MiB of reclaimable build memory vs an 8 MiB share
+    ASSERT_EQ(read_build_memory_signals().build_consumption - baseline, 20 * kMiB);
+
     GlobalMemoryLimiter lim;
-    lim.set_budget_bytes(1000 * kMiB);
-    std::atomic<bool> a {false}; // the largest
+    lim.set_signals_provider(&read_build_memory_signals);
+    lim.set_min_victim_arena_bytes(1);
+    std::atomic<bool> victim {false};
+    lim.register_buffer(&victim, 20 * kMiB);
+    lim.report(&victim, 20 * kMiB);
+    ASSERT_TRUE(victim.load()) << "with a share configured, the writer is asked to spill";
+    victim.store(false);
+
+    // The admin disables SNII's share mid-load. Nothing re-registers.
+    doris::config::snii_index_build_max_memory_limit_percent = 0;
+    ASSERT_EQ(read_build_memory_signals().build_share_bytes, 0);
+    lim.report(&victim, 20 * kMiB);
+    EXPECT_FALSE(victim.load())
+            << "a zero share must stop flagging for writers that are already registered";
+    reporter.report(-20 * kMiB);
+}
+
+// C2 (round 2): the property that makes the single-counter form safe. A thread
+// hammering the UNREGISTERED population must not perturb the decision's input
+// AT ALL -- not transiently, not by any interleaving. Under the old derived
+// form (tracker - unregistered) this fails: a read landing between the
+// tracker update and the subset update sees the compaction's bytes as
+// reclaimable while it grows, and sees a deficit (possibly negative) while it
+// releases. Reading one counter admits no such window.
+TEST(SniiGlobalMemoryLimiter, UnregisteredChurnNeverPerturbsTheDecisionInput) {
+    const int64_t registered_baseline = doris::snii::writer::snii_registered_build_bytes();
+    MemoryReporter ingestion(doris::snii::writer::snii_build_consume_release(
+            doris::snii::writer::BuildMemoryPopulation::kRegistered));
+    ingestion.report(700); // the only registered bytes in flight
+
+    std::atomic<bool> stop {false};
+    std::thread churn([&stop] {
+        MemoryReporter merge(doris::snii::writer::snii_build_consume_release(
+                doris::snii::writer::BuildMemoryPopulation::kUnregistered));
+        while (!stop.load(std::memory_order_relaxed)) {
+            merge.report(512 * 1024 * 1024); // a large, realistic merge reservation
+            merge.report(-512 * 1024 * 1024);
+        }
+    });
+
+    // Sample the decision's actual input while the churn runs. Every sample must
+    // be exactly the registered net -- never inflated by the merge's bytes,
+    // never understated, never negative.
+    //
+    // saw_churn keeps this from passing VACUOUSLY. The observation tracker is
+    // the operand the old derived form subtracted from; watching it actually
+    // move proves the churn thread was running and that the sampling loop had
+    // real opportunity to catch a torn read. Without it, a churn thread that
+    // never got scheduled would make the invariant hold trivially.
+    doris::MemTracker* tracker = doris::snii::writer::snii_build_mem_tracker();
+    const int64_t tracker_baseline = tracker->consumption();
+    bool saw_churn = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    for (int i = 0; i < 200000 || !saw_churn; ++i) {
+        const int64_t observed =
+                doris::snii::writer::snii_registered_build_bytes() - registered_baseline;
+        ASSERT_EQ(observed, 700) << "unregistered churn leaked into the decision's input";
+        ASSERT_GE(doris::snii::writer::snii_registered_build_bytes(), 0)
+                << "decision input went negative";
+        if (tracker->consumption() != tracker_baseline) {
+            saw_churn = true; // the shared observation line is visibly moving
+        }
+        if (i >= 200000 && std::chrono::steady_clock::now() > deadline) {
+            break;
+        }
+    }
+    stop.store(true, std::memory_order_relaxed);
+    churn.join();
+    EXPECT_TRUE(saw_churn) << "churn thread never moved the observation tracker; the invariant "
+                              "above was never actually exercised";
+
+    ingestion.report(-700);
+    EXPECT_EQ(doris::snii::writer::snii_registered_build_bytes(), registered_baseline);
+}
+
+// C2: index-merge compaction charges the same observation line but registers no
+// spillable writer, so its bytes must NOT push ingestion writers over the share.
+TEST(SniiGlobalMemoryLimiter, UnregisteredBuildMemoryIsExcludedFromTheDecision) {
+    const int64_t before = read_build_memory_signals().build_consumption;
+    MemoryReporter merge(doris::snii::writer::snii_build_consume_release(
+            doris::snii::writer::BuildMemoryPopulation::kUnregistered));
+    merge.report(512 * kMiB);
+    EXPECT_EQ(read_build_memory_signals().build_consumption, before)
+            << "unreclaimable merge scratch must not count toward the reclaimable population";
+    merge.report(-512 * kMiB);
+}
+
+TEST(SniiGlobalMemoryLimiter, ProcessBackstopsTriggerEvenWithTheShareDisabled) {
+    FakeSignals signals;
+    GlobalMemoryLimiter lim;
+    lim.set_signals_provider(signals.provider());
+    std::atomic<bool> a {false};
+    lim.register_buffer(&a, 300 * kMiB);
+
+    // Share disabled and SNII tiny: its own trigger says nothing.
+    signals.build_share_bytes.store(0);
+    signals.build_consumption.store(10 * kMiB);
+    lim.report(&a, 300 * kMiB);
+    ASSERT_FALSE(a.load());
+
+    // System available memory dips below its warning water mark: SNII gives
+    // back what it can even though its own share is not configured.
+    signals.sys_avail_below_warning_water_mark.store(100 * kMiB);
+    lim.report(&a, 300 * kMiB);
+    EXPECT_TRUE(a.load()) << "the system water mark is a backstop trigger";
+    a.store(false);
+    signals.sys_avail_below_warning_water_mark.store(0);
+
+    // Same for the process soft limit.
+    signals.process_above_soft_mem_limit.store(100 * kMiB);
+    lim.report(&a, 300 * kMiB);
+    EXPECT_TRUE(a.load()) << "the process soft limit is a backstop trigger";
+}
+
+// ---- (3) victim selection ---------------------------------------------------
+
+// MiB-scale arenas keep the selection shape visible while every entry clears
+// the default 64 MiB victim floor.
+TEST(SniiGlobalMemoryLimiter, OverShareFlagsLargestUntilOverageCovered) {
+    FakeSignals signals;
+    GlobalMemoryLimiter lim;
+    lim.set_signals_provider(signals.provider());
+    std::atomic<bool> a {false}; // the largest arena
     std::atomic<bool> b {false};
     std::atomic<bool> c {false};
-    lim.register_buffer(&a, 900 * kMiB, 900 * kMiB);
-    lim.register_buffer(&b, 500 * kMiB, 500 * kMiB);
-    lim.register_buffer(&c, 100 * kMiB, 100 * kMiB); // total 1500 MiB > 1000 MiB
+    lim.register_buffer(&a, 900 * kMiB);
+    lim.register_buffer(&b, 500 * kMiB);
+    lim.register_buffer(&c, 100 * kMiB);
+    signals.set_overage(500 * kMiB);
     // Registration alone never flags: reacting belongs to the report path.
     EXPECT_FALSE(a.load());
     EXPECT_FALSE(b.load());
@@ -136,119 +409,192 @@ TEST(SniiGlobalMemoryLimiter, OverBudgetFlagsLargestUntilOverageCovered) {
 
     // Overage 500 MiB: the largest (a, 900 MiB of arena) alone covers it; b
     // and c spared.
-    lim.report(&c, 100 * kMiB, 100 * kMiB);
+    lim.report(&c, 100 * kMiB);
     EXPECT_TRUE(a.load());
     EXPECT_FALSE(b.load());
     EXPECT_FALSE(c.load());
 
     // a's request is still pending -- its arena counts toward coverage, so a
-    // re-report while still over budget must NOT widen the victim set.
-    lim.report(&c, 100 * kMiB, 100 * kMiB);
+    // re-report while still over the share must NOT widen the victim set.
+    lim.report(&c, 100 * kMiB);
     EXPECT_FALSE(b.load());
     EXPECT_FALSE(c.load());
 
-    // Deeper overage (budget 300 MiB -> overage 1200 MiB): a (900) is no
-    // longer enough, b joins (900 + 500 >= 1200), c is still spared.
-    lim.set_budget_bytes(300 * kMiB);
-    lim.report(&c, 100 * kMiB, 100 * kMiB);
+    // Deeper overage (1200 MiB): a (900) is no longer enough, b joins
+    // (900 + 500 >= 1200), c is still spared.
+    signals.set_overage(1200 * kMiB);
+    lim.report(&c, 100 * kMiB);
     EXPECT_TRUE(a.load());
     EXPECT_TRUE(b.load());
     EXPECT_FALSE(c.load());
 }
 
-TEST(SniiGlobalMemoryLimiter, UnderBudgetOrDisabledNeverFlags) {
+TEST(SniiGlobalMemoryLimiter, UnderShareNeverFlags) {
+    FakeSignals signals;
     GlobalMemoryLimiter lim;
-    lim.set_budget_bytes(1000 * kMiB);
+    lim.set_signals_provider(signals.provider());
     std::atomic<bool> a {false};
     std::atomic<bool> b {false};
-    lim.register_buffer(&a, 600 * kMiB, 600 * kMiB);
-    lim.register_buffer(&b, 300 * kMiB, 300 * kMiB);
-    lim.report(&a, 700 * kMiB, 700 * kMiB); // total == budget: at (not over) budget
-    EXPECT_FALSE(a.load());
-    EXPECT_FALSE(b.load());
-
-    lim.set_budget_bytes(0); // 0 = limiter off, no matter how large the total
-    lim.report(&a, 100000 * kMiB, 100000 * kMiB);
+    lim.register_buffer(&a, 600 * kMiB);
+    lim.register_buffer(&b, 300 * kMiB);
+    signals.build_share_bytes.store(1000 * kMiB);
+    signals.build_consumption.store(1000 * kMiB); // at, not over, the share
+    lim.report(&a, 700 * kMiB);
     EXPECT_FALSE(a.load());
     EXPECT_FALSE(b.load());
 }
 
-// The field storm's root selection bug: victims were ranked by RESIDENT total,
-// which is dominated by PERSISTENT (non-spillable) vocabulary and slot structures.
+// The field storm's root selection bug: victims were ranked by a RESIDENT total
+// dominated by PERSISTENT (non-spillable) vocabulary and slot structures.
 // Victims must be ranked by their reclaimable ARENA, and a buffer below the
 // victim floor is not a victim at all.
-TEST(SniiGlobalMemoryLimiter, VictimsSelectedByArenaNotResident) {
+TEST(SniiGlobalMemoryLimiter, VictimsSelectedByReclaimableArenaNotTotalMemory) {
+    FakeSignals signals;
     GlobalMemoryLimiter lim;
-    lim.set_budget_bytes(600 * kMiB); // 2 writers -> 300 MiB/writer: sane budget
+    lim.set_signals_provider(signals.provider());
     std::atomic<bool> persistent_heavy {false};
     std::atomic<bool> arena_heavy {false};
-    // Larger RESIDENT, tiny arena (8 MiB < the 64 MiB default floor).
-    lim.register_buffer(&persistent_heavy, 1000 * kMiB, 8 * kMiB);
-    // Smaller resident, large reclaimable arena.
-    lim.register_buffer(&arena_heavy, 500 * kMiB, 300 * kMiB);
+    // A huge persistent footprint with a tiny arena (8 MiB < the 64 MiB floor).
+    lim.register_buffer(&persistent_heavy, 8 * kMiB);
+    // Smaller overall, but with a large reclaimable arena.
+    lim.register_buffer(&arena_heavy, 300 * kMiB);
+    EXPECT_EQ(lim.eligible_arena_bytes(), 300 * kMiB)
+            << "a below-floor arena offers nothing a forced spill could reclaim";
 
-    lim.report(&persistent_heavy, 1000 * kMiB, 8 * kMiB); // total 1500 > 600
+    signals.set_overage(200 * kMiB);
+    lim.report(&persistent_heavy, 8 * kMiB);
     EXPECT_TRUE(arena_heavy.load()) << "the reclaimable-arena holder is the victim";
     EXPECT_FALSE(persistent_heavy.load())
-            << "a below-floor arena must never be flagged, however large its resident total";
+            << "a below-floor arena must never be flagged, however large its total "
+               "footprint";
 }
 
 // PER-BUFFER COOLDOWN: after a victim's forced spill its arena is ~0; further
-// over-budget reports must NOT re-flag it until the arena regrows past the
+// over-share reports must NOT re-flag it until the arena regrows past the
 // floor. (No timer: eligibility IS the cooldown.)
 TEST(SniiGlobalMemoryLimiter, CooldownSkipsJustSpilledBufferUntilArenaRegrows) {
+    FakeSignals signals;
     GlobalMemoryLimiter lim;
-    lim.set_budget_bytes(200 * kMiB); // 1 writer -> 200 MiB/writer: sane budget
+    lim.set_signals_provider(signals.provider());
     std::atomic<bool> flag {false};
-    lim.register_buffer(&flag, 400 * kMiB, 200 * kMiB);
+    lim.register_buffer(&flag, 200 * kMiB);
 
-    lim.report(&flag, 400 * kMiB, 200 * kMiB); // over budget, arena >= floor
+    signals.set_overage(200 * kMiB);
+    lim.report(&flag, 200 * kMiB); // over the share, arena covers the overage
     EXPECT_TRUE(flag.load());
     flag.store(false); // the owner honors: spill, clear the flag...
-    // ...and its next report shows the arena reclaimed but the PERSISTENT
-    // remainder still over budget (the field shape).
-    lim.report(&flag, 210 * kMiB, 0);
+    // ...and its next report shows the arena reclaimed while the PERSISTENT
+    // remainder keeps SNII a little over its share (the field shape).
+    signals.set_overage(10 * kMiB);
+    lim.report(&flag, 0);
     EXPECT_FALSE(flag.load()) << "cooldown: a spilled (empty-arena) buffer is exempt";
-    lim.report(&flag, 240 * kMiB, 32 * kMiB); // regrown, still below the floor
+    signals.set_overage(40 * kMiB);
+    lim.report(&flag, 32 * kMiB); // regrown, still below the floor
     EXPECT_FALSE(flag.load()) << "still exempt below the floor";
-    lim.report(&flag, 280 * kMiB, 72 * kMiB); // regrown PAST the 64 MiB floor
+    signals.set_overage(60 * kMiB);
+    lim.report(&flag, 72 * kMiB); // regrown PAST the 64 MiB floor
     EXPECT_TRUE(flag.load()) << "eligible again once a floor's worth is reclaimable";
 }
 
-// BUDGET SANITY: when budget / registered_count < the per-writer useful
-// minimum, spilling cannot meet the budget (persistent structures dominate) --
-// the limiter must degrade (log once, flag nothing) and recover when the
-// ratio does.
-TEST(SniiGlobalMemoryLimiter, BudgetDegradationStopsFlaggingAndRecovers) {
+// SHORTFALL IS NOT A REASON TO DO NOTHING. When the reclaimable arena cannot
+// cover the overage, the limiter must still flag every eligible victim: the
+// overage often exceeds anything SNII holds (two of its three terms measure
+// whole-process pressure), and refusing to act there would make SNII least
+// willing to give memory back exactly when the system is most short of it --
+// a control loop with no exit but writers finishing naturally. The victim
+// FLOOR, not a reachability judgement, is what bounds the work.
+TEST(SniiGlobalMemoryLimiter, ShortfallStillFlagsBestEffortAndIsReported) {
+    FakeSignals signals;
+    GlobalMemoryLimiter lim; // production default 64 MiB victim floor
+    lim.set_signals_provider(signals.provider());
+    std::atomic<bool> a {false};
+    // 70 MiB of reclaimable arena (above the floor) against a ~10 GiB overage.
+    lim.register_buffer(&a, 70 * kMiB);
+    signals.set_overage(10LL * 1024 * kMiB, /*share=*/100 * kMiB);
+    lim.report(&a, 70 * kMiB);
+    EXPECT_TRUE(a.load()) << "70 MiB that can come back must come back, even against 10 GiB";
+    EXPECT_TRUE(lim.reclaim_shortfall()) << "and the shortfall must be visible";
+}
+
+// The wikipedia@16 shape: build memory far over the share, arena a minority of
+// it. This is the workload the feature exists for, so it must produce flags.
+TEST(SniiGlobalMemoryLimiter, DeepShortfallFlagsEveryEligibleVictim) {
+    FakeSignals signals;
     GlobalMemoryLimiter lim;
-    // 3 writers on a 240 MiB budget: 80 MiB/writer < the 96 MiB minimum.
-    lim.set_budget_bytes(240 * kMiB);
+    lim.set_signals_provider(signals.provider());
     std::atomic<bool> a {false};
     std::atomic<bool> b {false};
     std::atomic<bool> c {false};
-    lim.register_buffer(&a, 200 * kMiB, 150 * kMiB);
-    lim.register_buffer(&b, 200 * kMiB, 150 * kMiB);
-    lim.register_buffer(&c, 200 * kMiB, 150 * kMiB);
-    EXPECT_FALSE(lim.budget_degraded());
+    lim.register_buffer(&a, 150 * kMiB);
+    lim.register_buffer(&b, 150 * kMiB);
+    lim.register_buffer(&c, 150 * kMiB);
+    ASSERT_EQ(lim.eligible_arena_bytes(), 450 * kMiB);
+    EXPECT_FALSE(lim.reclaim_shortfall());
 
-    lim.report(&a, 200 * kMiB, 150 * kMiB); // total 600 > 240: over budget...
-    EXPECT_TRUE(lim.budget_degraded()) << "80 MiB/writer < 96 MiB: degrade";
-    EXPECT_FALSE(a.load());
-    EXPECT_FALSE(b.load());
-    EXPECT_FALSE(c.load());
-    lim.report(&b, 200 * kMiB, 150 * kMiB); // sustained episode: still no flags
-    EXPECT_FALSE(a.load());
-    EXPECT_FALSE(b.load());
-    EXPECT_FALSE(c.load());
-
-    // One writer drains: 240 MiB / 2 = 120 MiB/writer >= 96 MiB -- recovered.
-    lim.unregister_buffer(&c);
-    lim.report(&a, 200 * kMiB, 150 * kMiB); // total 400 > 240, sane ratio
-    EXPECT_FALSE(lim.budget_degraded());
-    EXPECT_TRUE(a.load() || b.load()) << "flagging must resume after recovery";
+    // 35 GiB of overage against 450 MiB of reclaimable arena.
+    signals.set_overage(35LL * 1024 * kMiB, /*share=*/6LL * 1024 * kMiB);
+    lim.report(&a, 150 * kMiB);
+    EXPECT_TRUE(lim.reclaim_shortfall());
+    EXPECT_TRUE(a.load());
+    EXPECT_TRUE(b.load());
+    EXPECT_TRUE(c.load()) << "every eligible victim must be asked, not none of them";
 }
 
-// ---- (3) the owner honors a pending request ---------------------------------
+// reclaim_shortfall() states whether the CURRENT eligible arena falls short, so
+// pressure going away has to clear it. The recovery branch only runs while an
+// overage still exists, which leaves the commonest ending -- writers drain, the
+// query finishes, RSS falls back -- unhandled. Left latched, the flag would
+// outlive the episode and, because the warning is log-once-per-episode, silence
+// every later episode for the life of the process.
+TEST(SniiGlobalMemoryLimiter, PressureGoingAwayClearsTheShortfallLatch) {
+    FakeSignals signals;
+    GlobalMemoryLimiter lim;
+    lim.set_signals_provider(signals.provider());
+    std::atomic<bool> a {false};
+    lim.register_buffer(&a, 100 * kMiB);
+
+    signals.set_overage(20LL * 1024 * kMiB, /*share=*/1LL * 1024 * kMiB);
+    lim.report(&a, 100 * kMiB);
+    ASSERT_TRUE(lim.reclaim_shortfall()) << "20 GiB against 100 MiB of arena is a shortfall";
+
+    // Pressure gone: consumption back under the share, so overage <= 0.
+    signals.set_overage(-1LL * 1024 * kMiB, /*share=*/1LL * 1024 * kMiB);
+    lim.report(&a, 100 * kMiB);
+    EXPECT_FALSE(lim.reclaim_shortfall()) << "the episode is over, so the flag must not survive it";
+
+    // And a fresh episode must be observable as one rather than hidden by the
+    // stale latch -- this is what the log-once contract depends on.
+    signals.set_overage(20LL * 1024 * kMiB, /*share=*/1LL * 1024 * kMiB);
+    lim.report(&a, 100 * kMiB);
+    EXPECT_TRUE(lim.reclaim_shortfall()) << "a relapse must be visible again";
+}
+
+// A whole-process backstop can demand more than SNII holds; SNII must still
+// return what it has rather than declaring the request unmeetable.
+TEST(SniiGlobalMemoryLimiter, ProcessPressureBeyondSniiStillReclaimsWhatSniiHolds) {
+    FakeSignals signals;
+    GlobalMemoryLimiter lim;
+    lim.set_signals_provider(signals.provider());
+    std::atomic<bool> a {false};
+    lim.register_buffer(&a, 100 * kMiB);
+    // SNII is comfortably inside its share; a query pushed the PROCESS over its
+    // soft limit by more than SNII's entire arena.
+    signals.build_share_bytes.store(6LL * 1024 * kMiB);
+    signals.build_consumption.store(1LL * 1024 * kMiB);
+    signals.process_above_soft_mem_limit.store(2400 * kMiB);
+    lim.report(&a, 100 * kMiB);
+    EXPECT_TRUE(a.load()) << "100 MiB that can come back in seconds must come back";
+    EXPECT_TRUE(lim.reclaim_shortfall());
+
+    // Once the pressure is within reach, the shortfall latch clears.
+    signals.process_above_soft_mem_limit.store(50 * kMiB);
+    a.store(false);
+    lim.report(&a, 100 * kMiB);
+    EXPECT_FALSE(lim.reclaim_shortfall());
+    EXPECT_TRUE(a.load());
+}
+
+// ---- (4) the owner honors a pending request ---------------------------------
 
 TEST(SniiSpimiGlobalSpill, OwnerHonorsRequestAtNextTokenAndClears) {
     snii_testing::reset_global_forced_spills();
@@ -307,7 +653,7 @@ TEST(SniiSpimiGlobalSpill, RequestOnEmptyArenaIsPendingUntilARunIsWritable) {
     ASSERT_TRUE(buf.status().ok());
 }
 
-// ---- (6) forced-spill floor: below-floor requests are pending no-ops --------
+// ---- (7a) forced-spill floor: below-floor requests are pending no-ops -------
 
 // The field storm's honor-side bug: a request was honored with a single 32 KiB
 // arena block, cutting a near-empty run. With the (default 64 MiB) floor, a
@@ -355,19 +701,25 @@ TEST(SniiSpimiGlobalSpill, RequestHonoredOnceArenaRegrowsPastFloor) {
             << "honor must not fire before the floor's worth of arena existed";
 }
 
-// ---- (6) the storm scenario end-to-end --------------------------------------
+// ---- (7b) the storm scenario end-to-end -------------------------------------
 
 // The conc=16 wikipedia field failure in miniature, with PRODUCTION-DEFAULT
-// anti-storm settings: a budget far below the writers' (persistent-dominated)
-// resident sum and far below (96 MiB x writers). The old limiter flagged every
-// buffer on every report and each honored with one 32 KiB block -- a storm of
-// tiny runs. Now: the budget-sanity check degrades (log once, stop flagging),
-// the victim floor exempts every small-arena buffer anyway, so ZERO forced
-// spills and ZERO runs result.
-TEST(SniiSpimiGlobalSpill, StormScenarioTinyBudgetSmallArenasProducesZeroForcedSpills) {
+// anti-storm settings: SNII far over a tiny share while every writer's
+// reclaimable arena is small. The old limiter flagged every buffer on every
+// report and each honored with one 32 KiB block -- a storm of tiny runs. Now
+// the victim FLOOR makes every small-arena buffer ineligible, so no victim
+// exists at all and ZERO forced spills and ZERO runs result.
+//
+// HONEST SCOPE: this test pins the floor, and only the floor. It says nothing
+// about how the limiter behaves when the arena is short of the overage -- with
+// no eligible victim the selection loop is empty either way. See
+// ShortfallStillFlagsBestEffortAndIsReported for that property.
+TEST(SniiSpimiGlobalSpill, StormScenarioTinySharesSmallArenasProducesZeroForcedSpills) {
     snii_testing::reset_global_forced_spills();
-    GlobalMemoryLimiter lim; // production defaults: 64 MiB floor, 96 MiB/writer sanity
-    lim.set_budget_bytes(256 * 1024);
+    FakeSignals signals;
+    GlobalMemoryLimiter lim; // production defaults: 64 MiB victim floor
+    lim.set_signals_provider(signals.provider());
+    signals.set_overage(8 * kMiB, /*share=*/256 * 1024);
 
     constexpr size_t kBuffers = 6;
     std::vector<std::unique_ptr<SpimiTermBuffer>> buffers;
@@ -378,9 +730,8 @@ TEST(SniiSpimiGlobalSpill, StormScenarioTinyBudgetSmallArenasProducesZeroForcedS
         buf->attach_global_limiter(&lim);
         buffers.push_back(std::move(buf));
     }
-    // Interleaved feed: every buffer's resident grows well past its budget
-    // share (the registry total exceeds 1 MiB almost immediately), reports
-    // fire constantly, yet nothing may be flagged or spilled.
+    // Interleaved feed: reports fire constantly while SNII sits far over its
+    // share, yet nothing may be flagged or spilled.
     for (uint32_t round = 0; round < 400; ++round) {
         for (auto& buf : buffers) {
             for (uint32_t k = 0; k < 8; ++k) {
@@ -389,8 +740,7 @@ TEST(SniiSpimiGlobalSpill, StormScenarioTinyBudgetSmallArenasProducesZeroForcedS
             }
         }
     }
-    ASSERT_GT(lim.total_bytes(), lim.budget_bytes()) << "the scenario must be over budget";
-    EXPECT_TRUE(lim.budget_degraded()) << "256 KiB / 6 writers is an unmeetable budget";
+    EXPECT_EQ(lim.eligible_arena_bytes(), 0) << "every arena is below the victim floor";
     EXPECT_EQ(snii_testing::global_forced_spills(), 0U) << "no forced-spill storm";
     for (auto& buf : buffers) {
         ASSERT_TRUE(buf->status().ok());
@@ -399,45 +749,50 @@ TEST(SniiSpimiGlobalSpill, StormScenarioTinyBudgetSmallArenasProducesZeroForcedS
     }
 }
 
-// ---- (4) attach / report / detach lifetime ----------------------------------
+// ---- (5) attach / report / detach lifetime ----------------------------------
 
-TEST(SniiSpimiGlobalSpill, AttachRegistersReportsTrackResidentAndDtorUnregisters) {
-    GlobalMemoryLimiter lim; // budget 0: tracking only, no flags
+TEST(SniiSpimiGlobalSpill, AttachRegistersReportsTrackArenaAndDtorUnregisters) {
+    FakeSignals signals; // no pressure: tracking only, no flags
+    GlobalMemoryLimiter lim;
+    lim.set_signals_provider(signals.provider());
+    lim.set_min_victim_arena_bytes(1); // every non-empty arena counts
     {
         SpimiTermBuffer buf(/*has_positions=*/true, /*spill_threshold_bytes=*/0);
         buf.attach_global_limiter(&lim);
         EXPECT_EQ(lim.registered_count(), 1U);
-        EXPECT_EQ(lim.total_bytes(), static_cast<int64_t>(buf.resident_bytes_for_test()));
+        EXPECT_EQ(lim.eligible_arena_bytes(), static_cast<int64_t>(buf.arena_bytes_for_test()));
 
         for (uint32_t i = 0; i < 300; ++i) {
             buf.add_token(unigram(i), /*docid=*/i, /*pos=*/0);
         }
         ASSERT_TRUE(buf.status().ok());
-        // The debounced report path forwards ABSOLUTE totals: at rest the
-        // registry equals the buffer's real resident bytes exactly.
-        EXPECT_EQ(lim.total_bytes(), static_cast<int64_t>(buf.resident_bytes_for_test()));
+        // The debounced report path forwards ABSOLUTE arena bytes: at rest the
+        // registry equals the buffer's real reclaimable arena exactly.
+        EXPECT_EQ(lim.eligible_arena_bytes(), static_cast<int64_t>(buf.arena_bytes_for_test()));
 
         buf.attach_global_limiter(&lim); // at-most-once: ignored
         EXPECT_EQ(lim.registered_count(), 1U);
     }
-    // Destruction un-registers: nothing leaks into the process-wide total.
+    // Destruction un-registers: nothing leaks into the process-wide registry.
     EXPECT_EQ(lim.registered_count(), 0U);
-    EXPECT_EQ(lim.total_bytes(), 0);
+    EXPECT_EQ(lim.eligible_arena_bytes(), 0);
 }
 
-// End-to-end: two attached buffers, one small and one that grows past the
-// budget. The limiter must flag the larger-ARENA grower once its arena clears
-// the victim floor (the small buffer's single arena block never does); the
-// grower's own next token honors the request (its local threshold is
-// unlimited, the G08 floor bypassed); the small buffer is never flagged and
-// never spills. Degradation is disabled: the KiB-scale budget is intentional.
+// End-to-end: two attached buffers, one small and one that grows. The limiter
+// must flag the larger-ARENA grower once its arena clears the victim floor (the
+// small buffer's single arena block never does); the grower's own next token
+// honors the request (its local threshold is unlimited, the G08 floor
+// bypassed); the small buffer is never flagged and never spills.
 TEST(SniiSpimiGlobalSpill, LimiterFlagsLargestOwnerSpillsSmallBufferSpared) {
     snii_testing::reset_global_forced_spills();
+    FakeSignals signals;
     GlobalMemoryLimiter lim; // declared BEFORE the buffers: outlives them
-    lim.set_budget_bytes(256 * 1024);
+    lim.set_signals_provider(signals.provider());
     const int64_t kFloor = 2LL * CompactPostingPool::kBlockSize; // 64 KiB
     lim.set_min_victim_arena_bytes(kFloor);
-    lim.set_min_useful_budget_per_writer_bytes(0); // KiB-scale test budget
+    // A modest, fixed overage: one floor-sized arena covers it, so exactly one
+    // victim is expected as soon as any buffer's arena clears the floor.
+    signals.set_overage(kFloor);
 
     SpimiTermBuffer small(/*has_positions=*/true, /*spill_threshold_bytes=*/0);
     small.set_forced_spill_min_arena_bytes(static_cast<uint64_t>(kFloor));
@@ -451,10 +806,9 @@ TEST(SniiSpimiGlobalSpill, LimiterFlagsLargestOwnerSpillsSmallBufferSpared) {
     }
     ASSERT_TRUE(small.status().ok());
 
-    // Distinct terms grow big's resident (vocab + intern + slots + arena) past
-    // the budget and its ARENA past the floor; the over-budget report then
-    // flags big (the largest eligible arena), and big's own add path honors
-    // the request. Bounded feed with an early exit. The bound stays below
+    // Distinct terms grow big's ARENA past the floor; the next report then
+    // flags big (the largest eligible arena), and big's own add path honors the
+    // request. Bounded feed with an early exit. The bound stays below
     // unigram()'s 17576 distinct strings so every fed term is DISTINCT (the
     // drain-count assertion relies on that); three tokens per term grow the
     // arena ~3x faster than the vocab, so the floor is met well within it.
@@ -472,10 +826,18 @@ TEST(SniiSpimiGlobalSpill, LimiterFlagsLargestOwnerSpillsSmallBufferSpared) {
     EXPECT_EQ(small.run_count_for_test(), 0U) << "small buffer must be spared";
     EXPECT_FALSE(small.global_spill_requested_for_test());
 
-    // The forced spill released the grower's arena and reported the drop: the
-    // registry total is back to the exact resident sum of both buffers.
-    EXPECT_EQ(lim.total_bytes(), static_cast<int64_t>(small.resident_bytes_for_test()) +
-                                         static_cast<int64_t>(big.resident_bytes_for_test()));
+    // One more token flushes the post-spill report; the registry is then back
+    // in step with the live reclaimable arenas (the forced spill released
+    // big's, so it drops below the floor and stops being a victim).
+    big.add_token(unigram(0), docid++, /*pos=*/0);
+    int64_t expected_eligible = 0;
+    if (static_cast<int64_t>(small.arena_bytes_for_test()) >= kFloor) {
+        expected_eligible += static_cast<int64_t>(small.arena_bytes_for_test());
+    }
+    if (static_cast<int64_t>(big.arena_bytes_for_test()) >= kFloor) {
+        expected_eligible += static_cast<int64_t>(big.arena_bytes_for_test());
+    }
+    EXPECT_EQ(lim.eligible_arena_bytes(), expected_eligible);
 
     // Both buffers still drain cleanly (the small one in memory, the big one
     // through its forced run + k-way merge).
@@ -497,19 +859,21 @@ TEST(SniiSpimiGlobalSpill, LimiterFlagsLargestOwnerSpillsSmallBufferSpared) {
     EXPECT_EQ(big_terms, fed);
 }
 
-// ---- (5) thread-safety canary ------------------------------------------------
+// ---- (6) thread-safety canary
+// ------------------------------------------------
 
-// Concurrent register / report / unregister with a tiny budget so cross-thread
+// Concurrent register / report / unregister with a tiny overage so cross-thread
 // flagging constantly targets flags that die right after their unregister --
 // the exact lifetime the mutex must protect. Run under TSAN this is the G09
 // race canary; under ASAN it still catches any touch-after-unregister. The
-// floor and the sanity minimum are dropped so the byte-scale entries keep
-// producing flags (the point is flag traffic, not selection policy).
+// floor is dropped so the byte-scale entries keep producing flags (the point is
+// flag traffic, not selection policy).
 TEST(SniiGlobalMemoryLimiter, ConcurrentRegisterReportUnregisterIsClean) {
+    FakeSignals signals;
     GlobalMemoryLimiter lim;
-    lim.set_budget_bytes(1); // everything is over budget: flags fly
+    lim.set_signals_provider(signals.provider());
     lim.set_min_victim_arena_bytes(1);
-    lim.set_min_useful_budget_per_writer_bytes(0);
+    signals.set_overage(1, /*share=*/1); // always over: flags fly
     constexpr int kThreads = 8;
     constexpr int kIters = 400;
     std::vector<std::thread> threads;
@@ -518,9 +882,9 @@ TEST(SniiGlobalMemoryLimiter, ConcurrentRegisterReportUnregisterIsClean) {
         threads.emplace_back([&lim, t] {
             for (int i = 0; i < kIters; ++i) {
                 std::atomic<bool> flag {false};
-                lim.register_buffer(&flag, 1000 + t, 1000 + t);
+                lim.register_buffer(&flag, 1000 + t);
                 for (int r = 0; r < 4; ++r) {
-                    lim.report(&flag, 1000 + t + r, 1000 + t + r);
+                    lim.report(&flag, 1000 + t + r);
                     if (flag.load(std::memory_order_relaxed)) {
                         // The owner honoring: observe and clear on its thread.
                         flag.store(false, std::memory_order_relaxed);
@@ -535,7 +899,7 @@ TEST(SniiGlobalMemoryLimiter, ConcurrentRegisterReportUnregisterIsClean) {
     for (auto& th : threads) {
         th.join();
     }
-    EXPECT_EQ(lim.total_bytes(), 0);
+    EXPECT_EQ(lim.eligible_arena_bytes(), 0);
     EXPECT_EQ(lim.registered_count(), 0U);
 }
 

@@ -132,8 +132,8 @@ private:
     uint64_t _scoring_token_count = 0;
     std::optional<inverted_index::CommonGramsSegmentMetadata> _common_grams_metadata_seed;
     // Bytes of _null_docids capacity currently mirrored into _memory_reporter
-    // (and through it Doris's LOAD MemTracker). Re-charged on growth in
-    // add_nulls / add_array_nulls, released in finish() / close_on_error() --
+    // (and through it the SNII index-build observation tracker). Re-charged on
+    // growth in add_nulls / add_array_nulls, released in finish() / close_on_error() --
     // without it a large interleaved-null segment accumulates untracked RSS the
     // G09 limiter cannot see.
     int64_t _null_docids_charged_bytes = 0;

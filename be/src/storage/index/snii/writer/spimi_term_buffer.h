@@ -254,10 +254,13 @@ public:
     void enable_common_gram_pair_keys();
 
     // G09: joins the PROCESS-WIDE build-RAM registry. Registers this buffer's
-    // current resident bytes with `limiter` and forwards every subsequent
-    // (debounced, see report_arena_delta) resident total to it; the destructor
-    // un-registers. When the registered sum across ALL of the process's live
-    // buffers exceeds the limiter's budget, the limiter may set this buffer's
+    // current SPILLABLE arena bytes with `limiter` and forwards every
+    // subsequent (debounced, see report_arena_delta) arena total to it; the
+    // destructor un-registers. The buffer's total memory reaches the limiter by
+    // another route -- the observation tracker its MemoryReporter feeds -- so
+    // the registry carries only what a forced spill could reclaim. When SNII's
+    // index-build memory crosses its share of the process memory limit (or the
+    // process itself comes under pressure), the limiter may set this buffer's
     // ADVISORY spill-request flag from ANOTHER thread; the flag is observed --
     // and the forced spill run ON THIS BUFFER'S OWN THREAD -- by the next
     // add_token's maybe_spill_after_token (see there for the honor rule).
@@ -282,11 +285,13 @@ public:
     // arena block, so a run is always writable). A request planted while the
     // arena is below the floor is a NO-OP that stays PENDING -- it is NOT
     // retried as a spill every token -- and is honored when the arena regrows
-    // past the floor. Without the floor, an unreachable global budget (the
-    // persistent vocabulary/slot structures of all writers alone exceeding it)
-    // re-flagged every buffer on every report and each honored with a single
-    // 32 KiB arena block: thousands of tiny runs per buffer, EMFILE at the
-    // k-way merge reopen, failed loads (the conc=16 wikipedia field storm).
+    // past the floor. THE FLOOR IS THE ANTI-STORM DEFENSE: without it, a
+    // process-wide target the persistent vocabulary/slot structures alone
+    // exceed re-flagged every buffer on every report and each honored with a
+    // single 32 KiB arena block -- thousands of tiny runs per buffer, EMFILE at
+    // the k-way merge reopen, failed loads (the conc=16 wikipedia field storm).
+    // With it, flagging costs at most one >= floor-sized run per floor of arena
+    // growth per buffer, which is the intended back-pressure.
     static constexpr uint64_t kDefaultForcedSpillMinArenaBytes = 64ULL << 20; // 64 MiB
     void set_forced_spill_min_arena_bytes(uint64_t bytes) { forced_spill_min_arena_bytes_ = bytes; }
     uint64_t forced_spill_min_arena_bytes() const { return forced_spill_min_arena_bytes_; }
@@ -329,6 +334,9 @@ public:
     // accounting. Not part of
     // the production API.
     uint64_t resident_bytes_for_test() const { return resident_bytes(); }
+    // TEST-ONLY: the SPILLABLE posting-arena bytes forwarded to the G09 registry
+    // as this buffer's victim-selection key. Not part of the production API.
+    uint64_t arena_bytes_for_test() const { return pool_.arena_bytes(); }
     size_t string_rank_capacity_for_test() const { return string_rank_.capacity(); }
 #ifdef BE_TEST
     static size_t hash_term_bytes_for_test(std::string_view term) { return hash_term_bytes(term); }

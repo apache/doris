@@ -49,14 +49,14 @@ doris::MemTracker* snii_build_mem_tracker() {
 }
 
 namespace {
-// The kUnregistered subset of the tracker above. A plain atomic rather than a
-// second MemTracker on purpose: it must NOT look like an independent line in
-// the memory picture that a reader might add to the total.
-std::atomic<int64_t> g_unregistered_build_bytes {0};
+// The kRegistered subset of the tracker above -- see the header for why this is
+// maintained directly instead of being derived by subtraction, and why it is a
+// plain atomic rather than a second MemTracker.
+std::atomic<int64_t> g_registered_build_bytes {0};
 } // namespace
 
-int64_t snii_unregistered_build_bytes() {
-    return g_unregistered_build_bytes.load(std::memory_order_relaxed);
+int64_t snii_registered_build_bytes() {
+    return g_registered_build_bytes.load(std::memory_order_relaxed);
 }
 
 MemoryReporter::ConsumeReleaseFn snii_build_consume_release(BuildMemoryPopulation population) {
@@ -64,15 +64,21 @@ MemoryReporter::ConsumeReleaseFn snii_build_consume_release(BuildMemoryPopulatio
     // MemTracker and the subset counter are both thread-safe atomics, which is
     // what MemoryReporter requires of this callback: it is invoked
     // concurrently, from Reservation destructors, and must not throw.
-    const bool unregistered = population == BuildMemoryPopulation::kUnregistered;
-    return [tracker, unregistered](int64_t delta) {
+    //
+    // The registered path updates two of them, which is NOT atomic as a pair --
+    // and does not need to be. The decision layer reads only
+    // g_registered_build_bytes; the tracker is observation. Because no consumer
+    // combines the two, there is no window in which they can disagree with each
+    // other in a way anything can observe.
+    const bool registered = population == BuildMemoryPopulation::kRegistered;
+    return [tracker, registered](int64_t delta) {
         if (delta >= 0) {
             tracker->consume(delta);
         } else {
             tracker->release(-delta);
         }
-        if (unregistered) {
-            g_unregistered_build_bytes.fetch_add(delta, std::memory_order_relaxed);
+        if (registered) {
+            g_registered_build_bytes.fetch_add(delta, std::memory_order_relaxed);
         }
     };
 }

@@ -41,8 +41,14 @@ namespace doris::snii::writer {
 // task tracker happened to be attached. This labelled MemTracker is a pure
 // classified counter (thread-safe, no limit, cannot refuse an allocation) fed
 // explicitly by every MemoryReporter, so index-build RAM shows up as its own
-// line in the memory picture and can be judged as a whole (see
-// GlobalMemoryLimiter, which decides on this sum).
+// line in the memory picture.
+//
+// IT IS NOT AN INPUT TO THE DECISION. The GlobalMemoryLimiter reads
+// snii_registered_build_bytes() below, never this tracker. That separation is
+// what makes the accounting safe under concurrency: charging a reporter touches
+// this tracker AND (on the registered path) the counter below, which cannot be
+// done atomically as a pair -- so the decision must never combine the two. It
+// reads exactly one of them.
 //
 // Never destroyed: writers release bytes from destructors that can run at any
 // point, including static teardown, so the tracker must outlive all of them.
@@ -71,11 +77,22 @@ enum class BuildMemoryPopulation {
 // reclaimable ones from the decision.
 MemoryReporter::ConsumeReleaseFn snii_build_consume_release(BuildMemoryPopulation population);
 
-// Live bytes of the kUnregistered population, a SUBSET of the tracker above
-// (not a second line in the memory picture). The decision layer subtracts it so
-// it judges only memory a forced spill could reclaim: charging index-merge
-// scratch against ingestion writers' arenas would either pick the wrong victim
-// or manufacture an overage nothing can cover.
-int64_t snii_unregistered_build_bytes();
+// Live bytes of the kRegistered population -- the memory a forced spill could
+// actually reclaim, and the ONLY build-memory input to the decision layer.
+//
+// A plain atomic rather than a second MemTracker on purpose: it must not look
+// like an independent line in the memory picture that a reader might add to the
+// tracker's total. It is a subset of that total, maintained alongside it.
+//
+// Maintained DIRECTLY rather than derived by subtracting the unregistered
+// population from the tracker. Deriving it would mean the decision reads two
+// independent atomics that are updated in two separate steps, and a read landing
+// between those steps tears: while a compaction grows, its bytes would briefly
+// look reclaimable and could trigger a spill no writer needed; while it
+// releases, reclaimable would be understated and could even go negative,
+// skipping a spill that was needed. No memory order fixes that -- two atomics
+// cannot be sampled as one snapshot. Reading a single counter has no such
+// window.
+int64_t snii_registered_build_bytes();
 
 } // namespace doris::snii::writer

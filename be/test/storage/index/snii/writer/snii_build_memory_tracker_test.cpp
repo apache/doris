@@ -113,11 +113,12 @@ TEST(SniiBuildMemoryTracker, SeparateReportersAccumulateIntoOneLine) {
 
 // C2: the DECISION layer must not be charged for memory it has no lever over.
 // Index-merge compaction feeds the same observation line but registers no
-// spillable writer, so its bytes are tracked AND subtracted.
-TEST(SniiBuildMemoryTracker, UnregisteredPopulationIsTrackedButSubtractable) {
+// spillable writer, so it is absent from the registered counter the decision
+// reads -- without the decision ever subtracting one population from another.
+TEST(SniiBuildMemoryTracker, RegisteredPopulationIsTrackedSeparatelyFromTheObservationLine) {
     doris::MemTracker* tracker = snii_build_mem_tracker();
     const int64_t baseline = tracker->consumption();
-    const int64_t unregistered_baseline = snii_unregistered_build_bytes();
+    const int64_t registered_baseline = snii_registered_build_bytes();
     {
         MemoryReporter ingestion(snii_build_consume_release(BuildMemoryPopulation::kRegistered));
         MemoryReporter merge(snii_build_consume_release(BuildMemoryPopulation::kUnregistered));
@@ -125,17 +126,14 @@ TEST(SniiBuildMemoryTracker, UnregisteredPopulationIsTrackedButSubtractable) {
         merge.report(300);
         // ONE observation line covers both: that is Part 1's goal.
         EXPECT_EQ(tracker->consumption() - baseline, 1000);
-        // ...but only the merge's bytes are in the unregistered subset.
-        EXPECT_EQ(snii_unregistered_build_bytes() - unregistered_baseline, 300);
-        // What the decision layer judges: the reclaimable population alone.
-        EXPECT_EQ((tracker->consumption() - baseline) -
-                          (snii_unregistered_build_bytes() - unregistered_baseline),
-                  700);
+        // What the decision layer judges, read as a single value: the
+        // reclaimable population alone, with the merge's 300 never included.
+        EXPECT_EQ(snii_registered_build_bytes() - registered_baseline, 700);
         ingestion.report(-700);
         merge.report(-300);
     }
     EXPECT_EQ(tracker->consumption(), baseline);
-    EXPECT_EQ(snii_unregistered_build_bytes(), unregistered_baseline);
+    EXPECT_EQ(snii_registered_build_bytes(), registered_baseline);
 }
 
 // I1: MemoryReporter used to be able to die with unbalanced legacy report()
@@ -155,14 +153,27 @@ TEST(SniiBuildMemoryTracker, ReporterDestructorDrainsUnbalancedBytes) {
             << "an unbalanced reporter must not leave residue in a process-wide counter";
 }
 
-TEST(SniiBuildMemoryTracker, ReporterDestructorDrainsTheUnregisteredSubsetToo) {
-    const int64_t unregistered_baseline = snii_unregistered_build_bytes();
+// The drain must cover the registered counter too, since that is what the
+// decision reads: residue there would be permanent phantom reclaimable memory.
+TEST(SniiBuildMemoryTracker, ReporterDestructorDrainsTheRegisteredSubsetToo) {
+    const int64_t registered_baseline = snii_registered_build_bytes();
+    {
+        MemoryReporter leaky(snii_build_consume_release(BuildMemoryPopulation::kRegistered));
+        leaky.report(4096);
+        EXPECT_EQ(snii_registered_build_bytes() - registered_baseline, 4096);
+    }
+    EXPECT_EQ(snii_registered_build_bytes(), registered_baseline);
+}
+
+// ...and an unregistered reporter's residue must never reach it.
+TEST(SniiBuildMemoryTracker, UnregisteredResidueNeverReachesTheDecisionInput) {
+    const int64_t registered_baseline = snii_registered_build_bytes();
     {
         MemoryReporter leaky(snii_build_consume_release(BuildMemoryPopulation::kUnregistered));
         leaky.report(4096);
-        EXPECT_EQ(snii_unregistered_build_bytes() - unregistered_baseline, 4096);
+        EXPECT_EQ(snii_registered_build_bytes(), registered_baseline);
     }
-    EXPECT_EQ(snii_unregistered_build_bytes(), unregistered_baseline);
+    EXPECT_EQ(snii_registered_build_bytes(), registered_baseline);
 }
 
 } // namespace

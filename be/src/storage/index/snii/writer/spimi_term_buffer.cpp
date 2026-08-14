@@ -307,8 +307,8 @@ std::atomic<uint64_t> g_vocab_materializations {0};
 #endif
 
 // G09 seam: spills that consumed a pending process-wide forced-spill request
-// (the limiter flagged this buffer as one of the largest registered consumers
-// while the global total exceeded the budget). Incremented under BE_TEST only
+// (the limiter flagged this buffer as one of the largest reclaimable-arena
+// consumers while SNII was over its memory share). Incremented under BE_TEST only
 // (per-token path shared by concurrent writers).
 std::atomic<uint64_t> g_global_forced_spills {0};
 
@@ -666,12 +666,12 @@ void SpimiTermBuffer::attach_global_limiter(GlobalMemoryLimiter* limiter) {
     global_limiter_ = limiter;
     // Race-safe vs report: registration and every report run on the OWNER's
     // thread, strictly ordered; the registry serializes them against other
-    // buffers' calls internally. Register with the CURRENT resident total AND
-    // the current spillable arena bytes (the victim-selection key) so the
-    // registry is exact from the first moment (a borrowed-vocab buffer
-    // already holds its vocab-sized slot index here).
+    // buffers' calls internally. Register with the current spillable arena
+    // bytes (the victim-selection key) so the registry is exact from the first
+    // moment. The buffer's total memory needs no reporting here: it already
+    // reaches the limiter through the SniiIndexBuild observation tracker that
+    // mem_reporter_ feeds.
     global_limiter_->register_buffer(&global_spill_requested_,
-                                     static_cast<int64_t>(resident_bytes()),
                                      static_cast<int64_t>(pool_.arena_bytes()));
 }
 
@@ -698,18 +698,19 @@ void SpimiTermBuffer::report_arena_delta() {
     if (mem_reporter_ != nullptr) {
         mem_reporter_->report(now - reported_resident_);
     }
-    // G09: forward the same debounced total -- as an ABSOLUTE, self-healing
-    // value -- to the process-wide registry, together with the current
-    // SPILLABLE arena bytes (the victim-selection key: only the arena is
-    // reclaimable by a forced spill; the persistent vocab/pair structures are
-    // not). This is the limiter's decision point: report() flags the
-    // largest-arena eligible buffers (possibly this one) while the global sum
-    // exceeds the budget. It only ever takes the registry mutex and flips
-    // advisory atomics; no lock is held here while spilling (any spill this
-    // buffer performs happens AFTER this returns, back in
+    // G09: forward the current SPILLABLE arena bytes -- as an ABSOLUTE,
+    // self-healing value -- to the process-wide registry (the victim-selection
+    // key: only the arena is reclaimable by a forced spill; the persistent
+    // vocab/pair structures are not). The delta reported above has already
+    // moved the observation tracker the limiter judges the SUM by, so this
+    // report carries no total of its own. This is the limiter's decision point:
+    // report() flags the largest-arena eligible buffers (possibly this one)
+    // while SNII is over its share. It only ever takes the registry mutex and
+    // flips advisory atomics; no lock is held here while spilling (any spill
+    // this buffer performs happens AFTER this returns, back in
     // maybe_spill_after_token, on this thread).
     if (global_limiter_ != nullptr) {
-        global_limiter_->report(&global_spill_requested_, now,
+        global_limiter_->report(&global_spill_requested_,
                                 static_cast<int64_t>(pool_.arena_bytes()));
     }
     reported_resident_ = now;
@@ -891,8 +892,8 @@ void SpimiTermBuffer::maybe_spill_after_token() {
     const bool arena_worth_spilling =
             pool_.arena_bytes() >= std::max<uint64_t>(CompactPostingPool::kBlockSize, gate_cap / 4);
     // G09: the process-wide limiter flagged this buffer (one of the
-    // largest-ARENA eligible consumers while the global total exceeded the
-    // budget). Honored HERE, on the owner's own thread -- never on the
+    // largest-ARENA eligible consumers while SNII index-build memory was over
+    // its share). Honored HERE, on the owner's own thread -- never on the
     // reporting thread that set the flag. The G08 anti-churn floor (cap/4) is
     // deliberately BYPASSED (each victim's arena is below cap/4 by
     // construction: it never reached its per-writer gate -- that is exactly

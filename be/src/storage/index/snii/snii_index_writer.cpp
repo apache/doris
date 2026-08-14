@@ -34,6 +34,7 @@
 #include "storage/index/inverted/token_filter/common_grams_filter.h"
 #include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/writer/global_memory_limiter.h"
+#include "storage/index/snii/writer/snii_build_memory_tracker.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
@@ -79,18 +80,25 @@ Status SniiIndexColumnWriter::init() {
     _ignore_above = cast_set<uint32_t>(std::stoul(ignore_above_value));
     const auto spill_threshold =
             static_cast<size_t>(config::inverted_index_ram_buffer_size * 1024 * 1024);
+    // The consume_release callback mirrors this writer's live build bytes into
+    // the process-wide SNII index-build observation tracker, so ingestion shows
+    // up as its own line in Doris's memory picture (the allocation hook alone
+    // only knows which THREAD allocated).
     _memory_reporter = std::make_unique<::doris::snii::writer::MemoryReporter>(
-            nullptr, spill_threshold,
-            ::doris::snii::writer::MemoryReporter::CapPolicy::kSpillThreshold);
+            ::doris::snii::writer::snii_build_consume_release(
+                    ::doris::snii::writer::BuildMemoryPopulation::kRegistered),
+            spill_threshold, ::doris::snii::writer::MemoryReporter::CapPolicy::kSpillThreshold);
     _term_buffer = std::make_unique<::doris::snii::writer::SpimiTermBuffer>(
             _has_positions, spill_threshold, _memory_reporter.get());
     // G09: join the PROCESS-WIDE build-RAM limiter. The per-writer spill threshold above
     // bounds one writer; a load keeps (tablets x concurrency) writers alive at
     // once, none of which may ever reach it -- the global registry bounds their
     // SUM by asking the largest buffers to spill early (advisory flags honored
-    // on each writer's own thread; byte-identical output). Budget refreshed
-    // from the mutable config at every writer init; 0 disables (no
-    // registration, zero per-token overhead beyond the G08 path).
+    // on each writer's own thread; byte-identical output). Registration is
+    // UNCONDITIONAL: the limiter re-reads its trigger (SNII's share of the
+    // process limit, plus the process-level backstops) at every decision, so an
+    // admin enabling or disabling the share mid-load takes effect for writers
+    // that are already running -- it is not latched here.
     // G09 anti-storm knobs (see the config comments): the forced-spill floor
     // gates both the owner-side honor (a request is a pending no-op until the
     // reclaimable arena regrows past it) and the limiter's victim eligibility,
@@ -102,13 +110,9 @@ Status SniiIndexColumnWriter::init() {
             static_cast<uint64_t>(std::max<int64_t>(config::snii_forced_spill_min_arena_bytes, 0)));
     _term_buffer->set_max_run_files(
             static_cast<size_t>(std::max<int32_t>(config::snii_spill_max_run_files_per_buffer, 0)));
-    const int64_t global_budget = config::snii_index_writer_global_memory_bytes;
-    if (global_budget > 0) {
-        auto* global_limiter = ::doris::snii::writer::GlobalMemoryLimiter::instance();
-        global_limiter->set_budget_bytes(global_budget);
-        global_limiter->set_min_victim_arena_bytes(config::snii_forced_spill_min_arena_bytes);
-        _term_buffer->attach_global_limiter(global_limiter);
-    }
+    auto* global_limiter = ::doris::snii::writer::GlobalMemoryLimiter::instance();
+    global_limiter->set_min_victim_arena_bytes(config::snii_forced_spill_min_arena_bytes);
+    _term_buffer->attach_global_limiter(global_limiter);
     _analyzer_config.analyzer_name = get_analyzer_name_from_properties(_index_meta->properties());
     _analyzer_config.parser_type = get_inverted_index_parser_type_from_string(
             get_parser_string_from_properties(_index_meta->properties()));
@@ -455,7 +459,7 @@ Status SniiIndexColumnWriter::finish() {
     }
     // Ownership of _null_docids hands off to the flush below (transient,
     // flush-scoped); release the accumulation-phase charge so the retained
-    // reporter (and the LOAD MemTracker behind it) balances to zero.
+    // reporter (and the observation tracker behind it) balances to zero.
     _report_null_docids_capacity(/*release_all=*/true);
     IndexFileWriter::SniiAddIndexOptions options {};
     options.is_direct_load = _is_direct_load;
@@ -496,7 +500,7 @@ Status SniiIndexColumnWriter::_latch_analysis_failure(Status status) {
 
 void SniiIndexColumnWriter::close_on_error() {
     _term_buffer.reset();
-    // Balance the LOAD MemTracker mirror before dropping the reporter.
+    // Balance the observation-tracker mirror before dropping the reporter.
     _report_null_docids_capacity(/*release_all=*/true);
     _report_encoded_norms_capacity(/*release_all=*/true);
     _memory_reporter.reset();

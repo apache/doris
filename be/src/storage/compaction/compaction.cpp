@@ -72,6 +72,7 @@
 #include "storage/index/snii/compaction/eligibility.h"
 #include "storage/index/snii/compaction/snii_index_compaction.h"
 #include "storage/index/snii/writer/memory_reporter.h"
+#include "storage/index/snii/writer/snii_build_memory_tracker.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
@@ -1064,8 +1065,18 @@ Status Compaction::do_inverted_index_compaction() {
         InvertedIndexStorageFormatPB::SNII) {
         const size_t spill_threshold =
                 static_cast<size_t>(config::inverted_index_ram_buffer_size * 1024 * 1024);
+        // Mirror the merge's live build bytes into the process-wide SNII
+        // index-build observation tracker, the same line ingestion feeds: index
+        // merge builds the same structures and must be visible in the same
+        // place. Classified kUnregistered: this path holds Reservation scratch
+        // only and never registers a SpimiTermBuffer, so no forced spill can
+        // reclaim any of it -- the decision layer must not charge these bytes
+        // against ingestion writers' arenas. The kHardLimit cap policy is what
+        // bounds them instead; the tracker only observes.
         snii_merge_memory_reporter = std::make_shared<snii::writer::MemoryReporter>(
-                nullptr, spill_threshold, snii::writer::MemoryReporter::CapPolicy::kHardLimit);
+                snii::writer::snii_build_consume_release(
+                        snii::writer::BuildMemoryPopulation::kUnregistered),
+                spill_threshold, snii::writer::MemoryReporter::CapPolicy::kHardLimit);
     }
     for (auto&& [column_uniq_id, index_metas] :
          collect_index_compaction_domain(*_cur_tablet_schema, ctx)) {

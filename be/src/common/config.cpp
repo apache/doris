@@ -1366,10 +1366,23 @@ DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
 // of a larger fetch+decompress unit per cold dict-block miss. Write side
 // only; the block size is self-described by the on-disk directory.
 DEFINE_mInt32(snii_target_dict_block_bytes, "0");
-// Process-wide SNII index-build RAM budget across ALL live segment writers
-// (G09); the largest writers are asked to spill early once the sum crosses it.
-// 0 disables. Default 8 GiB.
-DEFINE_mInt64(snii_index_writer_global_memory_bytes, "0");
+// SNII's index-build share of the process memory limit, as a percent -- the
+// index-build analogue of load_process_max_memory_limit_percent. Once live SNII
+// index-build memory crosses this share, the largest reclaimable posting arenas
+// are asked to spill early. Derived from the process limit rather than an
+// absolute number so it scales with the BE. Only the RECLAIMABLE population
+// counts against it: index-merge compaction charges the same observation
+// tracker but registers no spillable writer, so its bytes are excluded from the
+// comparison (its own hard reservation cap bounds them instead).
+//
+// 0 disables SNII's OWN share trigger; the process-level backstops (system
+// available memory below its warning water mark, process usage above the soft
+// limit) still apply. The share is deliberately well below those backstops so
+// SNII sheds its own memory before the global valve -- the global valve trips
+// late by design and would be a worse trigger than none. The derived share is
+// floored at four times inverted_index_ram_buffer_size so a small BE is not
+// permanently over it the moment two writers exist.
+DEFINE_mInt32(snii_index_build_max_memory_limit_percent, "10");
 // Minimum reclaimable posting-arena bytes before a G09 forced spill is honored
 // (and before a writer is eligible as a spill victim): forced spills reclaim
 // ONLY the arena, so smaller triggers cut tiny runs for near-zero relief.
