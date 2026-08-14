@@ -2360,6 +2360,8 @@ Status set_fuzzy_configs() {
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_packed_file"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_vertical_segment_writer"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["max_segment_partial_column_cache_size"] =
             ((distribution(*generator) % 2) == 0) ? "5" : "10";
 
