@@ -78,6 +78,8 @@ struct IOContext;
 namespace doris {
 
 const std::vector<int64_t> RowGroupReader::NO_DELETE = {};
+// See MAX_DICT_CODE_PREDICATE_TO_REWRITE in vorc_reader.cpp; kept effectively unlimited
+// because admission is gated on the dictionary's total size at eval time.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 
 RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
@@ -265,12 +267,16 @@ bool RowGroupReader::_can_filter_by_dict(int slot_id,
     //  the implementation of NULL values because the dictionary itself does not contain
     //  NULL value encoding. As a result, many NULL-related functions or expressions
     //  cannot work properly, such as is null, is not null, coalesce, etc.
-    //  Here we check if the predicate expr is IN or BINARY_PRED.
-    //  Implementation of NULL value dictionary filtering will be carried out later.
+    //  can_push_down_to_dict_filter enforces this by rejecting NULL-sensitive and
+    //  non-deterministic exprs, so a value-derived predicate like split_by_string(col,
+    //  sep)[n] = 'x' can also be evaluated on the dictionary, not just a bare column ref.
+    //  all_of is required: the column is physically rewritten into an int dict-code
+    //  column, so every conjunct on this slot must be dict-evaluable. Cross-column
+    //  contamination is already avoided upstream: any multi-slot conjunct disables dict
+    //  filtering for the whole reader (see set_position_and_ctxs / disable_dict_filter).
+    bool allow_expr = _state == nullptr || _state->query_options().enable_dict_filter_for_expr;
     return std::ranges::all_of(_slot_id_to_filter_conjuncts->at(slot_id), [&](const auto& ctx) {
-        return (ctx->root()->node_type() == TExprNodeType::IN_PRED ||
-                ctx->root()->node_type() == TExprNodeType::BINARY_PRED) &&
-               ctx->root()->children()[0]->node_type() == TExprNodeType::SLOT_REF;
+        return VExpr::can_push_down_to_dict_filter(ctx->root(), slot_id, allow_expr);
     });
 }
 
@@ -1136,6 +1142,21 @@ Status RowGroupReader::_rewrite_dict_predicates() {
 #endif
         size_t dict_value_column_size = dict_value_column->size();
         DCHECK(has_dict);
+        // Skip dict evaluation when the dictionary itself is larger than one batch:
+        // evaluating a heavy predicate over that many distinct values (and the resulting
+        // large IN filter) costs more than per-row filtering. Mirrors StarRocks'
+        // `dictionaryOffset.size() > chunk_size()` gate; falls back to per-row filter.
+        int max_dict_for_eval = _state != nullptr ? std::max(_state->batch_size(), 4096) : 4096;
+        if (dict_value_column_size > (size_t)max_dict_for_eval) {
+            auto slot_iter = _slot_id_to_filter_conjuncts->find(slot_id);
+            if (slot_iter != _slot_id_to_filter_conjuncts->end()) {
+                for (auto& ctx : slot_iter->second) {
+                    _filter_conjuncts.push_back(ctx);
+                }
+            }
+            it = _dict_filter_cols.erase(it);
+            continue;
+        }
         // 2. Build a temp block from the dict string column, then execute conjuncts and filter block.
         // 2.1 Build a temp block from the dict string column to match the conjuncts executing.
         Block temp_block;

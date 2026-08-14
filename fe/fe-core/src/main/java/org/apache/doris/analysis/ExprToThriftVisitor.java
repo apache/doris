@@ -122,6 +122,9 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
         }
         msg.output_scale = -1;
         msg.setIsNullable(expr.isNullable());
+        if (expr.getCanDictFilterFromNereids().isPresent()) {
+            msg.setCanDictFilter(expr.getCanDictFilterFromNereids().get());
+        }
 
         expr.accept(visitor, msg);
         container.addToNodes(msg);

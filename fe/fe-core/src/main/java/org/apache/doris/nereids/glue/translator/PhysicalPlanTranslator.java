@@ -262,6 +262,7 @@ import java.util.stream.Stream;
 public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, PlanTranslatorContext> {
 
     private static final Logger LOG = LogManager.getLogger(PhysicalPlanTranslator.class);
+
     private final StatsErrorEstimator statsErrorEstimator;
     private final PlanTranslatorContext context;
 
@@ -3202,7 +3203,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanTranslatorContext context) {
         for (Expression conjunct : filter.getConjuncts()) {
             for (Expression singleConjunct : ExpressionUtils.extractConjunctionToSet(conjunct)) {
-                planNode.addConjunct(ExpressionTranslator.translate(singleConjunct, context));
+                Expr translated = ExpressionTranslator.translate(singleConjunct, context);
+                if (ExpressionUtils.canEvaluateOnDictionary(singleConjunct)) {
+                    translated.setCanDictFilterFromNereids(true);
+                }
+                planNode.addConjunct(translated);
             }
         }
         updateLegacyPlanIdToPhysicalPlan(planNode, filter);

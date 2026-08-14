@@ -601,6 +601,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String CHECK_ORC_INIT_SARGS_SUCCESS = "check_orc_init_sargs_success";
 
+    public static final String ENABLE_DICT_FILTER_FOR_EXPR = "enable_dict_filter_for_expr";
+
     public static final String INLINE_CTE_REFERENCED_THRESHOLD = "inline_cte_referenced_threshold";
 
     public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
@@ -2595,6 +2597,17 @@ public class SessionVariable implements Serializable, Writable {
                     + "The default value is false.",
             needForward = true)
     public boolean checkOrcInitSargsSuccess = false;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_DICT_FILTER_FOR_EXPR,
+            description = {"控制 orc/parquet reader 是否允许把单列确定性字符串表达式谓词"
+                    + "(如 split_by_string(col,sep)[n]='x')下推到列字典上求值。默认为 true。",
+                    "Controls whether orc/parquet readers may evaluate a single-slot "
+                            + "deterministic string expression predicate (e.g. "
+                            + "split_by_string(col,sep)[n]='x') on the column dictionary. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableDictFilterForExpr = true;
 
     @VarAttrDef.VarAttr(
             name = EXTERNAL_TABLE_ANALYZE_PART_NUM,
@@ -4753,6 +4766,14 @@ public class SessionVariable implements Serializable, Writable {
         this.checkOrcInitSargsSuccess = checkOrcInitSargsSuccess;
     }
 
+    public boolean isEnableDictFilterForExpr() {
+        return enableDictFilterForExpr;
+    }
+
+    public void setEnableDictFilterForExpr(boolean enableDictFilterForExpr) {
+        this.enableDictFilterForExpr = enableDictFilterForExpr;
+    }
+
     public String getSqlDialect() {
         return sqlDialect;
     }
@@ -5461,6 +5482,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
         tResult.setAiContextWindowSize(aiContextWindowSize);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
+        tResult.setEnableDictFilterForExpr(enableDictFilterForExpr);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
         tResult.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);

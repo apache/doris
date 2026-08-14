@@ -55,6 +55,8 @@ import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -1410,5 +1412,104 @@ public class ExpressionUtils {
                         + "please try to use lateral view and explode_* function set instead", dataType.toSql()));
             }
         }
+    }
+
+    // ---- dictionary filter expression push-down helpers --------------------------------------------
+
+    /**
+     * Whether {@code expr} is guaranteed to be NULL whenever any referenced slot is NULL
+     * (null-in implies null-out). Slot refs and casts propagate NULL; literals are constant;
+     * a function propagates NULL only if it is {@link PropagateNullable} (most functions:
+     * nullability is true if any child is nullable) or {@link PropagateNullLiteral} and thus
+     * returns NULL when an input is a NULL literal (e.g. element_at, split_part, regexp_extract
+     * which are AlwaysNullable because the output can also be NULL for non-NULL input, but still
+     * return NULL on NULL input). Everything else (coalesce/if/nvl/nullif/concat_ws, unknown
+     * builtins, UDFs, case-when) is rejected so a NULL input can never become a non-NULL output.
+     *
+     * <p>This consolidates the null-propagation check previously duplicated in
+     * {@code PhysicalPlanTranslator} (dict-filter admission) and
+     * {@code RuntimeFilterPushDownVisitor} (runtime-filter probe-expr safety on outer-join
+     * null-generating side): both need the same guarantee that a NULL source row cannot be
+     * turned into a non-NULL value before the dictionary / join filter is applied.
+     */
+    public static boolean isNullPropagating(Expression expr) {
+        if (expr instanceof Slot || expr instanceof Literal) {
+            return true;
+        }
+        if (expr instanceof Cast) {
+            return isNullPropagating(((Cast) expr).child());
+        }
+        if (expr instanceof BoundFunction) {
+            // PropagateNullable: nullability is true if any child is nullable (the common case).
+            // PropagateNullLiteral: output is NULL when an input is a NULL literal (covers
+            // AlwaysNullable functions that still return NULL on NULL input, e.g. element_at,
+            // split_part, regexp_extract). The two sets are disjoint from NullToNonNullFunction
+            // (coalesce/if/nvl/nullif/...), so NULL-breaking functions are correctly rejected.
+            if (!(expr instanceof PropagateNullable) && !(expr instanceof PropagateNullLiteral)) {
+                return false;
+            }
+            for (Expression child : expr.children()) {
+                // Skip slot-less children (literals, constant functions): they cannot turn a
+                // NULL input row into non-NULL, so only slot-bearing children need checking.
+                if (!child.getInputSlots().isEmpty() && !isNullPropagating(child)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether a filter conjunct is safe to evaluate on a column's dictionary (distinct values)
+     * rather than per row, letting ORC/Parquet scans run a heavy string predicate once per
+     * distinct value. This is the authoritative FE check (BE only has a conservative fallback):
+     * the predicate must be an equality/IN whose value side is derived from a single slot, is
+     * deterministic, and preserves NULL semantics.
+     *
+     * <p>NULL preservation is the subtle part. The dictionary carries no NULL entry, so a NULL
+     * source value keeps its NULL dict-code and the rewritten {@code dict_code IN (surviving)}
+     * predicate evaluates to NULL (i.e. "not matched") for it. That only matches per-row
+     * semantics when the value side is itself NULL whenever the source column is NULL -- i.e.
+     * null-in implies null-out. So {@code substr(col, 1, 3) = 'abc'} or
+     * {@code split_by_string(col, ',')[1] = 'x'} are safe, but {@code coalesce(col, 'N') = 'N'},
+     * {@code ifnull}, {@code if}, {@code nullif} and {@code concat_ws} are not: they can turn a
+     * NULL input into a non-NULL output, so their NULL rows would be wrongly dropped.
+     */
+    public static boolean canEvaluateOnDictionary(Expression conjunct) {
+        Expression valueSide;
+        if (conjunct instanceof EqualTo) {
+            EqualTo eq = (EqualTo) conjunct;
+            if (eq.right() instanceof Literal) {
+                valueSide = eq.left();
+            } else if (eq.left() instanceof Literal) {
+                valueSide = eq.right();
+            } else {
+                return false;
+            }
+        } else if (conjunct instanceof InPredicate) {
+            InPredicate in = (InPredicate) conjunct;
+            for (Expression option : in.getOptions()) {
+                if (!(option instanceof Literal)) {
+                    return false;
+                }
+            }
+            valueSide = in.getCompareExpr();
+        } else {
+            return false;
+        }
+        // Single-column derivation: dictionaries are per column, so the value side may
+        // reference exactly one slot (a bare column ref, or a function over one column).
+        if (valueSide.getInputSlots().size() != 1) {
+            return false;
+        }
+        // Deterministic: BE evaluates each distinct value once and caches it, so rand/uuid
+        // and other non-deterministic functions must not be dict-filtered.
+        if (valueSide.containsNondeterministic()) {
+            return false;
+        }
+        // NULL preservation: the value side must be NULL whenever the source column is NULL,
+        // otherwise NULL rows (which have no dictionary entry) would be wrongly filtered out.
+        return isNullPropagating(valueSide);
     }
 }

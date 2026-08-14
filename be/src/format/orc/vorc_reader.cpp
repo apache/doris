@@ -115,7 +115,10 @@ enum class FileCachePolicy : uint8_t;
 
 namespace doris {
 
-// TODO: we need to determine it by test.
+// Cap on surviving dictionary codes rewritten as an IN filter: when the surviving set
+// gets very large, the per-row hash lookup becomes as costly as per-row evaluation.
+// Kept effectively unlimited because admission already gates dict evaluation on the
+// dictionary's total size vs. one batch in on_string_dicts_loaded.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 static constexpr char EMPTY_STRING_FOR_OVERFLOW[ColumnString::MAX_STRINGS_OVERFLOW_SIZE] = "";
 
@@ -3048,12 +3051,15 @@ bool OrcReader::_can_filter_by_dict(int slot_id) {
     //  the implementation of NULL values because the dictionary itself does not contain
     //  NULL value encoding. As a result, many NULL-related functions or expressions
     //  cannot work properly, such as is null, is not null, coalesce, etc.
-    //  Here we check if the predicate expr is IN or BINARY_PRED.
-    //  Implementation of NULL value dictionary filtering will be carried out later.
+    //  can_push_down_to_dict_filter enforces this by rejecting NULL-sensitive and
+    //  non-deterministic exprs, so a value-derived predicate like split_by_string(col,
+    //  sep)[n] = 'x' can also be evaluated on the dictionary, not just a bare column ref.
+    //  all_of is required: the column is physically rewritten into an int dict-code
+    //  column, so every conjunct on this slot must be dict-evaluable, otherwise a
+    //  non-rewritten conjunct would read int instead of string.
+    bool allow_expr = _state == nullptr || _state->query_options().enable_dict_filter_for_expr;
     return std::ranges::all_of(_slot_id_to_filter_conjuncts->at(slot_id), [&](const auto& ctx) {
-        return (ctx->root()->node_type() == TExprNodeType::IN_PRED ||
-                ctx->root()->node_type() == TExprNodeType::BINARY_PRED) &&
-               ctx->root()->children()[0]->node_type() == TExprNodeType::SLOT_REF;
+        return VExpr::can_push_down_to_dict_filter(ctx->root(), slot_id, allow_expr);
     });
 }
 
@@ -3096,6 +3102,19 @@ Status OrcReader::on_string_dicts_loaded(
         size_t max_value_length = 0;
         uint64_t dictionaryCount = dict->dictionaryOffset.size() - 1;
         if (dictionaryCount == 0) {
+            it = _dict_filter_cols.erase(it);
+            for (auto& ctx : ctxs) {
+                _non_dict_filter_conjuncts.emplace_back(ctx);
+            }
+            continue;
+        }
+        // Skip dict evaluation when the dictionary itself is larger than one batch:
+        // evaluating a heavy predicate over that many distinct values (and the resulting
+        // large IN filter) costs more than per-row filtering. Fall back to per-row.
+        // The threshold mirrors StarRocks' `dictionaryOffset.size() > chunk_size()`
+        // gate; the max() protects against an unset batch_size (defaults to 0 in thrift).
+        int max_dict_for_eval = _state != nullptr ? std::max(_state->batch_size(), 4096) : 4096;
+        if (dictionaryCount > (uint64_t)max_dict_for_eval) {
             it = _dict_filter_cols.erase(it);
             for (auto& ctx : ctxs) {
                 _non_dict_filter_conjuncts.emplace_back(ctx);

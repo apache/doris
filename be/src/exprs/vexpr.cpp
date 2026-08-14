@@ -27,8 +27,10 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <stack>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 
 #include "common/config.h"
@@ -357,11 +359,117 @@ TExprNode create_texpr_node_from(const Field& field, const PrimitiveType& type, 
 
 namespace doris {
 
+namespace {
+
+// Collect all slot ids referenced anywhere in `expr` (recursing children).
+void collect_referenced_slot_ids(const VExpr& expr, std::unordered_set<int>& slot_ids) {
+    if (expr.node_type() == TExprNodeType::SLOT_REF) {
+        slot_ids.insert(static_cast<const VSlotRef&>(expr).slot_id());
+        return;
+    }
+    for (const auto& child : expr.children()) {
+        collect_referenced_slot_ids(*child, slot_ids);
+    }
+}
+
+// Whether the value side of a predicate derives from exactly the single slot `slot_id`
+// (at least one reference to it, and no reference to any other slot).
+bool derives_from_single_slot(const VExpr& value_side, int slot_id) {
+    std::unordered_set<int> slot_ids;
+    collect_referenced_slot_ids(value_side, slot_ids);
+    return slot_ids.size() == 1 && slot_ids.contains(slot_id);
+}
+
+// Known-unsafe builtin function names that must never be dict-filtered regardless of the
+// planner verdict: either non-deterministic (evaluated once per distinct value and cached,
+// so a per-row-varying result would be wrong) or NULL-breaking (can turn a NULL input into a
+// non-NULL output, so NULL rows -- which have no dictionary entry -- would be wrongly kept or
+// dropped). This is a defense-in-depth veto: the planner is authoritative and knows UDFs, but
+// a planner bug or FE/BE version skew must not silently produce wrong results for these.
+bool is_dict_unsafe_function_name(const std::string& fn_name) {
+    static const std::unordered_set<std::string> kDictUnsafe = {
+            // NULL-breaking: map a NULL argument to a non-NULL result
+            "coalesce", "ifnull", "nvl", "nvl2", "if", "nullif", "concat_ws", "ifnotnull",
+            // non-deterministic
+            "random", "rand", "uuid", "uuid_numeric", "now", "current_timestamp", "curdate",
+            "current_date", "curtime", "current_time", "unix_timestamp", "utc_timestamp"};
+    return kDictUnsafe.contains(fn_name);
+}
+
+// Whether `expr` references any known-unsafe function anywhere in its tree.
+bool references_dict_unsafe_function(const VExpr& expr) {
+    if ((expr.node_type() == TExprNodeType::FUNCTION_CALL ||
+         expr.node_type() == TExprNodeType::COMPUTE_FUNCTION_CALL) &&
+        is_dict_unsafe_function_name(expr.fn().name.function_name)) {
+        return true;
+    }
+    const auto& children = expr.children();
+    return std::any_of(children.begin(), children.end(), [](const VExprSPtr& child) {
+        return references_dict_unsafe_function(*child);
+    });
+}
+
+// Whether `value_side` is a bare column ref to `slot_id` (the pre-expression form of
+// dict filtering: `col = 'x'` / `col IN (...)`). This is the only form BE dict-filters
+// without a planner verdict, so an older FE that never stamped can_dict_filter keeps the
+// pre-existing bare-column optimization but never gets the new expression path.
+bool is_bare_slot_ref(const VExpr& value_side, int slot_id) {
+    return value_side.is_slot_ref() &&
+           static_cast<const VSlotRef&>(value_side).slot_id() == slot_id;
+}
+
+} // namespace
+
+bool VExpr::can_push_down_to_dict_filter(const VExprSPtr& root, int slot_id, bool allow_expr) {
+    if (root == nullptr) {
+        return false;
+    }
+    // Only equality (BINARY_PRED with opcode EQ) and IN are rewritten into a dict-code
+    // predicate downstream. Reject other binary opcodes (<, >, !=) explicitly so the
+    // structural shape here matches what _rewrite_dict_conjuncts actually produces.
+    if (root->node_type() == TExprNodeType::BINARY_PRED) {
+        if (root->op() != TExprOpcode::EQ) {
+            return false;
+        }
+    } else if (root->node_type() != TExprNodeType::IN_PRED) {
+        return false;
+    }
+    const auto& children = root->children();
+    if (children.empty()) {
+        return false;
+    }
+    // The predicate's first child is the value side; the rest are literals.
+    for (size_t i = 1; i < children.size(); ++i) {
+        if (!children[i]->is_constant()) {
+            return false;
+        }
+    }
+    // When expression dict-filtering is disabled (session variable off), or the planner
+    // did not stamp a verdict (older FE), only the original form -- a bare column ref
+    // compared to constants -- is allowed. The expression path is planner-authoritative:
+    // determinism, NULL propagation, and UDF semantics all live in the FE, so BE has no
+    // safe way to decide on its own for a complex value side.
+    std::optional<bool> planner_verdict = root->can_dict_filter_from_planner();
+    if (!allow_expr || !planner_verdict.has_value()) {
+        return is_bare_slot_ref(*children[0], slot_id);
+    }
+    // Planner stamped a verdict: trust it, but still confirm here that the value side
+    // derives from exactly this slot (dictionaries are per column) and does not reference
+    // a known-unsafe builtin (defense-in-depth against a planner bug or FE/BE version
+    // skew).
+    return *planner_verdict && derives_from_single_slot(*children[0], slot_id) &&
+           !references_dict_unsafe_function(*children[0]);
+}
+
 VExpr::VExpr(const TExprNode& node)
         : _node_type(node.node_type),
           _opcode(node.__isset.opcode ? node.opcode : TExprOpcode::INVALID_OPCODE) {
     if (node.__isset.fn) {
         _fn = node.fn;
+    }
+
+    if (node.__isset.can_dict_filter) {
+        _can_dict_filter_from_planner = node.can_dict_filter;
     }
 
     bool is_nullable = true;

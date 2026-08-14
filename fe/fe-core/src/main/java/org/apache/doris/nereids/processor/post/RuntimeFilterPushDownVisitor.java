@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
@@ -340,7 +339,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         // A runtime filter is still safe on the null-generating side if generated NULL rows
         // cannot become non-NULL before the parent join condition is evaluated. For example,
         // `b.pk = c.pk` rejects generated NULLs, while `coalesce(b.pk, 0) = c.pk` may match them.
-        return isNullPropagating(ctx.probeExpr);
+        return ExpressionUtils.isNullPropagating(ctx.probeExpr);
     }
 
     private boolean isNullGeneratingChild(JoinType joinType, boolean isLeftChild) {
@@ -351,24 +350,6 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             return joinType.isRightOuterJoin() || joinType.isAsofRightOuterJoin();
         }
         return joinType.isLeftOuterJoin() || joinType.isAsofLeftOuterJoin();
-    }
-
-    private boolean isNullPropagating(Expression expression) {
-        if (expression instanceof Slot) {
-            return true;
-        }
-        if (expression instanceof Cast) {
-            return isNullPropagating(((Cast) expression).child());
-        }
-        if (expression instanceof PropagateNullable) {
-            for (Expression child : expression.children()) {
-                if (!child.getInputSlots().isEmpty() && !isNullPropagating(child)) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        return false;
     }
 
     @Override

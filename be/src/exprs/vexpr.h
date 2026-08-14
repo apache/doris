@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -305,6 +306,12 @@ public:
 
     TExprOpcode::type op() const { return _opcode; }
 
+    // Planner verdict for dict-filtering this node as a conjunct root; std::nullopt if the
+    // FE did not stamp it. See can_push_down_to_dict_filter.
+    std::optional<bool> can_dict_filter_from_planner() const {
+        return _can_dict_filter_from_planner;
+    }
+
     void add_child(const VExprSPtr& expr) { _children.push_back(expr); }
     VExprSPtr get_child(uint16_t i) const { return _children[i]; }
     // Expr's children number is restricted by org.apache.doris.common.Config#expr_children_limit, 10000 default. and strongly not recommend to change.
@@ -330,6 +337,20 @@ public:
                                       VExprContextSPtrs& new_ctxs);
 
     static bool contains_blockable_function(const VExprContextSPtrs& ctxs);
+
+    // Whether a single-slot filter conjunct rooted at `root` can be evaluated on a
+    // column's dictionary (distinct values) instead of per row. This lets an ORC/Parquet
+    // scan run a heavy string predicate such as `split_by_string(col, sep)[n] = 'x'` once
+    // per distinct value rather than once per row. Requirements (all must hold):
+    //   - root is a BINARY_PRED or IN_PRED whose non-literal side is derived from a
+    //     single slot equal to `slot_id`;
+    //   - that side is a deterministic, NULL-insensitive scalar expression over the slot.
+    // NULL-sensitive predicates (is null / coalesce / ...) are rejected because the
+    // dictionary carries no NULL entry; non-deterministic functions (rand / uuid / ...)
+    // are rejected because each distinct value is evaluated only once and cached.
+    // When allow_expr is false, only the original form (a bare column ref compared to
+    // constants) is accepted, so a session variable can disable the expression case.
+    static bool can_push_down_to_dict_filter(const VExprSPtr& root, int slot_id, bool allow_expr);
 
     Status deep_clone(VExprSPtr* cloned_expr,
                       const VExprCloneNodeOverride& clone_node_override = {}) const;
@@ -515,6 +536,12 @@ protected:
     DataTypePtr _data_type;
     VExprSPtrs _children; // in few hundreds
     TFunction _fn;
+
+    // Planner (FE) verdict on whether this node, as a filter conjunct root, is safe to
+    // evaluate on a column dictionary. std::nullopt when the FE did not stamp it (older FE
+    // or non-conjunct node); can_push_down_to_dict_filter then falls back to a BE-side
+    // conservative check. See TExprNode.can_dict_filter.
+    std::optional<bool> _can_dict_filter_from_planner;
 
     /// Index to pass to ExprContext::fn_context() to retrieve this expr's FunctionContext.
     /// Set in RegisterFunctionContext(). -1 if this expr does not need a FunctionContext and

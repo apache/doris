@@ -38,6 +38,7 @@ import com.google.gson.annotations.SerializedName;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -60,6 +61,11 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     // Cached value of IsConstant(), set during analyze() and valid if isAnalyzed_ is true.
     private Supplier<Boolean> isConstant = Suppliers.memoize(this::isConstantImpl);
 
+    // Set by the Nereids planner on a filter conjunct's root when the predicate is safe to
+    // evaluate on a column dictionary (deterministic, NULL-insensitive, single dict
+    // column). Emitted as TExprNode.can_dict_filter for ORC/Parquet scans; empty otherwise.
+    protected Optional<Boolean> canDictFilterFromNereids = Optional.empty();
+
     protected Expr() {
         super();
         type = Type.INVALID;
@@ -72,6 +78,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         fn = other.fn;
         children = Expr.cloneList(other.children);
         nullable = other.nullable;
+        canDictFilterFromNereids = other.canDictFilterFromNereids;
     }
 
     public void checkValueValid() throws AnalysisException {
@@ -367,6 +374,14 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
      */
     public boolean isNullable() {
         return nullable;
+    }
+
+    public void setCanDictFilterFromNereids(boolean canDictFilter) {
+        canDictFilterFromNereids = Optional.of(canDictFilter);
+    }
+
+    public Optional<Boolean> getCanDictFilterFromNereids() {
+        return canDictFilterFromNereids;
     }
 
     public static AggStateType createAggStateType(String name, List<Type> typeList,
