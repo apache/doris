@@ -37,10 +37,12 @@ import java.util.Map;
  */
 public final class PluginRegistry {
 
-    /** Set by start_be.sh from the {@code java_plugin_dir} BE config. */
+    /** Set by start_be.sh from the {@code jni_plugin_dir} BE config. */
     private static final String PLUGIN_DIR_PROPERTY = "doris.jni.plugin.dir";
 
-    private static final String DEFAULT_PLUGIN_SUBDIR = "lib/java/plugins";
+    // Keep in sync with the BE config jni_plugin_dir. This is the value a BE started without the
+    // property above gets, and PluginRegistryDefaultDirTest is what keeps the two from drifting.
+    private static final String DEFAULT_PLUGIN_SUBDIR = "plugins/jni";
 
     private static volatile PluginRuntime runtime;
 
@@ -101,7 +103,8 @@ public final class PluginRegistry {
         }
     }
 
-    private static Path pluginDir() {
+    // Package-private rather than private so PluginRegistryDefaultDirTest can pin the default.
+    static Path pluginDir() {
         String configured = System.getProperty(PLUGIN_DIR_PROPERTY);
         if (configured != null && !configured.trim().isEmpty()) {
             return Paths.get(configured.trim());
