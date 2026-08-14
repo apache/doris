@@ -70,6 +70,7 @@ public class RoutineLoadJobTest {
         sessionVariables.put(SessionVariable.ENABLE_HYPERSCAN_FALLBACK, Boolean.toString(false));
         Assert.assertFalse(job.getEnableHyperscanFallback());
     }
+
     @Test
     public void testFirstErrorMsgInTxnCommitAttachment() {
         String overlongFirstErrorMsg = Strings.repeat("x", Config.first_error_msg_max_length + 1);
