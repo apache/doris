@@ -303,6 +303,16 @@ Status SniiCompoundWriter::write_blob_files(const std::vector<BlobFileSource>& f
     return Status::OK();
 }
 
+void SniiCompoundWriter::release_blob_sources(std::vector<BlobFileSource>* files) {
+    DORIS_CHECK(files != nullptr);
+    // swap-with-empty, not clear(): a source's read_fn may own the bytes it
+    // serves, and clear() would leave the vector's capacity -- and, for a
+    // std::function, nothing at all is guaranteed to be freed until the elements
+    // themselves are destroyed.
+    std::vector<BlobFileSource> released;
+    files->swap(released);
+}
+
 SniiIndexInput SniiStreamedIndexSession::attach_encoded_norms(SniiIndexInput in,
                                                               TrackedEncodedNorms* encoded_norms,
                                                               uint64_t reserved_bytes) {
@@ -531,6 +541,7 @@ Status SniiCompoundWriter::write_blob_hot_files_and_entries(
         std::vector<LogicalIndexMetadataRef>* directory_entries) {
     for (PendingBlobIndex& blob : blobs_) {
         RETURN_IF_ERROR(write_blob_files(blob.hot_files, &blob.hot_refs));
+        release_blob_sources(&blob.hot_files); // see the cold loop in finish()
     }
     for (PendingBlobIndex& blob : blobs_) {
         LogicalIndexMetadataRef entry;
@@ -718,6 +729,15 @@ Status SniiCompoundWriter::finish() {
     for (PendingBlobIndex& blob : blobs_) {
         status = write_blob_files(blob.cold_files, &blob.cold_refs);
         if (!status.ok()) return poison(status);
+        // The sources are dead the instant their bytes are in the container and
+        // their extents are in cold_refs -- and a source can OWN its bytes (the
+        // ANN staging directory hands over shared buffers holding a whole faiss
+        // index), so holding the vector until this writer is destroyed would pin
+        // that memory across every remaining blob and, because a rowset build
+        // keeps one writer per segment alive until every segment has been closed,
+        // across every segment of the rowset. Released per blob rather than after
+        // the loop so a multi-blob container never holds two at once.
+        release_blob_sources(&blob.cold_files);
     }
     status = write_tail();
     if (!status.ok()) return poison(status);

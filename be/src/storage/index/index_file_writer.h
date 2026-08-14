@@ -70,6 +70,16 @@ public:
     virtual ~IndexFileWriter() = default;
 
     MOCK_FUNCTION Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
+    // The directory an ANN index is built into. Separate from open() because the
+    // two formats stage ANN output in different places: V1/V2 hand faiss the same
+    // CLucene filesystem directory every other index gets, while SNII hands it a
+    // memory-backed staging directory whose bytes begin_close() seals into a blob
+    // logical index. Callers only ever write through it, so the return type is
+    // the lucene::store::Directory base -- widening open() itself would push that
+    // base type onto the CLucene inverted writer and index_tool, which genuinely
+    // need the DorisFSDirectory subclass.
+    Result<std::shared_ptr<lucene::store::Directory>> open_ann_directory(
+            const TabletIndex* index_meta);
     // Write-path facts for one SNII index flush.
     struct SniiAddIndexOptions {
         // This flush serves a stream/broker load (DataWriteType::TYPE_DIRECT):
@@ -165,16 +175,22 @@ public:
 
 private:
     Status _insert_directory_into_map(int64_t index_id, const std::string& index_suffix,
-                                      std::shared_ptr<DorisFSDirectory> dir);
+                                      std::shared_ptr<lucene::store::Directory> dir);
+    // SNII only: registers a memory-backed staging directory for one ANN index,
+    // together with the metadata begin_close() needs to seal it.
+    Result<std::shared_ptr<lucene::store::Directory>> _open_snii_ann_staging_directory(
+            const TabletIndex* index_meta);
     virtual Result<std::unique_ptr<IndexSearcherBuilder>> _construct_index_searcher_builder(
             const DorisCompoundReader* dir);
-    // SNII only: turns every CLucene directory opened through open() into a blob
-    // logical index in the container. Runs once, from begin_close(), before the
-    // compound writer is sealed.
+    // SNII only: turns every ANN staging directory into a blob logical index in
+    // the container. Runs once, from begin_close(), before the compound writer is
+    // sealed. Registration copies no byte -- the staged buffers are pulled by
+    // finish() through the blob sources.
     Status _seal_snii_blob_directories();
-    // Drops the directories harvested by the above once the container owns their
-    // bytes. Only the SNII path needs this: the V1/V2 branch of begin_close()
-    // deletes its own directories inline.
+    // Drops the staging directories once the container owns their bytes, or once
+    // sealing has failed and they are dead either way. Only the SNII path needs
+    // this: the V1/V2 branch of begin_close() releases its own directories
+    // inline.
     void _release_snii_blob_directories();
 
     // Member variables...

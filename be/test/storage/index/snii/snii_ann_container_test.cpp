@@ -21,9 +21,9 @@
 // blob logical index is a table of named opaque sub-files -- which is exactly
 // what faiss emits. What was missing was the adapter on both ends:
 //
-//   write: IndexFileWriter::open() refused every directory under SNII, so the
-//          ANN writer had nowhere to write. It now admits ANN and begin_close()
-//          harvests the directory into a kAnn blob.
+//   write: the ANN writer had nowhere to write, because SNII opens no CLucene
+//          filesystem directory. It now gets a memory-backed staging directory
+//          (open_ann_directory) that begin_close() seals into a kAnn blob.
 //   read:  _open() refused too. A blob entry records ABSOLUTE container offsets,
 //          the same thing a V2 compound entry records, so DorisCompoundReader is
 //          reused over the container stream rather than reimplemented.
@@ -44,13 +44,17 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstring>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "storage/index/ann/ann_index_files.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/index_file_reader.h"
@@ -63,6 +67,7 @@
 #include "storage/olap_common.h"
 #include "storage/options.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/debug_points.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -73,6 +78,7 @@ constexpr int64_t kAnnIndexId = 71;
 // what makes the kind check testable at all: probing an absent index id returns
 // at the lookup, long before the kind branch is reached.
 constexpr int64_t kFakeBkdIndexId = 72;
+constexpr int64_t kIvfOnDiskIndexId = 73;
 constexpr uint32_t kDim = 4;
 constexpr uint32_t kRows = 64;
 
@@ -120,6 +126,28 @@ TabletIndex make_ann_index_meta() {
     return meta;
 }
 
+// IVF_ON_DISK is the ONLY ANN configuration that emits more than one sub-file,
+// and faiss writes them in the order ann.ivfdata, ann.faiss -- the REVERSE of
+// the name order the container must seal them in. It is therefore the only shape
+// in which the ordering contract can fail, and the shape the ordering test uses.
+TabletIndex make_ivf_on_disk_index_meta() {
+    TabletIndexPB pb;
+    pb.set_index_type(IndexType::ANN);
+    pb.set_index_id(kIvfOnDiskIndexId);
+    pb.set_index_name("ann_ivf_on_disk_idx");
+    pb.add_col_unique_id(2);
+    auto& props = *pb.mutable_properties();
+    props["index_type"] = "ivf_on_disk";
+    props["metric_type"] = "l2_distance";
+    props["dim"] = std::to_string(kDim);
+    // nlist drives the training minimum (faiss needs at least one training point
+    // per cluster), so it must stay well under kRows.
+    props["nlist"] = "4";
+    TabletIndex meta;
+    meta.init_from_pb(pb);
+    return meta;
+}
+
 TabletIndex make_fake_bkd_index_meta() {
     TabletIndexPB pb;
     pb.set_index_type(IndexType::INVERTED);
@@ -148,6 +176,7 @@ protected:
         assert_ok(io::global_local_filesystem()->create_directory(kTestDir));
         _meta = make_ann_index_meta();
         _fake_bkd_meta = make_fake_bkd_index_meta();
+        _ivf_on_disk_meta = make_ivf_on_disk_index_meta();
         // Two sub-files of different lengths: a directory that bound a name to
         // the wrong entry would then also disagree on fileLength.
         _synthetic["fake_bkd_data"] = synthetic_bytes(0x11, 4096 + 17);
@@ -156,6 +185,22 @@ protected:
 
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
+    }
+
+    // Builds one ANN index on `writer` and seals it into the writer's staging
+    // area, i.e. everything up to (but not including) begin_close().
+    void feed_ann_index(IndexFileWriter* writer, const TabletIndex* meta) {
+        AnnIndexColumnWriter ann(writer, meta);
+        ASSERT_TRUE(ann.init().ok());
+        const std::vector<float> vectors = make_vectors();
+        std::vector<size_t> offsets(kRows + 1);
+        for (uint32_t i = 0; i <= kRows; ++i) {
+            offsets[i] = static_cast<size_t>(i) * kDim;
+        }
+        ASSERT_TRUE(ann.add_array_values(sizeof(float), vectors.data(), /*null_map=*/nullptr,
+                                         reinterpret_cast<const uint8_t*>(offsets.data()), kRows)
+                            .ok());
+        ASSERT_TRUE(ann.finish().ok());
     }
 
     // One SNII container holding an ANN blob and a NON-ANN blob, and the path
@@ -172,17 +217,7 @@ protected:
                                std::move(file_writer), /*can_use_ram_dir=*/false,
                                /*tablet_id=*/9901);
 
-        AnnIndexColumnWriter ann(&writer, &_meta);
-        EXPECT_TRUE(ann.init().ok());
-        const std::vector<float> vectors = make_vectors();
-        std::vector<size_t> offsets(kRows + 1);
-        for (uint32_t i = 0; i <= kRows; ++i) {
-            offsets[i] = static_cast<size_t>(i) * kDim;
-        }
-        EXPECT_TRUE(ann.add_array_values(sizeof(float), vectors.data(), /*null_map=*/nullptr,
-                                         reinterpret_cast<const uint8_t*>(offsets.data()), kRows)
-                            .ok());
-        EXPECT_TRUE(ann.finish().ok());
+        feed_ann_index(&writer, &_meta);
 
         // The non-ANN blob, straight through the container API with bytes this
         // test owns.
@@ -208,6 +243,7 @@ protected:
 
     TabletIndex _meta;
     TabletIndex _fake_bkd_meta;
+    TabletIndex _ivf_on_disk_meta;
     std::map<std::string, std::vector<uint8_t>> _synthetic;
 };
 
@@ -315,6 +351,287 @@ TEST_F(SniiAnnContainerTest, ANonAnnBlobIsRefusedByTheDirectoryPath) {
             << opened.error().to_string();
     EXPECT_NE(opened.error().to_string().find("is not an ANN blob"), std::string::npos)
             << opened.error().to_string();
+}
+
+// The ANN staging area under SNII must not be a filesystem directory.
+//
+// A CLucene filesystem directory is created eagerly and is removed by exactly
+// one thing -- an explicit deleteDirectory() on the success path of
+// begin_close(). Any earlier return (a failed seal, a failed finish) leaves it
+// on disk until the next BE restart wipes the whole tmp dir. Rather than adding
+// cleanup to every exit, SNII must not create the directory in the first place.
+TEST_F(SniiAnnContainerTest, AnnStagingUnderSniiCreatesNoFilesystemDirectory) {
+    const std::string prefix = std::string(kTestDir) + "/no_fs_dir_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    // can_use_ram_dir=false is the configuration that makes the leak observable:
+    // it is what config::inverted_index_ram_dir_enable=false produces in
+    // production, and it is what the whole-directory harvest was written for.
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_ann_no_fs_dir_rowset",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9902);
+    feed_ann_index(&writer, &_meta);
+    ASSERT_FALSE(testing::Test::HasFatalFailure());
+
+    // debug_string() prints every registered directory's toString(). A
+    // filesystem directory reports "DorisFSDirectory@<path>" -- and that path is
+    // a real directory on disk from the moment it is opened.
+    const std::string described = writer.debug_string();
+    constexpr const char* kFsMarker = "DorisFSDirectory@";
+    const size_t marker = described.find(kFsMarker);
+    if (marker != std::string::npos) {
+        const std::string leaked = described.substr(marker + std::strlen(kFsMarker));
+        std::error_code ec;
+        EXPECT_FALSE(std::filesystem::exists(leaked, ec))
+                << "an on-disk scratch directory was created for the ANN index: " << leaked;
+    }
+    EXPECT_EQ(marker, std::string::npos)
+            << "SNII staged the ANN index in a filesystem directory: " << described;
+
+    assert_ok(writer.begin_close());
+    assert_ok(writer.finish_close());
+}
+
+// Scoped debug-point switch: enables the fault injection sites for one test and
+// restores the process-wide config afterwards.
+class ScopedDebugPoints {
+public:
+    ScopedDebugPoints() : _was_enabled(config::enable_debug_points) {
+        config::enable_debug_points = true;
+        DebugPoints::instance()->clear();
+    }
+    ~ScopedDebugPoints() {
+        DebugPoints::instance()->clear();
+        config::enable_debug_points = _was_enabled;
+    }
+    void enable(const std::string& name) { DebugPoints::instance()->add(name); }
+
+private:
+    const bool _was_enabled;
+};
+
+// begin_close() returns Status. Nothing on its SNII path may throw across that
+// boundary -- the non-SNII branch of the same function wraps its directory
+// teardown in try/catch precisely because DorisFSDirectory::deleteDirectory()
+// throws CLuceneError on an I/O failure. The SNII path must not reach a throwing
+// call at all.
+//
+// WHAT THIS IS NOW. The debug point below no longer sits on any SNII code path,
+// so on current code this asserts "begin_close() succeeds with an irrelevant
+// switch flipped". It is kept as a REGRESSION GUARD: it goes red the moment
+// deleteDirectory() -- or any other throwing CLucene teardown -- is reintroduced
+// into the SNII close path. It is not evidence about today's behaviour; the
+// verbatim CLuceneError it caught before the staging change is.
+TEST_F(SniiAnnContainerTest, ADirectoryDeleteFailureCannotThrowOutOfBeginClose) {
+    ScopedDebugPoints debug_points;
+    debug_points.enable("DorisFSDirectory::deleteDirectory_throw_is_not_directory");
+
+    const std::string prefix = std::string(kTestDir) + "/no_throw_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_ann_no_throw_rowset",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9903);
+    feed_ann_index(&writer, &_meta);
+    ASSERT_FALSE(testing::Test::HasFatalFailure());
+
+    Status begin_status = Status::InternalError("begin_close did not run");
+    ASSERT_NO_THROW({ begin_status = writer.begin_close(); });
+    EXPECT_TRUE(begin_status.ok()) << begin_status.to_string();
+    Status finish_status = Status::InternalError("finish_close did not run");
+    ASSERT_NO_THROW({ finish_status = writer.finish_close(); });
+    EXPECT_TRUE(finish_status.ok()) << finish_status.to_string();
+}
+
+// The staged bytes must survive the trip through the container unchanged, and
+// the extents must be the ones the reader is later pointed at.
+//
+// ORACLE. Comparing the directory against the container at the directory's own
+// offsets proves nothing (see the header note). Two independent checks instead:
+// the sub-file must start with the fourcc faiss stamps on every serialized
+// index -- four printable ASCII bytes that container padding, a zeroed extent,
+// or an off-by-N offset cannot produce -- and the same container written twice
+// from the same input must be byte-for-byte equal.
+TEST_F(SniiAnnContainerTest, AnnBlobBytesRoundTripThroughTheProductionReader) {
+    const std::string prefix = write_container();
+
+    auto reader = std::make_shared<IndexFileReader>(io::global_local_filesystem(), prefix,
+                                                    InvertedIndexStorageFormatPB::SNII);
+    assert_ok(reader->init());
+    auto opened = reader->open(&_meta, nullptr);
+    ASSERT_TRUE(opened.has_value()) << opened.error().to_string();
+    auto& dir = opened.value();
+
+    std::vector<std::string> names;
+    ASSERT_TRUE(dir->list(&names));
+    ASSERT_FALSE(names.empty());
+
+    doris::snii::io::LocalFileReader file;
+    assert_ok(file.open(InvertedIndexDescriptor::get_index_file_path_v2(prefix)));
+    doris::snii::reader::SniiSegmentReader segment;
+    assert_ok(doris::snii::reader::SniiSegmentReader::open(&file, &segment));
+    const doris::snii::format::LogicalIndexMetadataRef* entry = nullptr;
+    assert_ok(segment.blob_entry(static_cast<uint64_t>(kAnnIndexId), "", &entry));
+    ASSERT_NE(entry, nullptr);
+    ASSERT_EQ(entry->files.size(), names.size());
+
+    for (const auto& blob : entry->files) {
+        SCOPED_TRACE(blob.name);
+        ASSERT_GE(blob.length, 4U);
+        std::vector<uint8_t> from_container;
+        assert_ok(file.read_at(blob.offset, blob.length, &from_container));
+
+        // faiss stamps a printable four-character fourcc at the head of every
+        // file it serializes; the ivfdata side is raw, so only ann.faiss is
+        // checked against it.
+        if (blob.name == std::string(faiss_index_fila_name)) {
+            for (size_t i = 0; i < 4; ++i) {
+                EXPECT_GE(from_container[i], 0x20)
+                        << "byte " << i << " of the sealed faiss index is not a fourcc character";
+                EXPECT_LT(from_container[i], 0x7F)
+                        << "byte " << i << " of the sealed faiss index is not a fourcc character";
+            }
+        }
+
+        // The production read path must serve exactly those bytes.
+        lucene::store::IndexInput* raw = nullptr;
+        CLuceneError err;
+        ASSERT_TRUE(dir->openInput(blob.name.c_str(), raw, err)) << err.what();
+        std::unique_ptr<lucene::store::IndexInput> input(raw);
+        ASSERT_EQ(static_cast<uint64_t>(input->length()), blob.length);
+        std::vector<uint8_t> from_reader(blob.length);
+        input->readBytes(from_reader.data(), static_cast<int32_t>(blob.length));
+        EXPECT_EQ(from_reader, from_container);
+    }
+}
+
+// The load-bearing layout invariant, asserted directly rather than inferred from
+// a byte comparison: a blob's sub-files are sealed in ascending name order.
+//
+// This needs IVF_ON_DISK. A HNSW index emits ONE sub-file, so ordering cannot be
+// wrong there; IVF_ON_DISK emits ann.ivfdata BEFORE ann.faiss, i.e. producer
+// order is the reverse of name order, and only the staging container's ordering
+// puts it right. Swapping that container for an unordered one would leave every
+// same-process byte comparison green and break exactly this.
+TEST_F(SniiAnnContainerTest, IvfOnDiskSubFilesAreSealedInAscendingNameOrder) {
+    const std::string prefix = std::string(kTestDir) + "/ivf_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_ann_ivf_rowset",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9904);
+    feed_ann_index(&writer, &_ivf_on_disk_meta);
+    ASSERT_FALSE(testing::Test::HasFatalFailure());
+    assert_ok(writer.begin_close());
+    assert_ok(writer.finish_close());
+
+    doris::snii::io::LocalFileReader file;
+    assert_ok(file.open(InvertedIndexDescriptor::get_index_file_path_v2(prefix)));
+    doris::snii::reader::SniiSegmentReader segment;
+    assert_ok(doris::snii::reader::SniiSegmentReader::open(&file, &segment));
+    const doris::snii::format::LogicalIndexMetadataRef* entry = nullptr;
+    assert_ok(segment.blob_entry(static_cast<uint64_t>(kIvfOnDiskIndexId), "", &entry));
+    ASSERT_NE(entry, nullptr);
+
+    std::vector<std::string> sealed;
+    for (const auto& blob : entry->files) {
+        sealed.push_back(blob.name);
+    }
+    // Both sub-files must be there, or the ordering assertion below is vacuous.
+    ASSERT_EQ(sealed.size(), 2U) << "IVF_ON_DISK must emit ann.faiss and ann.ivfdata";
+    EXPECT_TRUE(std::is_sorted(sealed.begin(), sealed.end()))
+            << "sub-files were sealed in producer order, not name order: " << sealed[0] << ", "
+            << sealed[1];
+
+    // Producer order really is the reverse, so the assertion above has teeth.
+    ASSERT_LT(std::string(faiss_index_fila_name), std::string(faiss_ivfdata_file_name));
+}
+
+// The Defer on begin_close()'s SNII path must release the staging directories on
+// the FAILURE path too, not only after a successful finish().
+//
+// The failure is forced by registering a blob under the ANN index's own key
+// before closing: the compound writer rejects a duplicate key, so the seal fails
+// while the staged buffers are still held.
+TEST_F(SniiAnnContainerTest, AFailedSealStillReleasesTheStagingDirectories) {
+    const std::string prefix = std::string(kTestDir) + "/failed_seal_seg";
+    io::FileWriterPtr file_writer;
+    assert_ok(io::global_local_filesystem()->create_file(
+            InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer));
+    IndexFileWriter writer(io::global_local_filesystem(), prefix, "snii_ann_failed_seal_rowset",
+                           /*seg_id=*/0, InvertedIndexStorageFormatPB::SNII, std::move(file_writer),
+                           /*can_use_ram_dir=*/false,
+                           /*tablet_id=*/9905);
+    feed_ann_index(&writer, &_meta);
+    ASSERT_FALSE(testing::Test::HasFatalFailure());
+
+    std::vector<uint8_t> payload = synthetic_bytes(0x5A, 128);
+    std::vector<doris::snii::writer::BlobFileSource> collide;
+    collide.push_back(doris::snii::writer::BlobFileSource {
+            .name = "collide",
+            .length = payload.size(),
+            .read_fn = [&payload](uint64_t offset, size_t len, uint8_t* out) -> Status {
+                std::memcpy(out, payload.data() + offset, len);
+                return Status::OK();
+            }});
+    assert_ok(writer.add_snii_blob_index(&_meta, doris::snii::format::LogicalIndexKind::kBkd,
+                                         std::move(collide), {}));
+
+    // Sanity: the staging directory is registered right now, so its absence
+    // afterwards means the release ran and not that it was never there.
+    ASSERT_NE(writer.debug_string().find("index id is: "), std::string::npos);
+
+    Status begin_status = Status::OK();
+    ASSERT_NO_THROW({ begin_status = writer.begin_close(); });
+    ASSERT_FALSE(begin_status.ok()) << "the duplicate blob key should have failed the seal";
+
+    EXPECT_EQ(writer.debug_string().find("index id is: "), std::string::npos)
+            << "a failed seal left the staging directories registered: " << writer.debug_string();
+}
+
+// Determinism: two builds of the same input in the same process must produce the
+// same container.
+//
+// SCOPE, deliberately narrow. This compares this code against ITSELF, so it can
+// never show that the layout still matches an older one -- that comparison was
+// made once, by hand, against a container built before the staging change, and
+// no in-process test can repeat it. It is also blind to the ordering contract:
+// an unordered file container would give both builds the same iteration order
+// and stay green. IvfOnDiskSubFilesAreSealedInAscendingNameOrder is what covers
+// ordering; this test covers only "nothing here is nondeterministic".
+TEST_F(SniiAnnContainerTest, TwoContainersBuiltFromTheSameInputAreDeterministic) {
+    auto slurp = [](const std::string& path, std::vector<uint8_t>* out) {
+        doris::snii::io::LocalFileReader file;
+        assert_ok(file.open(path));
+        assert_ok(file.read_at(0, file.size(), out));
+    };
+
+    const std::string first = write_container();
+    std::vector<uint8_t> first_bytes;
+    slurp(InvertedIndexDescriptor::get_index_file_path_v2(first), &first_bytes);
+    ASSERT_FALSE(testing::Test::HasFatalFailure());
+
+    // write_container() always uses the same prefix, so the second build has to
+    // go somewhere else; move the first result aside instead.
+    const std::string kept = std::string(kTestDir) + "/first.idx";
+    assert_ok(io::global_local_filesystem()->rename(
+            InvertedIndexDescriptor::get_index_file_path_v2(first), kept));
+
+    const std::string second = write_container();
+    std::vector<uint8_t> second_bytes;
+    slurp(InvertedIndexDescriptor::get_index_file_path_v2(second), &second_bytes);
+    ASSERT_FALSE(testing::Test::HasFatalFailure());
+
+    ASSERT_FALSE(first_bytes.empty());
+    EXPECT_EQ(first_bytes.size(), second_bytes.size());
+    EXPECT_TRUE(first_bytes == second_bytes)
+            << "two builds of the same ANN index produced different containers";
 }
 
 TEST_F(SniiAnnContainerTest, AnAbsentIndexIdIsRefused) {

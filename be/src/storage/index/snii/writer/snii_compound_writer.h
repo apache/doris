@@ -295,6 +295,11 @@ private:
     // Streams `files` into the container at the current position through a
     // fixed-size chunk buffer, recording each file's absolute placement and
     // crc32c into *refs. Called from finish() only (cold then hot regions).
+    // Drops blob sources whose bytes are already in the container. Called as soon
+    // as write_blob_files has recorded their extents: a source may own the bytes
+    // it serves, so keeping it alive keeps that memory resident for the writer's
+    // whole life.
+    static void release_blob_sources(std::vector<BlobFileSource>* files);
     Status write_blob_files(const std::vector<BlobFileSource>& files,
                             std::vector<format::NamedBlobFileRef>* refs);
     // Emits the blob hot-file region and the blob directory entries; see the .cpp.
