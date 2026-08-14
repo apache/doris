@@ -169,6 +169,9 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
                         queryOptions.isSetQueryTimeout(), queryOptions.getQueryTimeout(),
                         timeoutDeadline, currentTimeMillis);
             }
+            Status cancelStatus = new Status(TStatusCode.INTERNAL_ERROR, msg);
+            coordinatorContext.updateStatusIfOk(cancelStatus);
+            coordinatorContext.cancelSchedule(cancelStatus);
             throw new UserException(msg);
         }
 
