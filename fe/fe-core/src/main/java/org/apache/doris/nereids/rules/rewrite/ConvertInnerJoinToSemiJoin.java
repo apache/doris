@@ -49,6 +49,9 @@ import java.util.stream.Collectors;
  *    join (a left row matching N right rows produces N copies) would change the result
  *    after the conversion, because a semi join never multiplies rows.
  *
+ * All three conditions are enforced in the rule's match predicates, so the rule only
+ * fires when the conversion actually applies.
+ *
  * Example:
  * <pre>
  *   select distinct a1.* from a1, a5
@@ -70,6 +73,7 @@ public class ConvertInnerJoinToSemiJoin implements RewriteRuleFactory {
                 logicalAggregate(innerLogicalJoin()
                         .when(this::canConvertToSemiJoin))
                         .when(this::isDistinctLikeAggregate)
+                        .when(agg -> rightColumnsDoNotLeak(agg.child(), agg.getInputSlots()))
                         .thenApply(ctx -> convert(ctx.root, ctx.root.child()))
                         .toRule(RuleType.CONVERT_INNER_JOIN_TO_SEMI_JOIN),
                 // Aggregate -> Project -> InnerJoin, where the project is a pure slot projection
@@ -77,6 +81,7 @@ public class ConvertInnerJoinToSemiJoin implements RewriteRuleFactory {
                         .when(this::canConvertToSemiJoin))
                         .when(Project::isAllSlots))
                         .when(this::isDistinctLikeAggregate)
+                        .when(agg -> rightColumnsDoNotLeak(agg.child().child(), agg.child().getInputSlots()))
                         .thenApply(ctx -> convert(ctx.root, ctx.root.child(), ctx.root.child().child()))
                         .toRule(RuleType.CONVERT_INNER_JOIN_TO_SEMI_JOIN)
         );
@@ -108,23 +113,22 @@ public class ConvertInnerJoinToSemiJoin implements RewriteRuleFactory {
         return groupBySlotIds.equals(outputSlotIds);
     }
 
+    /**
+     * Condition 1: the right side columns of the join do not leak above the join, i.e.
+     * every column consumed above the join comes from the left side, so the right side
+     * is only used in the join conditions (an existence filter).
+     */
+    private boolean rightColumnsDoNotLeak(LogicalJoin<?, ?> join, Set<Slot> consumedSlots) {
+        return join.left().getOutputSet().containsAll(consumedSlots);
+    }
+
     /** Aggregate -> Join */
     private Plan convert(LogicalAggregate<?> agg, LogicalJoin<?, ?> join) {
-        // Condition 1: the right side columns do not leak above the join.
-        if (!join.left().getOutputSet().containsAll(agg.getInputSlots())) {
-            return agg;
-        }
         return agg.withChildren(join.withJoinType(JoinType.LEFT_SEMI_JOIN));
     }
 
     /** Aggregate -> Project -> Join */
     private Plan convert(LogicalAggregate<?> agg, LogicalProject<?> project, LogicalJoin<?, ?> join) {
-        // Condition 1: the right side columns do not leak above the join.
-        // The project is a pure slot projection, so checking the project's input slots
-        // covers every column consumed above the join.
-        if (!join.left().getOutputSet().containsAll(project.getInputSlots())) {
-            return agg;
-        }
         return agg.withChildren(project.withChildren(join.withJoinType(JoinType.LEFT_SEMI_JOIN)));
     }
 }
