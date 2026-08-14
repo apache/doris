@@ -121,6 +121,26 @@ public class HudiScanNodeTest {
     }
 
     @Test
+    public void testPartitionPlanningCanDisableStatementSplitReuse() throws Exception {
+        StatementContext.ExternalScanTaskCache cache = new StatementContext.ExternalScanTaskCache();
+        HivePartition partition = partition("file:///table/p=1", Collections.singletonList("1"));
+        HoodieTableFileSystemView firstView = fileSystemView("file:///table/p=1/first.parquet");
+        HoodieTableFileSystemView secondView = fileSystemView("file:///table/p=1/second.parquet");
+        HudiScanNode firstNode = partitionScanNode(cache, firstView, "100", true, false);
+        HudiScanNode secondNode = partitionScanNode(cache, secondView, "100", true, false);
+        Field sessionVariable = FileQueryScanNode.class.getDeclaredField("sessionVariable");
+        sessionVariable.setAccessible(true);
+        ((SessionVariable) sessionVariable.get(firstNode)).enableExternalScanTaskReuse = false;
+        ((SessionVariable) sessionVariable.get(secondNode)).enableExternalScanTaskReuse = false;
+
+        invokeGetPartitionSplits(firstNode, partition);
+        invokeGetPartitionSplits(secondNode, partition);
+
+        Mockito.verify(firstView).getLatestBaseFilesBeforeOrOn("p=1", "100");
+        Mockito.verify(secondView).getLatestBaseFilesBeforeOrOn("p=1", "100");
+    }
+
+    @Test
     public void testPartitionPlanningCacheMissesForInstantAndPartition() throws Exception {
         StatementContext.ExternalScanTaskCache cache = new StatementContext.ExternalScanTaskCache();
         HoodieTableFileSystemView firstView = fileSystemView("file:///table/p=1/first.parquet");
@@ -189,9 +209,11 @@ public class HudiScanNodeTest {
         Object refreshedGeneration = newPartitionCacheKey("100", false, true, "serde-2", partition);
         Object reorderedPartitionColumns = newPartitionCacheKey(
                 "100", false, true, "serde-1", Arrays.asList("region", "dt"), partition);
+        Object changedStorageProperties = newPartitionCacheKey(
+                "100", false, true, "serde-1", Collections.singletonList("dt"), "storage-2", partition);
 
         assertCacheHitsOnlyEquivalentKeys(
-                firstGeneration, sameGeneration, refreshedGeneration, reorderedPartitionColumns);
+                firstGeneration, sameGeneration, refreshedGeneration, reorderedPartitionColumns, changedStorageProperties);
     }
 
     @Test
@@ -355,17 +377,25 @@ public class HudiScanNodeTest {
             String instant, boolean nativeReader, boolean runtimePrune, String serdeLib,
             List<String> partitionColumnNames, HivePartition partition)
             throws Exception {
+        return newPartitionCacheKey(instant, nativeReader, runtimePrune, serdeLib,
+                partitionColumnNames, "storage-1", partition);
+    }
+
+    private static Object newPartitionCacheKey(
+            String instant, boolean nativeReader, boolean runtimePrune, String serdeLib,
+            List<String> partitionColumnNames, String storagePropertiesFingerprint, HivePartition partition)
+            throws Exception {
         Class<?> keyClass = Class.forName(HudiScanNode.class.getName() + "$HudiFileScanTaskCacheKey");
         Constructor<?> constructor = keyClass.getDeclaredConstructor(
                 long.class, long.class, String.class, boolean.class, boolean.class,
                 String.class, String.class, String.class, List.class, List.class, List.class,
-                HivePartition.class);
+                String.class, HivePartition.class);
         constructor.setAccessible(true);
         return constructor.newInstance(
                 1L, 2L, instant, nativeReader, runtimePrune,
                 "file:///table", "parquet", serdeLib,
                 Collections.singletonList("id"), Collections.singletonList("int"),
-                partitionColumnNames, partition);
+                partitionColumnNames, storagePropertiesFingerprint, partition);
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

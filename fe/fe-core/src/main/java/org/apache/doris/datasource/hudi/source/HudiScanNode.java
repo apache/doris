@@ -41,6 +41,7 @@ import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.HudiPartitionUtils;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.nereids.StatementContext;
@@ -111,6 +112,7 @@ public class HudiScanNode extends HiveScanNode {
     private List<String> columnNames;
     private List<String> columnTypes;
     private List<String> partitionColumnNames;
+    private String storagePropertiesFingerprint;
 
     private boolean partitionInit = false;
     private HoodieTimeline timeline;
@@ -230,6 +232,8 @@ public class HudiScanNode extends HiveScanNode {
             partitionColumnNames = hmsTable.getPartitionColumns(relationSnapshot).stream()
                     .map(Column::getName)
                     .collect(Collectors.toList());
+            storagePropertiesFingerprint = StorageProperties.combinedFsCacheFingerprint(
+                    hmsTable.getStoragePropertiesMap().values());
 
             fsView = Env.getCurrentEnv()
                 .getExtMetaCacheMgr()
@@ -430,7 +434,7 @@ public class HudiScanNode extends HiveScanNode {
                     hmsTable.getCatalog().getId(), hmsTable.getId(), queryInstant,
                     canUseNativeReader(), sessionVariable.isEnableRuntimeFilterPartitionPrune(),
                     basePath, inputFormat, serdeLib, columnNames, columnTypes,
-                    partitionColumnNames, partition);
+                    partitionColumnNames, storagePropertiesFingerprint, partition);
             plannedSplits = getOrLoadExternalScanTasks(
                     cacheKey, ignored -> planPartitionSplits(partition),
                     FileQueryScanNode::externalScanTaskCount,
@@ -693,6 +697,7 @@ public class HudiScanNode extends HiveScanNode {
         private final List<String> columnNames;
         private final List<String> columnTypes;
         private final List<String> partitionColumnNames;
+        private final String storagePropertiesFingerprint;
         private final String inputFormat;
         private final String path;
         private final List<String> partitionValues;
@@ -701,7 +706,7 @@ public class HudiScanNode extends HiveScanNode {
                 long catalogId, long tableId, String queryInstant, boolean nativeReader,
                 boolean runtimePartitionPrune, String basePath, String tableInputFormat,
                 String serdeLib, List<String> columnNames, List<String> columnTypes,
-                List<String> partitionColumnNames, HivePartition partition) {
+                List<String> partitionColumnNames, String storagePropertiesFingerprint, HivePartition partition) {
             this.catalogId = catalogId;
             this.tableId = tableId;
             this.queryInstant = queryInstant;
@@ -713,6 +718,7 @@ public class HudiScanNode extends HiveScanNode {
             this.columnNames = immutableCopy(columnNames);
             this.columnTypes = immutableCopy(columnTypes);
             this.partitionColumnNames = immutableCopy(partitionColumnNames);
+            this.storagePropertiesFingerprint = storagePropertiesFingerprint;
             this.inputFormat = partition.getInputFormat();
             this.path = partition.getPath();
             this.partitionValues = partition.getPartitionValues() == null
@@ -739,6 +745,7 @@ public class HudiScanNode extends HiveScanNode {
                     && Objects.equals(columnNames, that.columnNames)
                     && Objects.equals(columnTypes, that.columnTypes)
                     && Objects.equals(partitionColumnNames, that.partitionColumnNames)
+                    && Objects.equals(storagePropertiesFingerprint, that.storagePropertiesFingerprint)
                     && Objects.equals(inputFormat, that.inputFormat)
                     && Objects.equals(path, that.path)
                     && Objects.equals(partitionValues, that.partitionValues);
@@ -749,7 +756,7 @@ public class HudiScanNode extends HiveScanNode {
             return Objects.hash(
                     catalogId, tableId, queryInstant, nativeReader, runtimePartitionPrune,
                     basePath, tableInputFormat, serdeLib, columnNames, columnTypes,
-                    partitionColumnNames, inputFormat, path, partitionValues);
+                    partitionColumnNames, storagePropertiesFingerprint, inputFormat, path, partitionValues);
         }
 
         private static <T> List<T> immutableCopy(List<T> values) {

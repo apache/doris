@@ -150,7 +150,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected <T> List<T> getOrLoadExternalScanTasks(
             ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader) throws Exception {
-        if (externalScanTaskCache == null) {
+        if (!sessionVariable.enableExternalScanTaskReuse || externalScanTaskCache == null) {
             return loader.call();
         }
         return externalScanTaskCache.getOrLoad(key, loader);
@@ -159,7 +159,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected <T> List<T> getOrLoadExternalScanTasks(
             ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader,
             ToLongFunction<List<T>> weigher, long maxRetainedWeight) throws Exception {
-        if (externalScanTaskCache == null) {
+        if (!sessionVariable.enableExternalScanTaskReuse || externalScanTaskCache == null) {
             return loader.call();
         }
         return externalScanTaskCache.getOrLoad(key, loader, weigher, maxRetainedWeight);
@@ -172,7 +172,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             StatementContext.ExternalScanTaskCache.WeightBudget weightBudget,
             long maxEntryWeight, long maxRetainedWeight,
             boolean reserveBeforeLoad) throws Exception {
-        if (externalScanTaskCache == null) {
+        if (!sessionVariable.enableExternalScanTaskReuse || externalScanTaskCache == null) {
             return loader.load(maxEntryWeight);
         }
         return externalScanTaskCache.getOrLoad(

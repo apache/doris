@@ -43,6 +43,7 @@ import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -90,11 +91,8 @@ public class HiveScanNodeTest {
             invokeGetFileSplitByPartitions(secondNode, cache, equivalentPartitions);
             invokeGetFileSplitByPartitions(secondNode, cache, differentPartitions);
 
-            Mockito.verify(cache).getFilesByPartitions(
-                    Mockito.same(firstPartitions), Mockito.anyBoolean(), Mockito.eq(false),
-                    Mockito.isNull(), Mockito.eq(table));
-            Mockito.verify(cache).getFilesByPartitions(
-                    Mockito.same(differentPartitions), Mockito.anyBoolean(), Mockito.eq(false),
+            Mockito.verify(cache, Mockito.times(3)).getFilesByPartitions(
+                    Mockito.anyList(), Mockito.eq(true), Mockito.eq(false),
                     Mockito.isNull(), Mockito.eq(table));
             Mockito.verify(cache, Mockito.times(3)).getFileCacheInvalidationGeneration(1L);
             Mockito.verifyNoMoreInteractions(cache);
@@ -139,7 +137,7 @@ public class HiveScanNodeTest {
 
             invokeGetFileSplitByPartitions(createHiveScanNode(0, table), cache, partitions);
             invokeGetFileSplitByPartitions(createHiveScanNode(1, table), cache, partitions);
-            Mockito.verify(cache).getFilesByPartitions(
+            Mockito.verify(cache, Mockito.times(2)).getFilesByPartitions(
                     Mockito.same(partitions), Mockito.eq(true), Mockito.eq(false),
                     Mockito.isNull(), Mockito.eq(table));
 
@@ -150,7 +148,7 @@ public class HiveScanNodeTest {
             cache.invalidatePartitionCache(nameMapping, "p=1");
             invokeGetFileSplitByPartitions(createHiveScanNode(3, table), cache, partitions);
 
-            Mockito.verify(cache, Mockito.times(3)).getFilesByPartitions(
+            Mockito.verify(cache, Mockito.times(4)).getFilesByPartitions(
                     Mockito.same(partitions), Mockito.eq(true), Mockito.eq(false),
                     Mockito.isNull(), Mockito.eq(table));
             Assert.assertEquals(2L, cache.getFileCacheInvalidationGeneration(0L));
@@ -163,6 +161,24 @@ public class HiveScanNodeTest {
                 previousContext.setThreadLocalInfo();
             }
         }
+    }
+
+    @Test
+    public void testStatementCacheSeparatesAutomaticFileCacheReplacement() throws Exception {
+        HivePartition partition = new HivePartition(null, false, "parquet", "hdfs://warehouse/t/p=1",
+                Collections.singletonList("1"), Collections.emptyMap());
+        HiveExternalMetaCache.FileCacheValue firstValue = new HiveExternalMetaCache.FileCacheValue();
+        firstValue.setCacheGeneration(1L);
+        HiveExternalMetaCache.FileCacheValue replacementValue = new HiveExternalMetaCache.FileCacheValue();
+        replacementValue.setCacheGeneration(2L);
+
+        Object firstKey = newHiveFileScanTaskCacheKey(partition, firstValue);
+        Object sameKey = newHiveFileScanTaskCacheKey(partition, firstValue);
+        Object replacementKey = newHiveFileScanTaskCacheKey(partition, replacementValue);
+
+        Assert.assertEquals(firstKey, sameKey);
+        Assert.assertEquals(firstKey.hashCode(), sameKey.hashCode());
+        Assert.assertNotEquals(firstKey, replacementKey);
     }
 
     @Test
@@ -475,5 +491,15 @@ public class HiveScanNodeTest {
                 List.class, String.class, int.class, boolean.class);
         method.setAccessible(true);
         method.invoke(node, cache, partitions, new ArrayList<>(), null, 1, isBatchMode);
+    }
+
+    private Object newHiveFileScanTaskCacheKey(
+            HivePartition partition, HiveExternalMetaCache.FileCacheValue fileCacheValue) throws Exception {
+        Class<?> keyClass = Class.forName(HiveScanNode.class.getName() + "$HiveFileScanTaskCacheKey");
+        Constructor<?> constructor = keyClass.getDeclaredConstructor(
+                long.class, long.class, List.class, long.class, List.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(1L, 2L, Collections.singletonList(partition), 0L,
+                Collections.singletonList(fileCacheValue));
     }
 }

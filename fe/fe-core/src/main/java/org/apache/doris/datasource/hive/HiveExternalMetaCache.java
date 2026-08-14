@@ -122,6 +122,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
     private final ExecutorService fileListingExecutor;
     private final Map<Long, AtomicLong> fileCacheInvalidationGenerations = new ConcurrentHashMap<>();
+    private final Map<Long, AtomicLong> fileCacheValueGenerations = new ConcurrentHashMap<>();
 
     private final EntryHandle<SchemaCacheKey, SchemaCacheValue> schemaEntry;
     private final EntryHandle<PartitionValueCacheKey, HivePartitionValues> partitionValuesEntry;
@@ -299,7 +300,11 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private FileCacheValue loadFileCacheValue(FileCacheKey key) {
-        return loadFiles(key, new FileSystemDirectoryLister(), null);
+        FileCacheValue value = loadFiles(key, new FileSystemDirectoryLister(), null);
+        value.setCacheGeneration(fileCacheValueGenerations
+                .computeIfAbsent(key.catalogId, ignored -> new AtomicLong())
+                .incrementAndGet());
+        return value;
     }
 
     private HMSExternalCatalog hmsCatalog(long catalogId) {
@@ -1012,6 +1017,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     @Data
     public static class FileCacheValue {
         private final List<HiveFileStatus> files = Lists.newArrayList();
+        private long cacheGeneration;
         private boolean isSplittable;
         protected List<String> partitionValues;
         private AcidInfo acidInfo;

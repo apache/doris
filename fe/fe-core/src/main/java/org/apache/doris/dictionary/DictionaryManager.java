@@ -34,6 +34,7 @@ import org.apache.doris.dictionary.Dictionary.DictionaryStatus;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.manager.TaskDisruptorGroupManager;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateDictionaryInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoDictionaryCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -453,29 +454,32 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             Thread.sleep(10);
         }
 
-        if (ctx == null) { // for run with scheduler, not by command.
+        boolean ownsContext = ctx == null;
+        if (ownsContext) { // for run with scheduler, not by command.
             // priv check is done in relative(caller) command. so use ADMIN here is ok.
             ctx = InsertTask.makeConnectContext(UserIdentity.ADMIN, dictionary.getDbName());
+            ctx.setStatementContext(new StatementContext());
         }
 
-        // not use rerfresh command's executor to avoid potential problems.
-        String insertSql = "insert into " + dictionary.getDbName() + "." + dictionary.getName() + " select * from "
-                + dictionary.getSourceCtlName() + "." + dictionary.getSourceDbName() + "."
-                + dictionary.getSourceTableName();
-        StmtExecutor executor = new StmtExecutor(ctx, insertSql);
-        NereidsParser parser = new NereidsParser();
-        InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser.parseSingle(insertSql);
-        LOG.info("Loading to dictionary {} with query {}. adaptive: {}", dictionary.getName(), ctx.queryId(),
-                adaptiveLoad);
-        if (!baseCommand.getLabelName().isPresent()) {
-            baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + ctx.queryId().toString()));
-        }
-        if (baseCommand.getJobId() == 0) {
-            baseCommand.setJobId(DICTIONARY_JOB_ID);
-        }
+        try {
+            // not use rerfresh command's executor to avoid potential problems.
+            String insertSql = "insert into " + dictionary.getDbName() + "." + dictionary.getName()
+                    + " select * from " + dictionary.getSourceCtlName() + "." + dictionary.getSourceDbName()
+                    + "." + dictionary.getSourceTableName();
+            StmtExecutor executor = new StmtExecutor(ctx, insertSql);
+            NereidsParser parser = new NereidsParser();
+            InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser.parseSingle(insertSql);
+            LOG.info("Loading to dictionary {} with query {}. adaptive: {}", dictionary.getName(), ctx.queryId(),
+                    adaptiveLoad);
+            if (!baseCommand.getLabelName().isPresent()) {
+                baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + ctx.queryId().toString()));
+            }
+            if (baseCommand.getJobId() == 0) {
+                baseCommand.setJobId(DICTIONARY_JOB_ID);
+            }
 
-        InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(
-                baseCommand, database, dictionary, adaptiveLoad);
+            InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(
+                    baseCommand, database, dictionary, adaptiveLoad);
 
         // run with sync by status.
         try {
@@ -574,8 +578,14 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         } else {
             dictionary.setLastUpdateResult("succeed");
         }
-        LOG.info("Dictionary {} refresh succeed. now version is {}. used src version {}", dictionary.getName(),
-                dictionary.getVersion(), ctx.getStatementContext().getDictionaryUsedSrcVersion());
+            LOG.info("Dictionary {} refresh succeed. now version is {}. used src version {}", dictionary.getName(),
+                    dictionary.getVersion(), ctx.getStatementContext().getDictionaryUsedSrcVersion());
+        } finally {
+            if (ownsContext) {
+                ctx.getStatementContext().close();
+                ConnectContext.remove();
+            }
+        }
     }
 
     private boolean commitNowVersion(ConnectContext ctx, Dictionary dictionary) {

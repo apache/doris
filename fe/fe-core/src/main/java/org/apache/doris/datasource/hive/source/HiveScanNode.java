@@ -332,13 +332,14 @@ public class HiveScanNode extends FileQueryScanNode {
                 fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
                         directoryLister, hmsTable);
             } else {
+                List<FileCacheValue> currentFileCaches = cache.getFilesByPartitions(partitions, true,
+                        partitions.size() > 1, directoryLister, hmsTable);
                 HiveFileScanTaskCacheKey cacheKey = new HiveFileScanTaskCacheKey(
                         hmsTable.getCatalog().getId(), hmsTable.getId(), partitions,
-                        cache.getFileCacheInvalidationGeneration(hmsTable.getCatalog().getId()));
+                        cache.getFileCacheInvalidationGeneration(hmsTable.getCatalog().getId()), currentFileCaches);
                 try {
                     fileCaches = getOrLoadExternalScanTasks(cacheKey,
-                            ignored -> cache.getFilesByPartitions(partitions, true, partitions.size() > 1,
-                                    directoryLister, hmsTable),
+                            ignored -> currentFileCaches,
                             this::retainedHiveFileCount,
                             StatementContext.ExternalScanTaskCache.WeightBudget.TASK_COUNT,
                             maxRetainedExternalScanTasks, maxRetainedExternalScanTasks, false);
@@ -517,15 +518,19 @@ public class HiveScanNode extends FileQueryScanNode {
         private final long tableId;
         private final List<HivePartitionCacheKey> partitions;
         private final long fileCacheInvalidationGeneration;
+        private final List<Long> fileCacheValueGenerations;
 
         private HiveFileScanTaskCacheKey(long catalogId, long tableId, List<HivePartition> partitions,
-                long fileCacheInvalidationGeneration) {
+                long fileCacheInvalidationGeneration, List<FileCacheValue> fileCaches) {
             this.catalogId = catalogId;
             this.tableId = tableId;
             this.partitions = partitions.stream()
                     .map(HivePartitionCacheKey::new)
                     .collect(Collectors.toList());
             this.fileCacheInvalidationGeneration = fileCacheInvalidationGeneration;
+            this.fileCacheValueGenerations = fileCaches.stream()
+                    .map(FileCacheValue::getCacheGeneration)
+                    .collect(Collectors.toList());
         }
 
         @Override
@@ -540,12 +545,14 @@ public class HiveScanNode extends FileQueryScanNode {
             return catalogId == that.catalogId
                     && tableId == that.tableId
                     && fileCacheInvalidationGeneration == that.fileCacheInvalidationGeneration
+                    && fileCacheValueGenerations.equals(that.fileCacheValueGenerations)
                     && partitions.equals(that.partitions);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(catalogId, tableId, partitions, fileCacheInvalidationGeneration);
+            return Objects.hash(catalogId, tableId, partitions, fileCacheInvalidationGeneration,
+                    fileCacheValueGenerations);
         }
     }
 
