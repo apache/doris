@@ -97,7 +97,7 @@ install_juicefs() {
     if [[ "${target_type}" == "fe" ]]; then
         target_dir="${output_dir}/fe/lib/juicefs"
     elif [[ "${target_type}" == "be" ]]; then
-        target_dir="${output_dir}/be/lib/java_extensions/juicefs"
+        target_dir="${output_dir}/be/lib/juicefs"
     else
         echo "ERROR: unknown target type '${target_type}' for install_juicefs"
         return 1
@@ -115,7 +115,7 @@ install_jindofs() {
     if [[ "${target_type}" == "fe" ]]; then
         target_dir="${output_dir}/fe/lib/jindofs"
     elif [[ "${target_type}" == "be" ]]; then
-        target_dir="${output_dir}/be/lib/java_extensions/jindofs"
+        target_dir="${output_dir}/be/lib/jindofs"
     else
         echo "ERROR: unknown target type '${target_type}' for install_jindofs"
         return 1
