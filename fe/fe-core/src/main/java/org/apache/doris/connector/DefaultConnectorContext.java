@@ -235,7 +235,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
     }
 
     /**
-     * Builds the vended {@link StorageAdapter} typed map from a raw per-table token: filter to
+     * Builds the vended {@link StorageAdapter} typed map from a raw per-table token: normalize
      * cloud-storage props, run {@link StorageAdapter#ofAll} (normalizes arbitrary token key
      * shapes + derives region/endpoint), then index by {@link StorageTypeId}. Mirrors the
      * legacy vended-credentials normalization tail exactly, so the BE-credential overlay
@@ -250,11 +250,11 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
             return null;
         }
         try {
-            Map<String, String> filtered = CredentialUtils.filterCloudStorageProperties(rawVendedCredentials);
-            if (filtered.isEmpty()) {
+            Map<String, String> normalized = CredentialUtils.normalizeCloudStorageProperties(rawVendedCredentials);
+            if (normalized.isEmpty()) {
                 return null;
             }
-            List<StorageAdapter> vended = StorageAdapter.ofAll(filtered);
+            List<StorageAdapter> vended = StorageAdapter.ofAll(normalized);
             return vended.stream()
                     .collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
         } catch (Exception e) {

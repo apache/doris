@@ -68,6 +68,7 @@ import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.ResolvingFileIO;
 import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.types.Conversions;
@@ -3209,6 +3210,18 @@ public class IcebergScanPlanProviderTest {
         // unconditional cast to SupportsStorageCredentials -> ClassCastException -> red.
         Assertions.assertEquals(Collections.singletonMap("s3.endpoint", "ep"),
                 IcebergScanPlanProvider.extractVendedToken(table, true));
+    }
+
+    @Test
+    public void adlsFileIoIsAvailableForAbfssLocations() {
+        ResolvingFileIO fileIO = new ResolvingFileIO();
+        fileIO.initialize(Collections.emptyMap());
+        try {
+            Assertions.assertEquals("org.apache.iceberg.azure.adlsv2.ADLSFileIO",
+                    fileIO.ioClass("abfss://container@account.dfs.core.windows.net/table").getName());
+        } finally {
+            fileIO.close();
+        }
     }
 
     @Test
