@@ -24,6 +24,7 @@ import org.apache.doris.datasource.metacache.MetaCacheEntry;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -33,6 +34,37 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class HiveMetaStoreCacheTest {
+
+    @Test
+    public void testGenerationAdvancesBeforeFileInvalidation() {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "refresh", 1, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "file", 1, false);
+        try {
+            HiveExternalMetaCache cache = new HiveExternalMetaCache(executor, listExecutor);
+            cache.initCatalog(0, new HashMap<>());
+            MetaCacheEntry<HiveExternalMetaCache.FileCacheKey, HiveExternalMetaCache.FileCacheValue> fileCache =
+                    cache.entry(0, HiveExternalMetaCache.ENTRY_FILE,
+                            HiveExternalMetaCache.FileCacheKey.class,
+                            HiveExternalMetaCache.FileCacheValue.class);
+            HiveExternalMetaCache.FileCacheKey fileCacheKey =
+                    Mockito.mock(HiveExternalMetaCache.FileCacheKey.class);
+            Mockito.when(fileCacheKey.isSameTable(Mockito.anyLong())).thenAnswer(invocation -> {
+                Assertions.assertEquals(1L, cache.getFileCacheInvalidationGeneration(0L));
+                return true;
+            });
+            fileCache.put(fileCacheKey, new HiveExternalMetaCache.FileCacheValue());
+
+            cache.invalidateTable(0L, "db", "table");
+
+            Assertions.assertNull(fileCache.getIfPresent(fileCacheKey));
+            Mockito.verify(fileCacheKey).isSameTable(Util.genIdByName("db", "table"));
+        } finally {
+            executor.shutdownNow();
+            listExecutor.shutdownNow();
+        }
+    }
 
     @Test
     public void testInvalidateTableCache() {

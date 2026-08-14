@@ -184,14 +184,14 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
     @Override
     public void invalidateCatalog(long catalogId) {
-        super.invalidateCatalog(catalogId);
         advanceFileCacheInvalidationGeneration(catalogId);
+        super.invalidateCatalog(catalogId);
     }
 
     @Override
     public void invalidateCatalogEntries(long catalogId) {
-        super.invalidateCatalogEntries(catalogId);
         advanceFileCacheInvalidationGeneration(catalogId);
+        super.invalidateCatalogEntries(catalogId);
     }
 
     @Override
@@ -199,8 +199,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         schemaEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
         partitionValuesEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
         partitionEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
-        fileEntry.get(catalogId).invalidateAll();
         advanceFileCacheInvalidationGeneration(catalogId);
+        fileEntry.get(catalogId).invalidateAll();
     }
 
     @Override
@@ -209,8 +209,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         partitionValuesEntry.get(catalogId).invalidateIf(key -> matchTable(key.getNameMapping(), dbName, tableName));
         partitionEntry.get(catalogId).invalidateIf(key -> matchTable(key.getNameMapping(), dbName, tableName));
         long tableId = Util.genIdByName(dbName, tableName);
-        fileEntry.get(catalogId).invalidateIf(key -> key.isSameTable(tableId));
         advanceFileCacheInvalidationGeneration(catalogId);
+        fileEntry.get(catalogId).invalidateIf(key -> key.isSameTable(tableId));
     }
 
     public long getFileCacheInvalidationGeneration(long catalogId) {
@@ -606,8 +606,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         MetaCacheEntry<FileCacheKey, FileCacheValue> fileEntry = fileEntryIfInitialized(catalogId);
         if (fileEntry != null) {
             long tableId = Util.genIdByName(nameMapping.getLocalDbName(), nameMapping.getLocalTblName());
-            fileEntry.invalidateIf(k -> k.isSameTable(tableId));
             advanceFileCacheInvalidationGeneration(catalogId);
+            fileEntry.invalidateIf(k -> k.isSameTable(tableId));
         }
     }
 
@@ -674,15 +674,15 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 // listings that merely share the same partition value names (e.g. dt=...) at a different
                 // location, forcing needless re-listing. The exact-key path below (taken when the partition
                 // is cached) already clears a listing regardless of which table id populated it.
-                fileEntry.invalidateIf(k -> k.isSameTable(tableId) && Objects.equals(k.getPartitionValues(), values));
                 advanceFileCacheInvalidationGeneration(catalogId);
+                fileEntry.invalidateIf(k -> k.isSameTable(tableId) && Objects.equals(k.getPartitionValues(), values));
                 partitionEntry.invalidateKey(partKey);
                 return;
             }
 
+            advanceFileCacheInvalidationGeneration(catalogId);
             fileEntry.invalidateKey(new FileCacheKey(nameMapping.getCtlId(), tableId, partition.getPath(),
                     null, partition.getPartitionValues()));
-            advanceFileCacheInvalidationGeneration(catalogId);
             partitionEntry.invalidateKey(partKey);
         }
 
