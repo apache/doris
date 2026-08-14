@@ -115,7 +115,7 @@ public class IcebergScanPlanProviderKerberosScanIoTest {
         TcclPinningConnectorContext context = new TcclPinningConnectorContext(
                 new RecordingConnectorContext(), getClass().getClassLoader(), () -> auth);
         IcebergScanPlanProvider provider =
-                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
+                new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table), context);
 
         List<ConnectorScanRange> ranges = provider.planScan(null,
                 ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
@@ -139,7 +139,7 @@ public class IcebergScanPlanProviderKerberosScanIoTest {
         TcclPinningConnectorContext context = new TcclPinningConnectorContext(
                 delegate, getClass().getClassLoader(), () -> null);
         IcebergScanPlanProvider provider =
-                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
+                new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table), context);
 
         List<ConnectorScanRange> ranges = provider.planScan(null,
                 ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
@@ -159,7 +159,7 @@ public class IcebergScanPlanProviderKerberosScanIoTest {
         TcclPinningConnectorContext context = new TcclPinningConnectorContext(
                 new RecordingConnectorContext(), getClass().getClassLoader(), () -> auth);
         IcebergScanPlanProvider provider =
-                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
+                new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table), context);
 
         Table wrapped = provider.wrapTableForScan(table);
 
@@ -178,7 +178,7 @@ public class IcebergScanPlanProviderKerberosScanIoTest {
         Table table = oneFileTable();
         // A non-TcclPinning context (offline tests / fe-core fakes) must never be wrapped.
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
-                Collections.emptyMap(), opsReturning(table), new RecordingConnectorContext());
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table), new RecordingConnectorContext());
 
         Assertions.assertSame(table, provider.wrapTableForScan(table));
     }
@@ -188,7 +188,7 @@ public class IcebergScanPlanProviderKerberosScanIoTest {
         Table table = oneFileTable();
         RecordingConnectorContext context = new RecordingConnectorContext();
         IcebergScanPlanProvider provider =
-                new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table), context);
+                new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table), context);
 
         List<ConnectorScanRange> ranges = provider.planScan(null,
                 ConnectorScanRequest.builder(

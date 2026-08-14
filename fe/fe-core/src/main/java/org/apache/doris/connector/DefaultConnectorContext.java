@@ -127,6 +127,20 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         this(catalogName, catalogId, () -> NOOP_AUTH);
     }
 
+    /**
+     * Creates the lightweight pre-initialization context used by the catalog factory for CREATE validation and
+     * edit-log replay. It exposes a snapshot of the raw storage properties so connector construction and
+     * connectivity checks can bind credentials, but it does not provide runtime authentication,
+     * connector-derived storage defaults, backend adapters, or a filesystem.
+     */
+    public static DefaultConnectorContext forCatalogCreationValidation(String catalogName, long catalogId,
+            Map<String, String> rawStorageProperties) {
+        Map<String, String> rawSnapshot = Collections.unmodifiableMap(
+                new HashMap<>(Objects.requireNonNull(rawStorageProperties, "rawStorageProperties")));
+        return new DefaultConnectorContext(catalogName, catalogId, () -> NOOP_AUTH,
+                Collections::emptyMap, () -> new HashMap<>(rawSnapshot));
+    }
+
     public DefaultConnectorContext(String catalogName, long catalogId,
             Supplier<ExecutionAuthenticator> authSupplier) {
         this(catalogName, catalogId, authSupplier, Collections::emptyMap);
@@ -600,7 +614,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         // Hive CREATE TABLE defaults (P7.1): the fe-connector-hive plugin cannot read FE Config, so the two
         // FE-global CREATE TABLE toggles are threaded through the environment (not persisted into the catalog
         // property map) and applied by HiveConnectorMetadata.createTable when the user did not override them.
-        // Keys must stay byte-identical to the reads in HiveConnectorProperties.
+        // Keys must stay byte-identical to the reads in the hive plugin (HmsConf / HiveConnectorMetadata).
         env.put("hive_default_file_format", Config.hive_default_file_format);
         env.put("enable_create_hive_bucket_table", String.valueOf(Config.enable_create_hive_bucket_table));
         // Build version stamped into a created Hive table's doris.version parameter (legacy

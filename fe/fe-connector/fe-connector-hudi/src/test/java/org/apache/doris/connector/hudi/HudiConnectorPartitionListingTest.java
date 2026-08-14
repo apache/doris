@@ -346,9 +346,9 @@ public class HudiConnectorPartitionListingTest {
 
     private static HudiConnectorMetadata metadata(boolean useHiveSync, HmsClient hms,
             HudiMetaClientExecutor executor) {
-        Map<String, String> props = useHiveSync
-                ? Collections.singletonMap("use_hive_sync_partition", "true")
-                : Collections.emptyMap();
+        HudiCatalogProperties props = useHiveSync
+                ? HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true")
+                : HudiTestProperties.minimal();
         return new HudiConnectorMetadata(hms, props, executor);
     }
 

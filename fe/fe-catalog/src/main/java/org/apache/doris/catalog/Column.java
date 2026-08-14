@@ -656,6 +656,10 @@ public class Column implements GsonPostProcessable {
         }
     }
 
+    public String getConnectorDefaultValueSql() {
+        return connectorDefaultValueSql;
+    }
+
     public void setConnectorDefaultValueSql(String connectorDefaultValueSql) {
         this.connectorDefaultValueSql = connectorDefaultValueSql;
     }

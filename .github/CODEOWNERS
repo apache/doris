@@ -21,7 +21,7 @@
 fe/fe-core/src/main/java/org/apache/doris/catalog/Env.java @dataroaring @CalvinKirs @morningman
 **/pom.xml @CalvinKirs @morningman
 fe/fe-common/src/main/java/org/apache/doris/common/FeMetaVersion.java @dataroaring @morningman @yiguolei @xiaokang
-fe/fe-core/src/main/java/org/apache/doris/fs @CalvinKirs
+fe/fe-core/src/main/java/org/apache/doris/fs @CalvinKirs @924060929
 fe/fe-core/src/main/java/org/apache/doris/fsv2 @CalvinKirs
 be/src/olap/rowset/segment_v2/variant @eldenmoon @csun5285
 be/src/storage/index/inverted/ @airborne12 @eldenmoon @csun5285
@@ -105,7 +105,9 @@ fe/fe-core/src/main/java/org/apache/doris/cloud/storage      @luwei16 @liaoxin01
 fe/fe-core/src/main/java/org/apache/doris/cloud/system       @deardeng @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cloud/transaction  @mymeiyi @liaoxin01 @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/cooldown           @liaoxin01 @gavinchou
-fe/fe-core/src/main/java/org/apache/doris/fs                 @calvinkirs @morningman @liaoxin01 @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/connector          @924060929 @CalvinKirs
+fe/fe-core/src/main/java/org/apache/doris/datasource         @924060929 @CalvinKirs
+fe/fe-core/src/main/java/org/apache/doris/fs                 @CalvinKirs @924060929 @morningman @liaoxin01 @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/ha                 @mymeiyi @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/journal            @mymeiyi @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/load               @liaoxin01 @gavinchou
@@ -115,6 +117,9 @@ fe/fe-core/src/main/java/org/apache/doris/nereids            @morrySnow @9240609
 fe/fe-core/src/main/java/org/apache/doris/persist            @mymeiyi @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/persist/gson       @mymeiyi @gavinchou
 fe/fe-core/src/main/java/org/apache/doris/persist/meta       @mymeiyi @gavinchou
+fe/fe-core/src/main/java/org/apache/doris/qe                 @morrySnow @924060929
+fe/fe-core/src/main/java/org/apache/doris/spi                @924060929 @CalvinKirs
+fe/fe-core/src/main/java/org/apache/doris/statistics         @morrySnow @englefly
 fe/fe-core/src/test/java/org/apache/doris/alter              @luwei16 @gavinchou
 fe/fe-core/src/test/java/org/apache/doris/backup             @luwei16 @gavinchou
 fe/fe-core/src/test/java/org/apache/doris/binlog             @luwei16 @gavinchou
@@ -131,10 +136,13 @@ fe/fe-core/src/test/java/org/apache/doris/cloud/stage        @liaoxin01 @gavinch
 fe/fe-core/src/test/java/org/apache/doris/cloud/storage      @liaoxin01 @gavinchou
 fe/fe-core/src/test/java/org/apache/doris/cloud/system       @deardeng @gavinchou
 fe/fe-core/src/test/java/org/apache/doris/cloud/transaction  @liaoxin01 @gavinchou
-fe/fe-core/src/test/java/org/apache/doris/fs                 @calvinkirs @morningman @gavinchou @Gabriel39
+fe/fe-core/src/test/java/org/apache/doris/connector          @924060929 @CalvinKirs
+fe/fe-core/src/test/java/org/apache/doris/datasource         @924060929 @CalvinKirs
+fe/fe-core/src/test/java/org/apache/doris/fs                 @CalvinKirs @924060929 @morningman @gavinchou @Gabriel39
 fe/fe-core/src/test/java/org/apache/doris/journal            @mymeiyi @gavinchou
 fe/fe-core/src/test/java/org/apache/doris/load               @liaoxin01 @gavinchou
-fe/fe-filesystem                                             @calvinkirs @morningman @gavinchou
+fe/fe-connector                                              @924060929 @CalvinKirs
+fe/fe-filesystem                                             @CalvinKirs @924060929 @morningman @gavinchou
 fe/fe-sql-parser/src/main/antlr4                             @morrySnow @starocean999 @924060929 @englefly
 cloud                                                        @gavinchou
 cloud/cmake                                                  @liaoxin01 @luwei16 @gavinchou

@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -40,18 +39,18 @@ public class PaimonConnectorConfTest {
 
     @Test
     public void driversDirPrefersThePluginConfThenFeConf() {
-        Assertions.assertEquals("/from/plugin/conf", PaimonConnectorProperties.configuredDriversDir(
-                context(Collections.singletonMap(PaimonConnectorProperties.CONF_DRIVERS_DIR,
+        Assertions.assertEquals("/from/plugin/conf", PaimonConf.driversDir(
+                context(Collections.singletonMap(PaimonConf.CONF_DRIVERS_DIR,
                                 "/from/plugin/conf"),
-                        Collections.singletonMap(PaimonConnectorProperties.ENV_JDBC_DRIVERS_DIR,
+                        Collections.singletonMap(PaimonConf.ENV_JDBC_DRIVERS_DIR,
                                 "/from/fe/conf"))));
 
-        Assertions.assertEquals("/from/fe/conf", PaimonConnectorProperties.configuredDriversDir(
+        Assertions.assertEquals("/from/fe/conf", PaimonConf.driversDir(
                 context(Collections.emptyMap(),
-                        Collections.singletonMap(PaimonConnectorProperties.ENV_JDBC_DRIVERS_DIR,
+                        Collections.singletonMap(PaimonConf.ENV_JDBC_DRIVERS_DIR,
                                 "/from/fe/conf"))));
 
-        Assertions.assertNull(PaimonConnectorProperties.configuredDriversDir(
+        Assertions.assertNull(PaimonConf.driversDir(
                 context(Collections.emptyMap(), Collections.emptyMap())));
     }
 
@@ -59,35 +58,29 @@ public class PaimonConnectorConfTest {
     public void nullContextResolvesToNothingRatherThanThrowing() {
         // Both accessors are reached from direct-construction unit tests that pass no context at all
         // (PaimonConnector.resolveFullDriverUrl / PaimonScanPlanProvider both null-check today).
-        Assertions.assertNull(PaimonConnectorProperties.configuredDriversDir(null));
-        Assertions.assertNull(PaimonConnectorProperties.configuredDorisHome(null));
+        Assertions.assertNull(PaimonConf.driversDir(null));
+        Assertions.assertNull(PaimonConf.dorisHome(null));
     }
 
     @Test
     public void metastoreTimeoutPrefersThePluginConfThenFeConfThenTen() {
-        Assertions.assertEquals("30", ConnectorConf.get(
+        // Through the production reader, not a re-spelling of it: the call site used to inline the
+        // three-argument ConnectorConf.get, so a test that inlined it too would still pass if the
+        // connector started reading a different key.
+        Assertions.assertEquals("30", PaimonConf.metastoreClientTimeoutSecond(
                 context(Collections.singletonMap(
-                                PaimonConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND, "30"),
+                                PaimonConf.CONF_METASTORE_CLIENT_TIMEOUT_SECOND, "30"),
                         Collections.singletonMap(
-                                PaimonConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND, "20")),
-                PaimonConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
-                PaimonConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND,
-                PaimonConnectorProperties.DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND));
+                                PaimonConf.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND, "20"))));
 
-        Assertions.assertEquals("20", ConnectorConf.get(
+        Assertions.assertEquals("20", PaimonConf.metastoreClientTimeoutSecond(
                 context(Collections.emptyMap(), Collections.singletonMap(
-                        PaimonConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND, "20")),
-                PaimonConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
-                PaimonConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND,
-                PaimonConnectorProperties.DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND));
+                        PaimonConf.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND, "20"))));
 
         // The literal the call site used before this channel existed; keeping it is what makes a
         // deployment with neither file behave exactly as it did.
-        Assertions.assertEquals("10", ConnectorConf.get(
-                context(Collections.emptyMap(), Collections.emptyMap()),
-                PaimonConnectorProperties.CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
-                PaimonConnectorProperties.ENV_HIVE_METASTORE_CLIENT_TIMEOUT_SECOND,
-                PaimonConnectorProperties.DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND));
+        Assertions.assertEquals("10", PaimonConf.metastoreClientTimeoutSecond(
+                context(Collections.emptyMap(), Collections.emptyMap())));
     }
 
     @Test

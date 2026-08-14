@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "exec/common/hash_table/hash_table_set_probe.h"
+#include "exec/common/set_utils.h"
 #include "exec/operator/operator.h"
 #include "exec/pipeline/pipeline_task.h"
 

@@ -27,7 +27,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -92,6 +91,7 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletMetaInfo;
+import org.apache.doris.thrift.TTabletRole;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
@@ -991,7 +991,7 @@ public class ReportHandler extends Daemon {
                     if (index == null) {
                         continue;
                     }
-                    if (index.getState() == IndexState.SHADOW) {
+                    if (index.getState().isShadow()) {
                         // This index is under schema change or rollup, tablet may not be created on BE.
                         // ignore it.
                         continue;
@@ -1060,10 +1060,6 @@ public class ReportHandler extends Daemon {
                                                             ? olapTable.getCopiedIndexes() : null;
                                     List<String> rowStoreColumns =
                                                 olapTable.getTableProperty().getCopiedRowStoreColumns();
-                                    MaterializedIndexMeta rowBinlogIndexMeta = null;
-                                    if (olapTable.needRowBinlog() && indexId == olapTable.getBaseIndexId()) {
-                                        rowBinlogIndexMeta = olapTable.getRowBinlogMeta();
-                                    }
                                     CreateReplicaTask createReplicaTask = new CreateReplicaTask(backendId, dbId,
                                             tableId, partitionId, indexId, tabletId, replica.getId(),
                                             indexMeta.getShortKeyColumnCount(),
@@ -1093,11 +1089,22 @@ public class ReportHandler extends Daemon {
                                             olapTable.storagePageSize(), olapTable.getTDEAlgorithm(),
                                             olapTable.storageDictPageSize(),
                                             olapTable.getColumnSeqMapping(),
-                                            olapTable.getVerticalCompactionNumColumnsPerGroup(),
-                                            rowBinlogIndexMeta);
+                                            olapTable.getVerticalCompactionNumColumnsPerGroup());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());
+                                    if (indexMeta.isRowBinlogIndex()) {
+                                        Tablet baseTablet = partition.getBaseIndex()
+                                                .getTablet(tablet.getRowBinlogBaseTabletId());
+                                        Preconditions.checkNotNull(baseTablet,
+                                                "row binlog tablet %s's base tablet %s can not be found "
+                                                        + "in partition %s",
+                                                tablet.getId(), tablet.getRowBinlogBaseTabletId(),
+                                                partition.getId());
+                                        createReplicaTask.setTabletRole(TTabletRole.TABLET_ROLE_ROW_BINLOG);
+                                        createReplicaTask.setBaseTablet(baseTablet.getId(),
+                                                olapTable.getBaseIndexMeta().getSchemaHash());
+                                    }
                                     if (indexId == olapTable.getBaseIndexId() || olapTable.isShadowIndex(indexId)) {
                                         List<Integer> clusterKeyUids = OlapTable.getClusterKeyUids(
                                                 indexMeta.getSchema());

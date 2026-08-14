@@ -50,12 +50,12 @@ public class IcebergConnectorMetadataColumnEvolutionTest {
 
     private static Map<String, String> props() {
         Map<String, String> p = new HashMap<>();
-        p.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        p.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
         return p;
     }
 
     private static IcebergConnectorMetadata metadata(RecordingIcebergCatalogOps ops, RecordingConnectorContext ctx) {
-        return new IcebergConnectorMetadata(ops, props(), ctx);
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(props()), ctx);
     }
 
     private static ConnectorColumn col(String name, String type) {

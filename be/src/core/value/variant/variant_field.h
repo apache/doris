@@ -18,12 +18,18 @@
 #pragma once
 
 #include <cstddef>
+#include <map>
 #include <memory>
 
 #include "core/string_ref.h"
 #include "core/value/variant/variant_value.h"
+#include "util/json/path_in_data.h"
 
 namespace doris {
+
+struct FieldWithDataType;
+class VariantScalarRef;
+using VariantMap = std::map<PathInData, FieldWithDataType>;
 
 // Validate a complete metadata dictionary, including every UTF-8 key. Call this once before
 // validating one or more payloads that reference the same dictionary.
@@ -33,17 +39,25 @@ void validate_variant_metadata(VariantMetadataRef metadata);
 // passed validate_variant_metadata().
 void validate_variant_payload(VariantRef value);
 
-// Owns one encoded Variant row. The byte layout is
+// Holds the legacy V1 path map or owns one encoded V2 row. The encoded byte layout is
 // [u32 little-endian metadata_size][metadata][exactly one value].
 class VariantField {
 public:
     VariantField() noexcept = default;
-    ~VariantField() = default;
+    ~VariantField();
 
     VariantField(const VariantField& other);
     VariantField(VariantField&& other) noexcept;
     VariantField& operator=(const VariantField& other);
     VariantField& operator=(VariantField&& other) noexcept;
+
+    // Transitional V1 Field representation. V1 callers keep their existing map semantics while
+    // V2 owns one encoded row; once ColumnVariant is removed, this constructor and accessors can
+    // be deleted without changing the V2 representation.
+    VariantField(VariantMap legacy);
+    bool is_legacy() const noexcept;
+    VariantMap& legacy_map();
+    const VariantMap& legacy_map() const;
 
     // Validate an already encoded Variant view, add the VariantField framing, and copy the
     // metadata and value bytes without canonicalizing them.
@@ -53,10 +67,16 @@ public:
     // returned field never borrows from bytes and preserves legal non-canonical encodings.
     static VariantField from_bytes(StringRef bytes);
 
+    // Encode one scalar view with the empty metadata dictionary. The returned VariantField owns
+    // the encoded bytes, including any data borrowed by the scalar view.
+    static VariantField from_scalar(const VariantScalarRef& scalar);
+
     // The returned view borrows this field and is invalidated by assignment or destruction. It is
     // O(1) and does not revalidate. Default and moved-from fields have empty bytes(), and ref()
     // throws for them.
     VariantRef ref() const;
+    VariantMetadataRef metadata() const;
+    StringRef value() const;
     StringRef bytes() const noexcept;
 
     // VariantField has no ordering or equality contract; all six comparisons always throw.
@@ -71,6 +91,9 @@ private:
     VariantField(std::unique_ptr<char[]> data, size_t size) noexcept;
     void swap(VariantField& other) noexcept;
 
+    // A moved-from V1 field is still a valid empty V1 map, matching std::map move semantics.
+    bool _legacy_representation = false;
+    std::unique_ptr<VariantMap> _legacy;
     std::unique_ptr<char[]> _data;
     size_t _size = 0;
 };

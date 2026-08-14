@@ -51,14 +51,14 @@ public class IcebergConnectorMetadataDdlTest {
     private static Map<String, String> props(String catalogType) {
         Map<String, String> p = new HashMap<>();
         if (catalogType != null) {
-            p.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, catalogType);
+            p.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, catalogType);
         }
         return p;
     }
 
     private static IcebergConnectorMetadata metadata(RecordingIcebergCatalogOps ops,
             RecordingConnectorContext ctx, String catalogType) {
-        return new IcebergConnectorMetadata(ops, props(catalogType), ctx);
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(props(catalogType)), ctx);
     }
 
     // ---------- createDatabase ----------
@@ -68,7 +68,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         Map<String, String> dbProps = Collections.singletonMap("location", "s3://wh/db");
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_HMS).createDatabase(null, "db1", dbProps);
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_HMS).createDatabase(null, "db1", dbProps);
         Assertions.assertEquals("db1", ops.lastCreateDb);
         Assertions.assertEquals(dbProps, ops.lastCreateDbProps);
         Assertions.assertEquals(1, ctx.authCount, "createDatabase must run inside executeAuthenticated");
@@ -78,7 +78,7 @@ public class IcebergConnectorMetadataDdlTest {
     public void testCreateDatabaseNonHmsWithPropertiesFailsLoud() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
-        IcebergConnectorMetadata md = metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST);
+        IcebergConnectorMetadata md = metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST);
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> md.createDatabase(null, "db1", Collections.singletonMap("k", "v")));
         Assertions.assertTrue(ex.getMessage().contains("rest"));
@@ -91,7 +91,7 @@ public class IcebergConnectorMetadataDdlTest {
     public void testCreateDatabaseNonHmsEmptyPropertiesSucceeds() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
                 .createDatabase(null, "db1", Collections.emptyMap());
         Assertions.assertEquals("db1", ops.lastCreateDb);
         Assertions.assertEquals(1, ctx.authCount);
@@ -102,7 +102,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
-        IcebergConnectorMetadata md = metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST);
+        IcebergConnectorMetadata md = metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST);
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> md.createDatabase(null, "db1", Collections.emptyMap()));
         // failAuth throws WITHOUT running the task -> the seam create must not have run.
@@ -117,7 +117,7 @@ public class IcebergConnectorMetadataDdlTest {
         ops.tables = Arrays.asList("t1", "t2");
         ops.namespaceLocation = Optional.of("s3://wh/db1");
         RecordingConnectorContext ctx = new RecordingConnectorContext();
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_HMS).dropDatabase(null, "db1", false, true);
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_HMS).dropDatabase(null, "db1", false, true);
         // location captured BEFORE drop, then the tables cascade-dropped, then the (empty) view list probed,
         // then the namespace dropped.
         Assertions.assertEquals(Arrays.asList(
@@ -138,7 +138,7 @@ public class IcebergConnectorMetadataDdlTest {
         ops.tables = Collections.singletonList("t1");
         ops.views = Arrays.asList("v1", "v2");
         RecordingConnectorContext ctx = new RecordingConnectorContext();
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).dropDatabase(null, "db1", false, true);
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).dropDatabase(null, "db1", false, true);
         // WHY: iceberg VIEWS live in their own namespace (listTableNames subtracts them), so a force drop
         // must cascade them too — AFTER the tables and BEFORE dropNamespace — or the dropDatabase below would
         // fail loud "namespace not empty". MUTATION: dropping the view cascade -> the dropView entries vanish
@@ -157,7 +157,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.tables = Arrays.asList("t1", "t2");
         RecordingConnectorContext ctx = new RecordingConnectorContext();
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).dropDatabase(null, "db1", false, false);
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).dropDatabase(null, "db1", false, false);
         // No location load (non-HMS), no cascade (non-force), just the namespace drop.
         Assertions.assertEquals(Collections.singletonList("dropDatabase:db1"), ops.log);
         Assertions.assertTrue(ctx.cleanedLocations.isEmpty());
@@ -175,7 +175,7 @@ public class IcebergConnectorMetadataDdlTest {
         // and lost that tolerance. This asserts FORCE no longer throws. MUTATION: removing the
         // catch(NoSuchNamespaceException) re-surfaces it as DorisConnectorException -> red.
         Assertions.assertDoesNotThrow(() ->
-                metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).dropDatabase(null, "db1", false, true));
+                metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).dropDatabase(null, "db1", false, true));
         // The missing namespace surfaces at the first cascade probe (listTableNames); the namespace drop is skipped.
         Assertions.assertTrue(ops.log.contains("listTableNames:db1"), ops.log.toString());
         Assertions.assertFalse(ops.log.contains("dropDatabase:db1"), ops.log.toString());
@@ -192,7 +192,7 @@ public class IcebergConnectorMetadataDdlTest {
         // flavor), or an HMS FORCE-drop of an already-gone namespace would still fail. MUTATION: scoping the
         // catch to only the cascade (excluding loadNamespaceLocation) makes this red.
         Assertions.assertDoesNotThrow(() ->
-                metadata(ops, ctx, IcebergConnectorProperties.TYPE_HMS).dropDatabase(null, "db1", false, true));
+                metadata(ops, ctx, IcebergCatalogProperties.TYPE_HMS).dropDatabase(null, "db1", false, true));
         Assertions.assertTrue(ops.log.contains("loadNamespaceLocation:db1"), ops.log.toString());
         Assertions.assertFalse(ops.log.contains("dropDatabase:db1"), ops.log.toString());
         // Tolerated drop returns no location -> the managed-location cleanup hook must not run.
@@ -209,7 +209,7 @@ public class IcebergConnectorMetadataDdlTest {
         // still fail loud. MUTATION: dropping the `if (!force) throw e;` guard (always tolerate) makes this
         // assertThrows red.
         Assertions.assertThrows(DorisConnectorException.class, () ->
-                metadata(ops, ctx, IcebergConnectorProperties.TYPE_HMS).dropDatabase(null, "db1", false, false));
+                metadata(ops, ctx, IcebergCatalogProperties.TYPE_HMS).dropDatabase(null, "db1", false, false));
     }
 
     // ---------- createTable ----------
@@ -228,7 +228,7 @@ public class IcebergConnectorMetadataDdlTest {
                                 new ConnectorPartitionField("id", "bucket", Collections.singletonList(8)))))
                 .sortOrder(Collections.singletonList(new ConnectorSortField("id", true, true)))
                 .build();
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).createTable(null, request);
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).createTable(null, request);
 
         Assertions.assertEquals("db1", ops.lastCreateTableDb);
         Assertions.assertEquals("t1", ops.lastCreateTableName);
@@ -253,7 +253,7 @@ public class IcebergConnectorMetadataDdlTest {
                 .columns(Collections.singletonList(
                         new ConnectorColumn("t", ConnectorType.of("TINYINT"), "", true, null, false)))
                 .build();
-        IcebergConnectorMetadata md = metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST);
+        IcebergConnectorMetadata md = metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST);
         Assertions.assertThrows(DorisConnectorException.class, () -> md.createTable(null, request));
         // Schema build is pure + runs before the auth/remote create -> the seam never ran.
         Assertions.assertTrue(ops.log.isEmpty());
@@ -277,7 +277,7 @@ public class IcebergConnectorMetadataDdlTest {
                     .properties(Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"))
                     .build();
             DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).createTable(null, request),
+                    () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).createTable(null, request),
                     reserved + " must be rejected on a v3 table");
             Assertions.assertTrue(ex.getMessage().contains("reserved row lineage column"), ex.getMessage());
             Assertions.assertTrue(ops.log.isEmpty(), "reject must run before the remote seam");
@@ -296,7 +296,7 @@ public class IcebergConnectorMetadataDdlTest {
                 .columns(Collections.singletonList(
                         new ConnectorColumn("_row_id", ConnectorType.of("BIGINT"), "", true, null, false)))
                 .build();
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).createTable(null, request);
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).createTable(null, request);
         Assertions.assertEquals("t1", ops.lastCreateTableName);
         Assertions.assertNotNull(ops.lastCreateSchema.findField("_row_id"));
     }
@@ -318,9 +318,9 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         Map<String, String> catalogProps = new HashMap<>();
-        catalogProps.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        catalogProps.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
         catalogProps.put(catalogFormatVersionKey, "3");
-        IcebergConnectorMetadata md = new IcebergConnectorMetadata(ops, catalogProps, ctx);
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(catalogProps), ctx);
         ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
                 .dbName("db1").tableName("t1")
                 .columns(Collections.singletonList(
@@ -341,7 +341,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.tableLocation = Optional.of("s3://wh/db1/t1");
         RecordingConnectorContext ctx = new RecordingConnectorContext();
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_HMS)
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_HMS)
                 .dropTable(null, new IcebergTableHandle("db1", "t1"));
         // location captured BEFORE the purge-drop.
         Assertions.assertEquals(Arrays.asList(
@@ -356,7 +356,7 @@ public class IcebergConnectorMetadataDdlTest {
     public void testDropTableNonHmsNoLocationNoCleanup() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
                 .dropTable(null, new IcebergTableHandle("db1", "t1"));
         Assertions.assertEquals(Collections.singletonList("dropTable:db1.t1:purge=true"), ops.log);
         Assertions.assertTrue(ctx.cleanedLocations.isEmpty());
@@ -368,7 +368,7 @@ public class IcebergConnectorMetadataDdlTest {
     public void testDropViewRoutesToSeamAndIsAuthWrapped() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).dropView(null, "db1", "v1");
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).dropView(null, "db1", "v1");
         // WHY: PluginDrivenExternalCatalog.dropTable routes a flipped iceberg view here; it must reach the seam
         // with the (db, view) names verbatim, INSIDE the auth context (mirrors legacy performDropView under the
         // executionAuthenticator). MUTATION: dropping the delegation / hoisting it outside the auth wrap -> red.
@@ -386,7 +386,7 @@ public class IcebergConnectorMetadataDdlTest {
         // WHY: like the other write ops, a remote/auth failure must surface as a DorisConnectorException so
         // PluginDrivenExternalCatalog.dropTable can rewrap it as a DdlException; the seam must NOT be reached.
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).dropView(null, "db1", "v1"));
+                () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).dropView(null, "db1", "v1"));
         Assertions.assertTrue(ex.getMessage().contains("Failed to drop Iceberg view"), ex.getMessage());
         Assertions.assertFalse(ops.log.contains("dropView:db1.v1"),
                 "the seam must not be reached when the auth wrap throws");
@@ -398,7 +398,7 @@ public class IcebergConnectorMetadataDdlTest {
     public void testRenameTableRoutesByHandleAndIsAuthWrapped() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
                 .renameTable(null, new IcebergTableHandle("db1", "t1"), "t2");
         Assertions.assertEquals(Collections.singletonList("renameTable:db1.t1->t2"), ops.log);
         Assertions.assertEquals("db1", ops.lastRenameTableDb);
@@ -413,7 +413,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
         Assertions.assertThrows(DorisConnectorException.class,
-                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+                () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
                         .renameTable(null, new IcebergTableHandle("db1", "t1"), "t2"));
         Assertions.assertTrue(ops.log.isEmpty());
     }
@@ -426,7 +426,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         BranchChange branch = new BranchChange("b1", true, false, false, 7L, null, null, null);
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
                 .createOrReplaceBranch(null, new IcebergTableHandle("db1", "t1"), branch);
         Assertions.assertEquals(Collections.singletonList("createOrReplaceBranch:db1.t1:b1"), ops.log);
         Assertions.assertEquals("db1", ops.lastBranchTagDb);
@@ -441,7 +441,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
         Assertions.assertThrows(DorisConnectorException.class,
-                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).createOrReplaceBranch(
+                () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).createOrReplaceBranch(
                         null, new IcebergTableHandle("db1", "t1"),
                         new BranchChange("b1", true, false, false, null, null, null, null)));
         Assertions.assertTrue(ops.log.isEmpty());
@@ -452,7 +452,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         TagChange tag = new TagChange("v1", true, false, false, 7L, null);
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
                 .createOrReplaceTag(null, new IcebergTableHandle("db1", "t1"), tag);
         Assertions.assertEquals(Collections.singletonList("createOrReplaceTag:db1.t1:v1"), ops.log);
         Assertions.assertSame(tag, ops.lastTag);
@@ -465,7 +465,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
         Assertions.assertThrows(DorisConnectorException.class,
-                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).createOrReplaceTag(
+                () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).createOrReplaceTag(
                         null, new IcebergTableHandle("db1", "t1"),
                         new TagChange("v1", true, false, false, null, null)));
         Assertions.assertTrue(ops.log.isEmpty());
@@ -476,7 +476,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         DropRefChange drop = new DropRefChange("b1", true);
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
                 .dropBranch(null, new IcebergTableHandle("db1", "t1"), drop);
         Assertions.assertEquals(Collections.singletonList("dropBranch:db1.t1:b1"), ops.log);
         Assertions.assertSame(drop, ops.lastDropBranch);
@@ -488,7 +488,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         DropRefChange drop = new DropRefChange("v1", false);
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
                 .dropTag(null, new IcebergTableHandle("db1", "t1"), drop);
         Assertions.assertEquals(Collections.singletonList("dropTag:db1.t1:v1"), ops.log);
         Assertions.assertSame(drop, ops.lastDropTag);
@@ -501,7 +501,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
         Assertions.assertThrows(DorisConnectorException.class,
-                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).dropTag(
+                () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).dropTag(
                         null, new IcebergTableHandle("db1", "t1"), new DropRefChange("v1", false)));
         Assertions.assertTrue(ops.log.isEmpty());
     }
@@ -514,7 +514,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         PartitionFieldChange change = new PartitionFieldChange("bucket", 8, "id", "id_b",
                 null, null, null, null);
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
                 .addPartitionField(null, new IcebergTableHandle("db1", "t1"), change);
         Assertions.assertEquals(Collections.singletonList("addPartitionField:db1.t1:id"), ops.log);
         Assertions.assertEquals("db1", ops.lastPartitionFieldDb);
@@ -529,7 +529,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
         Assertions.assertThrows(DorisConnectorException.class,
-                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).addPartitionField(
+                () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).addPartitionField(
                         null, new IcebergTableHandle("db1", "t1"),
                         new PartitionFieldChange(null, null, "id", null, null, null, null, null)));
         Assertions.assertTrue(ops.log.isEmpty());
@@ -541,7 +541,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         PartitionFieldChange change = new PartitionFieldChange(null, null, null, "p_id",
                 null, null, null, null);
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
                 .dropPartitionField(null, new IcebergTableHandle("db1", "t1"), change);
         Assertions.assertEquals(Collections.singletonList("dropPartitionField:db1.t1:p_id"), ops.log);
         Assertions.assertSame(change, ops.lastDropPartitionField);
@@ -554,7 +554,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         PartitionFieldChange change = new PartitionFieldChange("bucket", 4, "id", "p2",
                 "p", null, null, null);
-        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+        metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST)
                 .replacePartitionField(null, new IcebergTableHandle("db1", "t1"), change);
         Assertions.assertEquals(Collections.singletonList("replacePartitionField:db1.t1:id"), ops.log);
         Assertions.assertSame(change, ops.lastReplacePartitionField);
@@ -567,7 +567,7 @@ public class IcebergConnectorMetadataDdlTest {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
         Assertions.assertThrows(DorisConnectorException.class,
-                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).replacePartitionField(
+                () -> metadata(ops, ctx, IcebergCatalogProperties.TYPE_REST).replacePartitionField(
                         null, new IcebergTableHandle("db1", "t1"),
                         new PartitionFieldChange(null, null, "id", null, "p", null, null, null)));
         Assertions.assertTrue(ops.log.isEmpty());

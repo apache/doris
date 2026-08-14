@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 
@@ -57,6 +59,29 @@ TEST(IcebergPositionDeleteSysTableV2ProfileTest, UsesDistinctProfileForNestedPos
     EXPECT_NE(reader._position_reader_profile, &profile);
     EXPECT_EQ(profile.get_child("IcebergPositionDeleteFileReader"),
               reader._position_reader_profile);
+}
+
+TEST(IcebergPositionDeleteSysTableV2ProfileTest, PreparesNestedRowInitialDefaults) {
+    IcebergPositionDeleteSysTableV2Reader reader;
+    const auto child_type = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto row_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {child_type}, Strings {"added"}));
+    ColumnDefinition row;
+    row.name = "row";
+    row.type = row_type;
+    ColumnDefinition child;
+    child.name = "added";
+    child.type = child_type;
+    child.initial_default_value = "7";
+    row.children.push_back(std::move(child));
+    reader._projected_columns = {row};
+    reader._read_columns = {{"row", row_type}};
+
+    std::vector<ColumnDefinition> columns;
+    ASSERT_TRUE(reader._build_delete_file_projected_columns(&columns).ok());
+    ASSERT_EQ(columns.size(), 1);
+    ASSERT_EQ(columns[0].children.size(), 1);
+    EXPECT_NE(columns[0].children[0].default_expr, nullptr);
 }
 
 } // namespace

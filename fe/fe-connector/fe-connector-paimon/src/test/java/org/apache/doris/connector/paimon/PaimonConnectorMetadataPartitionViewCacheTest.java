@@ -59,7 +59,7 @@ public class PaimonConnectorMetadataPartitionViewCacheTest {
 
     private static PaimonConnectorMetadata metadataWithCache(RecordingPaimonCatalogOps ops,
             ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext(),
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(),
                 new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE),
                 new PaimonLatestSnapshotCache(0L, 1), cache);
     }

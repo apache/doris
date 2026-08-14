@@ -35,6 +35,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "runtime/exec_env.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_request.h"
 #include "service/http/http_status.h"
@@ -48,9 +49,6 @@
 using std::filesystem::path;
 
 namespace doris {
-
-const std::string TABLET_ID = "tablet_id";
-const std::string SCHEMA_HASH = "schema_hash";
 
 RestoreTabletAction::RestoreTabletAction(ExecEnv* exec_env, StorageEngine& engine,
                                          TPrivilegeHier::type hier, TPrivilegeType::type type)

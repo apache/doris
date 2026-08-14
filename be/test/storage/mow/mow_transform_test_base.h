@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,8 @@
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_reader.h"
+#include "storage/rowset/rowset_reader_context.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/historical_row_retriever.h"
@@ -139,6 +142,222 @@ protected:
         return schema;
     }
 
+    // (k INT key, v INT NOT NULL without default, delete-sign) UNIQUE_KEYS MoW schema: the shape
+    // whose missing column can neither be defaulted nor nulled in strict-mode partial update.
+    TabletSchemaSPtr create_mow_schema_required_value() {
+        TabletSchemaPB pb;
+        pb.set_keys_type(UNIQUE_KEYS);
+        pb.set_num_short_key_columns(1);
+        pb.set_num_rows_per_row_block(1024);
+        pb.set_compress_kind(COMPRESS_LZ4);
+        pb.set_next_column_unique_id(10);
+
+        auto add_col = [&](int uid, const std::string& name, const std::string& type, bool is_key,
+                           bool nullable, const std::string& def = "") {
+            ColumnPB* c = pb.add_column();
+            c->set_unique_id(uid);
+            c->set_name(name);
+            c->set_type(type);
+            c->set_is_key(is_key);
+            c->set_length(type == "TINYINT" ? 1 : 4);
+            c->set_index_length(type == "TINYINT" ? 1 : 4);
+            c->set_is_nullable(nullable);
+            c->set_aggregation("NONE");
+            if (!def.empty()) {
+                c->set_default_value(def);
+            }
+        };
+        add_col(0, "k", "INT", true, false);
+        add_col(1, "v", "INT", false, /*nullable=*/false); // NOT NULL, no default
+        add_col(2, DELETE_SIGN, "TINYINT", false, false, std::to_string(0));
+        pb.set_delete_sign_idx(2);
+
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(pb);
+        return schema;
+    }
+
+    // Flushes `blocks` one segment each through the real rowset writer with the
+    // partial-update context set, i.e. through the transform chain's fill path.
+    // `stats_out`, when given, receives the writer-level partial update counters
+    // (the chain's probe counters folded into the flusher totals).
+    Status flush_partial_rowset_segments(
+            const TabletSchemaSPtr& schema, int64_t rowset_numeric_id, int64_t version,
+            const TabletSharedPtr& tablet, const std::shared_ptr<MowContext>& mow_context,
+            const std::shared_ptr<PartialUpdateInfo>& partial_update_info,
+            const std::vector<Block*>& blocks, RowsetSharedPtr* rowset,
+            PartialUpdateStats* stats_out = nullptr) {
+        RowsetWriterContext context;
+        TabletSharedPtr unused_tablet;
+        make_rowset_ctx(schema, rowset_numeric_id, version, &context, &unused_tablet);
+        context.tablet = tablet;
+        context.data_dir = tablet->data_dir();
+        context.mow_context = mow_context;
+        context.partial_update_info = partial_update_info;
+        context.is_transient_rowset_writer = false;
+        context.segments_overlap = NONOVERLAPPING;
+        context.max_rows_per_segment = 1024;
+        context.enable_segcompaction = false;
+
+        auto writer_result = RowsetFactory::create_rowset_writer(*_engine, context, false);
+        if (!writer_result.has_value()) {
+            return writer_result.error();
+        }
+        auto writer = std::move(writer_result).value();
+        int32_t segment_id = 0;
+        for (Block* block : blocks) {
+            RETURN_IF_ERROR(writer->flush_memtable(block, segment_id++, nullptr));
+        }
+        RETURN_IF_ERROR(writer->flush());
+        if (stats_out != nullptr) {
+            stats_out->num_rows_updated = writer->num_rows_updated();
+            stats_out->num_rows_deleted = writer->num_rows_deleted();
+            stats_out->num_rows_new_added = writer->num_rows_new_added();
+            stats_out->num_rows_filtered = writer->num_rows_filtered();
+        }
+        return writer->build(*rowset);
+    }
+
+    Status flush_partial_rowset(const TabletSchemaSPtr& schema, int64_t rowset_numeric_id,
+                                int64_t version, const TabletSharedPtr& tablet,
+                                const std::shared_ptr<MowContext>& mow_context,
+                                const std::shared_ptr<PartialUpdateInfo>& partial_update_info,
+                                Block* block, RowsetSharedPtr* rowset,
+                                PartialUpdateStats* stats_out = nullptr) {
+        return flush_partial_rowset_segments(schema, rowset_numeric_id, version, tablet,
+                                             mow_context, partial_update_info, {block}, rowset,
+                                             stats_out);
+    }
+
+    // Reads every row of `rowset` back into `output` in key order, all columns.
+    Status read_rowset(const RowsetSharedPtr& rowset, const TabletSchemaSPtr& schema,
+                       Block* output) {
+        std::vector<uint32_t> return_columns(schema->num_columns());
+        std::iota(return_columns.begin(), return_columns.end(), 0);
+        RowsetReaderContext context;
+        context.tablet_schema = schema;
+        context.return_columns = &return_columns;
+        context.need_ordered_result = true;
+        OlapReaderStatistics statistics;
+        context.stats = &statistics;
+
+        RowsetReaderSharedPtr reader;
+        RETURN_IF_ERROR(rowset->create_reader(&reader));
+        RETURN_IF_ERROR(reader->init(&context));
+        *output = schema->create_block_by_cids(return_columns);
+        while (true) {
+            Block batch = schema->create_block_by_cids(return_columns);
+            auto status = reader->next_batch(&batch);
+            if (status.is<ErrorCode::END_OF_FILE>()) {
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(status);
+            auto guard = output->mutate_columns_scoped();
+            auto& output_columns = guard.mutable_columns();
+            for (size_t cid = 0; cid < output_columns.size(); ++cid) {
+                output_columns[cid]->insert_range_from(*batch.get_by_position(cid).column, 0,
+                                                       batch.rows());
+            }
+        }
+    }
+
+    // (k INT key, v VARIANT, delete-sign) UNIQUE_KEYS MoW schema, for the variant parse stage.
+    TabletSchemaSPtr create_variant_schema() {
+        TabletSchemaPB pb;
+        pb.set_keys_type(UNIQUE_KEYS);
+        pb.set_num_short_key_columns(1);
+        pb.set_num_rows_per_row_block(1024);
+        pb.set_compress_kind(COMPRESS_LZ4);
+        pb.set_next_column_unique_id(10);
+        {
+            ColumnPB* c = pb.add_column();
+            c->set_unique_id(0);
+            c->set_name("k");
+            c->set_type("INT");
+            c->set_is_key(true);
+            c->set_length(4);
+            c->set_index_length(4);
+            c->set_is_nullable(false);
+            c->set_aggregation("NONE");
+        }
+        {
+            ColumnPB* c = pb.add_column();
+            c->set_unique_id(1);
+            c->set_name("v");
+            c->set_type("VARIANT");
+            c->set_is_key(false);
+            c->set_length(2147483643);
+            c->set_index_length(4);
+            c->set_is_nullable(false);
+            c->set_aggregation("NONE");
+            c->set_variant_max_subcolumns_count(3);
+        }
+        {
+            ColumnPB* c = pb.add_column();
+            c->set_unique_id(2);
+            c->set_name(DELETE_SIGN);
+            c->set_type("TINYINT");
+            c->set_is_key(false);
+            c->set_length(1);
+            c->set_index_length(1);
+            c->set_is_nullable(false);
+            c->set_aggregation("NONE");
+            c->set_default_value(std::to_string(0));
+        }
+        pb.set_delete_sign_idx(2);
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(pb);
+        return schema;
+    }
+
+    // (k INT key, v INT, delete-sign, __DORIS_SKIP_BITMAP_COL__) flexible partial update MoW
+    // schema: flexible loads carry a full-width block plus the per-row skip bitmap.
+    TabletSchemaSPtr create_flexible_mow_schema() {
+        TabletSchemaPB pb;
+        pb.set_keys_type(UNIQUE_KEYS);
+        pb.set_num_short_key_columns(1);
+        pb.set_num_rows_per_row_block(1024);
+        pb.set_compress_kind(COMPRESS_LZ4);
+        pb.set_next_column_unique_id(10);
+
+        auto type_length = [](const std::string& type) -> int32_t {
+            if (type == "TINYINT") {
+                return 1;
+            }
+            if (type == "BITMAP") {
+                return 16;
+            }
+            return 4;
+        };
+        auto add_col = [&](int uid, const std::string& name, const std::string& type, bool is_key,
+                           bool nullable, const std::string& def = "") {
+            ColumnPB* c = pb.add_column();
+            c->set_unique_id(uid);
+            c->set_name(name);
+            c->set_type(type);
+            c->set_is_key(is_key);
+            c->set_length(type_length(type));
+            c->set_index_length(type_length(type));
+            c->set_is_nullable(nullable);
+            c->set_aggregation("NONE");
+            if (!def.empty()) {
+                c->set_default_value(def);
+            }
+        };
+        add_col(0, "k", "INT", true, false);
+        add_col(1, "v", "INT", false, true, std::to_string(0));
+        add_col(2, DELETE_SIGN, "TINYINT", false, false, std::to_string(0));
+        add_col(3, SKIP_BITMAP_COL, "BITMAP", false, false);
+        // init_from_pb reads these hidden-column indices straight from the PB
+        // fields (it does not scan by name), so they must be set explicitly.
+        pb.set_delete_sign_idx(2);
+        pb.set_skip_bitmap_col_idx(3);
+
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(pb);
+        return schema;
+    }
+
     // (k INT key, v INT, [seq INT], delete-sign, __DORIS_ROW_STORE_COL__ STRING) with the hidden
     // full row-store column enabled -- the only shape for which the write path touches the row
     // cache.
@@ -187,6 +406,16 @@ protected:
         return schema;
     }
 
+    // A MoW tablet over the engine's data dir; no rowsets are registered with it.
+    TabletSharedPtr make_tablet(const TabletSchemaSPtr& schema, int64_t tablet_id) {
+        TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->_tablet_id = tablet_id;
+        static_cast<void>(tablet_meta->set_partition_id(10));
+        tablet_meta->_schema = schema;
+        tablet_meta->_enable_unique_key_merge_on_write = true;
+        return std::make_shared<Tablet>(*_engine, tablet_meta, _data_dir.get(), "mow_ut");
+    }
+
     void make_rowset_ctx(const TabletSchemaSPtr& schema, int64_t rowset_numeric_id, int64_t version,
                          RowsetWriterContext* ctx, TabletSharedPtr* out_tablet) {
         RowsetId rid;
@@ -203,12 +432,7 @@ protected:
         ctx->enable_unique_key_merge_on_write = true;
         ctx->write_type = DataWriteType::TYPE_DIRECT;
 
-        TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
-        tablet_meta->_tablet_id = kTabletId;
-        static_cast<void>(tablet_meta->set_partition_id(10));
-        tablet_meta->_schema = schema;
-        tablet_meta->_enable_unique_key_merge_on_write = true;
-        auto tablet = std::make_shared<Tablet>(*_engine, tablet_meta, _data_dir.get(), "mow_ut");
+        auto tablet = make_tablet(schema, kTabletId);
         ctx->tablet = tablet;
         *out_tablet = tablet;
     }
@@ -321,6 +545,15 @@ protected:
             col = &assert_cast<const ColumnNullable&>(*col).get_nested_column();
         }
         return assert_cast<const ColumnInt32&>(*col).get_data()[row];
+    }
+
+    // Reads an int8 cell from a (possibly nullable) TINYINT column of `block`.
+    static int8_t read_tinyint(const Block& block, size_t col_pos, size_t row) {
+        const IColumn* col = block.get_by_position(col_pos).column.get();
+        if (col->is_nullable()) {
+            col = &assert_cast<const ColumnNullable&>(*col).get_nested_column();
+        }
+        return assert_cast<const ColumnInt8&>(*col).get_data()[row];
     }
 
     // True iff the cell is SQL NULL. A non-nullable column is never null. Use alongside read_int to

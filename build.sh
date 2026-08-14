@@ -34,7 +34,6 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
     export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
 fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
-export TP_INSTALLED_DIR="${DORIS_THIRDPARTY}/installed"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
@@ -68,6 +67,11 @@ Usage: $0 <options>
      --be-extension-ignore      build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
      --enable-dynamic-arch      enable dynamic CPU detection in OpenBLAS. Default ON.
      --disable-dynamic-arch     disable dynamic CPU detection in OpenBLAS.
+     --exclude-obs-dependencies exclude all Huawei Cloud OBS (com.huaweicloud) dependencies and the
+                                fe-filesystem-obs module; nothing from Huawei is resolved, compiled,
+                                or bundled. Use when repo.huaweicloud.com is unreachable or forbidden.
+     --exclude-cos-dependencies exclude all Tencent Cloud COS dependencies and the fe-filesystem-cos
+                                module; nothing from Tencent COS is resolved, compiled, or bundled.
      --clean                    clean and build target
      --compile-bench            BE compile-speed benchmark: cold, cache-free BE-only build
                                 (fresh dedicated build dir, ccache disabled) with a per-phase
@@ -270,6 +274,8 @@ if ! OPTS="$(getopt \
     -l 'be-extension-ignore:' \
     -l 'enable-dynamic-arch' \
     -l 'disable-dynamic-arch' \
+    -l 'exclude-obs-dependencies' \
+    -l 'exclude-cos-dependencies' \
     -l 'clean' \
     -l 'compile-bench' \
     -l 'coverage' \
@@ -761,6 +767,7 @@ echo "Get params:
     DENABLE_CLANG_COVERAGE              -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                          -- ${ENABLE_PCH}
+    ENABLE_UNITY_BUILD                  -- ${ENABLE_UNITY_BUILD:-ON}
     EXTRA_FE_MODULES                    -- ${EXTRA_FE_MODULES}
     EXTRA_BE_MODULES                    -- ${EXTRA_BE_MODULES}
     EXTRA_CLOUD_MODULES                 -- ${EXTRA_CLOUD_MODULES}
@@ -802,6 +809,14 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-filesystem/fe-filesystem-api")
     modules+=("fe-filesystem/fe-filesystem-spi")
     for _fs_mod in s3-base s3 gcs minio ozone oss cos obs azure hdfs-base hdfs oss-hdfs jfs local broker http; do
+        # Skip the modules whose Maven profile is deactivated so the -pl list stays consistent with
+        # the reactor: obs is absent under -Ddisable.obs=true, cos under -Ddisable.cos=true.
+        if [[ "${_fs_mod}" == "obs" && "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
+        if [[ "${_fs_mod}" == "cos" && "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
         if [[ -d "${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${_fs_mod}" ]]; then
             modules+=("fe-filesystem/fe-filesystem-${_fs_mod}")
         fi
@@ -857,19 +872,9 @@ FE_MODULES="$(
 if [[ "${BUILD_BE}" -eq 1 ]]; then
 
     if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
-        compile_bench_phase_begin "datasketches_install"
-    fi
-    echo "install datasketches-cpp to thirdparty path before build be"
-    update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
-    cd "${DORIS_HOME}/contrib/datasketches-cpp"
-    "${CMAKE_CMD}" -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALLED_DIR -DBUILD_TESTS=OFF
-    "${CMAKE_CMD}" --build build/Release -t install
-    cd "${DORIS_HOME}"
-    if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
-        compile_bench_phase_end
         compile_bench_phase_begin "contrib_submodules"
     fi
-
+    update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
     update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
     update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
     update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
@@ -939,6 +944,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
+        -DENABLE_UNITY_BUILD="${ENABLE_UNITY_BUILD:-ON}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DARM_MARCH="${ARM_MARCH}" \
@@ -1070,10 +1076,14 @@ function build_fe_modules() {
         extra_mvn_opts=(${MVN_OPT})
     fi
     if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
-        dependency_mvn_opts+=("-Dobs.dependency.scope=provided")
+        # Deactivates the `obs` Maven profile in fe-core, hadoop-deps and fe-filesystem, so no
+        # com.huaweicloud artifact is resolved and the Huawei OBS module is not built or bundled.
+        dependency_mvn_opts+=("-Ddisable.obs=true")
     fi
     if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
-        dependency_mvn_opts+=("-Dcos.dependency.scope=provided")
+        # Deactivates the `cos` Maven profile in fe-core and fe-filesystem, so no Tencent COS
+        # artifact is resolved and the fe-filesystem-cos module is not built or bundled.
+        dependency_mvn_opts+=("-Ddisable.cos=true")
     fi
     if [[ -n "${USER_SETTINGS_MVN_REPO}" && -f "${USER_SETTINGS_MVN_REPO}" ]]; then
         user_settings_opts=(-gs "${USER_SETTINGS_MVN_REPO}")
@@ -1189,6 +1199,14 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         fs_plugin_target="${FS_PLUGIN_DIR}/${fs_module}"
         fs_module_dir="${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${fs_module}"
         if [ ! -d "${fs_module_dir}" ]; then
+            continue
+        fi
+        # These modules are not built when their Maven profile is deactivated, so their plugin zip
+        # does not exist; skip the unpack to keep packaging consistent with the reactor.
+        if [[ "${fs_module}" == "obs" && "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
+        if [[ "${fs_module}" == "cos" && "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
             continue
         fi
         mkdir -p "${fs_plugin_target}"

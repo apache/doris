@@ -42,14 +42,14 @@ public class PaimonScanPlanProviderCapabilityTest {
 
     @Test
     public void paimonOptsOutOfPruneToZeroShortCircuit() {
-        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), null);
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), null);
         Assertions.assertTrue(provider.ignorePartitionPruneShortCircuit(),
                 "paimon is predicate-driven and must opt out of the prune-to-zero short-circuit");
     }
 
     @Test
     public void systemTableScanParamCapabilitiesArePublishedPerTable() {
-        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), null);
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), null);
 
         // WHY: the fe-core sys-table guard (PluginDrivenScanNode.checkSysTableScanConstraints) and its
         // pin resolver both ask THIS provider whether a given metadata view honors @incr / @options. A
@@ -108,7 +108,7 @@ public class PaimonScanPlanProviderCapabilityTest {
         // distinct dataSplit.partition() (== distinct rendered getPartitionValues() maps). Three ranges
         // over TWO partitions (two ranges of dt=1 + one of dt=2) must count 2, not 3. A mutation that
         // drops the override (default OptionalLong.empty()) makes this red.
-        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), null);
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), null);
         List<ConnectorScanRange> ranges = Arrays.asList(
                 rangeWithPartition("/t/dt=1/a.parquet", part("dt", "1")),
                 rangeWithPartition("/t/dt=1/b.parquet", part("dt", "1")),
@@ -120,7 +120,7 @@ public class PaimonScanPlanProviderCapabilityTest {
     public void scannedPartitionCountEmptyForUnpartitionedTable() {
         // Every range's partition map is empty (unpartitioned table) -> report nothing so the engine keeps
         // its own count. (Same value as the un-overridden default; documents the fall-through, not RED-able.)
-        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), null);
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), null);
         List<ConnectorScanRange> ranges = Arrays.asList(
                 rangeWithPartition("/t/a.parquet", Collections.emptyMap()),
                 rangeWithPartition("/t/b.parquet", Collections.emptyMap()));

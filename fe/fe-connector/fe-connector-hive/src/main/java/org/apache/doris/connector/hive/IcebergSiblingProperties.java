@@ -39,12 +39,12 @@ import java.util.Map;
  * ignores keys it does not recognize; its {@code create()} path does no property validation.
  *
  * <p>The flavor key/value are hardcoded literals on purpose: the Iceberg connector's
- * {@code IcebergConnectorProperties} constants live in the iceberg plugin's child-first classloader and are not
+ * {@code IcebergCatalogProperties} constants live in the iceberg plugin's child-first classloader and are not
  * visible from the hive loader.
  */
 final class IcebergSiblingProperties {
 
-    // Literals of the iceberg-plugin IcebergConnectorProperties.ICEBERG_CATALOG_TYPE / TYPE_HMS: those constants
+    // Literals of the iceberg-plugin IcebergCatalogProperties.ICEBERG_CATALOG_TYPE / TYPE_HMS: those constants
     // live in the iceberg plugin's child-first classloader and are not visible from the hive loader.
     static final String ICEBERG_CATALOG_TYPE_KEY = "iceberg.catalog.type";
     static final String ICEBERG_CATALOG_TYPE_HMS = "hms";

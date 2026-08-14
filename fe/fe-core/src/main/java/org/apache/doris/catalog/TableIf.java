@@ -134,6 +134,14 @@ public interface TableIf {
 
     String getName();
 
+    /**
+     * The name a user sees in SQL. Same as {@link #getName()} except for a temporary table,
+     * whose stored name is qualified with the id of the session that owns it.
+     */
+    default String getDisplayName() {
+        return getName();
+    }
+
     TableType getType();
 
     /**

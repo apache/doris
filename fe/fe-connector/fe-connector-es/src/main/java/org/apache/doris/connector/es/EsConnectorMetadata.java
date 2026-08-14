@@ -21,7 +21,6 @@ import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
-import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.NamedColumnHandle;
@@ -43,7 +42,7 @@ public class EsConnectorMetadata implements ConnectorMetadata {
     public static final String DEFAULT_DB = "default_db";
 
     private final EsConnectorRestClient restClient;
-    private final Map<String, String> properties;
+    private final EsCatalogProperties props;
 
     // ES-F3 per-statement schema memo. This metadata instance is created fresh per statement
     // (funnel-memoized one-per-statement), so an index's mapping is resolved into columns once and
@@ -54,9 +53,9 @@ public class EsConnectorMetadata implements ConnectorMetadata {
     private final Map<String, ConnectorTableSchema> schemaMemo = new ConcurrentHashMap<>();
 
     public EsConnectorMetadata(EsConnectorRestClient restClient,
-            Map<String, String> properties) {
+            EsCatalogProperties props) {
         this.restClient = restClient;
-        this.properties = properties;
+        this.props = props;
     }
 
     @Override
@@ -71,10 +70,7 @@ public class EsConnectorMetadata implements ConnectorMetadata {
 
     @Override
     public List<String> listTableNames(ConnectorSession session, String dbName) {
-        boolean includeHidden = Boolean.parseBoolean(properties.getOrDefault(
-                EsConnectorProperties.INCLUDE_HIDDEN_INDEX,
-                EsConnectorProperties.INCLUDE_HIDDEN_INDEX_DEFAULT));
-        return restClient.listTable(includeHidden);
+        return restClient.listTable(props.isIncludeHiddenIndex());
     }
 
     @Override
@@ -97,12 +93,8 @@ public class EsConnectorMetadata implements ConnectorMetadata {
             // collapses repeat getTableSchema calls within this metadata instance.
             String mapping = EsStatementScope.sharedIndexMapping(
                     session, idx, () -> restClient.getMapping(idx));
-            boolean mappingEsId = Boolean.parseBoolean(properties.getOrDefault(
-                    EsConnectorProperties.MAPPING_ES_ID,
-                    EsConnectorProperties.MAPPING_ES_ID_DEFAULT));
-
             List<ConnectorColumn> columns = EsTypeMapping.parseMapping(
-                    idx, mapping, mappingEsId);
+                    idx, mapping, props.isMappingEsId());
             return new ConnectorTableSchema(idx, columns, "ELASTICSEARCH",
                     Collections.emptyMap());
         });
@@ -135,18 +127,6 @@ public class EsConnectorMetadata implements ConnectorMetadata {
         return true;
     }
 
-    /**
-     * Validates that required properties are present.
-     * Called during connector creation.
-     */
-    public static void validateProperties(Map<String, String> properties) {
-        if (!properties.containsKey(EsConnectorProperties.HOSTS)
-                || properties.get(EsConnectorProperties.HOSTS).trim().isEmpty()) {
-            throw new DorisConnectorException(
-                    "Required property '" + EsConnectorProperties.HOSTS + "' is missing");
-        }
-    }
-
     @Override
     public org.apache.doris.thrift.TTableDescriptor buildTableDescriptor(
             ConnectorSession session,
@@ -170,16 +150,9 @@ public class EsConnectorMetadata implements ConnectorMetadata {
      */
     public EsMetadataState fetchMetadataState(ConnectorSession session, String indexName,
             List<String> columnNames) {
-        String mappingType = properties.getOrDefault(
-                EsConnectorProperties.MAPPING_TYPE, null);
-        boolean nodesDiscovery = Boolean.parseBoolean(properties.getOrDefault(
-                EsConnectorProperties.NODES_DISCOVERY,
-                EsConnectorProperties.NODES_DISCOVERY_DEFAULT));
-        String hostsStr = properties.getOrDefault(EsConnectorProperties.HOSTS, "");
-        String[] seeds = hostsStr.split(",");
-
         EsMetadataState state = new EsMetadataState(
-                indexName, mappingType, columnNames, nodesDiscovery, seeds);
+                indexName, props.getMappingType(), columnNames, props.isNodesDiscovery(),
+                props.getSeeds());
         EsMetadataFetcher fetcher = new EsMetadataFetcher(restClient, state, session);
         return fetcher.fetch();
     }

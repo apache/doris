@@ -51,7 +51,7 @@ public class HudiTableTypeTest {
                 .parameters(parameters)
                 .build();
         HudiConnectorMetadata metadata =
-                new HudiConnectorMetadata(new FakeHmsClient(info), Collections.emptyMap(),
+                new HudiConnectorMetadata(new FakeHmsClient(info), HudiTestProperties.minimal(),
                         new DirectHudiMetaClientExecutor());
         Optional<ConnectorTableHandle> handle = metadata.getTableHandle(null, "db", "t");
         Assertions.assertTrue(handle.isPresent());

@@ -25,12 +25,12 @@
 #include <vector>
 
 #include "common/config.h"
-#include "storage/rowset/rowset.h"
-#include "storage/rowset/rowset_meta.h"
+#include "storage/rowset/rowset_fwd.h"
 
 namespace doris {
 
 class Tablet;
+class BaseTablet;
 struct Version;
 
 inline constexpr std::string_view CUMULATIVE_SIZE_BASED_POLICY = "size_based";

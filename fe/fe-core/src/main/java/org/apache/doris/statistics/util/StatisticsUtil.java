@@ -1078,10 +1078,11 @@ public class StatisticsUtil {
      * Used by shuffle key prune and skew detection rules.
      * Returns false when hotValues is null (not collected) or empty (collected but no hot values).
      */
-    public static boolean hasSignificantHotValues(ColumnStatistic columnStatistic, double minRatio, double rowCount) {
+    public static boolean hasSignificantHotValues(ColumnStatistic columnStatistic, double minRatio, double rowCount,
+            boolean strictWhenHotValueUnknow) {
         Map<Literal, Float> hotValues = columnStatistic.getHotValues();
         if (hotValues == null) {
-            return true;
+            return strictWhenHotValueUnknow;
         }
         return columnStatistic.numNulls / rowCount > minRatio
                 || hotValues.values().stream().anyMatch(ratio -> ratio >= minRatio);
@@ -1091,6 +1092,6 @@ public class StatisticsUtil {
             double rowCount) {
         double ndv = columnStatistic.ndv;
         return ndv > instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER
-                && !hasSignificantHotValues(columnStatistic, minRatio, rowCount);
+                && !hasSignificantHotValues(columnStatistic, minRatio, rowCount, true);
     }
 }

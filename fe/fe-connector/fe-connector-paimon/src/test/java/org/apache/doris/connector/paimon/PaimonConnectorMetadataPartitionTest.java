@@ -65,7 +65,7 @@ public class PaimonConnectorMetadataPartitionTest {
 
     private static PaimonConnectorMetadata metadataWith(RecordingPaimonCatalogOps ops) {
         // Read-path tests ignore the context; a default RecordingConnectorContext is a no-op wrapper.
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     /** Two-key partitioned table: dt (DATE) + region (STRING). */
@@ -444,7 +444,7 @@ public class PaimonConnectorMetadataPartitionTest {
             PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog,
                     Collections.singletonMap("scan.manifest.parallelism", "1"));
             PaimonConnectorMetadata metadata = new PaimonConnectorMetadata(
-                    ops, Collections.emptyMap(), new RecordingConnectorContext());
+                    ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.singletonList("pt"), Collections.emptyList());
 

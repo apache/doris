@@ -1641,9 +1641,8 @@ Status SegmentIterator::_init_index_iterators() {
     for (auto cid : _schema->column_ids()) {
         // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
         if (_index_iterators[cid] == nullptr) {
-            // In the _opts.tablet_schema, the sub-column type information for the variant is FieldType::OLAP_FIELD_TYPE_VARIANT.
-            // This is because the sub-column is created in create_materialized_variant_column.
-            // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
+            // Scan-time Variant path placeholders retain the Variant storage type. Use their
+            // parent unique id and path to locate the extracted column's inverted-index metadata.
             const auto& column = _opts.tablet_schema->column(cid);
             std::vector<const TabletIndex*> inverted_indexs;
             // Keep shared_ptr alive to prevent use-after-free when accessing raw pointers
@@ -2460,8 +2459,7 @@ void SegmentIterator::_update_tso_col_if_needed(const std::vector<ColumnId>& col
         return;
     }
 
-    if (_opts.io_ctx.reader_type != ReaderType::READER_BINLOG &&
-        _opts.io_ctx.reader_type != ReaderType::READER_BINLOG_COMPACTION) {
+    if (!_opts.read_row_binlog) {
         return;
     }
 
@@ -3250,6 +3248,13 @@ void SegmentIterator::_output_index_result_column(const VExprContextSPtrs& expr_
     }
 }
 
+// Dictionary codes are initially assigned in dictionary insertion order, so their numeric order
+// does not necessarily match the order of the encoded values. For example, an initial dictionary
+// {0: "zebra", 1: "apple", 2: "mango"} is sorted into {0: "apple", 1: "mango", 2: "zebra"},
+// and row codes are remapped from {0, 2, 1} to {2, 1, 0}. Range predicates compare codes with <,
+// <=, >, or >= and therefore require this conversion. IN/NOT IN predicates do not: they build a
+// membership bitmap indexed by the existing dictionary codes. Bloom-filter predicates instead need
+// hash values initialized for dictionary entries.
 void SegmentIterator::_convert_dict_code_for_predicate_if_necessary() {
     for (auto predicate : _short_cir_eval_predicate) {
         _convert_dict_code_for_predicate_if_necessary_impl(predicate);

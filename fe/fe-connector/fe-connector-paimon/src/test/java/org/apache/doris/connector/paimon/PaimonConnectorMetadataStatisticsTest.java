@@ -50,12 +50,12 @@ import java.util.Optional;
 public class PaimonConnectorMetadataStatisticsTest {
 
     private static PaimonConnectorMetadata metadataWith(RecordingPaimonCatalogOps ops) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     private static PaimonConnectorMetadata metadataWith(
             RecordingPaimonCatalogOps ops, RecordingConnectorContext context) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), context);
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), context);
     }
 
     private static RowType rowType(String... columnNames) {

@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Use #define private public to access private members for white-box testing
 // of SegmentIterator::_can_opt_limit_reads() and its dependent state. Mirrors
 // the convention in segment_iterator_apply_index_expr_test.cpp.
 #include "core/block/block.h"
@@ -31,11 +30,7 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
-#define private public
-#define protected public
 #include "storage/segment/segment_iterator.h"
-#undef private
-#undef protected
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif

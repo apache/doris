@@ -29,6 +29,17 @@
 # to check if all thirdparties have been downloaded, unpacked and patched.
 #################################################################################
 
+# The shebang above only takes effect when this script is executed directly.
+# `sh build-thirdparty.sh` hands it to /bin/sh instead, which is dash on Debian
+# and Ubuntu and parses none of the `[[ ]]`, arrays and here-strings this script
+# is built on. It does not stop at the first of them either, it keeps going and
+# runs a mangled version of the script. Re-exec under bash so that the way the
+# script was invoked cannot decide whether the build works. Keep this block
+# POSIX, it has to be parsed by the shell that is about to be replaced.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"

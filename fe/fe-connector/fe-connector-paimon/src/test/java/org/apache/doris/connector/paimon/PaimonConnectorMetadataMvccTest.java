@@ -58,7 +58,7 @@ import java.util.TimeZone;
 public class PaimonConnectorMetadataMvccTest {
 
     private static PaimonConnectorMetadata metadataWith(RecordingPaimonCatalogOps ops) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     // Builds a metadata sharing an EXTERNAL PaimonSchemaAtMemo, modelling two queries (each a fresh
@@ -66,7 +66,7 @@ public class PaimonConnectorMetadataMvccTest {
     private static PaimonConnectorMetadata metadataWith(RecordingPaimonCatalogOps ops,
             PaimonSchemaAtMemo memo) {
         return new PaimonConnectorMetadata(
-                ops, Collections.emptyMap(), new RecordingConnectorContext(), memo);
+                ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(), memo);
     }
 
     private static RowType rowType(String... columnNames) {

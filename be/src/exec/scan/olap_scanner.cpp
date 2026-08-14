@@ -38,6 +38,7 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "core/block/block.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/common/variant_util.h"
 #include "exec/operator/olap_scan_operator.h"
@@ -77,8 +78,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
           _key_ranges(std::move(params.key_ranges)),
           _tablet_reader_params({.tablet = std::move(params.tablet),
                                  .tablet_schema {},
-                                 .reader_type = params.read_row_binlog ? ReaderType::READER_BINLOG
-                                                                       : ReaderType::READER_QUERY,
+                                 .reader_type = ReaderType::READER_QUERY,
+                                 .read_row_binlog = params.read_row_binlog,
                                  .aggregation = params.aggregation,
                                  .version = {0, params.version},
                                  .start_key {},
@@ -214,10 +215,7 @@ Status OlapScanner::_prepare_impl() {
     _tablet_reader->set_preferred_block_size_bytes(_state->preferred_block_size_bytes());
     {
         TOlapScanNode& olap_scan_node = local_state->olap_scan_node();
-        TabletSchemaSPtr source_tablet_schema =
-                _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                        ? tablet->row_binlog_tablet_schema()
-                        : tablet->tablet_schema();
+        TabletSchemaSPtr source_tablet_schema = tablet->tablet_schema();
 
         tablet_schema = std::make_shared<TabletSchema>();
         tablet_schema->copy_from(*source_tablet_schema);
@@ -253,8 +251,6 @@ Status OlapScanner::_prepare_impl() {
                             .skip_missing_versions = _state->skip_missing_version(),
                             .enable_fetch_rowsets_from_peers =
                                     config::enable_fetch_rowsets_from_peer_replicas,
-                            .capture_row_binlog =
-                                    _tablet_reader_params.reader_type == ReaderType::READER_BINLOG,
                             .enable_prefer_cached_rowset =
                                     config::is_cloud_mode() ? _state->enable_prefer_cached_rowset()
                                                             : false,
@@ -339,12 +335,10 @@ Status OlapScanner::_init_tso_pushdown() {
     }
 
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
-    int32_t tso_index = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                                ? tablet_schema->binlog_tso_col_idx()
-                                : tablet_schema->commit_tso_col_idx();
-    const std::string& column_name = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                                             ? BINLOG_TSO_COL
-                                             : COMMIT_TSO_COL;
+    int32_t tso_index = _tablet_reader_params.read_row_binlog ? tablet_schema->binlog_tso_col_idx()
+                                                              : tablet_schema->commit_tso_col_idx();
+    const std::string& column_name =
+            _tablet_reader_params.read_row_binlog ? BINLOG_TSO_COL : COMMIT_TSO_COL;
     if (tso_index < 0) {
         return Status::InternalError("Column {} not found in tablet schema after append",
                                      column_name);
@@ -476,13 +470,14 @@ Status OlapScanner::_init_tablet_reader_params(
         }
     };
 
-    // For row-binlog scans that emit BEFORE/AFTER pairs (MIN_DELTA / DETAIL), we must read
-    // every key column, every requested value column, the binlog meta columns (tso / op)
-    // and their __BEFORE__ mirrors, so the BlockReader can reconstruct change rows.
-    const bool need_before_columns =
+    // MIN_DELTA / DETAIL row-binlog scans reconstruct change rows in BlockReader through a
+    // key-ordered merge. They must read every key column, every requested value column, the
+    // binlog meta columns (tso / op) and their __BEFORE__ mirrors. APPEND_ONLY streams rows
+    // as-is and stays on the plain projection paths below.
+    const bool is_binlog_merge_scan =
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::MIN_DELTA ||
             _tablet_reader_params.binlog_scan_type == TBinlogScanType::DETAIL;
-    if (need_before_columns) {
+    if (is_binlog_merge_scan) {
         for (size_t i = 0; i < tablet_schema->num_key_columns(); ++i) {
             add_return_column_if_absent(static_cast<uint32_t>(i));
         }
@@ -565,16 +560,26 @@ Status OlapScanner::_init_tablet_reader_params(
 
     RETURN_IF_ERROR(_init_tso_pushdown());
 
-    // For any row-binlog scan, force the storage layer to deliver rows strictly in primary-key
-    // order so the BlockReader can group consecutive same-key changes (MIN_DELTA) or emit
-    // BEFORE/AFTER pairs in deterministic order (DETAIL). Disable ORDER BY / TopN pushdowns
-    // and reset their related params, since they would otherwise re-order the stream.
+    // Row-binlog scans must not be re-ordered or truncated by ORDER BY / TopN pushdowns,
+    // so reset every reorder-related param for all binlog scan types.
+    //
+    // Only MIN_DELTA / DETAIL additionally force the storage layer to deliver rows strictly
+    // in primary-key order, so the BlockReader can group consecutive same-key changes
+    // (MIN_DELTA) or emit BEFORE/AFTER pairs in deterministic order (DETAIL). Their storage
+    // projection is widened above with the full key prefix, which the key-ordered merge
+    // comparator relies on: with read_orderby_key_num_prefix_columns == 0 the comparator
+    // falls back to comparing the first num_key_columns block positions.
+    //
+    // APPEND_ONLY does no key grouping and keeps the raw SQL projection, which may omit
+    // some or even all key columns. Forcing a key-ordered merge would make the fallback
+    // comparator read key positions that do not exist in the projected blocks and crash
+    // the BE (issue #66390), so it reads unordered like a plain scan.
     if (_tablet_reader_params.binlog_scan_type != TBinlogScanType::NONE) {
-        _tablet_reader_params.read_orderby_key = true;
+        _tablet_reader_params.read_orderby_key = is_binlog_merge_scan;
+        _tablet_reader_params.force_key_ordered_read = is_binlog_merge_scan;
         _tablet_reader_params.read_orderby_key_reverse = false;
         _tablet_reader_params.read_orderby_key_num_prefix_columns = 0;
         _tablet_reader_params.read_orderby_key_limit = 0;
-        _tablet_reader_params.force_key_ordered_read = true;
         _tablet_reader_params.topn_filter_source_node_ids.clear();
     }
 
@@ -689,20 +694,32 @@ Status OlapScanner::_init_variant_columns() {
     if (tablet_schema->num_variant_columns() == 0) {
         return Status::OK();
     }
-    // Parent column has path info to distinction from each other
+    // A Variant read column is identified by its parent uid and PathInData. Root and already
+    // materialized paths may already exist in the copied tablet schema; missing paths are added
+    // below as transient read-schema columns.
     for (auto* slot : _output_tuple_desc->slots()) {
-        if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-            // Such columns are not exist in frontend schema info, so we need to
-            // add them into tablet_schema for later column indexing.
-            const auto& dt_variant =
-                    assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()));
-            TabletColumn subcol = TabletColumn::create_materialized_variant_column(
-                    tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
-                    slot->column_paths(), slot->col_unique_id(),
-                    dt_variant.variant_max_subcolumns_count(), dt_variant.enable_doc_mode());
-            if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
-                tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
-            }
+        if (slot->type()->get_primitive_type() != PrimitiveType::TYPE_VARIANT) {
+            continue;
+        }
+        // Materialized paths are absent from the persisted frontend schema. Build their transient
+        // read-schema entries from the slot type so V1 and V2 share the same path/type mapping.
+        const PathInData path(tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
+                              slot->column_paths());
+        // Keep transient paths nullable so an absent path preserves the existing NULL result.
+        TabletColumn subcol = variant_util::get_column_by_type(
+                make_nullable(slot->type()), path.get_path(),
+                variant_util::ExtraInfo {.parent_unique_id = slot->col_unique_id(),
+                                         .path_info = path});
+        const int32_t column_index = tablet_schema->field_index(path);
+        if (column_index < 0) {
+            tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
+            continue;
+        }
+        if (subcol.variant_is_v2()) {
+            // TODO: Remove this promotion after legacy ColumnVariant read destinations are
+            // deleted. Persisted metadata describes the shared storage layout; this transient
+            // marker only makes the current scan construct a ColumnVariantV2 destination.
+            tablet_schema->mutable_column(column_index).set_variant_is_v2(true);
         }
     }
     variant_util::inherit_column_attributes(tablet_schema);

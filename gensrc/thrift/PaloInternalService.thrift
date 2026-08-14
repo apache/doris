@@ -512,6 +512,10 @@ struct TQueryOptions {
   226: optional bool enable_prune_nested_column = false;
   227: optional bool new_version_bitmap_op_count = false;
   228: optional bool enable_local_exchange_before_streaming_agg = false;
+  // FE is the receiver of fragment reports, so BE must also honor its message limit.
+  229: optional i32 coordinator_thrift_max_message_size;
+  // FE can explicitly and idempotently acknowledge external-file commit reports.
+  230: optional bool supports_external_file_report_ack = false;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
@@ -641,6 +645,7 @@ struct TFoldConstantParams {
 struct TTabletWithPartition {
     1: required i64 partition_id
     2: required i64 tablet_id
+    3: optional i64 binlog_tablet_id
 }
 
 struct TFetchDataResult {
@@ -755,6 +760,7 @@ struct TPipelineFragmentParams {
 
   // For cloud
   1000: optional bool is_mow_table;
+  1001: optional bool enable_tso;
 }
 
 // pull up runtime filter info from instance level to BE level

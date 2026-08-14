@@ -186,7 +186,8 @@ public class PluginDrivenExternalTablePartitionTest {
                         new ConnectorColumn("REGION", ConnectorType.of("INT"), "", true, null),
                         new ConnectorColumn("VAL", ConnectorType.of("INT"), "", true, null)),
                 "max_compute",
-                Collections.singletonMap(ConnectorTableSchema.PARTITION_COLUMNS_KEY, "YEAR,REGION"));
+                Collections.singletonMap(ConnectorTableSchema.PARTITION_COLUMNS_KEY, "YEAR,REGION"),
+                Collections.emptySet(), "uuid-u0/schema-1");
         Mockito.when(metadata.getTableSchema(session, handle)).thenReturn(tableSchema);
         // Identifier mapping lowercases the remote names (raw "YEAR" -> mapped "year").
         Mockito.when(metadata.fromRemoteColumnName(Mockito.eq(session), Mockito.anyString(),
@@ -206,6 +207,8 @@ public class PluginDrivenExternalTablePartitionTest {
                 "partition columns must be the MAPPED Doris columns identified via fromRemoteColumnName");
         Assertions.assertEquals(Arrays.asList("YEAR", "REGION"), value.getPartitionColumnRemoteNames(),
                 "remote names must be kept raw for addressing connector partition values");
+        Assertions.assertEquals("uuid-u0/schema-1", value.getWriteMetadataIdentity(),
+                "schema caching must preserve the opaque generation captured with the remote columns");
     }
 
     @Test

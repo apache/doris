@@ -19,8 +19,10 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 
 import org.apache.iceberg.DataFiles;
@@ -92,13 +94,13 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
             ConnectorMetadataCache<ConnectorMvccPartitionView> cache) {
         // 9-arg ctor: disabled latest-snapshot cache + null table/partition/comment caches so the loadTable count
         // reflects cache A alone; only the mvcc view cache under test is injected.
-        return new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext(),
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(),
                 new IcebergLatestSnapshotCache(0L, 1), null, null, null, cache, null);
     }
 
     private static IcebergConnectorMetadata metadataWithListCache(RecordingIcebergCatalogOps ops,
             ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache) {
-        return new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext(),
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(),
                 new IcebergLatestSnapshotCache(0L, 1), null, null, null, null, cache);
     }
 
@@ -195,6 +197,88 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
         md.getMvccPartitionView(null, handle());
         md.getMvccPartitionView(null, handle());
         Assertions.assertEquals(2, loadCount(ops), "a null (disabled) cache must re-enumerate every call");
+    }
+
+    @Test
+    public void resolvedEmptyPartitionViewIgnoresConcurrentFirstAppend() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        PartitionSpec spec = PartitionSpec.builderFor(PARTITIONED_SCHEMA).day("ts").build();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t1"), PARTITIONED_SCHEMA, spec);
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        IcebergConnectorMetadata md = metadataWithMvccCache(ops, null);
+        ConnectorMvccSnapshot emptyPin = md.beginQuerySnapshot(null, handle()).orElseThrow();
+
+        table.newAppend().appendFile(
+                dayFile(spec, "s3://b/db1/t1/concurrent.parquet", "ts_day=1970-04-11")).commit();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t1"));
+        ConnectorTableHandle resolvedEmpty = md.applySnapshot(null, handle(), emptyPin);
+
+        ConnectorMvccPartitionView view = md.getMvccPartitionView(null, resolvedEmpty).orElseThrow();
+
+        // Data rows and freshness must describe the same query-begin generation after the first append.
+        Assertions.assertEquals(ConnectorMvccPartitionView.Style.RANGE, view.getStyle());
+        Assertions.assertTrue(view.getPartitions().isEmpty());
+        Assertions.assertEquals(0L, view.getNewestUpdateMonotonicMarker());
+    }
+
+    @Test
+    public void resolvedEmptyIdentityPartitionIgnoresConcurrentFirstAppend() {
+        assertResolvedEmptyNonRangeIgnoresConcurrentFirstAppend(
+                PartitionSpec.builderFor(PARTITIONED_SCHEMA).identity("id").build(), "id=7");
+    }
+
+    @Test
+    public void resolvedEmptyBucketPartitionIgnoresConcurrentFirstAppend() {
+        assertResolvedEmptyNonRangeIgnoresConcurrentFirstAppend(
+                PartitionSpec.builderFor(PARTITIONED_SCHEMA).bucket("id", 8).build(), "id_bucket=0");
+    }
+
+    @Test
+    public void resolvedEmptyPartitionStyleSurvivesConcurrentSpecEvolution() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        PartitionSpec daySpec = PartitionSpec.builderFor(PARTITIONED_SCHEMA).day("ts").build();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t1"), PARTITIONED_SCHEMA, daySpec);
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        IcebergConnectorMetadata md = metadataWithMvccCache(ops, null);
+        ConnectorMvccSnapshot emptyPin = md.beginQuerySnapshot(null, handle()).orElseThrow();
+
+        table.updateSpec().removeField("ts_day").addField("id").commit();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t1"));
+        ConnectorTableHandle pinnedHandle = md.applySnapshot(null, handle(), emptyPin);
+        ConnectorMvccPartitionView view = md.getMvccPartitionView(null, pinnedHandle).orElseThrow();
+
+        Assertions.assertEquals(ConnectorMvccPartitionView.Style.RANGE, view.getStyle(),
+                "an empty pin must retain the partition eligibility resolved at query begin");
+        Assertions.assertTrue(view.getPartitions().isEmpty());
+    }
+
+    private static void assertResolvedEmptyNonRangeIgnoresConcurrentFirstAppend(
+            PartitionSpec spec, String partitionPath) {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t1"), PARTITIONED_SCHEMA, spec);
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = table;
+        IcebergConnectorMetadata md = metadataWithMvccCache(ops, null);
+        ConnectorMvccSnapshot emptyPin = md.beginQuerySnapshot(null, handle()).orElseThrow();
+
+        table.newAppend().appendFile(
+                dayFile(spec, "s3://b/db1/t1/concurrent.parquet", partitionPath)).commit();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t1"));
+        ConnectorTableHandle pinnedHandle = md.applySnapshot(null, handle(), emptyPin);
+
+        ConnectorMvccPartitionView view = md.getMvccPartitionView(null, pinnedHandle).orElseThrow();
+        Assertions.assertEquals(ConnectorMvccPartitionView.Style.UNPARTITIONED, view.getStyle());
+        Assertions.assertTrue(view.getPartitions().isEmpty());
+        Assertions.assertTrue(md.listPartitions(null, pinnedHandle, Optional.empty()).isEmpty(),
+                "partition listing must preserve the same empty generation as the data scan");
     }
 
     // ---------------------------------------------------------------------

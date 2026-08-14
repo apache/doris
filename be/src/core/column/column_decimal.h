@@ -285,31 +285,11 @@ public:
 protected:
     Container data;
     UInt32 scale;
+    // Defined in column_decimal.cpp (its only caller is get_permutation there):
+    // the body dereferences HybridSorter, which is forward-declared in column.h.
     template <typename U>
     void permutation(bool reverse, size_t limit, HybridSorter& sorter,
-                     PaddedPODArray<U>& res) const {
-        size_t s = data.size();
-        res.resize(s);
-        for (U i = 0; i < s; ++i) res[i] = i;
-
-        auto sort_end = res.end();
-        if (limit && static_cast<double>(limit) < static_cast<double>(s) / 8.0) {
-            sort_end = res.begin() + limit;
-            if (reverse)
-                std::partial_sort(res.begin(), sort_end, res.end(),
-                                  [this](size_t a, size_t b) { return data[a] > data[b]; });
-            else
-                std::partial_sort(res.begin(), sort_end, res.end(),
-                                  [this](size_t a, size_t b) { return data[a] < data[b]; });
-        } else {
-            if (reverse)
-                sorter.sort(res.begin(), res.end(),
-                            [this](size_t a, size_t b) { return data[a] > data[b]; });
-            else
-                sorter.sort(res.begin(), res.end(),
-                            [this](size_t a, size_t b) { return data[a] < data[b]; });
-        }
-    }
+                     PaddedPODArray<U>& res) const;
 
     void ALWAYS_INLINE decimalv2_do_crc(size_t i, uint32_t& hash) const {
         const auto& dec_val = (const DecimalV2Value&)data[i];

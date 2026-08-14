@@ -22,13 +22,13 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
-import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -41,13 +41,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
@@ -124,13 +123,7 @@ public class ExternalRowLevelMergePlanBuilder {
         if (targetAlias.isPresent()) {
             targetPlan = new LogicalSubQueryAlias<>(targetAlias.get(), targetPlan);
         }
-        // Use INNER JOIN when there are no WHEN NOT MATCHED clauses, since unmatched
-        // source rows are not needed. This allows early filtering for better performance.
-        JoinType joinType = notMatchedClauses.isEmpty()
-                ? JoinType.INNER_JOIN : JoinType.LEFT_OUTER_JOIN;
-        return new LogicalJoin<>(joinType,
-                ImmutableList.of(), ImmutableList.of(onClause),
-                source, targetPlan, JoinReorderContext.EMPTY);
+        return MergeUtils.buildMergeJoin(targetPlan, source, onClause, !notMatchedClauses.isEmpty());
     }
 
     private NamedExpression generateBranchLabel(Expression rowIdExpr) {
@@ -394,6 +387,10 @@ public class ExternalRowLevelMergePlanBuilder {
     // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here.
     LogicalPlan buildMergePlan(ConnectContext ctx, ExternalTable icebergTable) {
         LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable);
+        // Project synthesis pins both the request-scoped writer columns and their identity. Read the snapshot
+        // afterwards so the sink fence cannot retain the older cached identity while carrying newer columns.
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                ((PluginDrivenExternalTable) icebergTable).getWriteSchemaSnapshot();
 
         List<NamedExpression> outputExprs;
         if (!RowLevelDmlRowIdUtils.hasUnboundPlan(projectPlan)) {
@@ -409,6 +406,7 @@ public class ExternalRowLevelMergePlanBuilder {
         return new LogicalExternalRowLevelMergeSink<>(
                 (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
+                writeSchema.getWriteMetadataIdentity(),
                 ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable),
                 outputExprs,
                 true,

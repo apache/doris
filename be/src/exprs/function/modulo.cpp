@@ -558,25 +558,27 @@ struct PModuloNumericImpl {
     }
 };
 
-template <PrimitiveType TypeA, PrimitiveType TypeB>
+// FE casts both children of decimal mod to exactly the same type as the return
+// type (TypeCoercionUtils#processDecimalV3BinaryArithmetic), so only same-width
+// pairs are reachable at runtime. Keep a single type parameter so mixed-width
+// instantiations cannot be registered again.
+template <PrimitiveType Type>
 struct ModuloDecimalImpl {
-    static_assert(is_decimal(TypeA) && is_decimal(TypeB));
-    static_assert((TypeA == TYPE_DECIMALV2 && TypeB == TYPE_DECIMALV2) ||
-                  (TypeA != TYPE_DECIMALV2 && TypeB != TYPE_DECIMALV2));
+    static_assert(is_decimal(Type));
     static constexpr auto name = "mod";
     static constexpr auto is_pmod = false;
-    using ArgA = typename PrimitiveTypeTraits<TypeA>::CppType;
-    using ArgB = typename PrimitiveTypeTraits<TypeB>::CppType;
-    using ArgNativeTypeA = typename PrimitiveTypeTraits<TypeA>::CppType::NativeType;
-    using ArgNativeTypeB = typename PrimitiveTypeTraits<TypeB>::CppType::NativeType;
-    using DataTypeA = typename PrimitiveTypeTraits<TypeA>::DataType;
-    using DataTypeB = typename PrimitiveTypeTraits<TypeB>::DataType;
-    using ColumnTypeA = typename PrimitiveTypeTraits<TypeA>::ColumnType;
-    using ColumnTypeB = typename PrimitiveTypeTraits<TypeB>::ColumnType;
+    using ArgA = typename PrimitiveTypeTraits<Type>::CppType;
+    using ArgB = typename PrimitiveTypeTraits<Type>::CppType;
+    using ArgNativeTypeA = typename PrimitiveTypeTraits<Type>::CppType::NativeType;
+    using ArgNativeTypeB = typename PrimitiveTypeTraits<Type>::CppType::NativeType;
+    using DataTypeA = typename PrimitiveTypeTraits<Type>::DataType;
+    using DataTypeB = typename PrimitiveTypeTraits<Type>::DataType;
+    using ColumnTypeA = typename PrimitiveTypeTraits<Type>::ColumnType;
+    using ColumnTypeB = typename PrimitiveTypeTraits<Type>::ColumnType;
 
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<typename PrimitiveTypeTraits<TypeA>::DataType>(),
-                std::make_shared<typename PrimitiveTypeTraits<TypeB>::DataType>()};
+        return {std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>(),
+                std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 
     static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b, UInt8& is_null) {
@@ -935,44 +937,12 @@ void register_function_modulo(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMod<ModNumericImpl<PModuloNumericImpl<TYPE_BIGINT>>>>();
     factory.register_function<FunctionMod<ModNumericImpl<PModuloNumericImpl<TYPE_DOUBLE>>>>();
 
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMALV2, TYPE_DECIMALV2>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMALV2>>>>();
 
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL32>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL64>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL128I>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL32, TYPE_DECIMAL256>>>>();
-
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL32>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL64>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL128I>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL64, TYPE_DECIMAL256>>>>();
-
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL32>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL64>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL128I>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL128I, TYPE_DECIMAL256>>>>();
-
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL32>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL64>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL128I>>>>();
-    factory.register_function<
-            FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL256, TYPE_DECIMAL256>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL32>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL64>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL128I>>>>();
+    factory.register_function<FunctionMod<ModDecimalImpl<ModuloDecimalImpl<TYPE_DECIMAL256>>>>();
     factory.register_alias("mod", "fmod");
 }
 

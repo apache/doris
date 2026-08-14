@@ -631,6 +631,10 @@ public:
     [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos) {
         return state->minimum_operator_memory_required_bytes();
     }
+    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos,
+                                                      const Block* block) {
+        return get_reserve_mem_size(state, eos);
+    }
     bool is_blockable(RuntimeState* state) const override {
         return state->get_sink_local_state()->is_blockable();
     }
@@ -819,7 +823,6 @@ public:
               _node_id(tnode.node_id),
               _type(tnode.node_type),
               _pool(pool),
-              _tuple_ids(tnode.row_tuples),
               _row_descriptor(descs, tnode.row_tuples),
               _resource_profile(tnode.resource_profile),
               _limit(tnode.limit) {
@@ -988,7 +991,6 @@ protected:
     int _nereids_id = -1;
     TPlanNodeType::type _type;
     ObjectPool* _pool = nullptr;
-    std::vector<TupleId> _tuple_ids;
 
 private:
     // The expr of operator set to private permissions, as cannot be executed concurrently,

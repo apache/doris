@@ -153,10 +153,14 @@ class EsScanPlanProviderTest {
 
     private static final ConnectorSession EMPTY_SESSION = new TestSession(ConnectorStatementScope.NONE);
 
-    private static Map<String, String> minimalProps() {
+    private static Map<String, String> minimalPropertyMap() {
         Map<String, String> props = new HashMap<>();
-        props.put(EsConnectorProperties.HOSTS, "localhost:9200");
+        props.put(EsCatalogProperties.HOSTS, "localhost:9200");
         return props;
+    }
+
+    private static EsCatalogProperties minimalProps() {
+        return EsCatalogProperties.of(minimalPropertyMap());
     }
 
     @Test
@@ -322,7 +326,7 @@ class EsScanPlanProviderTest {
 
     @Test
     void testEsConnectorDoesNotSupportWrite() {
-        EsConnector connector = new EsConnector(minimalProps(), new ConnectorContext() {
+        EsConnector connector = new EsConnector(minimalPropertyMap(), new ConnectorContext() {
             @Override
             public String getCatalogName() {
                 return "test";

@@ -41,6 +41,18 @@ public interface ConnectorWriteHandle {
     /** The columns being written, ordered to match the INSERT column list. */
     List<ConnectorColumn> getColumns();
 
+    /**
+     * The complete target schema captured when this write was bound, in target-schema order.
+     *
+     * <p>This is deliberately separate from {@link #getColumns()}: an INSERT column list and static
+     * partitions can make the write list a subset even though schema-drift validation must compare the
+     * complete bound schema. The default preserves compatibility for handles that already carry a full
+     * write list.</p>
+     */
+    default List<ConnectorColumn> getBoundTargetColumns() {
+        return getColumns();
+    }
+
     /** Whether this is an INSERT OVERWRITE. */
     boolean isOverwrite();
 
@@ -81,6 +93,11 @@ public interface ConnectorWriteHandle {
      * that declare no write sort (jdbc / maxcompute) keep their byte-identical unsorted sink output.</p>
      */
     default TSortInfo getSortInfo() {
+        return null;
+    }
+
+    /** Metadata identity captured when the engine bound the physical write plan, or {@code null}. */
+    default String getBoundWriteMetadataIdentity() {
         return null;
     }
 

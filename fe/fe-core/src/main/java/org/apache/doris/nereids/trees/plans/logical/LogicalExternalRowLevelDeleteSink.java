@@ -45,6 +45,7 @@ public class LogicalExternalRowLevelDeleteSink<CHILD_TYPE extends Plan> extends 
         implements Sink, PropagateFuncDeps {
     private final ExternalDatabase database;
     private final ExternalTable targetTable;
+    private final String boundWriteMetadataIdentity;
 
     /**
      * Constructor.
@@ -61,31 +62,48 @@ public class LogicalExternalRowLevelDeleteSink<CHILD_TYPE extends Plan> extends 
                                    Optional<GroupExpression> groupExpression,
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
+        this(database, targetTable, null, cols, outputExprs, groupExpression, logicalProperties, child);
+    }
+
+    /** Builds a row-level sink bound to the same remote generation as its target columns. */
+    public LogicalExternalRowLevelDeleteSink(ExternalDatabase database,
+                                   ExternalTable targetTable,
+                                   String boundWriteMetadataIdentity,
+                                   List<Column> cols,
+                                   List<NamedExpression> outputExprs,
+                                   Optional<GroupExpression> groupExpression,
+                                   Optional<LogicalProperties> logicalProperties,
+                                   CHILD_TYPE child) {
         super(PlanType.LOGICAL_EXTERNAL_ROW_LEVEL_DELETE_SINK, outputExprs, groupExpression, logicalProperties,
                 cols, child);
         this.database = Objects.requireNonNull(database,
                 "database != null in LogicalExternalRowLevelDeleteSink");
         this.targetTable = Objects.requireNonNull(targetTable,
                 "targetTable != null in LogicalExternalRowLevelDeleteSink");
+        this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
     }
 
+    /** Rebuilds the sink after its child has been rewritten and adopts the child's bound output. */
     public Plan withChildAndUpdateOutput(Plan child) {
         List<NamedExpression> output = child.getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, cols, output,
+        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, boundWriteMetadataIdentity,
+                cols, output,
                 Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalExternalRowLevelDeleteSink only accepts one child");
-        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, boundWriteMetadataIdentity,
+                cols, outputExprs,
                 Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public LogicalExternalRowLevelDeleteSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, boundWriteMetadataIdentity,
+                cols, outputExprs,
                 Optional.empty(), Optional.empty(), child());
     }
 
@@ -95,6 +113,10 @@ public class LogicalExternalRowLevelDeleteSink<CHILD_TYPE extends Plan> extends 
 
     public ExternalTable getTargetTable() {
         return targetTable;
+    }
+
+    public String getBoundWriteMetadataIdentity() {
+        return boundWriteMetadataIdentity;
     }
 
     @Override
@@ -111,12 +133,13 @@ public class LogicalExternalRowLevelDeleteSink<CHILD_TYPE extends Plan> extends 
         LogicalExternalRowLevelDeleteSink<?> that = (LogicalExternalRowLevelDeleteSink<?>) o;
         return Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable)
+                && Objects.equals(boundWriteMetadataIdentity, that.boundWriteMetadataIdentity)
                 && Objects.equals(cols, that.cols);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, targetTable, cols);
+        return Objects.hash(super.hashCode(), database, targetTable, boundWriteMetadataIdentity, cols);
     }
 
     @Override
@@ -136,14 +159,16 @@ public class LogicalExternalRowLevelDeleteSink<CHILD_TYPE extends Plan> extends 
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, boundWriteMetadataIdentity,
+                cols, outputExprs,
                 groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalExternalRowLevelDeleteSink<>(database, targetTable, boundWriteMetadataIdentity,
+                cols, outputExprs,
                 groupExpression, logicalProperties, children.get(0));
     }
 }

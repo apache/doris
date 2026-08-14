@@ -653,6 +653,21 @@ TEST(VariantBatchBuilderTest, StringBoundariesAndUtf8ValidationPreserveRowState)
     ASSERT_EQ(block.metadata_ref().dict_size(), 3);
 }
 
+TEST(VariantMetadataBuilderTest, RegisterKeyPreservesValidationOnDictionaryMiss) {
+    VariantMetadataBuilder metadata;
+    EXPECT_EQ(metadata.register_key(string_ref("valid")), 0);
+    EXPECT_EQ(metadata.register_key(string_ref("valid")), 0);
+
+    const std::string invalid_utf8("\xC0\xAF", 2);
+    EXPECT_THROW(metadata.register_key(StringRef(invalid_utf8)), Exception);
+    EXPECT_THROW(metadata.register_key(StringRef(static_cast<const char*>(nullptr), 1)), Exception);
+    EXPECT_EQ(metadata.num_keys(), 1);
+
+    metadata.seal();
+    ASSERT_EQ(metadata.metadata_ref().dict_size(), 1);
+    EXPECT_EQ(metadata.metadata_ref().key_at(0), string_ref("valid"));
+}
+
 std::string build_array_with_nulls(uint32_t count, uint8_t* value_header_out) {
     const OwnedBuilderValue owned = build_owned_value([count](VariantBatchBuilder::Row& row) {
         auto array = row.start_array();
