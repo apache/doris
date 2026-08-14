@@ -64,7 +64,7 @@ protected:
     }
 };
 
-// The plugin half is a directory name under lib/java/plugins/, so it has to survive being
+// The plugin half is a directory name under plugins/jni/, so it has to survive being
 // one. A Java class name - the thing each of these replaced - does not: it carries the
 // package separators that make it a path instead of a name.
 TEST_F(PluginRefTableTest, PluginNamesCanBeDirectoryNames) {
@@ -122,15 +122,15 @@ TEST(PluginRegistryTest, CleanUdfCacheIsSilentWhenNoPluginWasEverLoaded) {
 class WarmupTest : public testing::Test {
 protected:
     void SetUp() override {
-        _saved_dir = config::java_plugin_dir;
+        _saved_dir = config::jni_plugin_dir;
         _root = std::filesystem::temp_directory_path() / "doris_jni_plugin_registry_test";
         std::filesystem::remove_all(_root);
         std::filesystem::create_directories(_root);
-        config::java_plugin_dir = _root.string();
+        config::jni_plugin_dir = _root.string();
     }
 
     void TearDown() override {
-        config::java_plugin_dir = _saved_dir;
+        config::jni_plugin_dir = _saved_dir;
         std::filesystem::remove_all(_root);
     }
 
@@ -142,7 +142,7 @@ protected:
 
 // The ordinary state of a BE nobody deployed a plugin on. Not an error, and not worth a JVM.
 TEST_F(WarmupTest, AMissingDirectoryIsNotADeployment) {
-    config::java_plugin_dir = (_root / "never-created").string();
+    config::jni_plugin_dir = (_root / "never-created").string();
     EXPECT_FALSE(PluginRegistry::any_plugin_deployed());
 }
 

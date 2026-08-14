@@ -152,7 +152,7 @@ std::vector<std::string> JvmLauncher::_build_options() {
     // through the startup script because the value is a BE config and this is the one place
     // that turns BE config into JVM options; passing it from the script as well would be two
     // sources for one path.
-    options.push_back("-Ddoris.jni.plugin.dir=" + config::java_plugin_dir);
+    options.push_back("-Ddoris.jni.plugin.dir=" + config::jni_plugin_dir);
     return options;
 }
 

@@ -1668,7 +1668,9 @@ DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/trino_plugins")
 
 // The directory BE loads its Java plugins from. Each subdirectory is one plugin, named by the
 // directory: that name is what BE addresses it by and what appears in "is not deployed".
-DEFINE_String(java_plugin_dir, "${DORIS_HOME}/lib/java/plugins");
+// It lives under plugins/ rather than lib/ because lib/ is the engine tree a package upgrade
+// replaces wholesale - a plugin deployed there would not survive one.
+DEFINE_String(jni_plugin_dir, "${DORIS_HOME}/plugins/jni");
 
 // Whether to load every deployed plugin at startup rather than on the query that first needs
 // one. On by default because the alternative is that a broken deployment is discovered by a
