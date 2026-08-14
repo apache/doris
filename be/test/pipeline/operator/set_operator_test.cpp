@@ -388,6 +388,9 @@ TEST_F(ExceptOperatorTest, test_output_null_batsh_size) {
 }
 
 TEST_F(IntersectOperatorTest, test_sink_large_string_data_over_4g) {
+#if defined(__APPLE__) && defined(ADDRESS_SANITIZER)
+    GTEST_SKIP() << "The >4GB stress case exceeds the macOS ASAN runner memory limit";
+#endif
     // Test that SetSinkOperatorX can handle string data exceeding 4GB total size.
     // This exercises the convert_column_if_overflow path in _process_build_block.
     init_op(2, {std::make_shared<DataTypeString>()});
@@ -465,6 +468,9 @@ TEST_F(IntersectOperatorTest, test_sink_large_string_data_over_4g) {
 }
 
 TEST_F(ExceptOperatorTest, test_sink_large_string_data_over_4g) {
+#if defined(__APPLE__) && defined(ADDRESS_SANITIZER)
+    GTEST_SKIP() << "The >4GB stress case exceeds the macOS ASAN runner memory limit";
+#endif
     // Test that SetSinkOperatorX (EXCEPT) can handle string data exceeding 4GB total size.
     init_op(2, {std::make_shared<DataTypeString>()});
 
