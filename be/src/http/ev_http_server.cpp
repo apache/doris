@@ -25,6 +25,7 @@
 #include <event2/event.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>
+#include <event2/listener.h>
 #include <event2/thread.h>
 #include <netinet/in.h>
 #include <string.h>
@@ -128,8 +129,19 @@ void EvHttpServer::start() {
                                          [](evhttp* http) { evhttp_free(http); });
             CHECK(http != nullptr) << "Couldn't create an evhttp.";
 
-            auto res = evhttp_accept_socket(http.get(), _server_fd);
-            CHECK(res >= 0) << "evhttp accept socket failed, res=" << res;
+            // All workers accept on the shared _server_fd. Do NOT use
+            // evhttp_accept_socket() here: it wraps the fd in an evconnlistener
+            // created with LEV_OPT_CLOSE_ON_FREE, so every worker's evhttp_free()
+            // would close() the same fd number again. A stale close may hit an
+            // unrelated fd that recycled the number (e.g. the ASAN/UBSAN runtime's
+            // internal pipes at shutdown). The fd is owned by EvHttpServer and is
+            // closed exactly once in stop().
+            struct evconnlistener* listener = evconnlistener_new(
+                    base.get(), nullptr, nullptr, LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_EXEC,
+                    0 /* fd is already listening */, _server_fd);
+            CHECK(listener != nullptr) << "Couldn't create evconnlistener.";
+            CHECK(evhttp_bind_listener(http.get(), listener) != nullptr)
+                    << "evhttp bind listener failed.";
 
             evhttp_set_newreqcb(http.get(), on_connection, this);
             evhttp_set_gencb(http.get(), on_request, this);
