@@ -66,6 +66,14 @@ under the License.
                  the shade jar -> child-first duplicate-class hazard, design Risk #5). -->
             <optional>true</optional>
             <exclusions>
+                <!-- Paimon 2.0 publishes this artifact as a fat jar containing the full Paimon
+                     runtime. The shade filter below keeps only org/apache/paimon/hive/**, so its
+                     Maven transitives must not be added as duplicate inputs. fe-connector-paimon
+                     provides the single paimon-core runtime used by both layers. -->
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
                 <exclusion>
                     <groupId>org.apache.httpcomponents.client5</groupId>
                     <artifactId>httpclient5</artifactId>
@@ -306,6 +314,16 @@ under the License.
                             <createDependencyReducedPom>true</createDependencyReducedPom>
                             <dependencyReducedPomLocation>${project.basedir}/target/dependency-reduced-pom.xml</dependencyReducedPomLocation>
                             <filters>
+                                <filter>
+                                    <artifact>org.apache.paimon:paimon-hive-connector-3.1</artifact>
+                                    <includes>
+                                        <!-- Paimon 2.0's Hive connector is a fat jar. Keep only
+                                             the Hive integration; core, formats, codegen and all
+                                             shaded third-party classes come from the plugin's
+                                             normal Paimon runtime exactly once. -->
+                                        <include>org/apache/paimon/hive/**</include>
+                                    </includes>
+                                </filter>
                                 <filter>
                                     <artifact>*:*</artifact>
                                     <excludes>
