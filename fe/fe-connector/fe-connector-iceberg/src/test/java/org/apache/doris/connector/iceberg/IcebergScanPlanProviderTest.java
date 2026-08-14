@@ -55,9 +55,11 @@ import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -76,6 +78,8 @@ import org.junit.jupiter.api.Test;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -141,6 +145,40 @@ public class IcebergScanPlanProviderTest {
             builder.withPartitionPath(partitionPath);
         }
         return builder.build();
+    }
+
+    private static Table tableWithSnapshotSummary(Table table, Map<String, String> summaryOverrides) {
+        return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
+                (proxy, method, args) -> wrapSnapshotSummary(invoke(method, table, args), summaryOverrides));
+    }
+
+    private static Object wrapSnapshotSummary(Object value, Map<String, String> summaryOverrides) {
+        if (value instanceof TableScan) {
+            TableScan scan = (TableScan) value;
+            return Proxy.newProxyInstance(TableScan.class.getClassLoader(), new Class<?>[] {TableScan.class},
+                    (proxy, method, args) -> wrapSnapshotSummary(invoke(method, scan, args), summaryOverrides));
+        }
+        if (value instanceof Snapshot) {
+            Snapshot snapshot = (Snapshot) value;
+            return Proxy.newProxyInstance(Snapshot.class.getClassLoader(), new Class<?>[] {Snapshot.class},
+                    (proxy, method, args) -> {
+                        if (method.getName().equals("summary")) {
+                            Map<String, String> summary = new HashMap<>(snapshot.summary());
+                            summary.putAll(summaryOverrides);
+                            return summary;
+                        }
+                        return invoke(method, snapshot, args);
+                    });
+        }
+        return value;
+    }
+
+    private static Object invoke(java.lang.reflect.Method method, Object target, Object[] args) throws Throwable {
+        try {
+            return method.invoke(target, args);
+        } catch (InvocationTargetException e) {
+            throw e.getCause();
+        }
     }
 
     /** Run a range's BE-param population end-to-end (the generic node pre-sets table_format_type). */
@@ -2114,12 +2152,21 @@ public class IcebergScanPlanProviderTest {
 
     @Test
     public void streamingSplitEstimateServableCountPushdownStaysSynchronous() {
-        // A servable COUNT(*) collapses to one range (never streamed). 3 files, no deletes -> count servable from
-        // the snapshot summary. MUTATION: dropping the countPushdown short-circuit -> 3 -> red.
+        // COUNT(*) needs a complete live-file enumeration to prove an exact metadata count, so it never streams.
+        // MUTATION: dropping the countPushdown short-circuit -> 3 -> red.
         IcebergScanPlanProvider provider = providerOver(threeFileTable());
         long estimate = provider.streamingSplitEstimate(batchSession(2, true),
                 new IcebergTableHandle("db1", "t1"), Optional.empty(), true);
         Assertions.assertEquals(-1, estimate, "servable count pushdown must not stream");
+    }
+
+    @Test
+    public void streamingSplitEstimateFilteredCountUsesNormalScan() {
+        // File record counts cannot answer a filtered COUNT exactly, so retain normal streaming scan planning.
+        IcebergScanPlanProvider provider = providerOver(threeFileTable());
+        long estimate = provider.streamingSplitEstimate(batchSession(2, true),
+                new IcebergTableHandle("db1", "t1"), Optional.of(eqInt("id", 1)), true);
+        Assertions.assertEquals(3L, estimate);
     }
 
     @Test
@@ -2531,7 +2578,7 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals("oss://bucket/db/t1/f.parquet", fd.getOriginalFilePath());
     }
 
-    // --- T05: COUNT(*) pushdown (getCountFromSnapshot + collapse-to-one count range, mirrors paimon) ---
+    // --- T05: COUNT(*) pushdown (live manifest count + collapse-to-one count range) ---
 
     private static List<ConnectorScanRange> planCount(IcebergScanPlanProvider provider, ConnectorSession session,
             boolean countPushdown) {
@@ -2571,6 +2618,27 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void countPushdownUsesLiveDataFileRecordsWhenSnapshotSummaryIsWrong() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1000, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2000, null, null))
+                .commit();
+        Table tableWithWrongSummary = tableWithSnapshotSummary(
+                table, Collections.singletonMap("total-records", "999"));
+        Assertions.assertEquals("999", tableWithWrongSummary.currentSnapshot().summary().get("total-records"),
+                "precondition: the snapshot summary must contain a valid but incorrect positive count");
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(tableWithWrongSummary));
+
+        List<ConnectorScanRange> ranges = planCount(provider, null, true);
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(30L, ranges.get(0).getPushDownRowCount());
+        Assertions.assertEquals(30L, populate(ranges.get(0)).getTableFormatParams().getTableLevelRowCount());
+    }
+
+    @Test
     public void countPushdownNotAppliedWithEqualityDeletesScansAll() {
         Map<String, String> v2 = Collections.singletonMap(TableProperties.FORMAT_VERSION, "2");
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), v2);
@@ -2586,8 +2654,8 @@ public class IcebergScanPlanProviderTest {
 
         List<ConnectorScanRange> ranges = planCount(provider, null, true);
 
-        // Equality deletes -> getCountFromSnapshot returns -1 -> fall back to the normal scan (every data file,
-        // each count -1 so BE reads & counts). MUTATION: pushing the count anyway -> 1 range / a count >= 0 -> red.
+        // Equality deletes prevent an exact manifest-only count, so fall back to the normal scan (every data
+        // file, each count -1 so BE reads and counts).
         Assertions.assertEquals(2, ranges.size());
         for (ConnectorScanRange range : ranges) {
             Assertions.assertEquals(-1L, range.getPushDownRowCount());
@@ -2595,7 +2663,7 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void countPushdownWithPositionDeletesNetsOutWhenIgnoringDangling() {
+    public void countPushdownWithPositionDeletesScansAllEvenWhenIgnoringDangling() {
         Map<String, String> v2 = Collections.singletonMap(TableProperties.FORMAT_VERSION, "2");
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), v2);
         // 1000/100 = 10 data records.
@@ -2617,11 +2685,10 @@ public class IcebergScanPlanProviderTest {
 
         List<ConnectorScanRange> ranges = planCount(provider, session, true);
 
-        // total-records(10) - total-position-deletes(3) = 7, pushable only because the session ignores dangling
-        // deletes. MUTATION: returning total-records (10) / not honoring the session flag -> wrong count -> red.
+        // A snapshot summary cannot prove whether position-delete entries are live or dangling. Even when the
+        // legacy compatibility flag is enabled, V2 must scan the data file rather than return an unverified count.
         Assertions.assertEquals(1, ranges.size());
-        Assertions.assertEquals(7L, ranges.get(0).getPushDownRowCount());
-        Assertions.assertEquals(7L, populate(ranges.get(0)).getTableFormatParams().getTableLevelRowCount());
+        Assertions.assertEquals(-1L, ranges.get(0).getPushDownRowCount());
     }
 
     @Test
@@ -2654,9 +2721,7 @@ public class IcebergScanPlanProviderTest {
 
     @Test
     public void countPushdownEmptyTableProducesNoRanges() {
-        // Empty table (no snapshot) -> getCountFromSnapshot 0, but no representative file -> no range -> BE gets
-        // 0 ranges -> COUNT returns 0 (legacy returns empty splits too). MUTATION: emitting a synthetic count
-        // range with no path -> red (no file to build from).
+        // Empty table has no representative file, so BE gets 0 ranges and COUNT returns 0.
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
 
@@ -2678,6 +2743,28 @@ public class IcebergScanPlanProviderTest {
         List<ConnectorScanRange> ranges = planCount(provider, null, false);
 
         // MUTATION: collapsing on countPushdown=false -> 1 range -> red.
+        Assertions.assertEquals(2, ranges.size());
+        for (ConnectorScanRange range : ranges) {
+            Assertions.assertEquals(-1L, range.getPushDownRowCount());
+        }
+    }
+
+    @Test
+    public void countPushdownWithRowFilterFallsBackToNormalScan() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1000, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 1000, null, null))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
+                        .filter(Optional.of(eqInt("id", 1)))
+                        .countPushdown(true)
+                        .build());
+
         Assertions.assertEquals(2, ranges.size());
         for (ConnectorScanRange range : ranges) {
             Assertions.assertEquals(-1L, range.getPushDownRowCount());
@@ -2836,8 +2923,8 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void countPushdownManifestCacheMatchesCountAndReadsLazily() {
-        // Three appends -> three data manifests; record counts 10+20+30 = total-records 60 (snapshot summary).
+    public void countPushdownManifestCacheReadsAllLiveFilesWithoutMaterializingTasks() {
+        // Three appends -> three data manifests; required data-file record counts sum to 10+20+30 = 60.
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2048, null, null)).commit();
@@ -2851,23 +2938,20 @@ public class IcebergScanPlanProviderTest {
         List<ConnectorScanRange> cached = planCount(manifestProvider(manifestCacheProps(), table, cache),
                 emptySession(), true);
 
-        // Same collapsed single range + same count (from the snapshot summary). The placeholder file path may
+        // Same collapsed single range + same manifest-derived count. The placeholder file path may
         // differ (SDK planFiles' ParallelIterable order is non-deterministic), so assert count + shape, not path.
         Assertions.assertEquals(1, sdk.size());
         Assertions.assertEquals(1, cached.size());
         Assertions.assertEquals(60L, cached.get(0).getPushDownRowCount());
         Assertions.assertEquals(sdk.get(0).getPushDownRowCount(), cached.get(0).getPushDownRowCount());
-        // Lazy early stop: COUNT needs only the first surviving file, so it must NOT read every data manifest.
-        // MUTATION: routing count through the materialized cache path -> reads all manifests -> size == total -> red.
-        Assertions.assertTrue(cache.size() >= 1 && cache.size() < totalManifests,
-                "count reads lazily (stops at the first file's manifest), not the whole table");
+        // Exactness requires consuming every live data file, while the iterator still keeps FE memory bounded.
+        Assertions.assertEquals(totalManifests, cache.size());
     }
 
     @Test
     public void countPushdownManifestCacheEmptyNullSnapshotReturnsNoRanges() {
-        // A never-appended table has no current snapshot; getCountFromSnapshot returns 0 (>=0) so planCountPushdown
-        // runs with a null-snapshot scan. cacheBackedFileScanTasks must keep the null-snapshot guard (empty
-        // iterable), not NPE. MUTATION: dropping the guard -> NPE on scan.snapshot() -> red.
+        // A never-appended table has no current snapshot. cacheBackedFileScanTasks must keep the null-snapshot
+        // guard (empty iterable), not NPE. MUTATION: dropping the guard -> NPE on scan.snapshot() -> red.
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> cached = planCount(manifestProvider(manifestCacheProps(), table, cache),
