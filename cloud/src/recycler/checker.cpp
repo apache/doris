@@ -772,10 +772,13 @@ int InstanceChecker::do_check() {
         }
         if (!index_ids.empty()) {
             const auto& index_map = rs_meta.packed_slice_locations();
+            const auto index_format =
+                    rs_meta.has_inverted_index_storage_format()
+                            ? rs_meta.inverted_index_storage_format()
+                            : rs_meta.tablet_schema().inverted_index_storage_format();
             for (int i = 0; i < rs_meta.num_segments(); ++i) {
                 std::vector<std::string> index_path_v;
-                if (rs_meta.tablet_schema().inverted_index_storage_format() ==
-                    InvertedIndexStorageFormatPB::V1) {
+                if (index_format == InvertedIndexStorageFormatPB::V1) {
                     for (const auto& index_id : index_ids) {
                         LOG(INFO) << "check inverted index, tablet_id=" << rs_meta.tablet_id()
                                   << " rowset_id=" << rs_meta.rowset_id_v2() << " segment_id=" << i
