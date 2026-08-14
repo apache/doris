@@ -397,7 +397,8 @@ TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorReaderValidatesOpenedFileR
         DeletionVectorReader oversized_reader(&state, &profile, scan_params, oversized_range,
                                               &io_context.io_ctx);
         const auto oversized_status = oversized_reader.open();
-        EXPECT_TRUE(oversized_status.template is<ErrorCode::DATA_QUALITY_ERROR>()) << oversized_status;
+        EXPECT_TRUE(oversized_status.template is<ErrorCode::DATA_QUALITY_ERROR>())
+                << oversized_status;
         EXPECT_NE(oversized_status.to_string().find("range exceeds file size"), std::string::npos);
         EXPECT_NE(oversized_status.to_string().find(dv_path), std::string::npos);
     }
