@@ -66,6 +66,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -126,6 +127,9 @@ import java.util.stream.Collectors;
 // Full scan of an Olap table.
 public class OlapScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(OlapScanNode.class);
+    @VisibleForTesting
+    static final String MISSING_RF_BUCKET_METADATA_DEBUG_POINT =
+            "OlapScanNode.setRuntimeFilterBucketPruneParameters.missingBucketMetadata";
 
     // average compression ratio in doris storage engine
     private static final int COMPRESSION_RATIO = 5;
@@ -210,6 +214,7 @@ public class OlapScanNode extends ScanNode {
 
     // Pack bucket number and sequence into one value to avoid retaining two all-tablet maps.
     private Map<Long, Long> tabletId2BucketInfo = Maps.newHashMap();
+    private boolean runtimeFilterBucketPruneParametersSet = false;
     // a bucket seq may map to many tablets, and each tablet has a
     // TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
@@ -1367,12 +1372,11 @@ public class OlapScanNode extends ScanNode {
         // filter whose target expression can drive partition pruning according
         // to the FE-side classifier, so we don't bloat thrift for tables with
         // many partitions but no usable RF target.
-        // Gated by session variable `enable_runtime_filter_partition_prune`.
-        ConnectContext rfPruneCtx = ConnectContext.get();
-        if (rfPruneCtx != null
-                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterPartitionPrune()
-                && hasRfDrivingPartitionPruning()) {
+        if (hasRfDrivingPartitionPruning()) {
             setPartitionBoundariesForRuntimeFilter(msg.olap_scan_node);
+        }
+        if (hasRfDrivingBucketPruning()) {
+            setRuntimeFilterBucketPruneParameters();
         }
         super.toThrift(msg);
     }
@@ -1433,19 +1437,34 @@ public class OlapScanNode extends ScanNode {
         return false;
     }
 
-    public void setRuntimeFilterBucketPruneParameters() {
-        if (!hasRfDrivingBucketPruning()) {
+    @VisibleForTesting
+    synchronized void setRuntimeFilterBucketPruneParameters() {
+        if (runtimeFilterBucketPruneParametersSet) {
             return;
         }
+        long debugMissingTabletId = DebugPointUtil.getDebugParamOrDefault(
+                MISSING_RF_BUCKET_METADATA_DEBUG_POINT, -1L);
         for (TScanRangeLocations locations : scanRangeLocations) {
             TPaloScanRange scanRange = locations.getScanRange().getPaloScanRange();
             Long bucketInfo = tabletId2BucketInfo.get(scanRange.getTabletId());
-            Preconditions.checkState(bucketInfo != null && decodeBucketNum(bucketInfo) > 0,
-                    "missing bucket metadata for runtime-filter bucket pruning, tablet=%s",
-                    scanRange.getTabletId());
+            if (scanRange.getTabletId() == debugMissingTabletId) {
+                bucketInfo = null;
+            }
+            if (bucketInfo == null || decodeBucketNum(bucketInfo) <= 0) {
+                LOG.warn("missing bucket metadata for runtime-filter bucket pruning, "
+                                + "scanNode={}, tablet={}; disable pruning for this scan node",
+                        getId(), scanRange.getTabletId());
+                runtimeFilterBucketPruneParametersSet = true;
+                return;
+            }
+        }
+        for (TScanRangeLocations locations : scanRangeLocations) {
+            TPaloScanRange scanRange = locations.getScanRange().getPaloScanRange();
+            long bucketInfo = tabletId2BucketInfo.get(scanRange.getTabletId());
             scanRange.setBucketSeq(decodeBucketSeq(bucketInfo));
             scanRange.setBucketNum(decodeBucketNum(bucketInfo));
         }
+        runtimeFilterBucketPruneParametersSet = true;
     }
 
     private static long encodeBucketInfo(int bucketSeq, int bucketNum) {

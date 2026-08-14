@@ -34,7 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -140,12 +140,12 @@ class RuntimeFilterTranslatorBucketPruneTest {
         TranslatorHarness harness = new TranslatorHarness();
         SlotReference target = harness.addTargetSlot("dist_col", harness.distributionColumn,
                 IntegerType.INSTANCE);
-        Mockito.clearInvocations(harness.scanNode);
+        Mockito.clearInvocations(harness.targetRelation);
 
         TRuntimeFilterDesc desc = harness.translate(ImmutableList.of(harness.newFilter(target, target)));
 
-        Mockito.verify(harness.scanNode, Mockito.never()).isPointQuery();
-        Mockito.verify(harness.scanNode, Mockito.never()).getSelectedPartitionIds();
+        Mockito.verify(harness.targetRelation, Mockito.never()).getTable();
+        Mockito.verify(harness.targetRelation, Mockito.never()).getSelectedPartitionIds();
         Assertions.assertEquals(1, desc.planId_to_target_expr.size());
         Assertions.assertFalse(desc.isSetBucketPruningTargetIds());
     }
@@ -161,7 +161,7 @@ class RuntimeFilterTranslatorBucketPruneTest {
         private final OlapScanNode scanNode = Mockito.mock(OlapScanNode.class);
         private final PlanNode builderNode = Mockito.mock(PlanNode.class);
         private final AbstractPhysicalPlan nereidsBuilder = Mockito.mock(AbstractPhysicalPlan.class);
-        private final PhysicalRelation targetRelation = Mockito.mock(PhysicalRelation.class);
+        private final PhysicalOlapScan targetRelation = Mockito.mock(PhysicalOlapScan.class);
         private final PlanTranslatorContext translatorContext = new PlanTranslatorContext();
         private final RuntimeFilterContext runtimeFilterContext;
         private final RuntimeFilterTranslator translator;
@@ -187,6 +187,8 @@ class RuntimeFilterTranslatorBucketPruneTest {
             Mockito.when(scanNode.getOlapTable()).thenReturn(table);
             Mockito.when(scanNode.getSelectedPartitionIds()).thenReturn(ImmutableList.of(1L));
             Mockito.when(scanNode.getId()).thenReturn(new PlanNodeId(SCAN_NODE_ID));
+            Mockito.when(targetRelation.getTable()).thenReturn(table);
+            Mockito.when(targetRelation.getSelectedPartitionIds()).thenReturn(ImmutableList.of(1L));
 
             PlanFragment fragment = Mockito.mock(PlanFragment.class);
             PlanFragmentId fragmentId = new PlanFragmentId(3);
@@ -214,9 +216,11 @@ class RuntimeFilterTranslatorBucketPruneTest {
         }
 
         RuntimeFilter newFilter(SlotReference target, Expression targetExpression) {
-            return new RuntimeFilter(filterIdGenerator.getNextId(), source, target, targetExpression,
+            RuntimeFilter filter = new RuntimeFilter(filterIdGenerator.getNextId(), source, target, targetExpression,
                     TRuntimeFilterType.IN, 0, nereidsBuilder, 10, false,
                     TMinMaxRuntimeFilterType.MIN_MAX, targetRelation);
+            runtimeFilterContext.generateRuntimeFilterPruneMetadata(filter);
+            return filter;
         }
 
         TRuntimeFilterDesc translate(List<RuntimeFilter> filters) {

@@ -170,8 +170,6 @@ public class RuntimeFilterTranslator {
             List<Expr> targetExprList = new ArrayList<>();
             List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
             List<ScanNode> scanNodeList = new ArrayList<>();
-            List<Expression> nereidsTargetExprList = new ArrayList<>();
-            List<Boolean> targetAdjustedAfterNonIdentityList = new ArrayList<>();
             Map<Integer, String> scanNodeTargetExprSql = new LinkedHashMap<>();
             Map<Integer, Boolean> scanNodeHasDifferentTargets = new LinkedHashMap<>();
             boolean hasInvalidTarget = false;
@@ -200,16 +198,12 @@ public class RuntimeFilterTranslator {
                             new RuntimeFilterExpressionTranslator(targetSlotRef);
                     targetExpr = curTargetExpression.accept(translator, ctx);
                 }
-                boolean adjustedAfterNonIdentity = !src.getType().equals(targetExpr.getType())
-                        && !isIdentityTarget;
                 targetExpr = castTargetToSourceTypeIfNeeded(src, targetExpr);
                 TupleId targetTupleId = targetSlotRef.getDesc().getParentId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
                 targetExprList.add(targetExpr);
-                nereidsTargetExprList.add(curTargetExpression);
                 targetTupleIdMapList.add(ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)));
-                targetAdjustedAfterNonIdentityList.add(adjustedAfterNonIdentity);
                 int scanNodeId = scanNode.getId().asInt();
                 String targetExprSql = targetExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
                 String existingTargetExprSql = scanNodeTargetExprSql.putIfAbsent(scanNodeId, targetExprSql);
@@ -241,15 +235,10 @@ public class RuntimeFilterTranslator {
                     // TRuntimeFilterDesc keys target expressions and pruning metadata by scan node ID.
                     // If one grouped RF has different targets on the same scan, BE cannot match
                     // metadata back to a specific target expression, so skip pruning metadata.
-                    if (scanNodeHasDifferentTargets.getOrDefault(scanNode.getId().asInt(), false)
-                            || targetAdjustedAfterNonIdentityList.get(i)) {
+                    if (scanNodeHasDifferentTargets.getOrDefault(scanNode.getId().asInt(), false)) {
                         continue;
                     }
-                    RuntimeFilterPartitionPruneClassifier.Classification classification =
-                            RuntimeFilterPartitionPruneClassifier.classify(
-                                    head.getType(), targetExpr, nereidsTargetExprList.get(i), scanNode);
-                    setPartitionPruningMetadata(origFilter, scanNode, classification);
-                    setBucketPruningMetadata(origFilter, scanNode, head.getType(), targetExpr);
+                    setPruningMetadata(origFilter, scanNode, group.get(i));
                 }
                 origFilter.setBloomFilterSizeCalculatedByNdv(head.isBloomFilterSizeCalculatedByNdv());
                 setWaitTimeMs(origFilter, head.isNonBlocking(), isLocalTarget);
@@ -288,7 +277,6 @@ public class RuntimeFilterTranslator {
             List<Expr> targetExprList = new ArrayList<>();
             List<Map<TupleId, List<SlotId>>> targetTupleIdMapList = new ArrayList<>();
             List<ScanNode> scanNodeList = new ArrayList<>();
-            List<Boolean> targetAdjustedAfterNonIdentityList = new ArrayList<>();
             boolean hasInvalidTarget = false;
             Slot curTargetSlot = filter.getTargetSlot();
             Expression curTargetExpression = filter.getTargetExpression();
@@ -314,15 +302,12 @@ public class RuntimeFilterTranslator {
                 }
 
                 // adjust data type
-                boolean adjustedAfterNonIdentity = !src.getType().equals(targetExpr.getType())
-                        && !isIdentityTarget;
                 targetExpr = castTargetToSourceTypeIfNeeded(src, targetExpr);
                 TupleId targetTupleId = targetSlotRef.getDesc().getParentId();
                 SlotId targetSlotId = targetSlotRef.getSlotId();
                 scanNodeList.add(scanNode);
                 targetExprList.add(targetExpr);
                 targetTupleIdMapList.add(ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)));
-                targetAdjustedAfterNonIdentityList.add(adjustedAfterNonIdentity);
             }
             if (!hasInvalidTarget) {
                 org.apache.doris.planner.RuntimeFilter origFilter
@@ -346,14 +331,7 @@ public class RuntimeFilterTranslator {
                     Expr targetExpr = targetExprList.get(i);
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
-                    if (targetAdjustedAfterNonIdentityList.get(i)) {
-                        continue;
-                    }
-                    RuntimeFilterPartitionPruneClassifier.Classification classification =
-                            RuntimeFilterPartitionPruneClassifier.classify(
-                                    filter.getType(), targetExpr, filter.getTargetExpressions().get(i), scanNode);
-                    setPartitionPruningMetadata(origFilter, scanNode, classification);
-                    setBucketPruningMetadata(origFilter, scanNode, filter.getType(), targetExpr);
+                    setPruningMetadata(origFilter, scanNode, filter);
                 }
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
                 setWaitTimeMs(origFilter, filter.isNonBlocking(), isLocalTarget);
@@ -383,26 +361,17 @@ public class RuntimeFilterTranslator {
         return origFilter;
     }
 
-    private void setPartitionPruningMetadata(org.apache.doris.planner.RuntimeFilter runtimeFilter,
-            ScanNode scanNode, RuntimeFilterPartitionPruneClassifier.Classification classification) {
-        if (classification.canPrunePartitions()) {
+    private void setPruningMetadata(org.apache.doris.planner.RuntimeFilter runtimeFilter,
+            ScanNode scanNode, RuntimeFilter nereidsFilter) {
+        if (nereidsFilter.canPrunePartitions()) {
             Preconditions.checkState(scanNode instanceof OlapScanNode,
                     "partition-pruning runtime filter target must be an OlapScanNode");
             runtimeFilter.markTargetCanPrunePartitions(scanNode.getId());
             ((OlapScanNode) scanNode).snapshotPartitionBoundariesForRuntimeFilter();
         }
         runtimeFilter.setTargetPartitionMonotonicity(
-                scanNode.getId(), classification.getPartitionMonotonicity());
-    }
-
-    private void setBucketPruningMetadata(org.apache.doris.planner.RuntimeFilter runtimeFilter,
-            ScanNode scanNode, TRuntimeFilterType filterType, Expr targetExpr) {
-        if (!context.getSessionVariable().isEnableRuntimeFilterBucketPrune()) {
-            return;
-        }
-        RuntimeFilterBucketPruneClassifier.Classification classification =
-                RuntimeFilterBucketPruneClassifier.classify(filterType, targetExpr, scanNode);
-        if (classification.canPruneBuckets()) {
+                scanNode.getId(), nereidsFilter.getPartitionMonotonicity());
+        if (nereidsFilter.canPruneBuckets()) {
             runtimeFilter.markTargetCanPruneBuckets(scanNode.getId());
         }
     }
