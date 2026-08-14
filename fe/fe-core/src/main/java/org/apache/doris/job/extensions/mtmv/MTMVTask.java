@@ -97,6 +97,8 @@ public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
     public static final int DEFAULT_REFRESH_PARTITION_NUM = 1;
 
+    private static final Gson GSON = new Gson();
+
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("TaskId", ScalarType.createStringType()),
             new Column("JobId", ScalarType.createStringType()),
@@ -544,16 +546,16 @@ public class MTMVTask extends AbstractTask {
                 (super.getFinishTimeMs() == null || super.getFinishTimeMs() == 0) ? FeConstants.null_string
                         : String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs())));
         trow.addToColumnValue(new TCell()
-                .setStringVal(taskContext == null ? FeConstants.null_string : new Gson().toJson(taskContext)));
+                .setStringVal(taskContext == null ? FeConstants.null_string : GSON.toJson(taskContext)));
         trow.addToColumnValue(
                 new TCell().setStringVal(refreshMode == null ? FeConstants.null_string : refreshMode.toString()));
         trow.addToColumnValue(
                 new TCell().setStringVal(
-                        needRefreshPartitions == null ? FeConstants.null_string : new Gson().toJson(
+                        needRefreshPartitions == null ? FeConstants.null_string : GSON.toJson(
                                 needRefreshPartitions)));
         trow.addToColumnValue(
                 new TCell().setStringVal(
-                        completedPartitions == null ? FeConstants.null_string : new Gson().toJson(
+                        completedPartitions == null ? FeConstants.null_string : GSON.toJson(
                                 completedPartitions)));
         trow.addToColumnValue(
                 new TCell().setStringVal(getProgress()));
