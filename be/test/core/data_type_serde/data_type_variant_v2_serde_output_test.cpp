@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/array/array_nested.h>
 #include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_nested.h>
 #include <gtest/gtest.h>
 
 #include <array>
@@ -249,6 +251,34 @@ ColumnVariantV2::MutablePtr invalid_date_column() {
 TEST(DataTypeVariantV2SerdeOutputTest, DormantDirectClassExists) {
     DataTypeVariantV2SerDe serde;
     EXPECT_EQ(serde.get_name(), "Variant");
+}
+
+TEST(DataTypeVariantV2SerdeOutputTest, VariantStructArrowPreservesBinaryEncoding) {
+    DataTypeVariantV2SerDe serde;
+    auto documents = encoded_json({R"({"id":7,"tags":["doris"]})", R"([1,true,null])"});
+    auto value_builder = std::make_shared<arrow::BinaryBuilder>();
+    auto metadata_builder = std::make_shared<arrow::BinaryBuilder>();
+    auto arrow_type = arrow::struct_({arrow::field("value", arrow::binary(), false),
+                                      arrow::field("metadata", arrow::binary(), false)});
+    arrow::StructBuilder builder(arrow_type, arrow::default_memory_pool(),
+                                 {value_builder, metadata_builder});
+    NullMap forced_nulls {0, 1};
+
+    ASSERT_TRUE(serde.write_column_to_arrow(*documents, &forced_nulls, &builder, 0,
+                                            documents->size(), cctz::utc_time_zone())
+                        .ok());
+    std::shared_ptr<arrow::StructArray> output;
+    ASSERT_TRUE(builder.Finish(&output).ok());
+    ASSERT_EQ(output->length(), 2);
+    EXPECT_FALSE(output->IsNull(0));
+    EXPECT_TRUE(output->IsNull(1));
+
+    const auto& values = assert_cast<const arrow::BinaryArray&>(*output->field(0));
+    const auto& metadatas = assert_cast<const arrow::BinaryArray&>(*output->field(1));
+    const VariantRef expected = documents->get_value_ref(0);
+    EXPECT_EQ(values.GetView(0), std::string_view(expected.value.data, expected.value.size));
+    EXPECT_EQ(metadatas.GetView(0),
+              std::string_view(expected.metadata.data, expected.metadata.size));
 }
 
 TEST(DataTypeVariantV2SerdeOutputTest, SqlScalarsFollowLegacyOutputAndDataFormatsUseJson) {

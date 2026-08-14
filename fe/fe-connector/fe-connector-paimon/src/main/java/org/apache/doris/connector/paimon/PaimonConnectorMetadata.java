@@ -31,6 +31,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
@@ -1053,6 +1054,28 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     "Failed to drop Paimon table " + id + ": " + e.getMessage(), e);
         }
         LOG.info("dropped Paimon table {}", id);
+    }
+
+    @Override
+    public ConnectorTransaction beginTransaction(ConnectorSession session) {
+        return new PaimonConnectorTransaction(
+                session.allocateTransactionId(), catalogOps, context);
+    }
+
+    @Override
+    public void validateStaticPartitionColumns(ConnectorSession session,
+            ConnectorTableHandle handle, List<String> staticPartitionColumnNames) {
+        PaimonTableHandle table = (PaimonTableHandle) handle;
+        Set<String> partitionColumns = new HashSet<>();
+        for (String name : table.getPartitionKeys()) {
+            partitionColumns.add(name.toLowerCase(java.util.Locale.ROOT));
+        }
+        for (String name : staticPartitionColumnNames) {
+            if (!partitionColumns.contains(name.toLowerCase(java.util.Locale.ROOT))) {
+                throw new DorisConnectorException("Column '" + name
+                        + "' is not a partition column of Paimon table");
+            }
+        }
     }
 
     // ==================== DDL: Create/Drop Database ====================
