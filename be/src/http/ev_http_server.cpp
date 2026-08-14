@@ -136,9 +136,10 @@ void EvHttpServer::start() {
             // unrelated fd that recycled the number (e.g. the ASAN/UBSAN runtime's
             // internal pipes at shutdown). The fd is owned by EvHttpServer and is
             // closed exactly once in stop().
-            struct evconnlistener* listener = evconnlistener_new(
-                    base.get(), nullptr, nullptr, LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_EXEC,
-                    0 /* fd is already listening */, _server_fd);
+            struct evconnlistener* listener =
+                    evconnlistener_new(_event_bases[i].get(), nullptr, nullptr,
+                                       LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_EXEC,
+                                       0 /* fd is already listening */, _server_fd);
             CHECK(listener != nullptr) << "Couldn't create evconnlistener.";
             CHECK(evhttp_bind_listener(http.get(), listener) != nullptr)
                     << "evhttp bind listener failed.";
