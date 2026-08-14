@@ -227,11 +227,11 @@ fi
 # directory on the class path the first time something appends to it.
 DORIS_CLASSPATH="${DORIS_HOME}/conf/"
 
-# The shared layer: the plugin SPI and the loader that reads lib/java/plugins. These are the only
+# The shared layer: the plugin SPI and the loader that reads plugins/jni. These are the only
 # Doris classes a plugin is allowed to share with BE, which is why they are the only ones that
 # belong on the system classpath.
-if [[ -d "${DORIS_HOME}/lib/java/spi" ]]; then
-    for f in "${DORIS_HOME}/lib/java/spi"/*.jar; do
+if [[ -d "${DORIS_HOME}/lib/jni/spi" ]]; then
+    for f in "${DORIS_HOME}/lib/jni/spi"/*.jar; do
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
 fi
