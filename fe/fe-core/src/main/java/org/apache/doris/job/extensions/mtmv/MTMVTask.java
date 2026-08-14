@@ -67,6 +67,7 @@ import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshContext;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmIncrRefreshResult;
+import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmUtil;
@@ -258,6 +259,8 @@ public class MTMVTask extends AbstractTask {
     private volatile StmtExecutor executor;
     private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
     private long mtmvSchemaChangeVersion;
+    // Published only after a signature-mismatch fallback succeeds and its task result is accepted.
+    private transient String refreshedIvmPlanSignature;
 
     private Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
@@ -314,6 +317,9 @@ public class MTMVTask extends AbstractTask {
                 throw new JobException(e.getMessage(), e);
             }
             MTMVRefreshContext refreshContext = buildRefreshContext(tableIfs);
+            if (handlePendingIvmBaselineRebuild(refreshContext, request, ctx)) {
+                return;
+            }
             boolean disablePartitionRefresh = false;
             for (RefreshAttemptType attemptType : attempts) {
                 switch (attemptType) {
@@ -482,13 +488,6 @@ public class MTMVTask extends AbstractTask {
         if (request.explicitPartitions) {
             return PartitionRefreshPlan.success(context, request.partitions);
         }
-        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            // Keep this inside the PARTITIONS attempt so PARTITIONS FALLBACK and
-            // AUTO can still continue to COMPLETE for non-partitioned MVs.
-            return PartitionRefreshPlan.fallback(
-                    "The partition method of this asynchronous materialized view "
-                            + "does not support refreshing by partition");
-        }
         boolean fresh;
         try {
             fresh = MTMVPartitionUtil.isMTMVSync(context, relation.getBaseTablesOneLevelAndFromView(),
@@ -498,6 +497,13 @@ public class MTMVTask extends AbstractTask {
         }
         if (fresh) {
             return PartitionRefreshPlan.success(context, Lists.newArrayList());
+        }
+        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            // Keep this inside the PARTITIONS attempt so PARTITIONS FALLBACK and
+            // AUTO can still continue to COMPLETE for non-partitioned MVs.
+            return PartitionRefreshPlan.fallback(
+                    "The partition method of this asynchronous materialized view "
+                            + "does not support refreshing by partition");
         }
         try {
             return PartitionRefreshPlan.success(context,
@@ -527,15 +533,46 @@ public class MTMVTask extends AbstractTask {
         executePartitionBasedRefresh(context, RefreshMode.COMPLETE, ctx);
     }
 
+    private boolean handlePendingIvmBaselineRebuild(MTMVRefreshContext context, RefreshRequest request,
+            ConnectContext ctx)
+            throws JobException, AnalysisException {
+        if (!mtmv.isIvm() || request.refreshMode == RefreshMode.COMPLETE
+                || !mtmv.getIvmInfo().isBaselineRebuildRequired()) {
+            return false;
+        }
+        ivmFallbackReason = IvmFailureReason.BINLOG_BROKEN.name();
+        if ((request.refreshMode == RefreshMode.INCREMENTAL && !request.allowFallback)
+                || request.explicitPartitions) {
+            refreshMode = MTMVTaskRefreshMode.NOT_REFRESH;
+            throw new JobException("IVM baseline rebuild is pending for mv=" + mtmv.getName()
+                    + "; run an AUTO or COMPLETE refresh first");
+        }
+        IvmInfo ivmInfo = mtmv.getIvmInfo();
+        if (ivmInfo.requiresCompleteBaselineRebuild()) {
+            if (request.refreshMode == RefreshMode.PARTITIONS && !request.allowFallback) {
+                refreshMode = MTMVTaskRefreshMode.NOT_REFRESH;
+                throw new JobException("COMPLETE IVM baseline rebuild is pending for mv=" + mtmv.getName()
+                        + "; run a PARTITIONS FALLBACK, AUTO, or COMPLETE refresh");
+            }
+            executeCompleteAttempt(context, ctx);
+            return true;
+        }
+        this.needRefreshPartitions = Lists.newArrayList(Sets.intersection(
+                ivmInfo.getPendingBaselineRebuildPartitions(), mtmv.getPartitionNames()));
+        this.needRefreshPartitions.sort(String::compareTo);
+        this.refreshMode = generateRefreshMode(needRefreshPartitions);
+        if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
+            return true;
+        }
+        executePartitionBasedRefresh(context, RefreshMode.PARTITIONS, ctx);
+        return true;
+    }
+
     private AttemptResultType executeIvmAttempt(MTMVRefreshContext refreshContext,
             RefreshRequest request, ConnectContext ctx, List<TableIf> tableIfs) throws JobException {
         if (!mtmv.isIvm()) {
             throw new JobException("Cannot use " + request.refreshMode
                     + " refresh on a materialized view without INCREMENTAL capability.");
-        }
-        if (mtmv.getIvmInfo().isBinlogBroken()) {
-            return handleIvmFallbackResult(IvmIncrRefreshResult.fallback(
-                    IvmFailureReason.BINLOG_BROKEN, "Stream binlog is marked as broken"), request);
         }
         // A strict INCREMENTAL request must reach IVM so the stream can establish its initial baseline.
         // Only fallback-enabled requests may rebuild a missing or invalidated snapshot with COMPLETE.
@@ -609,6 +646,7 @@ public class MTMVTask extends AbstractTask {
                         getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(needRefreshPartitions)),
                         this::recordQueryId,
                         this::registerExecutor);
+                mtmv.validateIvmRefreshStart(mtmvSchemaChangeVersion);
                 return ivmIncrRefreshManager.doRefresh(ivmIncrRefreshContext);
             }, "IVM refresh");
         } catch (Exception e) {
@@ -680,18 +718,23 @@ public class MTMVTask extends AbstractTask {
             throws JobException, AnalysisException {
         boolean useIvmFallbackStreams = mtmv.isIvm();
         Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
-        long baselineGeneration = useIvmFallbackStreams
-                ? IvmIncrRefreshManager.markIvmBaselineBroken(mtmv) : -1;
-        if (useIvmFallbackStreams && refreshMode == RefreshMode.COMPLETE) {
-            reconcileIvmStreams(ctx);
+        if (useIvmFallbackStreams) {
+            // Persist the guard before the first baseline data transaction.
+            mtmv.persistIvmBaselineGuard(refreshMode, Sets.newHashSet(needRefreshPartitions),
+                    mtmvSchemaChangeVersion);
+            if (refreshMode == RefreshMode.COMPLETE) {
+                reconcileIvmStreams(ctx);
+            }
         }
         this.completedPartitions = Lists.newCopyOnWriteArrayList();
         int refreshPartitionNum = mtmv.getRefreshPartitionNum();
         long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
                 % refreshPartitionNum) > 0 ? 1 : 0);
         boolean refreshAllPartitions = Sets.newHashSet(needRefreshPartitions).equals(mtmv.getPartitionNames());
+        boolean capturePlanSignature = refreshMode == RefreshMode.COMPLETE
+                && IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name().equals(ivmFallbackReason);
         this.partitionSnapshots = Maps.newConcurrentMap();
-        IvmPlanSignature fullRefreshPlanSignature = null;
+        IvmPlanSignature refreshedPlanSignature = null;
         for (int i = 0; i < execNum; i++) {
             int start = i * refreshPartitionNum;
             int end = start + refreshPartitionNum;
@@ -711,12 +754,14 @@ public class MTMVTask extends AbstractTask {
                     .generatePartitionSnapshots(context, relation.getBaseTablesOneLevelAndFromView(),
                             execPartitionNames);
             try {
-                IvmPlanSignature planSignature = refreshPartitionsWithRetry(execPartitionNames, tableWithPartKey,
-                        rewriteContext, refreshMode);
-                if (useIvmFallbackStreams) {
-                    if (fullRefreshPlanSignature == null) {
-                        fullRefreshPlanSignature = planSignature;
-                    } else if (!fullRefreshPlanSignature.getSha256().equals(planSignature.getSha256())) {
+                IvmPlanSignature batchPlanSignature = refreshPartitionsWithRetry(
+                        execPartitionNames, tableWithPartKey, rewriteContext, refreshMode);
+                if (capturePlanSignature) {
+                    batchPlanSignature = Objects.requireNonNull(batchPlanSignature,
+                            "IVM COMPLETE refresh did not produce a plan signature");
+                    if (refreshedPlanSignature == null) {
+                        refreshedPlanSignature = batchPlanSignature;
+                    } else if (!refreshedPlanSignature.getSha256().equals(batchPlanSignature.getSha256())) {
                         throw new JobException("IVM COMPLETE refresh generated inconsistent plan signatures, mv="
                                 + mtmv.getName());
                     }
@@ -729,10 +774,8 @@ public class MTMVTask extends AbstractTask {
             completedPartitions.addAll(execPartitionNames);
             partitionSnapshots.putAll(execPartitionSnapshots);
         }
-        if (useIvmFallbackStreams) {
-            IvmIncrRefreshManager.finishIvmFullRefresh(mtmv, baselineGeneration,
-                    Objects.requireNonNull(fullRefreshPlanSignature,
-                            "IVM COMPLETE refresh plan signature can not be null"));
+        if (capturePlanSignature) {
+            refreshedIvmPlanSignature = refreshedPlanSignature.getSha256();
         }
         LOG.info("MTMVTask refresh used snapshot: {}, mvDbName: {}, mvName: {}, taskId: {}", partitionSnapshots,
                 mtmv.getDatabase().getFullName(), mtmv.getName(), getTaskId());
@@ -1233,6 +1276,10 @@ public class MTMVTask extends AbstractTask {
 
     public long getMtmvSchemaChangeVersion() {
         return mtmvSchemaChangeVersion;
+    }
+
+    public String getRefreshedIvmPlanSignature() {
+        return refreshedIvmPlanSignature;
     }
 
     @Override

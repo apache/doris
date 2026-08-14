@@ -2256,8 +2256,8 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         alterMtmv("ALTER MATERIALIZED VIEW ivm_alter_excl_stream_mv "
                 + "SET ('excluded_trigger_tables' = 'ivm_alter_excl_stream_base2')");
 
-        Assertions.assertFalse(mtmv.getIvmInfo().isBinlogBroken(),
-                "Excluding a base table should not mark its binlog as broken");
+        Assertions.assertFalse(mtmv.getIvmInfo().isBaselineRebuildRequired(),
+                "Excluding a base table should not require rebuilding the IVM baseline");
         Assertions.assertNotNull(db.getTableNullable(stream1),
                 "Stream should remain for non-excluded table");
         Assertions.assertNull(db.getTableNullable(stream2),
@@ -2283,7 +2283,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 "Stream should be dropped for newly excluded table");
         Assertions.assertNotNull(db.getTableNullable(stream2),
                 "Stream should be created for a table removed from excluded_trigger_tables");
-        Assertions.assertTrue(mtmv.getIvmInfo().isBinlogBroken(),
+        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired(),
                 "Including a base table should require rebuilding the IVM baseline");
     }
 
@@ -2313,7 +2313,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         Env.getCurrentEnv().getAlterInstance().processAlterMTMV(replayAlter, true);
 
         Assertions.assertTrue(mtmv.getExcludedTriggerTables().isEmpty());
-        Assertions.assertTrue(mtmv.getIvmInfo().isBinlogBroken(),
+        Assertions.assertTrue(mtmv.getIvmInfo().isBaselineRebuildRequired(),
                 "ALTER replay should restore the IVM baseline invalidation state");
         Assertions.assertNull(db.getTableNullable(streamName),
                 "ALTER replay should rely on OP_CREATE_TABLE replay instead of creating a new stream");

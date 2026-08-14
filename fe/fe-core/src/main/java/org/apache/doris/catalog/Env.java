@@ -162,7 +162,6 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.MTMVUtil;
-import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.AuthenticatorManager;
@@ -7015,9 +7014,18 @@ public class Env {
                 throw new DdlException("Temp partition[" + partName + "] does not exist");
             }
         }
-        // Replacing partitions swaps visible data through metadata, so row-binlog continuity is broken.
-        getMtmvService().getRelationManager().markIvmBinlogBroken(
-                new BaseTableInfo(olapTable), "Base table partitions were replaced without row binlog");
+        if (isStrictRange) {
+            Map<String, Long> replacedPartitions = Maps.newHashMapWithExpectedSize(partitionNames.size());
+            for (String partitionName : partitionNames) {
+                replacedPartitions.put(partitionName, olapTable.getPartition(partitionName).getId());
+            }
+            getMtmvService().getRelationManager().markIvmBaselineRebuildForPartitionChange(
+                    new BaseTableInfo(olapTable), replacedPartitions,
+                    "Base table partitions were replaced without row binlog");
+        } else {
+            getMtmvService().getRelationManager().markIvmBaselineRebuild(
+                    new BaseTableInfo(olapTable), "Base table partitions were replaced without row binlog");
+        }
         List<Long> replacedPartitionIds = olapTable.replaceTempPartitions(db.getId(), partitionNames,
                 tempPartitionNames, isStrictRange,
                 useTempPartitionName, isForceDropOld);
@@ -7069,8 +7077,6 @@ public class Env {
                 .getTableOrMetaException(tableId, Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW));
         olapTable.writeLock();
         try {
-            getMtmvService().getRelationManager().markIvmBinlogBroken(
-                    new BaseTableInfo(olapTable), "Base table partitions were replaced without row binlog");
             olapTable.replaceTempPartitions(dbId, replaceTempPartitionLog.getPartitions(),
                     replaceTempPartitionLog.getTempPartitions(), replaceTempPartitionLog.isStrictRange(),
                     replaceTempPartitionLog.useTempPartitionName(), replaceTempPartitionLog.isForce());
@@ -7609,12 +7615,6 @@ public class Env {
         alter.setTask(task);
         alter.setRelation(relation);
         alter.setPartitionSnapshots(partitionSnapshots);
-        this.alter.processAlterMTMV(alter, false);
-    }
-
-    public void alterMTMVIvmInfo(TableNameInfo mvName, IvmInfo ivmInfo) {
-        AlterMTMV alter = new AlterMTMV(mvName, MTMVAlterOpType.ALTER_IVM_INFO);
-        alter.setIvmInfo(ivmInfo);
         this.alter.processAlterMTMV(alter, false);
     }
 
