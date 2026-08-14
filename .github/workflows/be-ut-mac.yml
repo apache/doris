@@ -113,6 +113,8 @@ jobs:
           wget https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-macos-universal.tar.gz
           tar -xzf cmake-3.25.3-macos-universal.tar.gz
           sudo cp -r cmake-3.25.3-macos-universal/CMake.app/Contents/* /usr/local/
+          rm -f cmake-3.25.3-macos-universal.tar.gz
+          rm -rf cmake-3.25.3-macos-universal
           export CUSTOM_CMAKE=/usr/local/bin/cmake
           "${CUSTOM_CMAKE}" --version
           pushd thirdparty
@@ -154,6 +156,11 @@ jobs:
             export MACOSX_DEPLOYMENT_TARGET=12.0
             ./build-thirdparty.sh -j "$(nproc)" arrow paimon_cpp
           fi
+          # The installed tree is self-contained. Release downloaded sources and
+          # build trees before the clean ASAN build, which otherwise exhausts
+          # the hosted runner disk near the end of compilation.
+          rm -f doris-thirdparty-source.tgz
+          rm -rf "${PWD}/src"
           popd
 
           export JAVA_HOME
