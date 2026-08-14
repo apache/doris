@@ -19,7 +19,7 @@
 
 #include <gen_cpp/Partitions_types.h>
 
-#include "exec/sink/paimon_fixed_bucket_partition_function.h"
+#include "exec/partitioner/external/paimon_row_hash_partition_function.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

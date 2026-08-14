@@ -28,7 +28,7 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-// Computes logical sink partitions and maps them to standard Doris exchange channels.
+// Computes external sink logical partitions and maps them to Doris exchange channels.
 // Optional partition transforms are evaluated transiently and never appended to the sink row.
 class ExternalTableSinkHashPartitioner final : public PartitionerBase {
 public:

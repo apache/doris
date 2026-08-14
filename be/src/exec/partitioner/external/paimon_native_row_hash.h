@@ -25,8 +25,8 @@
 
 namespace doris::paimon_native {
 
-// Builds the byte representation used by Paimon BinaryRowWriter for the native
-// routing type whitelist. MemorySegment primitive access is native-endian.
+// Builds the byte representation used by Paimon BinaryRowWriter for the supported routing
+// types. MemorySegment primitive access is native-endian.
 class BinaryRowEncoder {
 public:
     explicit BinaryRowEncoder(size_t arity);

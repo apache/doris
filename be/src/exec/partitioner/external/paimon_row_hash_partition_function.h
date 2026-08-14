@@ -8,23 +8,20 @@
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #pragma once
-
-#include <gen_cpp/Partitions_types.h>
 
 #include "exec/partitioner/partitioner.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
-// Shared lifecycle and BinaryRow hashing for native Paimon routing functions.
+// Shared expression lifecycle and BinaryRow hashing for Paimon routing functions.
 class PaimonRowHashPartitionFunction : public PartitionFunction {
 public:
     explicit PaimonRowHashPartitionFunction(HashValType partition_count);
@@ -46,22 +43,6 @@ protected:
 
     const HashValType _partition_count;
     VExprContextSPtrs _field_expr_ctxs;
-};
-
-// Stateless native implementation of Paimon FixedBucketWriteSelector for the
-// explicitly supported primitive routing types.
-class PaimonFixedBucketPartitionFunction final : public PaimonRowHashPartitionFunction {
-public:
-    PaimonFixedBucketPartitionFunction(HashValType partition_count,
-                                       TPaimonFixedBucketInfo fixed_bucket_info);
-
-    Status init(const std::vector<TExpr>& texprs) override;
-    Status get_partitions(RuntimeState* state, Block* block, size_t partition_count,
-                          std::vector<HashValType>& partitions) const override;
-    Status clone(RuntimeState* state, std::unique_ptr<PartitionFunction>& function) const override;
-
-private:
-    TPaimonFixedBucketInfo _fixed_bucket_info;
 };
 
 #include "common/compile_check_end.h"

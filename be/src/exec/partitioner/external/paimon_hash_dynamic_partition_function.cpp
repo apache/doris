@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/sink/paimon_hash_dynamic_partition_function.h"
+#include "exec/partitioner/external/paimon_hash_dynamic_partition_function.h"
 
 #include "common/status.h"
-#include "exec/sink/paimon_native_row_hash.h"
+#include "exec/partitioner/external/paimon_native_row_hash.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

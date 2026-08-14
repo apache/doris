@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/sink/external_table_sink_hash_partitioner.h"
+#include "exec/partitioner/external/external_table_sink_hash_partitioner.h"
 
 #include <gen_cpp/Exprs_types.h>
 #include <gtest/gtest.h>

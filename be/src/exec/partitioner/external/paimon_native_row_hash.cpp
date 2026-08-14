@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/sink/paimon_native_row_hash.h"
+#include "exec/partitioner/external/paimon_native_row_hash.h"
 
 #include <algorithm>
 #include <bit>
