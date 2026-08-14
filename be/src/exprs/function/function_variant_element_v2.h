@@ -22,12 +22,14 @@
 #include <span>
 
 #include "common/status.h"
+#include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/string_ref.h"
 
 namespace doris {
 
 class ColumnVariantV2;
+class PathInData;
 
 class VariantElementV2PathSegment {
 public:
@@ -56,8 +58,9 @@ private:
     int64_t _index;
 };
 
-// Owns an explicit, already-tokenized path. It intentionally does not parse dotted strings: the
-// runtime SQL adapter contract remains deferred until the coordinated Variant V2 cutover.
+// Owns an explicit, already-tokenized path and its immutable derived object-path metadata. It
+// intentionally does not parse dotted strings: the runtime SQL adapter contract remains deferred
+// until the coordinated Variant V2 cutover.
 class ResolvedVariantElementV2Path {
 public:
     ~ResolvedVariantElementV2Path();
@@ -71,6 +74,8 @@ public:
     VariantElementV2PathSegment::Kind kind_at(size_t position) const;
     StringRef object_key_at(size_t position) const;
     int64_t array_index_at(size_t position) const;
+    size_t object_key_count() const noexcept;
+    const PathInData* object_path() const noexcept;
 
 private:
     struct Impl;
@@ -86,10 +91,60 @@ private:
 Status resolve_variant_element_v2_path(std::span<const VariantElementV2PathSegment> segments,
                                        std::unique_ptr<ResolvedVariantElementV2Path>* output);
 
+// Immutable selector plan used by prepared consecutive element_at expressions. Object keys are
+// owned by the resolved path, so executing a new Block never reparses literals or copies tokens.
+class VariantElementV2PathPlan {
+public:
+    VariantElementV2PathPlan(const VariantElementV2PathPlan&) = delete;
+    VariantElementV2PathPlan& operator=(const VariantElementV2PathPlan&) = delete;
+
+private:
+    VariantElementV2PathPlan(std::shared_ptr<const ResolvedVariantElementV2Path> resolved_path,
+                             bool always_null)
+            : _resolved_path(std::move(resolved_path)), _always_null(always_null) {}
+
+    friend Status build_variant_element_v2_path_plan(
+            std::span<const ColumnWithTypeAndName> selectors,
+            std::shared_ptr<const VariantElementV2PathPlan>* output);
+    friend Status try_extract_variant_element_v2_path(const ColumnPtr& source,
+                                                      const VariantElementV2PathPlan& plan,
+                                                      ColumnPtr* output, bool* applied);
+
+    std::shared_ptr<const ResolvedVariantElementV2Path> _resolved_path;
+    bool _always_null = false;
+};
+
+Status build_variant_element_v2_path_plan(std::span<const ColumnWithTypeAndName> selectors,
+                                          std::shared_ptr<const VariantElementV2PathPlan>* output);
+
 // The source must be materialized by IFunction routing, which also owns ColumnConst expansion and
-// supplies the outer SQL-null map. The output is always Nullable(ColumnVariantV2).
+// supplies the outer SQL-null map. An input-independent all-NULL result may be Const over a
+// one-row Nullable(ColumnVariantV2); other outputs are materialized Nullable(ColumnVariantV2).
 Status extract_variant_element_v2(const ColumnVariantV2& source,
                                   const ResolvedVariantElementV2Path& path,
                                   std::span<const uint8_t> outer_nulls, ColumnPtr* output);
+
+// Runtime adapter shared by the ordinary element_at function and the BE-local consecutive-path
+// fast path. It applies only when source materializes as ColumnVariantV2; applied remains false for
+// legacy Variant so the caller can execute the original expression chain. Every selector must be a
+// constant string/integer/bool column. Object keys stay separate tokens and are never dotted-string
+// concatenated.
+Status try_extract_variant_element_v2_path(const ColumnPtr& source,
+                                           std::span<const ColumnWithTypeAndName> selectors,
+                                           ColumnPtr* output, bool* applied);
+
+// Executes a selector plan compiled during expression preparation.
+Status try_extract_variant_element_v2_path(const ColumnPtr& source,
+                                           const VariantElementV2PathPlan& plan, ColumnPtr* output,
+                                           bool* applied);
+
+#ifdef BE_TEST
+struct VariantElementV2TestAccess {
+    static void reset_shredded_path_inspections();
+    static size_t shredded_path_inspections();
+    static bool has_exact_shredded_path(const ColumnVariantV2& source,
+                                        const PathInData& requested_path);
+};
+#endif
 
 } // namespace doris

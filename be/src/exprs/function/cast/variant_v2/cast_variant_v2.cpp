@@ -41,6 +41,15 @@ VariantJsonFormatOptions variant_json_options(FunctionContext* context) {
     return {.timezone = &context->state()->timezone_obj()};
 }
 
+ColumnPtr materialize_shredded_variant_for_cast(const ColumnVariantV2& source, size_t rows) {
+    DORIS_CHECK(source.is_shredded()) << "Variant CAST fallback requires shredded input";
+    DORIS_CHECK_EQ(source.size(), rows) << "Variant CAST fallback row count mismatch";
+    ColumnVariantV2::MutablePtr encoded = source.materialize_encoded_range(0, rows);
+    DORIS_CHECK(encoded->is_encoded()) << "Variant CAST fallback must produce encoded state";
+    DORIS_CHECK_EQ(encoded->size(), rows) << "Variant CAST fallback produced wrong row count";
+    return std::move(encoded);
+}
+
 } // namespace doris::CastWrapper::variant_v2_internal
 
 namespace doris::CastWrapper {
@@ -163,12 +172,22 @@ Status execute_from_variant(const DataTypePtr& captured_to_type, FunctionContext
             RETURN_IF_ERROR(cast_variant_to_array(context, *source, to_type, rows,
                                                   forced_nulls(null_map, rows), &output));
         } else if (is_supported_scalar_target(to_type)) {
-            if (source->is_typed()) {
+            switch (source->representation()) {
+            case ColumnVariantV2::Representation::TYPED_SCALAR:
                 RETURN_IF_ERROR(cast_typed_variant_to_scalar(
                         context, *source, to_type, rows, forced_nulls(null_map, rows), &output));
-            } else {
+                break;
+            case ColumnVariantV2::Representation::ENCODED:
                 RETURN_IF_ERROR(cast_encoded_variant_to_scalar(
                         context, *source, to_type, rows, forced_nulls(null_map, rows), &output));
+                break;
+            case ColumnVariantV2::Representation::SHREDDED: {
+                ColumnPtr encoded_owner = materialize_shredded_variant_for_cast(*source, rows);
+                const auto& encoded = assert_cast<const ColumnVariantV2&>(*encoded_owner);
+                RETURN_IF_ERROR(cast_encoded_variant_to_scalar(
+                        context, encoded, to_type, rows, forced_nulls(null_map, rows), &output));
+                break;
+            }
             }
         } else {
             return Status::InvalidArgument("Conversion from Variant V2 to {} is not supported",

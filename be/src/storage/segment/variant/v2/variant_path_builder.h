@@ -27,6 +27,7 @@
 #include "core/column/column_string.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
+#include "core/value/variant/variant_scalar.h"
 #include "core/value/variant/variant_value.h"
 #include "util/json/path_in_data.h"
 
@@ -63,6 +64,9 @@ public:
     VariantPathBuilder& operator=(const VariantPathBuilder&) = delete;
 
     Status append(VariantRef value, size_t row);
+    Status append_scalar(const VariantScalarRef& value, size_t row,
+                         DorisVector<char>& encoded_slow_scratch,
+                         bool* used_encoded_scratch = nullptr);
     Status complete_rows(size_t rows);
     Status convert_to(const DataTypePtr& storage_type);
 

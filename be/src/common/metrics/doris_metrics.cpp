@@ -187,6 +187,14 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_kinesis_closed_shard_count, Me
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_total, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_duration_us, MetricUnit::MICROSECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(
+        variant_v2_shredded_writer_native_rows, MetricUnit::ROWS,
+        "ColumnVariantV2 shredded rows consumed by storage without whole-row re-encoding",
+        variant_v2_shredded_writer_rows, Labels({{"type", "native"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(
+        variant_v2_shredded_writer_fallback_rows, MetricUnit::ROWS,
+        "ColumnVariantV2 shredded rows individually re-encoded by a storage writer",
+        variant_v2_shredded_writer_rows, Labels({{"type", "encoded_fallback"}}));
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(memory_pool_bytes_total, MetricUnit::BYTES);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(process_thread_num, MetricUnit::NOUNIT);
@@ -386,6 +394,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, memtable_flush_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, memtable_flush_duration_us);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, variant_v2_shredded_writer_native_rows);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, variant_v2_shredded_writer_fallback_rows);
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, memory_pool_bytes_total);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, process_thread_num);

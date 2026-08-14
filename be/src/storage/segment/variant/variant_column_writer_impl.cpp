@@ -1967,7 +1967,8 @@ Status VariantSubcolumnWriter::_ensure_input_format(const VariantColumnData& col
 }
 
 Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_t num_rows,
-                                          std::span<const uint8_t> outer_nulls) {
+                                          std::span<const uint8_t> outer_nulls,
+                                          VariantShredderAppendStats* append_stats) {
     DORIS_CHECK(_v2_builder != nullptr);
     DORIS_CHECK(column.column_data != nullptr);
     const auto* source = check_and_get_column<ColumnVariantV2>(*column.column_data);
@@ -1979,7 +1980,7 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
     DORIS_CHECK(outer_nulls.empty() || outer_nulls.size() == num_rows);
 
     const auto append_encoded = [&](const ColumnVariantV2::ReadView& view, size_t begin) -> Status {
-        DORIS_CHECK(!view.is_typed());
+        DORIS_CHECK(view.is_encoded());
         for (size_t offset = 0; offset < num_rows; ++offset) {
             if (!outer_nulls.empty() && outer_nulls[offset] != 0) {
                 continue;
@@ -1993,15 +1994,66 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
         return Status::OK();
     };
 
-    const auto view = source->read_view();
-    if (!view.is_typed()) {
-        return append_encoded(view, column.row_pos);
+    if (source->is_encoded()) {
+        const Status status = append_encoded(source->read_view(), column.row_pos);
+        if (status.ok() && append_stats != nullptr) {
+            *append_stats = {};
+        }
+        return status;
     }
 
-    auto encoded_batch = ColumnVariantV2::create();
+    if (source->is_shredded()) {
+        VariantShredderAppendStats result_stats;
+        const ColumnVariantV2::ReadView view = source->read_view();
+        for (size_t offset = 0; offset < num_rows; ++offset) {
+            if (!outer_nulls.empty() && outer_nulls[offset] != 0) {
+                ++result_stats.native_shredded_rows;
+                continue;
+            }
+            const size_t input_row = column.row_pos + offset;
+            bool has_active_field = false;
+            for (size_t field = 0; field < view.shredded_field_count(); ++field) {
+                if (view.shredded_field_presence(field).get_data()[input_row] != 0) {
+                    has_active_field = true;
+                    break;
+                }
+            }
+            if (!has_active_field) {
+                const VariantRef residual = view.residual_value_at(input_row);
+                if (!residual.is_null()) {
+                    RETURN_IF_ERROR(_v2_builder->append(residual, _num_rows + offset));
+                }
+                ++result_stats.native_shredded_rows;
+                continue;
+            }
+
+            // An extracted subcolumn is a whole-value consumer. Reconstruct only rows that carry
+            // active shredded fields; missing-field/scalar/array rows use the residual directly.
+            ColumnVariantV2::MutablePtr encoded_row;
+            RETURN_IF_CATCH_EXCEPTION(
+                    { encoded_row = source->materialize_encoded_range(input_row, 1); });
+            DORIS_CHECK(encoded_row->is_encoded());
+            const VariantRef value = encoded_row->get_value_ref(0);
+            if (!value.is_null()) {
+                RETURN_IF_ERROR(_v2_builder->append(value, _num_rows + offset));
+            }
+            ++result_stats.encoded_fallback_rows;
+        }
+        if (append_stats != nullptr) {
+            *append_stats = result_stats;
+        }
+        return Status::OK();
+    }
+
+    ColumnVariantV2::MutablePtr encoded_batch;
     RETURN_IF_CATCH_EXCEPTION(
-            { encoded_batch->insert_range_from(*source, column.row_pos, num_rows); });
-    return append_encoded(encoded_batch->read_view(), 0);
+            { encoded_batch = source->materialize_encoded_range(column.row_pos, num_rows); });
+    DORIS_CHECK(encoded_batch->is_encoded());
+    const Status status = append_encoded(encoded_batch->read_view(), 0);
+    if (status.ok() && append_stats != nullptr) {
+        *append_stats = {};
+    }
+    return status;
 }
 
 Status VariantSubcolumnWriter::_append(const uint8_t* null_map, const uint8_t** ptr,
@@ -2014,6 +2066,7 @@ Status VariantSubcolumnWriter::_append(const uint8_t* null_map, const uint8_t** 
     }
     const auto& column = *reinterpret_cast<const VariantColumnData*>(*ptr);
     RETURN_IF_ERROR(_ensure_input_format(column));
+    VariantShredderAppendStats append_stats;
     if (_input_format == VariantWriterInputFormat::V1) {
         const auto& source = assert_cast<const ColumnVariant&>(*column.column_data);
         if (column.row_pos > source.size() || num_rows > source.size() - column.row_pos) {
@@ -2027,10 +2080,11 @@ Status VariantSubcolumnWriter::_append(const uint8_t* null_map, const uint8_t** 
         const std::span<const uint8_t> outer_nulls =
                 null_map == nullptr ? std::span<const uint8_t> {}
                                     : std::span<const uint8_t> {null_map, num_rows};
-        RETURN_IF_ERROR(_append_v2(column, num_rows, outer_nulls));
+        RETURN_IF_ERROR(_append_v2(column, num_rows, outer_nulls, &append_stats));
     }
     _num_rows += num_rows;
     _next_rowid += num_rows;
+    variant_writer_helpers::record_variant_v2_shredded_writer_stats(append_stats);
     return Status::OK();
 }
 
@@ -2238,6 +2292,7 @@ Status VariantDocCompactWriter::_append(const uint8_t* null_map, const uint8_t**
     }
     const auto& column = *reinterpret_cast<const VariantColumnData*>(*ptr);
     RETURN_IF_ERROR(_ensure_input_format(column));
+    VariantShredderAppendStats append_stats;
     if (_input_format == VariantWriterInputFormat::V1) {
         const auto& source = assert_cast<const ColumnVariant&>(*column.column_data);
         if (column.row_pos > source.size() || num_rows > source.size() - column.row_pos) {
@@ -2252,10 +2307,11 @@ Status VariantDocCompactWriter::_append(const uint8_t* null_map, const uint8_t**
                 null_map == nullptr ? std::span<const uint8_t> {}
                                     : std::span<const uint8_t> {null_map, num_rows};
         RETURN_IF_ERROR(variant_writer_helpers::append_variant_v2_to_shredder(
-                _v2_shredder.get(), column, num_rows, outer_nulls));
+                _v2_shredder.get(), column, num_rows, outer_nulls, &append_stats));
     }
     _num_rows += num_rows;
     _next_rowid += num_rows;
+    variant_writer_helpers::record_variant_v2_shredded_writer_stats(append_stats);
     return Status::OK();
 }
 

@@ -38,6 +38,7 @@ VariantJsonFormatOptions variant_json_options(FunctionContext* context);
 
 bool is_supported_scalar_source(const DataTypePtr& type);
 bool is_supported_scalar_target(const DataTypePtr& type);
+ColumnPtr materialize_shredded_variant_for_cast(const ColumnVariantV2& source, size_t rows);
 
 Status cast_scalar_to_variant(const ColumnPtr& source, const DataTypePtr& source_type, size_t rows,
                               ForcedNulls forced_nulls, ColumnPtr* output);

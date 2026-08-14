@@ -231,13 +231,22 @@ Status cast_variant_to_string(FunctionContext* context, const ColumnVariantV2& s
     if (source.size() != rows || (!forced_nulls.empty() && forced_nulls.size() != rows)) {
         return Status::InvalidArgument("Invalid Variant V2 input shape for STRING CAST");
     }
-    if (source.is_typed()) {
+    ColumnPtr encoded_owner;
+    const ColumnVariantV2* encoded = &source;
+    switch (source.representation()) {
+    case ColumnVariantV2::Representation::TYPED_SCALAR:
         return cast_typed_variant_to_string(context, source, rows, forced_nulls, output);
+    case ColumnVariantV2::Representation::ENCODED:
+        break;
+    case ColumnVariantV2::Representation::SHREDDED:
+        encoded_owner = materialize_shredded_variant_for_cast(source, rows);
+        encoded = &assert_cast<const ColumnVariantV2&>(*encoded_owner);
+        break;
     }
     return cast_values_to_string(
-            context, rows, forced_nulls, [&](size_t row) { return source.get_value_ref(row); },
+            context, rows, forced_nulls, [&](size_t row) { return encoded->get_value_ref(row); },
             [&](const DataTypePtr& string_type, ColumnPtr* result) {
-                return cast_encoded_variant_to_scalar(context, source, string_type, rows, {},
+                return cast_encoded_variant_to_scalar(context, *encoded, string_type, rows, {},
                                                       result);
             },
             output);

@@ -46,6 +46,7 @@ struct ArrayEncodePlan {
     DorisVector<NullMap::value_type> owned_effective_nulls;
     std::unique_ptr<ArrayEncodePlan> child;
     const ColumnVariantV2* encoded_leaf = nullptr;
+    ColumnPtr encoded_leaf_owner;
     const ColumnString* jsonb_leaf = nullptr;
     const IColumn* scalar_leaf = nullptr;
     const NullMap* scalar_nulls = nullptr;
@@ -144,12 +145,21 @@ Status build_array_leaf_plan(const ColumnPtr& source, PrimitiveType primitive,
         if (variant == nullptr) {
             return Status::InvalidArgument("Array Variant V2 CAST received a legacy Variant leaf");
         }
-        if (variant->is_typed()) {
+        switch (variant->representation()) {
+        case ColumnVariantV2::Representation::TYPED_SCALAR: {
             const auto& typed = assert_cast<const ColumnNullable&>(variant->typed_column());
             plan->scalar_nulls = &typed.get_null_map_data();
             configure_scalar_leaf(typed.get_nested_column(), variant->typed_type(), plan);
-        } else {
+            break;
+        }
+        case ColumnVariantV2::Representation::ENCODED:
             plan->encoded_leaf = variant;
+            break;
+        case ColumnVariantV2::Representation::SHREDDED:
+            plan->encoded_leaf_owner =
+                    materialize_shredded_variant_for_cast(*variant, variant->size());
+            plan->encoded_leaf = &assert_cast<const ColumnVariantV2&>(*plan->encoded_leaf_owner);
+            break;
         }
     } else if (primitive == TYPE_JSONB) {
         plan->jsonb_leaf = check_and_get_column<ColumnString>(source.get());

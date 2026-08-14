@@ -53,6 +53,7 @@
 #include "exprs/function/function_rpc.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
+#include "exprs/variant_element_path_fusion.h"
 #include "exprs/varray_literal.h"
 #include "exprs/vcast_expr.h"
 #include "exprs/vexpr_context.h"
@@ -218,6 +219,19 @@ VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {
     _function_name = _fn.name.function_name;
 }
 
+Status VectorizedFnCall::_prepare_variant_element_path_fusion() {
+    if (_function_name != "element_at") {
+        return Status::OK();
+    }
+    std::shared_ptr<const VariantElementPathFusionPlan> candidate;
+    RETURN_IF_ERROR(build_variant_element_path_fusion_plan(*this, &candidate));
+    _variant_element_path_plan = std::move(candidate);
+#ifdef BE_TEST
+    ++_test_variant_element_path_plan_builds;
+#endif
+    return Status::OK();
+}
+
 Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
                                  VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
@@ -310,6 +324,7 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
     }
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;
+    RETURN_IF_ERROR(_prepare_variant_element_path_fusion());
     _prepare_finished = true;
 
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
@@ -385,6 +400,15 @@ Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
     }
     if (fast_execute(context, selector, count, result_column)) {
         return Status::OK();
+    }
+    if (arg_column == nullptr && _function_name == "element_at") {
+        bool path_fused = false;
+        RETURN_IF_ERROR(try_execute_variant_element_path_fusion(_variant_element_path_plan, context,
+                                                                block, selector, count,
+                                                                &result_column, &path_fused));
+        if (path_fused) {
+            return Status::OK();
+        }
     }
     DBUG_EXECUTE_IF("VectorizedFnCall.must_in_slow_path", {
         if (get_child(0)->is_slot_ref()) {

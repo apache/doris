@@ -60,6 +60,8 @@ class FileWriter;
 
 namespace segment_v2 {
 
+struct VariantShredderAppendStats;
+
 enum class VariantWriterInputFormat : uint8_t {
     UNSET,
     V1,
@@ -642,7 +644,8 @@ public:
 private:
     Status _append(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
     Status _append_v2(const VariantColumnData& column, size_t num_rows,
-                      std::span<const uint8_t> outer_nulls);
+                      std::span<const uint8_t> outer_nulls,
+                      VariantShredderAppendStats* append_stats);
     Status _ensure_input_format(const VariantColumnData& column);
     Status _initialize_v2_builder();
     bool is_finalized() const;

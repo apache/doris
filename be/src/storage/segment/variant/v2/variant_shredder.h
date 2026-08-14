@@ -69,9 +69,16 @@ struct VariantShreddedColumns {
     VariantStatistics statistics;
 };
 
-// Incremental native Variant V2 shredder. Input must be encoded E state. A failed append or finish
-// is terminal: the first error is retained, all later calls return it, and finish never publishes a
-// partial result.
+struct VariantShredderAppendStats {
+    size_t native_shredded_rows = 0;
+    size_t encoded_fallback_rows = 0;
+};
+
+// Incremental native Variant V2 shredder. Encoded E state is consumed directly. Shredded S state
+// keeps its residual and active scalar fields separate on the ordinary path; only a row whose
+// logical paths are ambiguous in the legacy dotted storage namespace is re-encoded. A failed
+// append or finish is terminal: the first error is retained, all later calls return it, and finish
+// never publishes a partial result.
 class VariantShredder final {
 public:
     explicit VariantShredder(VariantShredderOptions options);
@@ -84,8 +91,18 @@ public:
 
     Status append(const ColumnVariantV2::ReadView& view, size_t begin, size_t length,
                   std::span<const uint8_t> outer_nulls = {});
+    Status append_shredded(const ColumnVariantV2& source, size_t begin, size_t length,
+                           std::span<const uint8_t> outer_nulls = {},
+                           VariantShredderAppendStats* append_stats = nullptr);
     Status finish(VariantShreddedColumns* output);
     size_t byte_size() const;
+
+#ifdef BE_TEST
+    struct TestAccess {
+        static size_t typed_direct_scalar_appends(const VariantShredder& shredder);
+        static size_t typed_encoded_slow_appends(const VariantShredder& shredder);
+    };
+#endif
 
 private:
     struct Impl;
