@@ -66,6 +66,28 @@ public class TaskProcessorTest {
         }
     }
 
+    @Test
+    public void testReleaseEveryMTMVExecutionContext() {
+        AtomicInteger closeCount = new AtomicInteger();
+        MTMVTask task = new MTMVTask();
+        try {
+            for (int i = 0; i < 2; i++) {
+                ConnectContext connectContext = new ConnectContext();
+                connectContext.setThreadLocalInfo();
+                StatementContext statementContext = new StatementContext();
+                connectContext.setStatementContext(statementContext);
+                ConnectorStatementScope scope = statementContext.getOrCreateConnectorStatementScope();
+                scope.computeIfAbsent("closeable", () -> (AutoCloseable) closeCount::incrementAndGet);
+
+                Deencapsulation.invoke(task, "closeExecutionContext", connectContext);
+                Assert.assertNull(ConnectContext.get());
+            }
+            Assert.assertEquals(2, closeCount.get());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     private void assertReleaseStatementScope(boolean insertTask) throws Exception {
         AtomicInteger closeCount = new AtomicInteger();
         CountDownLatch scopeInstalled = new CountDownLatch(1);
