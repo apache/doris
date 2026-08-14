@@ -128,13 +128,13 @@ TEST_F(JvmLauncherOptionsTest, JavaOptsWinsOverLibhdfsOpts) {
 // the class path is now built once: a path with two sources is a path that disagrees with
 // itself.
 TEST_F(JvmLauncherOptionsTest, PluginDirectoryReachesTheJvmFromBeConfig) {
-    const std::string saved = config::java_plugin_dir;
-    config::java_plugin_dir = "/opt/be/lib/java/plugins";
+    const std::string saved = config::jni_plugin_dir;
+    config::jni_plugin_dir = "/opt/be/plugins/jni";
 
-    EXPECT_TRUE(has(options(), "-Ddoris.jni.plugin.dir=/opt/be/lib/java/plugins"));
+    EXPECT_TRUE(has(options(), "-Ddoris.jni.plugin.dir=/opt/be/plugins/jni"));
     EXPECT_EQ(1, count_prefixed(options(), "-Ddoris.jni.plugin.dir="));
 
-    config::java_plugin_dir = saved;
+    config::jni_plugin_dir = saved;
 }
 
 } // namespace doris::Jni

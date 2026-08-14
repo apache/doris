@@ -206,7 +206,7 @@ Status PluginRegistry::plugin_status_json(std::string* status) {
 
 bool PluginRegistry::any_plugin_deployed() {
     std::error_code ec;
-    std::filesystem::directory_iterator entries(config::java_plugin_dir, ec);
+    std::filesystem::directory_iterator entries(config::jni_plugin_dir, ec);
     if (ec) {
         // No directory at all is the ordinary state of a BE that reads no Java table format,
         // not an error to report.
