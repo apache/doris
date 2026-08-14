@@ -70,10 +70,4 @@ std::optional<uint32_t> default_bucket(int32_t bucket_key_hash, int32_t num_buck
 std::optional<uint32_t> fixed_bucket_channel(int32_t partition_hash, uint32_t bucket,
                                              uint32_t num_channels);
 
-// Paimon BucketAssigner.computeAssigner for HASH_DYNAMIC input routing.
-std::optional<uint32_t> dynamic_bucket_assigner_channel(int32_t partition_hash,
-                                                        int32_t primary_key_hash,
-                                                        uint32_t num_channels,
-                                                        uint32_t num_assigners);
-
 } // namespace doris::paimon_native

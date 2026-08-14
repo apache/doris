@@ -24,7 +24,6 @@ import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
-import org.apache.doris.nereids.properties.DistributionSpecPaimonHashDynamic;
 import org.apache.doris.nereids.properties.DistributionSpecPaimonTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -122,11 +121,6 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         if (fixedBucketSpec != null) {
             return new PhysicalProperties(fixedBucketSpec);
         }
-        DistributionSpecPaimonHashDynamic hashDynamicSpec
-                = buildHashDynamicDistributionSpec(paimonTable);
-        if (hashDynamicSpec != null) {
-            return new PhysicalProperties(hashDynamicSpec);
-        }
         if (paimonTable.bucketMode() == BucketMode.BUCKET_UNAWARE) {
             // Bucket-unaware tables are append-only and Paimon deliberately gives each writer
             // an empty, no-compaction file store. No bucket ownership is shared, so explicit
@@ -164,13 +158,13 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
     /**
      * Whether this sink must use one writer to preserve Paimon write semantics.
      *
-     * <p>Supported HASH_DYNAMIC schemas use an exact assigner route and fail closed when an
-     * existing bucket is incompatible with the planned writer ownership. KEY_DYNAMIC and any
-     * native-routing fallback continue to gather because they cannot safely share assigner state.
+     * <p>HASH_DYNAMIC and KEY_DYNAMIC gather to one writer within the current INSERT because
+     * their stateful assigners cannot safely be shared. This does not serialize independent jobs;
+     * concurrent jobs writing the same dynamic-bucket partition remain unsupported. Fixed-bucket
+     * tables use concurrent writers only when Doris can reproduce Paimon's stateless route.
      */
     public boolean requiresSingleWriter() {
-        if (buildFixedBucketDistributionSpec(writeTarget.getTable()) != null
-                || buildHashDynamicDistributionSpec(writeTarget.getTable()) != null) {
+        if (buildFixedBucketDistributionSpec(writeTarget.getTable()) != null) {
             return false;
         }
         return requiresSingleWriter(writeTarget.getTable());
@@ -247,58 +241,6 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
         }
         return new DistributionSpecPaimonTableSinkHashPartitioned(
                 routeExprIds, schema.numBuckets(), partitionFieldIndexes, bucketFieldIndexes);
-    }
-
-    private DistributionSpecPaimonHashDynamic buildHashDynamicDistributionSpec(
-            FileStoreTable paimonTable) {
-        if (Config.be_exec_version
-                < DistributionSpecExternalTableSinkHashPartitioned.MIN_BE_EXEC_VERSION) {
-            return null;
-        }
-        return buildHashDynamicDistributionSpec(paimonTable, cols, child().getOutput());
-    }
-
-    static DistributionSpecPaimonHashDynamic buildHashDynamicDistributionSpec(
-            FileStoreTable paimonTable, List<Column> sinkColumns, List<Slot> sinkOutput) {
-        if (paimonTable.bucketMode() != BucketMode.HASH_DYNAMIC
-                || sinkColumns.size() != sinkOutput.size()) {
-            return null;
-        }
-
-        TableSchema schema = paimonTable.schema();
-        if (schema.trimmedPrimaryKeys().isEmpty()) {
-            return null;
-        }
-        Integer numAssigners = CoreOptions.fromMap(schema.options())
-                .dynamicBucketAssignerParallelism();
-        if (numAssigners == null || numAssigners <= 0) {
-            // The fused assigner/writer path requires stable ownership across INSERTs. Tables
-            // without an explicit assigner parallelism keep the safe single-writer fallback.
-            return null;
-        }
-        Map<String, Slot> outputByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        for (int i = 0; i < sinkColumns.size(); i++) {
-            if (outputByName.put(sinkColumns.get(i).getName(), sinkOutput.get(i)) != null) {
-                return null;
-            }
-        }
-        Map<String, DataField> fieldsByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        for (DataField field : schema.fields()) {
-            fieldsByName.put(field.name(), field);
-        }
-
-        List<ExprId> routeExprIds = new ArrayList<>();
-        Map<String, Integer> routeIndexes = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        List<Integer> partitionFieldIndexes = appendRouteFields(
-                schema.partitionKeys(), outputByName, fieldsByName, routeExprIds, routeIndexes);
-        List<Integer> primaryKeyFieldIndexes = appendRouteFields(
-                schema.trimmedPrimaryKeys(), outputByName, fieldsByName, routeExprIds, routeIndexes);
-        if (partitionFieldIndexes == null || primaryKeyFieldIndexes == null
-                || primaryKeyFieldIndexes.isEmpty()) {
-            return null;
-        }
-        return new DistributionSpecPaimonHashDynamic(routeExprIds, partitionFieldIndexes,
-                primaryKeyFieldIndexes, numAssigners);
     }
 
     private static List<Integer> appendRouteFields(List<String> fieldNames,

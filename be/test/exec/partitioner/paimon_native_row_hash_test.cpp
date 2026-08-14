@@ -59,21 +59,27 @@ TEST(PaimonNativeRowHashTest, MatchesDefaultBucketAndChannelComputer) {
     ASSERT_EQ(default_bucket(-7, 4), 3);
     ASSERT_FALSE(default_bucket(1, 0).has_value());
 
-    ASSERT_EQ(fixed_bucket_channel(-1670924195, 2, 8), 5);
+    // Keep these vectors in sync with PaimonNativeRoutingGoldenTest, which computes the same
+    // ownership using Paimon's DefaultBucketFunction and ChannelComputer directly.
+    EXPECT_EQ(fixed_bucket_channel(-1670924195, 2, 1), 0);
+    EXPECT_EQ(fixed_bucket_channel(-1670924195, 2, 2), 1);
+    EXPECT_EQ(fixed_bucket_channel(-1670924195, 2, 3), 1);
+    EXPECT_EQ(fixed_bucket_channel(-1670924195, 2, 8), 5);
+
+    EXPECT_EQ(fixed_bucket_channel(1465514398, 1, 1), 0);
+    EXPECT_EQ(fixed_bucket_channel(1465514398, 1, 2), 1);
+    EXPECT_EQ(fixed_bucket_channel(1465514398, 1, 3), 2);
+    EXPECT_EQ(fixed_bucket_channel(1465514398, 1, 4), 3);
+    EXPECT_EQ(fixed_bucket_channel(1465514398, 1, 8), 7);
+
+    EXPECT_EQ(fixed_bucket_channel(-101922419, 3, 1), 0);
+    EXPECT_EQ(fixed_bucket_channel(-101922419, 3, 2), 0);
+    EXPECT_EQ(fixed_bucket_channel(-101922419, 3, 3), 2);
+    EXPECT_EQ(fixed_bucket_channel(-101922419, 3, 4), 2);
+    EXPECT_EQ(fixed_bucket_channel(-101922419, 3, 8), 6);
+
     ASSERT_EQ(fixed_bucket_channel(std::numeric_limits<int32_t>::min(), 1, 8), 0);
     ASSERT_FALSE(fixed_bucket_channel(1, 0, 0).has_value());
-}
-
-TEST(PaimonNativeRowHashTest, MatchesDynamicBucketAssigner) {
-    // BucketAssigner.computeAssigner uses abs(partitionHash % channels) as the
-    // partition start and abs(keyHash % assigners) as the assigner offset.
-    EXPECT_EQ(dynamic_bucket_assigner_channel(-1670924195, 1465514398, 8, 3), 4);
-    EXPECT_EQ(dynamic_bucket_assigner_channel(-7, -7, 8, 3), 0);
-    EXPECT_EQ(dynamic_bucket_assigner_channel(std::numeric_limits<int32_t>::min(),
-                                              std::numeric_limits<int32_t>::min(), 8, 3),
-              2);
-    EXPECT_FALSE(dynamic_bucket_assigner_channel(1, 1, 0, 1).has_value());
-    EXPECT_FALSE(dynamic_bucket_assigner_channel(1, 1, 2, 3).has_value());
 }
 
 } // namespace doris::paimon_native

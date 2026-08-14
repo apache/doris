@@ -166,12 +166,12 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             return Status::InternalError("External table sink hash partition info is missing");
         }
         _partition_count = channels.size();
-        const bool use_new_shuffle_hash_method =
-                _state->query_options().__isset.enable_new_shuffle_hash_method &&
-                _state->query_options().enable_new_shuffle_hash_method;
+        const bool use_crc32c = _state->query_options().__isset.enable_new_shuffle_hash_method &&
+                                _state->query_options().enable_new_shuffle_hash_method;
+        const ShuffleHashMethod hash_method =
+                use_crc32c ? ShuffleHashMethod::CRC32C : ShuffleHashMethod::CRC32;
         _partitioner = std::make_unique<ExternalTableSinkHashPartitioner>(
-                _partition_count, use_new_shuffle_hash_method,
-                p._external_table_sink_hash_partition_info);
+                _partition_count, hash_method, p._external_table_sink_hash_partition_info);
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         custom_profile()->add_info_string(

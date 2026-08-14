@@ -50,9 +50,8 @@ import java.util.Set;
  * metadata, Hadoop authentication config, transaction identity, write mode,
  * and sink column names.
  *
- * The upstream Exchange may establish concurrent HASH_FIXED ownership or route
- * HASH_DYNAMIC rows to their SDK assigner; authoritative partition and bucket
- * handling inside each writer remains delegated to the SDK.
+ * The upstream Exchange may establish concurrent HASH_FIXED writer ownership;
+ * partition and bucket handling inside each writer remains delegated to the SDK.
  */
 public class PaimonTableSink extends BaseExternalTableDataSink {
     private final PaimonExternalTable targetTable;

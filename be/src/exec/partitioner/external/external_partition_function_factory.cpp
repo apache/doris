@@ -18,19 +18,18 @@
 
 #include "common/status.h"
 #include "exec/partitioner/external/paimon_fixed_bucket_partition_function.h"
-#include "exec/partitioner/external/paimon_hash_dynamic_partition_function.h"
 #include "format/transformer/iceberg_partition_function.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace {
-bool has_iceberg_metadata(const TExternalTableSinkHashPartitionInfo& info) {
-    return info.__isset.partition_transforms && !info.partition_transforms.empty();
+bool has_partition_transform_metadata(const TExternalTableSinkHashPartitionInfo& info) {
+    return info.__isset.partition_transforms;
 }
 
 bool has_paimon_metadata(const TExternalTableSinkHashPartitionInfo& info) {
-    return info.__isset.paimon_fixed_bucket_info || info.__isset.paimon_hash_dynamic_info;
+    return info.__isset.paimon_fixed_bucket_info;
 }
 
 Status create_direct_hash_function(const TExternalTableSinkHashPartitionInfo& info,
@@ -38,7 +37,7 @@ Status create_direct_hash_function(const TExternalTableSinkHashPartitionInfo& in
                                    ShuffleHashMethod hash_method,
                                    const std::vector<TExpr>& partition_exprs,
                                    std::unique_ptr<PartitionFunction>* partition_function) {
-    if (has_iceberg_metadata(info) || has_paimon_metadata(info)) {
+    if (has_partition_transform_metadata(info) || has_paimon_metadata(info)) {
         return Status::InvalidArgument("Direct external sink hash contains incompatible metadata");
     }
     auto function = std::make_unique<HashPartitionFunction>(logical_partition_count, hash_method);
@@ -86,7 +85,7 @@ Status create_paimon_fixed_bucket_function(const TExternalTableSinkHashPartition
     if (!info.__isset.paimon_fixed_bucket_info) {
         return Status::InvalidArgument("Paimon fixed-bucket routing metadata is missing");
     }
-    if (info.__isset.paimon_hash_dynamic_info || has_iceberg_metadata(info)) {
+    if (has_partition_transform_metadata(info)) {
         return Status::InvalidArgument(
                 "Paimon fixed-bucket routing contains incompatible metadata");
     }
@@ -97,23 +96,6 @@ Status create_paimon_fixed_bucket_function(const TExternalTableSinkHashPartition
     return Status::OK();
 }
 
-Status create_paimon_hash_dynamic_function(const TExternalTableSinkHashPartitionInfo& info,
-                                           PartitionerBase::HashValType logical_partition_count,
-                                           const std::vector<TExpr>& partition_exprs,
-                                           std::unique_ptr<PartitionFunction>* partition_function) {
-    if (!info.__isset.paimon_hash_dynamic_info) {
-        return Status::InvalidArgument("Paimon HASH_DYNAMIC routing metadata is missing");
-    }
-    if (info.__isset.paimon_fixed_bucket_info || has_iceberg_metadata(info)) {
-        return Status::InvalidArgument(
-                "Paimon HASH_DYNAMIC routing contains incompatible metadata");
-    }
-    auto function = std::make_unique<PaimonHashDynamicPartitionFunction>(
-            logical_partition_count, info.paimon_hash_dynamic_info);
-    RETURN_IF_ERROR(function->init(partition_exprs));
-    *partition_function = std::move(function);
-    return Status::OK();
-}
 } // namespace
 
 Status create_external_partition_function(const TExternalTableSinkHashPartitionInfo& partition_info,
@@ -133,9 +115,6 @@ Status create_external_partition_function(const TExternalTableSinkHashPartitionI
                                        partition_exprs, partition_function);
     case TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET:
         return create_paimon_fixed_bucket_function(partition_info, logical_partition_count,
-                                                   partition_exprs, partition_function);
-    case TExternalTableSinkHashAlgorithm::PAIMON_HASH_DYNAMIC:
-        return create_paimon_hash_dynamic_function(partition_info, logical_partition_count,
                                                    partition_exprs, partition_function);
     default:
         return Status::InvalidArgument("Unsupported external sink hash algorithm {}",

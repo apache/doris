@@ -103,8 +103,6 @@ public class PaimonJniWriter {
     private BucketMode bucketMode;
     private BucketAssigner hashBucketAssigner;
     private PartitionKeyExtractor<InternalRow> dynamicBucketExtractor;
-    private int hashDynamicWriterCount;
-    private int hashDynamicWriterId;
     private GlobalIndexAssigner globalIndexAssigner;
     private boolean fullCompactionChangelog;
     private final Set<PartitionBucket> fullCompactionBuckets = new HashSet<>();
@@ -145,14 +143,11 @@ public class PaimonJniWriter {
      * @param spillDirectories Doris storage-root scoped directories for Paimon write-buffer spill
      * @param memoryPoolLimitBytes maximum Doris-managed Paimon write-buffer memory
      * @param nativeMemoryManager opaque BE manager used to allocate tracked native pages
-     * @param writerCount total Doris writer instances targeted by the sink Exchange
-     * @param writerId stable zero-based identity of this writer instance
      */
     public void open(String serializedTable, Map<String, String> hadoopConfig,
                      String[] columnNames, long transactionId, String commitUser,
                      boolean overwrite, String timeZone, String spillDirectories,
-                     long memoryPoolLimitBytes, long nativeMemoryManager,
-                     int writerCount, int writerId) throws Exception {
+                     long memoryPoolLimitBytes, long nativeMemoryManager) throws Exception {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             if (memoryPoolLimitBytes <= 0) {
                 throw new IllegalArgumentException(
@@ -161,10 +156,6 @@ public class PaimonJniWriter {
             if (nativeMemoryManager == 0) {
                 throw new IllegalArgumentException(
                         "PaimonJniWriter requires a native memory manager");
-            }
-            if (writerCount <= 0 || writerId < 0 || writerId >= writerCount) {
-                throw new IllegalArgumentException(
-                        "Invalid Paimon writer identity " + writerId + "/" + writerCount);
             }
             this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopConfig);
             this.arrowConverter = new PaimonArrowConverter(ZoneId.of(timeZone));
@@ -192,9 +183,7 @@ public class PaimonJniWriter {
                             spillDirectories,
                             coreOptions,
                             memoryPoolLimitBytes,
-                            nativeMemoryManager,
-                            writerCount,
-                            writerId);
+                            nativeMemoryManager);
                     return null;
                 } catch (Throwable t) {
                     try {
@@ -316,15 +305,14 @@ public class PaimonJniWriter {
 
     private void openFileStoreWriter(FileStoreTable table, String commitUser, boolean overwrite,
             String spillDirectories, CoreOptions coreOptions, long memoryPoolLimitBytes,
-            long nativeMemoryManager, int writerCount, int writerId) throws Exception {
+            long nativeMemoryManager) throws Exception {
         writer = table.newWrite(commitUser);
         if (overwrite) {
             writer.withIgnorePreviousFiles(true);
         }
         openMemoryResources(
                 coreOptions, spillDirectories, memoryPoolLimitBytes, nativeMemoryManager);
-        openDynamicBucketAssigner(
-                table, commitUser, overwrite, coreOptions, writerCount, writerId);
+        openDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
     }
 
     private void validateWriteColumnsForMergeEngine(int writeColumnCount, CoreOptions coreOptions) {
@@ -369,12 +357,10 @@ public class PaimonJniWriter {
     }
 
     private void openDynamicBucketAssigner(FileStoreTable table, String commitUser,
-            boolean overwrite, CoreOptions coreOptions, int writerCount, int writerId)
-            throws Exception {
+            boolean overwrite, CoreOptions coreOptions) throws Exception {
         switch (bucketMode) {
             case HASH_DYNAMIC:
-                openHashDynamicBucketAssigner(
-                        table, commitUser, overwrite, coreOptions, writerCount, writerId);
+                openHashDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
                 break;
             case KEY_DYNAMIC:
                 openKeyDynamicBucketAssigner(table);
@@ -386,23 +372,13 @@ public class PaimonJniWriter {
     }
 
     private void openHashDynamicBucketAssigner(FileStoreTable table, String commitUser,
-            boolean overwrite, CoreOptions coreOptions, int writerCount, int writerId) {
+            boolean overwrite, CoreOptions coreOptions) {
         dynamicBucketExtractor = new RowPartitionKeyExtractor(table.schema());
-        Integer configuredAssigners = coreOptions.dynamicBucketAssignerParallelism();
-        if (configuredAssigners != null && configuredAssigners != writerCount) {
-            throw new IllegalArgumentException(
-                    "Paimon HASH_DYNAMIC writer count " + writerCount
-                            + " must equal dynamic-bucket.assigner-parallelism "
-                            + configuredAssigners);
-        }
-        int numAssigners = writerCount;
-        hashDynamicWriterCount = writerCount;
-        hashDynamicWriterId = writerId;
         if (overwrite) {
             hashBucketAssigner =
                     new SimpleHashBucketAssigner(
-                            numAssigners,
-                            writerId,
+                            1,
+                            0,
                             coreOptions.dynamicBucketTargetRowNum(),
                             coreOptions.dynamicBucketMaxBuckets());
             return;
@@ -413,9 +389,9 @@ public class PaimonJniWriter {
                         table.snapshotManager(),
                         commitUser,
                         table.store().newIndexFileHandler(),
-                        writerCount,
-                        numAssigners,
-                        writerId,
+                        1,
+                        1,
+                        0,
                         coreOptions.dynamicBucketTargetRowNum(),
                         coreOptions.dynamicBucketMaxBuckets());
     }
@@ -462,13 +438,6 @@ public class PaimonJniWriter {
                 hashBucketAssigner.assign(
                         dynamicBucketExtractor.partition(row),
                         dynamicBucketExtractor.trimmedPrimaryKey(row).hashCode());
-        if (Math.floorMod(bucket, hashDynamicWriterCount) != hashDynamicWriterId) {
-            throw new IllegalStateException(
-                    "Existing Paimon HASH_DYNAMIC bucket " + bucket
-                            + " is incompatible with Doris writer " + hashDynamicWriterId
-                            + "/" + hashDynamicWriterCount
-                            + "; use the two-stage assigner path or a single writer");
-        }
         writeRow(row, bucket);
     }
 
@@ -603,8 +572,6 @@ public class PaimonJniWriter {
         bucketMode = null;
         hashBucketAssigner = null;
         dynamicBucketExtractor = null;
-        hashDynamicWriterCount = 0;
-        hashDynamicWriterId = 0;
         globalIndexAssigner = null;
         ioManager = null;
         fullCompactionChangelog = false;

@@ -32,7 +32,7 @@ namespace doris {
 // Optional partition transforms are evaluated transiently and never appended to the sink row.
 class ExternalTableSinkHashPartitioner final : public PartitionerBase {
 public:
-    ExternalTableSinkHashPartitioner(HashValType partition_count, bool use_new_shuffle_hash_method,
+    ExternalTableSinkHashPartitioner(HashValType partition_count, ShuffleHashMethod hash_method,
                                      TExternalTableSinkHashPartitionInfo partition_info);
 
     Status init(const std::vector<TExpr>& texprs) override;
@@ -44,11 +44,7 @@ public:
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
 private:
-    ShuffleHashMethod _hash_method() const {
-        return _use_new_shuffle_hash_method ? ShuffleHashMethod::CRC32C : ShuffleHashMethod::CRC32;
-    }
-
-    bool _use_new_shuffle_hash_method;
+    ShuffleHashMethod _hash_method;
     TExternalTableSinkHashPartitionInfo _partition_info;
     HashValType _logical_partition_count;
     std::unique_ptr<PartitionFunction> _partition_function;

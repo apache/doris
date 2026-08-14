@@ -50,10 +50,10 @@ Status logical_partition_count(uint32_t writer_count,
 } // namespace
 
 ExternalTableSinkHashPartitioner::ExternalTableSinkHashPartitioner(
-        HashValType partition_count, bool use_new_shuffle_hash_method,
+        HashValType partition_count, ShuffleHashMethod hash_method,
         TExternalTableSinkHashPartitionInfo partition_info)
         : PartitionerBase(partition_count),
-          _use_new_shuffle_hash_method(use_new_shuffle_hash_method),
+          _hash_method(hash_method),
           _partition_info(std::move(partition_info)),
           _logical_partition_count(partition_count) {}
 
@@ -69,14 +69,13 @@ Status ExternalTableSinkHashPartitioner::init(const std::vector<TExpr>& texprs) 
     RETURN_IF_ERROR(logical_partition_count(_partition_count, _partition_info.writer_assignment,
                                             &_logical_partition_count));
     const bool requires_identity =
-            _partition_info.algorithm == TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET ||
-            _partition_info.algorithm == TExternalTableSinkHashAlgorithm::PAIMON_HASH_DYNAMIC;
+            _partition_info.algorithm == TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET;
     if (requires_identity &&
         _partition_info.writer_assignment != TExternalTableSinkWriterAssignment::IDENTITY) {
         return Status::InvalidArgument("Paimon bucket routing requires identity writer assignment");
     }
     return create_external_partition_function(_partition_info, _logical_partition_count,
-                                              _hash_method(), texprs, &_partition_function);
+                                              _hash_method, texprs, &_partition_function);
 }
 
 Status ExternalTableSinkHashPartitioner::prepare(RuntimeState* state,
@@ -132,8 +131,8 @@ ExternalTableSinkHashPartitioner::get_channel_ids() const {
 
 Status ExternalTableSinkHashPartitioner::clone(RuntimeState* state,
                                                std::unique_ptr<PartitionerBase>& partitioner) {
-    auto cloned = std::make_unique<ExternalTableSinkHashPartitioner>(
-            _partition_count, _use_new_shuffle_hash_method, _partition_info);
+    auto cloned = std::make_unique<ExternalTableSinkHashPartitioner>(_partition_count, _hash_method,
+                                                                     _partition_info);
     RETURN_IF_ERROR(_partition_function->clone(state, cloned->_partition_function));
     partitioner = std::move(cloned);
     return Status::OK();

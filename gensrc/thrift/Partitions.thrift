@@ -118,11 +118,7 @@ enum TExternalTableSinkHashAlgorithm {
 
   // Paimon HASH_FIXED routing using the default bucket function and
   // ChannelComputer. The partition expressions carry their Doris types.
-  PAIMON_FIXED_BUCKET = 2,
-
-  // Paimon HASH_DYNAMIC assigner input routing. Rows are sent to the writer
-  // which owns the corresponding HashBucketAssigner state.
-  PAIMON_HASH_DYNAMIC = 3
+  PAIMON_FIXED_BUCKET = 2
 }
 
 // Maps the logical partitions produced by the hash algorithm to Doris exchange writers.
@@ -141,15 +137,6 @@ struct TPaimonFixedBucketInfo {
   3: required list<i32> bucket_field_indexes
 }
 
-// Stateless input routing metadata for a Paimon HASH_DYNAMIC assigner. The
-// actual bucket is allocated by the SDK writer after this Exchange. The
-// Exchange channel count is also the SDK assigner count; Java validates an
-// explicitly configured dynamic-bucket.assigner-parallelism against it.
-struct TPaimonHashDynamicInfo {
-  1: required list<i32> partition_field_indexes
-  2: required list<i32> primary_key_field_indexes
-}
-
 // Connector-independent routing metadata for an external table sink hash
 // exchange. Algorithm-specific fields are optional for protocol evolution, but
 // each algorithm validates the fields it requires before processing rows.
@@ -166,9 +153,6 @@ struct TExternalTableSinkHashPartitionInfo {
 
   // Required only by PAIMON_FIXED_BUCKET.
   4: optional TPaimonFixedBucketInfo paimon_fixed_bucket_info
-
-  // Required only by PAIMON_HASH_DYNAMIC.
-  5: optional TPaimonHashDynamicInfo paimon_hash_dynamic_info
 }
 
 // Specification of how a single logical data stream is partitioned.

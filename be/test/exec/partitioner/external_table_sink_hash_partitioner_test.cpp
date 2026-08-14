@@ -99,7 +99,7 @@ TEST_F(ExternalTableSinkHashPartitionerTest, DirectHashKeepsOneKeyOnOneWriter) {
     TExternalTableSinkHashPartitionInfo info;
     info.__set_algorithm(TExternalTableSinkHashAlgorithm::DIRECT_HASH);
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
-    ExternalTableSinkHashPartitioner partitioner(8, false, info);
+    ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
     ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
     ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
     ASSERT_TRUE(partitioner.open(&_state).ok());
@@ -115,21 +115,33 @@ TEST_F(ExternalTableSinkHashPartitionerTest, DirectHashKeepsOneKeyOnOneWriter) {
     ASSERT_TRUE(partitioner.close(&_state).ok());
 }
 
-TEST_F(ExternalTableSinkHashPartitionerTest, MissingWriterAssignmentFailsClosed) {
+TEST_F(ExternalTableSinkHashPartitionerTest, OldFePayloadMissingWriterAssignmentFailsClosed) {
     TExternalTableSinkHashPartitionInfo info;
     info.__set_algorithm(TExternalTableSinkHashAlgorithm::DIRECT_HASH);
-    ExternalTableSinkHashPartitioner partitioner(8, false, info);
+    ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
 
     Status status = partitioner.init({slot_ref()});
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("writer assignment is missing"), std::string::npos);
 }
 
+TEST_F(ExternalTableSinkHashPartitionerTest, NewerFeHashAlgorithmFailsClosed) {
+    TExternalTableSinkHashPartitionInfo info;
+    info.__set_algorithm(static_cast<TExternalTableSinkHashAlgorithm::type>(99));
+    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
+    ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
+
+    Status status = partitioner.init({slot_ref()});
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Unsupported external sink hash algorithm 99"),
+              std::string::npos);
+}
+
 TEST_F(ExternalTableSinkHashPartitionerTest, DirectHashSupportsSkewedWriterAssignment) {
     TExternalTableSinkHashPartitionInfo info;
     info.__set_algorithm(TExternalTableSinkHashAlgorithm::DIRECT_HASH);
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::SKEWED);
-    ExternalTableSinkHashPartitioner partitioner(4, false, info);
+    ExternalTableSinkHashPartitioner partitioner(4, ShuffleHashMethod::CRC32C, info);
     ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
     ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
     ASSERT_TRUE(partitioner.open(&_state).ok());
@@ -157,7 +169,7 @@ TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketUsesSdkCompatibleC
     info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET);
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
     info.__set_paimon_fixed_bucket_info(fixed_bucket_info);
-    ExternalTableSinkHashPartitioner partitioner(8, false, info);
+    ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
     ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
     ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
     ASSERT_TRUE(partitioner.open(&_state).ok());
@@ -182,7 +194,7 @@ TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketIncludesPartitionH
     info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET);
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
     info.__set_paimon_fixed_bucket_info(fixed_bucket_info);
-    ExternalTableSinkHashPartitioner partitioner(8, false, info);
+    ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
     ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
     ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
     ASSERT_TRUE(partitioner.open(&_state).ok());
@@ -201,49 +213,29 @@ TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketRejectsMissingMeta
     TExternalTableSinkHashPartitionInfo info;
     info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET);
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
-    ExternalTableSinkHashPartitioner partitioner(8, false, info);
+    ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
 
     Status status = partitioner.init({slot_ref()});
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("routing metadata is missing"), std::string::npos);
 }
 
-TEST_F(ExternalTableSinkHashPartitionerTest, PaimonHashDynamicRoutesOneKeyToOneAssigner) {
-    TPaimonHashDynamicInfo dynamic_info;
-    dynamic_info.__set_partition_field_indexes({});
-    dynamic_info.__set_primary_key_field_indexes({0});
+TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketRejectsEmptyTransformMetadata) {
+    TPaimonFixedBucketInfo fixed_bucket_info;
+    fixed_bucket_info.__set_num_buckets(4);
+    fixed_bucket_info.__set_partition_field_indexes({});
+    fixed_bucket_info.__set_bucket_field_indexes({0});
 
     TExternalTableSinkHashPartitionInfo info;
-    info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_HASH_DYNAMIC);
+    info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET);
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
-    info.__set_paimon_hash_dynamic_info(dynamic_info);
-    ExternalTableSinkHashPartitioner partitioner(2, false, info);
-    ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
-    ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
-    ASSERT_TRUE(partitioner.open(&_state).ok());
-
-    Block input = block({7, 3, 7, 9, 3});
-    ASSERT_TRUE(partitioner.do_partitioning(&_state, &input).ok());
-    const auto& channels = partitioner.get_channel_ids();
-    ASSERT_EQ(5, channels.size());
-    EXPECT_EQ(channels[0], channels[2]);
-    EXPECT_EQ(channels[1], channels[4]);
-    for (uint32_t channel : channels) {
-        EXPECT_LT(channel, 2);
-    }
-
-    ASSERT_TRUE(partitioner.close(&_state).ok());
-}
-
-TEST_F(ExternalTableSinkHashPartitionerTest, PaimonHashDynamicRejectsMissingMetadata) {
-    TExternalTableSinkHashPartitionInfo info;
-    info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_HASH_DYNAMIC);
-    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
-    ExternalTableSinkHashPartitioner partitioner(8, false, info);
+    info.__set_partition_transforms({});
+    info.__set_paimon_fixed_bucket_info(fixed_bucket_info);
+    ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
 
     Status status = partitioner.init({slot_ref()});
     ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("routing metadata is missing"), std::string::npos);
+    EXPECT_NE(status.to_string().find("contains incompatible metadata"), std::string::npos);
 }
 
 TEST_F(ExternalTableSinkHashPartitionerTest, IcebergTransformHashesTransformedValue) {
@@ -251,7 +243,7 @@ TEST_F(ExternalTableSinkHashPartitionerTest, IcebergTransformHashesTransformedVa
     info.__set_algorithm(TExternalTableSinkHashAlgorithm::ICEBERG_TRANSFORM);
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::SKEWED);
     info.__set_partition_transforms({"truncate[10]"});
-    ExternalTableSinkHashPartitioner partitioner(64, false, info);
+    ExternalTableSinkHashPartitioner partitioner(64, ShuffleHashMethod::CRC32, info);
     ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
     ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
     ASSERT_TRUE(partitioner.open(&_state).ok());
@@ -272,7 +264,7 @@ TEST_F(ExternalTableSinkHashPartitionerTest, UnsupportedTransformFailsClosed) {
     info.__set_algorithm(TExternalTableSinkHashAlgorithm::ICEBERG_TRANSFORM);
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
     info.__set_partition_transforms({"unsupported"});
-    ExternalTableSinkHashPartitioner partitioner(4, false, info);
+    ExternalTableSinkHashPartitioner partitioner(4, ShuffleHashMethod::CRC32, info);
     ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
     ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
     EXPECT_FALSE(partitioner.open(&_state).ok());

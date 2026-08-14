@@ -322,7 +322,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     jmethodID open_id = env->GetMethodID(
             _jni_writer_cls, "open",
             "(Ljava/lang/String;Ljava/util/Map;[Ljava/lang/String;JLjava/lang/String;ZLjava/lang/"
-            "String;Ljava/lang/String;JJII)V");
+            "String;Ljava/lang/String;JJ)V");
     _write_id = env->GetMethodID(_jni_writer_cls, "write", "(Ljava/nio/ByteBuffer;)V");
     _prepare_commit_id = env->GetMethodID(_jni_writer_cls, "prepareCommit", "()[[B");
     _abort_id = env->GetMethodID(_jni_writer_cls, "abort", "()V");
@@ -335,15 +335,6 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     RETURN_IF_ERROR(_check_jni_exception(env, "NewObject"));
     _jni_writer_obj = env->NewGlobalRef(local_obj);
     env->DeleteLocalRef(local_obj);
-
-    // The Exchange channel index and fragment sender id are the same stable writer identity.
-    // HASH_DYNAMIC relies on this identity to open exactly one SDK assigner for each route.
-    const int writer_count = state->num_per_fragment_instances();
-    const int writer_id = state->per_fragment_instance_idx();
-    if (writer_count <= 0 || writer_id < 0 || writer_id >= writer_count) {
-        return Status::InvalidArgument("Invalid Paimon writer identity {}/{}", writer_id,
-                                       writer_count);
-    }
 
     // Step 4: Build Java arguments and call PaimonJniWriter.open().
     const std::map<std::string, std::string> empty_config;
@@ -374,8 +365,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
                         static_cast<jboolean>(sink.write_mode == TPaimonWriteMode::OVERWRITE),
                         j_time_zone, j_spill_directories,
                         static_cast<jlong>(_memory_manager->memory_limit()),
-                        reinterpret_cast<jlong>(_memory_manager.get()),
-                        static_cast<jint>(writer_count), static_cast<jint>(writer_id));
+                        reinterpret_cast<jlong>(_memory_manager.get()));
     Status st = _check_jni_exception(env, "open");
 
     env->DeleteLocalRef(j_serialized_table);

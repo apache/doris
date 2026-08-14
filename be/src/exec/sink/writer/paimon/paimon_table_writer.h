@@ -35,12 +35,14 @@ class RuntimeState;
 
 /// Each PaimonTableSinkLocalState owns one PaimonTableWriter, which in turn
 /// owns one IPaimonWriteBackend and one IPaimonWriter. Pipeline parallelism
-/// therefore determines the number of independent Paimon writer sessions.
+/// therefore determines the number of independent Paimon writer sessions;
+/// each writer session delegates partition and bucket routing to the Paimon
+/// SDK (Java via JNI, or Rust via FFI in the future).
 ///
-/// The upstream Exchange can compute Paimon-compatible writer ownership for
-/// supported fixed and hash-dynamic tables. It does not append routing columns
-/// or alter rows. Each writer still passes complete Blocks to the selected SDK,
-/// which remains authoritative for partition/bucket assignment and file layout.
+/// Doris does NOT compute partition values or bucket ids — it passes complete
+/// Blocks through the selected backend (JNI/FFI) to the Paimon SDK, which
+/// internally computes partition values, bucket ids, and routes rows to the
+/// correct file writers.
 ///
 /// Architecture:
 ///   PaimonTableSinkOperatorX
@@ -52,7 +54,7 @@ class RuntimeState;
 ///     │  write()
 ///     │    → JNI backend: Block → Arrow IPC → Java Paimon SDK
 ///     │    → FFI backend: Block → Rust writer (future)
-///     │    → selected SDK owns row normalization, bucket assignment, buffering,
+///     │    → selected SDK owns row normalization, routing, buffering,
 ///     │      file writing, and compaction
 ///     ▼
 ///   close() → prepareCommit() → CommitMessage[]
