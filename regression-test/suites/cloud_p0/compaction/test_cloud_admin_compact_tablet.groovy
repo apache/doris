@@ -94,6 +94,8 @@ suite("test_cloud_admin_compact_tablet", "p0") {
         exception "type"
     }
 
-    qt_select_count "SELECT COUNT(*) FROM ${tableName}"
-    qt_select_all "SELECT * FROM ${tableName} ORDER BY k"
+    def rowCount = sql "SELECT COUNT(*) FROM ${tableName}"
+    assertEquals(8, rowCount[0][0])
+    def rows = sql "SELECT * FROM ${tableName} ORDER BY k"
+    assertEquals((1..8).collect { [it, it] }, rows)
 }
