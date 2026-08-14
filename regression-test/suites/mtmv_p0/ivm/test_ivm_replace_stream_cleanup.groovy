@@ -63,6 +63,22 @@ suite("test_ivm_replace_stream_cleanup") {
         AS SELECT k1, v1 FROM ivm_replace_new_base
     """
 
+    def streamRows = sql """
+        SELECT STREAM_NAME, BASE_TABLE_NAME
+        FROM information_schema.table_streams
+        WHERE DB_NAME = '${context.dbName}'
+          AND BASE_TABLE_NAME IN ('ivm_replace_old_base', 'ivm_replace_new_base')
+          AND starts_with(STREAM_NAME, '__doris_ivm_stream_')
+    """
+    assertEquals(2, streamRows.size())
+    def streamsByBaseTable = streamRows.collectEntries { row ->
+        [(row[1].toString()): row[0].toString()]
+    }
+    def oldStreamName = streamsByBaseTable['ivm_replace_old_base']
+    def newStreamName = streamsByBaseTable['ivm_replace_new_base']
+    assertNotNull(oldStreamName)
+    assertNotNull(newStreamName)
+
     sql "INSERT INTO ivm_replace_old_base VALUES (1, 10), (2, 20)"
     sql "REFRESH MATERIALIZED VIEW ivm_replace_old_mv INCREMENTAL"
     waitingMTMVTaskFinishedByMvName("ivm_replace_old_mv")
@@ -75,12 +91,8 @@ suite("test_ivm_replace_stream_cleanup") {
 
     qt_streams_before_replace """
         SELECT
-            COUNT(DISTINCT CASE WHEN RIGHT(STREAM_NAME,
-                    LENGTH('ivm_replace_old_base'))
-                = 'ivm_replace_old_base' THEN STREAM_NAME END) AS old_streams,
-            COUNT(DISTINCT CASE WHEN RIGHT(STREAM_NAME,
-                    LENGTH('ivm_replace_new_base'))
-                = 'ivm_replace_new_base' THEN STREAM_NAME END) AS new_streams
+            COUNT(DISTINCT CASE WHEN STREAM_NAME = '${oldStreamName}' THEN STREAM_NAME END) AS old_streams,
+            COUNT(DISTINCT CASE WHEN STREAM_NAME = '${newStreamName}' THEN STREAM_NAME END) AS new_streams
         FROM information_schema.table_stream_consumption
         WHERE DB_NAME = '${context.dbName}'
     """
@@ -93,12 +105,8 @@ suite("test_ivm_replace_stream_cleanup") {
 
     qt_streams_after_replace """
         SELECT
-            COUNT(DISTINCT CASE WHEN RIGHT(STREAM_NAME,
-                    LENGTH('ivm_replace_old_base'))
-                = 'ivm_replace_old_base' THEN STREAM_NAME END) AS old_streams,
-            COUNT(DISTINCT CASE WHEN RIGHT(STREAM_NAME,
-                    LENGTH('ivm_replace_new_base'))
-                = 'ivm_replace_new_base' THEN STREAM_NAME END) AS new_streams
+            COUNT(DISTINCT CASE WHEN STREAM_NAME = '${oldStreamName}' THEN STREAM_NAME END) AS old_streams,
+            COUNT(DISTINCT CASE WHEN STREAM_NAME = '${newStreamName}' THEN STREAM_NAME END) AS new_streams
         FROM information_schema.table_stream_consumption
         WHERE DB_NAME = '${context.dbName}'
     """

@@ -61,17 +61,25 @@ suite("test_ivm_plan_signature_fallback", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllFEs(signatureSaltDebugPoint, [value: "plan_changed"])
         sql """REFRESH MATERIALIZED VIEW ${mvName} AUTO"""
         waitingMTMVTaskFinishedByMvName(mvName)
+
+        qt_signature_fallback_mode """
+            SELECT RefreshMode FROM tasks('type'='mv')
+            WHERE MvDatabaseName = '${context.dbName}' AND MvName = '${mvName}'
+            ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
+        """
+
+        sql """INSERT INTO ${tableName} VALUES (4, 40);"""
+        sql """REFRESH MATERIALIZED VIEW ${mvName} AUTO"""
+        waitingMTMVTaskFinishedByMvName(mvName)
+
+        qt_signature_published """
+            SELECT HEX(RefreshMode), HEX(IvmFallbackReason) FROM tasks('type'='mv')
+            WHERE MvDatabaseName = '${context.dbName}' AND MvName = '${mvName}'
+            ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
+        """
     } finally {
         GetDebugPoint().disableDebugPointForAllFEs(signatureSaltDebugPoint)
     }
 
-    def refreshMode = sql """
-        SELECT RefreshMode FROM tasks('type'='mv')
-        WHERE MvDatabaseName = '${context.dbName}' AND MvName = '${mvName}'
-        ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
-    """
-    assertEquals("COMPLETE", refreshMode[0][0].toString())
-
-    def rows = sql """SELECT k1, v1 FROM ${mvName} ORDER BY k1"""
-    assertEquals("[[1, 10], [2, 20], [3, 30]]", rows.toString())
+    order_qt_signature_rows """SELECT k1, v1 FROM ${mvName} ORDER BY k1"""
 }

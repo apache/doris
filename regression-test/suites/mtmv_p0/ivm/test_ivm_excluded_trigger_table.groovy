@@ -142,4 +142,22 @@ suite("test_ivm_excluded_trigger_table", "mtmv") {
         ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
     """
     assertEquals("COMPLETE", refreshMode[0][0].toString())
+
+    sql """INSERT INTO ivm_excl_alt_b VALUES (4, 40);"""
+    sql """
+        ALTER MATERIALIZED VIEW test_ivm_excluded_trigger_table_alt_mv
+        SET ("excluded_trigger_tables" = "");
+    """
+    sql """REFRESH MATERIALIZED VIEW test_ivm_excluded_trigger_table_alt_mv AUTO"""
+    waitingMTMVTaskFinishedByMvName("test_ivm_excluded_trigger_table_alt_mv")
+
+    qt_reinclude_refresh_mode """
+        SELECT RefreshMode FROM tasks('type'='mv')
+        WHERE MvDatabaseName = '${context.dbName}'
+          AND MvName = 'test_ivm_excluded_trigger_table_alt_mv'
+        ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
+    """
+    order_qt_reinclude_rows """
+        SELECT k1, v1 FROM test_ivm_excluded_trigger_table_alt_mv ORDER BY k1
+    """
 }

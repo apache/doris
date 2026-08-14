@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -46,6 +47,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -83,31 +85,43 @@ public class MTMVRelationManager implements MTMVHookService {
         return tableMTMVsOneLevelAndFromView.getOrDefault(table, ImmutableSet.of());
     }
 
-    /**
-     * Mark dependent IVM MVs as binlog-broken before a base-table metadata data change.
-     * These operations can change visible rows without producing consumable row binlog deltas.
-     */
-    public void markIvmBinlogBroken(BaseTableInfo baseTableInfo, String reason) {
-        Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTableOneLevelAndFromView(baseTableInfo);
-        if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
-            return;
-        }
-        for (BaseTableInfo mtmvInfo : mtmvsByBaseTable) {
+    public void markIvmBaselineRebuild(BaseTableInfo baseTableInfo, String reason) {
+        markIvmBaselineRebuild(baseTableInfo, Collections.emptyMap(), reason);
+    }
+
+    public void markIvmBaselineRebuildForPartitionChange(BaseTableInfo baseTableInfo,
+            Map<String, Long> changedPartitions, String reason) {
+        Preconditions.checkArgument(!changedPartitions.isEmpty(), "changed partitions can not be empty");
+        markIvmBaselineRebuild(baseTableInfo, changedPartitions, reason);
+    }
+
+    private void markIvmBaselineRebuild(BaseTableInfo baseTableInfo,
+            Map<String, Long> changedPartitions, String reason) {
+        TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
+                baseTableInfo.getDbName(), baseTableInfo.getTableName());
+        for (BaseTableInfo mtmvInfo : getMtmvsByBaseTableOneLevelAndFromView(baseTableInfo)) {
             MTMV mtmv;
             try {
                 mtmv = MTMVUtil.getMTMV(mtmvInfo);
             } catch (AnalysisException e) {
-                LOG.warn("Skip marking IVM binlog broken because dependent MTMV is missing, "
+                LOG.warn("Skip IVM baseline barrier because dependent MTMV is missing, "
                         + "baseTable={}, mtmv={}, reason={}", baseTableInfo, mtmvInfo, reason, e);
                 continue;
             }
             if (!mtmv.isIvm()) {
                 continue;
             }
-            if (mtmv.markIvmBinlogBroken()) {
-                LOG.info("Marked IVM binlog broken, baseTable={}, mtmv={}, reason={}",
-                        baseTableInfo, mtmvInfo, reason);
+            // Excluded tables have no IVM stream, so their changes cannot break the incremental baseline.
+            if (MTMVPartitionUtil.isTableExcluded(mtmv.getExcludedTriggerTables(), baseTableName)) {
+                continue;
             }
+            if (changedPartitions.isEmpty()) {
+                mtmv.invalidateIvmBaseline();
+            } else {
+                mtmv.invalidateIvmBaseline(baseTableInfo, changedPartitions);
+            }
+            LOG.info("Invalidated IVM baseline, baseTable={}, mtmv={}, reason={}",
+                    baseTableInfo, mtmvInfo, reason);
         }
     }
 
@@ -200,8 +214,17 @@ public class MTMVRelationManager implements MTMVHookService {
 
     public void refreshMTMVCache(MTMVRelation relation, BaseTableInfo mtmvInfo) {
         LOG.info("refreshMTMVCache,relation: {}, mtmvInfo: {}", relation, mtmvInfo);
-        removeMTMV(mtmvInfo);
+        if (relation == null) {
+            removeMTMV(mtmvInfo);
+            return;
+        }
+        // Publish new dependencies before pruning stale ones. A concurrent base-table DDL can then
+        // find the MV through either relation and cannot miss invalidating its IVM baseline.
         addMTMV(relation, mtmvInfo);
+        removeMTMVFromStaleRelations(tableMTMVs, relation.getBaseTables(), mtmvInfo);
+        removeMTMVFromStaleRelations(viewMTMVs, relation.getBaseViews(), mtmvInfo);
+        removeMTMVFromStaleRelations(tableMTMVsOneLevelAndFromView,
+                relation.getBaseTablesOneLevelAndFromView(), mtmvInfo);
     }
 
     private void addMTMV(MTMVRelation relation, BaseTableInfo mtmvInfo) {
@@ -249,6 +272,15 @@ public class MTMVRelationManager implements MTMVHookService {
         }
         for (Set<BaseTableInfo> sets : tableMTMVsOneLevelAndFromView.values()) {
             sets.remove(mtmvInfo);
+        }
+    }
+
+    private void removeMTMVFromStaleRelations(Map<BaseTableInfo, Set<BaseTableInfo>> relationMap,
+            Set<BaseTableInfo> currentBaseTables, BaseTableInfo mtmvInfo) {
+        for (Map.Entry<BaseTableInfo, Set<BaseTableInfo>> entry : relationMap.entrySet()) {
+            if (CollectionUtils.isEmpty(currentBaseTables) || !currentBaseTables.contains(entry.getKey())) {
+                entry.getValue().remove(mtmvInfo);
+            }
         }
     }
 

@@ -28,6 +28,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -287,25 +288,21 @@ public class AlterMTMVTest extends TestWithFeService {
         IvmInfo initialInfo = mtmv.getIvmInfo();
         Assertions.assertNotNull(initialInfo.getPlanSignature());
 
-        // Build a modified IvmInfo with planSignature
-        IvmInfo newInfo = new IvmInfo();
+        IvmInfo newInfo = new IvmInfo(initialInfo);
         newInfo.setPlanSignature("sig-1");
+        newInfo.requireCompleteBaselineRebuild();
 
-        // Persist via alterMTMVIvmInfo
         TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
-        Env.getCurrentEnv().alterMTMVIvmInfo(tableName, newInfo);
+        AlterMTMV replayAlter = new AlterMTMV(tableName, MTMVAlterOpType.ALTER_IVM_INFO);
+        replayAlter.setIvmInfo(newInfo);
+        long schemaChangeVersion = mtmv.getSchemaChangeVersion();
+        newInfo.clearBaselineRebuild();
+        Env.getCurrentEnv().getAlterInstance().processAlterMTMV(replayAlter, true);
 
-        // Verify the MTMV's IvmInfo was updated
         IvmInfo updatedInfo = mtmv.getIvmInfo();
         Assertions.assertEquals("sig-1", updatedInfo.getPlanSignature());
-
-        // Reset it back and verify
-        IvmInfo resetInfo = new IvmInfo();
-        resetInfo.setPlanSignature("sig-2");
-        Env.getCurrentEnv().alterMTMVIvmInfo(tableName, resetInfo);
-
-        IvmInfo finalInfo = mtmv.getIvmInfo();
-        Assertions.assertEquals("sig-2", finalInfo.getPlanSignature());
+        Assertions.assertTrue(updatedInfo.isBaselineRebuildRequired());
+        Assertions.assertEquals(schemaChangeVersion, mtmv.getSchemaChangeVersion());
     }
 
     @Test

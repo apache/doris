@@ -51,6 +51,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -1076,9 +1077,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 recoverPartition.setName(newPartitionName);
             }
 
-            // Recovering a partition restores visible rows from recycle metadata without row binlog entries.
-            Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
-                    new BaseTableInfo(table, dbId), "Base table partition was recovered without row binlog");
+            Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBaselineRebuildForPartitionChange(
+                    new BaseTableInfo(table, dbId),
+                    Collections.singletonMap(partitionName, recoverPartition.getId()),
+                    "Base table partition was recovered without row binlog");
             // recover partition
             table.addPartition(recoverPartition);
 
@@ -1143,9 +1145,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                         throw new DdlException("Partition name[" + newPartitionName + "] is already used");
                     }
                 }
-                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
-                        new BaseTableInfo(table, recyclePartitionInfo.getDbId()),
-                        "Base table partition was recovered without row binlog");
                 table.addPartition(recyclePartitionInfo.getPartition());
                 if (!Strings.isNullOrEmpty(newPartitionName)) {
                     table.renamePartition(recyclePartitionInfo.getPartition().getName(), newPartitionName);

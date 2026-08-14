@@ -178,6 +178,7 @@ import java.io.DataInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -2090,8 +2091,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         if (!isTempPartition) {
             // Dropping a normal partition removes visible rows through metadata, not row binlog entries.
-            Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
-                    new BaseTableInfo(olapTable), "Base table partition was dropped without row binlog");
+            Partition partition = olapTable.getPartition(partitionName);
+            Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBaselineRebuildForPartitionChange(
+                    new BaseTableInfo(olapTable), Collections.singletonMap(partitionName, partition.getId()),
+                    "Base table partition was dropped without row binlog");
         }
         dropPartitionWithoutCheck(db, olapTable, partitionName, isTempPartition, isForceDrop);
     }
@@ -2160,8 +2163,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (info.isTempPartition()) {
                 olapTable.dropTempPartition(info.getPartitionName(), true);
             } else {
-                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
-                        new BaseTableInfo(olapTable), "Base table partition was dropped without row binlog");
                 partition = olapTable.dropPartition(info.getDbId(), info.getPartitionName(), info.isForceDrop());
                 if (!info.isForceDrop() && partition != null && info.getRecycleTime() != 0) {
                     Env.getCurrentRecycleBin().setRecycleTimeByIdForReplay(partition.getId(), info.getRecycleTime());
@@ -3884,8 +3885,9 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             if (!origPartitions.isEmpty()) {
                 // Truncate replaces partitions through metadata, so existing row-binlog streams become incomplete.
-                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
-                        new BaseTableInfo(olapTable), "Base table was truncated without row binlog");
+                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBaselineRebuildForPartitionChange(
+                        new BaseTableInfo(olapTable), origPartitions,
+                        "Base table was truncated without row binlog");
             }
             //replace
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap  =  new HashMap<>();
@@ -3970,10 +3972,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         olapTable.writeLock();
         try {
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap =  new HashMap<>();
-            if (!info.getPartitions().isEmpty()) {
-                Env.getCurrentEnv().getMtmvService().getRelationManager().markIvmBinlogBroken(
-                        new BaseTableInfo(olapTable), "Base table was truncated without row binlog");
-            }
             truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable(),
                                     recyclePartitionParamMap, isForceDrop,
                                     info.getVersion(), info.getVersionTimeMs());
