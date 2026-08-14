@@ -32,6 +32,12 @@ suite("bucketed_hash_agg") {
     sql "set parallel_pipeline_task_num=2"
     sql "set bucketed_agg_min_input_rows=0"
     sql "set bucketed_agg_max_group_keys=0"
+    // The table below is never analyzed, so group-by column stats are unknown and
+    // StatsCalculator falls back to rows * DEFAULT_AGGREGATE_RATIO (1/3.0) for the
+    // aggregate output cardinality. With the default bucketed_agg_high_card_threshold
+    // (0.3), bucketedDataVolumeGatesPass rejects the pattern (rows/3 > rows*0.3),
+    // so raise the threshold to make the positive fusion test deterministic.
+    sql "set bucketed_agg_high_card_threshold=1.0"
 
     // --- create test table ---
     sql """ DROP TABLE IF EXISTS bucketed_agg_reg_test; """

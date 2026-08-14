@@ -3133,6 +3133,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (!(child instanceof PhysicalDistribute)) {
             return false;
         }
+        // Bucketed fusion bypasses the distribute/exchange and builds directly on the
+        // child fragment. When the child subtree contains a CTE consumer (materialized
+        // multicast CTE), the child fragment is the MultiCastPlanFragment; a parent
+        // distribute would then treat the aggregate output slots as consumer slots and
+        // fail with "Required producer slot ... doesn't exist". Fall back to the
+        // regular one-phase path (which keeps the exchange) for such plans.
+        if (containsCTEConsumer(child)) {
+            return false;
+        }
         DistributionSpec distSpec = ((PhysicalDistribute<?>) child).getDistributionSpec();
         if (!(distSpec instanceof DistributionSpecHash)) {
             return false;
@@ -3146,16 +3155,37 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return distKeys.equals(groupByKeys);
     }
 
+    /** Returns true if the plan subtree contains a physical CTE consumer. */
+    private boolean containsCTEConsumer(Plan plan) {
+        if (plan instanceof PhysicalCTEConsumer) {
+            return true;
+        }
+        for (Plan child : plan.children()) {
+            if (containsCTEConsumer(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Check whether all aggregate functions in this physical hash aggregate
      * support two-phase execution. One-phase-only aggregates (e.g. GROUP_CONCAT
      * with ORDER BY) cannot be bucketed because BucketedAggregationNode does not
-     * carry sort-info metadata; fusing them would drop the ORDER BY contract.
+     * carry sort-info metadata (aggSortInfos); fusing them would drop the
+     * aggregate ORDER BY contract and produce unordered results.
      */
     private boolean supportsTwoPhaseAgg(PhysicalHashAggregate<? extends Plan> aggregate) {
         for (NamedExpression o : aggregate.getOutputExpressions()) {
             AtomicBoolean foundOnePhaseOnly = new AtomicBoolean(false);
             o.foreach(c -> {
+                if (c instanceof OrderExpression) {
+                    // Any aggregate function with an internal ORDER BY
+                    // (e.g. GROUP_CONCAT(... ORDER BY ...)) needs sort-info
+                    // metadata, which BucketedAggregationNode does not carry.
+                    foundOnePhaseOnly.set(true);
+                    return false;
+                }
                 if (c instanceof AggregateExpression) {
                     AggregateFunction func = ((AggregateExpression) c).getFunction();
                     if (!func.supportAggregatePhase(AggregatePhase.TWO)) {
@@ -3192,38 +3222,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<SlotReference> groupSlots = collectGroupBySlots(groupByExpressions, outputExpressions);
         ArrayList<Expr> execGroupingExpressions = translateGroupByExprs(groupByExpressions, context);
 
-        // 2. collect agg expressions and generate agg function to slot reference map
-        List<Slot> aggFunctionOutput = Lists.newArrayList();
-        ArrayList<FunctionCallExpr> execAggregateFunctions =
-                Lists.newArrayListWithCapacity(outputExpressions.size());
-        Set<AggregateExpression> processedAggregateExpressions = Sets.newIdentityHashSet();
-        for (NamedExpression o : outputExpressions) {
-            if (o.containsType(AggregateExpression.class)) {
-                aggFunctionOutput.add(o.toSlot());
-                o.foreach(c -> {
-                    if (c instanceof SessionVarGuardExpr) {
-                        SessionVarGuardExpr guardExpr = (SessionVarGuardExpr) c;
-                        if (guardExpr.child() instanceof AggregateExpression) {
-                            AggregateExpression ae = (AggregateExpression) guardExpr.child();
-                            if (processedAggregateExpressions.add(ae)) {
-                                execAggregateFunctions.add(
-                                        (FunctionCallExpr) ExpressionTranslator.translate(guardExpr, context));
-                            }
-                        }
-                        return true;
-                    }
-                    if (c instanceof AggregateExpression) {
-                        AggregateExpression ae = (AggregateExpression) c;
-                        if (processedAggregateExpressions.add(ae)) {
-                            execAggregateFunctions.add(
-                                    (FunctionCallExpr) ExpressionTranslator.translate(ae, context));
-                        }
-                        return true;
-                    }
-                    return false;
-                });
-            }
-        }
+        // 2. collect agg expressions and generate agg function to slot reference map.
+        //    Reuse the shared helper from visitPhysicalHashAggregate; the bucketed
+        //    path passes null for hasPartialOut (never partial, always needsFinalize).
+        Pair<List<Slot>, ArrayList<FunctionCallExpr>> aggResult =
+                collectAggFunctions(outputExpressions, null, context);
+        List<Slot> aggFunctionOutput = aggResult.first;
+        ArrayList<FunctionCallExpr> execAggregateFunctions = aggResult.second;
 
         // 3. generate output tuple
         Pair<TupleDescriptor, List<Integer>> tupleAndIds =

@@ -248,9 +248,10 @@ public class AggregateUtils {
         }
         // Correctness gate: single-BE only (cross-BE in-memory merge is impossible).
         // Use be_number_for_test first (set by regression tests), fall back to real cluster count.
+        // Note: do not clamp to 1 — with zero backends bucketed agg must not be enabled.
         int beNumber = ctx.getSessionVariable().getBeNumberForTest();
         if (beNumber <= 0) {
-            beNumber = Math.max(1, ctx.getEnv().getClusterInfo().getBackendsNumber(true));
+            beNumber = ctx.getEnv().getClusterInfo().getBackendsNumber(true);
         }
         if (beNumber != 1) {
             return false;
