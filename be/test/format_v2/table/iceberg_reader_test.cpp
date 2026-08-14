@@ -5034,7 +5034,8 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizePropagatedToReader) {
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
     write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 2);
 
-    const auto delete_file_size = static_cast<int64_t>(std::filesystem::file_size(delete_file_path));
+    const auto delete_file_size =
+            static_cast<int64_t>(std::filesystem::file_size(delete_file_path));
     ASSERT_GT(delete_file_size, 0) << "delete file should not be empty";
 
     std::vector<ColumnDefinition> projected_columns;
