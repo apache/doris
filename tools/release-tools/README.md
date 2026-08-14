@@ -168,6 +168,14 @@ Set these fields first:
 - `ANNOUNCE_RELEASE_NOTES_URL`: Link used in the announce email. If empty, step
   04 reuses `RELEASE_NOTES_URL` or prompts.
 - `BIN_FILES`: Optional absolute paths to prebuilt convenience binary tarballs.
+- `RELEASE_TAG`: RC-free tag step 04 pushes and publishes, `${VERSION}` by
+  default.
+- `GITHUB_REPO`: `owner/repo` for the GitHub release. Empty means parse it out
+  of the `GIT_REMOTE` URL.
+- `GITHUB_RELEASE_TITLE`: Release title, `Apache Doris <version> Release` by
+  default.
+- `RELEASE_BIN_DOWNLOAD_BASE`: Base URL the GitHub release body links the
+  binaries to. This is the public mirror, not `BIN_DOWNLOAD_BASE`.
 
 The default `REPO_DIR` is the enclosing Doris checkout because these scripts
 live under `tools/release-tools`. Override it only when you deliberately run the
@@ -265,7 +273,17 @@ The steps are:
 3. Publish to the release SVN. One `svnmucc` revision creates the release
    directory, moves the source tarball and detached signature there, uploads
    the final checksum, and removes the dev RC folder.
-4. Write the announce email draft.
+4. Tag the release. When `TAG` carries an `rc` suffix, the RC-free
+   `RELEASE_TAG` is created at the same commit and pushed to `GIT_REMOTE`.
+   Skipped when `TAG` has no `rc` suffix.
+5. Publish the GitHub release for that tag, with a body in the shape every
+   previous Doris release uses: the change log link, the download page, and
+   the source and binary artifacts. It prints which release GitHub currently
+   marks Latest and asks whether this one should take that place, so a 4.0.x
+   maintenance release does not displace a newer 4.1.x. Skipped with
+   `--skip-github-release`, and skipped with a warning when `gh` is missing or
+   not authenticated.
+6. Write the announce email draft.
 
 The script is idempotent, so it is safe to re-run after a successful publish or
 after stopping at any prompt:
@@ -277,6 +295,10 @@ after stopping at any prompt:
 - Some but not all release artifacts present: the script refuses to guess and
   reports exactly which files are missing. `svnmucc` commits all of its
   operations in one revision, so this state only comes from manual changes.
+- Release tag already pushed at the RC commit: the tagging step reports it and
+  moves on. A tag of the same name on a different commit stops the run.
+- GitHub release already published: the step reports its URL and moves on. It
+  never rewrites a published release.
 
 It writes:
 

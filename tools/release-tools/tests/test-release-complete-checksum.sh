@@ -40,7 +40,33 @@ ANNOUNCE_RELEASE_NOTES_URL="https://doris.example.test/release-notes"
 RELEASE_NOTES_URL=""
 DEV_LIST="dev@example.test"
 SIGNER_NAME="Release Manager"
+REPO_DIR="${ROOT}"
+GIT_REMOTE="apache-test"
+BIN_FILES=()
 EOF
+
+# The 9.9.9 tag is already pushed here, so the tag step reports it and returns
+# without a prompt. test-release-complete-github-release.sh covers the tagging.
+cat > "$tmp/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+commit="2222222222222222222222222222222222222222"
+while [[ "${1:-}" == "-C" ]]; do shift 2; done
+case "${1:-}" in
+  rev-parse) printf '%s\n' "$commit" ;;
+  ls-remote) printf '%s\trefs/tags/9.9.9\n%s\trefs/tags/9.9.9^{}\n' "$commit" "$commit" ;;
+  *) echo "unexpected git command: $*" >&2; exit 1 ;;
+esac
+EOF
+chmod +x "$tmp/git"
+
+# Never let a test reach the real gh: report "not authenticated" so the
+# GitHub release step warns and skips.
+cat > "$tmp/gh" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$tmp/gh"
 
 cat > "$tmp/svn" <<'EOF'
 #!/usr/bin/env bash

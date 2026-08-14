@@ -40,7 +40,31 @@ ANNOUNCE_RELEASE_NOTES_URL="https://doris.example.test/release-notes"
 RELEASE_NOTES_URL=""
 DEV_LIST="dev@example.test"
 SIGNER_NAME="Release Manager"
+REPO_DIR="${ROOT}"
+GIT_REMOTE="apache-test"
+BIN_FILES=()
 EOF
+
+# This case is about the SVN state. The 9.9.9 tag is already pushed and gh
+# reports itself unauthenticated, so both of those steps report and return.
+cat > "$tmp/git" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+commit="2222222222222222222222222222222222222222"
+while [[ "${1:-}" == "-C" ]]; do shift 2; done
+case "${1:-}" in
+  rev-parse) printf '%s\n' "$commit" ;;
+  ls-remote) printf '%s\trefs/tags/9.9.9\n%s\trefs/tags/9.9.9^{}\n' "$commit" "$commit" ;;
+  *) echo "unexpected git command: $*" >&2; exit 1 ;;
+esac
+EOF
+chmod +x "$tmp/git"
+
+cat > "$tmp/gh" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$tmp/gh"
 
 # The release is already published. FAKE_DEV_DIR_PRESENT decides whether the
 # stale RC folder is still sitting in the dev SVN.

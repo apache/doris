@@ -16,15 +16,16 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# Step 04 - publish the passed RC source artifact to the Apache release SVN
-# and generate the [ANNOUNCE] email draft.
+# Step 04 - publish the passed RC source artifact to the Apache release SVN,
+# tag the release on GitHub, and generate the [ANNOUNCE] email draft.
 #
 # The release SVN commit is public and requires PMC permission. Every step asks
 # for confirmation before it runs, and this script never sends email.
 #
-# The script is idempotent: it reads the current dev and release SVN state
-# first, skips whatever is already done, and can be re-run safely after a
-# successful publish or after stopping at any confirmation prompt.
+# The script is idempotent: it reads the current dev SVN, release SVN, tag and
+# GitHub release state first, skips whatever is already done, and can be re-run
+# safely after a successful publish or after stopping at any confirmation
+# prompt.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=release.env
@@ -47,25 +48,30 @@ cleanup_checksum_dir() {
 trap cleanup_checksum_dir EXIT
 
 mail_only=0
+skip_github_release=0
 usage() {
   cat <<EOF
-Usage: $0 [--mail-only]
+Usage: $0 [--mail-only] [--skip-github-release]
 
 Publishes Apache Doris ${TAG} source artifacts from dev SVN to release SVN as
-Apache Doris ${VERSION}, then writes the [ANNOUNCE] email draft.
+Apache Doris ${VERSION}, pushes the RC-free ${VERSION} tag, publishes the GitHub
+release, then writes the [ANNOUNCE] email draft.
 
 Every step asks for confirmation first, and answering anything but y stops the
-run without changing more state. Re-running is safe: already published
-artifacts are detected and left alone.
+run without changing more state. Re-running is safe: an already published
+release, an existing tag and an existing GitHub release are detected and left
+alone.
 
 Options:
-  --mail-only   Only write announce-email.txt and announce-email.eml.
+  --mail-only             Only write announce-email.txt and announce-email.eml.
+  --skip-github-release   Push the tag but leave the GitHub release alone.
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mail-only) mail_only=1; shift ;;
+    --skip-github-release) skip_github_release=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -84,6 +90,14 @@ RELEASE_SVN_DIR="${RELEASE_SVN_DIR:-${RELEASE_SVN_BASE}/${RELEASE_SERIES}/${VERS
 RELEASE_SVN_PARENT_DIR="${RELEASE_SVN_PARENT_DIR:-${RELEASE_SVN_DIR%/*}}"
 DOWNLOAD_PAGE_URL="${DOWNLOAD_PAGE_URL:-https://doris.apache.org/download/}"
 ANNOUNCE_RELEASE_NOTES_URL="${ANNOUNCE_RELEASE_NOTES_URL:-}"
+# The GitHub release body has always linked the convenience binaries to their
+# public mirror, which is not the same host the vote email advertises.
+RELEASE_BIN_DOWNLOAD_BASE="${RELEASE_BIN_DOWNLOAD_BASE:-https://download.velodb.io}"
+# The RC-free tag that carries the GitHub release, e.g. 4.0.8-rc02 -> 4.0.8.
+RELEASE_TAG="${RELEASE_TAG:-${VERSION}}"
+GITHUB_RELEASE_TITLE="${GITHUB_RELEASE_TITLE:-Apache Doris ${VERSION} Release}"
+REPO_DIR="${REPO_DIR:-}"
+GIT_REMOTE="${GIT_REMOTE:-}"
 
 SRC_TAR="${DEV_SVN_DIR}/${PKG_BASE}.tar.gz"
 SRC_ASC="${SRC_TAR}.asc"
@@ -234,6 +248,154 @@ remove_dev_rc_folder() {
   ok "removed dev RC folder: ${DEV_SVN_DIR}/"
 }
 
+git_repo() { git -C "$REPO_DIR" "$@"; }
+
+# apache/doris out of any remote URL form, including one that carries a token.
+github_repo() {
+  if [[ -n "${GITHUB_REPO:-}" ]]; then
+    printf '%s\n' "$GITHUB_REPO"
+    return 0
+  fi
+  git_repo remote get-url "$GIT_REMOTE" 2>/dev/null |
+    sed -E 's#^.*github\.com[:/]##; s#\.git$##; s#/$##'
+}
+
+# Peeled commit of a tag on the remote, empty when the tag is not there.
+remote_tag_commit() {
+  local tag="$1" out
+  out="$(git_repo ls-remote --tags "$GIT_REMOTE" "refs/tags/${tag}" "refs/tags/${tag}^{}" 2>/dev/null || true)"
+  awk -v t="refs/tags/${tag}^{}" '$2==t{print $1; found=1} END{if(!found) exit 1}' <<<"$out" 2>/dev/null ||
+    awk -v t="refs/tags/${tag}" '$2==t{print $1}' <<<"$out"
+}
+
+handle_release_tag() {
+  local rc_commit local_commit remote_commit
+
+  if [[ "$TAG" != *rc* ]]; then
+    ok "tag ${TAG} carries no rc suffix; no separate release tag is needed"
+    return 0
+  fi
+
+  [[ -n "$REPO_DIR" && -n "$GIT_REMOTE" ]] ||
+    die "REPO_DIR and GIT_REMOTE must be set in release.env to push the ${RELEASE_TAG} tag"
+
+  # -q --verify matters here: plain rev-parse echoes the argument back and
+  # exits non-zero for a tag that does not exist, which would read as a commit.
+  rc_commit="$(git_repo rev-parse -q --verify "${TAG}^{commit}" 2>/dev/null || true)"
+  [[ -n "$rc_commit" ]] || die "RC tag ${TAG} not found in ${REPO_DIR}"
+
+  local_commit="$(git_repo rev-parse -q --verify "${RELEASE_TAG}^{commit}" 2>/dev/null || true)"
+  remote_commit="$(remote_tag_commit "$RELEASE_TAG")"
+
+  if [[ -n "$local_commit" && "$local_commit" != "$rc_commit" ]]; then
+    die "local tag ${RELEASE_TAG} points at ${local_commit}, but ${TAG} is ${rc_commit} - resolve by hand"
+  fi
+  if [[ -n "$remote_commit" && "$remote_commit" != "$rc_commit" ]]; then
+    die "${GIT_REMOTE} tag ${RELEASE_TAG} points at ${remote_commit}, but ${TAG} is ${rc_commit} - resolve by hand"
+  fi
+  if [[ -n "$local_commit" && -n "$remote_commit" ]]; then
+    ok "release tag ${RELEASE_TAG} already on ${GIT_REMOTE} at ${rc_commit:0:11}"
+    return 0
+  fi
+
+  step "Tag the release as ${RELEASE_TAG}" \
+    "${TAG} is an RC tag, so the release needs the RC-free tag as well." \
+    "commit: ${rc_commit}" \
+    "$([[ -n "$local_commit" ]] && echo "local tag ${RELEASE_TAG}: already created" || echo "git tag -a ${RELEASE_TAG} -m '${RELEASE_TAG} release' ${rc_commit}")" \
+    "git push ${GIT_REMOTE} refs/tags/${RELEASE_TAG}   <- public"
+
+  if [[ -z "$local_commit" ]]; then
+    git_repo tag -a "$RELEASE_TAG" -m "${RELEASE_TAG} release" "$rc_commit"
+    ok "created local tag ${RELEASE_TAG}"
+  fi
+  git_repo push "$GIT_REMOTE" "refs/tags/${RELEASE_TAG}"
+  ok "pushed ${RELEASE_TAG} to ${GIT_REMOTE}"
+}
+
+github_release_body() {
+  local rn base name arch f
+  rn="${ANNOUNCE_RELEASE_NOTES_URL:-${RELEASE_NOTES_URL:-}}"
+
+  printf '[Change Log](%s)\n\n' "$rn"
+  printf -- '- Official Downloads: %s\n\n' "${DOWNLOAD_PAGE_URL%/}"
+  printf -- '- Source:\n'
+  printf '    - [%s.tar.gz](%s/%s.tar.gz) ([asc](%s/%s.tar.gz.asc))([sha512](%s/%s.tar.gz.sha512))\n' \
+    "$RELEASE_PKG_BASE" \
+    "$RELEASE_SVN_DIR" "$RELEASE_PKG_BASE" \
+    "$RELEASE_SVN_DIR" "$RELEASE_PKG_BASE" \
+    "$RELEASE_SVN_DIR" "$RELEASE_PKG_BASE"
+
+  [[ "${#BIN_FILES[@]}" -gt 0 ]] || return 0
+  base="${RELEASE_BIN_DOWNLOAD_BASE%/}"
+  for f in "${BIN_FILES[@]}"; do
+    name="$(basename "$f")"
+    arch="${name#apache-doris-${VERSION}-bin-}"
+    arch="${arch%.tar.gz}"
+    printf '\n'
+    printf -- '- Binary(%s):\n' "$arch"
+    printf '    - [%s](%s/%s) ([asc](%s/%s.asc))([sha512](%s/%s.sha512))\n' \
+      "$name" "$base" "$name" "$base" "$name" "$base" "$name"
+  done
+}
+
+publish_github_release() {
+  local repo body_file current_latest latest_flag latest_label
+
+  if [[ "$skip_github_release" -eq 1 ]]; then
+    ok "--skip-github-release: leaving the GitHub release alone"
+    return 0
+  fi
+  if ! command -v gh >/dev/null 2>&1; then
+    warn "gh is not installed; skipping the GitHub release for ${RELEASE_TAG}"
+    return 0
+  fi
+  if ! gh auth status >/dev/null 2>&1; then
+    warn "gh is not authenticated; skipping the GitHub release for ${RELEASE_TAG}"
+    return 0
+  fi
+
+  repo="$(github_repo)"
+  [[ -n "$repo" ]] || die "cannot determine the GitHub repository; set GITHUB_REPO in release.env"
+
+  if gh release view "$RELEASE_TAG" --repo "$repo" >/dev/null 2>&1; then
+    ok "GitHub release already published: $(gh release view "$RELEASE_TAG" --repo "$repo" --json url --jq .url)"
+    return 0
+  fi
+
+  mkdir -p "$WORK_DIR"
+  body_file="$WORK_DIR/github-release.md"
+  github_release_body > "$body_file"
+
+  current_latest="$(gh api "repos/${repo}/releases/latest" --jq .tag_name 2>/dev/null || true)"
+
+  step "Publish the GitHub release for ${RELEASE_TAG}" \
+    "repo:  ${repo}" \
+    "title: ${GITHUB_RELEASE_TITLE}" \
+    "body:  ${body_file}" \
+    "This is public. The body is printed below; edit the file and re-run to change it." \
+    "$(sed 's/^/       /' "$body_file")"
+
+  echo
+  if [[ -n "$current_latest" ]]; then
+    echo "The release currently marked Latest on ${repo} is ${current_latest}."
+  fi
+  if confirm "Mark ${RELEASE_TAG} as the Latest release?"; then
+    latest_flag="--latest"
+    latest_label="Latest"
+  else
+    latest_flag="--latest=false"
+    latest_label="not Latest"
+  fi
+
+  gh release create "$RELEASE_TAG" \
+    --repo "$repo" \
+    --title "$GITHUB_RELEASE_TITLE" \
+    --notes-file "$body_file" \
+    --verify-tag \
+    "$latest_flag"
+  ok "published GitHub release ${RELEASE_TAG} (${latest_label})"
+}
+
 write_announce_email() {
   local rn subject body_file eml_file
 
@@ -300,6 +462,7 @@ if [[ "$mail_only" -eq 0 ]]; then
   require_tool svnmucc
   require_tool gpg
   require_tool sha512sum
+  require_tool git
 
   echo "== Apache Doris ${TAG} - complete release =="
   echo "Source dev SVN folder:     ${DEV_SVN_DIR}/"
@@ -336,6 +499,9 @@ if [[ "$mail_only" -eq 0 ]]; then
   else
     die "release folder is half-published (${DST_PRESENT}/3): missing ${DST_MISSING[*]} in ${RELEASE_SVN_DIR}/ - fix it by hand, this script only publishes a complete set"
   fi
+
+  handle_release_tag
+  publish_github_release
 else
   ok "mail-only mode: skipping SVN publish"
 fi
