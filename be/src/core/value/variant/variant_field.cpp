@@ -131,6 +131,40 @@ void require_valid_primitive(VariantRef value) {
 
 void require_exact_value(VariantRef value, uint32_t depth);
 
+VariantBasicType require_shallow_value(VariantRef value, uint32_t depth) {
+    if (depth > VARIANT_MAX_NESTING_DEPTH) {
+        throw Exception(ErrorCode::CORRUPTION,
+                        "VariantField value exceeds maximum nesting depth {}",
+                        VARIANT_MAX_NESTING_DEPTH);
+    }
+    const size_t encoded_size = value.value_size();
+    if (encoded_size != value.value.size) {
+        throw Exception(ErrorCode::CORRUPTION,
+                        "VariantField value has {} trailing bytes after its {} byte root",
+                        value.value.size - encoded_size, encoded_size);
+    }
+
+    const VariantBasicType type = value.basic_type();
+    if ((type == VariantBasicType::OBJECT || type == VariantBasicType::ARRAY) &&
+        depth == VARIANT_MAX_NESTING_DEPTH && value.num_elements() != 0) {
+        throw Exception(ErrorCode::CORRUPTION,
+                        "VariantField value exceeds maximum nesting depth {}",
+                        VARIANT_MAX_NESTING_DEPTH);
+    }
+    switch (type) {
+    case VariantBasicType::PRIMITIVE:
+        require_valid_primitive(value);
+        break;
+    case VariantBasicType::SHORT_STRING:
+        require_valid_utf8(value.get_string(), "short string");
+        break;
+    case VariantBasicType::OBJECT:
+    case VariantBasicType::ARRAY:
+        break;
+    }
+    return type;
+}
+
 struct ObjectValueSpan {
     size_t offset;
     size_t size;
@@ -201,24 +235,9 @@ void require_valid_array(VariantRef value, uint32_t depth) {
 }
 
 void require_exact_value(VariantRef value, uint32_t depth) {
-    if (depth > VARIANT_MAX_NESTING_DEPTH) {
-        throw Exception(ErrorCode::CORRUPTION,
-                        "VariantField value exceeds maximum nesting depth {}",
-                        VARIANT_MAX_NESTING_DEPTH);
-    }
-    const size_t encoded_size = value.value_size();
-    if (encoded_size != value.value.size) {
-        throw Exception(ErrorCode::CORRUPTION,
-                        "VariantField value has {} trailing bytes after its {} byte root",
-                        value.value.size - encoded_size, encoded_size);
-    }
-
-    switch (value.basic_type()) {
+    switch (require_shallow_value(value, depth)) {
     case VariantBasicType::PRIMITIVE:
-        require_valid_primitive(value);
-        return;
     case VariantBasicType::SHORT_STRING:
-        require_valid_utf8(value.get_string(), "short string");
         return;
     case VariantBasicType::OBJECT:
         require_valid_object(value, depth);
@@ -278,8 +297,17 @@ void validate_variant_metadata(VariantMetadataRef metadata) {
 }
 
 void validate_variant_payload(VariantRef value) {
+    validate_variant_payload(value, 0);
+}
+
+void validate_variant_payload(VariantRef value, uint32_t initial_depth) {
     require_non_null(value.value, "value");
-    require_exact_value(value, 0);
+    require_exact_value(value, initial_depth);
+}
+
+VariantBasicType validate_variant_payload_shallow(VariantRef value, uint32_t depth) {
+    require_non_null(value.value, "value");
+    return require_shallow_value(value, depth);
 }
 
 VariantField::VariantField(std::unique_ptr<char[]> data, size_t size) noexcept

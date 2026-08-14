@@ -1190,17 +1190,20 @@ public class AppendVariantEqualityDelete {
         }
         return sum
     }
-    def getProfileByToken = { String token, List<String> positiveCounters = [] ->
-        String lastProfile = profileAction.getProfileBySql(token, positiveCounters)
+    def getProfileByToken = { String token, List<String> positiveCounters = [],
+                              List<String> requiredCounters = [] ->
+        List<String> requiredContents = (positiveCounters + requiredCounters).unique()
+        String lastProfile = profileAction.getProfileBySql(token, requiredContents)
         if (positiveCounters.every { String counter -> counterSum(lastProfile, counter) > 0 }) {
             return lastProfile
         }
         return profileAction.waitProfile({
-            lastProfile = profileAction.getProfileBySql(token, positiveCounters)
+            lastProfile = profileAction.getProfileBySql(token, requiredContents)
             return positiveCounters.every {
                 String counter -> counterSum(lastProfile, counter) > 0
             } ? lastProfile : ""
-        }, [], "Completed profile with positive counters ${positiveCounters} for ${token}")
+        }, [], "Completed profile with required counters ${requiredContents} and positive counters " +
+               "${positiveCounters} for ${token}")
     }
 
     String evolutionInitial = latestSnapshotId("variant_evolution")
@@ -1401,11 +1404,11 @@ public class AppendVariantEqualityDelete {
     """
     assertEquals(4, projectedGatherRows.size())
     String projectedGatherProfile = getProfileByToken(projectedGatherToken,
-            ["VariantLeafProjections", "VariantDirectLeafPathMisses"]).toString()
+            ["VariantLeafProjections", "VariantDirectResidualSeekRows"]).toString()
     assertTrue(counterSum(projectedGatherProfile, "VariantLeafProjections") > 0,
             "The projected TopN did not read a physical shredded Variant leaf")
-    assertTrue(counterSum(projectedGatherProfile, "VariantDirectLeafPathMisses") > 0,
-            "The projected TopN did not combine the unshredded fallback file")
+    assertTrue(counterSum(projectedGatherProfile, "VariantDirectResidualSeekRows") > 0,
+            "The projected TopN did not seek the unshredded fallback file directly")
     order_qt_variant_projected_remote_gather """
         SELECT id,
                CAST(projected['n'] AS INT)
@@ -1459,14 +1462,14 @@ public class AppendVariantEqualityDelete {
         WHERE CAST(v['n'] AS INT) >= 8000
     """
     String multiRowGroupColdProfile = getProfileByToken(multiRowGroupColdToken,
-            ["RowGroupsTotalNum", "VariantDirectLeafPathMisses", "VariantReconstructedRows",
-             "FilteredRowsByLazyRead"]).toString()
+            ["RowGroupsTotalNum", "VariantDirectResidualSeekRows",
+             "FilteredRowsByLazyRead"], ["VariantReconstructedRows"]).toString()
     assertTrue(counterSum(multiRowGroupColdProfile, "RowGroupsTotalNum") > 1,
                "The generated Variant file did not contain multiple Parquet row groups")
-    assertTrue(counterSum(multiRowGroupColdProfile, "VariantDirectLeafPathMisses") > 0,
-               "The unshredded scan did not record its direct-leaf fallback")
-    assertTrue(counterSum(multiRowGroupColdProfile, "VariantReconstructedRows") > 0,
-               "The unshredded scan did not reconstruct Variant rows")
+    assertTrue(counterSum(multiRowGroupColdProfile, "VariantDirectResidualSeekRows") > 0,
+               "The unshredded scan did not seek its predicate path directly")
+    assertEquals(0L, counterSum(multiRowGroupColdProfile, "VariantReconstructedRows"),
+               "The predicate-only unshredded scan unexpectedly reconstructed Variant rows")
     assertTrue(counterSum(multiRowGroupColdProfile, "FilteredRowsByLazyRead") > 0,
                "The unshredded Variant predicate did not defer non-predicate columns")
     String multiRowGroupWarmToken =
@@ -1477,9 +1480,9 @@ public class AppendVariantEqualityDelete {
         WHERE CAST(v['n'] AS INT) >= 8000
     """
     String multiRowGroupWarmProfile = getProfileByToken(multiRowGroupWarmToken,
-            ["VariantDirectLeafPathMisses"]).toString()
-    assertTrue(counterSum(multiRowGroupWarmProfile, "VariantDirectLeafPathMisses") > 0,
-               "The warm unshredded scan did not preserve its direct-leaf fallback")
+            ["VariantDirectResidualSeekRows"]).toString()
+    assertTrue(counterSum(multiRowGroupWarmProfile, "VariantDirectResidualSeekRows") > 0,
+               "The warm unshredded scan did not preserve direct residual seeking")
     qt_variant_multi_row_group_result """
         SELECT COUNT(*), MIN(id), MAX(id), SUM(CAST(v['n'] AS BIGINT))
         FROM variant_multi_row_group
@@ -1562,7 +1565,7 @@ public class AppendVariantEqualityDelete {
         ORDER BY id
     """
     String pagePruningProfile = getProfileByToken(pagePruningToken,
-            ["FilteredRowsByPage", "VariantLeafProjections", "VariantDirectLeafPathMisses",
+            ["FilteredRowsByPage", "VariantLeafProjections", "VariantDirectResidualSeekRows",
              "VariantDirectLeafRows", "VariantReconstructedRows"]).toString()
     assertTrue(counterSum(pagePruningProfile, "FilteredRowsByPage") > 0,
                "Shredded Variant typed_value did not filter any Parquet page")
@@ -1570,8 +1573,8 @@ public class AppendVariantEqualityDelete {
     // root is read through the independent deferred-output projection.
     assertTrue(counterSum(pagePruningProfile, "VariantLeafProjections") > 0,
                "A root Variant output query did not retain its typed predicate leaf projection")
-    assertTrue(counterSum(pagePruningProfile, "VariantDirectLeafPathMisses") > 0,
-               "The mixed scan did not fall back for its unshredded Variant file")
+    assertTrue(counterSum(pagePruningProfile, "VariantDirectResidualSeekRows") > 0,
+               "The mixed scan did not directly seek its unshredded Variant file")
     assertTrue(counterSum(pagePruningProfile, "VariantDirectLeafRows") > 0,
                "The mixed scan did not evaluate rows from the shredded typed leaf")
     assertTrue(counterSum(pagePruningProfile, "VariantReconstructedRows") > 0,
@@ -1767,11 +1770,11 @@ public class AppendVariantEqualityDelete {
         WHERE v['n'] >= 40
     """
     String positionDeleteProfile = getProfileByToken(positionDeleteToken,
-            ["VariantDirectLeafPathMisses", "VariantReconstructedRows"]).toString()
-    assertTrue(counterSum(positionDeleteProfile, "VariantDirectLeafPathMisses") > 0,
-               "Position-delete filtering did not preserve the unshredded Variant fallback")
-    assertTrue(counterSum(positionDeleteProfile, "VariantReconstructedRows") > 0,
-               "Position-delete filtering did not reconstruct its Variant rows")
+            ["VariantDirectResidualSeekRows"], ["VariantReconstructedRows"]).toString()
+    assertTrue(counterSum(positionDeleteProfile, "VariantDirectResidualSeekRows") > 0,
+               "Position-delete filtering did not directly seek the unshredded Variant path")
+    assertEquals(0L, counterSum(positionDeleteProfile, "VariantReconstructedRows"),
+               "Position-delete predicate filtering unexpectedly reconstructed Variant rows")
 
     // Files written before the Variant field existed have no physical Variant payload. Schema
     // evolution must synthesize NULL instead of rejecting their non-Parquet file format.

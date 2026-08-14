@@ -562,12 +562,31 @@ public:
                     .normalized = ColumnNullable::create(std::move(values), std::move(nulls))};
         }
 
-        auto normalized = find_normalized_value(path);
-        if (!normalized.has_value()) {
-            return std::nullopt;
+        auto values = ColumnVariantV2::create();
+        auto nulls = ColumnUInt8::create();
+        nulls->reserve(size());
+        for (size_t index = 0; index < _segments.size(); ++index) {
+            std::optional<ColumnPtr> normalized;
+            if (index < matches.size() && matches[index].normalized) {
+                // Keep normalized prefix matches that were completed before a later segment
+                // requested fallback. In particular, do not seek an unshredded segment twice.
+                normalized = matches[index].normalized;
+            } else {
+                normalized = _segments[index]->find_normalized_value(path);
+            }
+            if (!normalized.has_value()) {
+                return std::nullopt;
+            }
+            const auto& nullable = assert_cast<const ColumnNullable&>(**normalized);
+            const auto& variants =
+                    assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+            values->insert_range_from(variants, 0, variants.size());
+            nulls->insert_range_from(nullable.get_null_map_column(), 0, nullable.size());
         }
         return VariantShreddedTypedValue {
-                .column = nullptr, .type = nullptr, .normalized = std::move(*normalized)};
+                .column = nullptr,
+                .type = nullptr,
+                .normalized = ColumnNullable::create(std::move(values), std::move(nulls))};
     }
 
     std::optional<ColumnPtr> find_normalized_value(

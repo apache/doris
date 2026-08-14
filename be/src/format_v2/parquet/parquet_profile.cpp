@@ -125,6 +125,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "VariantDirectResidualSeekBytes", TUnit::BYTES, parquet_profile);
     variant_direct_residual_seek_fallbacks = add_persistent_counter(
             profile, "VariantDirectResidualSeekFallbacks", TUnit::UNIT, parquet_profile);
+    variant_direct_residual_seek_container_index_builds = add_persistent_counter(
+            profile, "VariantDirectResidualSeekContainerIndexBuilds", TUnit::UNIT, parquet_profile);
+    variant_direct_residual_seek_container_index_hits = add_persistent_counter(
+            profile, "VariantDirectResidualSeekContainerIndexHits", TUnit::UNIT, parquet_profile);
     variant_direct_leaf_rows =
             add_persistent_counter(profile, "VariantDirectLeafRows", TUnit::UNIT, parquet_profile);
     variant_direct_leaf_path_misses = add_persistent_counter(profile, "VariantDirectLeafPathMisses",
@@ -370,6 +374,10 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .variant_direct_residual_seek_rows = variant_direct_residual_seek_rows,
             .variant_direct_residual_seek_bytes = variant_direct_residual_seek_bytes,
             .variant_direct_residual_seek_fallbacks = variant_direct_residual_seek_fallbacks,
+            .variant_direct_residual_seek_container_index_builds =
+                    variant_direct_residual_seek_container_index_builds,
+            .variant_direct_residual_seek_container_index_hits =
+                    variant_direct_residual_seek_container_index_hits,
             .variant_direct_leaf_rows = variant_direct_leaf_rows,
             .variant_direct_leaf_path_misses = variant_direct_leaf_path_misses,
             .variant_direct_leaf_residual_fallbacks = variant_direct_leaf_residual_fallbacks,

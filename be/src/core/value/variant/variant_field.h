@@ -36,8 +36,15 @@ using VariantMap = std::map<PathInData, FieldWithDataType>;
 void validate_variant_metadata(VariantMetadataRef metadata);
 
 // Validate exactly one recursive Variant payload. The referenced metadata must already have
-// passed validate_variant_metadata().
+// passed validate_variant_metadata(). The overload preserves a subtree's original depth when it
+// was selected from a larger Variant value.
 void validate_variant_payload(VariantRef value);
+void validate_variant_payload(VariantRef value, uint32_t initial_depth);
+
+// Validate one accessed node without recursively decoding its children. Scalars receive their full
+// semantic validation; containers receive exact envelope validation. Callers traversing untrusted
+// containers must additionally build a VariantContainerLookup before trusting a miss or child.
+VariantBasicType validate_variant_payload_shallow(VariantRef value, uint32_t depth);
 
 // Holds the legacy V1 path map or owns one encoded V2 row. The encoded byte layout is
 // [u32 little-endian metadata_size][metadata][exactly one value].

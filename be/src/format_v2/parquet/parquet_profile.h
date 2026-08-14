@@ -54,6 +54,8 @@ struct ParquetColumnReaderProfile {
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_bytes;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_fallbacks;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_container_index_builds;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_container_index_hits;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;
@@ -201,6 +203,8 @@ struct ParquetProfile {
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_bytes;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_fallbacks;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_container_index_builds;
+    std::shared_ptr<RuntimeProfile::Counter> variant_direct_residual_seek_container_index_hits;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_rows;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_path_misses;
     std::shared_ptr<RuntimeProfile::Counter> variant_direct_leaf_residual_fallbacks;

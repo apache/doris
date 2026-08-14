@@ -82,6 +82,44 @@ std::string single_key_metadata_bytes(std::string_view key) {
     return metadata;
 }
 
+void append_variant_unsigned(std::string& output, uint64_t value, uint8_t width) {
+    for (uint8_t byte = 0; byte < width; ++byte) {
+        output.push_back(static_cast<char>(value >> (byte * 8)));
+    }
+}
+
+void write_variant_unsigned(std::string& output, size_t offset, uint64_t value, uint8_t width) {
+    DORIS_CHECK_LE(offset, output.size());
+    DORIS_CHECK_LE(width, output.size() - offset);
+    for (uint8_t byte = 0; byte < width; ++byte) {
+        output[offset + byte] = static_cast<char>(value >> (byte * 8));
+    }
+}
+
+std::string wrap_single_element_arrays(std::string value, uint32_t array_count) {
+    for (uint32_t depth = 0; depth < array_count; ++depth) {
+        const uint8_t offset_width = variant_minimum_unsigned_width(value.size());
+        const uint8_t value_header =
+                static_cast<uint8_t>((offset_width - 1) << VARIANT_ARRAY_OFFSET_SIZE_SHIFT);
+        std::string array;
+        array.push_back(static_cast<char>((value_header << VARIANT_VALUE_HEADER_SHIFT) |
+                                          static_cast<uint8_t>(VariantBasicType::ARRAY)));
+        array.push_back(1);
+        append_variant_unsigned(array, 0, offset_width);
+        append_variant_unsigned(array, value.size(), offset_width);
+        array.append(value);
+        value = std::move(array);
+    }
+    return value;
+}
+
+std::string nested_single_element_arrays(uint32_t array_count) {
+    return wrap_single_element_arrays(
+            std::string(1, static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::NULL_VALUE)
+                                             << VARIANT_VALUE_HEADER_SHIFT)),
+            array_count);
+}
+
 ParquetColumnSchema unshredded_schema() {
     ParquetColumnSchema schema;
     schema.name = "payload";
@@ -977,6 +1015,8 @@ TEST(VariantColumnReaderTest, DirectSeekHandlesDistinctMetadataAcrossAppendedBat
     EXPECT_EQ(values.get_value_ref(0).get_int(), 1);
     EXPECT_EQ(values.get_value_ref(1).get_int(), 2);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 3);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value(),
+              3);
     EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
 }
 
@@ -1066,6 +1106,214 @@ TEST(VariantColumnReaderTest, DirectSeekValidatesOnlyTheSelectedUnshreddedBranch
     EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 0);
 }
 
+TEST(VariantColumnReaderTest, DirectSeekPreservesNonmonotonicObjectValueOrder) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto object = row.start_object();
+    object.add_key(StringRef("a"));
+    row.add_bool(true);
+    object.add_key(StringRef("b"));
+    row.add_null();
+    object.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+    const VariantRef canonical = batch.value_at(0);
+
+    std::string nonmonotonic(canonical.value.data, canonical.value.size);
+    const uint8_t value_header =
+            static_cast<uint8_t>(nonmonotonic[0]) >> VARIANT_VALUE_HEADER_SHIFT;
+    ASSERT_EQ(value_header & VARIANT_OBJECT_LARGE_MASK, 0);
+    const uint8_t id_width =
+            static_cast<uint8_t>(((value_header >> VARIANT_OBJECT_ID_SIZE_SHIFT) & 0x03U) + 1);
+    const uint8_t offset_width =
+            static_cast<uint8_t>(((value_header >> VARIANT_OBJECT_OFFSET_SIZE_SHIFT) & 0x03U) + 1);
+    ASSERT_EQ(id_width, 1);
+    ASSERT_EQ(offset_width, 1);
+    constexpr size_t IDS_OFFSET = 2;
+    const size_t offsets_offset = IDS_OFFSET + 2 * id_width;
+    ASSERT_EQ(static_cast<uint8_t>(nonmonotonic[offsets_offset]), 0);
+    ASSERT_EQ(static_cast<uint8_t>(nonmonotonic[offsets_offset + offset_width]), 1);
+    ASSERT_EQ(static_cast<uint8_t>(nonmonotonic[offsets_offset + 2 * offset_width]), 2);
+    std::swap(nonmonotonic[offsets_offset], nonmonotonic[offsets_offset + offset_width]);
+    const VariantRef encoded {
+            .metadata = canonical.metadata,
+            .value = {nonmonotonic.data(), nonmonotonic.size()},
+    };
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(
+            materialize_variant_rows(unshredded_schema(), unshredded_physical({encoded}), output)
+                    .ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    auto verify = [&](StringRef key, bool expected_null, bool expected_bool) {
+        const std::array segments {VariantElementV2PathSegment::object_key(key)};
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        EXPECT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+        ColumnPtr result;
+        EXPECT_TRUE(extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result)
+                            .ok());
+        const VariantRef value =
+                assert_cast<const ColumnVariantV2&>(
+                        assert_cast<const ColumnNullable&>(*result).get_nested_column())
+                        .get_value_ref(0);
+        EXPECT_EQ(value.is_null(), expected_null);
+        if (!expected_null) {
+            EXPECT_EQ(value.get_bool(), expected_bool);
+        }
+    };
+
+    verify(StringRef("a"), true, false);
+    const size_t bytes_after_first_lookup = source.allocated_bytes();
+    verify(StringRef("b"), false, true);
+    const size_t bytes_after_promotion = source.allocated_bytes();
+    EXPECT_GT(bytes_after_promotion, bytes_after_first_lookup);
+    verify(StringRef("a"), true, false);
+    EXPECT_EQ(source.allocated_bytes(), bytes_after_promotion);
+}
+
+TEST(VariantColumnReaderTest, BoundsNonmonotonicObjectOffsetPromotionBytes) {
+    constexpr uint32_t FIELD_COUNT = 4097;
+    constexpr size_t ROWS = 257;
+    constexpr size_t PROMOTION_BUDGET = 4 * 1024 * 1024;
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto object = row.start_object();
+    for (uint32_t field = 0; field < FIELD_COUNT; ++field) {
+        std::string suffix = std::to_string(field);
+        std::string key = "k";
+        key.append(4 - suffix.size(), '0');
+        key.append(suffix);
+        object.add_key(StringRef(key));
+        row.add_null();
+    }
+    object.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+    const VariantRef canonical = batch.value_at(0);
+
+    const uint8_t value_header =
+            static_cast<uint8_t>(canonical.value.data[0]) >> VARIANT_VALUE_HEADER_SHIFT;
+    ASSERT_NE(value_header & VARIANT_OBJECT_LARGE_MASK, 0);
+    const uint8_t id_width =
+            static_cast<uint8_t>(((value_header >> VARIANT_OBJECT_ID_SIZE_SHIFT) & 0x03U) + 1);
+    const uint8_t offset_width =
+            static_cast<uint8_t>(((value_header >> VARIANT_OBJECT_OFFSET_SIZE_SHIFT) & 0x03U) + 1);
+    ASSERT_EQ(id_width, 2);
+    ASSERT_EQ(offset_width, 2);
+    constexpr size_t IDS_OFFSET = 1 + sizeof(uint32_t);
+    const size_t offsets_offset = IDS_OFFSET + static_cast<size_t>(FIELD_COUNT) * id_width;
+    const size_t values_offset =
+            offsets_offset + (static_cast<size_t>(FIELD_COUNT) + 1) * offset_width;
+    ASSERT_EQ(canonical.value.size, values_offset + FIELD_COUNT);
+
+    std::string nonmonotonic(canonical.value.data, canonical.value.size);
+    for (uint32_t index = 0; index < FIELD_COUNT; ++index) {
+        write_variant_unsigned(nonmonotonic,
+                               offsets_offset + static_cast<size_t>(index) * offset_width,
+                               FIELD_COUNT - 1 - index, offset_width);
+    }
+    write_variant_unsigned(nonmonotonic,
+                           offsets_offset + static_cast<size_t>(FIELD_COUNT) * offset_width,
+                           FIELD_COUNT, offset_width);
+    const VariantRef encoded {
+            .metadata = canonical.metadata,
+            .value = {nonmonotonic.data(), nonmonotonic.size()},
+    };
+    std::vector<VariantRef> rows(ROWS, encoded);
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(
+            materialize_variant_rows(unshredded_schema(), unshredded_physical(rows), output).ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    auto extract = [&](StringRef key) {
+        const std::array segments {VariantElementV2PathSegment::object_key(key)};
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+        ColumnPtr result;
+        ASSERT_TRUE(extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result)
+                            .ok());
+    };
+
+    extract(StringRef("k0000"));
+    const size_t bytes_before_promotion = source.allocated_bytes();
+    extract(StringRef("k0001"));
+    const size_t bytes_at_budget = source.allocated_bytes();
+    const size_t promoted_bytes = bytes_at_budget - bytes_before_promotion;
+    const size_t index_bytes = static_cast<size_t>(FIELD_COUNT) * sizeof(uint32_t);
+    EXPECT_LE(promoted_bytes, PROMOTION_BUDGET);
+    EXPECT_GT(promoted_bytes, PROMOTION_BUDGET - index_bytes);
+
+    // Rows whose index did not fit the shared budget keep using the validated borrowed-table scan.
+    extract(StringRef("k0002"));
+    EXPECT_EQ(source.allocated_bytes(), bytes_at_budget);
+}
+
+TEST(VariantColumnReaderTest, DirectSeekDoesNotPromoteBeforeSelectedBoundaryValidation) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto object = row.start_object();
+    object.add_key(StringRef("a"));
+    row.add_null();
+    object.add_key(StringRef("b"));
+    row.add_bool(true);
+    object.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+    const VariantRef canonical = batch.value_at(0);
+
+    const uint8_t value_header =
+            static_cast<uint8_t>(canonical.value.data[0]) >> VARIANT_VALUE_HEADER_SHIFT;
+    const uint8_t id_width =
+            static_cast<uint8_t>(((value_header >> VARIANT_OBJECT_ID_SIZE_SHIFT) & 0x03U) + 1);
+    const uint8_t offset_width =
+            static_cast<uint8_t>(((value_header >> VARIANT_OBJECT_OFFSET_SIZE_SHIFT) & 0x03U) + 1);
+    ASSERT_EQ(id_width, 1);
+    ASSERT_EQ(offset_width, 1);
+    constexpr size_t IDS_OFFSET = 2;
+    const size_t offsets_offset = IDS_OFFSET + 2 * id_width;
+    const size_t values_offset = offsets_offset + 3 * offset_width;
+    ASSERT_EQ(canonical.value.size, values_offset + 2);
+
+    std::string corrupt(canonical.value.data, values_offset);
+    corrupt[offsets_offset] = static_cast<char>(2);
+    corrupt[offsets_offset + offset_width] = static_cast<char>(0);
+    corrupt[offsets_offset + 2 * offset_width] = static_cast<char>(3);
+    corrupt.push_back(canonical.value.data[values_offset + 1]);
+    corrupt.push_back(static_cast<char>(0xff));
+    corrupt.push_back(canonical.value.data[values_offset]);
+    const VariantRef encoded {
+            .metadata = canonical.metadata,
+            .value = {corrupt.data(), corrupt.size()},
+    };
+
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(
+            materialize_variant_rows(unshredded_schema(), unshredded_physical({encoded}), output)
+                    .ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    auto extract = [&](StringRef key, ColumnPtr* result) {
+        const std::array segments {VariantElementV2PathSegment::object_key(key)};
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        EXPECT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+        return extract_variant_element_v2(source, *path, nullable.get_null_map_data(), result);
+    };
+
+    ColumnPtr valid_result;
+    ASSERT_TRUE(extract(StringRef("a"), &valid_result).ok());
+    const size_t bytes_after_valid_lookup = source.allocated_bytes();
+    for (size_t attempt = 0; attempt < 2; ++attempt) {
+        ColumnPtr corrupt_result;
+        const Status status = extract(StringRef("b"), &corrupt_result);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("Invalid Variant object child bounds"), std::string::npos)
+                << status;
+        EXPECT_EQ(source.allocated_bytes(), bytes_after_valid_lookup);
+    }
+}
+
 TEST(VariantColumnReaderTest, DirectSeekRejectsMalformedTraversedObjectTable) {
     VariantBatchBuilder builder;
     auto row = builder.begin_row();
@@ -1118,7 +1366,366 @@ TEST(VariantColumnReaderTest, DirectSeekRejectsMalformedTraversedObjectTable) {
         EXPECT_FALSE(status.ok());
         EXPECT_NE(status.to_string().find("not strictly"), std::string::npos) << status;
     }
+
+    // A segment-kind mismatch is still a lookup miss against the accessed root. Validate the
+    // actual object table before returning NULL instead of bypassing it because an array was
+    // requested.
+    const std::array array_segments {VariantElementV2PathSegment::array_index(0)};
+    std::unique_ptr<ResolvedVariantElementV2Path> array_path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(array_segments, &array_path).ok());
+    ColumnPtr array_result;
+    const Status array_status = extract_variant_element_v2(
+            source, *array_path, nullable.get_null_map_data(), &array_result);
+    EXPECT_FALSE(array_status.ok());
+    EXPECT_NE(array_status.to_string().find("not strictly"), std::string::npos) << array_status;
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 0);
+}
+
+TEST(VariantColumnReaderTest, DirectSeekRejectsMalformedAccessedRootBeforeReturningNull) {
+    const VariantMetadataRef empty_metadata {.data = VARIANT_EMPTY_METADATA.data(),
+                                             .size = VARIANT_EMPTY_METADATA.size()};
+    auto expect_seek_error = [&](VariantRef row, std::string_view expected_error) {
+        auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+        ASSERT_TRUE(
+                materialize_variant_rows(unshredded_schema(), unshredded_physical({row}), output)
+                        .ok());
+        const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+        const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+        const std::array segments {VariantElementV2PathSegment::object_key(StringRef("missing"))};
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+        ColumnPtr result;
+        const Status status =
+                extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result);
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find(expected_error), std::string::npos) << status;
+    };
+
+    std::string invalid_utf8;
+    invalid_utf8.push_back(static_cast<char>((1 << VARIANT_VALUE_HEADER_SHIFT) |
+                                             static_cast<uint8_t>(VariantBasicType::SHORT_STRING)));
+    invalid_utf8.push_back(static_cast<char>(0xff));
+    expect_seek_error(
+            {.metadata = empty_metadata, .value = {invalid_utf8.data(), invalid_utf8.size()}},
+            "not valid UTF-8");
+
+    std::string truncated_int64;
+    truncated_int64.push_back(static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::INT64)
+                                                << VARIANT_VALUE_HEADER_SHIFT));
+    truncated_int64.push_back(1);
+    expect_seek_error(
+            {.metadata = empty_metadata, .value = {truncated_int64.data(), truncated_int64.size()}},
+            "Truncated Variant value");
+
+    std::string scalar_with_trailing_byte;
+    scalar_with_trailing_byte.push_back(static_cast<char>(
+            static_cast<uint8_t>(VariantPrimitiveId::INT8) << VARIANT_VALUE_HEADER_SHIFT));
+    scalar_with_trailing_byte.push_back(7);
+    scalar_with_trailing_byte.push_back(8);
+    expect_seek_error(
+            {.metadata = empty_metadata,
+             .value = {scalar_with_trailing_byte.data(), scalar_with_trailing_byte.size()}},
+            "trailing bytes");
+
+    VariantBatchBuilder builder;
+    auto builder_row = builder.begin_row();
+    auto object = builder_row.start_object();
+    object.add_key(StringRef("a"));
+    builder_row.add_int(7);
+    object.finish();
+    builder_row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+    const VariantRef valid_object = batch.value_at(0);
+    std::string object_with_trailing_byte(valid_object.value.data, valid_object.value.size);
+    object_with_trailing_byte.push_back(0);
+    expect_seek_error(
+            {.metadata = valid_object.metadata,
+             .value = {object_with_trailing_byte.data(), object_with_trailing_byte.size()}},
+            "trailing bytes");
+}
+
+TEST(VariantColumnReaderTest, DirectSeekPreservesRootDepthForSelectedSubtree) {
+    const VariantMetadataRef empty_metadata {.data = VARIANT_EMPTY_METADATA.data(),
+                                             .size = VARIANT_EMPTY_METADATA.size()};
+    const std::array segments {VariantElementV2PathSegment::array_index(0)};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+
+    auto extract = [&](std::string& value, ColumnPtr* result) {
+        const VariantRef row {.metadata = empty_metadata, .value = {value.data(), value.size()}};
+        auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+        EXPECT_TRUE(
+                materialize_variant_rows(unshredded_schema(), unshredded_physical({row}), output)
+                        .ok());
+        const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+        return extract_variant_element_v2(
+                assert_cast<const ColumnVariantV2&>(nullable.get_nested_column()), *path,
+                nullable.get_null_map_data(), result);
+    };
+
+    std::string maximum_depth = nested_single_element_arrays(VARIANT_MAX_NESTING_DEPTH);
+    ColumnPtr maximum_result;
+    const Status maximum_status = extract(maximum_depth, &maximum_result);
+    ASSERT_TRUE(maximum_status.ok()) << maximum_status;
+    const auto& maximum_values = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*maximum_result).get_nested_column());
+    EXPECT_EQ(maximum_values.get_value_ref(0).basic_type(), VariantBasicType::ARRAY);
+
+    std::string too_deep = nested_single_element_arrays(VARIANT_MAX_NESTING_DEPTH + 1);
+    ColumnPtr too_deep_result;
+    const Status too_deep_status = extract(too_deep, &too_deep_result);
+    ASSERT_FALSE(too_deep_status.ok());
+    EXPECT_NE(too_deep_status.to_string().find("maximum nesting depth"), std::string::npos)
+            << too_deep_status;
+}
+
+TEST(VariantColumnReaderTest, DirectSeekRejectsOverDepthContainerBeforeEarlyMiss) {
+    const VariantMetadataRef empty_metadata {.data = VARIANT_EMPTY_METADATA.data(),
+                                             .size = VARIANT_EMPTY_METADATA.size()};
+    auto expect_seek_error = [&](VariantRef row,
+                                 std::span<const VariantElementV2PathSegment> segments) {
+        auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+        ASSERT_TRUE(
+                materialize_variant_rows(unshredded_schema(), unshredded_physical({row}), output)
+                        .ok());
+        const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+        const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+        ColumnPtr result;
+        const Status status =
+                extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result);
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("maximum nesting depth"), std::string::npos) << status;
+    };
+
+    std::string over_depth_array = nested_single_element_arrays(VARIANT_MAX_NESTING_DEPTH + 1);
+    const VariantRef array_row {
+            .metadata = empty_metadata,
+            .value = {over_depth_array.data(), over_depth_array.size()},
+    };
+    std::vector<VariantElementV2PathSegment> out_of_range_path(
+            VARIANT_MAX_NESTING_DEPTH, VariantElementV2PathSegment::array_index(0));
+    out_of_range_path.push_back(VariantElementV2PathSegment::array_index(1));
+    expect_seek_error(array_row, out_of_range_path);
+
+    std::vector<VariantElementV2PathSegment> wrong_kind_path(
+            VARIANT_MAX_NESTING_DEPTH, VariantElementV2PathSegment::array_index(0));
+    wrong_kind_path.push_back(VariantElementV2PathSegment::object_key(StringRef("missing")));
+    expect_seek_error(array_row, wrong_kind_path);
+
+    VariantBatchBuilder object_builder;
+    auto object_row = object_builder.begin_row();
+    auto object = object_row.start_object();
+    object.add_key(StringRef("a"));
+    object_row.add_null();
+    object.finish();
+    object_row.finish();
+    VariantBatchBuilder object_batch = object_builder.finish_batch();
+    const VariantRef encoded_object = object_batch.value_at(0);
+    std::string over_depth_object = wrap_single_element_arrays(
+            std::string(encoded_object.value.data, encoded_object.value.size),
+            VARIANT_MAX_NESTING_DEPTH);
+    const VariantRef object_value {
+            .metadata = encoded_object.metadata,
+            .value = {over_depth_object.data(), over_depth_object.size()},
+    };
+    std::vector<VariantElementV2PathSegment> missing_key_path(
+            VARIANT_MAX_NESTING_DEPTH, VariantElementV2PathSegment::array_index(0));
+    missing_key_path.push_back(VariantElementV2PathSegment::object_key(StringRef("missing")));
+    expect_seek_error(object_value, missing_key_path);
+
+    // An empty container at the limit has no child beyond the limit and remains valid.
+    VariantBatchBuilder empty_builder;
+    auto empty_row = empty_builder.begin_row();
+    auto empty_array = empty_row.start_array();
+    empty_array.finish();
+    empty_row.finish();
+    VariantBatchBuilder empty_batch = empty_builder.finish_batch();
+    const VariantRef encoded_empty = empty_batch.value_at(0);
+    std::string maximum_depth_empty = wrap_single_element_arrays(
+            std::string(encoded_empty.value.data, encoded_empty.value.size),
+            VARIANT_MAX_NESTING_DEPTH);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(
+            materialize_variant_rows(unshredded_schema(),
+                                     unshredded_physical({{.metadata = encoded_empty.metadata,
+                                                           .value = {maximum_depth_empty.data(),
+                                                                     maximum_depth_empty.size()}}}),
+                                     output)
+                    .ok());
+    std::vector<VariantElementV2PathSegment> empty_miss_path(
+            VARIANT_MAX_NESTING_DEPTH, VariantElementV2PathSegment::array_index(0));
+    empty_miss_path.push_back(VariantElementV2PathSegment::array_index(0));
+    std::unique_ptr<ResolvedVariantElementV2Path> resolved_empty_path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(empty_miss_path, &resolved_empty_path).ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    ColumnPtr empty_result;
+    ASSERT_TRUE(extract_variant_element_v2(
+                        assert_cast<const ColumnVariantV2&>(nullable.get_nested_column()),
+                        *resolved_empty_path, nullable.get_null_map_data(), &empty_result)
+                        .ok());
+    EXPECT_EQ(assert_cast<const ColumnNullable&>(*empty_result).get_null_map_data(), (NullMap {1}));
+}
+
+TEST(VariantColumnReaderTest, ReusesDirectSeekContainerIndexesAcrossPathsAndSelections) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto object = row.start_object();
+    object.add_key(StringRef("arr"));
+    auto array = row.start_array();
+    for (int64_t value = 0; value < 64; ++value) {
+        row.add_int(value);
+    }
+    array.finish();
+    for (int64_t value = 0; value < 64; ++value) {
+        std::string key = value < 10 ? "k0" : "k";
+        key.append(std::to_string(value));
+        object.add_key(StringRef(key));
+        row.add_int(100 + value);
+    }
+    object.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+
+    RuntimeProfile runtime_profile("unshredded-direct-container-index-cache");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(
+            materialize_variant_rows(unshredded_schema(),
+                                     unshredded_physical({batch.value_at(0), batch.value_at(0)}),
+                                     output, parquet_profile.column_reader_profile())
+                    .ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+
+    auto extract_int = [](const ColumnVariantV2& input,
+                          std::span<const VariantElementV2PathSegment> segments) {
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        EXPECT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+        ColumnPtr result;
+        EXPECT_TRUE(extract_variant_element_v2(input, *path, {}, &result).ok());
+        return assert_cast<const ColumnVariantV2&>(
+                       assert_cast<const ColumnNullable&>(*result).get_nested_column())
+                .get_value_ref(0)
+                .get_int();
+    };
+
+    const std::array first_key {VariantElementV2PathSegment::object_key(StringRef("k00"))};
+    const std::array last_key {VariantElementV2PathSegment::object_key(StringRef("k63"))};
+    const std::array first_array {VariantElementV2PathSegment::object_key(StringRef("arr")),
+                                  VariantElementV2PathSegment::array_index(0)};
+    const std::array last_array {VariantElementV2PathSegment::object_key(StringRef("arr")),
+                                 VariantElementV2PathSegment::array_index(63)};
+    EXPECT_EQ(extract_int(source, first_key), 100);
+    EXPECT_EQ(extract_int(source, last_key), 163);
+    EXPECT_EQ(extract_int(source, first_array), 0);
+    EXPECT_EQ(extract_int(source, last_array), 63);
+
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value(),
+              4);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexHits")->value(),
+              8);
+
+    const IColumn::Filter keep {1, 0};
+    const ColumnPtr filtered = source.filter(keep, 1);
+    EXPECT_EQ(extract_int(assert_cast<const ColumnVariantV2&>(*filtered), first_key), 100);
+    const ColumnPtr selected = source.cut(1, 1);
+    EXPECT_EQ(extract_int(assert_cast<const ColumnVariantV2&>(*selected), last_key), 163);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value(),
+              6);
+}
+
+TEST(VariantColumnReaderTest, BoundsDirectSeekContainerCacheEntries) {
+    constexpr size_t ROWS = 5000;
+    constexpr size_t DEPTH = 4;
+    constexpr int64_t RETAINED_ENTRIES = 16 * 1024;
+    std::string nested = nested_single_element_arrays(DEPTH);
+    const VariantRef row {
+            .metadata = {.data = VARIANT_EMPTY_METADATA.data(),
+                         .size = VARIANT_EMPTY_METADATA.size()},
+            .value = {nested.data(), nested.size()},
+    };
+    std::vector<VariantRef> rows(ROWS, row);
+
+    RuntimeProfile runtime_profile("bounded-unshredded-direct-container-cache");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), unshredded_physical(rows), output,
+                                         parquet_profile.column_reader_profile())
+                        .ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    std::vector<VariantElementV2PathSegment> segments(DEPTH,
+                                                      VariantElementV2PathSegment::array_index(0));
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+
+    auto extract = [&] {
+        ColumnPtr result;
+        ASSERT_TRUE(extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result)
+                            .ok());
+    };
+    extract();
+    auto* builds = runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds");
+    auto* hits = runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexHits");
+    ASSERT_NE(builds, nullptr);
+    ASSERT_NE(hits, nullptr);
+    const int64_t lookups_per_pass = static_cast<int64_t>(ROWS * DEPTH);
+    EXPECT_EQ(builds->value(), lookups_per_pass);
+    EXPECT_EQ(hits->value(), 0);
+
+    extract();
+    EXPECT_EQ(hits->value(), RETAINED_ENTRIES);
+    EXPECT_EQ(builds->value(), 2 * lookups_per_pass - RETAINED_ENTRIES);
+}
+
+TEST(VariantColumnReaderTest, BoundsDirectSeekContainerCacheDepth) {
+    constexpr size_t ROWS = 64;
+    constexpr size_t DEPTH = 6;
+    constexpr size_t RETAINED_DEPTH = 4;
+    std::string nested = nested_single_element_arrays(DEPTH);
+    const VariantRef row {
+            .metadata = {.data = VARIANT_EMPTY_METADATA.data(),
+                         .size = VARIANT_EMPTY_METADATA.size()},
+            .value = {nested.data(), nested.size()},
+    };
+    std::vector<VariantRef> rows(ROWS, row);
+
+    RuntimeProfile runtime_profile("depth-bounded-unshredded-direct-container-cache");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), unshredded_physical(rows), output,
+                                         parquet_profile.column_reader_profile())
+                        .ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    std::vector<VariantElementV2PathSegment> segments(DEPTH,
+                                                      VariantElementV2PathSegment::array_index(0));
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+
+    auto extract = [&] {
+        ColumnPtr result;
+        ASSERT_TRUE(extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result)
+                            .ok());
+    };
+    extract();
+    auto* builds = runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds");
+    auto* hits = runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexHits");
+    ASSERT_NE(builds, nullptr);
+    ASSERT_NE(hits, nullptr);
+    const int64_t lookups_per_pass = static_cast<int64_t>(ROWS * DEPTH);
+    const int64_t retained_per_pass = static_cast<int64_t>(ROWS * RETAINED_DEPTH);
+    EXPECT_EQ(builds->value(), lookups_per_pass);
+    EXPECT_EQ(hits->value(), 0);
+
+    extract();
+    EXPECT_EQ(hits->value(), retained_per_pass);
+    EXPECT_EQ(builds->value(), 2 * lookups_per_pass - retained_per_pass);
 }
 
 TEST(VariantColumnReaderTest, RequiredPhysicalGroupAppendsToNullableExternalSlot) {
@@ -1901,6 +2508,58 @@ TEST(VariantColumnReaderTest, ReusesMixedUnshreddedAndTypedDirectMatches) {
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 1);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectLeafRows")->value(), 1);
     EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
+}
+
+TEST(VariantColumnReaderTest, ReusesUnshreddedPrefixBeforeCompositeFallback) {
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto object = row.start_object();
+    object.add_key(StringRef("left"));
+    row.add_int(7);
+    object.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+
+    RuntimeProfile runtime_profile("mixed-unshredded-prefix-fallback");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    const ParquetColumnReaderProfile profile = parquet_profile.column_reader_profile();
+    auto unshredded = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    auto residual = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(),
+                                         unshredded_physical({batch.value_at(0)}), unshredded,
+                                         profile)
+                        .ok());
+    ASSERT_TRUE(materialize_variant_rows(shredded_named_object_schema("a"),
+                                         complete_shredded_object_physical("left", 1, 11), residual,
+                                         profile)
+                        .ok());
+
+    const std::array<uint32_t, 1> selected {0};
+    const std::array segments {VariantElementV2PathSegment::object_key(StringRef("left"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+    auto verify_order = [&](const IColumn& first, const IColumn& second, int64_t first_value,
+                            int64_t second_value) {
+        auto gathered = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+        gathered->insert_indices_from(first, selected.begin(), selected.end());
+        gathered->insert_indices_from(second, selected.begin(), selected.end());
+        const auto& nullable = assert_cast<const ColumnNullable&>(*gathered);
+        ColumnPtr result;
+        ASSERT_TRUE(extract_variant_element_v2(
+                            assert_cast<const ColumnVariantV2&>(nullable.get_nested_column()),
+                            *path, nullable.get_null_map_data(), &result)
+                            .ok());
+        const auto& values = assert_cast<const ColumnVariantV2&>(
+                assert_cast<const ColumnNullable&>(*result).get_nested_column());
+        EXPECT_EQ(values.get_value_ref(0).get_int(), first_value);
+        EXPECT_EQ(values.get_value_ref(1).get_int(), second_value);
+    };
+
+    verify_order(*unshredded, *residual, 7, 1);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 1);
+    verify_order(*residual, *unshredded, 1, 7);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 2);
 }
 
 TEST(VariantColumnReaderTest, PreservesPrimitiveWidthsAcrossProjectedFiles) {

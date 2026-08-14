@@ -23,6 +23,7 @@
 #include <limits>
 
 #include "common/exception.h"
+#include "core/custom_allocator.h"
 
 namespace doris {
 namespace {
@@ -456,47 +457,130 @@ bool VariantRef::object_find_by_id(uint32_t field_id, VariantRef* out) const {
     return _object_find_by_id(_container_layout(VariantBasicType::OBJECT), field_id, out);
 }
 
-bool VariantRef::object_find_by_id_untrusted(int64_t field_id, VariantRef* out,
-                                             std::vector<uint32_t>& offset_scratch) const {
-    if (out == nullptr) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant object lookup output is null");
+VariantContainerLookup::VariantContainerLookup(VariantRef value)
+        : _value(value), _basic_type(value.basic_type()) {
+    if (_basic_type != VariantBasicType::OBJECT && _basic_type != VariantBasicType::ARRAY) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant container lookup cannot index basic type {}",
+                        static_cast<uint8_t>(_basic_type));
     }
-    const ContainerLayout layout = _container_layout(VariantBasicType::OBJECT);
-    offset_scratch.clear();
-    offset_scratch.reserve(layout.count);
+    const size_t encoded_size = _value.value_size();
+    if (encoded_size != _value.value.size) {
+        throw Exception(ErrorCode::CORRUPTION,
+                        "Variant container has {} trailing bytes after its {} byte value",
+                        _value.value.size - encoded_size, encoded_size);
+    }
 
+    const VariantRef::ContainerLayout layout = _value._container_layout(_basic_type);
+    _container_count = layout.count;
+    if (_basic_type == VariantBasicType::ARRAY) {
+        uint32_t previous_offset = 0;
+        for (uint64_t position = 1; position <= layout.count; ++position) {
+            const uint32_t offset =
+                    _value._container_offset(layout, static_cast<uint32_t>(position));
+            if (offset <= previous_offset || offset > layout.values_size) {
+                throw Exception(ErrorCode::CORRUPTION,
+                                "Invalid Variant array offsets {} then {} at element {}",
+                                previous_offset, offset, position - 1);
+            }
+            previous_offset = offset;
+        }
+        return;
+    }
+
+    _object_offsets_in_field_order = true;
     StringRef previous_key;
+    uint32_t previous_offset = 0;
     for (uint32_t index = 0; index < layout.count; ++index) {
-        const uint32_t current_id = _object_field_id(layout, index);
-        const StringRef current_key = metadata.key_at(current_id);
+        const uint32_t current_id = _value._object_field_id(layout, index);
+        const StringRef current_key = _value.metadata.key_at(current_id);
         if (index != 0 && previous_key.compare(current_key) >= 0) {
             throw Exception(ErrorCode::CORRUPTION,
                             "Variant object keys are not strictly ordered at field {}", index);
         }
         previous_key = current_key;
 
-        const uint32_t offset = _container_offset(layout, index);
+        const uint32_t offset = _value._container_offset(layout, index);
         if (offset >= layout.values_size) {
             throw Exception(ErrorCode::CORRUPTION,
                             "Variant object child offset {} is outside values of size {}", offset,
                             layout.values_size);
         }
-        offset_scratch.push_back(offset);
+        if ((index == 0 && offset != 0) || (index != 0 && offset <= previous_offset)) {
+            _object_offsets_in_field_order = false;
+        }
+        previous_offset = offset;
     }
 
-    std::sort(offset_scratch.begin(), offset_scratch.end());
-    if (!offset_scratch.empty()) {
-        if (offset_scratch.front() != 0) {
+    if (!_object_offsets_in_field_order) {
+        // Noncanonical objects may store values in a different order from their sorted keys.
+        // Validate that physical partition once with temporary scratch. A bounded cache may retain
+        // a sorted copy later, but only after this same lookup is reused.
+        DorisVector<uint32_t> offsets;
+        offsets.reserve(layout.count);
+        for (uint32_t index = 0; index < layout.count; ++index) {
+            offsets.push_back(_value._container_offset(layout, index));
+        }
+        std::sort(offsets.begin(), offsets.end());
+        if (offsets.front() != 0) {
             throw Exception(ErrorCode::CORRUPTION,
                             "Variant object values do not start at offset zero");
         }
-        for (size_t index = 1; index < offset_scratch.size(); ++index) {
-            if (offset_scratch[index - 1] == offset_scratch[index]) {
+        for (size_t index = 1; index < offsets.size(); ++index) {
+            if (offsets[index - 1] == offsets[index]) {
                 throw Exception(ErrorCode::CORRUPTION, "Variant object value offsets reuse byte {}",
-                                offset_scratch[index]);
+                                offsets[index]);
             }
         }
     }
+}
+
+size_t VariantContainerLookup::_object_offset_index_bytes_required() const noexcept {
+    if (_basic_type != VariantBasicType::OBJECT || _object_offsets_in_field_order ||
+        !_sorted_object_offsets.empty()) {
+        return 0;
+    }
+    return static_cast<size_t>(_container_count) * sizeof(uint32_t);
+}
+
+size_t VariantContainerLookup::_promote_object_offset_index(size_t maximum_bytes) {
+    const size_t required_bytes = _object_offset_index_bytes_required();
+    if (required_bytes == 0 || required_bytes > maximum_bytes) {
+        return 0;
+    }
+    const VariantRef::ContainerLayout layout = _value._container_layout(VariantBasicType::OBJECT);
+    DorisVector<uint32_t> offsets;
+    offsets.reserve(layout.count);
+    for (uint32_t index = 0; index < layout.count; ++index) {
+        offsets.push_back(_value._container_offset(layout, index));
+    }
+    std::sort(offsets.begin(), offsets.end());
+    if (offsets.capacity() * sizeof(uint32_t) > maximum_bytes) {
+        return 0;
+    }
+    _sorted_object_offsets = std::move(offsets);
+    return allocated_bytes();
+}
+
+size_t VariantContainerLookup::allocated_bytes() const noexcept {
+    return _sorted_object_offsets.capacity() * sizeof(uint32_t);
+}
+
+bool VariantContainerLookup::object_find_by_id(int64_t field_id, VariantRef* out,
+                                               size_t maximum_offset_index_bytes,
+                                               size_t* allocated_offset_index_bytes) {
+    if (allocated_offset_index_bytes != nullptr) {
+        *allocated_offset_index_bytes = 0;
+    }
+    if (out == nullptr) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant object lookup output is null");
+    }
+    if (_basic_type != VariantBasicType::OBJECT) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant object lookup used with non-object basic type {}",
+                        static_cast<uint8_t>(_basic_type));
+    }
+    const VariantRef::ContainerLayout layout = _value._container_layout(VariantBasicType::OBJECT);
 
     if (field_id < 0) {
         return false;
@@ -506,57 +590,72 @@ bool VariantRef::object_find_by_id_untrusted(int64_t field_id, VariantRef* out,
                         field_id);
     }
     VariantRef selected;
-    if (!_object_find_by_id(layout, static_cast<uint32_t>(field_id), &selected)) {
+    uint32_t selected_index = 0;
+    if (!_value._object_find_by_id(layout, static_cast<uint32_t>(field_id), &selected,
+                                   &selected_index)) {
         return false;
     }
-
     const auto selected_offset =
-            static_cast<uint32_t>(selected.value.data - (value.data + layout.values_offset));
-    const auto position =
-            std::lower_bound(offset_scratch.begin(), offset_scratch.end(), selected_offset);
-    if (position == offset_scratch.end() || *position != selected_offset) {
-        throw Exception(ErrorCode::CORRUPTION,
-                        "Variant object selected child has an unknown offset {}", selected_offset);
+            static_cast<uint32_t>(selected.value.data - (_value.value.data + layout.values_offset));
+    uint32_t next_offset = layout.values_size;
+    if (_object_offsets_in_field_order) {
+        next_offset = _value._container_offset(layout, selected_index + 1);
+    } else if (!_sorted_object_offsets.empty()) {
+        const auto position = std::lower_bound(_sorted_object_offsets.begin(),
+                                               _sorted_object_offsets.end(), selected_offset);
+        if (position == _sorted_object_offsets.end() || *position != selected_offset) {
+            throw Exception(ErrorCode::CORRUPTION,
+                            "Variant object selected child has an unknown offset {}",
+                            selected_offset);
+        }
+        const auto next_position = position + 1;
+        next_offset =
+                next_position == _sorted_object_offsets.end() ? layout.values_size : *next_position;
+    } else {
+        for (uint32_t index = 0; index < layout.count; ++index) {
+            const uint32_t candidate = _value._container_offset(layout, index);
+            if (candidate > selected_offset && candidate < next_offset) {
+                next_offset = candidate;
+            }
+        }
     }
-    const auto next_position = position + 1;
-    const uint32_t next_offset =
-            next_position == offset_scratch.end() ? layout.values_size : *next_position;
     if (selected.value.size != next_offset - selected_offset) {
         throw Exception(ErrorCode::CORRUPTION,
                         "Invalid Variant object child bounds [{}, {}) for child size {}",
                         selected_offset, next_offset, selected.value.size);
     }
+    // Promotion is a reusable optimization, not part of validating this selected child. Commit it
+    // only after the borrowed-table path has proved the exact boundary so an exception cannot
+    // retain bytes that the caller never gets a chance to account.
+    if (allocated_offset_index_bytes != nullptr) {
+        *allocated_offset_index_bytes = _promote_object_offset_index(maximum_offset_index_bytes);
+    }
     *out = selected;
     return true;
 }
 
-bool VariantRef::array_find_untrusted(int64_t index, VariantRef* out) const {
+bool VariantContainerLookup::array_find(int64_t index, VariantRef* out) const {
     if (out == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant array lookup output is null");
     }
-    const ContainerLayout layout = _container_layout(VariantBasicType::ARRAY);
-    uint32_t previous_offset = 0;
-    for (uint64_t position = 1; position <= layout.count; ++position) {
-        const uint32_t offset = _container_offset(layout, static_cast<uint32_t>(position));
-        if (offset <= previous_offset || offset > layout.values_size) {
-            throw Exception(ErrorCode::CORRUPTION,
-                            "Invalid Variant array offsets {} then {} at element {}",
-                            previous_offset, offset, position - 1);
-        }
-        previous_offset = offset;
+    if (_basic_type != VariantBasicType::ARRAY) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant array lookup used with non-array basic type {}",
+                        static_cast<uint8_t>(_basic_type));
     }
+    const VariantRef::ContainerLayout layout = _value._container_layout(VariantBasicType::ARRAY);
 
     const int64_t count = layout.count;
     const int64_t resolved_index = index < 0 ? count + index : index;
     if (resolved_index < 0 || resolved_index >= count) {
         return false;
     }
-    *out = _container_value_at(layout, static_cast<uint32_t>(resolved_index), true);
+    *out = _value._container_value_at(layout, static_cast<uint32_t>(resolved_index), true);
     return true;
 }
 
 bool VariantRef::_object_find_by_id(const ContainerLayout& layout, uint32_t field_id,
-                                    VariantRef* out) const {
+                                    VariantRef* out, uint32_t* index_out) const {
     const StringRef target_key = metadata.key_at(field_id);
     uint32_t begin = 0;
     uint32_t end = layout.count;
@@ -576,11 +675,17 @@ bool VariantRef::_object_find_by_id(const ContainerLayout& layout, uint32_t fiel
         if (!metadata.sorted_strings() && begin < layout.count &&
             metadata.key_at(_object_field_id(layout, begin)) == target_key) {
             *out = _container_value_at(layout, begin, false);
+            if (index_out != nullptr) {
+                *index_out = begin;
+            }
             return true;
         }
         return false;
     }
     *out = _container_value_at(layout, begin, false);
+    if (index_out != nullptr) {
+        *index_out = begin;
+    }
     return true;
 }
 

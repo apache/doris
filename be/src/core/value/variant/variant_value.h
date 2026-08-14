@@ -20,13 +20,15 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <vector>
 
+#include "core/custom_allocator.h"
 #include "core/string_ref.h"
 #include "core/value/variant/variant_metadata.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 
 namespace doris {
+
+class VariantContainerLookup;
 
 struct VariantRef {
     VariantMetadataRef metadata;
@@ -55,14 +57,6 @@ struct VariantRef {
     uint32_t num_elements() const;
     bool object_find(StringRef key, VariantRef* out) const;
     bool object_find_by_id(uint32_t field_id, VariantRef* out) const;
-    // Direct readers may traverse payloads that have not passed recursive Variant validation.
-    // These accessors validate the complete container lookup table, but decode only the selected
-    // child so malformed unrelated sibling payloads remain outside the seek path. A negative object
-    // field id represents a metadata miss; the object table is still validated before returning
-    // false. Callers should reuse offset_scratch across rows.
-    bool object_find_by_id_untrusted(int64_t field_id, VariantRef* out,
-                                     std::vector<uint32_t>& offset_scratch) const;
-    bool array_find_untrusted(int64_t index, VariantRef* out) const;
     VariantRef object_value_at(uint32_t index, uint32_t* field_id_out) const;
     VariantRef array_at(uint32_t index) const;
 
@@ -80,10 +74,38 @@ private:
     ContainerLayout _container_layout(VariantBasicType expected_type) const;
     uint32_t _container_offset(const ContainerLayout& layout, uint32_t index) const;
     uint32_t _object_field_id(const ContainerLayout& layout, uint32_t index) const;
-    bool _object_find_by_id(const ContainerLayout& layout, uint32_t field_id,
-                            VariantRef* out) const;
+    bool _object_find_by_id(const ContainerLayout& layout, uint32_t field_id, VariantRef* out,
+                            uint32_t* index_out = nullptr) const;
     VariantRef _container_value_at(const ContainerLayout& layout, uint32_t index,
                                    bool require_array_boundary) const;
+
+    friend class VariantContainerLookup;
+};
+
+// A shallow, reusable lookup for a container whose recursive payload is still untrusted. Building
+// it validates the exact container envelope, object key order, and all lookup-table offsets, but
+// intentionally does not decode unrelated child payloads. Canonical objects use their monotonic
+// offset table directly. Noncanonical objects initially scan that borrowed table for a selected
+// boundary; a bounded caller may lazily retain a sorted offset index after this lookup is reused.
+// The referenced Variant bytes and metadata must remain unchanged and outlive this object.
+class VariantContainerLookup {
+public:
+    explicit VariantContainerLookup(VariantRef value);
+
+    bool object_find_by_id(int64_t field_id, VariantRef* out, size_t maximum_offset_index_bytes = 0,
+                           size_t* allocated_offset_index_bytes = nullptr);
+    bool array_find(int64_t index, VariantRef* out) const;
+    size_t allocated_bytes() const noexcept;
+
+private:
+    size_t _object_offset_index_bytes_required() const noexcept;
+    size_t _promote_object_offset_index(size_t maximum_bytes);
+
+    VariantRef _value;
+    VariantBasicType _basic_type;
+    uint32_t _container_count = 0;
+    bool _object_offsets_in_field_order = false;
+    DorisVector<uint32_t> _sorted_object_offsets;
 };
 
 } // namespace doris

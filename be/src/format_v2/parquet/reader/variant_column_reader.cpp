@@ -518,7 +518,107 @@ void import_unshredded_variant_range(const ParquetColumnSchema& schema, const Co
 
 struct DirectResidualSeekResult {
     ColumnPtr column;
+    int64_t rows = 0;
     int64_t selected_value_bytes = 0;
+    int64_t container_index_builds = 0;
+    int64_t container_index_hits = 0;
+};
+
+struct DirectSeekContainerKey {
+    const char* metadata_data = nullptr;
+    size_t metadata_size = 0;
+    const char* value_data = nullptr;
+    size_t value_size = 0;
+
+    bool operator==(const DirectSeekContainerKey&) const = default;
+};
+
+struct DirectSeekContainerKeyHash {
+    size_t operator()(const DirectSeekContainerKey& key) const noexcept {
+        size_t hash = std::hash<const void*> {}(key.metadata_data);
+        auto combine = [&](size_t value) {
+            hash ^= value + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+        };
+        combine(std::hash<size_t> {}(key.metadata_size));
+        combine(std::hash<const void*> {}(key.value_data));
+        combine(std::hash<size_t> {}(key.value_size));
+        return hash;
+    }
+};
+
+class DirectSeekContainerCache {
+public:
+    struct Lookup {
+        VariantContainerLookup* value;
+        bool cache_hit;
+    };
+
+    Lookup find_or_build(VariantRef value, size_t path_position, DirectResidualSeekResult& result,
+                         std::optional<VariantContainerLookup>& uncached_lookup) {
+        const DirectSeekContainerKey key {.metadata_data = value.metadata.data,
+                                          .metadata_size = value.metadata.size,
+                                          .value_data = value.value.data,
+                                          .value_size = value.value.size};
+        if (auto found = _entries.find(key); found != _entries.end()) {
+            ++result.container_index_hits;
+            return {.value = &found->second, .cache_hit = true};
+        }
+        ++result.container_index_builds;
+        if (path_position >= MAX_RETAINED_PATH_DEPTH || _entries.size() >= MAX_RETAINED_ENTRIES) {
+            // Validation is still mandatory after the high-water mark. Keep only this traversal's
+            // lookup alive so an adversarial rows-times-depth path cannot grow persistent state.
+            uncached_lookup.emplace(value);
+            return {.value = &*uncached_lookup, .cache_hit = false};
+        }
+        auto [inserted, was_inserted] = _entries.try_emplace(key, value);
+        DORIS_CHECK(was_inserted);
+        return {.value = &inserted->second, .cache_hit = false};
+    }
+
+    bool object_find_by_id(Lookup lookup, int64_t field_id, VariantRef* out) {
+        size_t promoted_bytes = 0;
+        const size_t promotion_budget =
+                lookup.cache_hit ? MAX_PROMOTED_OFFSET_BYTES - _promoted_offset_bytes : 0;
+        const bool found =
+                lookup.value->object_find_by_id(field_id, out, promotion_budget, &promoted_bytes);
+        _promoted_offset_bytes += promoted_bytes;
+        return found;
+    }
+
+    void reserve(size_t size) {
+        if (_entries.empty()) {
+            const size_t retained = size > MAX_RETAINED_ENTRIES / MAX_RETAINED_PATH_DEPTH
+                                            ? MAX_RETAINED_ENTRIES
+                                            : size * MAX_RETAINED_PATH_DEPTH;
+            _entries.reserve(retained);
+        }
+    }
+
+    void reset() {
+        ContainerMap empty;
+        _entries.swap(empty);
+        _promoted_offset_bytes = 0;
+    }
+
+    size_t allocated_bytes() const {
+        return _entries.bucket_count() * sizeof(void*) +
+               _entries.size() * sizeof(ContainerMap::value_type) + _promoted_offset_bytes;
+    }
+
+private:
+    // Four retained ancestors cover the common root/nested-object projections for a default
+    // scanner batch. The independent entry and promoted-offset caps keep state bounded for deep
+    // paths, appended columns, and noncanonical wide objects.
+    static constexpr size_t MAX_RETAINED_PATH_DEPTH = 4;
+    static constexpr size_t MAX_RETAINED_ENTRIES = 16 * 1024;
+    static constexpr size_t MAX_PROMOTED_OFFSET_BYTES = 4 * 1024 * 1024;
+
+    using ContainerMap = std::unordered_map<
+            DirectSeekContainerKey, VariantContainerLookup, DirectSeekContainerKeyHash,
+            std::equal_to<DirectSeekContainerKey>,
+            CustomStdAllocator<std::pair<const DirectSeekContainerKey, VariantContainerLookup>>>;
+    ContainerMap _entries;
+    size_t _promoted_offset_bytes = 0;
 };
 
 struct UnshreddedMetadataCache {
@@ -608,7 +708,7 @@ std::shared_ptr<const UnshreddedMetadataCache> build_unshredded_metadata_cache(
 
 DirectResidualSeekResult seek_unshredded_variant_path(
         const ParquetColumnSchema& schema, const IColumn& physical, size_t value_index,
-        const UnshreddedMetadataCache& metadata_cache,
+        const UnshreddedMetadataCache& metadata_cache, DirectSeekContainerCache& container_cache,
         std::span<const VariantShreddedPathSegment> path) {
     const auto* outer_nullable = check_and_get_column<ColumnNullable>(physical);
     const IColumn& wrapper =
@@ -636,10 +736,13 @@ DirectResidualSeekResult seek_unshredded_variant_path(
     }
     DorisVector<VariantRef> selected_rows;
     selected_rows.reserve(physical.size());
+    container_cache.reserve(physical.size());
     auto nulls = ColumnUInt8::create();
     nulls->reserve(physical.size());
-    std::vector<uint32_t> object_offset_scratch;
     int64_t selected_value_bytes = 0;
+    DirectResidualSeekResult result;
+    DORIS_CHECK_LE(physical.size(), static_cast<size_t>(std::numeric_limits<int64_t>::max()));
+    result.rows = static_cast<int64_t>(physical.size());
 
     auto add_selected_bytes = [&](size_t bytes) {
         DORIS_CHECK_LE(bytes, static_cast<size_t>(std::numeric_limits<int64_t>::max() -
@@ -671,24 +774,35 @@ DirectResidualSeekResult seek_unshredded_variant_path(
 
         VariantRef current {.metadata = metadata, .value = value_cell.column->get_data_at(row)};
         bool found = true;
+        uint32_t current_depth = 0;
         for (size_t position = 0; position < path.size(); ++position) {
             VariantRef selected;
+            const VariantBasicType basic_type =
+                    validate_variant_payload_shallow(current, current_depth);
+            std::optional<DirectSeekContainerCache::Lookup> container;
+            std::optional<VariantContainerLookup> uncached_container;
+            if (basic_type == VariantBasicType::OBJECT || basic_type == VariantBasicType::ARRAY) {
+                // Validate an accessed container even when the requested segment has the other
+                // container kind. A malformed table must not be downgraded to a SQL NULL miss.
+                container = container_cache.find_or_build(current, position, result,
+                                                          uncached_container);
+            }
             if (path[position].kind == VariantShreddedPathSegment::Kind::OBJECT_KEY) {
                 const int64_t field_id = object_ids[metadata_id * path.size() + position];
-                if (current.basic_type() != VariantBasicType::OBJECT ||
-                    !current.object_find_by_id_untrusted(field_id, &selected,
-                                                         object_offset_scratch)) {
+                if (basic_type != VariantBasicType::OBJECT ||
+                    !container_cache.object_find_by_id(*container, field_id, &selected)) {
                     found = false;
                     break;
                 }
             } else {
-                if (current.basic_type() != VariantBasicType::ARRAY ||
-                    !current.array_find_untrusted(path[position].index, &selected)) {
+                if (basic_type != VariantBasicType::ARRAY ||
+                    !container->value->array_find(path[position].index, &selected)) {
                     found = false;
                     break;
                 }
             }
             current = selected;
+            ++current_depth;
         }
         if (!found) {
             append_missing(metadata);
@@ -697,7 +811,7 @@ DirectResidualSeekResult seek_unshredded_variant_path(
 
         // Traversed containers perform bounded reads. Validate the selected subtree exactly, but
         // intentionally do not visit unrelated siblings in the unshredded root.
-        validate_variant_payload(current);
+        validate_variant_payload(current, current_depth);
         selected_rows.push_back(current);
         nulls->insert_value(0);
         add_selected_bytes(current.value.size);
@@ -706,8 +820,9 @@ DirectResidualSeekResult seek_unshredded_variant_path(
     auto values = ColumnVariantV2::create();
     auto appender = values->create_encoded_rows_appender();
     appender.append_prevalidated(std::span<const VariantRef>(selected_rows));
-    return {.column = ColumnNullable::create(std::move(values), std::move(nulls)),
-            .selected_value_bytes = selected_value_bytes};
+    result.column = ColumnNullable::create(std::move(values), std::move(nulls));
+    result.selected_value_bytes = selected_value_bytes;
+    return result;
 }
 
 ColumnVariantV2::MutablePtr encode_variant_column(
@@ -1002,7 +1117,8 @@ public:
         return _physical->allocated_bytes() +
                (_materialized ? _materialized->allocated_bytes() : 0) +
                (_serialized ? _serialized->allocated_bytes() : 0) +
-               (_unshredded_metadata_cache ? _unshredded_metadata_cache->allocated_bytes() : 0);
+               (_unshredded_metadata_cache ? _unshredded_metadata_cache->allocated_bytes() : 0) +
+               _direct_seek_container_cache.allocated_bytes();
     }
     void sanity_check() const override { _physical->sanity_check(); }
 
@@ -1041,14 +1157,15 @@ public:
             !same_shredded_schema(*_schema, *parquet_source->_schema)) {
             return false;
         }
+        std::lock_guard lock(_materialization_lock);
         validate_compatible_column(*_physical, *parquet_source->_physical);
         auto mutable_physical = IColumn::mutate(std::move(_physical));
         append_compatible_column(*mutable_physical, *parquet_source->_physical);
         _physical = std::move(mutable_physical);
-        std::lock_guard lock(_materialization_lock);
         _materialized.reset();
         _serialized.reset();
         _unshredded_metadata_cache.reset();
+        _direct_seek_container_cache.reset();
         return true;
     }
 
@@ -1247,24 +1364,22 @@ private:
             // Publish elapsed time even when an accessed node is corrupt. Row/byte counters only
             // describe complete direct-seek results.
             SCOPED_TIMER(_profile.variant_direct_residual_seek_time.get());
-            const auto metadata_cache = unshredded_metadata_cache(indices->first);
+            std::lock_guard lock(_materialization_lock);
+            if (!_unshredded_metadata_cache) {
+                _unshredded_metadata_cache =
+                        build_unshredded_metadata_cache(*_schema, *_physical, indices->first);
+            }
             result = seek_unshredded_variant_path(*_schema, *_physical, indices->second,
-                                                  *metadata_cache, path);
+                                                  *_unshredded_metadata_cache,
+                                                  _direct_seek_container_cache, path);
         }
-        update_counter(_profile.variant_direct_residual_seek_rows,
-                       static_cast<int64_t>(_physical->size()));
+        update_counter(_profile.variant_direct_residual_seek_rows, result.rows);
         update_counter(_profile.variant_direct_residual_seek_bytes, result.selected_value_bytes);
+        update_counter(_profile.variant_direct_residual_seek_container_index_builds,
+                       result.container_index_builds);
+        update_counter(_profile.variant_direct_residual_seek_container_index_hits,
+                       result.container_index_hits);
         return std::move(result.column);
-    }
-
-    std::shared_ptr<const UnshreddedMetadataCache> unshredded_metadata_cache(
-            size_t metadata_index) const {
-        std::lock_guard lock(_materialization_lock);
-        if (!_unshredded_metadata_cache) {
-            _unshredded_metadata_cache =
-                    build_unshredded_metadata_cache(*_schema, *_physical, metadata_index);
-        }
-        return _unshredded_metadata_cache;
     }
 
     static void update_counter(const std::shared_ptr<RuntimeProfile::Counter>& counter,
@@ -1282,6 +1397,7 @@ private:
     mutable ColumnVariantV2::MutablePtr _materialized;
     mutable ColumnVariantV2::MutablePtr _serialized;
     mutable std::shared_ptr<const UnshreddedMetadataCache> _unshredded_metadata_cache;
+    mutable DirectSeekContainerCache _direct_seek_container_cache;
 };
 
 MutableColumnPtr build_variant_column(std::shared_ptr<const ParquetColumnSchema> schema,
