@@ -21,7 +21,9 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -46,8 +48,10 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadPoolExecutor;
 
 public class HiveScanNodeTest {
     private static final long MB = 1024L * 1024L;
@@ -92,8 +96,67 @@ public class HiveScanNodeTest {
             Mockito.verify(cache).getFilesByPartitions(
                     Mockito.same(differentPartitions), Mockito.anyBoolean(), Mockito.eq(false),
                     Mockito.isNull(), Mockito.eq(table));
+            Mockito.verify(cache, Mockito.times(3)).getFileCacheInvalidationGeneration(1L);
             Mockito.verifyNoMoreInteractions(cache);
         } finally {
+            statementContext.close();
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testStatementCacheSeparatesTableAndPartitionFileInvalidations() throws Exception {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext(context, null);
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "refresh", 1, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "file", 1, false);
+        try {
+            HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+            HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+            Mockito.when(table.getCatalog()).thenReturn(catalog);
+            Mockito.when(table.getId()).thenReturn(2L);
+            Mockito.when(catalog.getId()).thenReturn(0L);
+            Mockito.when(catalog.bindBrokerName()).thenReturn("");
+
+            HiveExternalMetaCache realCache = new HiveExternalMetaCache(executor, listExecutor);
+            realCache.initCatalog(0L, new HashMap<>());
+            HiveExternalMetaCache cache = Mockito.spy(realCache);
+            Mockito.doReturn(Collections.emptyList()).when(cache).getFilesByPartitions(
+                    Mockito.anyList(), Mockito.eq(true), Mockito.anyBoolean(),
+                    Mockito.isNull(), Mockito.eq(table));
+
+            List<HivePartition> partitions = Collections.singletonList(new HivePartition(
+                    null, false, "parquet", "hdfs://warehouse/t/p=1",
+                    Collections.singletonList("1"), Collections.emptyMap()));
+
+            invokeGetFileSplitByPartitions(createHiveScanNode(0, table), cache, partitions);
+            invokeGetFileSplitByPartitions(createHiveScanNode(1, table), cache, partitions);
+            Mockito.verify(cache).getFilesByPartitions(
+                    Mockito.same(partitions), Mockito.eq(true), Mockito.eq(false),
+                    Mockito.isNull(), Mockito.eq(table));
+
+            NameMapping nameMapping = NameMapping.createForTest("db", "table");
+            cache.invalidateTable(0L, "db", "table");
+            invokeGetFileSplitByPartitions(createHiveScanNode(2, table), cache, partitions);
+
+            cache.invalidatePartitionCache(nameMapping, "p=1");
+            invokeGetFileSplitByPartitions(createHiveScanNode(3, table), cache, partitions);
+
+            Mockito.verify(cache, Mockito.times(3)).getFilesByPartitions(
+                    Mockito.same(partitions), Mockito.eq(true), Mockito.eq(false),
+                    Mockito.isNull(), Mockito.eq(table));
+            Assert.assertEquals(2L, cache.getFileCacheInvalidationGeneration(0L));
+        } finally {
+            executor.shutdownNow();
+            listExecutor.shutdownNow();
             statementContext.close();
             ConnectContext.remove();
             if (previousContext != null) {

@@ -78,9 +78,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
@@ -119,6 +121,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     public static final String ERR_CACHE_INCONSISTENCY = "ERR_CACHE_INCONSISTENCY: ";
 
     private final ExecutorService fileListingExecutor;
+    private final Map<Long, AtomicLong> fileCacheInvalidationGenerations = new ConcurrentHashMap<>();
 
     private final EntryHandle<SchemaCacheKey, SchemaCacheValue> schemaEntry;
     private final EntryHandle<PartitionValueCacheKey, HivePartitionValues> partitionValuesEntry;
@@ -180,11 +183,24 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     @Override
+    public void invalidateCatalog(long catalogId) {
+        super.invalidateCatalog(catalogId);
+        advanceFileCacheInvalidationGeneration(catalogId);
+    }
+
+    @Override
+    public void invalidateCatalogEntries(long catalogId) {
+        super.invalidateCatalogEntries(catalogId);
+        advanceFileCacheInvalidationGeneration(catalogId);
+    }
+
+    @Override
     public void invalidateDb(long catalogId, String dbName) {
         schemaEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
         partitionValuesEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
         partitionEntry.get(catalogId).invalidateIf(key -> matchDb(key.getNameMapping(), dbName));
         fileEntry.get(catalogId).invalidateAll();
+        advanceFileCacheInvalidationGeneration(catalogId);
     }
 
     @Override
@@ -194,6 +210,19 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         partitionEntry.get(catalogId).invalidateIf(key -> matchTable(key.getNameMapping(), dbName, tableName));
         long tableId = Util.genIdByName(dbName, tableName);
         fileEntry.get(catalogId).invalidateIf(key -> key.isSameTable(tableId));
+        advanceFileCacheInvalidationGeneration(catalogId);
+    }
+
+    public long getFileCacheInvalidationGeneration(long catalogId) {
+        return fileCacheInvalidationGenerations
+                .computeIfAbsent(catalogId, ignored -> new AtomicLong())
+                .get();
+    }
+
+    private void advanceFileCacheInvalidationGeneration(long catalogId) {
+        fileCacheInvalidationGenerations
+                .computeIfAbsent(catalogId, ignored -> new AtomicLong())
+                .incrementAndGet();
     }
 
     @Override
@@ -578,6 +607,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         if (fileEntry != null) {
             long tableId = Util.genIdByName(nameMapping.getLocalDbName(), nameMapping.getLocalTblName());
             fileEntry.invalidateIf(k -> k.isSameTable(tableId));
+            advanceFileCacheInvalidationGeneration(catalogId);
         }
     }
 
@@ -645,12 +675,14 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 // location, forcing needless re-listing. The exact-key path below (taken when the partition
                 // is cached) already clears a listing regardless of which table id populated it.
                 fileEntry.invalidateIf(k -> k.isSameTable(tableId) && Objects.equals(k.getPartitionValues(), values));
+                advanceFileCacheInvalidationGeneration(catalogId);
                 partitionEntry.invalidateKey(partKey);
                 return;
             }
 
             fileEntry.invalidateKey(new FileCacheKey(nameMapping.getCtlId(), tableId, partition.getPath(),
                     null, partition.getPartitionValues()));
+            advanceFileCacheInvalidationGeneration(catalogId);
             partitionEntry.invalidateKey(partKey);
         }
 

@@ -333,7 +333,8 @@ public class HiveScanNode extends FileQueryScanNode {
                         directoryLister, hmsTable);
             } else {
                 HiveFileScanTaskCacheKey cacheKey = new HiveFileScanTaskCacheKey(
-                        hmsTable.getCatalog().getId(), hmsTable.getId(), partitions);
+                        hmsTable.getCatalog().getId(), hmsTable.getId(), partitions,
+                        cache.getFileCacheInvalidationGeneration(hmsTable.getCatalog().getId()));
                 try {
                     fileCaches = getOrLoadExternalScanTasks(cacheKey,
                             ignored -> cache.getFilesByPartitions(partitions, true, partitions.size() > 1,
@@ -515,13 +516,16 @@ public class HiveScanNode extends FileQueryScanNode {
         private final long catalogId;
         private final long tableId;
         private final List<HivePartitionCacheKey> partitions;
+        private final long fileCacheInvalidationGeneration;
 
-        private HiveFileScanTaskCacheKey(long catalogId, long tableId, List<HivePartition> partitions) {
+        private HiveFileScanTaskCacheKey(long catalogId, long tableId, List<HivePartition> partitions,
+                long fileCacheInvalidationGeneration) {
             this.catalogId = catalogId;
             this.tableId = tableId;
             this.partitions = partitions.stream()
                     .map(HivePartitionCacheKey::new)
                     .collect(Collectors.toList());
+            this.fileCacheInvalidationGeneration = fileCacheInvalidationGeneration;
         }
 
         @Override
@@ -535,12 +539,13 @@ public class HiveScanNode extends FileQueryScanNode {
             HiveFileScanTaskCacheKey that = (HiveFileScanTaskCacheKey) object;
             return catalogId == that.catalogId
                     && tableId == that.tableId
+                    && fileCacheInvalidationGeneration == that.fileCacheInvalidationGeneration
                     && partitions.equals(that.partitions);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(catalogId, tableId, partitions);
+            return Objects.hash(catalogId, tableId, partitions, fileCacheInvalidationGeneration);
         }
     }
 
