@@ -36,10 +36,10 @@ namespace doris {
 /// turn owns one IPaimonWriteBackend + IPaimonWriter. Pipeline parallelism
 /// determines the number of concurrent Paimon writer sessions per table.
 ///
-/// The upstream sink Exchange may reproduce Paimon's stateless HASH_FIXED
-/// selector to establish unique writer ownership. The writer still passes
-/// complete Blocks to the SDK, which independently computes partition and
-/// bucket values for file writing; no routing column is appended to the row.
+/// The upstream sink Exchange may reproduce Paimon's HASH_FIXED selector or
+/// HASH_DYNAMIC assigner-input route to establish unique writer ownership. The
+/// writer still passes complete Blocks to the SDK, which computes authoritative
+/// partition and bucket values for file writing; no routing column is appended.
 ///
 /// This mirrors Iceberg's approach: IcebergTableSinkOperatorX delegates to
 /// AsyncWriterSink<VIcebergTableWriter>, with partition routing inside

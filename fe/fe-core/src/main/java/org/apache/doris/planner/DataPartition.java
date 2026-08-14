@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TIcebergPartitionField;
 import org.apache.doris.thrift.TMergePartitionInfo;
 import org.apache.doris.thrift.TPaimonFixedBucketInfo;
+import org.apache.doris.thrift.TPaimonHashDynamicInfo;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Joiner;
@@ -60,6 +61,7 @@ public class DataPartition {
     private TExternalTableSinkWriterAssignment externalWriterAssignment;
     private ImmutableList<String> externalPartitionTransforms = ImmutableList.of();
     private TPaimonFixedBucketInfo paimonFixedBucketInfo;
+    private TPaimonHashDynamicInfo paimonHashDynamicInfo;
 
     public DataPartition(TPartitionType type, List<Expr> exprs) {
         Preconditions.checkNotNull(exprs);
@@ -76,7 +78,8 @@ public class DataPartition {
             TExternalTableSinkHashAlgorithm hashAlgorithm,
             TExternalTableSinkWriterAssignment writerAssignment,
             List<String> partitionTransforms,
-            TPaimonFixedBucketInfo paimonFixedBucketInfo) {
+            TPaimonFixedBucketInfo paimonFixedBucketInfo,
+            TPaimonHashDynamicInfo paimonHashDynamicInfo) {
         this(type, exprs);
         Preconditions.checkState(type == TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED);
         this.externalHashAlgorithm = Preconditions.checkNotNull(hashAlgorithm);
@@ -85,15 +88,23 @@ public class DataPartition {
         if (hashAlgorithm == TExternalTableSinkHashAlgorithm.ICEBERG_TRANSFORM) {
             Preconditions.checkState(partitionTransforms.size() == exprs.size());
             Preconditions.checkState(paimonFixedBucketInfo == null);
+            Preconditions.checkState(paimonHashDynamicInfo == null);
         } else if (hashAlgorithm == TExternalTableSinkHashAlgorithm.PAIMON_FIXED_BUCKET) {
             Preconditions.checkState(partitionTransforms.isEmpty());
             Preconditions.checkNotNull(paimonFixedBucketInfo);
+            Preconditions.checkState(paimonHashDynamicInfo == null);
+        } else if (hashAlgorithm == TExternalTableSinkHashAlgorithm.PAIMON_HASH_DYNAMIC) {
+            Preconditions.checkState(partitionTransforms.isEmpty());
+            Preconditions.checkState(paimonFixedBucketInfo == null);
+            Preconditions.checkNotNull(paimonHashDynamicInfo);
         } else {
             Preconditions.checkState(partitionTransforms.isEmpty());
             Preconditions.checkState(paimonFixedBucketInfo == null);
+            Preconditions.checkState(paimonHashDynamicInfo == null);
         }
         this.externalPartitionTransforms = ImmutableList.copyOf(partitionTransforms);
         this.paimonFixedBucketInfo = paimonFixedBucketInfo;
+        this.paimonHashDynamicInfo = paimonHashDynamicInfo;
     }
 
     public DataPartition(TPartitionType type) {
@@ -148,6 +159,9 @@ public class DataPartition {
             }
             if (paimonFixedBucketInfo != null) {
                 info.setPaimonFixedBucketInfo(paimonFixedBucketInfo);
+            }
+            if (paimonHashDynamicInfo != null) {
+                info.setPaimonHashDynamicInfo(paimonHashDynamicInfo);
             }
             result.setExternalTableSinkHashPartitionInfo(info);
         }

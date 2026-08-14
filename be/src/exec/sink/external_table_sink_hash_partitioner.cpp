@@ -23,6 +23,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/sink/paimon_fixed_bucket_partition_function.h"
+#include "exec/sink/paimon_hash_dynamic_partition_function.h"
 #include "format/transformer/iceberg_partition_function.h"
 
 namespace doris {
@@ -74,6 +75,10 @@ Status ExternalTableSinkHashPartitioner::init(const std::vector<TExpr>& texprs) 
         if (!_partition_info.__isset.paimon_fixed_bucket_info) {
             return Status::InvalidArgument("Paimon fixed-bucket routing metadata is missing");
         }
+        if (_partition_info.__isset.paimon_hash_dynamic_info) {
+            return Status::InvalidArgument(
+                    "Paimon fixed-bucket routing must not contain dynamic metadata");
+        }
         if (_partition_info.__isset.partition_transforms &&
             !_partition_info.partition_transforms.empty()) {
             return Status::InvalidArgument(
@@ -83,8 +88,27 @@ Status ExternalTableSinkHashPartitioner::init(const std::vector<TExpr>& texprs) 
                 _logical_partition_count, _partition_info.paimon_fixed_bucket_info);
         return _partition_function->init(texprs);
     }
+    if (_partition_info.algorithm == TExternalTableSinkHashAlgorithm::PAIMON_HASH_DYNAMIC) {
+        if (_partition_info.writer_assignment != TExternalTableSinkWriterAssignment::IDENTITY) {
+            return Status::InvalidArgument(
+                    "Paimon HASH_DYNAMIC routing requires identity writer assignment");
+        }
+        if (!_partition_info.__isset.paimon_hash_dynamic_info) {
+            return Status::InvalidArgument("Paimon HASH_DYNAMIC routing metadata is missing");
+        }
+        if (_partition_info.__isset.paimon_fixed_bucket_info ||
+            (_partition_info.__isset.partition_transforms &&
+             !_partition_info.partition_transforms.empty())) {
+            return Status::InvalidArgument(
+                    "Paimon HASH_DYNAMIC routing contains incompatible metadata");
+        }
+        _partition_function = std::make_unique<PaimonHashDynamicPartitionFunction>(
+                _logical_partition_count, _partition_info.paimon_hash_dynamic_info);
+        return _partition_function->init(texprs);
+    }
     if (_partition_info.algorithm == TExternalTableSinkHashAlgorithm::ICEBERG_TRANSFORM) {
-        if (_partition_info.__isset.paimon_fixed_bucket_info) {
+        if (_partition_info.__isset.paimon_fixed_bucket_info ||
+            _partition_info.__isset.paimon_hash_dynamic_info) {
             return Status::InvalidArgument(
                     "Iceberg external sink routing must not contain Paimon metadata");
         }
@@ -119,7 +143,8 @@ Status ExternalTableSinkHashPartitioner::init(const std::vector<TExpr>& texprs) 
         return Status::InvalidArgument(
                 "Direct external sink hash must not contain partition transforms");
     }
-    if (_partition_info.__isset.paimon_fixed_bucket_info) {
+    if (_partition_info.__isset.paimon_fixed_bucket_info ||
+        _partition_info.__isset.paimon_hash_dynamic_info) {
         return Status::InvalidArgument(
                 "Direct external sink hash must not contain Paimon metadata");
     }

@@ -24,30 +24,44 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-// Stateless native implementation of Paimon FixedBucketWriteSelector for the
-// explicitly supported primitive routing types.
-class PaimonFixedBucketPartitionFunction final : public PartitionFunction {
+// Shared lifecycle and BinaryRow hashing for native Paimon routing functions.
+class PaimonRowHashPartitionFunction : public PartitionFunction {
 public:
-    PaimonFixedBucketPartitionFunction(HashValType partition_count,
-                                       TPaimonFixedBucketInfo fixed_bucket_info);
+    explicit PaimonRowHashPartitionFunction(HashValType partition_count);
 
     Status init(const std::vector<TExpr>& texprs) override;
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override { return Status::OK(); }
-    Status get_partitions(RuntimeState* state, Block* block, size_t partition_count,
-                          std::vector<HashValType>& partitions) const override;
     HashValType partition_count() const override { return _partition_count; }
-    Status clone(RuntimeState* state, std::unique_ptr<PartitionFunction>& function) const override;
 
-private:
+protected:
     Status _validate_field_indexes(const std::vector<int32_t>& indexes,
                                    bool require_non_empty) const;
+    Status _evaluate_fields(Block* block, std::vector<ColumnWithTypeAndName>& fields) const;
+    Status _hash_fields(const std::vector<int32_t>& indexes,
+                        const std::vector<ColumnWithTypeAndName>& fields,
+                        std::vector<int32_t>& hashes) const;
     Status _clone_expr_ctxs(RuntimeState* state, VExprContextSPtrs& destination) const;
 
     const HashValType _partition_count;
-    TPaimonFixedBucketInfo _fixed_bucket_info;
     VExprContextSPtrs _field_expr_ctxs;
+};
+
+// Stateless native implementation of Paimon FixedBucketWriteSelector for the
+// explicitly supported primitive routing types.
+class PaimonFixedBucketPartitionFunction final : public PaimonRowHashPartitionFunction {
+public:
+    PaimonFixedBucketPartitionFunction(HashValType partition_count,
+                                       TPaimonFixedBucketInfo fixed_bucket_info);
+
+    Status init(const std::vector<TExpr>& texprs) override;
+    Status get_partitions(RuntimeState* state, Block* block, size_t partition_count,
+                          std::vector<HashValType>& partitions) const override;
+    Status clone(RuntimeState* state, std::unique_ptr<PartitionFunction>& function) const override;
+
+private:
+    TPaimonFixedBucketInfo _fixed_bucket_info;
 };
 
 #include "common/compile_check_end.h"

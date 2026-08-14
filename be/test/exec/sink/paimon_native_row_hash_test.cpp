@@ -64,4 +64,16 @@ TEST(PaimonNativeRowHashTest, MatchesDefaultBucketAndChannelComputer) {
     ASSERT_FALSE(fixed_bucket_channel(1, 0, 0).has_value());
 }
 
+TEST(PaimonNativeRowHashTest, MatchesDynamicBucketAssigner) {
+    // BucketAssigner.computeAssigner uses abs(partitionHash % channels) as the
+    // partition start and abs(keyHash % assigners) as the assigner offset.
+    EXPECT_EQ(dynamic_bucket_assigner_channel(-1670924195, 1465514398, 8, 3), 4);
+    EXPECT_EQ(dynamic_bucket_assigner_channel(-7, -7, 8, 3), 0);
+    EXPECT_EQ(dynamic_bucket_assigner_channel(std::numeric_limits<int32_t>::min(),
+                                              std::numeric_limits<int32_t>::min(), 8, 3),
+              2);
+    EXPECT_FALSE(dynamic_bucket_assigner_channel(1, 1, 0, 1).has_value());
+    EXPECT_FALSE(dynamic_bucket_assigner_channel(1, 1, 2, 3).has_value());
+}
+
 } // namespace doris::paimon_native

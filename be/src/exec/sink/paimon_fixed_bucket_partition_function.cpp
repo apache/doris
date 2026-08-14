@@ -151,20 +151,14 @@ Status encode_fields(paimon_native::BinaryRowEncoder* encoder,
 
 } // namespace
 
-PaimonFixedBucketPartitionFunction::PaimonFixedBucketPartitionFunction(
-        HashValType partition_count, TPaimonFixedBucketInfo fixed_bucket_info)
-        : _partition_count(partition_count), _fixed_bucket_info(std::move(fixed_bucket_info)) {}
+PaimonRowHashPartitionFunction::PaimonRowHashPartitionFunction(HashValType partition_count)
+        : _partition_count(partition_count) {}
 
-Status PaimonFixedBucketPartitionFunction::init(const std::vector<TExpr>& texprs) {
+Status PaimonRowHashPartitionFunction::init(const std::vector<TExpr>& texprs) {
     if (_partition_count == 0) {
-        return Status::InvalidArgument("Paimon fixed-bucket writer count must be positive");
-    }
-    if (_fixed_bucket_info.num_buckets <= 0) {
-        return Status::InvalidArgument("Paimon fixed-bucket count must be positive");
+        return Status::InvalidArgument("Paimon writer count must be positive");
     }
     RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, _field_expr_ctxs));
-    RETURN_IF_ERROR(_validate_field_indexes(_fixed_bucket_info.partition_field_indexes, false));
-    RETURN_IF_ERROR(_validate_field_indexes(_fixed_bucket_info.bucket_field_indexes, true));
     for (const auto& context : _field_expr_ctxs) {
         PrimitiveType type = remove_nullable(context->root()->data_type())->get_primitive_type();
         if (!is_supported_type(type)) {
@@ -175,10 +169,10 @@ Status PaimonFixedBucketPartitionFunction::init(const std::vector<TExpr>& texprs
     return Status::OK();
 }
 
-Status PaimonFixedBucketPartitionFunction::_validate_field_indexes(
-        const std::vector<int32_t>& indexes, bool require_non_empty) const {
+Status PaimonRowHashPartitionFunction::_validate_field_indexes(const std::vector<int32_t>& indexes,
+                                                               bool require_non_empty) const {
     if (require_non_empty && indexes.empty()) {
-        return Status::InvalidArgument("Paimon fixed-bucket fields are missing");
+        return Status::InvalidArgument("Paimon routing fields are missing");
     }
     for (int32_t index : indexes) {
         if (index < 0 || index >= _field_expr_ctxs.size()) {
@@ -188,13 +182,56 @@ Status PaimonFixedBucketPartitionFunction::_validate_field_indexes(
     return Status::OK();
 }
 
-Status PaimonFixedBucketPartitionFunction::prepare(RuntimeState* state,
-                                                   const RowDescriptor& row_desc) {
+Status PaimonRowHashPartitionFunction::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
     return VExpr::prepare(_field_expr_ctxs, state, row_desc);
 }
 
-Status PaimonFixedBucketPartitionFunction::open(RuntimeState* state) {
+Status PaimonRowHashPartitionFunction::open(RuntimeState* state) {
     return VExpr::open(_field_expr_ctxs, state);
+}
+
+Status PaimonRowHashPartitionFunction::_evaluate_fields(
+        Block* block, std::vector<ColumnWithTypeAndName>& fields) const {
+    fields.resize(_field_expr_ctxs.size());
+    for (size_t index = 0; index < _field_expr_ctxs.size(); ++index) {
+        RETURN_IF_ERROR(_field_expr_ctxs[index]->execute(block, fields[index]));
+    }
+    return Status::OK();
+}
+
+Status PaimonRowHashPartitionFunction::_hash_fields(
+        const std::vector<int32_t>& indexes, const std::vector<ColumnWithTypeAndName>& fields,
+        std::vector<int32_t>& hashes) const {
+    paimon_native::BinaryRowEncoder encoder(indexes.size());
+    hashes.resize(fields.empty() ? 0 : fields.front().column->size());
+    for (size_t row = 0; row < hashes.size(); ++row) {
+        RETURN_IF_ERROR(encode_fields(&encoder, indexes, fields, row));
+        hashes[row] = encoder.hash();
+    }
+    return Status::OK();
+}
+
+Status PaimonRowHashPartitionFunction::_clone_expr_ctxs(RuntimeState* state,
+                                                        VExprContextSPtrs& destination) const {
+    destination.resize(_field_expr_ctxs.size());
+    for (size_t index = 0; index < _field_expr_ctxs.size(); ++index) {
+        RETURN_IF_ERROR(_field_expr_ctxs[index]->clone(state, destination[index]));
+    }
+    return Status::OK();
+}
+
+PaimonFixedBucketPartitionFunction::PaimonFixedBucketPartitionFunction(
+        HashValType partition_count, TPaimonFixedBucketInfo fixed_bucket_info)
+        : PaimonRowHashPartitionFunction(partition_count),
+          _fixed_bucket_info(std::move(fixed_bucket_info)) {}
+
+Status PaimonFixedBucketPartitionFunction::init(const std::vector<TExpr>& texprs) {
+    RETURN_IF_ERROR(PaimonRowHashPartitionFunction::init(texprs));
+    if (_fixed_bucket_info.num_buckets <= 0) {
+        return Status::InvalidArgument("Paimon fixed-bucket count must be positive");
+    }
+    RETURN_IF_ERROR(_validate_field_indexes(_fixed_bucket_info.partition_field_indexes, false));
+    return _validate_field_indexes(_fixed_bucket_info.bucket_field_indexes, true);
 }
 
 Status PaimonFixedBucketPartitionFunction::get_partitions(
@@ -210,40 +247,26 @@ Status PaimonFixedBucketPartitionFunction::get_partitions(
         return Status::OK();
     }
 
-    std::vector<ColumnWithTypeAndName> fields(_field_expr_ctxs.size());
-    for (size_t index = 0; index < _field_expr_ctxs.size(); ++index) {
-        RETURN_IF_ERROR(_field_expr_ctxs[index]->execute(block, fields[index]));
-    }
-
-    paimon_native::BinaryRowEncoder partition_encoder(
-            _fixed_bucket_info.partition_field_indexes.size());
-    paimon_native::BinaryRowEncoder bucket_encoder(_fixed_bucket_info.bucket_field_indexes.size());
+    std::vector<ColumnWithTypeAndName> fields;
+    RETURN_IF_ERROR(_evaluate_fields(block, fields));
+    std::vector<int32_t> partition_hashes;
+    std::vector<int32_t> bucket_hashes;
+    RETURN_IF_ERROR(
+            _hash_fields(_fixed_bucket_info.partition_field_indexes, fields, partition_hashes));
+    RETURN_IF_ERROR(_hash_fields(_fixed_bucket_info.bucket_field_indexes, fields, bucket_hashes));
     partitions.resize(rows);
     for (size_t row = 0; row < rows; ++row) {
-        RETURN_IF_ERROR(encode_fields(&partition_encoder,
-                                      _fixed_bucket_info.partition_field_indexes, fields, row));
-        RETURN_IF_ERROR(encode_fields(&bucket_encoder, _fixed_bucket_info.bucket_field_indexes,
-                                      fields, row));
-        auto bucket = paimon_native::default_bucket(bucket_encoder.hash(),
-                                                    _fixed_bucket_info.num_buckets);
+        auto bucket =
+                paimon_native::default_bucket(bucket_hashes[row], _fixed_bucket_info.num_buckets);
         if (!bucket.has_value()) {
             return Status::InternalError("Failed to compute Paimon fixed bucket");
         }
-        auto channel = paimon_native::fixed_bucket_channel(partition_encoder.hash(), *bucket,
+        auto channel = paimon_native::fixed_bucket_channel(partition_hashes[row], *bucket,
                                                            _partition_count);
         if (!channel.has_value()) {
             return Status::InternalError("Failed to compute Paimon fixed-bucket writer");
         }
         partitions[row] = *channel;
-    }
-    return Status::OK();
-}
-
-Status PaimonFixedBucketPartitionFunction::_clone_expr_ctxs(RuntimeState* state,
-                                                            VExprContextSPtrs& destination) const {
-    destination.resize(_field_expr_ctxs.size());
-    for (size_t index = 0; index < _field_expr_ctxs.size(); ++index) {
-        RETURN_IF_ERROR(_field_expr_ctxs[index]->clone(state, destination[index]));
     }
     return Status::OK();
 }

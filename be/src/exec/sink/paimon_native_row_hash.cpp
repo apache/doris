@@ -250,4 +250,21 @@ std::optional<uint32_t> fixed_bucket_channel(int32_t partition_hash, uint32_t bu
     return static_cast<uint32_t>((static_cast<uint64_t>(start_channel) + bucket) % num_channels);
 }
 
+std::optional<uint32_t> dynamic_bucket_assigner_channel(int32_t partition_hash,
+                                                        int32_t primary_key_hash,
+                                                        uint32_t num_channels,
+                                                        uint32_t num_assigners) {
+    if (num_channels == 0 || num_assigners == 0 || num_assigners > num_channels ||
+        num_channels > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()) ||
+        num_assigners > static_cast<uint32_t>(std::numeric_limits<int32_t>::max())) {
+        return std::nullopt;
+    }
+    int32_t partition_remainder = partition_hash % static_cast<int32_t>(num_channels);
+    int32_t key_remainder = primary_key_hash % static_cast<int32_t>(num_assigners);
+    uint32_t start = static_cast<uint32_t>(partition_remainder < 0 ? -partition_remainder
+                                                                   : partition_remainder);
+    uint32_t id = static_cast<uint32_t>(key_remainder < 0 ? -key_remainder : key_remainder);
+    return (start + id) % num_channels;
+}
+
 } // namespace doris::paimon_native

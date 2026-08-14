@@ -86,7 +86,8 @@ public abstract class DistributionSpecExternalTableSinkHashPartitioned extends D
     public enum HashAlgorithm {
         DIRECT_HASH,
         ICEBERG_TRANSFORM,
-        PAIMON_FIXED_BUCKET
+        PAIMON_FIXED_BUCKET,
+        PAIMON_HASH_DYNAMIC
     }
 
     /** Maps logical sink partitions to Doris exchange writers. */

@@ -92,6 +92,7 @@ import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.DistributionSpecOlapTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecPaimonHashDynamic;
 import org.apache.doris.nereids.properties.DistributionSpecPaimonTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
@@ -250,6 +251,7 @@ import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
 import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TFetchOption;
 import org.apache.doris.thrift.TPaimonFixedBucketInfo;
+import org.apache.doris.thrift.TPaimonHashDynamicInfo;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
@@ -420,6 +422,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 || targetDistribution instanceof DistributionSpecStorageGather) {
             // gather to one instance
             exchangeNode.setNumInstances(1);
+        } else if (targetDistribution instanceof DistributionSpecPaimonHashDynamic) {
+            // The configured assigner parallelism is also the bucket-ownership modulus. Keeping
+            // the writer count equal to it makes the fused assigner/writer route unambiguous.
+            exchangeNode.setNumInstances(
+                    ((DistributionSpecPaimonHashDynamic) targetDistribution).getNumAssigners());
         } else if (targetDistribution instanceof DistributionSpecAllSingleton) {
             // instances number = BE number now. assign one by one later.
             //ATTN: this number MAY BE CHANGED when we do distributing because when we finished physical planning,
@@ -3368,6 +3375,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 case PAIMON_FIXED_BUCKET:
                     algorithm = TExternalTableSinkHashAlgorithm.PAIMON_FIXED_BUCKET;
                     break;
+                case PAIMON_HASH_DYNAMIC:
+                    algorithm = TExternalTableSinkHashAlgorithm.PAIMON_HASH_DYNAMIC;
+                    break;
                 default:
                     throw new RuntimeException("Unsupported external table sink hash algorithm: "
                             + externalSpec.getHashAlgorithm());
@@ -3385,6 +3395,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                             + externalSpec.getWriterAssignment());
             }
             TPaimonFixedBucketInfo paimonFixedBucketInfo = null;
+            TPaimonHashDynamicInfo paimonHashDynamicInfo = null;
             if (externalSpec instanceof DistributionSpecPaimonTableSinkHashPartitioned) {
                 DistributionSpecPaimonTableSinkHashPartitioned paimonSpec
                         = (DistributionSpecPaimonTableSinkHashPartitioned) externalSpec;
@@ -3393,10 +3404,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 paimonFixedBucketInfo.setPartitionFieldIndexes(
                         paimonSpec.getPartitionFieldIndexes());
                 paimonFixedBucketInfo.setBucketFieldIndexes(paimonSpec.getBucketFieldIndexes());
+            } else if (externalSpec instanceof DistributionSpecPaimonHashDynamic) {
+                DistributionSpecPaimonHashDynamic paimonSpec
+                        = (DistributionSpecPaimonHashDynamic) externalSpec;
+                paimonHashDynamicInfo = new TPaimonHashDynamicInfo();
+                paimonHashDynamicInfo.setPartitionFieldIndexes(
+                        paimonSpec.getPartitionFieldIndexes());
+                paimonHashDynamicInfo.setPrimaryKeyFieldIndexes(
+                        paimonSpec.getPrimaryKeyFieldIndexes());
             }
             return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED,
                     partitionExprs, algorithm, writerAssignment,
-                    externalSpec.getPartitionTransforms(), paimonFixedBucketInfo);
+                    externalSpec.getPartitionTransforms(), paimonFixedBucketInfo,
+                    paimonHashDynamicInfo);
         } else if (distributionSpec instanceof DistributionSpecExternalTableSinkUnPartitioned) {
             return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_UNPARTITIONED);
         } else if (distributionSpec instanceof DistributionSpecMerge) {

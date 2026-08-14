@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.nereids.properties.DistributionSpecPaimonHashDynamic;
 import org.apache.doris.nereids.properties.DistributionSpecPaimonTableSinkHashPartitioned;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -64,6 +65,9 @@ class PhysicalPaimonTableSinkTest {
                         Collections.emptyMap())));
         Assertions.assertTrue(PhysicalPaimonTableSink.requiresSingleWriter(
                 table(BucketMode.KEY_DYNAMIC, Collections.singletonList("id"),
+                        Collections.emptyMap())));
+        Assertions.assertFalse(PhysicalPaimonTableSink.requiresSingleWriter(
+                table(BucketMode.BUCKET_UNAWARE, Collections.emptyList(),
                         Collections.emptyMap())));
     }
 
@@ -113,6 +117,65 @@ class PhysicalPaimonTableSinkTest {
                 Collections.singletonMap(CoreOptions.BUCKET_FUNCTION_TYPE.key(), "mod"));
         Assertions.assertNull(PhysicalPaimonTableSink.buildFixedBucketDistributionSpec(
                 customBucket,
+                Collections.singletonList(new Column("id", PrimitiveType.INT)),
+                Collections.singletonList(new SlotReference("id", IntegerType.INSTANCE))));
+    }
+
+    @Test
+    void testSupportedHashDynamicBuildsAssignerDistribution() {
+        Map<String, String> options = new HashMap<>();
+        options.put(CoreOptions.BUCKET.key(), "-1");
+        options.put(CoreOptions.DYNAMIC_BUCKET_ASSIGNER_PARALLELISM.key(), "2");
+        TableSchema schema = new TableSchema(
+                0L,
+                ImmutableList.of(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "part", new VarCharType())),
+                0,
+                Collections.singletonList("part"),
+                ImmutableList.of("part", "id"),
+                options,
+                null);
+        FileStoreTable table = Mockito.mock(FileStoreTable.class);
+        Mockito.when(table.bucketMode()).thenReturn(BucketMode.HASH_DYNAMIC);
+        Mockito.when(table.schema()).thenReturn(schema);
+
+        Slot id = new SlotReference("id", IntegerType.INSTANCE);
+        Slot part = new SlotReference("part", StringType.INSTANCE);
+        DistributionSpecPaimonHashDynamic spec
+                = PhysicalPaimonTableSink.buildHashDynamicDistributionSpec(
+                        table,
+                        ImmutableList.of(
+                                new Column("id", PrimitiveType.INT),
+                                new Column("part", PrimitiveType.STRING)),
+                        ImmutableList.of(id, part));
+
+        Assertions.assertNotNull(spec);
+        Assertions.assertEquals(ImmutableList.of(part.getExprId(), id.getExprId()),
+                spec.getOutputColumnExprIds());
+        Assertions.assertEquals(Collections.singletonList(0), spec.getPartitionFieldIndexes());
+        Assertions.assertEquals(Collections.singletonList(1), spec.getPrimaryKeyFieldIndexes());
+        Assertions.assertEquals(2, spec.getNumAssigners());
+    }
+
+    @Test
+    void testHashDynamicWithoutStableAssignerFallsBack() {
+        Map<String, String> options = new HashMap<>();
+        options.put(CoreOptions.BUCKET.key(), "-1");
+        TableSchema schema = new TableSchema(
+                0L,
+                Collections.singletonList(new DataField(0, "id", new IntType())),
+                0,
+                Collections.emptyList(),
+                Collections.singletonList("id"),
+                options,
+                null);
+        FileStoreTable table = Mockito.mock(FileStoreTable.class);
+        Mockito.when(table.bucketMode()).thenReturn(BucketMode.HASH_DYNAMIC);
+        Mockito.when(table.schema()).thenReturn(schema);
+
+        Assertions.assertNull(PhysicalPaimonTableSink.buildHashDynamicDistributionSpec(
+                table,
                 Collections.singletonList(new Column("id", PrimitiveType.INT)),
                 Collections.singletonList(new SlotReference("id", IntegerType.INSTANCE))));
     }
