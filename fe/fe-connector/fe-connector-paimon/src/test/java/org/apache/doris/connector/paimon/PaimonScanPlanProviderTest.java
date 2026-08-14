@@ -98,6 +98,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Tests for {@link PaimonScanPlanProvider#resolveTable}, pinning the transient-Table reload
@@ -1468,13 +1469,18 @@ public class PaimonScanPlanProviderTest {
                 "precondition: nativeBinaryEncode really is the paimon::Split::Deserialize format");
     }
 
-    /** A non-DataSplit Split (the only abstract method is rowCount(); Split is Serializable). */
+    /** A non-DataSplit Split used to verify the Java serialization route. */
     private static final class NonDataSplitStub implements Split {
         private static final long serialVersionUID = 1L;
 
         @Override
         public long rowCount() {
             return 0;
+        }
+
+        @Override
+        public OptionalLong mergedRowCount() {
+            return OptionalLong.empty();
         }
     }
 
@@ -1497,13 +1503,13 @@ public class PaimonScanPlanProviderTest {
         // (post-merge / post-deletion-vector) row count, so a COUNT(*) over it can be served from
         // metadata instead of materializing rows.
         DataSplit dataSplit = buildRealDataSplit(warehouse);
-        Assertions.assertTrue(dataSplit.mergedRowCountAvailable(),
+        Assertions.assertTrue(dataSplit.mergedRowCount().isPresent(),
                 "precondition: a freshly written PK split has a precomputed merged row count");
-        Assertions.assertEquals(2L, dataSplit.mergedRowCount(), "two rows were written");
+        Assertions.assertEquals(2L, dataSplit.mergedRowCount().getAsLong(), "two rows were written");
 
         // WHY: the count branch must fire ONLY when BOTH the agg is COUNT (countPushdown) AND the SDK
         // precomputed the post-merge count — mirrors legacy `applyCountPushdown &&
-        // dataSplit.mergedRowCountAvailable()`. MUTATION: dropping `countPushdown &&` (or hard-coding
+        // dataSplit.mergedRowCount().isPresent()`. MUTATION: dropping `countPushdown &&` (or hard-coding
         // the helper to false) -> one of these two assertions flips -> red.
         Assertions.assertTrue(PaimonScanPlanProvider.isCountPushdownSplit(true, dataSplit),
                 "a count query over a split with a precomputed merged count must push the count down");

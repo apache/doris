@@ -41,6 +41,8 @@ import org.apache.paimon.table.source.TableRead;
 import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.utils.ChainTableUtils;
+import org.apache.paimon.utils.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -703,14 +705,14 @@ public class PaimonJniScanner extends JniScanner {
             FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
             FileStoreTable main = applyManifestParallelismBound(
                     pair.wrapped(), safeBound, materializeAbsent);
-            FileStoreTable fallback = applyManifestParallelismBound(
-                    pair.fallback(), safeBound, materializeAbsent);
-            if (main == pair.wrapped() && fallback == pair.fallback()) {
+            FileStoreTable other = applyManifestParallelismBound(
+                    pair.other(), safeBound, materializeAbsent);
+            if (main == pair.wrapped() && other == pair.other()) {
                 return table;
             }
             // Each branch owns an independent planner setting; a smaller sibling is not an
             // execution ceiling and must never throttle the other branch.
-            return new FallbackReadFileStoreTable(main, fallback);
+            return new FallbackReadFileStoreTable(main, other, isWrappedFirst(pair));
         }
 
         if (table instanceof DelegatedFileStoreTable) {
@@ -773,6 +775,20 @@ public class PaimonJniScanner extends JniScanner {
                 (Table) table, safeBound, materializeAbsent);
     }
 
+    static boolean isWrappedFirst(FallbackReadFileStoreTable table) {
+        Map<String, String> options = table.options();
+        // Match FileStoreTableFactory's construction order. Paimon does not expose wrappedFirst.
+        if (ChainTableUtils.isChainTable(options)) {
+            return true;
+        }
+        if (!StringUtils.isNullOrWhitespaceOnly(
+                options.get(CoreOptions.SCAN_FALLBACK_BRANCH.key()))) {
+            return true;
+        }
+        return StringUtils.isNullOrWhitespaceOnly(
+                options.get(CoreOptions.SCAN_PRIMARY_BRANCH.key()));
+    }
+
     private static FileStoreTable unwrapSystemPlanningSource(FileStoreTable table) {
         FileStoreTable current = table;
         // System wrappers dispatch fallback reads only when the fallback pair is their direct
@@ -801,7 +817,7 @@ public class PaimonJniScanner extends JniScanner {
         validateSerializedAsyncThreshold(table.options().get(CoreOptions.FILE_READER_ASYNC_THRESHOLD.key()));
         validateSerializedSplitTargetSize(table.options().get(CoreOptions.SOURCE_SPLIT_TARGET_SIZE.key()));
         if (table instanceof FallbackReadFileStoreTable) {
-            validateSerializedReaderOptions(((FallbackReadFileStoreTable) table).fallback());
+            validateSerializedReaderOptions(((FallbackReadFileStoreTable) table).other());
         }
         if (table instanceof DelegatedFileStoreTable) {
             validateSerializedReaderOptions(((DelegatedFileStoreTable) table).wrapped());

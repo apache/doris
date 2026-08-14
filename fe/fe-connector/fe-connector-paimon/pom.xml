@@ -112,6 +112,22 @@ under the License.
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-core</artifactId>
             <version>${paimon.version}</version>
+            <exclusions>
+                <!-- Paimon 2.0's paimon-api jar already embeds these relocated classes. Keeping
+                     the standalone shade artifacts adds 4,086 duplicate classes to the plugin. -->
+                <exclusion>
+                    <groupId>org.apache.paimon</groupId>
+                    <artifactId>paimon-shade-caffeine-2</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.paimon</groupId>
+                    <artifactId>paimon-shade-guava-30</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.paimon</groupId>
+                    <artifactId>paimon-shade-jackson-2</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- FIX-C (build 968994, Class C): the paimon-hive metastore-client closure
