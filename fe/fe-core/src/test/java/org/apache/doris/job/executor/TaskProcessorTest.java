@@ -68,6 +68,33 @@ public class TaskProcessorTest {
         }
     }
 
+    @Test
+    public void testReleaseEveryMTMVExecutionContext() throws Exception {
+        AtomicInteger loadCount = new AtomicInteger();
+        ExternalScanTaskCacheKey<String> cacheKey = new TestExternalScanTaskCacheKey();
+        MTMVTask task = new MTMVTask();
+        try {
+            for (int i = 0; i < 2; i++) {
+                ConnectContext connectContext = new ConnectContext();
+                connectContext.setThreadLocalInfo();
+                StatementContext statementContext = new StatementContext();
+                connectContext.setStatementContext(statementContext);
+                statementContext.getExternalScanTaskCache().getOrLoad(
+                        cacheKey,
+                        () -> Collections.singletonList("task-" + loadCount.incrementAndGet()));
+
+                Deencapsulation.invoke(task, "closeExecutionContext", connectContext);
+                Assert.assertNull(ConnectContext.get());
+                statementContext.getExternalScanTaskCache().getOrLoad(
+                        cacheKey,
+                        () -> Collections.singletonList("reloaded-" + loadCount.incrementAndGet()));
+            }
+            Assert.assertEquals(4, loadCount.get());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
     private void assertReleaseExternalScanTasks(boolean insertTask) throws Exception {
         AtomicInteger loadCount = new AtomicInteger();
         AtomicReference<StatementContext> statementContext = new AtomicReference<>();
