@@ -79,7 +79,7 @@ void radix_sort_u32(std::vector<uint32_t>* values, std::vector<uint32_t>* scratc
 // disk. Damage there is reported, never asserted (design 8) -- and it is caught
 // BEFORE a length is handed to a read, so a corrupt one cannot drive a
 // multi-gigabyte allocation on the way to failing.
-Status corrupted(std::string_view what) {
+Status bkd_reader_corrupted(std::string_view what) {
     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bkd_reader: {}", what);
 }
 
@@ -87,7 +87,7 @@ Status check_extent(uint64_t offset, uint64_t length, uint64_t file_size, std::s
     // Written as "length first, then offset against what is left" so neither
     // comparison can overflow the way offset + length would.
     if (length > file_size || offset > file_size - length) {
-        return corrupted(name);
+        return bkd_reader_corrupted(name);
     }
     return Status::OK();
 }

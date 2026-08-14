@@ -30,20 +30,20 @@
 namespace doris::snii::format {
 namespace {
 
-Status corrupted(std::string_view message) {
+Status metadata_directory_corrupted(std::string_view message) {
     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
 }
 
-Status unsupported(std::string_view message) {
+Status metadata_directory_unsupported(std::string_view message) {
     return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(message);
 }
 
 Status decode_blob_ref(const doris::snii::SniiBlobRefPB& input, MetadataBlobRef* out) {
     if (!input.has_offset() || !input.has_length()) {
-        return corrupted("metadata directory: missing blob reference field");
+        return metadata_directory_corrupted("metadata directory: missing blob reference field");
     }
     if (input.length() == 0) {
-        return corrupted("metadata directory: empty mandatory blob reference");
+        return metadata_directory_corrupted("metadata directory: empty mandatory blob reference");
     }
     *out = {.offset = input.offset(), .length = input.length()};
     return Status::OK();
@@ -53,13 +53,13 @@ Status decode_blob_ref(const doris::snii::SniiBlobRefPB& input, MetadataBlobRef*
 // LEGAL here: an empty BKD segment stores 0-byte `bkd` / `bkd_index` files.
 Status decode_named_blob(const doris::snii::SniiNamedBlobPB& input, NamedBlobFileRef* out) {
     if (!input.has_name() || !input.has_offset() || !input.has_length() || !input.has_crc32c()) {
-        return corrupted("metadata directory: missing named blob field");
+        return metadata_directory_corrupted("metadata directory: missing named blob field");
     }
     if (input.name().empty()) {
-        return corrupted("metadata directory: empty blob file name");
+        return metadata_directory_corrupted("metadata directory: empty blob file name");
     }
     if (input.length() > std::numeric_limits<uint64_t>::max() - input.offset()) {
-        return corrupted("metadata directory: blob file range overflows");
+        return metadata_directory_corrupted("metadata directory: blob file range overflows");
     }
     out->name = input.name();
     out->offset = input.offset();
@@ -73,10 +73,11 @@ Status decode_inverted_entry(const doris::snii::SniiLogicalIndexMetadataPB& inde
                              LogicalIndexMetadataRef* entry) {
     if (!index.has_core_metadata() || !index.has_sampled_term_index() ||
         !index.has_dict_block_directory()) {
-        return corrupted("metadata directory: missing required logical field");
+        return metadata_directory_corrupted("metadata directory: missing required logical field");
     }
     if (index.files_size() != 0) {
-        return corrupted("metadata directory: inverted entry carries blob files");
+        return metadata_directory_corrupted(
+                "metadata directory: inverted entry carries blob files");
     }
     entry->kind = LogicalIndexKind::kInverted;
     RETURN_IF_ERROR(decode_blob_ref(index.core_metadata(), &entry->core_metadata));
@@ -90,10 +91,11 @@ Status decode_blob_entry(const doris::snii::SniiLogicalIndexMetadataPB& index, u
                          LogicalIndexMetadataRef* entry) {
     if (index.has_core_metadata() || index.has_sampled_term_index() ||
         index.has_dict_block_directory()) {
-        return corrupted("metadata directory: blob entry carries inverted metadata");
+        return metadata_directory_corrupted(
+                "metadata directory: blob entry carries inverted metadata");
     }
     if (index.files_size() == 0) {
-        return corrupted("metadata directory: blob entry has no files");
+        return metadata_directory_corrupted("metadata directory: blob entry has no files");
     }
     entry->kind = static_cast<LogicalIndexKind>(kind_value);
     entry->files.reserve(index.files_size());
@@ -102,7 +104,7 @@ Status decode_blob_entry(const doris::snii::SniiLogicalIndexMetadataPB& index, u
         RETURN_IF_ERROR(decode_named_blob(file, &decoded));
         for (const auto& existing : entry->files) {
             if (existing.name == decoded.name) {
-                return corrupted("metadata directory: duplicate blob file name");
+                return metadata_directory_corrupted("metadata directory: duplicate blob file name");
             }
         }
         entry->files.push_back(std::move(decoded));
@@ -122,7 +124,8 @@ Status decode_directory_pb(const doris::snii::SniiMetadataDirectoryPB& input,
             feature_blob = true;
             continue;
         }
-        return unsupported("metadata directory: required feature is not supported");
+        return metadata_directory_unsupported(
+                "metadata directory: required feature is not supported");
     }
 
     bool has_blob_entry = false;
@@ -130,7 +133,8 @@ Status decode_directory_pb(const doris::snii::SniiMetadataDirectoryPB& input,
     entries.reserve(input.indexes_size());
     for (const auto& index : input.indexes()) {
         if (!index.has_index_id() || !index.has_index_suffix()) {
-            return corrupted("metadata directory: missing required logical field");
+            return metadata_directory_corrupted(
+                    "metadata directory: missing required logical field");
         }
 
         LogicalIndexMetadataRef entry;
@@ -151,14 +155,15 @@ Status decode_directory_pb(const doris::snii::SniiMetadataDirectoryPB& input,
             break;
         default:
             // Row 5: a kind this binary does not know how to open.
-            return unsupported("metadata directory: unknown logical index kind");
+            return metadata_directory_unsupported("metadata directory: unknown logical index kind");
         }
 
         // Row 6: keys are unique across kinds.
         for (const auto& existing : entries) {
             if (existing.index_id == entry.index_id &&
                 existing.index_suffix == entry.index_suffix) {
-                return corrupted("metadata directory: duplicate logical index key");
+                return metadata_directory_corrupted(
+                        "metadata directory: duplicate logical index key");
             }
         }
         entries.push_back(std::move(entry));
@@ -169,7 +174,8 @@ Status decode_directory_pb(const doris::snii::SniiMetadataDirectoryPB& input,
     // instead of Unsupported; a flag without blob entries would make every
     // pre-blob binary reject a file it could actually read.
     if (has_blob_entry != feature_blob) {
-        return corrupted("metadata directory: blob feature flag disagrees with entries");
+        return metadata_directory_corrupted(
+                "metadata directory: blob feature flag disagrees with entries");
     }
     *out = std::move(entries);
     return Status::OK();
@@ -188,12 +194,12 @@ Status MetadataDirectory::decode(Slice bytes, MetadataDirectory* out) {
     }
     out->entries_.clear();
     if (bytes.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        return corrupted("metadata directory: protobuf payload exceeds INT_MAX");
+        return metadata_directory_corrupted("metadata directory: protobuf payload exceeds INT_MAX");
     }
 
     doris::snii::SniiMetadataDirectoryPB directory;
     if (!directory.ParseFromArray(bytes.data(), static_cast<int>(bytes.size()))) {
-        return corrupted("metadata directory: protobuf parsing failed");
+        return metadata_directory_corrupted("metadata directory: protobuf parsing failed");
     }
 
     std::vector<LogicalIndexMetadataRef> entries;
@@ -229,7 +235,8 @@ Status encode_metadata_directory(const std::vector<LogicalIndexMetadataRef>& ent
             // semantics would serialize even set_kind(0) and change the bytes
             // of every pure-text directory (golden digests included).
             if (!entry.files.empty()) {
-                return corrupted("metadata directory: inverted entry carries blob files");
+                return metadata_directory_corrupted(
+                        "metadata directory: inverted entry carries blob files");
             }
             encode_blob_ref(entry.core_metadata, index->mutable_core_metadata());
             encode_blob_ref(entry.sampled_term_index, index->mutable_sampled_term_index());
@@ -241,7 +248,8 @@ Status encode_metadata_directory(const std::vector<LogicalIndexMetadataRef>& ent
             if (entry.core_metadata.offset != 0 || entry.core_metadata.length != 0 ||
                 entry.sampled_term_index.offset != 0 || entry.sampled_term_index.length != 0 ||
                 entry.dict_block_directory.offset != 0 || entry.dict_block_directory.length != 0) {
-                return corrupted("metadata directory: blob entry carries inverted metadata");
+                return metadata_directory_corrupted(
+                        "metadata directory: blob entry carries inverted metadata");
             }
             any_blob = true;
             index->set_kind(static_cast<uint32_t>(entry.kind));
@@ -262,11 +270,11 @@ Status encode_metadata_directory(const std::vector<LogicalIndexMetadataRef>& ent
     RETURN_IF_ERROR(decode_directory_pb(directory, &validated));
     const size_t size = directory.ByteSizeLong();
     if (size > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        return corrupted("metadata directory: protobuf payload exceeds INT_MAX");
+        return metadata_directory_corrupted("metadata directory: protobuf payload exceeds INT_MAX");
     }
     std::string payload(size, '\0');
     if (!directory.SerializeToArray(payload.data(), static_cast<int>(size))) {
-        return corrupted("metadata directory: protobuf serialization failed");
+        return metadata_directory_corrupted("metadata directory: protobuf serialization failed");
     }
     out->put_bytes(Slice(payload));
     return Status::OK();

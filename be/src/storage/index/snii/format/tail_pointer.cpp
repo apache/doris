@@ -36,7 +36,7 @@ constexpr size_t kSizeByteBytes = 1;
 constexpr size_t kFixedSize =
         kMagicBytes + kVersionBytes + 2 * kU64Bytes + kU32Bytes + kSizeByteBytes + kU32Bytes;
 // tail_checksum is the trailing u32 and covers every byte before it.
-constexpr size_t kChecksumCoverage = kFixedSize - kU32Bytes;
+constexpr size_t kTailPointerChecksumCoverage = kFixedSize - kU32Bytes;
 
 // Serializes the checksum-covered region in fixed field order into covered.
 void serialize_covered(const TailPointer& tp, ByteSink* covered) {
@@ -60,7 +60,7 @@ Status encode_tail_pointer(const TailPointer& tp, ByteSink* sink) {
     }
     ByteSink covered;
     serialize_covered(tp, &covered);
-    DORIS_CHECK_EQ(covered.size(), kChecksumCoverage);
+    DORIS_CHECK_EQ(covered.size(), kTailPointerChecksumCoverage);
     const uint32_t tail_checksum = crc32c(covered.view());
     sink->put_bytes(covered.view());
     sink->put_fixed32(tail_checksum);
@@ -77,9 +77,9 @@ Status decode_tail_pointer(Slice last_bytes, TailPointer* out) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "tail_pointer: input is not the fixed size");
     }
-    const Slice covered = last_bytes.subslice(0, kChecksumCoverage);
-    DORIS_CHECK_EQ(covered.size(), kChecksumCoverage);
-    ByteSource checksum_source(last_bytes.subslice(kChecksumCoverage, kU32Bytes));
+    const Slice covered = last_bytes.subslice(0, kTailPointerChecksumCoverage);
+    DORIS_CHECK_EQ(covered.size(), kTailPointerChecksumCoverage);
+    ByteSource checksum_source(last_bytes.subslice(kTailPointerChecksumCoverage, kU32Bytes));
     uint32_t tail_checksum = 0;
     RETURN_IF_ERROR(checksum_source.get_fixed32(&tail_checksum));
     DORIS_CHECK(checksum_source.eof());

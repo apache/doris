@@ -37,7 +37,7 @@ namespace doris::snii::writer {
 
 namespace {
 
-constexpr int kRawFrqRegion = 0;
+constexpr int kEmitterRawFrqRegion = 0;
 constexpr uint32_t kPreludeGroupSize = 64;
 
 struct PostingWindowPlan {
@@ -48,8 +48,8 @@ struct PostingWindowPlan {
     uint32_t max_freq = 0;
 };
 
-bool fits_prx_window_shape(uint64_t doc_count, uint64_t position_count,
-                           const format::PrxWindowLimits& limits) {
+bool emitter_fits_prx_window_shape(uint64_t doc_count, uint64_t position_count,
+                                   const format::PrxWindowLimits& limits) {
     return doc_count <= limits.max_docs && position_count <= limits.max_positions;
 }
 
@@ -57,7 +57,7 @@ bool fits_prx_window_shape(uint64_t doc_count, uint64_t position_count,
 // payload. This gate is used only after an exact build requests a split.
 bool conservatively_fits_prx_window(uint64_t doc_count, uint64_t position_count,
                                     const format::PrxWindowLimits& limits) {
-    return fits_prx_window_shape(doc_count, position_count, limits) &&
+    return emitter_fits_prx_window_shape(doc_count, position_count, limits) &&
            1 + doc_count + position_count <= limits.max_uncomp_bytes / 5;
 }
 
@@ -278,8 +278,8 @@ private:
             const uint64_t candidate_docs = doc - window_begin + 1;
             const uint64_t candidate_positions = position_count(run, window_begin, candidate_docs);
             if (doc != window_begin && options_.has_prx &&
-                !fits_prx_window_shape(candidate_docs, candidate_positions,
-                                       options_.prx_window_limits)) {
+                !emitter_fits_prx_window_shape(candidate_docs, candidate_positions,
+                                               options_.prx_window_limits)) {
                 RETURN_IF_ERROR(emit_planned(
                         run, make_plan(run, window_begin, doc - window_begin, window_max_freq)));
                 window_begin = doc;
@@ -392,8 +392,8 @@ private:
         ByteSink dd_sink;
         format::FrqRegionMeta dd_meta;
         window.dd_off = dd_stager_.size();
-        RETURN_IF_ERROR(
-                format::build_dd_region(docs, window_base_, kRawFrqRegion, &dd_sink, &dd_meta));
+        RETURN_IF_ERROR(format::build_dd_region(docs, window_base_, kEmitterRawFrqRegion, &dd_sink,
+                                                &dd_meta));
         window.dd_zstd = dd_meta.zstd;
         window.dd_disk_len = dd_meta.disk_len;
         window.dd_uncomp_len = dd_meta.uncomp_len;
@@ -405,7 +405,7 @@ private:
             format::FrqRegionMeta freq_meta;
             window.freq_off = freq_stager_.size();
             RETURN_IF_ERROR(
-                    format::build_freq_region(freqs, kRawFrqRegion, &freq_sink, &freq_meta));
+                    format::build_freq_region(freqs, kEmitterRawFrqRegion, &freq_sink, &freq_meta));
             window.freq_zstd = freq_meta.zstd;
             window.freq_disk_len = freq_meta.disk_len;
             window.freq_uncomp_len = freq_meta.uncomp_len;

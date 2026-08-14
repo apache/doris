@@ -83,9 +83,9 @@ uint64_t elapsed_ns(PrxClock::time_point start) {
 
 // Auto-compression threshold: use raw when payload is smaller than this (zstd
 // gain is negligible and metadata overhead is relatively large).
-inline constexpr size_t kAutoZstdMinBytes = 512;
+inline constexpr size_t kPrxPodAutoZstdMinBytes = 512;
 // Default zstd level in auto mode.
-inline constexpr int kDefaultZstdLevel = 3;
+inline constexpr int kPrxPodDefaultZstdLevel = 3;
 // Anti-DoS cap on position count decoded from a single window before
 // allocation.
 inline constexpr uint32_t kMaxWindowPositions =
@@ -93,7 +93,7 @@ inline constexpr uint32_t kMaxWindowPositions =
 // Anti-DoS cap on doc count decoded from a single window before allocation. A
 // corrupt doc_count is otherwise fed straight to assign()/reserve() ->
 // bad_alloc.
-inline constexpr uint32_t kMaxWindowDocs = kReaderPrxWindowLimits.max_docs; // 16M docs/window
+inline constexpr uint32_t kPrxPodMaxWindowDocs = kReaderPrxWindowLimits.max_docs; // 16M docs/window
 
 // Writer-side precondition for the FLAT builders: the per-doc partition `freqs`
 // must address exactly the positions present in `flat`. If sum(freqs) overruns
@@ -204,7 +204,7 @@ Status encode_payload_flat(std::span<const uint32_t> flat, std::span<const uint3
 // Encode a uint32 array into PFOR runs of kFrqBaseUnit (256) elements each. The
 // run count is derived by the decoder from the total length, so it is not
 // stored.
-void encode_pfor_runs(std::span<const uint32_t> values, ByteSink* out) {
+void prx_pod_encode_pfor_runs(std::span<const uint32_t> values, ByteSink* out) {
     const size_t n = values.size();
     for (size_t off = 0; off < n; off += kFrqBaseUnit) {
         const size_t run = (n - off < kFrqBaseUnit) ? (n - off) : kFrqBaseUnit;
@@ -213,7 +213,7 @@ void encode_pfor_runs(std::span<const uint32_t> values, ByteSink* out) {
 }
 
 // Decode n uint32 values (multiple PFOR runs of kFrqBaseUnit each) into out.
-Status decode_pfor_runs(ByteSource* src, size_t n, std::vector<uint32_t>* out) {
+Status prx_pod_decode_pfor_runs(ByteSource* src, size_t n, std::vector<uint32_t>* out) {
     out->resize(n);
     for (size_t off = 0; off < n; off += kFrqBaseUnit) {
         const size_t run = (n - off < kFrqBaseUnit) ? (n - off) : kFrqBaseUnit;
@@ -283,8 +283,8 @@ void encode_pfor_payload_from_deltas(std::span<const uint32_t> freqs,
                                      std::span<const uint32_t> deltas, ByteSink* out) {
     out->put_varint32(static_cast<uint32_t>(freqs.size()));
     out->put_varint32(static_cast<uint32_t>(deltas.size()));
-    encode_pfor_runs(freqs, out);
-    encode_pfor_runs(deltas, out);
+    prx_pod_encode_pfor_runs(freqs, out);
+    prx_pod_encode_pfor_runs(deltas, out);
 }
 
 // Raw plaintext payload (self-describing per-doc boundaries):
@@ -316,12 +316,12 @@ Status decode_pfor_payload(Slice plain, std::vector<std::vector<uint32_t>>* out)
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: position count exceeds sane cap");
     }
-    if (doc_count > kMaxWindowDocs) {
+    if (doc_count > kPrxPodMaxWindowDocs) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: doc count exceeds sane cap");
     }
     std::vector<uint32_t> pos_counts;
-    RETURN_IF_ERROR(decode_pfor_runs(&src, doc_count, &pos_counts));
+    RETURN_IF_ERROR(prx_pod_decode_pfor_runs(&src, doc_count, &pos_counts));
     uint64_t sum = 0;
     for (uint32_t d = 0; d < doc_count; ++d) sum += pos_counts[d];
     if (sum != total_pos) {
@@ -329,7 +329,7 @@ Status decode_pfor_payload(Slice plain, std::vector<std::vector<uint32_t>>* out)
                 "prx: pos_count sum mismatch");
     }
     std::vector<uint32_t> deltas;
-    RETURN_IF_ERROR(decode_pfor_runs(&src, total_pos, &deltas));
+    RETURN_IF_ERROR(prx_pod_decode_pfor_runs(&src, total_pos, &deltas));
     out->clear();
     out->reserve(doc_count);
     size_t off = 0;
@@ -535,13 +535,13 @@ Status build_prx_window_auto_from_flat(std::span<const uint32_t> positions_flat,
         *outcome = PrxWindowBuildOutcome::kNeedsSplit;
         return Status::OK();
     }
-    if (plain_readable && (plain_size >= kAutoZstdMinBytes || !pfor_readable)) {
+    if (plain_readable && (plain_size >= kPrxPodAutoZstdMinBytes || !pfor_readable)) {
         ByteSink plain;
         encode_payload_from_deltas(freqs, deltas, &plain);
         DCHECK_EQ(plain.size(), plain_size);
         std::vector<uint8_t> compressed;
-        const bool has_compressed = plain_size >= kAutoZstdMinBytes;
-        if (plain_size >= kAutoZstdMinBytes) {
+        const bool has_compressed = plain_size >= kPrxPodAutoZstdMinBytes;
+        if (plain_size >= kPrxPodAutoZstdMinBytes) {
             testing::note_prx_raw_build();
             RETURN_IF_ERROR(zstd_compress(plain.view(), zstd_level, &compressed));
         }
@@ -570,7 +570,7 @@ Status decode_payload(Slice plain, std::vector<std::vector<uint32_t>>* out) {
     ByteSource src(plain);
     uint32_t doc_count = 0;
     RETURN_IF_ERROR(src.get_varint32(&doc_count));
-    if (doc_count > kMaxWindowDocs) {
+    if (doc_count > kPrxPodMaxWindowDocs) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: doc count exceeds sane cap");
     }
@@ -616,7 +616,7 @@ Status decode_pfor_payload_csr(Slice plain, std::vector<uint32_t>* pos_flat,
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: position count exceeds sane cap");
     }
-    if (doc_count > kMaxWindowDocs) {
+    if (doc_count > kPrxPodMaxWindowDocs) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: doc count exceeds sane cap");
     }
@@ -626,7 +626,7 @@ Status decode_pfor_payload_csr(Slice plain, std::vector<uint32_t>* pos_flat,
     }
     pos_off->clear();
     pos_off->reserve(static_cast<size_t>(doc_count) + 1);
-    RETURN_IF_ERROR(decode_pfor_runs(&src, doc_count, pos_off));
+    RETURN_IF_ERROR(prx_pod_decode_pfor_runs(&src, doc_count, pos_off));
     uint64_t sum = 0;
     uint32_t decoded_max_frequency = 0;
     bool decoded_zero_frequency = false;
@@ -638,9 +638,9 @@ Status decode_pfor_payload_csr(Slice plain, std::vector<uint32_t>* pos_flat,
     if (sum != total_pos)
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: pos_count sum mismatch");
-    // decode_pfor_runs sizes pos_flat to total_pos, so a separate reserve is redundant. pos_off
+    // prx_pod_decode_pfor_runs sizes pos_flat to total_pos, so a separate reserve is redundant. pos_off
     // keeps its reserve for the push_back loop below.
-    RETURN_IF_ERROR(decode_pfor_runs(&src, total_pos, pos_flat));
+    RETURN_IF_ERROR(prx_pod_decode_pfor_runs(&src, total_pos, pos_flat));
     size_t off = 0;
     uint32_t next_off = 0;
     for (uint32_t d = 0; d < doc_count; ++d) {
@@ -837,7 +837,7 @@ Status decode_pfor_payload_csr_selective(Slice plain, std::span<const uint32_t> 
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: position count exceeds sane cap");
     }
-    if (doc_count > kMaxWindowDocs) {
+    if (doc_count > kPrxPodMaxWindowDocs) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: doc count exceeds sane cap");
     }
@@ -875,7 +875,7 @@ Status decode_pfor_payload_csr_selective(Slice plain, std::span<const uint32_t> 
 Status scan_payload_csr_shape(Slice plain, uint32_t* doc_count, uint32_t* total_positions) {
     ByteSource src(plain);
     RETURN_IF_ERROR(src.get_varint32(doc_count));
-    if (*doc_count > kMaxWindowDocs) {
+    if (*doc_count > kPrxPodMaxWindowDocs) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: doc count exceeds sane cap");
     }
@@ -912,7 +912,7 @@ Status decode_payload_csr(Slice plain, std::vector<uint32_t>* pos_flat,
     ByteSource src(plain);
     uint32_t doc_count = 0;
     RETURN_IF_ERROR(src.get_varint32(&doc_count));
-    if (doc_count > kMaxWindowDocs) {
+    if (doc_count > kPrxPodMaxWindowDocs) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: doc count exceeds sane cap");
     }
@@ -953,7 +953,7 @@ Status decode_payload_csr_selective(Slice plain, std::span<const uint32_t> doc_o
     ByteSource src(plain);
     uint32_t doc_count = 0;
     RETURN_IF_ERROR(src.get_varint32(&doc_count));
-    if (doc_count > kMaxWindowDocs) {
+    if (doc_count > kPrxPodMaxWindowDocs) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "prx: doc count exceeds sane cap");
     }
@@ -1007,10 +1007,10 @@ Status decode_payload_csr_selective(Slice plain, std::span<const uint32_t> doc_o
 }
 
 // Decision: given level and plain length, determine whether to compress.
-bool should_compress(int level, size_t plain_len) {
-    if (level == 0) return false;          // force raw
-    if (level > 0) return true;            // force zstd
-    return plain_len >= kAutoZstdMinBytes; // auto
+bool prx_pod_should_compress(int level, size_t plain_len) {
+    if (level == 0) return false;                // force raw
+    if (level > 0) return true;                  // force zstd
+    return plain_len >= kPrxPodAutoZstdMinBytes; // auto
 }
 
 // Write a raw window: codec=raw, uncomp_len, crc(header+payload), payload.
@@ -1030,7 +1030,7 @@ void write_raw(Slice plain, ByteSink* sink) {
 // payload.
 Status write_zstd(Slice plain, int level, ByteSink* sink) {
     std::vector<uint8_t> comp;
-    RETURN_IF_ERROR(zstd_compress(plain, level > 0 ? level : kDefaultZstdLevel, &comp));
+    RETURN_IF_ERROR(zstd_compress(plain, level > 0 ? level : kPrxPodDefaultZstdLevel, &comp));
     write_zstd_compressed(plain, Slice(comp), sink);
     return Status::OK();
 }
@@ -1191,7 +1191,7 @@ Status build_prx_window(std::span<const std::vector<uint32_t>> per_doc_positions
                     "prx: encoded payload exceeds writer window byte limit");
         }
         Slice plain_view = plain.view();
-        if (!should_compress(zstd_level_or_negative_for_auto, plain_view.size())) {
+        if (!prx_pod_should_compress(zstd_level_or_negative_for_auto, plain_view.size())) {
             write_raw(plain_view, sink);
             return Status::OK();
         }
@@ -1208,7 +1208,7 @@ Status build_prx_window(std::span<const std::vector<uint32_t>> per_doc_positions
         flat.insert(flat.end(), doc.begin(), doc.end());
     }
     // G16-h: level < -1 is auto mode at zstd level |level| (-1 stays the default).
-    const int auto_level = zstd_level_or_negative_for_auto == -1 ? kDefaultZstdLevel
+    const int auto_level = zstd_level_or_negative_for_auto == -1 ? kPrxPodDefaultZstdLevel
                                                                  : -zstd_level_or_negative_for_auto;
     PrxWindowBuildOutcome outcome = PrxWindowBuildOutcome::kBuilt;
     RETURN_IF_ERROR(
@@ -1281,7 +1281,7 @@ Status try_build_prx_window_flat(std::span<const uint32_t> positions_flat,
             return Status::OK();
         }
         Slice plain_view = plain.view();
-        if (!should_compress(zstd_level_or_negative_for_auto, plain_view.size())) {
+        if (!prx_pod_should_compress(zstd_level_or_negative_for_auto, plain_view.size())) {
             write_raw(plain_view, sink);
             *outcome = PrxWindowBuildOutcome::kBuilt;
             return Status::OK();
@@ -1293,7 +1293,7 @@ Status try_build_prx_window_flat(std::span<const uint32_t> positions_flat,
     // Auto mode: shared path with a direct singleton RAW fast path, then PFOR,
     // with raw plaintext materialized only for zstd or a tightened-limit fallback.
     // G16-h: level < -1 is auto mode at zstd level |level| (-1 stays the default).
-    const int auto_level = zstd_level_or_negative_for_auto == -1 ? kDefaultZstdLevel
+    const int auto_level = zstd_level_or_negative_for_auto == -1 ? kPrxPodDefaultZstdLevel
                                                                  : -zstd_level_or_negative_for_auto;
     return build_prx_window_auto_from_flat(positions_flat, freqs, auto_level, limits, sink,
                                            outcome);
@@ -1408,7 +1408,7 @@ uint8_t select_auto_prx_codec_for_test(size_t pfor_payload_size, size_t plain_pa
                                        size_t compressed_payload_size, uint32_t max_uncomp_bytes) {
     const AutoPrxCodecChoice choice =
             select_auto_prx_codec(pfor_payload_size, plain_payload_size, compressed_payload_size,
-                                  plain_payload_size >= kAutoZstdMinBytes, max_uncomp_bytes);
+                                  plain_payload_size >= kPrxPodAutoZstdMinBytes, max_uncomp_bytes);
     DCHECK(choice.readable);
     return static_cast<uint8_t>(choice.codec);
 }

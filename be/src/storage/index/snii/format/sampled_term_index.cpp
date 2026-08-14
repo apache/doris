@@ -27,7 +27,7 @@ namespace doris::snii::format {
 namespace {
 
 // Longest common prefix length of term and prev (front coding primitive, consistent with dict_entry).
-uint32_t common_prefix_len(std::string_view term, std::string_view prev) {
+uint32_t sampled_term_index_common_prefix_len(std::string_view term, std::string_view prev) {
     uint32_t n = 0;
     const uint32_t lim = static_cast<uint32_t>(std::min(term.size(), prev.size()));
     while (n < lim && term[n] == prev[n]) ++n;
@@ -36,7 +36,7 @@ uint32_t common_prefix_len(std::string_view term, std::string_view prev) {
 
 // Write a front-coded term key (prefix_len + suffix_len + suffix).
 void write_term_key(std::string_view term, std::string_view prev, ByteSink* sink) {
-    const uint32_t prefix = common_prefix_len(term, prev);
+    const uint32_t prefix = sampled_term_index_common_prefix_len(term, prev);
     const std::string_view suffix = term.substr(prefix);
     sink->put_varint32(prefix);
     sink->put_varint32(static_cast<uint32_t>(suffix.size()));

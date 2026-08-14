@@ -42,7 +42,7 @@ Status invalid_plan(std::string_view reason) {
     return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("snii_compaction: {}", reason);
 }
 
-Status merge_corruption(std::string_view reason) {
+Status index_compaction_merge_corruption(std::string_view reason) {
     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("snii_compaction: {}",
                                                                           reason);
 }
@@ -207,7 +207,8 @@ Status SniiPlainT2MergePlan::prepare(std::vector<const reader::LogicalIndexReade
         }
         RETURN_IF_ERROR(validate_snii_source_eligibility(*source, source_ordinal, eligibility));
         if (source->stats().doc_count > std::numeric_limits<uint32_t>::max()) {
-            return merge_corruption("source doc count exceeds the SNII uint32 docid domain");
+            return index_compaction_merge_corruption(
+                    "source doc count exceeds the SNII uint32 docid domain");
         }
         if (source->stats().doc_count !=
             rowid_conversion.source_segment_doc_counts()[source_ordinal]) {
@@ -314,7 +315,8 @@ Status SniiPlainT2MergePlan::prepare(std::vector<const reader::LogicalIndexReade
             // doc_count to the validated conversion, and the loop below indexes
             // source_mapping by it. Reconcile loudly (once per source, cold path).
             if (source_norms.doc_count() != source_mapping.size()) {
-                return merge_corruption("norms doc count differs from validated row-id conversion");
+                return index_compaction_merge_corruption(
+                        "norms doc count differs from validated row-id conversion");
             }
             for (uint32_t source_docid = 0; source_docid < source_norms.doc_count();
                  ++source_docid) {
@@ -425,12 +427,13 @@ Status SniiPlainT2MergePlan::take_front_source(TermMergeFrontier* frontier, Curr
 
     const bool source_has_positions = posting_entry_has_positions(entry);
     if (!current->common_gram && !source_has_positions) {
-        return merge_corruption("ordinary term has docs-only posting shape");
+        return index_compaction_merge_corruption("ordinary term has docs-only posting shape");
     }
     if (!current->has_positions.has_value()) {
         current->has_positions = source_has_positions;
     } else if (*current->has_positions != source_has_positions) {
-        return merge_corruption("same term has inconsistent position shape across sources");
+        return index_compaction_merge_corruption(
+                "same term has inconsistent position shape across sources");
     }
 
     auto cursor = std::make_unique<SniiPostingCursor>(read_contexts_[source_ordinal].get(),
@@ -450,7 +453,8 @@ Status SniiPlainT2MergePlan::take_current_term(TermMergeFrontier* frontier, Curr
     if (eligibility_.kind == SniiStreamedMergeKind::kCommonGramsT3) {
         current->common_gram = segment_v2::inverted_index::is_internal_term_key(group_term);
         if (current->common_gram && !is_well_formed_common_gram(group_term)) {
-            return merge_corruption("CommonGrams source contains an unknown internal term marker");
+            return index_compaction_merge_corruption(
+                    "CommonGrams source contains an unknown internal term marker");
         }
         current->counts_as_semantic_token = !current->common_gram;
     }
