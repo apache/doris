@@ -55,7 +55,8 @@ namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
-static const std::string zTestDir = "./data_test/data/load_stream_mgr_test";
+static const std::string zTestDir =
+        "./data_test_" + std::to_string(::getpid()) + "/data/load_stream_mgr_test";
 
 const int64_t NORMAL_TABLET_ID = 10000;
 const int64_t ABNORMAL_TABLET_ID = 40000;
@@ -581,7 +582,8 @@ public:
         srand(time(nullptr));
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
-        config::storage_root_path = std::string(buffer) + "/data_test";
+        config::storage_root_path =
+                std::string(buffer) + "/data_test_" + std::to_string(::getpid());
 
         auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
         ASSERT_TRUE(st.ok()) << st;
