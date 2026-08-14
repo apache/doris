@@ -72,15 +72,49 @@ Status RuntimeState::add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_
             thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
     std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
     // Parallel task states share this budget because FE receives their vectors in one fragment report.
-    if (_external_file_report_state->iceberg_serialized_bytes + serialized_size + sizeof(uint32_t) >
+    if (_external_file_report_state->serialized_commit_bytes + serialized_size + sizeof(uint32_t) >
         commit_data_limit) {
         return Status::InternalError(
                 "Iceberg commit metadata exceeds the Thrift report limit; reduce output file "
                 "count");
     }
     std::lock_guard<std::mutex> data_lock(_iceberg_commit_datas_mutex);
-    _external_file_report_state->iceberg_serialized_bytes += serialized_size + sizeof(uint32_t);
+    _external_file_report_state->serialized_commit_bytes += serialized_size + sizeof(uint32_t);
     _iceberg_commit_datas.emplace_back(std::move(iceberg_commit_data));
+    return Status::OK();
+}
+
+Status RuntimeState::add_paimon_commit_messages(std::vector<TPaimonCommitMessage> commit_messages) {
+    if (commit_messages.empty()) {
+        return Status::OK();
+    }
+
+    ThriftSerializer serializer(false, 256);
+    size_t messages_size = 0;
+    for (auto& message : commit_messages) {
+        uint32_t serialized_size = 0;
+        uint8_t* buffer = nullptr;
+        RETURN_IF_ERROR(serializer.serialize(&message, &serialized_size, &buffer));
+        messages_size += serialized_size + sizeof(uint32_t);
+    }
+
+    constexpr size_t report_envelope_headroom = 1024 * 1024;
+    const size_t thrift_limit = coordinator_thrift_message_limit();
+    const size_t commit_data_limit =
+            thrift_limit > report_envelope_headroom ? thrift_limit - report_envelope_headroom : 0;
+    std::lock_guard<std::mutex> budget_lock(_external_file_report_state->mutex);
+    if (messages_size >
+        commit_data_limit -
+                std::min(commit_data_limit, _external_file_report_state->serialized_commit_bytes)) {
+        return Status::InternalError(
+                "Paimon commit metadata exceeds the Thrift report limit; reduce output file "
+                "count");
+    }
+    std::lock_guard<std::mutex> data_lock(_paimon_commit_messages_mutex);
+    _external_file_report_state->serialized_commit_bytes += messages_size;
+    _paimon_commit_messages.insert(_paimon_commit_messages.end(),
+                                   std::make_move_iterator(commit_messages.begin()),
+                                   std::make_move_iterator(commit_messages.end()));
     return Status::OK();
 }
 
@@ -114,6 +148,10 @@ void RuntimeState::append_external_file_commit_data(TReportExecStatusParams* par
         params->__isset.mc_commit_datas = true;
         params->mc_commit_datas.insert(params->mc_commit_datas.end(), commit_datas.begin(),
                                        commit_datas.end());
+    }
+    append_paimon_commit_messages(&params->paimon_commit_messages);
+    if (!params->paimon_commit_messages.empty()) {
+        params->__isset.paimon_commit_messages = true;
     }
 }
 

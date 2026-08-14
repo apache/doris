@@ -2389,7 +2389,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     @SuppressWarnings("unchecked")
-    private static <T> String encodeObjectToString(T obj) {
+    static <T> String encodeObjectToString(T obj) {
         try {
             byte[] bytes = InstantiationUtil.serializeObject(obj);
             return new String(BASE64_ENCODER.encode(bytes), StandardCharsets.UTF_8);

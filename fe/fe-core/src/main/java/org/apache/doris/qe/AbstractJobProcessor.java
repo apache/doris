@@ -109,7 +109,7 @@ public abstract class AbstractJobProcessor implements JobProcessor {
                 new BackendFragmentId(params.getBackendId(), params.getFragmentId()));
         if (fragmentTask == null) {
             if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
-                    || params.isSetMcCommitDatas()) {
+                    || params.isSetMcCommitDatas() || params.isSetPaimonCommitMessages()) {
                 throw new IllegalStateException("Missing fragment handler for external-file report");
             }
             return false;
@@ -139,7 +139,8 @@ public abstract class AbstractJobProcessor implements JobProcessor {
         }
         doProcessReportExecStatus(params, fragmentTask);
         return !params.isSetHivePartitionUpdates() && !params.isSetIcebergCommitDatas()
-                && !params.isSetMcCommitDatas() || fragmentTask.isDone();
+                && !params.isSetMcCommitDatas() && !params.isSetPaimonCommitMessages()
+                || fragmentTask.isDone();
     }
 
     private Map<BackendFragmentId, SingleFragmentPipelineTask> buildBackendFragmentTasks(

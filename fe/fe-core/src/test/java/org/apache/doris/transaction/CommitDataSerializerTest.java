@@ -21,6 +21,7 @@ import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TMCCommitData;
+import org.apache.doris.thrift.TPaimonCommitMessage;
 import org.apache.doris.thrift.TUpdateMode;
 
 import org.apache.thrift.TBase;
@@ -77,6 +78,10 @@ public class CommitDataSerializerTest {
                 .setPartitionValues(Arrays.asList("2026", "06"));
     }
 
+    private static TPaimonCommitMessage paimonData(byte[] payload, long rowCount) {
+        return new TPaimonCommitMessage().setPayload(payload).setRowCount(rowCount);
+    }
+
     private static void assertBinaryRoundTrip(TBase<?, ?> original, TBase<?, ?> target)
             throws Exception {
         byte[] bytes = new TSerializer(new TBinaryProtocol.Factory()).serialize(original);
@@ -94,6 +99,7 @@ public class CommitDataSerializerTest {
         assertBinaryRoundTrip(mcData("session-1", 42L, "bWMtcGF5bG9hZA=="), new TMCCommitData());
         assertBinaryRoundTrip(hiveData("dt=2026-06-06", 7L, "f1", "f2"), new THivePartitionUpdate());
         assertBinaryRoundTrip(icebergData("s3://b/data/0.parquet", 11L), new TIcebergCommitData());
+        assertBinaryRoundTrip(paimonData(new byte[] {1, 2, 3}, 13L), new TPaimonCommitMessage());
     }
 
     /**
@@ -132,6 +138,39 @@ public class CommitDataSerializerTest {
         Assert.assertEquals(input.size(), payloads.size());
         for (int i = 0; i < input.size(); i++) {
             TIcebergCommitData roundTripped = new TIcebergCommitData();
+            new TDeserializer(new TBinaryProtocol.Factory()).deserialize(roundTripped, payloads.get(i));
+            Assert.assertEquals(input.get(i), roundTripped);
+        }
+    }
+
+    @Test
+    public void paimonFeedDeliversEachFragmentLosslessly() throws Exception {
+        List<TPaimonCommitMessage> input = Arrays.asList(
+                paimonData(new byte[] {1, 2, 3}, 11L),
+                paimonData(new byte[] {4, 5, 6}, 13L));
+        List<byte[]> payloads = new ArrayList<>();
+        Transaction collector = new Transaction() {
+            @Override
+            public void commit() {
+                throw new UnsupportedOperationException("commit not expected in this test");
+            }
+
+            @Override
+            public void rollback() {
+                throw new UnsupportedOperationException("rollback not expected in this test");
+            }
+
+            @Override
+            public void addCommitData(byte[] commitFragment) {
+                payloads.add(commitFragment);
+            }
+        };
+
+        CommitDataSerializer.feed(collector, input);
+
+        Assert.assertEquals(input.size(), payloads.size());
+        for (int i = 0; i < input.size(); i++) {
+            TPaimonCommitMessage roundTripped = new TPaimonCommitMessage();
             new TDeserializer(new TBinaryProtocol.Factory()).deserialize(roundTripped, payloads.get(i));
             Assert.assertEquals(input.get(i), roundTripped);
         }

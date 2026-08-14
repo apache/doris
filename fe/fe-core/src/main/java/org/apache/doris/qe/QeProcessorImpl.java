@@ -337,7 +337,8 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     private static boolean hasExternalCommitData(TReportExecStatusParams params) {
-        return params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas();
+        return params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
+                || params.isSetMcCommitDatas() || params.isSetPaimonCommitMessages();
     }
 
     private static String externalFileReportKey(TReportExecStatusParams params) {

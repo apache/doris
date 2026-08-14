@@ -33,6 +33,7 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorValidationContext;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.AuthType;
 import org.apache.doris.kerberos.AuthenticationConfig;
@@ -350,11 +351,18 @@ public class PaimonConnector implements Connector {
                 context, schemaAtMemo);
     }
 
+    @Override
+    public ConnectorWritePlanProvider getWritePlanProvider() {
+        return new PaimonWritePlanProvider(catalogProps,
+                new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(ensureCatalog(), tableOptions),
+                context);
+    }
+
     /**
      * Declares the E5 read-path capabilities paimon supports: MVCC snapshot pinning. The B5 fe-core
      * MvccTable wiring keys off this to call {@link PaimonConnectorMetadata#beginQuerySnapshot} /
      * {@code resolveTimeTravel}.
-     * No write capability is declared: paimon write is not migrated.
+     * Write support is exposed through {@link #getWritePlanProvider()} rather than a capability flag.
      */
     @Override
     public Set<ConnectorCapability> getCapabilities() {

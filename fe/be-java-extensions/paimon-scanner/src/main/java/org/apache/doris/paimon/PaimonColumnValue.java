@@ -24,12 +24,17 @@ import org.apache.paimon.data.DataGetters;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.data.InternalVector;
 import org.apache.paimon.data.Timestamp;
+import org.apache.paimon.data.variant.Variant;
 import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.BlobType;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.VariantType;
+import org.apache.paimon.types.VectorType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,6 +69,8 @@ public class PaimonColumnValue implements ColumnValue {
     private ColumnType dorisType;
     private DataType dataType;
     private ZoneId timeZone;
+    private boolean directBinary;
+    private byte[] directBytes;
     // Keep these caches lazy so scalar columns do not pay for complex-type reuse bookkeeping.
     private List<PaimonColumnValue> arrayValues;
     private List<PaimonColumnValue> mapKeys;
@@ -90,6 +97,8 @@ public class PaimonColumnValue implements ColumnValue {
         this.idx = idx;
         this.dorisType = dorisType;
         this.dataType = dataType;
+        this.directBinary = false;
+        this.directBytes = null;
     }
 
     public void setOffsetRow(InternalRow record) {
@@ -185,6 +194,9 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public boolean isNull() {
+        if (directBinary) {
+            return directBytes == null;
+        }
         boolean isNull = record.isNullAt(idx);
         if (isNull) {
             // A null complex value has no live descendants; release wrappers retained by its prior row.
@@ -195,17 +207,36 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public byte[] getBytes() {
+        if (directBinary) {
+            return directBytes;
+        }
+        if (dataType instanceof BlobType) {
+            return record.getBlob(idx).toData();
+        }
         return record.getBinary(idx);
     }
 
     @Override
     public void unpackArray(List<ColumnValue> values) {
-        InternalArray recordArray = record.getArray(idx);
+        InternalArray recordArray;
+        DataType elementPaimonType;
+        if (dataType instanceof VectorType) {
+            VectorType vectorType = (VectorType) dataType;
+            InternalVector vector = record.getVector(idx);
+            if (vector.size() != vectorType.getLength()) {
+                throw new IllegalArgumentException("Paimon VECTOR length " + vector.size()
+                        + " does not match declared length " + vectorType.getLength());
+            }
+            recordArray = vector;
+            elementPaimonType = vectorType.getElementType();
+        } else {
+            recordArray = record.getArray(idx);
+            elementPaimonType = ((ArrayType) dataType).getElementType();
+        }
         if (arrayValues == null) {
             arrayValues = new ArrayList<>();
         }
         ColumnType elementDorisType = dorisType.getChildTypes().get(0);
-        DataType elementPaimonType = ((ArrayType) dataType).getElementType();
         for (int i = 0; i < recordArray.size(); i++) {
             values.add(reuseColumnValue(arrayValues, i, (DataGetters) recordArray, i,
                     elementDorisType, elementPaimonType));
@@ -240,6 +271,10 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public void unpackStruct(List<Integer> structFieldIndex, List<ColumnValue> values) {
+        if (dataType instanceof VariantType) {
+            unpackVariant(structFieldIndex, values);
+            return;
+        }
         RowType rowType = (RowType) dataType;
         // Projection entries are original child indexes, so the binary row must keep the full RowType arity.
         InternalRow row = record.getRow(idx, rowType.getFieldCount());
@@ -249,6 +284,22 @@ public class PaimonColumnValue implements ColumnValue {
         for (int i : structFieldIndex) {
             values.add(reuseColumnValue(structValues, i, row, i, dorisType.getChildTypes().get(i),
                     rowType.getFields().get(i).type()));
+        }
+    }
+
+    private void unpackVariant(List<Integer> structFieldIndex, List<ColumnValue> values) {
+        Variant variant = record.getVariant(idx);
+        if (structValues == null) {
+            structValues = new ArrayList<>();
+        }
+        for (int fieldIndex : structFieldIndex) {
+            if (fieldIndex < 0 || fieldIndex > 1) {
+                throw new IllegalArgumentException(
+                        "Paimon VARIANT transport only has value and metadata fields");
+            }
+            byte[] bytes = fieldIndex == 0 ? variant.value() : variant.metadata();
+            values.add(reuseBinaryColumnValue(
+                    structValues, fieldIndex, bytes, dorisType.getChildTypes().get(fieldIndex)));
         }
     }
 
@@ -270,6 +321,20 @@ public class PaimonColumnValue implements ColumnValue {
         return value;
     }
 
+    private PaimonColumnValue reuseBinaryColumnValue(
+            List<PaimonColumnValue> cache, int cacheIndex, byte[] bytes, ColumnType childDorisType) {
+        while (cache.size() <= cacheIndex) {
+            cache.add(null);
+        }
+        PaimonColumnValue value = cache.get(cacheIndex);
+        if (value == null) {
+            value = new PaimonColumnValue();
+            cache.set(cacheIndex, value);
+        }
+        value.resetBinary(bytes, childDorisType);
+        return value;
+    }
+
     private void reset(
             DataGetters record, int idx, ColumnType dorisType, DataType dataType, ZoneId timeZone) {
         this.record = record;
@@ -277,6 +342,18 @@ public class PaimonColumnValue implements ColumnValue {
         this.dorisType = dorisType;
         this.dataType = dataType;
         this.timeZone = timeZone;
+        this.directBinary = false;
+        this.directBytes = null;
+    }
+
+    private void resetBinary(byte[] bytes, ColumnType dorisType) {
+        this.record = null;
+        this.idx = 0;
+        this.dorisType = dorisType;
+        this.dataType = null;
+        this.directBinary = true;
+        this.directBytes = bytes;
+        clearChildCaches();
     }
 
     private static ZoneId resolveTimeZone(String timeZone) {
