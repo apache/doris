@@ -41,25 +41,30 @@ HdfsFileHandle::~HdfsFileHandle() {
 }
 
 Status HdfsFileHandle::init(int64_t file_size) {
-    _hdfs_file = hdfsOpenFile(_fs, _fname.c_str(), O_RDONLY, 0, 0, 0);
-    if (_hdfs_file == nullptr) {
-        std::string _err_msg = hdfs_error();
-        // invoker maybe just skip Status.NotFound and continue
-        // so we need distinguish between it and other kinds of errors
-        if (_err_msg.find("No such file or directory") != std::string::npos) {
-            return Status::NotFound(_err_msg);
-        }
-        return Status::InternalError("failed to open {}: {}", _fname, _err_msg);
-    }
-
     _file_size = file_size;
     if (_file_size <= 0) {
+        // file_size unknown, fetch via hdfsGetPathInfo (no need to hdfsOpenFile)
         hdfsFileInfo* file_info = hdfsGetPathInfo(_fs, _fname.c_str());
         if (file_info == nullptr) {
             return Status::InternalError("failed to get file size of {}: {}", _fname, hdfs_error());
         }
         _file_size = file_info->mSize;
         hdfsFreeFileInfo(file_info, 1);
+    }
+    return Status::OK();
+}
+
+Status HdfsFileHandle::ensure_open() {
+    std::call_once(_open_once, [this]() {
+        VLOG_DEBUG << "lazy open hdfs file: " << _fname;
+        _hdfs_file = hdfsOpenFile(_fs, _fname.c_str(), O_RDONLY, 0, 0, 0);
+    });
+    if (_hdfs_file == nullptr) {
+        std::string _err_msg = hdfs_error();
+        if (_err_msg.find("No such file or directory") != std::string::npos) {
+            return Status::NotFound(_err_msg);
+        }
+        return Status::InternalError("failed to open {}: {}", _fname, _err_msg);
     }
     return Status::OK();
 }
@@ -98,8 +103,14 @@ void FileHandleCache::Accessor::destroy() {
 
 FileHandleCache::Accessor::~Accessor() {
     if (_cache_accessor.get()) {
+        auto* handle = get();
+        if (handle->file() == nullptr) {
+            // Not opened (lazy open), no resources to release
+            release();
+            return;
+        }
 #ifdef USE_HADOOP_HDFS
-        if (hdfsUnbufferFile(get()->file()) != 0) {
+        if (hdfsUnbufferFile(handle->file()) != 0) {
             VLOG_FILE << "FS does not support file handle unbuffering, closing file="
                       << _cache_accessor.get_key()->second.first;
             destroy();

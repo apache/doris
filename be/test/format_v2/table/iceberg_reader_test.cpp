@@ -1209,6 +1209,8 @@ TIcebergDeleteFileDesc make_iceberg_equality_delete_file(
     delete_file.__set_path(path);
     delete_file.__set_field_ids(field_ids);
     delete_file.__set_file_format(file_format);
+    // Set file_size to actual file size, simulating FE propagation from iceberg manifest
+    delete_file.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(path)));
     return delete_file;
 }
 
@@ -5015,6 +5017,126 @@ TEST(IcebergV2ReaderTest, DataFileIsMarkedImmutableForPageCache) {
     ASSERT_TRUE(reader.init_for_scan_request_test(std::move(projected_columns)).ok());
 
     EXPECT_TRUE(reader.current_data_file_is_immutable());
+}
+
+// E2E: Verify file_size from FE thrift propagates through the full reader chain.
+// Data file: 3 rows (id=1,2,3). Equality delete: delete id=2.
+// With file_size set on TIcebergDeleteFileDesc, the reader should use it
+// instead of falling back to stat, and return correct results (id=1,3).
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizePropagatedToReader) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_eq_delete_file_size_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 2);
+
+    const auto delete_file_size = static_cast<int64_t>(std::filesystem::file_size(delete_file_path));
+    ASSERT_GT(delete_file_size, 0) << "delete file should not be empty";
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            file_path, {make_iceberg_equality_delete_file(delete_file_path, {0})}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 2);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+    EXPECT_EQ(id_column.get_element(0), 1);
+    EXPECT_EQ(id_column.get_element(1), 3);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+// E2E: Verify that when file_size is not set (thrift optional defaults to 0),
+// build_iceberg_delete_file_range converts 0 to -1, and FileFactory falls back
+// to stat. The reader should still return correct results.
+TEST(IcebergV2ReaderTest, IcebergEqualityDeleteFileSizeUnknownFallsBackToStat) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_eq_delete_no_file_size_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto delete_file_path = (test_dir / "equality-delete.parquet").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+    write_iceberg_equality_delete_parquet_file(delete_file_path, 0, 2);
+
+    // Construct delete file WITHOUT file_size (simulating FE not setting it)
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(2);
+    delete_file.__set_path(delete_file_path);
+    delete_file.__set_field_ids({0});
+    delete_file.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+    // file_size intentionally not set — thrift defaults to 0
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    doris::format::iceberg::IcebergTableReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(file_path, {delete_file}));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(block.rows(), 2);
+    const auto& id_column = assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+    EXPECT_EQ(id_column.get_element(0), 1);
+    EXPECT_EQ(id_column.get_element(1), 3);
+
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
 }
 
 } // namespace

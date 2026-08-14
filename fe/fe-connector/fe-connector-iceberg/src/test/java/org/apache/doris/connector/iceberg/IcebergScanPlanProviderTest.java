@@ -4197,4 +4197,43 @@ public class IcebergScanPlanProviderTest {
             throw new UnsupportedOperationException();
         }
     }
+
+    @Test
+    public void deleteFileSizePropagatedFromIcebergManifest() {
+        // E2E: iceberg DeleteFile.fileSizeInBytes (482) → IcebergScanPlanProvider →
+        // IcebergScanRange.DeleteFile.fileSize → toThrift → TIcebergDeleteFileDesc.file_size
+        Table table = createTable("t_filesize", SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap("format-version", "2"));
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t_filesize/f1.parquet", 512, null, null))
+                .commit();
+        // Position delete with fileSizeInBytes=128 (rewritableDeleteDescs includes position deletes)
+        DeleteFile posDelete = FileMetadata.deleteFileBuilder(table.spec())
+                .ofPositionDeletes()
+                .withPath("s3://b/db/t_filesize/pos-delete.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(128L)
+                .withRecordCount(1L)
+                .build();
+        table.newRowDelta().addDeletes(posDelete).commit();
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(
+                new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t_filesize"), Collections.emptyList())
+                        .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        IcebergScanRange range = (IcebergScanRange) ranges.get(0);
+
+        // Use rewritableDeleteDescs() (returns TIcebergDeleteFileDesc via toThrift)
+        // to verify file_size propagated from iceberg manifest → DeleteFile → toThrift.
+        // Note: equality deletes are excluded from rewritableDeleteDescs, so use position delete instead.
+        List<TIcebergDeleteFileDesc> descs = range.rewritableDeleteDescs();
+        Assertions.assertFalse(descs.isEmpty());
+        TIcebergDeleteFileDesc desc = descs.get(0);
+        Assertions.assertTrue(desc.isSetFileSize());
+        Assertions.assertEquals(128L, desc.getFileSize());
+    }
 }
