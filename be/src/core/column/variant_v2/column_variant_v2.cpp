@@ -1039,16 +1039,8 @@ size_t ColumnVariantV2::EncodedRowsAppender::metadata_comparisons_for_test() con
 }
 #endif
 
-void ColumnVariantV2::EncodedRowsAppender::append(std::span<const VariantRef> rows) {
-    _append(rows, true);
-}
-
-void ColumnVariantV2::EncodedRowsAppender::append_prevalidated(std::span<const VariantRef> rows) {
-    _append(rows, false);
-}
-
-void ColumnVariantV2::EncodedRowsAppender::_append( // NOLINT(readability-function-size)
-        std::span<const VariantRef> rows, bool validate) {
+void ColumnVariantV2::EncodedRowsAppender::append( // NOLINT(readability-function-size)
+        std::span<const VariantRef> rows) {
     if (rows.empty()) {
         return;
     }
@@ -1082,9 +1074,7 @@ void ColumnVariantV2::EncodedRowsAppender::_append( // NOLINT(readability-functi
                 value.metadata.data == nullptr ? "" : value.metadata.data, value.metadata.size);
         uint32_t source_metadata_id = 0;
         if (unique_metadatas.empty()) {
-            if (validate) {
-                validate_variant_metadata(value.metadata);
-            }
+            validate_variant_metadata(value.metadata);
             unique_metadatas.push_back(value.metadata);
         } else if (unique_metadatas.size() == 1 && metadata_ids_by_value.empty() &&
                    unique_metadatas.front().size == value.metadata.size &&
@@ -1092,9 +1082,7 @@ void ColumnVariantV2::EncodedRowsAppender::_append( // NOLINT(readability-functi
                     StringRef(unique_metadatas.front().data, unique_metadatas.front().size) ==
                             StringRef(value.metadata.data, value.metadata.size))) {
             // Iceberg files normally share one metadata dictionary across a batch. Avoid a hash
-            // table and per-row ids until a second distinct dictionary is actually observed. A
-            // prevalidated reader batch also interns equal metadata views, making this pointer
-            // check O(1) for every row after the first.
+            // table and per-row ids until a second distinct dictionary is actually observed.
         } else {
             if (metadata_ids_by_value.empty()) {
                 const VariantMetadataRef first = unique_metadatas.front();
@@ -1111,9 +1099,7 @@ void ColumnVariantV2::EncodedRowsAppender::_append( // NOLINT(readability-functi
                             ErrorCode::INVALID_ARGUMENT,
                             "Variant encoded metadata dictionary exceeds the uint32 id limit");
                 }
-                if (validate) {
-                    validate_variant_metadata(value.metadata);
-                }
+                validate_variant_metadata(value.metadata);
                 source_metadata_id = static_cast<uint32_t>(unique_metadatas.size());
                 unique_metadatas.push_back(value.metadata);
                 metadata_ids_by_value.emplace(metadata_key, source_metadata_id);
@@ -1122,9 +1108,7 @@ void ColumnVariantV2::EncodedRowsAppender::_append( // NOLINT(readability-functi
         if (!source_metadata_ids.empty()) {
             source_metadata_ids[row] = source_metadata_id;
         }
-        if (validate) {
-            validate_variant_payload(value);
-        }
+        validate_variant_payload(value);
         source_values[row] = value.value;
         if (value.value.size > std::numeric_limits<size_t>::max() - total_value_bytes) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,

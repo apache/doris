@@ -130,11 +130,6 @@ public:
 
         void append(std::span<const VariantRef> rows);
 
-        // Appends rows whose metadata and complete value slices were already validated by the
-        // caller. This is a narrow format-reader fast path: every referenced byte is still copied
-        // into the destination, but repeated validation is skipped.
-        void append_prevalidated(std::span<const VariantRef> rows);
-
 #ifdef BE_TEST
         size_t metadata_comparisons_for_test() const noexcept;
 #endif
@@ -142,7 +137,6 @@ public:
     private:
         friend class ColumnVariantV2;
         explicit EncodedRowsAppender(ColumnVariantV2& column);
-        void _append(std::span<const VariantRef> rows, bool validate);
 
         struct Impl;
         std::unique_ptr<Impl> _impl;

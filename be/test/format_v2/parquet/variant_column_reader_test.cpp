@@ -2510,6 +2510,117 @@ TEST(VariantColumnReaderTest, ReusesMixedUnshreddedAndTypedDirectMatches) {
     EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
 }
 
+TEST(VariantColumnReaderTest, CompactsWideMetadataForDirectAndCompositeResults) {
+    constexpr size_t FIELD_COUNT = 256;
+    VariantBatchBuilder builder(
+            VariantBatchBuilder::ReserveHint {.rows = 1, .metadata_keys = FIELD_COUNT + 3});
+    auto row = builder.begin_row();
+    auto object = row.start_object();
+    object.add_key(StringRef("a"));
+    row.add_int(7);
+    object.add_key(StringRef("nested"));
+    auto nested = row.start_object();
+    nested.add_key(StringRef("kept"));
+    row.add_int(9);
+    nested.finish();
+    for (size_t field = 0; field < FIELD_COUNT; ++field) {
+        const std::string key = "unused_" + std::to_string(field);
+        object.add_key(StringRef(key));
+        row.add_int(static_cast<int64_t>(field));
+    }
+    object.finish();
+    row.finish();
+    VariantBatchBuilder batch = builder.finish_batch();
+    ASSERT_EQ(batch.value_at(0).metadata.dict_size(), FIELD_COUNT + 3);
+
+    auto projected_schema = shredded_object_schema();
+    projected_schema.local_id = 0;
+    projected_schema.children[2]->local_id = 2;
+    projected_schema.children[2]->children[0]->local_id = 0;
+    projected_schema.children[2]->children[0]->children[0]->local_id = 0;
+    auto projection = format::LocalColumnIndex::partial_local(0);
+    projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+    projection.children.back().children.push_back(format::LocalColumnIndex::partial_local(0));
+    projection.children.back().children.back().children.push_back(
+            format::LocalColumnIndex::local(0));
+    VariantMaterializationNode projected_plan;
+    projected_plan.schema = &projected_schema;
+    projected_plan.contains_variant = true;
+    projected_plan.variant_projection = std::move(projection);
+    projected_plan.variant_state_schema =
+            create_variant_state_schema(projected_schema, &*projected_plan.variant_projection);
+
+    auto unshredded = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    auto projected = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(),
+                                         unshredded_physical({batch.value_at(0)}), unshredded)
+                        .ok());
+    ASSERT_TRUE(materialize_variant_columns(projected_plan, projected_shredded_object_physical({8}),
+                                            projected)
+                        .ok());
+
+    const std::array<uint32_t, 1> selected {0};
+    const std::array a_segments {VariantElementV2PathSegment::object_key(StringRef("a"))};
+    std::unique_ptr<ResolvedVariantElementV2Path> a_path;
+    ASSERT_TRUE(resolve_variant_element_v2_path(a_segments, &a_path).ok());
+    auto verify_mixed_order = [&](const IColumn& first, const IColumn& second, int64_t first_value,
+                                  int64_t second_value) {
+        auto gathered = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+        gathered->insert_indices_from(first, selected.begin(), selected.end());
+        gathered->insert_indices_from(second, selected.begin(), selected.end());
+        const auto& nullable = assert_cast<const ColumnNullable&>(*gathered);
+        ColumnPtr result;
+        ASSERT_TRUE(extract_variant_element_v2(
+                            assert_cast<const ColumnVariantV2&>(nullable.get_nested_column()),
+                            *a_path, nullable.get_null_map_data(), &result)
+                            .ok());
+        const auto& result_nullable = assert_cast<const ColumnNullable&>(*result);
+        EXPECT_EQ(result_nullable.get_null_map_data(), (NullMap {0, 0}));
+        const auto& values =
+                assert_cast<const ColumnVariantV2&>(result_nullable.get_nested_column());
+        EXPECT_EQ(values.get_value_ref(0).get_int(), first_value);
+        EXPECT_EQ(values.get_value_ref(1).get_int(), second_value);
+        EXPECT_EQ(values.get_value_ref(0).metadata.dict_size(), 0);
+        EXPECT_EQ(values.get_value_ref(1).metadata.dict_size(), 0);
+    };
+    verify_mixed_order(*unshredded, *projected, 7, 8);
+    verify_mixed_order(*projected, *unshredded, 8, 7);
+
+    const auto& unshredded_nullable = assert_cast<const ColumnNullable&>(*unshredded);
+    const auto& unshredded_values =
+            assert_cast<const ColumnVariantV2&>(unshredded_nullable.get_nested_column());
+    auto extract_unshredded = [&](StringRef key) {
+        const std::array segments {VariantElementV2PathSegment::object_key(key)};
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        EXPECT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+        ColumnPtr result;
+        EXPECT_TRUE(extract_variant_element_v2(unshredded_values, *path,
+                                               unshredded_nullable.get_null_map_data(), &result)
+                            .ok());
+        return result;
+    };
+
+    const ColumnPtr nested_result = extract_unshredded(StringRef("nested"));
+    const auto& nested_values = assert_cast<const ColumnVariantV2&>(
+            assert_cast<const ColumnNullable&>(*nested_result).get_nested_column());
+    const VariantRef compact_nested = nested_values.get_value_ref(0);
+    EXPECT_EQ(compact_nested.metadata.dict_size(), 1);
+    EXPECT_EQ(compact_nested.metadata.find_key(StringRef("kept")), 0);
+    EXPECT_EQ(compact_nested.metadata.find_key(StringRef("unused_0")), -1);
+    VariantRef kept;
+    ASSERT_TRUE(compact_nested.object_find(StringRef("kept"), &kept));
+    EXPECT_EQ(kept.get_int(), 9);
+
+    const ColumnPtr missing_result = extract_unshredded(StringRef("missing"));
+    const auto& missing_nullable = assert_cast<const ColumnNullable&>(*missing_result);
+    EXPECT_EQ(missing_nullable.get_null_map_data(), (NullMap {1}));
+    const VariantRef missing =
+            assert_cast<const ColumnVariantV2&>(missing_nullable.get_nested_column())
+                    .get_value_ref(0);
+    EXPECT_TRUE(missing.is_null());
+    EXPECT_EQ(missing.metadata.dict_size(), 0);
+}
+
 TEST(VariantColumnReaderTest, ReusesUnshreddedPrefixBeforeCompositeFallback) {
     VariantBatchBuilder builder;
     auto row = builder.begin_row();

@@ -734,8 +734,7 @@ DirectResidualSeekResult seek_unshredded_variant_path(
             }
         }
     }
-    DorisVector<VariantRef> selected_rows;
-    selected_rows.reserve(physical.size());
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = physical.size()});
     container_cache.reserve(physical.size());
     auto nulls = ColumnUInt8::create();
     nulls->reserve(physical.size());
@@ -749,16 +748,16 @@ DirectResidualSeekResult seek_unshredded_variant_path(
                                                   selected_value_bytes));
         selected_value_bytes += static_cast<int64_t>(bytes);
     };
-    auto append_missing = [&](VariantMetadataRef metadata) {
-        selected_rows.push_back({.metadata = metadata,
-                                 .value = {VARIANT_NULL_VALUE.data(), VARIANT_NULL_VALUE.size()}});
+    auto append_missing = [&]() {
+        auto output_row = builder.begin_row();
+        output_row.add_null();
+        output_row.finish();
         nulls->insert_value(1);
         add_selected_bytes(VARIANT_NULL_VALUE.size());
     };
     for (size_t row = 0; row < physical.size(); ++row) {
         if (outer_nullable != nullptr && outer_nullable->get_null_map_data()[row] != 0) {
-            append_missing(
-                    {.data = VARIANT_EMPTY_METADATA.data(), .size = VARIANT_EMPTY_METADATA.size()});
+            append_missing();
             continue;
         }
 
@@ -768,7 +767,7 @@ DirectResidualSeekResult seek_unshredded_variant_path(
         const VariantMetadataRef metadata = metadata_cache.metadatas[metadata_id];
         const Cell value_cell = cell_at(structure.get_column(value_index), row);
         if (value_cell.is_null) {
-            append_missing(metadata);
+            append_missing();
             continue;
         }
 
@@ -805,21 +804,25 @@ DirectResidualSeekResult seek_unshredded_variant_path(
             ++current_depth;
         }
         if (!found) {
-            append_missing(metadata);
+            append_missing();
             continue;
         }
 
         // Traversed containers perform bounded reads. Validate the selected subtree exactly, but
         // intentionally do not visit unrelated siblings in the unshredded root.
         validate_variant_payload(current, current_depth);
-        selected_rows.push_back(current);
+        // Re-encode only the selected subtree so scalar/missing results use empty metadata and
+        // containers retain only reachable keys with remapped ids. Copying the root dictionary
+        // would multiply wide metadata across independently projected paths and composite states.
+        auto output_row = builder.begin_row();
+        output_row.add_value(current);
+        output_row.finish();
         nulls->insert_value(0);
         add_selected_bytes(current.value.size);
     }
 
     auto values = ColumnVariantV2::create();
-    auto appender = values->create_encoded_rows_appender();
-    appender.append_prevalidated(std::span<const VariantRef>(selected_rows));
+    values->insert_encoded_batch(builder.finish_batch());
     result.column = ColumnNullable::create(std::move(values), std::move(nulls));
     result.selected_value_bytes = selected_value_bytes;
     return result;
