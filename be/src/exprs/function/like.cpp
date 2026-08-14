@@ -21,6 +21,7 @@
 #include <hs/hs_compile.h>
 #include <re2/stringpiece.h>
 
+#include <charconv>
 #include <cstddef>
 #include <ostream>
 #include <utility>
@@ -36,6 +37,70 @@
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
+namespace {
+
+bool is_larger_than_fifty(std::string_view str) {
+    int number = 0;
+    auto [_, error] = std::from_chars(str.data(), str.data() + str.size(), number);
+    return error == std::errc() && number > 50;
+}
+
+/// Bounded repetitions can expand Hyperscan's compiler graph and make compilation extremely
+/// expensive. This checker is adapted from ClickHouse's `SlowWithHyperscanChecker`.
+class SlowWithHyperscanChecker {
+public:
+    SlowWithHyperscanChecker()
+            : _searcher_one_repeat(R"(\{\s*([\d]+)\s*,?\s*})"),
+              _searcher_two_repeats(R"(\{\s*([\d]+)\s*,\s*([\d]+)\s*\})") {}
+
+    bool is_slow(std::string_view regexp) const {
+        return is_slow_one_repeat(regexp) || is_slow_two_repeats(regexp);
+    }
+
+private:
+    bool is_slow_one_repeat(std::string_view regexp) const {
+        re2::StringPiece haystack(regexp.data(), regexp.size());
+        re2::StringPiece matches[2];
+        size_t start_pos = 0;
+        while (start_pos < haystack.size()) {
+            if (!_searcher_one_repeat.Match(haystack, start_pos, haystack.size(),
+                                            re2::RE2::Anchor::UNANCHORED, matches, 2)) {
+                break;
+            }
+
+            start_pos = matches[0].data() - haystack.data() + matches[0].size();
+            if (is_larger_than_fifty({matches[1].data(), matches[1].size()})) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool is_slow_two_repeats(std::string_view regexp) const {
+        re2::StringPiece haystack(regexp.data(), regexp.size());
+        re2::StringPiece matches[3];
+        size_t start_pos = 0;
+        while (start_pos < haystack.size()) {
+            if (!_searcher_two_repeats.Match(haystack, start_pos, haystack.size(),
+                                             re2::RE2::Anchor::UNANCHORED, matches, 3)) {
+                break;
+            }
+
+            start_pos = matches[0].data() - haystack.data() + matches[0].size();
+            if (is_larger_than_fifty({matches[1].data(), matches[1].size()}) ||
+                is_larger_than_fifty({matches[2].data(), matches[2].size()})) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    re2::RE2 _searcher_one_repeat;
+    re2::RE2 _searcher_two_repeats;
+};
+
+} // namespace
+
 // A regex to match any regex pattern is equivalent to a substring search.
 static const RE2 SUBSTRING_RE(R"((?:\.\*)*([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)(?:\.\*)*)");
 
@@ -487,8 +552,21 @@ Status FunctionLikeBase::regexp_fn(const LikeSearchState* state, const ColumnStr
 }
 
 // hyperscan compile expression to database and allocate scratch space
+bool FunctionLikeBase::should_fallback_to_re2(std::string_view regexp) {
+    static const SlowWithHyperscanChecker slow_with_hyperscan_checker;
+    return slow_with_hyperscan_checker.is_slow(regexp);
+}
+
 Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expression,
                                     hs_database_t** database, hs_scratch_t** scratch) {
+    if (should_fallback_to_re2(expression)) {
+        *database = nullptr;
+        *scratch = nullptr;
+        // Do not call FunctionContext::set_error here, since callers fall back to RE2.
+        return Status::RuntimeError<false>(
+                "Skip hyperscan compilation because bounded repetition exceeds 50");
+    }
+
     hs_compile_error_t* compile_err;
     auto res = hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8,
                           HS_MODE_BLOCK, nullptr, database, &compile_err);

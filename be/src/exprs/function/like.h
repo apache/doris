@@ -29,6 +29,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include "common/status.h"
 #include "core/block/column_numbers.h"
@@ -292,6 +293,8 @@ public:
     friend struct VectorEndsWithSearchState;
 
 protected:
+    static bool should_fallback_to_re2(std::string_view regexp);
+
     Status vector_const(const ColumnString& values, const StringRef* pattern_val,
                         ColumnUInt8::Container& result, const LikeFn& function,
                         LikeSearchState* search_state) const;

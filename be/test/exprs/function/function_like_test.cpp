@@ -32,6 +32,11 @@
 
 namespace doris {
 
+class FunctionLikeTestHelper : public FunctionLikeBase {
+public:
+    using FunctionLikeBase::should_fallback_to_re2;
+};
+
 TEST(FunctionLikeTest, like) {
     std::string func_name = "like";
 
@@ -135,6 +140,31 @@ TEST(FunctionLikeTest, regexp) {
         static_cast<void>(check_function<DataTypeUInt8, true>(func_name, const_pattern_input_types,
                                                               const_pattern_dataset));
     }
+}
+
+TEST(FunctionLikeTest, hyperscan_bounded_repeat_fallback) {
+    std::string func_name = "regexp";
+    std::string matching_value = "prompt_rewrite.h03" + std::string(500, 'x') + "429";
+
+    DataSet data_set = {
+            {{matching_value, std::string(R"(prompt_rewrite\.h03.{0,1000}429)")}, uint8_t(1)},
+            {{std::string("prompt_rewrite.h03") + std::string(500, 'x') + "430",
+              std::string(R"(prompt_rewrite\.h03.{0,1000}429)")},
+             uint8_t(0)}};
+
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+    check_function_all_arg_comb<DataTypeUInt8, true>(func_name, input_types, data_set);
+}
+
+TEST(FunctionLikeTest, hyperscan_bounded_repeat_threshold) {
+    EXPECT_FALSE(FunctionLikeTestHelper::should_fallback_to_re2("a*"));
+    EXPECT_FALSE(FunctionLikeTestHelper::should_fallback_to_re2("a{50}"));
+    EXPECT_FALSE(FunctionLikeTestHelper::should_fallback_to_re2("a{0,50}"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{51}"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{51,}"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{0,51}"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{51,51}"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{ 0, 1000 }"));
 }
 
 TEST(FunctionLikeTest, regexp_extract) {
