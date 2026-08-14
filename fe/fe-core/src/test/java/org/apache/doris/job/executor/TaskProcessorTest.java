@@ -17,8 +17,15 @@
 
 package org.apache.doris.job.executor;
 
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -28,8 +35,11 @@ import org.apache.doris.qe.ConnectContext;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -91,6 +101,63 @@ public class TaskProcessorTest {
             }
             Assert.assertEquals(4, loadCount.get());
         } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testRestorePinnedSnapshotBetweenMTMVChunks() {
+        MTMVTask task = new MTMVTask();
+        ConnectContext taskContext = new ConnectContext();
+        StatementContext taskStatementContext = new StatementContext();
+        taskContext.setStatementContext(taskStatementContext);
+        taskContext.setThreadLocalInfo();
+
+        MvccTable table = Mockito.mock(MvccTable.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(table.getName()).thenReturn("external_table");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(database.getFullName()).thenReturn("external_db");
+        Mockito.when(catalog.getName()).thenReturn("external_catalog");
+        MvccSnapshot pinnedSnapshot = Mockito.mock(MvccSnapshot.class);
+        Map<MvccTableInfo, MvccSnapshot> snapshots = new HashMap<>();
+        snapshots.put(new MvccTableInfo(table), pinnedSnapshot);
+        Deencapsulation.setField(task, "snapshots", snapshots);
+        Deencapsulation.invoke(task, "installTaskSnapshots", taskStatementContext);
+
+        try {
+            for (int i = 0; i < 2; i++) {
+                ConnectContext executionContext = new ConnectContext();
+                executionContext.setStatementContext(new StatementContext());
+                executionContext.setThreadLocalInfo();
+
+                Deencapsulation.invoke(task, "closeExecutionContext", executionContext, taskContext);
+
+                Assert.assertSame(taskContext, ConnectContext.get());
+                Assert.assertSame(pinnedSnapshot,
+                        MvccUtil.getSnapshotFromContext(table).orElse(null));
+            }
+        } finally {
+            taskStatementContext.close();
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testCreateMTMVTaskContextInstallsStatementContext() {
+        MTMVTask task = new MTMVTask();
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getSessionVariables()).thenReturn(Collections.emptyMap());
+        Deencapsulation.setField(task, "mtmv", mtmv);
+
+        ConnectContext taskContext = Deencapsulation.invoke(task, "createTaskContext");
+        try {
+            Assert.assertSame(taskContext, ConnectContext.get());
+            Assert.assertNotNull(taskContext.getStatementContext());
+        } finally {
+            taskContext.getStatementContext().close();
             ConnectContext.remove();
         }
     }

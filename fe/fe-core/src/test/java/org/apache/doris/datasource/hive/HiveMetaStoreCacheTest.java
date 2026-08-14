@@ -30,13 +30,16 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class HiveMetaStoreCacheTest {
 
     @Test
-    public void testGenerationAdvancesBeforeFileInvalidation() {
+    public void testGenerationAdvancesAfterFileInvalidation() throws Exception {
         ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
                 1, 1, "refresh", 1, false);
         ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
@@ -50,15 +53,25 @@ public class HiveMetaStoreCacheTest {
                             HiveExternalMetaCache.FileCacheValue.class);
             HiveExternalMetaCache.FileCacheKey fileCacheKey =
                     Mockito.mock(HiveExternalMetaCache.FileCacheKey.class);
+            CountDownLatch invalidationEntered = new CountDownLatch(1);
+            CountDownLatch allowInvalidation = new CountDownLatch(1);
             Mockito.when(fileCacheKey.isSameTable(Mockito.anyLong())).thenAnswer(invocation -> {
-                Assertions.assertEquals(1L, cache.getFileCacheInvalidationGeneration(0L));
+                invalidationEntered.countDown();
+                Assertions.assertTrue(allowInvalidation.await(10, TimeUnit.SECONDS));
+                Assertions.assertEquals(0L, cache.getFileCacheInvalidationGeneration(0L));
                 return true;
             });
             fileCache.put(fileCacheKey, new HiveExternalMetaCache.FileCacheValue());
 
-            cache.invalidateTable(0L, "db", "table");
+            CompletableFuture<Void> invalidation = CompletableFuture.runAsync(
+                    () -> cache.invalidateTable(0L, "db", "table"));
+            Assertions.assertTrue(invalidationEntered.await(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(0L, cache.getFileCacheInvalidationGeneration(0L));
+            allowInvalidation.countDown();
+            invalidation.get(10, TimeUnit.SECONDS);
 
             Assertions.assertNull(fileCache.getIfPresent(fileCacheKey));
+            Assertions.assertEquals(1L, cache.getFileCacheInvalidationGeneration(0L));
             Mockito.verify(fileCacheKey).isSameTable(Util.genIdByName("db", "table"));
         } finally {
             executor.shutdownNow();
