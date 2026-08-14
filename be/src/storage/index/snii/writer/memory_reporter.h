@@ -24,6 +24,7 @@
 #include <utility>
 
 #include "common/check.h"
+#include "common/logging.h"
 #include "common/status.h"
 
 namespace doris::snii::writer {
@@ -32,12 +33,19 @@ namespace doris::snii::writer {
 // one per segment's inverted index). Legacy modules report resident-byte deltas
 // after their allocation; hard-gated modules own a Reservation that atomically
 // pre-charges before allocation. current_bytes() is their shared live total.
-// consume_release mirrors successful changes into Doris's LOAD MemTracker; it is
-// null off-Doris (bench / unit tests), where only the local atomic is updated.
+// consume_release mirrors successful changes into the process-wide SNII
+// index-build OBSERVATION tracker; it is null off-Doris (bench / unit tests),
+// where only the local atomic is updated.
 class MemoryReporter {
 public:
     // The callback may be invoked concurrently and from Reservation destructors;
     // it must be thread-safe and must not throw. Null off-Doris.
+    //
+    // It must NEVER charge a MemTrackerLimiter: Doris's jemalloc allocation hook
+    // has already attributed these bytes to the MemTrackerLimiter attached to
+    // the allocating thread, so an explicit charge would count them twice. The
+    // only valid target is a plain MemTracker used for classified observation
+    // (see snii_build_consume_release).
     using ConsumeReleaseFn = std::function<void(int64_t delta)>;
 
     enum class CapPolicy : uint8_t {
@@ -95,6 +103,30 @@ public:
 
     MemoryReporter(const MemoryReporter&) = delete;
     MemoryReporter& operator=(const MemoryReporter&) = delete;
+
+    // TERMINAL DRAIN. Reservations are RAII and balance themselves, but the
+    // legacy report() path is manual, so a caller that dies between report(+X)
+    // and report(-X) leaks X. That used to be harmless -- consume_release_ was
+    // null in production, so the residue died with this object's atomic. It is
+    // not harmless now: the mirrored bytes are a PROCESS-WIDE counter that also
+    // feeds the build-RAM decision, so a few MiB of residue per segment would
+    // become permanent phantom pressure on a long-lived BE.
+    //
+    // Warn rather than DCHECK. An unbalanced reporter is worth knowing about,
+    // but it is a legitimate end state for this observe-only type -- callers
+    // use report() for transient accounting they may abandon on an error path
+    // -- so aborting debug builds over it would be wrong. A warning also
+    // reaches RELEASE builds, which is where an unnoticed leak would actually
+    // accumulate; a DCHECK would not.
+    ~MemoryReporter() {
+        const int64_t remaining = current_.load(std::memory_order_relaxed);
+        if (remaining != 0 && consume_release_) {
+            LOG(WARNING) << "SNII MemoryReporter destroyed with " << remaining
+                         << " unbalanced bytes; draining them so they do not accumulate in the "
+                         << "process-wide index-build counter.";
+            consume_release_(-remaining);
+        }
+    }
 
     Reservation make_reservation() { return Reservation(this); }
 
