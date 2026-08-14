@@ -23,7 +23,9 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -69,6 +71,14 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                 .when(topSemi -> InnerJoinLAsscomProject.checkReorder(topSemi, topSemi.left().child(), false))
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
                 .when(join -> join.left().isAllSlots())
+                // the transpose swaps the bottom semi join to the top, so the bottom semi
+                // join's conjuncts and its RIGHT subtree are evaluated ABOVE the new bottom
+                // semi join (built from the top semi join, which prunes rows): a
+                // NoneMovableFunction (assert_true) or volatile expression there would be
+                // evaluated on fewer rows and its required error could be suppressed - the
+                // very behavior the retained mark form preserves - so the transpose must be
+                // rejected in that case
+                .whenNot(this::isBottomSemiSensitive)
                 // the transpose swaps the bottom semi join to the top, so the mark slot
                 // produced by the bottom mark join would be produced by the new top semi
                 // join. if the top semi join references the mark slot in its conjuncts,
@@ -126,6 +136,44 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
 
     public boolean typeChecker(LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin) {
         return VALID_TYPE_PAIR_SET.contains(Pair.of(topJoin.getJoinType(), topJoin.left().child().getJoinType()));
+    }
+
+    /**
+     * whether the bottom semi join's own conjuncts or its RIGHT subtree contain a
+     * NoneMovableFunction (assert_true) or volatile expression. the transpose moves those up
+     * above the new bottom semi join (which prunes rows), so they would be evaluated on
+     * fewer rows and their error could be suppressed; the transpose must be rejected then.
+     */
+    private boolean isBottomSemiSensitive(
+            LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topSemi) {
+        LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();
+        return bottomSemi.getExpressions().stream()
+                .anyMatch(SemiJoinSemiJoinTransposeProject::isSensitive)
+                || groupContainsSensitiveExpression(bottomSemi.right());
+    }
+
+    private static boolean isSensitive(Expression expression) {
+        return expression.containsVolatileExpression() || expression.containsType(NoneMovableFunction.class);
+    }
+
+    private static boolean groupContainsSensitiveExpression(GroupPlan groupPlan) {
+        return groupPlan.getGroup().getLogicalExpressions().stream()
+                .anyMatch(groupExpression -> planContainsSensitiveExpression(groupExpression.getPlan()));
+    }
+
+    private static boolean planContainsSensitiveExpression(Plan plan) {
+        if (plan.getExpressions().stream().anyMatch(SemiJoinSemiJoinTransposeProject::isSensitive)) {
+            return true;
+        }
+        for (Plan child : plan.children()) {
+            // do not expand nested GroupPlans: the sensitive expression sits in the subquery
+            // plan's filter/project node one level up in this tree, and walking into the memo
+            // DAG could revisit groups and cycle
+            if (!(child instanceof GroupPlan) && planContainsSensitiveExpression(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
