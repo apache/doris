@@ -65,7 +65,10 @@ private:
     TGetDbsResult _db_result;
     int _row_idx = 0;
     int _total_rows = 0;
-    std::unique_ptr<Block> _fetched_block = nullptr;
+    // Left without an `= nullptr` initializer on purpose: a default member initializer makes
+    // GCC instantiate `~unique_ptr<Block>()` in every translation unit that includes this
+    // header, and that needs Block to be complete. Default construction gives the same null.
+    std::unique_ptr<Block> _fetched_block;
     int _rpc_timeout_ms = 3000;
 };
 
