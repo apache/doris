@@ -725,11 +725,15 @@ public class AppendVariantEqualityDelete {
             FROM numbers("number" = "100000")
         """
         spark_iceberg """REFRESH TABLE demo.${dbName}.variant_doris_multi_row_group"""
+        // Iceberg allocates IDs to all top-level fields before nested fields; payload is 5, not 4.
+        int nestedPayloadFieldId = 5
         List<List<Object>> sparkDorisMultiRowGroupFiles = spark_iceberg """
             SELECT file_format, record_count,
-                   value_counts[4], null_value_counts[4],
-                   column_sizes[4] IS NULL,
-                   lower_bounds[4] IS NULL, upper_bounds[4] IS NULL
+                   value_counts[${nestedPayloadFieldId}],
+                   null_value_counts[${nestedPayloadFieldId}],
+                   column_sizes[${nestedPayloadFieldId}] IS NULL,
+                   lower_bounds[${nestedPayloadFieldId}] IS NULL,
+                   upper_bounds[${nestedPayloadFieldId}] IS NULL
             FROM demo.${dbName}.variant_doris_multi_row_group.files
             WHERE content = 0
         """
