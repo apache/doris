@@ -158,6 +158,21 @@ class HudiScanReuseKeyTest {
         Assertions.assertEquals(1, provider.planCalls, "the underlying Hudi planner must run once");
     }
 
+    @Test
+    void statementReuseCanBeDisabled() {
+        RecordingScanProvider provider = new RecordingScanProvider();
+        ConnectorSession session = new MemoSession(new MemoScope(),
+                Collections.singletonMap(ConnectorSession.ENABLE_EXTERNAL_SCAN_TASK_REUSE, "false"));
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                handle().toBuilder().prunedPartitionPaths(null).build(),
+                Collections.<ConnectorColumnHandle>emptyList()).build();
+
+        provider.planScan(session, request);
+        provider.planScan(session, request);
+
+        Assertions.assertEquals(2, provider.planCalls, "disabled split reuse must bypass the statement memo");
+    }
+
     private static final class RecordingScanProvider extends HudiScanPlanProvider {
         private static final ConnectorScanRange RANGE = Collections::emptyMap;
         private int planCalls;
@@ -188,9 +203,15 @@ class HudiScanReuseKeyTest {
 
     private static final class MemoSession implements ConnectorSession {
         private final ConnectorStatementScope scope;
+        private final Map<String, String> sessionProperties;
 
         private MemoSession(ConnectorStatementScope scope) {
+            this(scope, Collections.emptyMap());
+        }
+
+        private MemoSession(ConnectorStatementScope scope, Map<String, String> sessionProperties) {
             this.scope = scope;
+            this.sessionProperties = sessionProperties;
         }
 
         @Override
@@ -236,6 +257,11 @@ class HudiScanReuseKeyTest {
         @Override
         public Map<String, String> getCatalogProperties() {
             return Collections.emptyMap();
+        }
+
+        @Override
+        public Map<String, String> getSessionProperties() {
+            return sessionProperties;
         }
     }
 }
