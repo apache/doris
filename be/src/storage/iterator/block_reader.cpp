@@ -639,13 +639,6 @@ Status BlockReader::_direct_next_block(Block* block, bool* eof) {
     }
     *eof = res.is<END_OF_FILE>();
     _eof = *eof;
-    if (UNLIKELY(_reader_context.record_rowids)) {
-        res = _vcollect_iter.current_block_row_locations(&_block_row_locations);
-        if (UNLIKELY(!res.ok() && res != Status::Error<END_OF_FILE>(""))) {
-            return res;
-        }
-        DCHECK_EQ(_block_row_locations.size(), block->rows());
-    }
     return Status::OK();
 }
 
@@ -658,17 +651,9 @@ Status BlockReader::_replace_key_next_block(Block* block, bool* eof) {
     auto target_block_row = 0;
     auto target_columns_guard = block->mutate_columns_scoped();
     auto& target_columns = target_columns_guard.mutable_columns();
-    // currently seq mapping only support mor table
-    // so this will not be executed for the time being
-    if (UNLIKELY(_reader_context.record_rowids)) {
-        _block_row_locations.resize(batch_max_rows());
-    }
     auto merged_row = 0;
     while (target_block_row < batch_max_rows() && !_eof) {
         RETURN_IF_ERROR(_insert_data_normal(target_columns));
-        if (UNLIKELY(_reader_context.record_rowids)) {
-            _block_row_locations[target_block_row] = _vcollect_iter.current_row_location();
-        }
         target_block_row++;
 
         while (!_eof) {
@@ -678,9 +663,6 @@ Status BlockReader::_replace_key_next_block(Block* block, bool* eof) {
             if (UNLIKELY(res.is<END_OF_FILE>())) {
                 _eof = true;
                 *eof = true;
-                if (UNLIKELY(_reader_context.record_rowids)) {
-                    _block_row_locations.resize(target_block_row);
-                }
                 break;
             }
 
@@ -700,9 +682,6 @@ Status BlockReader::_replace_key_next_block(Block* block, bool* eof) {
         // key, so it is safe to stop accumulating here without repeating any row.
         if (target_block_row % BLOCK_SIZE_CHECK_INTERVAL_ROWS == 0 &&
             _reached_byte_budget(target_columns)) {
-            if (UNLIKELY(_reader_context.record_rowids)) {
-                _block_row_locations.resize(target_block_row);
-            }
             break;
         }
     }
@@ -808,16 +787,9 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     auto target_block_row = 0;
     auto target_columns_guard = block->mutate_columns_scoped();
     auto& target_columns = target_columns_guard.mutable_columns();
-    if (UNLIKELY(_reader_context.record_rowids)) {
-        _block_row_locations.resize(batch_max_rows());
-    }
 
     do {
         RETURN_IF_ERROR(_insert_data_normal(target_columns));
-
-        if (UNLIKELY(_reader_context.record_rowids)) {
-            _block_row_locations[target_block_row] = _vcollect_iter.current_row_location();
-        }
         target_block_row++;
 
         // the version is in reverse order, the first row is the highest version,
@@ -827,9 +799,6 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         if (UNLIKELY(res.is<END_OF_FILE>())) {
             _eof = true;
             *eof = true;
-            if (UNLIKELY(_reader_context.record_rowids)) {
-                _block_row_locations.resize(target_block_row);
-            }
             break;
         }
 
@@ -840,9 +809,6 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         // Byte-budget check: _next_row is already saved so stopping here is safe.
         if (target_block_row % BLOCK_SIZE_CHECK_INTERVAL_ROWS == 0 &&
             _reached_byte_budget(target_columns)) {
-            if (UNLIKELY(_reader_context.record_rowids)) {
-                _block_row_locations.resize(target_block_row);
-            }
             break;
         }
     } while (target_block_row < batch_max_rows());
@@ -860,16 +826,8 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
                         ->get_data()
                         .data();
-        int delete_count = 0;
         for (int i = 0; i < target_block_row; ++i) {
-            bool sign = (delete_data[i] == 0);
-            filter_data[i] = sign;
-            if (UNLIKELY(!sign)) {
-                if (UNLIKELY(_reader_context.record_rowids)) {
-                    _block_row_locations[i].row_id = -1;
-                    delete_count++;
-                }
-            }
+            filter_data[i] = delete_data[i] == 0;
         }
         auto target_columns_size = target_columns.size();
         _delete_filter_column = std::move(delete_filter_column);
@@ -880,9 +838,6 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         block->insert(column_with_type_and_name);
         RETURN_IF_ERROR(Block::filter_block(block, target_columns_size, target_columns_size));
         _stats.rows_del_filtered += target_block_row - block->rows();
-        if (UNLIKELY(_reader_context.record_rowids)) {
-            DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
-        }
     }
     return Status::OK();
 }

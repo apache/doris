@@ -61,7 +61,6 @@ namespace doris {
 
 class VExpr;
 class VExprContext;
-struct RowLocation;
 
 namespace segment_v2 {
 
@@ -80,12 +79,6 @@ public:
     [[nodiscard]] Status init_iterators();
     [[nodiscard]] Status init(const StorageReadOptions& opts) override;
     [[nodiscard]] Status next_batch(Block* block) override;
-
-    // Get current block row locations. This function should be called
-    // after the `next_batch` function.
-    // Only vectorized version is supported.
-    [[nodiscard]] Status current_block_row_locations(
-            std::vector<RowLocation>* block_row_locations) override;
 
     const ReadSchema& schema() const override { return *_schema; }
     uint64_t data_id() const override { return _segment->id(); }
@@ -444,7 +437,7 @@ private:
 
     io::FileReaderSPtr _file_reader;
 
-    // used for compaction, record selectd rowids of current batch
+    // Selected positions within the current batch after predicate and expression evaluation.
     uint16_t _selected_size;
     std::vector<uint16_t> _sel_rowid_idx;
 

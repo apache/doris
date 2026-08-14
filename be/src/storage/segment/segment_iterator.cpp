@@ -1889,6 +1889,12 @@ Status SegmentIterator::_init_column_iterators() {
         if (cid >= _schema->num_block_columns() && !_column_states[cid].has_delete_pred) {
             continue;
         }
+        if (_schema->column(cid)->name() == BeConsts::ROWID_COL) {
+            _column_iterators[cid].reset(
+                    new CompactionRowIdColumnIterator(_opts.rowset_id, _segment->id()));
+            continue;
+        }
+
         if (_schema->column(cid)->name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             auto& id_file_map = _opts.runtime_state->get_id_file_map();
             uint32_t file_id = id_file_map->get_file_mapping_id(std::make_shared<FileMapping>(
@@ -3401,23 +3407,6 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
     } else if (PredicateTypeTraits::is_bloom_filter(predicate.type())) {
         col_ptr->initialize_hash_values_for_runtime_filter();
     }
-}
-
-Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* block_row_locations) {
-    DCHECK(_opts.record_rowids);
-    DCHECK_GE(_block_rowids.size(), _selected_size);
-    block_row_locations->resize(_selected_size);
-    uint32_t sid = segment_id();
-    if (!_is_need_vec_eval && !_is_need_short_eval && !_is_need_expr_eval) {
-        for (auto i = 0; i < _selected_size; i++) {
-            (*block_row_locations)[i] = RowLocation(sid, _block_rowids[i]);
-        }
-    } else {
-        for (auto i = 0; i < _selected_size; i++) {
-            (*block_row_locations)[i] = RowLocation(sid, _block_rowids[_sel_rowid_idx[i]]);
-        }
-    }
-    return Status::OK();
 }
 
 Status SegmentIterator::_construct_compound_expr_context() {
