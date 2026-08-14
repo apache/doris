@@ -23,6 +23,7 @@
 #include "common/logging.h"
 #include "exec/rowid_fetcher.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
+#include "pipeline/local_exchange/local_exchanger.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/exec_env.h"
@@ -424,7 +425,13 @@ Status AggSharedState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
 
 LocalExchangeSharedState::~LocalExchangeSharedState() {
     // BlockWrapper instances refer back to this shared state while the exchanger is destroyed.
-    // Release them before the shared state's counters and dependencies are torn down.
+    // Drain every data queue while the exchanger is still reachable from the shared state, then
+    // release it before the shared state's counters and dependencies are torn down.
+    if (exchanger != nullptr) {
+        for (int channel_id = 0; channel_id < exchanger->_num_sources; ++channel_id) {
+            exchanger->close(SourceInfo {.channel_id = channel_id, .local_state = nullptr});
+        }
+    }
     exchanger.reset();
 }
 
