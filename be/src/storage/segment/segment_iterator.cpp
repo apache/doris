@@ -566,6 +566,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
         _block_rowids.resize(_initial_block_row_max);
     }
     _current_return_columns.resize(_schema->columns().size());
+    _predicate_column_has_null.assign(_schema->columns().size(), true);
 
     for (size_t i = 0; i < _schema->column_ids().size(); i++) {
         ColumnId cid = _schema->column_ids()[i];
@@ -2153,6 +2154,20 @@ bool SegmentIterator::_can_evaluated_by_vectorized(std::shared_ptr<ColumnPredica
     }
 }
 
+bool SegmentIterator::_can_evaluate_without_null_map(const ColumnPredicate& predicate) const {
+    switch (predicate.type()) {
+    case PredicateType::EQ:
+    case PredicateType::NE:
+    case PredicateType::LE:
+    case PredicateType::LT:
+    case PredicateType::GE:
+    case PredicateType::GT:
+        return true;
+    default:
+        return false;
+    }
+}
+
 // These placeholders are used only when the real column data is skipped after
 // index/count pushdown has already identified the matching rows. The value is
 // irrelevant, but nullable columns must stay non-NULL so COUNT(col) can count
@@ -2344,6 +2359,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
             nrows_read > 0 ? _block_rowids[nrows_read - 1] : 0);
     for (auto cid : _predicate_column_ids) {
         auto& column = _current_return_columns[cid];
+        _predicate_column_has_null[cid] = true;
         VLOG_DEBUG << fmt::format("Reading column {}, col_name {}", cid,
                                   _schema->column(cid)->name());
         if (!_virtual_column_exprs.contains(cid)) {
@@ -2352,6 +2368,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
                 continue;
             }
             if (_prune_column(cid, column, nrows_read)) {
+                _predicate_column_has_null[cid] = false;
                 VLOG_DEBUG << fmt::format("Column {} is pruned. No need to read data.", cid);
                 continue;
             }
@@ -2379,6 +2396,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
 
         if (is_continuous) {
             size_t rows_read = nrows_read;
+            bool batch_has_null = true;
             _opts.stats->predicate_column_read_seek_num += 1;
             if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
                 SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_seek_ns);
@@ -2386,7 +2404,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
             } else {
                 RETURN_IF_ERROR(column_iter->seek_to_ordinal(_block_rowids[0]));
             }
-            RETURN_IF_ERROR(column_iter->next_batch(&rows_read, column));
+            RETURN_IF_ERROR(column_iter->next_batch(&rows_read, column, &batch_has_null));
+            _predicate_column_has_null[cid] = batch_has_null;
             if (rows_read != nrows_read) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>("nrows({}) != rows_read({})",
                                                                 nrows_read, rows_read);
@@ -2394,6 +2413,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
         } else {
             const uint32_t batch_size = _range_iter->get_batch_size();
             uint32_t processed = 0;
+            bool column_has_null = false;
+            bool has_unknown_null_state = false;
             while (processed < nrows_read) {
                 uint32_t current_batch_size = std::min(batch_size, nrows_read - processed);
                 bool batch_continuous = (current_batch_size > 1) &&
@@ -2403,6 +2424,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
 
                 if (batch_continuous) {
                     size_t rows_read = current_batch_size;
+                    bool batch_has_null = true;
                     _opts.stats->predicate_column_read_seek_num += 1;
                     if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
                         SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_seek_ns);
@@ -2410,7 +2432,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
                     } else {
                         RETURN_IF_ERROR(column_iter->seek_to_ordinal(_block_rowids[processed]));
                     }
-                    RETURN_IF_ERROR(column_iter->next_batch(&rows_read, column));
+                    RETURN_IF_ERROR(column_iter->next_batch(&rows_read, column, &batch_has_null));
+                    column_has_null |= batch_has_null;
                     if (rows_read != current_batch_size) {
                         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                                 "batch nrows({}) != rows_read({})", current_batch_size, rows_read);
@@ -2418,9 +2441,11 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
                 } else {
                     RETURN_IF_ERROR(column_iter->read_by_rowids(&_block_rowids[processed],
                                                                 current_batch_size, column));
+                    has_unknown_null_state = true;
                 }
                 processed += current_batch_size;
             }
+            _predicate_column_has_null[cid] = column_has_null || has_unknown_null_state;
         }
     }
 
@@ -2545,11 +2570,16 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
         }
         auto column_id = pred->column_id();
         auto& column = _current_return_columns[column_id];
+        const auto* predicate_column = column.get();
+        if (column->is_nullable() && !_predicate_column_has_null[column_id] &&
+            _can_evaluate_without_null_map(*pred)) {
+            predicate_column = &assert_cast<const ColumnNullable&>(*column).get_nested_column();
+        }
         if (is_first) {
-            pred->evaluate_vec(*column, original_size, (bool*)_ret_flags.data());
+            pred->evaluate_vec(*predicate_column, original_size, (bool*)_ret_flags.data());
             is_first = false;
         } else {
-            pred->evaluate_and_vec(*column, original_size, (bool*)_ret_flags.data());
+            pred->evaluate_and_vec(*predicate_column, original_size, (bool*)_ret_flags.data());
         }
     }
 
@@ -2600,7 +2630,13 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
     for (auto predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
-        selected_size = predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size);
+        const auto* predicate_column = short_cir_column.get();
+        if (short_cir_column->is_nullable() && !_predicate_column_has_null[column_id] &&
+            _can_evaluate_without_null_map(*predicate)) {
+            predicate_column =
+                    &assert_cast<const ColumnNullable&>(*short_cir_column).get_nested_column();
+        }
+        selected_size = predicate->evaluate(*predicate_column, vec_sel_rowid_idx, selected_size);
     }
 
     _opts.stats->short_circuit_cond_input_rows += original_size;
@@ -2868,7 +2904,7 @@ Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& c
 Status SegmentIterator::copy_column_data_by_selector(IColumn* input_col_ptr,
                                                      MutableColumnPtr& output_col,
                                                      uint16_t* sel_rowid_idx, uint16_t select_size,
-                                                     size_t batch_size) {
+                                                     size_t batch_size, bool input_has_null) {
     if (is_column_nullable(*output_col) != is_column_nullable(*input_col_ptr)) {
         LOG(WARNING) << "nullable mismatch for output_column: " << output_col->dump_structure()
                      << " input_column: " << input_col_ptr->dump_structure()
@@ -2876,6 +2912,18 @@ Status SegmentIterator::copy_column_data_by_selector(IColumn* input_col_ptr,
         return Status::RuntimeError("copy_column_data_by_selector nullable mismatch");
     }
     output_col->reserve(select_size);
+    if (input_col_ptr->is_nullable() && !input_has_null) {
+        const auto& input_nullable = assert_cast<const ColumnNullable&>(*input_col_ptr);
+        auto& output_nullable = assert_cast<ColumnNullable&>(*output_col);
+        auto* output_nested = output_nullable.get_nested_column_ptr().get();
+        auto* input_nested = const_cast<IColumn*>(&input_nullable.get_nested_column());
+        RETURN_IF_ERROR(
+                input_nested->filter_by_selector(sel_rowid_idx, select_size, output_nested));
+        auto& output_null_map = output_nullable.get_null_map_data();
+        DCHECK(output_null_map.empty());
+        output_null_map.resize_fill(select_size, 0);
+        return Status::OK();
+    }
     return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col.get());
 }
 

@@ -235,7 +235,7 @@ private:
 
     Status copy_column_data_by_selector(IColumn* input_col_ptr, MutableColumnPtr& output_col,
                                         uint16_t* sel_rowid_idx, uint16_t select_size,
-                                        size_t batch_size);
+                                        size_t batch_size, bool input_has_null = true);
 
     template <class Container>
     [[nodiscard]] Status _output_column_by_sel_idx(Block* block, const Container& column_ids,
@@ -257,24 +257,25 @@ private:
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 MutableColumnPtr tmp = storage_type->create_column();
-                RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
-                                                             tmp, sel_rowid_idx, select_size,
-                                                             _opts.block_row_max));
+                RETURN_IF_ERROR(copy_column_data_by_selector(
+                        _current_return_columns[cid].get(), tmp, sel_rowid_idx, select_size,
+                        _opts.block_row_max, _predicate_column_has_null[cid]));
                 RETURN_IF_ERROR(variant_util::cast_column(
                         {tmp->get_ptr(), storage_type, ""}, block->get_by_position(block_cid).type,
                         &block->get_by_position(block_cid).column));
             } else {
                 MutableColumnPtr output_column =
                         block->get_by_position(block_cid).column->assert_mutable();
-                RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
-                                                             output_column, sel_rowid_idx,
-                                                             select_size, _opts.block_row_max));
+                RETURN_IF_ERROR(copy_column_data_by_selector(
+                        _current_return_columns[cid].get(), output_column, sel_rowid_idx,
+                        select_size, _opts.block_row_max, _predicate_column_has_null[cid]));
             }
         }
         return Status::OK();
     }
 
     bool _can_evaluated_by_vectorized(std::shared_ptr<ColumnPredicate> predicate);
+    bool _can_evaluate_without_null_map(const ColumnPredicate& predicate) const;
 
     [[nodiscard]] Status _extract_common_expr_columns(const VExprSPtr& expr);
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
@@ -385,6 +386,7 @@ private:
     std::map<uint32_t, bool> _need_read_data_indices;
     std::vector<bool> _is_common_expr_column;
     MutableColumns _current_return_columns;
+    std::vector<bool> _predicate_column_has_null;
     std::vector<std::shared_ptr<ColumnPredicate>> _pre_eval_block_predicate;
     std::vector<std::shared_ptr<ColumnPredicate>> _short_cir_eval_predicate;
     std::vector<uint32_t> _delete_range_column_ids;
