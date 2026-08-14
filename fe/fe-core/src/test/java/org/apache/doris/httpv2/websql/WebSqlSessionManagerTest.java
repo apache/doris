@@ -48,8 +48,10 @@ public class WebSqlSessionManagerTest {
 
         WebSqlSession session = manager.createSession("alice", "secret");
         Assertions.assertTrue(session.getId().contains("."));
+        Assertions.assertSame(session, manager.getSession(session.getId(), "alice"));
         Assertions.assertEquals(1, manager.size());
         assertError(WebSqlError.SESSION_LIMIT_EXCEEDED, () -> manager.createSession("alice", "secret"));
+        assertError(WebSqlError.ACCESS_DENIED, () -> manager.getSession(session.getId(), "bob"));
         assertError(WebSqlError.ACCESS_DENIED, () -> manager.reset(session.getId(), "bob", "secret"));
 
         manager.reset(session.getId(), "alice", "secret");
@@ -189,8 +191,7 @@ public class WebSqlSessionManagerTest {
     }
 
     private WebSqlLimits limits(int maxSessions, int perUser, long idleMillis, int waitMillis) {
-        return new WebSqlLimits(true, idleMillis, maxSessions, perUser, 100, 1024 * 1024,
-                waitMillis, 2, 60);
+        return new WebSqlLimits(true, idleMillis, maxSessions, perUser, 100, waitMillis, 2, 60);
     }
 
     private WebSqlExecutionResult emptyResult() {

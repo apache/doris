@@ -19,7 +19,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import type { DynamicCell, DynamicTableData } from '../components/operations/dynamicTable';
 import { UiApiError } from './client';
-import { setCsrfToken } from './csrf';
+import { getCsrfToken, setCsrfToken } from './csrf';
 
 export interface LegacyEnvelope<T> {
   code?: number;
@@ -59,6 +59,25 @@ export async function legacyPostForm<T>(path: string, form: URLSearchParams): Pr
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
     body: form.toString(),
+  });
+}
+
+export async function legacyPostJson<T>(path: string, body: unknown): Promise<T> {
+  return legacyRequest<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function legacyPostJsonMutation<T>(path: string, body: unknown): Promise<T> {
+  const token = getCsrfToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['X-Doris-CSRF-Token'] = token;
+  return legacyRequest<T>(path, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
   });
 }
 
@@ -168,6 +187,7 @@ export function useSessions(enabled: boolean) {
     queryKey: ['operations', 'sessions'],
     queryFn: fetchSessions,
     enabled,
+    refetchOnMount: 'always',
     refetchInterval: false,
   });
 }

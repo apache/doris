@@ -84,11 +84,29 @@ Playwright requires its Chromium runtime. The browser path may be isolated with 
   Doris HTTP APIs.
 - Log configuration, content, and verbose logger management, reusing the
   existing `/rest/v1/log` API.
+- Query Profile list and raw Text details, reusing the legacy current-FE
+  `/rest/v1/query_profile*` APIs. The list includes only entries whose Doris
+  `Task Type` is `QUERY`. Text details support search navigation, exact copy,
+  and download without transforming the Profile.
+- Visual Profile for structurally compatible `MergedProfile` text. The browser parses the same raw
+  text in a bounded module Worker, lays out Fragment compound graphs with
+  ELK, and renders a read-only React Flow canvas with slow-operator focus,
+  search, Fragment visibility, Fit/Reset, MiniMap, and operator details.
+- FE and BE Configuration tables backed by the existing configuration APIs.
+  Mutable entries expose an ADMIN-only editor, while immutable entries remain
+  read-only. Long values are truncated in the table and remain available on
+  hover.
 - React, TypeScript, Vite, React Router, Ant Design, TanStack Query, CodeMirror,
-  Vitest, Testing Library, and Playwright infrastructure.
+  React Flow, ELK, Vitest, Testing Library, and Playwright infrastructure.
 
-Query Profiles and Configuration remain intentional placeholders in this
-draft implementation.
+The Visual Profile parser and graph implementation are adapted from
+`apache/doris-website` PR #4043 at commit
+`133f948c235995a917b2e1f6d4e9d764b6d62726` (Apache License 2.0). It does not
+include the website uploader, AI analysis, hCaptcha, polling, recovery,
+storage, or Docusaurus wrapper. Compatibility is detected from the
+`MergedProfile -> Fragment -> Pipeline -> Operator` structure rather than the
+Doris release string. A missing `MergedProfile` is unavailable; a present but
+incompatible structure is reported as a parse failure with its reason.
 
 ## Backend scope
 
@@ -99,3 +117,9 @@ The endpoint lives under `httpv2.websql` because it is usable by any HTTP
 client and is not coupled to UI Next.
 Existing Doris HTTP controllers remain the preferred backend for the other UI
 pages.
+
+`enable_web_ui=true` controls the browser UI and its dedicated login/bootstrap
+and stateful SQL endpoints without disabling the FE HTTP server or shared HTTP
+APIs. `enable_web_sql_session`, `web_sql_session_idle_timeout_seconds`,
+`web_sql_max_sessions`, and `web_sql_max_result_bytes` are mutable and are read
+by running Web SQL operations without an FE restart.

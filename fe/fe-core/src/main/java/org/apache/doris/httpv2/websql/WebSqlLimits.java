@@ -33,20 +33,18 @@ public class WebSqlLimits {
     public final int maxSessions;
     public final int maxSessionsPerUser;
     public final int maxResultRows;
-    public final long maxResultBytes;
     public final int lockWaitTimeoutMillis;
     public final int maxQueuedStatements;
     public final int cleanupIntervalSeconds;
 
     public WebSqlLimits(boolean enabled, long idleTimeoutMillis, int maxSessions, int maxSessionsPerUser,
-            int maxResultRows, long maxResultBytes, int lockWaitTimeoutMillis, int maxQueuedStatements,
+            int maxResultRows, int lockWaitTimeoutMillis, int maxQueuedStatements,
             int cleanupIntervalSeconds) {
         this.enabled = enabled;
         this.idleTimeoutMillis = idleTimeoutMillis;
         this.maxSessions = maxSessions;
         this.maxSessionsPerUser = maxSessionsPerUser;
         this.maxResultRows = maxResultRows;
-        this.maxResultBytes = maxResultBytes;
         this.lockWaitTimeoutMillis = lockWaitTimeoutMillis;
         this.maxQueuedStatements = maxQueuedStatements;
         this.cleanupIntervalSeconds = cleanupIntervalSeconds;
@@ -55,10 +53,10 @@ public class WebSqlLimits {
     public static WebSqlLimits fromConfig() {
         int cleanupIntervalSeconds = Math.max(1,
                 Math.min(60, Config.web_sql_session_idle_timeout_seconds / 2));
-        return new WebSqlLimits(Config.enable_web_sql_session,
+        return new WebSqlLimits(Config.enable_web_ui && Config.enable_web_sql_session,
                 Config.web_sql_session_idle_timeout_seconds * 1000L,
-                Config.web_sql_max_sessions, Math.min(Config.web_sql_max_sessions, MAX_SESSIONS_PER_USER),
-                MAX_RESULT_ROWS, Config.web_sql_max_result_bytes,
-                FAIL_FAST_LOCK_WAIT_MILLIS, MAX_REQUESTS_IN_OR_WAITING_FOR_A_SESSION, cleanupIntervalSeconds);
+                Config.web_sql_max_sessions, MAX_SESSIONS_PER_USER,
+                MAX_RESULT_ROWS, FAIL_FAST_LOCK_WAIT_MILLIS,
+                MAX_REQUESTS_IN_OR_WAITING_FOR_A_SESSION, cleanupIntervalSeconds);
     }
 }

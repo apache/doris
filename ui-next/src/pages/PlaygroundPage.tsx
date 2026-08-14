@@ -553,7 +553,7 @@ export function PlaygroundPage() {
         <aside className="metadata-browser" aria-label="Metadata browser">
           <div className="panel-title"><div><p className="ui-label">Object explorer</p><h2>Metadata</h2></div>{metadataLoading && <Spin size="small" />}</div>
           {metadataError && <Alert type="error" showIcon title="Metadata unavailable" description={metadataError} />}
-          <label>Catalog<Select aria-label="Catalog" value={catalog} loading={metadataLoading && catalogs.length === 0} options={catalogs.map((item) => ({ value: item.name, label: `${item.name} · ${item.type}` }))} onChange={setCatalog} placeholder="Select catalog" /></label>
+          <label>Catalog<Select aria-label="Catalog" value={catalog} loading={metadataLoading && catalogs.length === 0} options={catalogs.map((item) => ({ value: item.name, label: `${item.name} | ${item.type}` }))} onChange={setCatalog} placeholder="Select catalog" /></label>
           <div className="metadata-search">
             <Input
               aria-label="Search databases and loaded tables"

@@ -29,6 +29,10 @@ export async function createWebSqlSession(): Promise<WebSqlSessionInfo> {
   return uiRequest<WebSqlSessionInfo>(basePath, { method: 'POST' });
 }
 
+export async function getWebSqlSession(sessionId: string): Promise<WebSqlSessionInfo> {
+  return uiRequest<WebSqlSessionInfo>(`${basePath}/${encodeURIComponent(sessionId)}`);
+}
+
 export async function executeWebSql(sessionId: string, sql: string): Promise<WebSqlExecutionResult> {
   return uiRequest<WebSqlExecutionResult>(`${basePath}/${encodeURIComponent(sessionId)}/statements`, {
       method: 'POST',

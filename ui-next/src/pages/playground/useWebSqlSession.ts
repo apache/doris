@@ -22,6 +22,7 @@ import {
   closeWebSqlSession,
   createWebSqlSession,
   executeWebSql,
+  getWebSqlSession,
   resetWebSqlSession,
 } from '../../api/webSql';
 import { UiApiError } from '../../api/client';
@@ -85,7 +86,14 @@ export function useWebSqlSession() {
       try {
         const stored = storedSessionId();
         if (stored && !(await isClaimedByAnotherTab(stored))) {
-          adoptSession(stored);
+          try {
+            const info = await getWebSqlSession(stored);
+            adoptSession(info.sessionId);
+          } catch (cause) {
+            if (!isRecoverable(cause)) throw cause;
+            storeSessionId(null);
+            await createSession();
+          }
         } else {
           if (stored) storeSessionId(null);
           await createSession();
