@@ -650,6 +650,16 @@ public class SubqueryToApply implements AnalysisRuleFactory {
 
     private void collectPlanExpressions(Plan plan, List<Expression> expressions) {
         expressions.addAll(plan.getExpressions());
+        if (plan instanceof LogicalApply) {
+            // LogicalApply.getExpressions() exposes only the correlation slots/filter and omits
+            // the runtime compareExpr and typeCoercionExpr, but the executed apply (e.g.
+            // InApplyToJoin) reads compareExpr to build the run-time equality, so a
+            // NoneMovableFunction/volatile there (such as a nested `assert_true(x) IN (...)`
+            // compare expression) must be part of the sensitivity walk too
+            LogicalApply<?, ?> apply = (LogicalApply<?, ?>) plan;
+            apply.getCompareExpr().ifPresent(expressions::add);
+            apply.getTypeCoercionExpr().ifPresent(expressions::add);
+        }
         for (Plan child : plan.children()) {
             collectPlanExpressions(child, expressions);
         }

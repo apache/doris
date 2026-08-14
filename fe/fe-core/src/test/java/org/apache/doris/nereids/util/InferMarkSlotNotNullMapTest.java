@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -385,6 +386,35 @@ public class InferMarkSlotNotNullMapTest extends ExpressionRewriteTestHelper {
                 markSlot1, markSlot2, markSlot3, markSlot4, markSlot5);
         Assertions.assertTrue(ExpressionUtils.inferMarkSlotNotNullMap(
                 new Or(exceedLimitList), context).isEmpty());
+    }
+
+    @Test
+    public void testVolatileFencesCurrentPredicate() {
+        MarkJoinSlotReference markSlot1 = new MarkJoinSlotReference("markSlot1");
+
+        // the current predicate contains a real volatile expression (Random, a
+        // VolatileExpression). every other sensitivity oracle uses AssertTrue/
+        // NoneMovableFunction, so deleting only `expression.containsVolatileExpression() ||`
+        // would leave them green while reopening this arm: a volatile current predicate must
+        // fence BOTH fields - pair.first (turning the marker's null into false can skip the
+        // volatile evaluation via the vectorized AND short-circuit) and pair.second
+        // (eliminating the mark join prunes rows before the volatile evaluates)
+        assertMarkSlotPair(new And(markSlot1, new Random()), markSlot1, false, false);
+    }
+
+    @Test
+    public void testVolatileFencesEvaluationDomain() {
+        MarkJoinSlotReference markSlot1 = new MarkJoinSlotReference("markSlot1");
+
+        // clean current predicate + a volatile in the supplied evaluation domain: pair.first
+        // stays true (the apply is kept and a sibling/later volatile cannot observe this
+        // marker's null-vs-false mapping) while pair.second is fenced (the elimination would
+        // prune rows before the volatile evaluates)
+        Expression markConjunct = new Nvl(markSlot1, BooleanLiteral.FALSE);
+        Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> result = ExpressionUtils
+                .inferMarkSlotNotNullMap(markConjunct, context,
+                        ImmutableList.of(markConjunct, new Random()));
+        Assertions.assertEquals(Pair.of(Boolean.TRUE, Boolean.FALSE), result.get(markSlot1));
     }
 
     private void assertMarkSlotPair(Expression predicate, MarkJoinSlotReference markSlot,
