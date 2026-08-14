@@ -925,6 +925,12 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
 
     // Create mock tablet meta with updated properties
     auto mock_tablet_meta = createMockTabletMeta(true, "time_series");
+    mock_tablet_meta->set_time_series_compaction_goal_size_mbytes(1234);
+    mock_tablet_meta->set_time_series_compaction_file_count_threshold(17);
+    mock_tablet_meta->set_time_series_compaction_time_threshold_seconds(3601);
+    mock_tablet_meta->set_time_series_compaction_empty_rowsets_threshold(9);
+    mock_tablet_meta->set_time_series_compaction_level_threshold(7);
+    mock_tablet_meta->set_vertical_compaction_num_columns_per_group(13);
 
     // Mock get_tablet_meta to return tablet_meta with updated properties
     sp->set_call_back("CloudMetaMgr::get_tablet_meta", [mock_tablet_meta](auto&& args) {
@@ -942,6 +948,12 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     // Verify both properties are synced
     EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
     EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_goal_size_mbytes(), 1234);
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_file_count_threshold(), 17);
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_time_threshold_seconds(), 3601);
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold(), 9);
+    EXPECT_EQ(_tablet->tablet_meta()->time_series_compaction_level_threshold(), 7);
+    EXPECT_EQ(_tablet->tablet_meta()->vertical_compaction_num_columns_per_group(), 13);
 
     sp->disable_processing();
     sp->clear_all_call_backs();

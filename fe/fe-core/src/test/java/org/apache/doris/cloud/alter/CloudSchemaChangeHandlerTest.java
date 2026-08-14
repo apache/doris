@@ -459,7 +459,7 @@ public class CloudSchemaChangeHandlerTest {
         Mockito.when(table.getPartitions()).thenReturn(Arrays.asList(partition));
         Mockito.when(table.getPartition("p1")).thenReturn(partition);
         Mockito.when(partition.getName()).thenReturn("p1");
-        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE))
+        Mockito.when(partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE, true))
                 .thenReturn(Arrays.asList(index));
         Mockito.when(index.getTablets()).thenReturn(Arrays.asList(tablet1, tablet2, tablet3));
         Mockito.when(tablet1.getId()).thenReturn(101L);
