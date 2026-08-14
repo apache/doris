@@ -409,7 +409,14 @@ if (COMPILER_CLANG)
                         -Wthread-safety)
     add_compile_options(-Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
-                        -Wno-sign-conversion)
+                        -Wno-sign-conversion
+                        # libstdc++-15 puts `#pragma GCC unroll` on loops in its own
+                        # headers (bits/stl_algobase.h); when a sanitizer/coverage
+                        # build compiles at low optimization the unroller punts and
+                        # clang's -Wpass-failed turns that missed *hint* into an
+                        # -Werror failure. The diagnostic carries no correctness
+                        # signal, so drop it.
+                        -Wno-pass-failed)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
