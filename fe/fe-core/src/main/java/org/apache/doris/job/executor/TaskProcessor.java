@@ -18,6 +18,8 @@
 package org.apache.doris.job.executor;
 
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
 
 import lombok.extern.log4j.Log4j2;
 
@@ -82,6 +84,22 @@ public class TaskProcessor {
             task.runTask();
         } catch (Exception e) {
             log.warn("Execute task error, task id: {}", task.getTaskId(), e);
+        } finally {
+            closeTaskContext();
+        }
+    }
+
+    private void closeTaskContext() {
+        ConnectContext connectContext = ConnectContext.get();
+        try {
+            if (connectContext != null) {
+                StatementContext statementContext = connectContext.getStatementContext();
+                if (statementContext != null) {
+                    statementContext.close();
+                }
+            }
+        } finally {
+            ConnectContext.remove();
         }
     }
 }
