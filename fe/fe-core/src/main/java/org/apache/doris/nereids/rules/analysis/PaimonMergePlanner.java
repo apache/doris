@@ -37,7 +37,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -302,7 +302,7 @@ final class PaimonMergePlanner {
             }
             Expression result = new IntegerLiteral(i);
             matchedLabel = clause.getCasePredicate().isPresent()
-                    ? new If(clause.getCasePredicate().get(), result, matchedLabel) : result;
+                    ? new ShortCircuitIf(clause.getCasePredicate().get(), result, matchedLabel) : result;
         }
         Expression notMatchedLabel = new NullLiteral(IntegerType.INSTANCE);
         for (int i = merge.getNotMatchedClauses().size() - 1; i >= 0; i--) {
@@ -313,9 +313,9 @@ final class PaimonMergePlanner {
             }
             Expression result = new IntegerLiteral(i + merge.getMatchedClauses().size());
             notMatchedLabel = clause.getCasePredicate().isPresent()
-                    ? new If(clause.getCasePredicate().get(), result, notMatchedLabel) : result;
+                    ? new ShortCircuitIf(clause.getCasePredicate().get(), result, notMatchedLabel) : result;
         }
-        return new Alias(new If(targetPresent, matchedLabel, notMatchedLabel), BRANCH_LABEL);
+        return new Alias(new ShortCircuitIf(targetPresent, matchedLabel, notMatchedLabel), BRANCH_LABEL);
     }
 
     private List<Expression> buildDeleteProjection() {
@@ -415,7 +415,7 @@ final class PaimonMergePlanner {
         Expression value = new NullLiteral(dataType);
         for (int branch = branches.size() - 1; branch >= 0; branch--) {
             Expression branchValue = new Cast(branches.get(branch).get(column), dataType);
-            value = new If(new EqualTo(branchLabel,
+            value = new ShortCircuitIf(new EqualTo(branchLabel,
                     new IntegerLiteral(branch)), branchValue, value);
         }
         return value;
@@ -433,14 +433,14 @@ final class PaimonMergePlanner {
         }
 
         private static CardinalityCheck matched(Expression isInsert) {
-            Alias marker = new Alias(new If(isInsert,
+            Alias marker = new Alias(new ShortCircuitIf(isInsert,
                     new NullLiteral(BigIntType.INSTANCE), new BigIntLiteral(1)), MATCH_MARKER);
             return new CardinalityCheck(marker, MATCH_COUNT,
                     "Paimon MERGE matched one target row with multiple source rows");
         }
 
         private static CardinalityCheck inserted(Expression isInsert) {
-            Alias marker = new Alias(new If(isInsert,
+            Alias marker = new Alias(new ShortCircuitIf(isInsert,
                     new BigIntLiteral(1), new NullLiteral(BigIntType.INSTANCE)), INSERT_MARKER);
             return new CardinalityCheck(marker, INSERT_COUNT,
                     "Paimon MERGE attempted to insert multiple rows with the same primary key");

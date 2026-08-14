@@ -28,8 +28,11 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.PaimonRowChangeSpec;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DataType;
@@ -40,13 +43,15 @@ import com.google.common.collect.Maps;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 /** Builds a Paimon changelog projection against the current write target. */
 final class PaimonRowChangePlanBuilder {
     private PaimonRowChangePlanBuilder() {
     }
 
-    static LogicalProject<?> build(
+    static LogicalPlan build(
             PaimonWriteTarget target, PaimonRowChangeSpec spec, LogicalPlan child,
             CascadesContext cascadesContext) {
         PaimonRowChangeCapabilities.check(target, spec, cascadesContext);
@@ -96,7 +101,7 @@ final class PaimonRowChangePlanBuilder {
         return new LogicalProject<>(projects, child);
     }
 
-    private static LogicalProject<?> buildDelete(PaimonWriteTarget target,
+    private static LogicalPlan buildDelete(PaimonWriteTarget target,
             PaimonRowChangeSpec.Delete delete, LogicalPlan child,
             CascadesContext cascadesContext) {
         ExpressionAnalyzer analyzer = expressionAnalyzer(child, cascadesContext);
@@ -106,8 +111,29 @@ final class PaimonRowChangePlanBuilder {
             projects.add(bindColumn(
                     analyzer, targetSlot(delete.getTargetNameInPlan(), column.getName()), column));
         }
-        // SQL DELETE changes each target row once even when a USING join matches it repeatedly.
-        return new LogicalProject<>(projects, true, child);
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(projects, child);
+        if (!delete.shouldDeduplicateTargetRows()) {
+            return project;
+        }
+
+        Set<String> primaryKeys = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        primaryKeys.addAll(target.getTable().primaryKeys());
+        List<Expression> groupBy = new ArrayList<>();
+        List<NamedExpression> outputs = new ArrayList<>();
+        Slot operation = project.getOutput().get(0);
+        groupBy.add(operation);
+        outputs.add(operation);
+        for (int i = 0; i < target.getSchema().size(); i++) {
+            Column column = target.getSchema().get(i);
+            Slot value = project.getOutput().get(i + 1);
+            if (primaryKeys.contains(column.getName())) {
+                groupBy.add(value);
+                outputs.add(value);
+            } else {
+                outputs.add(new Alias(new AnyValue(value), column.getName()));
+            }
+        }
+        return new LogicalAggregate<>(groupBy, outputs, project);
     }
 
     private static UnboundSlot targetSlot(List<String> targetNameInPlan, String columnName) {

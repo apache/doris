@@ -194,6 +194,15 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
             'primary-key' = 'id',
             'bucket' = '1'
         );
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_binary;
+        CREATE TABLE paimon.${dbName}.t_binary (
+            id INT, payload BINARY
+        ) USING paimon
+        TBLPROPERTIES (
+            'primary-key' = 'id',
+            'bucket' = '1'
+        );
     """
 
     sql """drop catalog if exists ${catalogName}"""
@@ -205,7 +214,8 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
             's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
             's3.access_key' = 'admin',
             's3.secret_key' = 'password',
-            's3.path.style.access' = 'true'
+            's3.path.style.access' = 'true',
+            'enable.mapping.varbinary' = 'true'
         );
     """
     sql """switch ${catalogName}"""
@@ -235,7 +245,10 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES('replication_num'='1')
     """
-    sql """INSERT INTO internal.${dbName}.t_delete_source VALUES (10), (10)"""
+    sql """
+        INSERT INTO internal.${dbName}.t_delete_source
+        SELECT 10 FROM numbers("number" = "1024")
+    """
     sql """drop table if exists internal.${dbName}.t_same_name"""
     sql """
         CREATE TABLE internal.${dbName}.t_same_name (
@@ -258,7 +271,7 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
         }
 
         def incrementalAuditLog = { tableName, columns, beforeSnapshot, afterSnapshot ->
-            return spark_paimon """
+            spark_paimon """
                 SELECT ${columns}
                 FROM paimon_incremental_query(
                     'paimon.${dbName}.`${tableName}\$audit_log`',
@@ -375,6 +388,10 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
         ], incrementalAuditLog("t_input_changelog", "rowkind, id, name",
                 deleteInputBefore, deleteInputAfter))
         assertEquals([[0L]], sql("SELECT count(*) FROM t_input_changelog"))
+
+        sql """INSERT INTO t_binary VALUES (1, CAST('delete-me' AS VARBINARY))"""
+        sql """DELETE FROM t_binary WHERE id = 1"""
+        assertEquals([[0L]], sql("SELECT count(*) FROM t_binary"))
 
         sql """INSERT INTO t_same_name VALUES (1, 'old')"""
         sql """INSERT INTO internal.${dbName}.t_same_name VALUES (1, 'from-update')"""
@@ -618,6 +635,25 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
             """
             exception "Paimon UPDATE only supports merge-engine=deduplicate"
         }
+
+        sql """set short_circuit_evaluation = false"""
+        sql """TRUNCATE TABLE internal.${dbName}.t_merge_source"""
+        sql """INSERT INTO internal.${dbName}.t_merge_source VALUES
+            (1, 'short_update', 901, 'U'),
+            (7000, 'short_insert', 902, 'I')
+        """
+        sql """
+            MERGE INTO t_dml t
+            USING internal.${dbName}.t_merge_source s ON t.id = s.id
+            WHEN MATCHED AND s.id = 1 THEN UPDATE SET
+                name = s.name,
+                score = IF(assert_true(s.id = 1, 'inactive assignment evaluated'), s.score, s.score)
+            WHEN MATCHED AND assert_true(s.id < 0, 'later predicate evaluated') THEN DELETE
+            WHEN NOT MATCHED THEN INSERT (id, name, score, status)
+                VALUES (s.id, s.name, s.score, 'short-circuit')
+        """
+        assertEquals([["short_update"], ["short_insert"]],
+                sql("SELECT name FROM t_dml WHERE id IN (1, 7000) ORDER BY id"))
     } finally {
         sql """drop catalog if exists ${catalogName}"""
         sql """drop table if exists internal.${dbName}.t_merge_source"""

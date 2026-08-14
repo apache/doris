@@ -375,6 +375,7 @@ public class BindExpression implements AnalysisRuleFactory {
         }
         return castExprs;
     }
+
     private static NamedExpression coerceToColumn(NamedExpression expr, Column column) {
         DataType targetType = DataType.fromCatalogType(column.getType());
         Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);

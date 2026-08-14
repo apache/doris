@@ -84,13 +84,19 @@ public abstract class PaimonRowChangeSpec {
     /** DELETE description. */
     public static final class Delete extends PaimonRowChangeSpec {
         private final List<String> targetNameInPlan;
+        private final boolean deduplicateTargetRows;
 
-        public Delete(List<String> targetNameInPlan) {
+        public Delete(List<String> targetNameInPlan, boolean deduplicateTargetRows) {
             this.targetNameInPlan = Utils.copyRequiredList(targetNameInPlan);
+            this.deduplicateTargetRows = deduplicateTargetRows;
         }
 
         public List<String> getTargetNameInPlan() {
             return targetNameInPlan;
+        }
+
+        public boolean shouldDeduplicateTargetRows() {
+            return deduplicateTargetRows;
         }
 
         @Override
@@ -106,12 +112,13 @@ public abstract class PaimonRowChangeSpec {
         @Override
         public boolean equals(Object other) {
             return other instanceof Delete
-                    && Objects.equals(targetNameInPlan, ((Delete) other).targetNameInPlan);
+                    && Objects.equals(targetNameInPlan, ((Delete) other).targetNameInPlan)
+                    && deduplicateTargetRows == ((Delete) other).deduplicateTargetRows;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(targetNameInPlan);
+            return Objects.hash(targetNameInPlan, deduplicateTargetRows);
         }
     }
 

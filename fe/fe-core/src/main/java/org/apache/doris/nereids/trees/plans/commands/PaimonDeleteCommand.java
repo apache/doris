@@ -40,13 +40,16 @@ public class PaimonDeleteCommand extends Command implements ForwardWithSync, Exp
     private final List<String> nameParts;
     private final String tableAlias;
     private final LogicalPlan logicalQuery;
+    private final boolean deduplicateTargetRows;
 
     /** Create a Paimon delete command from the parsed DELETE query. */
-    public PaimonDeleteCommand(List<String> nameParts, String tableAlias, LogicalPlan logicalQuery) {
+    public PaimonDeleteCommand(List<String> nameParts, String tableAlias,
+            LogicalPlan logicalQuery, boolean deduplicateTargetRows) {
         super(PlanType.DELETE_COMMAND);
         this.nameParts = nameParts;
         this.tableAlias = tableAlias;
         this.logicalQuery = logicalQuery;
+        this.deduplicateTargetRows = deduplicateTargetRows;
     }
 
     @Override
@@ -59,7 +62,7 @@ public class PaimonDeleteCommand extends Command implements ForwardWithSync, Exp
         List<String> targetNameInPlan = tableAlias != null
                 ? ImmutableList.of(tableAlias) : RelationUtil.getQualifierName(ctx, nameParts);
         return new UnboundPaimonTableSink<>(nameParts, logicalQuery,
-                new PaimonRowChangeSpec.Delete(targetNameInPlan));
+                new PaimonRowChangeSpec.Delete(targetNameInPlan, deduplicateTargetRows));
     }
 
     @Override

@@ -158,7 +158,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                 throw new AnalysisException(
                         "Paimon DELETE does not support partition name lists; use a WHERE predicate");
             }
-            new PaimonDeleteCommand(nameParts, tableAlias, logicalQuery).run(ctx, executor);
+            new PaimonDeleteCommand(nameParts, tableAlias, logicalQuery, false).run(ctx, executor);
             return;
         }
 
@@ -506,7 +506,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                 throw new AnalysisException(
                         "Paimon DELETE does not support partition name lists; use a WHERE predicate");
             }
-            return new PaimonDeleteCommand(nameParts, tableAlias, handleCte(logicalQuery))
+            return new PaimonDeleteCommand(nameParts, tableAlias, handleCte(logicalQuery), false)
                     .getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx, logicalQuery);

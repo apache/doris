@@ -65,7 +65,7 @@ public class DeleteFromUsingCommand extends DeleteFromCommand {
                 throw new AnalysisException(
                         "Paimon DELETE does not support partition name lists; use a WHERE predicate");
             }
-            new PaimonDeleteCommand(nameParts, tableAlias, handleCte(logicalQuery))
+            new PaimonDeleteCommand(nameParts, tableAlias, handleCte(logicalQuery), true)
                     .run(ctx, executor);
             return;
         }
