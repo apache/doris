@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.algebra.Project;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -57,8 +58,23 @@ class ConvertInnerJoinToSemiJoinTest extends TestWithFeService implements MemoPa
                 .analyze("select distinct t1.id1 from t1 join t2 on t1.id1 = t2.id2")
                 .rewrite()
                 .anyMatches(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN))
-                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.INNER_JOIN))
-                .printlnTree();
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.INNER_JOIN));
+    }
+
+    // The headline case of the rule: the DISTINCT aggregate consumes several left side
+    // columns, so column pruning inserts an all-slot project between the aggregate and
+    // the join. This exercises the second rule pattern Aggregate -> Project(all slots)
+    // -> Join explicitly: the join below the all-slot project must become a left semi
+    // join.
+    @Test
+    void testConvertWithProjectBetweenAggregateAndJoin() throws Exception {
+        PlanChecker.from(connectContext)
+                .analyze("select distinct t1.id1, t1.v1 from t1 join t2 on t1.id1 = t2.id2")
+                .rewrite()
+                .matches(logicalAggregate(logicalProject(logicalJoin()
+                        .when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN))
+                        .when(Project::isAllSlots)))
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.INNER_JOIN));
     }
 
     // t2.id2 is projected above the join, so the right side columns leak:
@@ -68,8 +84,7 @@ class ConvertInnerJoinToSemiJoinTest extends TestWithFeService implements MemoPa
         PlanChecker.from(connectContext)
                 .analyze("select distinct t1.id1, t2.id2 from t1 join t2 on t1.id1 = t2.id2")
                 .rewrite()
-                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN))
-                .printlnTree();
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN));
     }
 
     // no DISTINCT (or group-by) dedup guarantee above the join:
@@ -79,8 +94,7 @@ class ConvertInnerJoinToSemiJoinTest extends TestWithFeService implements MemoPa
         PlanChecker.from(connectContext)
                 .analyze("select t1.id1 from t1 join t2 on t1.id1 = t2.id2")
                 .rewrite()
-                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN))
-                .printlnTree();
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN));
     }
 
     // non-equi join condition goes into otherJoinConjuncts:
@@ -90,8 +104,7 @@ class ConvertInnerJoinToSemiJoinTest extends TestWithFeService implements MemoPa
         PlanChecker.from(connectContext)
                 .analyze("select distinct t1.id1 from t1 join t2 on t1.id1 > t2.id2")
                 .rewrite()
-                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN))
-                .printlnTree();
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN));
     }
 
     // aggregation with aggregate functions must NOT be converted:
@@ -101,8 +114,7 @@ class ConvertInnerJoinToSemiJoinTest extends TestWithFeService implements MemoPa
         PlanChecker.from(connectContext)
                 .analyze("select t1.id1, count(*) from t1 join t2 on t1.id1 = t2.id2 group by t1.id1")
                 .rewrite()
-                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN))
-                .printlnTree();
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN));
     }
 
     // <=> (NullSafeEqual) is an EqualPredicate: FindHashConditionForJoin extracts it into
@@ -113,7 +125,6 @@ class ConvertInnerJoinToSemiJoinTest extends TestWithFeService implements MemoPa
                 .analyze("select distinct t1.id1 from t1 join t2 on t1.id1 <=> t2.id2")
                 .rewrite()
                 .anyMatches(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN))
-                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.INNER_JOIN))
-                .printlnTree();
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.INNER_JOIN));
     }
 }
