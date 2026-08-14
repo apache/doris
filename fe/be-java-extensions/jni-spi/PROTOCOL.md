@@ -212,7 +212,7 @@ query, so a metric that never appears in a profile is a typo here rather than a 
 
 ## 7. Plugin discovery and version
 
-- A plugin is a directory under `lib/java/plugins/`; the directory name is the name BE addresses it
+- A plugin is a directory under `plugins/jni/`; the directory name is the name BE addresses it
   by. All jars in the directory form its classpath.
 - The entry point is found by `ServiceLoader`, from
   `META-INF/services/org.apache.doris.jni.spi.DorisPlugin` inside the plugin's own jars.

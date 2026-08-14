@@ -52,7 +52,7 @@ Status create_tvf_format_transformer(const TTVFTableSink& tvf_sink, RuntimeState
         // writer_class names a plugin factory, not a Java class. A class name stopped being able
         // to identify a writer when plugins were isolated: a concrete writer lives in its own
         // plugin's classloader, which BE cannot search by name, so what is addressable is the
-        // plugin directory under lib/java/plugins and the factory inside it.
+        // plugin directory under plugins/jni and the factory inside it.
         const std::string& writer = tvf_sink.writer_class;
         const size_t sep = writer.find(':');
         if (sep == std::string::npos || sep == 0 || sep + 1 == writer.size()) {
@@ -60,7 +60,7 @@ Status create_tvf_format_transformer(const TTVFTableSink& tvf_sink, RuntimeState
                     "writer_class must name a plugin factory as \"<plugin>:<factory>\", for "
                     "example \"java-writer:local-file\", but was \"{}\". A Java class name does "
                     "not identify a writer: every plugin loads its own classes, so a writer is "
-                    "addressed by its plugin directory under lib/java/plugins and the factory "
+                    "addressed by its plugin directory under plugins/jni and the factory "
                     "name inside it.",
                     writer);
         }
