@@ -32,15 +32,14 @@
 
 namespace doris {
 
-namespace {
-
+// Not in the anonymous namespace: as a field of the externally-visible Impl, an
+// internal-linkage type trips gcc's -Wsubobject-linkage once this file is
+// #included into a unity batch instead of being the main file of its TU.
 struct OwnedPathSegment {
     VariantElementV2PathSegment::Kind kind;
     PaddedPODArray<char> key;
     int64_t index = 0;
 };
-
-} // namespace
 
 struct ResolvedVariantElementV2Path::Impl {
     DorisVector<OwnedPathSegment> segments;

@@ -76,9 +76,6 @@
 namespace doris {
 namespace {
 
-constexpr int kIcebergPositionDeleteContent = 1;
-constexpr int kIcebergDeletionVectorContent = 3;
-
 std::string table_format_name(const TFileRangeDesc& range) {
     return range.__isset.table_format_params ? range.table_format_params.table_format_type
                                              : "NotSet";
@@ -134,15 +131,6 @@ bool is_supported_jni_table_format(const TFileRangeDesc& range) {
     }
     return table_format == "jdbc" || table_format == "iceberg" || table_format == "hudi" ||
            table_format == "max_compute" || table_format == "trino_connector";
-}
-
-bool is_iceberg_position_deletes_sys_table(const TFileRangeDesc& range) {
-    return range.__isset.table_format_params &&
-           range.table_format_params.table_format_type == "iceberg" &&
-           range.table_format_params.__isset.iceberg_params &&
-           range.table_format_params.iceberg_params.__isset.content &&
-           (range.table_format_params.iceberg_params.content == kIcebergPositionDeleteContent ||
-            range.table_format_params.iceberg_params.content == kIcebergDeletionVectorContent);
 }
 
 bool is_csv_format(TFileFormatType::type format_type) {
