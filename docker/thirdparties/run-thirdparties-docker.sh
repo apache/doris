@@ -369,10 +369,16 @@ find_juicefs_hadoop_jar() {
         "${JUICEFS_RUNTIME_ROOT}/lib/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/output/be/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        # BE used to deploy juicefs under lib/java_extensions/. Clusters already deployed on CI
+        # machines still have that layout and are not rebuilt by this repo, so the old globs stay
+        # alongside the new ones - first match wins and a miss costs nothing.
         "${DORIS_ROOT}/output/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/be/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
         "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/be/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
         "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
     )
     juicefs_find_hadoop_jar_by_globs "${jar_globs[@]}"
