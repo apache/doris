@@ -47,10 +47,10 @@ if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
 fi
 
 # The shared layer, the same one start_be.sh puts in front of BE: the plugin SPI and the loader
-# that reads lib/java/plugins. What used to be here were two fat jars that no longer deploy -
+# that reads plugins/jni. What used to be here were two fat jars that no longer deploy -
 # every Java scanner and the UDF executors are plugins now, each with its own directory.
-if [[ -d "${DORIS_HOME}/lib/java/spi" ]]; then
-    for f in "${DORIS_HOME}/lib/java/spi"/*.jar; do
+if [[ -d "${DORIS_HOME}/lib/jni/spi" ]]; then
+    for f in "${DORIS_HOME}/lib/jni/spi"/*.jar; do
         if [[ -z "${DORIS_CLASSPATH}" ]]; then
             export DORIS_CLASSPATH="${f}"
         else

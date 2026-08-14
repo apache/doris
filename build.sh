@@ -846,7 +846,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     # the ones -am cannot reach. Keep it that way: reading it should answer "does my module get
     # built" without also having to work out who depends on whom.
     #
-    # The plugins. Each one deploys as its own directory under lib/java/plugins; see the deploy
+    # The plugins. Each one deploys as its own directory under plugins/jni; see the deploy
     # list far below, which maps module name -> plugin directory name.
     modules+=("be-java-extensions/iceberg-metadata-scanner")
     modules+=("be-java-extensions/hadoop-hudi-scanner")
@@ -859,7 +859,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     # The hadoop drop C++ libhdfs loads. Not a plugin: it deploys whole into lib/hadoop_hdfs and BE
     # resolves it off the system classpath, so no plugin ever sees it and it has no plugin name.
     modules+=("be-java-extensions/${HADOOP_DEPS_NAME}")
-    # The shared layer, deployed to lib/java/spi. ATTN: nothing depends on these two, so -am cannot
+    # The shared layer, deployed to lib/jni/spi. ATTN: nothing depends on these two, so -am cannot
     # reach them - dropping either line means they silently stop being built.
     modules+=("be-java-extensions/jni-spi")
     modules+=("be-java-extensions/jni-bootstrap")
@@ -1378,8 +1378,8 @@ EOF
     # The shared layer: the SPI a plugin compiles against and the loader that reads the plugin
     # directory. These are the only Doris classes that live on both sides of the boundary, which
     # is why they are the only ones deployed where the system classpath can see them.
-    BE_JAVA_SPI_DIR="${DORIS_OUTPUT}/be/lib/java/spi"
-    rm -rf "${DORIS_OUTPUT}/be/lib/java"
+    BE_JAVA_SPI_DIR="${DORIS_OUTPUT}/be/lib/jni/spi"
+    rm -rf "${DORIS_OUTPUT}/be/lib/jni"
     mkdir -p "${BE_JAVA_SPI_DIR}"
     for spi_module in jni-spi jni-bootstrap; do
         spi_jar="${DORIS_HOME}/fe/be-java-extensions/${spi_module}/target/doris-${spi_module}.jar"
@@ -1397,7 +1397,11 @@ EOF
     # ATTN: a module named here must also be in the maven module list far above; adding it in one
     # place only means deploying whatever the last build happened to leave in target/, which looks
     # like a successful build of the wrong thing.
-    BE_JAVA_PLUGINS_DIR="${DORIS_OUTPUT}/be/lib/java/plugins"
+    BE_JAVA_PLUGINS_DIR="${DORIS_OUTPUT}/be/plugins/jni"
+    # ATTN: this rm reaches into plugins/, which is otherwise the operator's tree - the drivers,
+    # configs and UDF jars they dropped there. It must name plugins/jni and nothing above it;
+    # widening it by one path element wipes a running deployment's drop points.
+    rm -rf "${BE_JAVA_PLUGINS_DIR}"
     mkdir -p "${BE_JAVA_PLUGINS_DIR}"
     plugin_modules=("java-writer:java-writer")
     plugin_modules+=("jdbc-scanner:jdbc")
