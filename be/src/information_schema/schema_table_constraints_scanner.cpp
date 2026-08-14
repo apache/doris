@@ -15,22 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "information_schema/schema_table_properties_scanner.h"
+#include "information_schema/schema_table_constraints_scanner.h"
 
 #include "core/string_ref.h"
 
 namespace doris {
 
-std::vector<SchemaScanner::ColumnDesc> SchemaTablePropertiesScanner::_s_tbls_columns = {
-        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
+// Must stay in the same order and of the same types as the `table_constraints` entry of
+// SchemaTable.TABLE_MAP on the FE, which builds these rows.
+std::vector<SchemaScanner::ColumnDesc> SchemaTableConstraintsScanner::_s_tbls_columns = {
+        {"CONSTRAINT_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"CONSTRAINT_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"CONSTRAINT_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"PROPERTY_NAME", TYPE_STRING, sizeof(StringRef), true},
-        {"PROPERTY_VALUE", TYPE_STRING, sizeof(StringRef), true},
+        {"CONSTRAINT_TYPE", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
-SchemaTablePropertiesScanner::SchemaTablePropertiesScanner()
-        : SchemaPerDbScanner(_s_tbls_columns, TSchemaTableType::SCH_TABLE_PROPERTIES,
-                             TSchemaTableName::TABLE_PROPERTIES, "table properties") {}
+SchemaTableConstraintsScanner::SchemaTableConstraintsScanner()
+        : SchemaPerDbScanner(_s_tbls_columns, TSchemaTableType::SCH_TABLE_CONSTRAINTS,
+                             TSchemaTableName::TABLE_CONSTRAINTS, "table constraints") {}
 
 } // namespace doris

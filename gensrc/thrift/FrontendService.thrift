@@ -68,6 +68,9 @@ struct TDescribeTablesParams {
   // Reserved for downstream field `current_roles` to keep thrift field ids
   // wire-compatible across maintained branches. Do not reuse this id.
   8: optional set<string> reserved_field_8
+  // Report COLUMN_KEY the way MySQL does. Forwarded from the schema scan node because
+  // this request carries no session of its own.
+  9: optional bool mysql_compatible_index_metadata = false
 }
 
 // Results of a call to describeTable()
@@ -921,6 +924,9 @@ enum TSchemaTableName {
   ROLE_MAPPINGS = 17,
   EXTENSIONS = 18,
   TSO_STATUS = 19,
+  STATISTICS = 20,
+  KEY_COLUMN_USAGE = 21,
+  TABLE_CONSTRAINTS = 22,
 }
 
 struct TMetadataTableRequestParams {
@@ -955,6 +961,9 @@ struct TSchemaTableRequestParams {
     // Reserved for downstream field `current_roles` to keep thrift field ids
     // wire-compatible across maintained branches. Do not reuse this id.
     9: optional set<string> reserved_field_9
+    // The one table the query asked for, when it pinned one with `TABLE_NAME = '...'`.
+    // Lets the FE answer from that table instead of walking the whole database.
+    10: optional string table_name
 }
 
 struct TFetchSchemaTableDataRequest {

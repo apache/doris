@@ -16,24 +16,21 @@
 // under the License.
 
 #pragma once
-
 #include <vector>
 
 #include "information_schema/schema_per_db_scanner.h"
 
 namespace doris {
 
-class SchemaPartitionsScanner : public SchemaPerDbScanner {
-    ENABLE_FACTORY_CREATOR(SchemaPartitionsScanner);
+// information_schema.table_constraints: one row per key constraint of a table.
+class SchemaTableConstraintsScanner : public SchemaPerDbScanner {
+    ENABLE_FACTORY_CREATOR(SchemaTableConstraintsScanner);
 
 public:
-    SchemaPartitionsScanner();
-    ~SchemaPartitionsScanner() override = default;
+    SchemaTableConstraintsScanner();
+    ~SchemaTableConstraintsScanner() override = default;
 
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
-
-protected:
-    void add_extra_request_params(TSchemaTableRequestParams* params) override;
 };
 
 } // namespace doris

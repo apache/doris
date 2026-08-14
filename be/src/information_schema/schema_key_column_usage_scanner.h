@@ -16,24 +16,22 @@
 // under the License.
 
 #pragma once
-
 #include <vector>
 
 #include "information_schema/schema_per_db_scanner.h"
 
 namespace doris {
 
-class SchemaPartitionsScanner : public SchemaPerDbScanner {
-    ENABLE_FACTORY_CREATOR(SchemaPartitionsScanner);
+// information_schema.key_column_usage: the columns each key constraint of a table covers,
+// including what a foreign key points at.
+class SchemaKeyColumnUsageScanner : public SchemaPerDbScanner {
+    ENABLE_FACTORY_CREATOR(SchemaKeyColumnUsageScanner);
 
 public:
-    SchemaPartitionsScanner();
-    ~SchemaPartitionsScanner() override = default;
+    SchemaKeyColumnUsageScanner();
+    ~SchemaKeyColumnUsageScanner() override = default;
 
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
-
-protected:
-    void add_extra_request_params(TSchemaTableRequestParams* params) override;
 };
 
 } // namespace doris

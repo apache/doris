@@ -124,6 +124,11 @@ Status SchemaScanOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
         _common_scanner_param->thread_id = tnode.schema_scan_node.thread_id;
     }
 
+    if (tnode.schema_scan_node.__isset.mysql_compatible_index_metadata) {
+        _common_scanner_param->mysql_compatible_index_metadata =
+                tnode.schema_scan_node.mysql_compatible_index_metadata;
+    }
+
     if (tnode.schema_scan_node.__isset.catalog) {
         _common_scanner_param->catalog =
                 state->obj_pool()->add(new std::string(tnode.schema_scan_node.catalog));

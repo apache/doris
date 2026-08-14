@@ -16,24 +16,22 @@
 // under the License.
 
 #pragma once
-
 #include <vector>
 
 #include "information_schema/schema_per_db_scanner.h"
 
 namespace doris {
 
-class SchemaPartitionsScanner : public SchemaPerDbScanner {
-    ENABLE_FACTORY_CREATOR(SchemaPartitionsScanner);
+// information_schema.statistics: one row per indexed column, the shape MySQL clients read
+// to discover the primary key of a table.
+class SchemaStatisticsScanner : public SchemaPerDbScanner {
+    ENABLE_FACTORY_CREATOR(SchemaStatisticsScanner);
 
 public:
-    SchemaPartitionsScanner();
-    ~SchemaPartitionsScanner() override = default;
+    SchemaStatisticsScanner();
+    ~SchemaStatisticsScanner() override = default;
 
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
-
-protected:
-    void add_extra_request_params(TSchemaTableRequestParams* params) override;
 };
 
 } // namespace doris

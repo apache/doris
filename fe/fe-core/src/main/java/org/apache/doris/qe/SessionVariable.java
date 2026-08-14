@@ -226,6 +226,11 @@ public class SessionVariable implements Serializable, Writable {
     // Compatible with  mysql
     public static final String PROFILLING = "profiling";
 
+    // Report index/key metadata the way MySQL does, so that MySQL ODBC/JDBC clients
+    // and BI tools can discover the primary key of a table.
+    public static final String ENABLE_MYSQL_COMPATIBLE_INDEX_METADATA
+            = "enable_mysql_compatible_index_metadata";
+
     public static final String DIV_PRECISION_INCREMENT = "div_precision_increment";
 
     // see comment of `doris_max_scan_key_num` and `max_pushdown_conditions_per_column` in BE config
@@ -1572,6 +1577,14 @@ public class SessionVariable implements Serializable, Writable {
     public String defaultStorageEngine = "olap";
     @VarAttrDef.VarAttr(name = DEFAULT_TMP_STORAGE_ENGINE)
     public String defaultTmpStorageEngine = "olap";
+
+    @VarAttrDef.VarAttr(name = ENABLE_MYSQL_COMPATIBLE_INDEX_METADATA,
+            description = "Report index and key metadata the way MySQL does. When ON, SHOW KEYS|INDEX returns "
+                    + "one row per indexed column and exposes the UNIQUE/AGGREGATE key of a table as an index "
+                    + "named PRIMARY, which is what MySQL ODBC/JDBC drivers and BI tools look for. OFF by "
+                    + "default, which keeps the legacy output that only lists secondary indexes. Set it "
+                    + "globally to turn it on for every client of the cluster.")
+    public boolean enableMysqlCompatibleIndexMetadata = false;
 
     @VarAttrDef.VarAttr(name = MAX_SCAN_KEY_NUM)
     public int maxScanKeyNum = 48;
@@ -4515,6 +4528,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setShowHiddenColumns(boolean showHiddenColumns) {
         this.showHiddenColumns = showHiddenColumns;
+    }
+
+    public boolean enableMysqlCompatibleIndexMetadata() {
+        return enableMysqlCompatibleIndexMetadata;
+    }
+
+    public void setEnableMysqlCompatibleIndexMetadata(boolean enableMysqlCompatibleIndexMetadata) {
+        this.enableMysqlCompatibleIndexMetadata = enableMysqlCompatibleIndexMetadata;
     }
 
     public boolean skipStorageEngineMerge() {
