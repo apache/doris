@@ -20,18 +20,24 @@ package org.apache.doris.qe;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
@@ -602,5 +608,39 @@ public class StmtExecutorTest extends TestWithFeService {
                 + "   \"ai.model_name\" = \"gpt-test\",\n"
                 + "   \"ai.api_key\" = \"" + apiKey + "\"\n"
                 + ");";
+    }
+
+    @Test
+    public void testQueryReplanResetsMaterializedViewPlanningState() throws Exception {
+        int originalRetryTime = Config.max_query_retry_time;
+        AtomicInteger attempts = new AtomicInteger();
+        BaseTableInfo mvInfo = new BaseTableInfo(new TableNameInfo("internal", "db", "mv"));
+        Partition firstPartition = Mockito.mock(Partition.class);
+        Partition secondPartition = Mockito.mock(Partition.class);
+        try {
+            Config.max_query_retry_time = 1;
+            StmtExecutor executor = new StmtExecutor(connectContext, "select 1") {
+                @Override
+                public void execute(TUniqueId queryId) throws Exception {
+                    StatementContext statementContext = getContext().getStatementContext();
+                    if (attempts.getAndIncrement() == 0) {
+                        statementContext.getMvCanRewritePartitionsMap().putIfAbsent(
+                                mvInfo, Lists.newArrayList(firstPartition, secondPartition));
+                        throw new UserException(SystemInfoService.ERROR_E230);
+                    }
+                    statementContext.getMvCanRewritePartitionsMap().putIfAbsent(
+                            mvInfo, Lists.newArrayList(firstPartition));
+                }
+            };
+
+            executor.queryRetry(new TUniqueId(1, 2));
+
+            Assertions.assertEquals(2, attempts.get());
+            Assertions.assertEquals(Lists.newArrayList(firstPartition),
+                    connectContext.getStatementContext().getMvCanRewritePartitionsMap().get(mvInfo));
+        } finally {
+            Config.max_query_retry_time = originalRetryTime;
+            connectContext.getStatementContext().getMvCanRewritePartitionsMap().clear();
+        }
     }
 }
