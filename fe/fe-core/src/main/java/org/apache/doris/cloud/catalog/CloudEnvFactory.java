@@ -176,13 +176,15 @@ public class CloudEnvFactory extends EnvFactory {
     @Override
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
-                                         String timezone, boolean loadZeroTolerance, boolean enableProfile) {
+                                         String timezone, boolean loadZeroTolerance, boolean enableProfile,
+                                         boolean enableHyperscanFallback) {
         if (SessionVariable.canUseNereidsDistributePlanner()) {
             return super.createCoordinator(
-                    jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile);
+                    jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile,
+                    enableHyperscanFallback);
         }
         return new CloudCoordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance,
-                                enableProfile);
+                                enableProfile, enableHyperscanFallback);
     }
 
     @Override

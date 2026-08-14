@@ -40,6 +40,7 @@ import org.apache.doris.load.loadv2.BrokerPendingTaskAttachment;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadLoadingTask;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
@@ -161,7 +162,9 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
                 transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                getPriority(), isEnableMemtableOnSinkNode, batchSize, cloudClusterId);
+                getPriority(), isEnableMemtableOnSinkNode, batchSize, cloudClusterId,
+                Boolean.parseBoolean(sessionVariables.getOrDefault(
+                        SessionVariable.ENABLE_HYPERSCAN_FALLBACK, Boolean.toString(true))));
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
 

@@ -60,11 +60,24 @@ public class NereidsLoadScanProviderTest {
         request.setCompressType(TFileCompressType.UNKNOWN);
         request.setColumns("time,securityid,EV");
 
-        NereidsStreamLoadTask task = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request);
+        NereidsStreamLoadTask task = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request, true);
         NereidsDataDescription dataDescription = new NereidsDataDescription("t_upper", task);
 
         Assertions.assertEquals(Lists.newArrayList("time", "securityid", "EV"),
                 dataDescription.getFileFieldNames());
+    }
+
+    @Test
+    public void testStreamLoadPreservesHyperscanFallbackOption() throws Exception {
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setLoadId(new TUniqueId(1, 2));
+        request.setTxnId(3);
+        request.setFileType(TFileType.FILE_STREAM);
+        request.setFormatType(TFileFormatType.FORMAT_CSV_PLAIN);
+        request.setCompressType(TFileCompressType.PLAIN);
+
+        NereidsStreamLoadTask task = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request, false);
+        Assertions.assertFalse(task.getEnableHyperscanFallback());
     }
 
     @Test

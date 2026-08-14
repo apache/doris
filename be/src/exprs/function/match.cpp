@@ -25,6 +25,7 @@
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "util/debug_points.h"
+#include "util/hyperscan_util.h"
 
 namespace doris {
 
@@ -506,6 +507,10 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
     hs_database_t* database = nullptr;
     hs_compile_error_t* compile_err = nullptr;
     hs_scratch_t* scratch = nullptr;
+
+    if (is_hyperscan_regexp_expensive(pattern)) {
+        return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(HYPERSCAN_BOUNDED_REPEAT_ERROR);
+    }
 
     if (hs_compile(pattern.data(), HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY | HS_FLAG_UTF8,
                    HS_MODE_BLOCK, nullptr, &database, &compile_err) != HS_SUCCESS) {

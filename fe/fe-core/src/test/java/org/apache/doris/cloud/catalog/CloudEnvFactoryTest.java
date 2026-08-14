@@ -68,7 +68,7 @@ public class CloudEnvFactoryTest {
             context.setThreadLocalInfo();
             Coordinator coordinator = new CloudEnvFactory().createCoordinator(
                     1L, new TUniqueId(1L, 1L), new DescriptorTable(),
-                    Collections.emptyList(), Collections.emptyList(), "UTC", false, false);
+                    Collections.emptyList(), Collections.emptyList(), "UTC", false, false, true);
 
             Assert.assertTrue(coordinator instanceof CloudCoordinator);
             Assert.assertTrue(coordinator.getQueryOptions().isSetNewVersionUnixTimestamp());

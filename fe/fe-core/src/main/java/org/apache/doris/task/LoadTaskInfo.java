@@ -144,6 +144,10 @@ public interface LoadTaskInfo {
         return 2;
     }
 
+    default boolean getEnableHyperscanFallback() {
+        return true;
+    }
+
     class ImportColumnDescs {
         @SerializedName("des")
         public List<ImportColumnDesc> descs = Lists.newArrayList();

@@ -66,7 +66,8 @@ public class InsertStreamTxnExecutor {
         TTxnParams txnConf = txnEntry.getTxnConf();
         OlapTable table = (OlapTable) txnEntry.getTable();
         // StreamLoadTask's id == request's load_id
-        NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request);
+        NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(
+                request, ConnectContext.get().getSessionVariable().enableHyperscanFallback);
         NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner((Database) txnEntry.getDb(), table,
                 streamLoadTask);
         boolean isMowTable = ((OlapTable) txnEntry.getTable()).getEnableUniqueKeyMergeOnWrite();

@@ -141,7 +141,7 @@ public class CoordinatorTest extends TestWithFeService {
 
         Coordinator.FragmentExecParams fragParams = new Coordinator(0L, new TUniqueId(1L, 1L),
                 new DescriptorTable(), Collections.singletonList(fragment), Collections.singletonList(scanNode),
-                "UTC", false, false).new FragmentExecParams(fragment);
+                "UTC", false, false, true).new FragmentExecParams(fragment);
         TNetworkAddress host = new TNetworkAddress("127.0.0.1", 9060);
         fragParams.instanceExecParams.add(
                 new Coordinator.FInstanceExecParam(new TUniqueId(2L, 2L), host, fragParams));
@@ -149,6 +149,13 @@ public class CoordinatorTest extends TestWithFeService {
         fragParams.toThrift(0);
 
         Mockito.verify(sortNode).setHasRuntimePredicate();
+    }
+
+    @Test
+    public void testBrokerLoadPreservesHyperscanFallbackOption() {
+        Coordinator coordinator = new Coordinator(0L, new TUniqueId(1L, 1L), new DescriptorTable(),
+                Collections.emptyList(), Collections.emptyList(), "UTC", false, false, false);
+        Assertions.assertFalse(coordinator.getQueryOptions().isEnableHyperscanFallback());
     }
 
     private NereidsPlanner plan(String sql) throws IOException {

@@ -218,6 +218,27 @@ TEST_F(RegexpQueryTest, AddWithInvalidTermsSize) {
     }
 }
 
+TEST_F(RegexpQueryTest, AddRejectsExpensiveBoundedRepeat) {
+    std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
+    TQueryOptions query_options;
+    query_options.inverted_index_max_expansions = 50;
+    runtime_state.set_query_options(query_options);
+    io::IOContext io_ctx;
+
+    auto context = std::make_shared<IndexQueryContext>();
+    context->io_ctx = &io_ctx;
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    RegexpQuery regexp_query(searcher, context);
+
+    InvertedIndexQueryInfo query_info;
+    query_info.field_name = L"test_field";
+    query_info.term_infos.push_back({"(ab?c?d){1000,5000}", 0});
+    EXPECT_THROW(regexp_query.add(query_info), Exception);
+}
+
 TEST_F(RegexpQueryTest, AddWithInvalidPattern) {
     // Create a mock searcher and query options for testing
     std::shared_ptr<lucene::search::IndexSearcher> searcher = nullptr;

@@ -123,7 +123,8 @@ public class GroupCommitPlanner {
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(queryId)
                 .setTrimDoubleQuotes(true).setGroupCommitMode(groupCommit)
                 .setStrictMode(ConnectContext.get().getSessionVariable().enableInsertStrict);
-        NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(streamLoadPutRequest);
+        NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(
+                streamLoadPutRequest, ConnectContext.get().getSessionVariable().enableHyperscanFallback);
         NereidsStreamLoadPlanner planner = new NereidsStreamLoadPlanner(db, table, streamLoadTask);
         // Will using load id as query id in fragment
         // TODO support pipeline

@@ -303,10 +303,11 @@ public class CoordinatorContext {
             List<ScanNode> scanNodes,
             DescriptorTable descTable,
             String timezone, boolean loadZeroTolerance,
-            boolean enableProfile) {
+            boolean enableProfile, boolean enableHyperscanFallback) {
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setEnableProfile(enableProfile);
         queryOptions.setProfileLevel(2);
+        queryOptions.setEnableHyperscanFallback(enableHyperscanFallback);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setNewVersionUnixTimestamp(true);
         queryOptions.setNewVersionPercentile(true);

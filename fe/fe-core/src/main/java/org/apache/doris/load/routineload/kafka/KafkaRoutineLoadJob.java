@@ -53,6 +53,7 @@ import org.apache.doris.nereids.load.NereidsLoadTaskInfo;
 import org.apache.doris.nereids.load.NereidsLoadUtils;
 import org.apache.doris.nereids.load.NereidsRoutineLoadTaskInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
@@ -1120,6 +1121,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return new NereidsRoutineLoadTaskInfo(execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS,
                 partitionNamesInfo, mergeType, deleteCondition, sequenceCol, maxFilterRatio, importColumnDescs,
                 precedingFilter, whereExpr, columnSeparator, lineDelimiter, enclose, escape, sendBatchParallelism,
-                loadToSingleTablet, uniqueKeyUpdateMode, partialUpdateNewKeyPolicy, memtableOnSinkNode);
+                loadToSingleTablet, uniqueKeyUpdateMode, partialUpdateNewKeyPolicy, memtableOnSinkNode,
+                Boolean.parseBoolean(sessionVariables.getOrDefault(
+                        SessionVariable.ENABLE_HYPERSCAN_FALLBACK, Boolean.toString(true))));
     }
 }

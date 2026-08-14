@@ -22,6 +22,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
 #include "core/data_type/data_type_string.h"
+#include "exprs/function/regexps.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris {
@@ -71,6 +72,11 @@ TEST_F(FunctionMultiMatchTest, EvaluateInvertedIndexWithNullIterator) {
     std::string error_msg = status.to_string();
     EXPECT_NE(error_msg.find("test_column"), std::string::npos)
             << "Error message should contain column name. Actual message: " << error_msg;
+}
+
+TEST_F(FunctionMultiMatchTest, RejectsExpensiveBoundedRepeat) {
+    std::vector<String> patterns = {"(ab?c?d){1000,5000}"};
+    EXPECT_THROW((multiregexps::constructRegexps<false, false>(patterns, std::nullopt)), Exception);
 }
 
 } // namespace doris

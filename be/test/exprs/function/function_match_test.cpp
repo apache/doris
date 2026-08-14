@@ -28,6 +28,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "exprs/function/match.h"
+#include "runtime/runtime_state.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 
 namespace doris {
@@ -83,6 +84,23 @@ TEST(FunctionMatchTest, analyse_query_str) {
                                                                       "a b c", "name");
         ASSERT_EQ(query_tokens.size(), 3);
     }
+}
+
+TEST(FunctionMatchTest, regexp_rejects_expensive_bounded_repeat) {
+    TQueryOptions query_options;
+    query_options.__set_enable_match_without_inverted_index(true);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&runtime_state, {}, {});
+
+    auto string_col = ColumnString::create();
+    string_col->insert_data("abcd", 4);
+    ColumnUInt8::Container result(1, 0);
+
+    FunctionMatchRegexp function;
+    Status status = function.execute_match(context.get(), "test_column", "(ab?c?d){1000,5000}", 1,
+                                           string_col.get(), nullptr, nullptr, result);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("bounded repetition exceeds 50"), std::string::npos);
 }
 
 // Test FunctionMatchAny::execute_match

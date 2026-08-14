@@ -125,11 +125,12 @@ public class NereidsCoordinator extends Coordinator {
     public NereidsCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
             List<PlanFragment> fragments, List<PipelineDistributedPlan> distributedPlans,
             List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance,
-            boolean enableProfile) {
-        super(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile);
+            boolean enableProfile, boolean enableHyperscanFallback) {
+        super(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile,
+                enableHyperscanFallback);
         this.coordinatorContext = CoordinatorContext.buildForLoad(
                 this, jobId, queryId, fragments, distributedPlans, scanNodes,
-                descTable, timezone, loadZeroTolerance, enableProfile
+                descTable, timezone, loadZeroTolerance, enableProfile, enableHyperscanFallback
         );
         // same reason in `setForInsert`
         this.coordinatorContext.queryOptions.setDisableFileCache(true);

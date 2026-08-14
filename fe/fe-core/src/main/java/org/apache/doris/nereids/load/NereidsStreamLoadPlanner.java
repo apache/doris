@@ -313,6 +313,7 @@ public class NereidsStreamLoadPlanner {
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
+        queryOptions.setEnableHyperscanFallback(taskInfo.getEnableHyperscanFallback());
         // load
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile() || Config.enable_stream_load_profile);

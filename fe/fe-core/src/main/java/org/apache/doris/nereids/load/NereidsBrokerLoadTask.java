@@ -37,6 +37,7 @@ public class NereidsBrokerLoadTask implements NereidsLoadTaskInfo {
     private boolean strictMode;
     private boolean memtableOnSinkNode;
     private boolean loadToSingleTablet;
+    private boolean enableHyperscanFallback;
     private PartitionNamesInfo partitionNamesInfo;
 
     /**
@@ -44,7 +45,7 @@ public class NereidsBrokerLoadTask implements NereidsLoadTaskInfo {
      */
     public NereidsBrokerLoadTask(long txnId, int timeout, int sendBatchParallelism,
             boolean strictMode, boolean memtableOnSinkNode, boolean loadToSingleTablet,
-            PartitionNamesInfo partitions) {
+            PartitionNamesInfo partitions, boolean enableHyperscanFallback) {
         this.txnId = txnId;
         this.timeout = timeout;
         this.sendBatchParallelism = sendBatchParallelism;
@@ -52,6 +53,7 @@ public class NereidsBrokerLoadTask implements NereidsLoadTaskInfo {
         this.memtableOnSinkNode = memtableOnSinkNode;
         this.loadToSingleTablet = loadToSingleTablet;
         this.partitionNamesInfo = partitions;
+        this.enableHyperscanFallback = enableHyperscanFallback;
     }
 
     @Override
@@ -177,6 +179,11 @@ public class NereidsBrokerLoadTask implements NereidsLoadTaskInfo {
     @Override
     public boolean isLoadToSingleTablet() {
         return loadToSingleTablet;
+    }
+
+    @Override
+    public boolean getEnableHyperscanFallback() {
+        return enableHyperscanFallback;
     }
 
     @Override

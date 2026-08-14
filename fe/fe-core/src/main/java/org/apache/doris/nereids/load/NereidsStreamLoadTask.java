@@ -99,6 +99,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     private String groupCommit;
 
     private boolean emptyFieldAsNull = false;
+    private boolean enableHyperscanFallback = true;
 
     /**
      * NereidsStreamLoadTask
@@ -352,16 +353,23 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     /**
      * fromTStreamLoadPutRequest
      */
-    public static NereidsStreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
+    public static NereidsStreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request,
+            boolean enableHyperscanFallback) throws UserException {
         NereidsStreamLoadTask streamLoadTask = new NereidsStreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
                 request.getCompressType());
         streamLoadTask.setOptionalFromTSLPutRequest(request);
         streamLoadTask.setGroupCommit(request.getGroupCommitMode());
+        streamLoadTask.enableHyperscanFallback = enableHyperscanFallback;
         if (request.isSetFileSize()) {
             streamLoadTask.fileSize = request.getFileSize();
         }
         return streamLoadTask;
+    }
+
+    @Override
+    public boolean getEnableHyperscanFallback() {
+        return enableHyperscanFallback;
     }
 
     /**
@@ -385,6 +393,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         this.jsonRoot = task.getJsonRoot();
         this.sendBatchParallelism = task.getSendBatchParallelism();
         this.loadToSingleTablet = task.isLoadToSingleTablet();
+        this.enableHyperscanFallback = task.getEnableHyperscanFallback();
     }
 
     private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {

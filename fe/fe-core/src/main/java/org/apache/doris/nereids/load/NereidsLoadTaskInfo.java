@@ -151,6 +151,8 @@ public interface NereidsLoadTaskInfo {
         return 2;
     }
 
+    boolean getEnableHyperscanFallback();
+
     /**
      * NereidsImportColumnDescs
      */

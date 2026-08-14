@@ -76,6 +76,7 @@ public class NereidsLoadingTaskPlanner {
     private final int sendBatchParallelism;
     private final boolean singleTabletLoadPerSink;
     private final boolean enableMemtableOnSinkNode;
+    private final boolean enableHyperscanFallback;
     private UserIdentity userInfo;
     private final DescriptorTable descTable = new DescriptorTable();
 
@@ -91,7 +92,8 @@ public class NereidsLoadingTaskPlanner {
             boolean strictMode, boolean isPartialUpdate, TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
             String timezone, long timeoutS, int loadParallelism,
             int sendBatchParallelism, UserIdentity userInfo,
-            boolean singleTabletLoadPerSink, boolean enableMemtableOnSinkNode) {
+            boolean singleTabletLoadPerSink, boolean enableMemtableOnSinkNode,
+            boolean enableHyperscanFallback) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
@@ -108,6 +110,7 @@ public class NereidsLoadingTaskPlanner {
         this.userInfo = userInfo;
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
         this.enableMemtableOnSinkNode = enableMemtableOnSinkNode;
+        this.enableHyperscanFallback = enableHyperscanFallback;
     }
 
     /**
@@ -157,7 +160,8 @@ public class NereidsLoadingTaskPlanner {
         }
         NereidsBrokerLoadTask nereidsBrokerLoadTask = new NereidsBrokerLoadTask(txnId, (int) txnTimeout,
                 sendBatchParallelism,
-                strictMode, enableMemtableOnSinkNode, singleTabletLoadPerSink, partitionNamesInfo);
+                strictMode, enableMemtableOnSinkNode, singleTabletLoadPerSink, partitionNamesInfo,
+                enableHyperscanFallback);
 
         TupleDescriptor scanTupleDesc = descTable.createTupleDescriptor();
         scanTupleDesc.setTable(table);
