@@ -23,6 +23,8 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -38,6 +40,12 @@ public class MTMVRelationTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         Config.enable_table_stream = true;
         Config.enable_feature_binlog = true;
+    }
+
+    private MTMVRelation createOldStreamRelation(BaseTableInfo streamInfo) {
+        MTMVRelation relation = new MTMVRelation(Sets.newHashSet(streamInfo), Sets.newHashSet(streamInfo), null,
+                Sets.newHashSet(), Sets.newHashSet());
+        return GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(relation), MTMVRelation.class);
     }
 
     // t1 => v1 => v2
@@ -193,9 +201,7 @@ public class MTMVRelationTest extends TestWithFeService {
         BaseTableInfo mtmvInfo = new BaseTableInfo(mtmv);
 
         // Model an image written before stream bases were persisted as MTMV dependencies.
-        MTMVRelation oldRelation = new MTMVRelation(Sets.newHashSet(streamInfo), Sets.newHashSet(streamInfo), null,
-                Sets.newHashSet(), Sets.newHashSet());
-        mtmv.setRelation(GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(oldRelation), MTMVRelation.class));
+        mtmv.setRelation(createOldStreamRelation(streamInfo));
         MTMVRelationManager relationManager = Env.getCurrentEnv().getMtmvService().getRelationManager();
         relationManager.refreshMTMVCache(mtmv.getRelation(), mtmvInfo);
         Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTable(baseTableInfo));
@@ -209,6 +215,140 @@ public class MTMVRelationTest extends TestWithFeService {
         Assertions.assertEquals(Sets.newHashSet(streamInfo, baseTableInfo),
                 mtmv.getRelation().getBaseTablesOneLevelAndFromView());
         Assertions.assertEquals(Sets.newHashSet(mtmvInfo), relationManager.getMtmvsByBaseTable(baseTableInfo));
+        Assertions.assertFalse(MTMVPartitionUtil.isMTMVSync(mtmv));
+    }
+
+    @Test
+    public void testCompatibleFailsWhilePersistedStreamIsMissing() throws Exception {
+        createDatabaseAndUse("stream_mtmv_missing_db");
+        createTables(
+                "CREATE TABLE stream_base (k1 int, k2 int)\n"
+                        + "UNIQUE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true',\n"
+                        + "'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true')",
+                "CREATE STREAM stream_source ON TABLE stream_base\n"
+                        + "PROPERTIES ('show_initial_rows' = 'true')");
+        createMvByNereids("CREATE MATERIALIZED VIEW stream_mv BUILD DEFERRED\n"
+                + "REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT k1, k2 FROM stream_source");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("stream_mtmv_missing_db");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("stream_mv");
+        TableIf stream = db.getTableOrAnalysisException("stream_source");
+        BaseTableInfo streamInfo = new BaseTableInfo(stream);
+        BaseTableInfo baseTableInfo = new BaseTableInfo(db.getTableOrAnalysisException("stream_base"));
+        BaseTableInfo mtmvInfo = new BaseTableInfo(mtmv);
+        mtmv.setRelation(createOldStreamRelation(streamInfo));
+        MTMVRelationManager relationManager = Env.getCurrentEnv().getMtmvService().getRelationManager();
+        relationManager.refreshMTMVCache(mtmv.getRelation(), mtmvInfo);
+
+        Env.getCurrentEnv().dropStream(InternalCatalog.INTERNAL_CATALOG_NAME,
+                "stream_mtmv_missing_db", "stream_source", false, false);
+        mtmv.setStatus(new MTMVStatus(MTMVState.NORMAL, null));
+        mtmv.compatible(Env.getCurrentEnv().getCatalogMgr());
+
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        Assertions.assertEquals(Sets.newHashSet(streamInfo), mtmv.getRelation().getBaseTables());
+        Assertions.assertEquals(Sets.newHashSet(), relationManager.getMtmvsByBaseTable(baseTableInfo));
+
+        recoverTable("RECOVER TABLE stream_mtmv_missing_db.stream_source");
+
+        Assertions.assertSame(stream, db.getTableOrAnalysisException("stream_source"));
+        Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+    }
+
+    @Test
+    public void testCompatibleUsesHistoricalStreamBehindSameNameTable() throws Exception {
+        createDatabaseAndUse("stream_mtmv_replacement_table_db");
+        createTables(
+                "CREATE TABLE stream_base (k1 int, k2 int)\n"
+                        + "UNIQUE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true',\n"
+                        + "'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true')",
+                "CREATE STREAM stream_source ON TABLE stream_base\n"
+                        + "PROPERTIES ('show_initial_rows' = 'true')");
+        createMvByNereids("CREATE MATERIALIZED VIEW stream_mv BUILD DEFERRED\n"
+                + "REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT k1, k2 FROM stream_source");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(
+                "stream_mtmv_replacement_table_db");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("stream_mv");
+        TableIf stream = db.getTableOrAnalysisException("stream_source");
+        BaseTableInfo streamInfo = new BaseTableInfo(stream);
+        BaseTableInfo baseTableInfo = new BaseTableInfo(db.getTableOrAnalysisException("stream_base"));
+        BaseTableInfo mtmvInfo = new BaseTableInfo(mtmv);
+        mtmv.setRelation(createOldStreamRelation(streamInfo));
+        MTMVRelationManager relationManager = Env.getCurrentEnv().getMtmvService().getRelationManager();
+        relationManager.refreshMTMVCache(mtmv.getRelation(), mtmvInfo);
+
+        Env.getCurrentEnv().dropStream(InternalCatalog.INTERNAL_CATALOG_NAME,
+                "stream_mtmv_replacement_table_db", "stream_source", false, false);
+        createTables("CREATE TABLE stream_source (k1 int, k2 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')");
+        mtmv.setStatus(new MTMVStatus(MTMVState.NORMAL, null));
+        mtmv.compatible(Env.getCurrentEnv().getCatalogMgr());
+
+        Assertions.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
+        Assertions.assertEquals(Sets.newHashSet(streamInfo, baseTableInfo), mtmv.getRelation().getBaseTables());
+        Assertions.assertEquals(Sets.newHashSet(mtmvInfo), relationManager.getMtmvsByBaseTable(baseTableInfo));
+        Assertions.assertFalse(MTMVPartitionUtil.isMTMVSync(mtmv));
+    }
+
+    @Test
+    public void testCompatibleTracksHistoricalAndReplacementStreamBases() throws Exception {
+        createDatabaseAndUse("stream_mtmv_replacement_stream_db");
+        createTables(
+                "CREATE TABLE stream_base (k1 int, k2 int)\n"
+                        + "UNIQUE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true',\n"
+                        + "'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true')",
+                "CREATE TABLE replacement_base (k1 int, k2 int)\n"
+                        + "UNIQUE KEY(k1)\n"
+                        + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                        + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true',\n"
+                        + "'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true')",
+                "CREATE STREAM stream_source ON TABLE stream_base\n"
+                        + "PROPERTIES ('show_initial_rows' = 'true')");
+        createMvByNereids("CREATE MATERIALIZED VIEW stream_mv BUILD DEFERRED\n"
+                + "REFRESH COMPLETE ON MANUAL\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1')\n"
+                + "AS SELECT k1, k2 FROM stream_source");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(
+                "stream_mtmv_replacement_stream_db");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("stream_mv");
+        BaseTableInfo streamInfo = new BaseTableInfo(db.getTableOrAnalysisException("stream_source"));
+        BaseTableInfo baseTableInfo = new BaseTableInfo(db.getTableOrAnalysisException("stream_base"));
+        BaseTableInfo replacementBaseInfo = new BaseTableInfo(db.getTableOrAnalysisException("replacement_base"));
+        BaseTableInfo mtmvInfo = new BaseTableInfo(mtmv);
+        mtmv.setRelation(createOldStreamRelation(streamInfo));
+        MTMVRelationManager relationManager = Env.getCurrentEnv().getMtmvService().getRelationManager();
+        relationManager.refreshMTMVCache(mtmv.getRelation(), mtmvInfo);
+
+        Env.getCurrentEnv().dropStream(InternalCatalog.INTERNAL_CATALOG_NAME,
+                "stream_mtmv_replacement_stream_db", "stream_source", false, false);
+        createTables("CREATE STREAM stream_source ON TABLE replacement_base\n"
+                + "PROPERTIES ('show_initial_rows' = 'true')");
+        mtmv.setStatus(new MTMVStatus(MTMVState.NORMAL, null));
+        mtmv.compatible(Env.getCurrentEnv().getCatalogMgr());
+
+        Assertions.assertEquals(MTMVState.NORMAL, mtmv.getStatus().getState());
+        Assertions.assertEquals(Sets.newHashSet(streamInfo, baseTableInfo, replacementBaseInfo),
+                mtmv.getRelation().getBaseTables());
+        Assertions.assertEquals(Sets.newHashSet(mtmvInfo), relationManager.getMtmvsByBaseTable(baseTableInfo));
+        Assertions.assertEquals(Sets.newHashSet(mtmvInfo),
+                relationManager.getMtmvsByBaseTable(replacementBaseInfo));
         Assertions.assertFalse(MTMVPartitionUtil.isMTMVSync(mtmv));
     }
 }

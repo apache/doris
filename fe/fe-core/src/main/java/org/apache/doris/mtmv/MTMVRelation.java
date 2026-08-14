@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.AnalysisException;
@@ -107,12 +108,12 @@ public class MTMVRelation implements GsonPostProcessable {
         compatible(catalogMgr, baseTables);
         compatible(catalogMgr, baseViews);
         compatible(catalogMgr, baseTablesOneLevel);
-        addStreamBaseTables(baseTables);
+        addStreamBaseTables(catalogMgr, baseTables);
         if (CollectionUtils.isEmpty(baseTablesOneLevelAndFromView)) {
             // Preserve the existing fallback for older images in a separate set before adding implicit stream bases.
             baseTablesOneLevelAndFromView = new HashSet<>(getBaseTablesOneLevel());
         }
-        addStreamBaseTables(baseTablesOneLevelAndFromView);
+        addStreamBaseTables(catalogMgr, baseTablesOneLevelAndFromView);
     }
 
     private void compatible(CatalogMgr catalogMgr, Set<BaseTableInfo> infos) throws Exception {
@@ -124,27 +125,45 @@ public class MTMVRelation implements GsonPostProcessable {
         }
     }
 
-    private void addStreamBaseTables(Set<BaseTableInfo> infos) throws Exception {
+    private void addStreamBaseTables(CatalogMgr catalogMgr, Set<BaseTableInfo> infos) throws Exception {
         if (CollectionUtils.isEmpty(infos)) {
             return;
         }
         // Older images may contain only the stream relation; add its stable base so freshness and invalidation survive
         // an upgrade without inventing a historical snapshot for the newly discovered dependency.
         for (BaseTableInfo info : new HashSet<>(infos)) {
-            TableIf table;
-            try {
-                table = MTMVUtil.getTable(info);
-            } catch (AnalysisException e) {
+            if (!info.isInternalTable()) {
                 continue;
             }
-            if (table instanceof BaseTableStream) {
-                TableIf baseTable = ((BaseTableStream) table).getBaseTableNullable();
-                if (baseTable == null) {
-                    throw new AnalysisException(
-                            "Failed to resolve stream base table during MTMV compatibility: " + info);
-                }
-                infos.add(new BaseTableInfo(baseTable));
+
+            // Recovery does not rerun MTMV compatibility, so an unresolved relation must not complete migration.
+            TableIf currentTable = MTMVUtil.getTable(info);
+            addStreamBaseTable(infos, info, currentTable);
+
+            // MTMV relations are name-based, but a same-name replacement must not hide the historical stream whose
+            // stable base was omitted from an older image.
+            TableIf stableTable = catalogMgr.getInternalCatalog().getDb(info.getDbId())
+                    .flatMap(db -> db.getTable(info.getTableId())).orElse(null);
+            if (stableTable == null) {
+                stableTable = Env.getCurrentRecycleBin().getRecycledTableNullable(
+                        info.getDbId(), info.getTableId());
+            }
+            if (stableTable != null && stableTable != currentTable) {
+                addStreamBaseTable(infos, info, stableTable);
             }
         }
+    }
+
+    private void addStreamBaseTable(Set<BaseTableInfo> infos, BaseTableInfo streamInfo, TableIf table)
+            throws AnalysisException {
+        if (!(table instanceof BaseTableStream)) {
+            return;
+        }
+        TableIf baseTable = ((BaseTableStream) table).getBaseTableNullable();
+        if (baseTable == null) {
+            throw new AnalysisException(
+                    "Failed to resolve stream base table during MTMV compatibility: " + streamInfo);
+        }
+        infos.add(new BaseTableInfo(baseTable));
     }
 }
