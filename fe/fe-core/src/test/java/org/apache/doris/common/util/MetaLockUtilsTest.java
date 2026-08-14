@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableTest;
 import org.apache.doris.common.MetaNotFoundException;
@@ -101,6 +102,33 @@ public class MetaLockUtilsTest {
             Assert.assertFalse(tableList.get(0).isWriteLockHeldByCurrentThread());
             Assert.assertFalse(tableList.get(1).isWriteLockHeldByCurrentThread());
         }
+    }
+
+    @Test
+    public void testCommitLockTablesReleasesLocksOnFailure() {
+        Table good = TableTest.newOlapTable(0, "commitGood", 0);
+        // A table whose commitLock() always fails, to exercise the rollback path.
+        Table bad = new OlapTable() {
+            @Override
+            public void commitLock() {
+                throw new RuntimeException("inject commit lock failure");
+            }
+        };
+        List<Table> tables = ImmutableList.of(good, bad);
+
+        boolean threw = false;
+        try {
+            MetaLockUtils.commitLockTables(tables);
+        } catch (RuntimeException e) {
+            threw = true;
+        }
+
+        // The failure must propagate (not be silently swallowed)...
+        Assert.assertTrue("commitLockTables must propagate the lock failure", threw);
+        // ...and the already-acquired commit lock must be rolled back, with the failing table never held.
+        Assert.assertNull("previously-locked table's commit lock must be released after rollback",
+                good.getCommitLockOwner());
+        Assert.assertNull("failing table's commit lock must not be held", bad.getCommitLockOwner());
     }
 
     @Test
