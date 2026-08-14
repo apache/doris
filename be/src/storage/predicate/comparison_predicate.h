@@ -559,7 +559,7 @@ private:
         if constexpr (is_and) {
             for (uint16_t i = 0; i < size; i++) {
                 if constexpr (is_nullable) {
-                    flags[i] &= (uint8_t)(!null_map[i] && _operator(data_array[i], value));
+                    flags[i] &= (uint8_t)(!null_map[i] & _operator(data_array[i], value));
                 } else {
                     flags[i] &= (uint8_t)_operator(data_array[i], value);
                 }
@@ -567,7 +567,7 @@ private:
         } else {
             for (uint16_t i = 0; i < size; i++) {
                 if constexpr (is_nullable) {
-                    flags[i] = !null_map[i] && _operator(data_array[i], value);
+                    flags[i] = !null_map[i] & _operator(data_array[i], value);
                 } else {
                     flags[i] = _operator(data_array[i], value);
                 }
