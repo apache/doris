@@ -35,6 +35,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -111,6 +112,70 @@ public class IcebergMetadataOpsValidationTest {
         Column column = new Column("int_col", Type.INT, true);
         NestedField currentCol = Types.NestedField.required(1, "int_col", Types.IntegerType.get());
         invokeValidateForModifyColumn(column, currentCol);
+    }
+
+    @Test
+    public void testTopLevelVariantModifyOnlyUpdatesMetadataOnOrcTable() throws Throwable {
+        Type dorisVariantType = IcebergUtils.icebergTypeToDorisType(
+                Types.VariantType.get(), false, false);
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.required(2, "payload", Types.VariantType.get(), "old doc"));
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        UpdateSchema updateSchema = Mockito.mock(UpdateSchema.class);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(TableProperties.FORMAT_VERSION, "3");
+        properties.put(TableProperties.DEFAULT_FILE_FORMAT, "orc");
+        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+        Mockito.when(icebergTable.properties()).thenReturn(properties);
+        Mockito.when(icebergTable.updateSchema()).thenReturn(updateSchema);
+
+        Column column = new Column("payload", dorisVariantType, true, "new doc");
+        column.setNullableSpecified(true);
+        column.setCommentSpecified(true);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            ops.modifyColumn(dorisTable, ColumnPath.of("payload"), column, ColumnPosition.FIRST, 1L);
+        }
+
+        Mockito.verify(updateSchema).updateColumnDoc("payload", "new doc");
+        Mockito.verify(updateSchema).makeColumnOptional("payload");
+        Mockito.verify(updateSchema).moveFirst("payload");
+        Mockito.verify(updateSchema, Mockito.never()).updateColumn(
+                Mockito.anyString(), Mockito.any(org.apache.iceberg.types.Type.PrimitiveType.class),
+                Mockito.any());
+        Mockito.verify(updateSchema).commit();
+    }
+
+    @Test
+    public void testTopLevelVariantModifyRejectsTypeConversions() {
+        Type dorisVariantType = IcebergUtils.icebergTypeToDorisType(
+                Types.VariantType.get(), false, false);
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "variant_col", Types.VariantType.get()),
+                Types.NestedField.optional(2, "int_col", Types.IntegerType.get()));
+        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+        Table icebergTable = Mockito.mock(Table.class);
+        Mockito.when(icebergTable.schema()).thenReturn(schema);
+
+        try (MockedStatic<IcebergUtils> mockedIcebergUtils =
+                Mockito.mockStatic(IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedIcebergUtils.when(() -> IcebergUtils.getIcebergTable(dorisTable)).thenReturn(icebergTable);
+
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("variant_col"),
+                            new Column("variant_col", Type.STRING, true), null, 1L),
+                    "Cannot change column type involving Iceberg VARIANT");
+            assertUserException(() -> ops.modifyColumn(dorisTable, ColumnPath.of("int_col"),
+                            new Column("int_col", dorisVariantType, true), null, 1L),
+                    "Cannot change column type involving Iceberg VARIANT");
+        }
+
+        Mockito.verify(icebergTable, Mockito.never()).updateSchema();
     }
 
     @Test

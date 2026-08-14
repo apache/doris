@@ -21,8 +21,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.VariantWritePlanValidator;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
+import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
@@ -297,31 +300,77 @@ public class BindExpression implements AnalysisRuleFactory {
         List<NamedExpression> outputExprs = sink.child().getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        List<Column> visibleColumns = sink.getCols().stream()
-                .filter(Column::isVisible)
-                .collect(ImmutableList.toImmutableList());
-        int dataExprCount = 0;
-        for (NamedExpression expr : outputExprs) {
-            if (!isIcebergMergeMetaColumn(expr.getName())) {
-                dataExprCount++;
-            }
+        if (sink.isWritesDataFiles()) {
+            validateIcebergMergeNoLossyCoercion(
+                    sink.getCols(), sink.child(), ctx.cascadesContext.getCteContext());
         }
-        if (dataExprCount != visibleColumns.size()) {
+        List<NamedExpression> castExprs = coerceIcebergMergeOutput(
+                sink.getCols(), outputExprs, sink.isWritesDataFiles());
+        if (castExprs.equals(outputExprs)) {
             if (sink.getOutputExprs().equals(outputExprs)) {
                 return sink;
             }
             return sink.withOutputExprs(outputExprs);
         }
+        LogicalProject<?> project = new LogicalProject<>(castExprs, sink.child());
+        return (LogicalIcebergMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
+    }
 
-        boolean changed = false;
-        int columnIndex = 0;
+    private static void validateIcebergMergeNoLossyCoercion(
+            List<Column> sinkColumns, Plan sourcePlan, CTEContext cteContext) {
+        List<Column> targetColumns = Lists.newArrayList();
+        List<Integer> sourceOrdinals = Lists.newArrayList();
+        int sourceOrdinal = 2;
+        for (Column column : sinkColumns) {
+            if (!column.isVisible() && !IcebergUtils.isIcebergRowLineageColumn(column)) {
+                continue;
+            }
+            if (column.isVisible()) {
+                targetColumns.add(column);
+                sourceOrdinals.add(sourceOrdinal);
+            }
+            sourceOrdinal++;
+        }
+        VariantWritePlanValidator.validateNoLossyCoercion(
+                "Iceberg", targetColumns, sourcePlan, sourceOrdinals, cteContext);
+    }
+
+    static List<NamedExpression> coerceIcebergMergeOutput(List<Column> sinkColumns,
+            List<NamedExpression> outputExprs, boolean writesDataFiles) {
+        List<Column> outputColumns = sinkColumns.stream()
+                .filter(column -> column.isVisible() || IcebergUtils.isIcebergRowLineageColumn(column))
+                .collect(ImmutableList.toImmutableList());
+        int expectedOutputCount = 2 + outputColumns.size();
+        if (outputExprs.size() != expectedOutputCount
+                || !IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(outputExprs.get(0).getName())
+                || !Column.ICEBERG_ROWID_COL.equalsIgnoreCase(outputExprs.get(1).getName())) {
+            throw new AnalysisException("Iceberg merge sink output is not aligned with its routing metadata "
+                    + "and target columns");
+        }
+
+        List<Column> visibleColumns = Lists.newArrayListWithCapacity(outputColumns.size());
+        List<NamedExpression> visibleOutputExprs = Lists.newArrayListWithCapacity(outputColumns.size());
+        for (int i = 0; i < outputColumns.size(); ++i) {
+            Column column = outputColumns.get(i);
+            if (column.isVisible()) {
+                visibleColumns.add(column);
+                visibleOutputExprs.add(outputExprs.get(i + 2));
+            }
+        }
+        if (writesDataFiles) {
+            IcebergVariantWriteAnalyzer.validateMergeActions(visibleColumns, visibleOutputExprs);
+        }
+
         List<NamedExpression> castExprs = Lists.newArrayListWithCapacity(outputExprs.size());
-        for (NamedExpression expr : outputExprs) {
-            if (isIcebergMergeMetaColumn(expr.getName())) {
+        castExprs.add(outputExprs.get(0));
+        castExprs.add(outputExprs.get(1));
+        for (int i = 0; i < outputColumns.size(); ++i) {
+            Column column = outputColumns.get(i);
+            NamedExpression expr = outputExprs.get(i + 2);
+            if (!column.isVisible()) {
                 castExprs.add(expr);
                 continue;
             }
-            Column column = visibleColumns.get(columnIndex++);
             DataType targetType = DataType.fromCatalogType(column.getType());
             Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
             NamedExpression namedExpr;
@@ -333,29 +382,9 @@ public class BindExpression implements AnalysisRuleFactory {
             } else {
                 namedExpr = new Alias(castExpr, column.getName());
             }
-            if (!namedExpr.equals(expr)) {
-                changed = true;
-            }
             castExprs.add(namedExpr);
         }
-        if (!changed) {
-            if (sink.getOutputExprs().equals(outputExprs)) {
-                return sink;
-            }
-            return sink.withOutputExprs(outputExprs);
-        }
-        LogicalProject<?> project = new LogicalProject<>(castExprs, sink.child());
-        return (LogicalIcebergMergeSink<Plan>) sink.withChildAndUpdateOutput(project);
-    }
-
-    private boolean isIcebergMergeMetaColumn(String name) {
-        if (IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
-            return true;
-        }
-        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
-            return true;
-        }
-        return IcebergUtils.isIcebergRowLineageColumn(name);
+        return castExprs;
     }
 
     private static boolean hasUnboundPlan(Plan plan) {

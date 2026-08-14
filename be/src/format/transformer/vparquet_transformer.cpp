@@ -18,6 +18,7 @@
 #include "format/transformer/vparquet_transformer.h"
 
 #include <arrow/io/type_fwd.h>
+#include <arrow/memory_pool.h>
 #include <arrow/table.h>
 #include <arrow/util/key_value_metadata.h>
 #include <glog/logging.h>
@@ -32,6 +33,7 @@
 #include <exception>
 #include <ostream>
 #include <string>
+#include <unordered_set>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -49,6 +51,15 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+namespace {
+
+arrow::MemoryPool* get_arrow_memory_pool() {
+    auto* pool = ExecEnv::GetInstance()->arrow_memory_pool();
+    return pool != nullptr ? pool : arrow::default_memory_pool();
+}
+
+} // namespace
 
 ParquetOutputStream::ParquetOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0) {
@@ -200,7 +211,7 @@ VParquetTransformer::VParquetTransformer(RuntimeState* state, doris::io::FileWri
 
 Status VParquetTransformer::_parse_properties() {
     try {
-        arrow::MemoryPool* pool = ExecEnv::GetInstance()->arrow_memory_pool();
+        arrow::MemoryPool* pool = get_arrow_memory_pool();
 
         //build parquet writer properties
         ::parquet::WriterProperties::Builder builder;
@@ -270,8 +281,7 @@ Status VParquetTransformer::write(const Block& block) {
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema,
-                                           ExecEnv::GetInstance()->arrow_memory_pool(), &result,
+    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, get_arrow_memory_pool(), &result,
                                            _state->timezone_obj()));
     if (_write_size == 0) {
         RETURN_DORIS_STATUS_IF_ERROR(_writer->NewBufferedRowGroup());
@@ -285,10 +295,9 @@ Status VParquetTransformer::write(const Block& block) {
 }
 
 arrow::Status VParquetTransformer::_open_file_writer() {
-    ARROW_ASSIGN_OR_RAISE(_writer,
-                          ::parquet::arrow::FileWriter::Open(
-                                  *_arrow_schema, ExecEnv::GetInstance()->arrow_memory_pool(),
-                                  _outstream, _parquet_writer_properties, _arrow_properties));
+    ARROW_ASSIGN_OR_RAISE(_writer, ::parquet::arrow::FileWriter::Open(
+                                           *_arrow_schema, get_arrow_memory_pool(), _outstream,
+                                           _parquet_writer_properties, _arrow_properties));
     return arrow::Status::OK();
 }
 
@@ -337,16 +346,36 @@ Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnSt
     std::map<int, std::string> lower_bounds;
     std::map<int, std::string> upper_bounds;
     std::map<int, std::shared_ptr<::parquet::Statistics>> merged_column_stats;
+    std::unordered_set<int> variant_field_ids;
 
     const int num_row_groups = file_metadata->num_row_groups();
     const int num_columns = file_metadata->num_columns();
     for (int col_idx = 0; col_idx < num_columns; ++col_idx) {
-        auto field_id = file_metadata->schema()->Column(col_idx)->schema_node()->field_id();
+        const auto& schema_node = file_metadata->schema()->Column(col_idx)->schema_node();
+        const auto* parent = schema_node->parent();
+        const bool is_variant_child = parent != nullptr && parent->logical_type() != nullptr &&
+                                      parent->logical_type()->is_variant();
+        if (is_variant_child && schema_node->name() != "metadata") {
+            // The value leaf has no independent Iceberg field and its byte statistics are not
+            // logical Variant statistics.
+            continue;
+        }
+        const int field_id = is_variant_child ? parent->field_id() : schema_node->field_id();
+        if (field_id < 0) {
+            // Parquet structural leaves (including Variant children) may intentionally omit an
+            // Iceberg field id. Never publish them under the synthetic -1 key.
+            continue;
+        }
+        if (is_variant_child) {
+            variant_field_ids.insert(field_id);
+        }
 
         for (int rg_idx = 0; rg_idx < num_row_groups; ++rg_idx) {
             auto row_group = file_metadata->RowGroup(rg_idx);
             auto column_chunk = row_group->ColumnChunk(col_idx);
-            column_sizes[field_id] += column_chunk->total_compressed_size();
+            if (!is_variant_child) {
+                column_sizes[field_id] += column_chunk->total_compressed_size();
+            }
 
             if (column_chunk->is_stats_set()) {
                 auto column_stat = column_chunk->statistics();
@@ -369,7 +398,7 @@ Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnSt
             null_value_counts[field_id] = null_count;
             value_counts[field_id] += null_count;
         }
-        if (column_stat->HasMinMax()) {
+        if (!variant_field_ids.contains(field_id) && column_stat->HasMinMax()) {
             has_any_min_max = true;
             lower_bounds[field_id] = column_stat->EncodeMin();
             upper_bounds[field_id] = column_stat->EncodeMax();

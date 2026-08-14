@@ -82,6 +82,8 @@ public:
             ParseConfig parse_config;
             parse_config.check_duplicate_json_path =
                     config::variant_enable_duplicate_json_path_check;
+            parse_config.parse_to = enable_doc_mode ? ParseConfig::ParseTo::OnlyDocValueColumn
+                                                    : ParseConfig::ParseTo::OnlySubcolumns;
             JsonParser parser;
             const StringRef empty_json("", 0);
             if constexpr (!ERROR_TO_NULL) {

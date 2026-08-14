@@ -16,9 +16,9 @@
 // under the License.
 
 suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
+    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
     sql "SET enable_nereids_planner = true"
     sql "SET enable_fallback_to_original_planner = false"
-    sql "SET enable_variant_v2 = true"
 
     test {
         sql """
@@ -49,17 +49,21 @@ suite("test_variant_ordering_comparison_error", "p0,nonConcurrent") {
 
     test {
         sql "SELECT CAST('2' AS VARIANT) > CAST('1' AS VARIANT)"
-        exception "CAST to a concrete type first"
+        exception enableVariantV2
+                ? "CAST to a concrete type first"
+                : "could not used in ComparisonPredicate"
     }
 
-    test {
-        sql "SELECT CAST('2' AS VARIANT) > 1"
-        exception "CAST to a concrete type first"
-    }
+    if (enableVariantV2) {
+        test {
+            sql "SELECT CAST('2' AS VARIANT) > 1"
+            exception "CAST to a concrete type first"
+        }
 
-    test {
-        sql "SELECT CAST('2' AS VARIANT) <=> CAST('1' AS VARIANT)"
-        exception "CAST to a concrete type first"
+        test {
+            sql "SELECT CAST('2' AS VARIANT) <=> CAST('1' AS VARIANT)"
+            exception "CAST to a concrete type first"
+        }
     }
 
     order_qt_explicit_cast_order """

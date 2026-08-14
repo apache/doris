@@ -60,11 +60,14 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -87,6 +90,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             JoinType.ASOF_LEFT_OUTER_JOIN,
             JoinType.NULL_AWARE_LEFT_ANTI_JOIN
     );
+
+    private static final Logger LOG = LogManager.getLogger(RuntimeFilterGenerator.class);
 
     private static final Set<Class<? extends PhysicalPlan>> SPJ_PLAN = ImmutableSet.of(
             PhysicalRelation.class,
@@ -158,6 +163,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                         }
                         if (rfsToPushDown.isEmpty()) {
                             break;
+                        }
+                        if (!canPushDownRuntimeFiltersIntoCTEProducer(rfsToPushDown, cteId)) {
+                            continue;
                         }
 
                         // the most right deep buildNode from rfsToPushDown is used as buildNode for pushDown rf
@@ -507,6 +515,43 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public static Slot checkTargetChild(Expression leftChild) {
         Expression expression = ExpressionUtils.getSingleNumericSlotOrExpressionCoveredByCast(leftChild);
         return expression instanceof Slot ? ((Slot) expression) : null;
+    }
+
+    /**
+     * Check whether runtime filters on CTE consumers can be pushed into their shared CTE producer.
+     */
+    @VisibleForTesting
+    public static boolean canPushDownRuntimeFiltersIntoCTEProducer(
+            List<RuntimeFilter> rfsToPushDown, CTEId cteId) {
+        if (rfsToPushDown.isEmpty()) {
+            LOG.warn("Skip pushing runtime filters into CTE producer because no runtime filters exist for cteId: {}",
+                    cteId);
+            return false;
+        }
+        Set<Expression> producerTargetExpressions = rfsToPushDown.stream()
+                .map(rf -> getProducerTargetExpression(rf, cteId))
+                .collect(Collectors.toSet());
+        return producerTargetExpressions.size() == 1;
+    }
+
+    private static Expression getProducerTargetExpression(RuntimeFilter rf, CTEId cteId) {
+        List<PhysicalRelation> targetScans = rf.getTargetScans();
+        List<Expression> targetExpressions = rf.getTargetExpressions();
+        Preconditions.checkArgument(targetScans.size() == targetExpressions.size());
+        for (int i = 0; i < targetScans.size(); i++) {
+            PhysicalRelation rel = targetScans.get(i);
+            if (rel instanceof PhysicalCTEConsumer
+                    && ((PhysicalCTEConsumer) rel).getCteId().equals(cteId)) {
+                PhysicalCTEConsumer consumer = (PhysicalCTEConsumer) rel;
+                Expression targetExpression = targetExpressions.get(i);
+                Map<Expression, Expression> replaceMap = Maps.newHashMap();
+                for (Slot slot : targetExpression.getInputSlots()) {
+                    replaceMap.put(slot, consumer.getProducerSlot(slot));
+                }
+                return ExpressionUtils.replace(targetExpression, replaceMap);
+            }
+        }
+        throw new IllegalStateException("runtime filter does not target cteId: " + cteId);
     }
 
     private boolean doPushDownIntoCTEProducerInternal(RuntimeFilter rf, Expression targetExpression,

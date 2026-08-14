@@ -35,6 +35,7 @@
 #include "core/column/column_variant.cpp"
 #include "core/column/common_column_test.h"
 #include "core/column/subcolumn_tree.h"
+#include "core/column/variant_column_utils.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
@@ -984,13 +985,14 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         Field result1;
         dst_column->get(0, result1);
 
-        const auto& fv = result1.get<TYPE_VARIANT>();
+        const auto& fv = result1.get<TYPE_VARIANT>().legacy_map();
         auto res = fv.at(PathInData());
         EXPECT_EQ(res.field.get<TYPE_INT>(), 123);
 
         Field result2;
         dst_column->get(1, result2);
-        EXPECT_EQ(result2.get<TYPE_VARIANT>().at(PathInData()).field.get<TYPE_INT>(), 456);
+        EXPECT_EQ(result2.get<TYPE_VARIANT>().legacy_map().at(PathInData()).field.get<TYPE_INT>(),
+                  456);
     }
 
     // Test case 2: Insert from scalar variant source to non-empty destination of same type
@@ -1024,9 +1026,12 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         dst_column->get(1, result2);
         dst_column->get(2, result3);
 
-        EXPECT_EQ(result1.get<TYPE_VARIANT>().at(PathInData()).field.get<TYPE_INT>(), 789);
-        EXPECT_EQ(result2.get<TYPE_VARIANT>().at(PathInData()).field.get<TYPE_INT>(), 456);
-        EXPECT_EQ(result3.get<TYPE_VARIANT>().at(PathInData()).field.get<TYPE_INT>(), 123);
+        EXPECT_EQ(result1.get<TYPE_VARIANT>().legacy_map().at(PathInData()).field.get<TYPE_INT>(),
+                  789);
+        EXPECT_EQ(result2.get<TYPE_VARIANT>().legacy_map().at(PathInData()).field.get<TYPE_INT>(),
+                  456);
+        EXPECT_EQ(result3.get<TYPE_VARIANT>().legacy_map().at(PathInData()).field.get<TYPE_INT>(),
+                  123);
     }
 
     // Test case 3: Insert from non-scalar or different type source (fallback to try_insert)
@@ -1036,7 +1041,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
 
         // Create a map with {"a": 123}
         Field field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
-        auto& map1 = field_map.get<TYPE_VARIANT>();
+        auto& map1 = field_map.get<TYPE_VARIANT>().legacy_map();
         map1.insert_or_assign(PathInData("a"),
                               FieldWithDataType {.field = Field::create_field<TYPE_INT>(123),
                                                  .base_scalar_type_id = PrimitiveType::TYPE_INT});
@@ -1044,7 +1049,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
 
         // Create another map with {"b": "hello"}
         field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
-        auto& map2 = field_map.get<TYPE_VARIANT>();
+        auto& map2 = field_map.get<TYPE_VARIANT>().legacy_map();
         map2.insert_or_assign(
                 PathInData("b"),
                 FieldWithDataType {.field = Field::create_field<TYPE_STRING>(String("hello")),
@@ -1074,8 +1079,8 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         EXPECT_TRUE(result1.get_type() == PrimitiveType::TYPE_VARIANT);
         EXPECT_TRUE(result2.get_type() == PrimitiveType::TYPE_VARIANT);
 
-        const auto& result1_map = result1.get<TYPE_VARIANT>();
-        const auto& result2_map = result2.get<TYPE_VARIANT>();
+        const auto& result1_map = result1.get<TYPE_VARIANT>().legacy_map();
+        const auto& result2_map = result2.get<TYPE_VARIANT>().legacy_map();
 
         EXPECT_EQ(result1_map.at(PathInData("b")).field.get<TYPE_STRING>(), "hello");
         EXPECT_EQ(result2_map.at(PathInData("a")).field.get<TYPE_INT>(), 123);
@@ -2202,7 +2207,7 @@ TEST_F(ColumnVariantTest, find_path_lower_bound_in_sparse_data) {
         for (size_t i = 0; i != src_sparse_data_offsets.size(); ++i) {
             size_t start = src_sparse_data_offsets[ssize_t(i) - 1];
             size_t end = src_sparse_data_offsets[ssize_t(i)];
-            size_t lower_bound_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
+            size_t lower_bound_index = find_variant_sparse_path_lower_bound(
                     prefix_ref, src_sparse_data_paths, start, end);
             for (; lower_bound_index != end; ++lower_bound_index) {
                 auto path_ref = src_sparse_data_paths.get_data_at(lower_bound_index);

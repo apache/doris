@@ -36,7 +36,8 @@ public class LanceThriftContractTest {
         TLanceFileDesc lanceDesc = new TLanceFileDesc()
                 .setDatasetUri("s3://warehouse/db/table.lance")
                 .setFragmentIds(Arrays.asList(7L, 11L))
-                .setVersion(42L);
+                .setVersion(42L)
+                .setLimit(100L);
         TTableFormatFileDesc source = new TTableFormatFileDesc()
                 .setTableFormatType(TableFormatType.LANCE.value())
                 .setLanceParams(lanceDesc);
@@ -53,5 +54,27 @@ public class LanceThriftContractTest {
         Assert.assertEquals("s3://warehouse/db/table.lance", restored.getLanceParams().getDatasetUri());
         Assert.assertEquals(Arrays.asList(7L, 11L), restored.getLanceParams().getFragmentIds());
         Assert.assertEquals(42L, restored.getLanceParams().getVersion());
+        Assert.assertTrue(restored.getLanceParams().isSetLimit());
+        Assert.assertEquals(100L, restored.getLanceParams().getLimit());
+    }
+
+    @Test
+    public void testLanceDescriptorWithoutLimit() throws Exception {
+        TLanceFileDesc lanceDesc = new TLanceFileDesc()
+                .setDatasetUri("s3://warehouse/db/table.lance")
+                .setFragmentIds(Arrays.asList(1L))
+                .setVersion(1L);
+        TTableFormatFileDesc source = new TTableFormatFileDesc()
+                .setTableFormatType(TableFormatType.LANCE.value())
+                .setLanceParams(lanceDesc);
+
+        TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
+        byte[] bytes = serializer.serialize(source);
+
+        TTableFormatFileDesc restored = new TTableFormatFileDesc();
+        new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored, bytes);
+
+        // A scan without a pushable LIMIT must leave the field unset so the BE reads all rows.
+        Assert.assertFalse(restored.getLanceParams().isSetLimit());
     }
 }

@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -120,6 +121,7 @@ import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.types.Types.TimestampType;
 import org.apache.iceberg.util.LocationUtil;
+import org.apache.iceberg.util.PropertyUtil;
 import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.util.StructProjection;
 import org.apache.iceberg.view.View;
@@ -169,6 +171,7 @@ public class IcebergUtils {
     private static final int ICEBERG_DATETIME_SCALE_MS = 6;
     private static final String PARQUET_NAME = "parquet";
     private static final String ORC_NAME = "orc";
+    private static final String PARQUET_SHRED_VARIANTS = "write.parquet.shred-variants";
 
     public static final String TOTAL_RECORDS = "total-records";
     public static final String TOTAL_POSITION_DELETES = "total-position-deletes";
@@ -192,6 +195,7 @@ public class IcebergUtils {
     public static final int PARTITION_DATA_ID_START = 1000; // org.apache.iceberg.PartitionSpec
 
     public static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
+    public static final int ICEBERG_VARIANT_MIN_VERSION = 3;
     public static final String ICEBERG_ROW_ID_COL = "_row_id";
     public static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
 
@@ -698,11 +702,9 @@ public class IcebergUtils {
                         .collect(Collectors.toCollection(ArrayList::new));
                 return new StructType(nestedTypes);
             case VARIANT:
-                // Iceberg Variant uses the Parquet Variant encoding directly. Mark it compute-only
-                // so BE scanners materialize ColumnVariantV2 without changing persisted Doris
-                // table metadata semantics.
-                return new org.apache.doris.catalog.VariantType(
-                        new ArrayList<>(), 0, false, 10000, 0, false, 0L, 64, false, true);
+                // Iceberg Variant always uses the Parquet Variant encoding, independent of the
+                // global switch that selects V1/V2 for Doris table storage.
+                return org.apache.doris.catalog.VariantType.COMPUTE_V2_INSTANCE;
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + type);
         }
@@ -726,12 +728,59 @@ public class IcebergUtils {
         return false;
     }
 
-    public static void validateWriteSchema(List<Column> columns) {
-        if (columns.stream().anyMatch(column -> containsVariant(column.getType()))) {
-            // Keep this table capability read-only until every Iceberg writer can preserve the
-            // Variant physical identity; rejecting only selected columns would allow data loss.
+    public static void validateWriteSchema(Table table, List<Column> columns) {
+        if (columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
+            return;
+        }
+        validateWriteSchema(columns, getFormatVersion(table), getFileFormat(table));
+        validateVariantWriteProperties(columns, table.properties());
+        try {
+            validateVariantWriteBackendCompatibility(
+                    columns, Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values());
+        } catch (AnalysisException e) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "Iceberg VARIANT columns are read-only and cannot be written");
+                    "Failed to check backend compatibility for Iceberg Variant writes", e);
+        }
+    }
+
+    @VisibleForTesting
+    static void validateVariantWriteProperties(List<Column> columns, Map<String, String> properties) {
+        if (columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
+            return;
+        }
+        if (PropertyUtil.propertyAsBoolean(properties, PARQUET_SHRED_VARIANTS, false)) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "Doris currently supports only unshredded Iceberg VARIANT writes; set "
+                            + PARQUET_SHRED_VARIANTS + "=false before writing");
+        }
+    }
+
+    @VisibleForTesting
+    public static void validateWriteSchema(List<Column> columns, int formatVersion, FileFormat fileFormat) {
+        if (columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
+            return;
+        }
+        if (formatVersion < ICEBERG_VARIANT_MIN_VERSION) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "Iceberg VARIANT writes require table format-version 3, but found " + formatVersion);
+        }
+        if (fileFormat != FileFormat.PARQUET) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "Iceberg VARIANT writes require Parquet data files, but found " + fileFormat);
+        }
+    }
+
+    @VisibleForTesting
+    static void validateVariantWriteBackendCompatibility(List<Column> columns, Iterable<Backend> backends) {
+        if (columns.stream().noneMatch(column -> containsVariant(column.getType()))) {
+            return;
+        }
+        for (Backend backend : backends) {
+            if (backend.isQueryAvailable() && backend.isSmoothUpgradeSrc()) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "Iceberg Variant writes are unavailable while backend "
+                                + backend.getId() + " is a smooth upgrade source");
+            }
         }
     }
 
@@ -1407,6 +1456,39 @@ public class IcebergUtils {
     public static FileFormat getFileFormat(Table icebergTable) {
         Map<String, String> properties = icebergTable.properties();
         String fileFormatName = resolveFileFormatName(properties);
+        return parseFileFormatName(fileFormatName);
+    }
+
+    public static FileFormat getEffectiveFileFormat(Map<String, String> tableProperties,
+            Map<String, String> catalogProperties) {
+        Map<String, String> effectiveProperties = new HashMap<>();
+        copyCatalogFileFormatProperty(effectiveProperties, catalogProperties,
+                CatalogProperties.TABLE_DEFAULT_PREFIX, WRITE_FORMAT);
+        copyCatalogFileFormatProperty(effectiveProperties, catalogProperties,
+                CatalogProperties.TABLE_DEFAULT_PREFIX, TableProperties.DEFAULT_FILE_FORMAT);
+        if (tableProperties.containsKey(WRITE_FORMAT)) {
+            effectiveProperties.put(WRITE_FORMAT, tableProperties.get(WRITE_FORMAT));
+        }
+        if (tableProperties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
+            effectiveProperties.put(TableProperties.DEFAULT_FILE_FORMAT,
+                    tableProperties.get(TableProperties.DEFAULT_FILE_FORMAT));
+        }
+        copyCatalogFileFormatProperty(effectiveProperties, catalogProperties,
+                CatalogProperties.TABLE_OVERRIDE_PREFIX, WRITE_FORMAT);
+        copyCatalogFileFormatProperty(effectiveProperties, catalogProperties,
+                CatalogProperties.TABLE_OVERRIDE_PREFIX, TableProperties.DEFAULT_FILE_FORMAT);
+        return parseFileFormatName(resolveFileFormatName(effectiveProperties));
+    }
+
+    private static void copyCatalogFileFormatProperty(Map<String, String> effectiveProperties,
+            Map<String, String> catalogProperties, String prefix, String property) {
+        String value = catalogProperties.get(prefix + property);
+        if (value != null) {
+            effectiveProperties.put(property, value);
+        }
+    }
+
+    private static FileFormat parseFileFormatName(String fileFormatName) {
         FileFormat fileFormat;
         if (fileFormatName.toLowerCase().contains(ORC_NAME)) {
             fileFormat = FileFormat.ORC;
@@ -1419,6 +1501,11 @@ public class IcebergUtils {
     }
 
     private static String resolveFileFormatName(Map<String, String> properties) {
+        String configured = configuredFileFormatName(properties);
+        return configured == null ? PARQUET_NAME : configured;
+    }
+
+    private static String configuredFileFormatName(Map<String, String> properties) {
         // 1. Check "write-format" (nickname in Flink and Spark)
         if (properties.containsKey(WRITE_FORMAT)) {
             return properties.get(WRITE_FORMAT);
@@ -1427,8 +1514,7 @@ public class IcebergUtils {
         if (properties.containsKey(TableProperties.DEFAULT_FILE_FORMAT)) {
             return properties.get(TableProperties.DEFAULT_FILE_FORMAT);
         }
-        // Iceberg defaults the write format to Parquet when the table does not declare one.
-        return PARQUET_NAME;
+        return null;
     }
 
 
@@ -2076,7 +2162,10 @@ public class IcebergUtils {
                             != MetricsModes.None.get());
         }
         return TypeUtil.indexById(writerSchema.asStruct()).values().stream()
-                .filter(field -> field.type().isPrimitiveType())
+                // Iceberg Variant is primitive-like for Parquet metrics, but deliberately does
+                // not implement Type.PrimitiveType. Its unshredded metadata leaf still provides
+                // logical value/null counts for the Variant field.
+                .filter(field -> field.type().isPrimitiveType() || field.type().isVariantType())
                 .anyMatch(field -> MetricsUtil.metricsMode(writerSchema, metricsConfig, field.fieldId())
                         != MetricsModes.None.get());
     }

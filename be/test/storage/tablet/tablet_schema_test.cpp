@@ -24,6 +24,13 @@
 
 #include <set>
 
+#include "agent/be_exec_version_manager.h"
+#include "core/data_type/data_type_variant_v2.h"
+#include "exprs/aggregate/aggregate_function.h"
+#include "exprs/aggregate/aggregate_function_reader.h"
+#include "storage/schema.h"
+#include "storage/tablet/tablet_schema_helper.h"
+#include "storage/tablet_info.h"
 #include "util/json/path_in_data.h"
 
 namespace doris {
@@ -388,6 +395,30 @@ TEST_F(TabletSchemaTest, test_remove_index_keeps_heterogeneous_survivors_findabl
 
     // The NGRAM_BF survivor must not be reported as an inverted index on its column.
     EXPECT_TRUE(schema.inverted_indexs(9002, "").empty());
+}
+
+TEST_F(TabletSchemaTest, test_runtime_variant_type_for_load_aggregation) {
+    TabletColumn persisted_column;
+    persisted_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    persisted_column.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE);
+
+    auto runtime_type = std::make_shared<DataTypeVariantV2>(2, false);
+    auto function = persisted_column.get_aggregate_function(
+            AGG_LOAD_SUFFIX, BeExecVersionManager::get_newest_version(), runtime_type);
+    ASSERT_NE(function, nullptr);
+
+    auto input = runtime_type->create_column();
+    input->insert_default();
+    const IColumn* input_columns[] = {input.get()};
+    auto result = runtime_type->create_column();
+    std::unique_ptr<char[]> state(new char[function->size_of_data()]);
+    AggregateDataPtr place = state.get();
+    function->create(place);
+    Arena arena;
+    EXPECT_NO_THROW(function->add(place, input_columns, 0, arena));
+    EXPECT_NO_THROW(function->insert_result_into(place, *result));
+    EXPECT_EQ(result->size(), 1);
+    function->destroy(place);
 }
 
 TEST_F(TabletSchemaTest, test_tablet_schema_remove_and_clear_index) {

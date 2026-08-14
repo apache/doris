@@ -17,12 +17,52 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 public class IcebergMergeCommandTest {
+
+    @Test
+    public void testVariantActionsAreCoercedBeforeFinalIf() {
+        org.apache.doris.catalog.Type variantType = IcebergUtils.icebergTypeToDorisType(
+                org.apache.iceberg.types.Types.VariantType.get(), false, false);
+        DataType variantV2Type = DataType.fromCatalogType(variantType);
+        List<Column> columns = ImmutableList.of(new Column("payload", variantType));
+        List<List<Expression>> actions = ImmutableList.of(
+                ImmutableList.of(
+                        new TinyIntLiteral((byte) 1),
+                        new SlotReference("row_id", StringType.INSTANCE),
+                        new SlotReference("target_payload", variantV2Type)),
+                ImmutableList.of(
+                        new TinyIntLiteral((byte) 2),
+                        new SlotReference("row_id", StringType.INSTANCE),
+                        new IntegerLiteral(1)));
+
+        List<List<Expression>> coerced = IcebergMergeCommand.coerceVariantActionProjections(
+                actions, columns);
+
+        Assertions.assertInstanceOf(Cast.class, coerced.get(0).get(2));
+        Assertions.assertInstanceOf(Cast.class, coerced.get(1).get(2));
+        Assertions.assertEquals(variantV2Type, coerced.get(0).get(2).getDataType());
+        Assertions.assertEquals(variantV2Type, coerced.get(1).get(2).getDataType());
+        Assertions.assertEquals(variantV2Type, coerced.get(0).get(2).child(0).getDataType());
+        Assertions.assertEquals(org.apache.doris.nereids.types.IntegerType.INSTANCE,
+                coerced.get(1).get(2).child(0).getDataType());
+    }
 
     @Test
     public void testExecuteWithExternalTableBatchModeDisabledRestoresValueOnSuccess() throws Exception {

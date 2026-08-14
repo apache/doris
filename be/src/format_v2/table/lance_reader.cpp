@@ -683,6 +683,14 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
             return _lance_error("set Lance scanner fragment ids");
         }
     }
+    // Ordinary scans may carry a pushed-down LIMIT. The FE only sets it when all predicates are
+    // pushed into Lance, so the scanner can safely stop after `limit` rows. Vector search manages
+    // its own top_k limit in _configure_vector_search, so skip it here.
+    if (!_vector_search && lance_params.__isset.limit && lance_params.limit > 0) {
+        if (lance_scanner_set_limit(scanner, lance_params.limit) != 0) {
+            return _lance_error("set Lance scanner limit");
+        }
+    }
     if (_vector_search) {
         RETURN_IF_ERROR(_configure_vector_search(scanner));
     }

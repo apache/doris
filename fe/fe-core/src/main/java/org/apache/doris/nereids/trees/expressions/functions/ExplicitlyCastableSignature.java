@@ -46,7 +46,7 @@ public interface ExplicitlyCastableSignature extends ComputeSignature {
     static boolean isPrimitiveExplicitlyCastable(DataType signatureType, DataType realType) {
         if (signatureType instanceof JsonType
                 && realType instanceof VariantType
-                && ((VariantType) realType).isComputeV2()) {
+                && ((VariantType) realType).isExecutionV2()) {
             return false;
         }
         if (signatureType instanceof AnyDataType

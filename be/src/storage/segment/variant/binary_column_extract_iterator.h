@@ -17,37 +17,19 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
-
 #include <memory>
+#include <string>
 #include <string_view>
-#include <unordered_map>
 #include <utility>
 
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
-#include "core/block/column_with_type_and_name.h"
-#include "core/block/columns_with_type_and_name.h"
 #include "core/column/column.h"
-#include "core/column/column_nullable.h"
-#include "core/column/column_variant.h"
-#include "core/column/subcolumn_tree.h"
-#include "core/data_type/data_type.h"
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_string.h"
-#include "core/data_type/data_type_variant.h"
-#include "core/types.h"
-#include "exprs/function/function_helpers.h"
-#include "io/io_common.h"
+#include "core/column/column_map.h"
+#include "runtime/runtime_profile.h"
 #include "storage/iterators.h"
-#include "storage/schema.h"
-#include "storage/segment/column_reader.h"
-#include "storage/segment/stream_reader.h"
 #include "storage/segment/variant/variant_column_reader.h"
-#include "storage/tablet/tablet_schema.h"
-#include "util/json/path_in_data.h"
 
 namespace doris::segment_v2 {
 
@@ -58,11 +40,9 @@ class BaseBinaryColumnProcessor : public ColumnIterator {
 protected:
     const StorageReadOptions* _read_opts;
     BinaryColumnCacheSPtr _sparse_column_cache;
-    // Pure virtual method for data processing when encounter existing sparse columns(to be implemented by subclasses)
     virtual void _process_data_with_existing_sparse_column(MutableColumnPtr& dst,
                                                            size_t num_rows) = 0;
 
-    // Pure virtual method for data processing when no sparse columns(to be implemented by subclasses)
     virtual void _process_data_without_sparse_column(MutableColumnPtr& dst, size_t num_rows) = 0;
 
 public:
@@ -70,7 +50,6 @@ public:
                               const StorageReadOptions* opts)
             : _read_opts(opts), _sparse_column_cache(std::move(sparse_column_cache)) {}
 
-    // Common initialization for all processors
     Status init(const ColumnIteratorOptions& opts) override {
         return _sparse_column_cache->init(opts);
     }
@@ -83,9 +62,8 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "not implement");
     }
 
-    // Template method pattern for batch processing
     template <typename ReadMethod>
-    Status _process_batch(ReadMethod&& read_method, size_t nrows, MutableColumnPtr& dst) {
+    Status _process_batch(ReadMethod&& read_method, MutableColumnPtr& dst) {
         {
             SCOPED_RAW_TIMER(&_read_opts->stats->variant_scan_sparse_column_timer_ns);
             int64_t before_size = _read_opts->stats->uncompressed_bytes_read;
@@ -95,6 +73,7 @@ public:
         }
 
         SCOPED_RAW_TIMER(&_read_opts->stats->variant_fill_path_from_sparse_column_timer_ns);
+        const size_t nrows = _sparse_column_cache->binary_column->size();
         const auto& offsets =
                 assert_cast<const ColumnMap&>(*_sparse_column_cache->binary_column).get_offsets();
         if (offsets.back() == offsets[-1]) {
@@ -112,57 +91,23 @@ public:
 class BinaryColumnExtractIterator : public BaseBinaryColumnProcessor {
 public:
     BinaryColumnExtractIterator(std::string_view path, BinaryColumnCacheSPtr sparse_column_cache,
-                                const StorageReadOptions* opts)
-            : BaseBinaryColumnProcessor(std::move(sparse_column_cache), opts), _path(path) {}
+                                const StorageReadOptions* opts, bool use_variant_v2);
 
-    // Batch processing using template method
-    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
-        return _process_batch([&]() { return _sparse_column_cache->next_batch(n, has_null); }, *n,
-                              dst);
-    }
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
-    // RowID-based read using template method
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          MutableColumnPtr& dst) override {
-        return _process_batch([&]() { return _sparse_column_cache->read_by_rowids(rowids, count); },
-                              count, dst);
-    }
+                          MutableColumnPtr& dst) override;
 
 private:
     std::string _path;
+    bool _use_variant_v2;
 
-    // Fill column by finding path in sparse column
-    void _process_data_with_existing_sparse_column(MutableColumnPtr& dst,
-                                                   size_t num_rows) override {
-        _fill_path_column(dst);
-    }
-
-    void _fill_path_column(MutableColumnPtr& dst) {
-        ColumnNullable* nullable_column = nullptr;
-        if (dst->is_nullable()) {
-            nullable_column = assert_cast<ColumnNullable*>(dst.get());
-        }
-        ColumnVariant& var =
-                nullable_column != nullptr
-                        ? assert_cast<ColumnVariant&>(nullable_column->get_nested_column())
-                        : assert_cast<ColumnVariant&>(*dst);
-        if (var.is_null_root()) {
-            var.add_sub_column({}, dst->size());
-        }
-        NullMap* null_map = nullable_column ? &nullable_column->get_null_map_data() : nullptr;
-        ColumnVariant::fill_path_column_from_sparse_data(
-                *var.get_subcolumn({}) /*root*/, null_map, StringRef {_path.data(), _path.size()},
-                _sparse_column_cache->binary_column->get_ptr(), 0,
-                _sparse_column_cache->binary_column->size());
-        var.incr_num_rows(_sparse_column_cache->binary_column->size());
-        var.get_sparse_column_mutable().resize(var.rows());
-        var.get_doc_value_column_mutable().resize(var.rows());
-        ENABLE_CHECK_CONSISTENCY(&var);
-    }
-
-    void _process_data_without_sparse_column(MutableColumnPtr& dst, size_t num_rows) override {
-        dst->insert_many_defaults(num_rows);
-    }
+    Status _validate_destination(IColumn& dst) const;
+    Status _finish_variant_v2_batch(size_t num_rows, MutableColumnPtr& dst, bool* has_null);
+    Status _fill_variant_v2_path(MutableColumnPtr& dst, size_t num_rows, bool* has_null);
+    void _process_data_with_existing_sparse_column(MutableColumnPtr& dst, size_t num_rows) override;
+    void _fill_path_column(MutableColumnPtr& dst);
+    void _process_data_without_sparse_column(MutableColumnPtr& dst, size_t num_rows) override;
 };
 
 #include "common/compile_check_end.h"

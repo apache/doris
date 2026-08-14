@@ -42,6 +42,7 @@
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/defer.h"
+#include "common/http_helper.h"
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
@@ -58,6 +59,7 @@
 #include "rate-limiter/rate_limiter.h"
 #include "recycler/checker.h"
 #include "recycler/recycler.cpp"
+#include "recycler/recycler_service.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/util.h"
 #include "recycler/white_black_list.h"
@@ -1132,6 +1134,13 @@ static int create_instance(const std::string& internal_stage_id,
 
     instance_info.set_instance_id(instance_id);
     return 0;
+}
+
+static void put_instance_info(TxnKv* txn_kv, const InstanceInfoPB& instance_info) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    txn->put(instance_key({instance_info.instance_id()}), instance_info.SerializeAsString());
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
 }
 
 static int create_copy_job(TxnKv* txn_kv, const std::string& stage_id, int64_t table_id,
@@ -3192,6 +3201,8 @@ TEST(RecyclerTest, recycle_deleted_instance) {
 
     InstanceInfoPB instance_info;
     create_instance(internal_stage_id, external_stage_id, instance_info);
+    instance_info.set_status(InstanceInfoPB::DELETED);
+    put_instance_info(txn_kv.get(), instance_info);
     InstanceRecycler recycler(txn_kv, instance_info, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
@@ -3263,6 +3274,8 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     }
 
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
+    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING,
+              recycler.instance_info().recycle_state());
 
     {
         // No thing to recycle
@@ -3282,6 +3295,19 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     }
 
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
+    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING,
+              recycler.instance_info().recycle_state());
+    ASSERT_EQ(0, recycler.recycle_deleted_instance());
+    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED,
+              recycler.instance_info().recycle_state());
+    ASSERT_EQ(0, recycler.recycle_deleted_instance());
+
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+        std::string value;
+        ASSERT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, txn->get(instance_key({instance_id}), &value));
+    }
 
     // check if all the objects are deleted
     std::for_each(recycler.accessor_map_.begin(), recycler.accessor_map_.end(),
@@ -3345,6 +3371,176 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     }
 }
 
+TEST(RecyclerTest, init_deleted_instance_with_terminal_recycle_state) {
+    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(txn_kv.get(), nullptr);
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance_info;
+    instance_info.set_instance_id(instance_id);
+    instance_info.set_status(InstanceInfoPB::DELETED);
+    instance_info.set_recycle_state(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+    instance_info.add_resource_ids("deleted_vault");
+    put_instance_info(txn_kv.get(), instance_info);
+
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_EQ(recycler.do_recycle(), 0);
+}
+
+TEST(RecyclerTest, recycle_legacy_deleted_instance_without_recycle_state) {
+    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(txn_kv.get(), nullptr);
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance_info;
+    instance_info.set_instance_id(instance_id);
+    instance_info.set_status(InstanceInfoPB::DELETED);
+    instance_info.add_obj_info()->set_id("legacy_instance_obj");
+    ASSERT_FALSE(instance_info.has_recycle_state());
+    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING,
+              instance_info.recycle_state());
+    put_instance_info(txn_kv.get(), instance_info);
+
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_EQ(recycler.recycle_deleted_instance(), 0);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string value;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(instance_key({instance_id}), &value));
+    ASSERT_TRUE(instance_info.ParseFromString(value));
+    ASSERT_TRUE(instance_info.has_recycle_state());
+    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING,
+              instance_info.recycle_state());
+}
+
+TEST(RecyclerTest, reject_stale_instance_recycle_state_update) {
+    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(txn_kv.get(), nullptr);
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB stale_instance;
+    stale_instance.set_instance_id(instance_id);
+    stale_instance.set_status(InstanceInfoPB::DELETED);
+    stale_instance.set_recycle_state(
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+
+    InstanceInfoPB latest_instance = stale_instance;
+    latest_instance.set_recycle_state(
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+    put_instance_info(txn_kv.get(), latest_instance);
+
+    InstanceRecycler stale_recycler(txn_kv, stale_instance, thread_group,
+                                    std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_NE(stale_recycler.update_instance_recycle_state(
+                      InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING,
+                      InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED),
+              0);
+    ASSERT_NE(stale_recycler.update_instance_recycle_state(
+                      InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING,
+                      InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING),
+              0);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string value;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(instance_key({instance_id}), &value));
+    ASSERT_TRUE(latest_instance.ParseFromString(value));
+    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED,
+              latest_instance.recycle_state());
+}
+
+TEST(RecyclerServiceTest, skip_instance_data_cleanup) {
+    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(txn_kv.get(), nullptr);
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    const std::string test_instance_id = "skip_instance_data_cleanup_instance";
+    RecyclerServiceImpl service(txn_kv, nullptr, nullptr, nullptr);
+    auto get_instance_info = [&](InstanceInfoPB* instance_info) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+        std::string value;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn->get(instance_key({test_instance_id}), &value));
+        ASSERT_TRUE(instance_info->ParseFromString(value));
+    };
+
+    InstanceInfoPB instance_info;
+    instance_info.set_instance_id(test_instance_id);
+    instance_info.set_status(InstanceInfoPB::DELETED);
+    instance_info.set_recycle_state(INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+    ASSERT_FALSE(instance_info.has_multi_version_status());
+    put_instance_info(txn_kv.get(), instance_info);
+
+    auto [code, msg] = service.skip_instance_data_cleanup(instance_info.instance_id());
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+
+    InstanceInfoPB persisted_instance;
+    get_instance_info(&persisted_instance);
+    ASSERT_FALSE(persisted_instance.has_multi_version_status());
+    ASSERT_EQ(persisted_instance.recycle_state(), INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING);
+    ASSERT_GT(persisted_instance.recycle_state_update_time_ms(), 0);
+
+    instance_info.set_multi_version_status(MULTI_VERSION_DISABLED);
+    instance_info.set_recycle_state(INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+    instance_info.clear_recycle_state_update_time_ms();
+    put_instance_info(txn_kv.get(), instance_info);
+
+    auto call_http = [&](std::string_view query) {
+        brpc::Controller ctrl;
+        ctrl.http_request().uri() = fmt::format("/?{}", query);
+        return process_skip_instance_data_cleanup(&service, &ctrl);
+    };
+    auto response = call_http("");
+    ASSERT_EQ(response.status_code, 400) << response.body;
+    ASSERT_EQ(response.msg, "instance_id is empty");
+
+    response = call_http(fmt::format("instance_id={}", test_instance_id));
+    ASSERT_EQ(response.status_code, 200) << response.body;
+    ASSERT_EQ(response.msg, "OK");
+
+    get_instance_info(&persisted_instance);
+    ASSERT_EQ(persisted_instance.multi_version_status(), MULTI_VERSION_DISABLED);
+    ASSERT_EQ(persisted_instance.recycle_state(), INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING);
+    ASSERT_GT(persisted_instance.recycle_state_update_time_ms(), 0);
+
+    constexpr std::array unsupported_multi_version_statuses {
+            MULTI_VERSION_WRITE_ONLY,
+            MULTI_VERSION_READ_WRITE,
+            MULTI_VERSION_ENABLED,
+    };
+    for (auto multi_version_status : unsupported_multi_version_statuses) {
+        instance_info.set_multi_version_status(multi_version_status);
+        instance_info.set_recycle_state(INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+        instance_info.set_recycle_state_update_time_ms(123);
+        put_instance_info(txn_kv.get(), instance_info);
+
+        std::tie(code, msg) = service.skip_instance_data_cleanup(instance_info.instance_id());
+        ASSERT_EQ(code, MetaServiceCode::INVALID_ARGUMENT)
+                << MultiVersionStatus_Name(multi_version_status);
+        ASSERT_EQ(msg,
+                  fmt::format("cannot skip instance data cleanup for a multi-version instance, "
+                              "instance_id={}, multi_version_status={}",
+                              test_instance_id, MultiVersionStatus_Name(multi_version_status)));
+
+        get_instance_info(&persisted_instance);
+        ASSERT_EQ(persisted_instance.multi_version_status(), multi_version_status);
+        ASSERT_EQ(persisted_instance.recycle_state(), INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING);
+        ASSERT_EQ(persisted_instance.recycle_state_update_time_ms(), 123);
+    }
+
+    instance_info.set_status(InstanceInfoPB::NORMAL);
+    instance_info.clear_multi_version_status();
+    put_instance_info(txn_kv.get(), instance_info);
+    std::tie(code, msg) = service.skip_instance_data_cleanup(instance_info.instance_id());
+    ASSERT_EQ(code, MetaServiceCode::INVALID_ARGUMENT);
+    ASSERT_NE(msg.find("instance is not deleted"), std::string::npos) << msg;
+}
+
 // Regression test: if commit_rowset is called but the txn is never committed,
 // the rowset stays in meta_rowset_tmp_key with data_rowset_ref_count_key=1.
 // recycle_deleted_instance() must call recycle_tmp_rowsets() first so that
@@ -3364,20 +3560,14 @@ TEST(RecyclerTest, recycle_deleted_instance_with_orphan_tmp_rowset) {
     // Create instance with multi-version read/write and snapshot support
     InstanceInfoPB instance_info;
     instance_info.set_instance_id(instance_id);
+    instance_info.set_status(InstanceInfoPB::DELETED);
     instance_info.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_READ_WRITE);
     instance_info.set_snapshot_switch_status(SnapshotSwitchStatus::SNAPSHOT_SWITCH_ON);
     auto* obj_info = instance_info.add_obj_info();
     obj_info->set_id("orphan_tmp_rowset_test");
 
     // Write instance info to FDB (required by OperationLogRecycleChecker::init())
-    {
-        std::unique_ptr<Transaction> txn;
-        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        std::string key = instance_key({instance_id});
-        std::string val = instance_info.SerializeAsString();
-        txn->put(key, val);
-        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-    }
+    put_instance_info(txn_kv.get(), instance_info);
 
     InstanceRecycler recycler(txn_kv, instance_info, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -637,26 +638,27 @@ public class CastTest {
 
     @Test
     public void testCastFromVariant() {
-        Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, BooleanType.INSTANCE));
-        Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, IntegerType.INSTANCE));
-        Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, StringType.INSTANCE));
-        Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, JsonType.INSTANCE));
-        Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, ArrayType.of(IntegerType.INSTANCE)));
-        Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, VariantType.INSTANCE));
-        Assertions.assertTrue(castNullable(true, VariantType.INSTANCE, VariantType.INSTANCE));
+        boolean originalEnableVariantV2 = Config.enable_variant_v2;
+        try {
+            Config.enable_variant_v2 = false;
+            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, BooleanType.INSTANCE));
+            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, IntegerType.INSTANCE));
+            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, StringType.INSTANCE));
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, JsonType.INSTANCE));
+            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, ArrayType.of(IntegerType.INSTANCE)));
+            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, VariantType.INSTANCE));
+            Assertions.assertTrue(castNullable(true, VariantType.INSTANCE, VariantType.INSTANCE));
 
-        Assertions.assertTrue(castNullable(
-                false, VariantType.COMPUTE_V2_INSTANCE, BooleanType.INSTANCE));
-        Assertions.assertTrue(castNullable(
-                false, VariantType.COMPUTE_V2_INSTANCE, IntegerType.INSTANCE));
-        Assertions.assertTrue(castNullable(
-                false, VariantType.COMPUTE_V2_INSTANCE, StringType.INSTANCE));
-        Assertions.assertTrue(castNullable(
-                false, VariantType.COMPUTE_V2_INSTANCE, JsonType.INSTANCE));
-        Assertions.assertTrue(castNullable(
-                false, VariantType.COMPUTE_V2_INSTANCE, ArrayType.of(IntegerType.INSTANCE)));
-        Assertions.assertFalse(castNullable(
-                false, VariantType.COMPUTE_V2_INSTANCE, VariantType.COMPUTE_V2_INSTANCE));
+            Config.enable_variant_v2 = true;
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, BooleanType.INSTANCE));
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, IntegerType.INSTANCE));
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, StringType.INSTANCE));
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, JsonType.INSTANCE));
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, ArrayType.of(IntegerType.INSTANCE)));
+            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, VariantType.INSTANCE));
+        } finally {
+            Config.enable_variant_v2 = originalEnableVariantV2;
+        }
     }
 
     private boolean castNullable(boolean childNullable, DataType sourceType, DataType targetType) {

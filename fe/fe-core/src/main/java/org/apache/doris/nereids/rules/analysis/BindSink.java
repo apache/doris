@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.VariantWritePlanValidator;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
@@ -39,6 +40,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
@@ -750,7 +752,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> targetSchema = table.getFullSchema(targetSnapshot);
         // Validate the same pinned generation used to bind the sink. A self-insert can pin an
         // older source snapshot in StatementContext before the latest write target is loaded.
-        IcebergUtils.validateWriteSchema(targetSchema);
+        IcebergUtils.validateWriteSchema(targetIcebergTable, targetSchema);
 
         // Get static partition columns if present
         Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
@@ -815,6 +817,10 @@ public class BindSink implements AnalysisRuleFactory {
             throw new AnalysisException("insert into cols should be corresponding to the query output. "
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
+
+        IcebergVariantWriteAnalyzer.validate(bindColumns, child.getOutput());
+        VariantWritePlanValidator.validateNoLossyCoercion(
+                "Iceberg", bindColumns, child, ctx.cascadesContext.getCteContext());
 
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
                 boundSink, child, targetSchema);
@@ -994,11 +1000,10 @@ public class BindSink implements AnalysisRuleFactory {
                         .map(NamedExpression.class::cast)
                         .collect(ImmutableList.toImmutableList()),
                 sink.getDMLCommandType(), Optional.empty(), Optional.empty(), child);
-        ConnectContext connectContext = ctx.cascadesContext.getConnectContext();
-        boolean enableVariantV2 = connectContext != null
-                && connectContext.getSessionVariable().isEnableVariantV2();
         PaimonVariantWriteAnalyzer.validate(
-                writeTarget, writeColumns, columnToOutput, enableVariantV2);
+                writeTarget, writeColumns, columnToOutput);
+        VariantWritePlanValidator.validateNoLossyCoercion(
+                "Paimon", bindColumns, child, ctx.cascadesContext.getCteContext());
         LogicalProject<?> outputProject = getOutputProjectByCoercion(
                 writeColumns, child, columnToOutput, writeTarget.getColumnTypes());
         return boundSink.withChildAndUpdateOutput(outputProject);
@@ -1123,9 +1128,8 @@ public class BindSink implements AnalysisRuleFactory {
 
     private Plan bindDictionarySink(MatchingContext<UnboundDictionarySink<Plan>> ctx) {
         UnboundDictionarySink<?> sink = ctx.root;
-        Pair<Database, Dictionary> pair = bind(ctx.cascadesContext, sink);
-        Database database = pair.first;
-        Dictionary dictionary = pair.second;
+        Database database = sink.getDatabase();
+        Dictionary dictionary = sink.getDictionary();
         LogicalPlan child = ((LogicalPlan) sink.child());
 
         // 1. bind target columns: from sink's column names to target tables' Columns
@@ -1259,19 +1263,6 @@ public class BindSink implements AnalysisRuleFactory {
             return Pair.of(((JdbcExternalDatabase) pair.first), (JdbcExternalTable) pair.second);
         }
         throw new AnalysisException("the target table of insert into is not an jdbc table");
-    }
-
-    private Pair<Database, Dictionary> bind(CascadesContext cascadesContext,
-            UnboundDictionarySink<? extends Plan> sink) {
-        Dictionary dictionary = sink.getDictionary();
-        Database db;
-        try {
-            db = cascadesContext.getConnectContext().getEnv().getInternalCatalog()
-                    .getDbOrAnalysisException(dictionary.getDatabase().getName());
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage());
-        }
-        return Pair.of(db, dictionary);
     }
 
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions, boolean temp) {

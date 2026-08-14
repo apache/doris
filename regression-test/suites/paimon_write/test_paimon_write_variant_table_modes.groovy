@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
+suite("test_paimon_write_variant_table_modes", "p0,external,paimon,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
@@ -89,10 +89,11 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
     """
     sql """SWITCH ${catalogName}"""
     sql """USE ${dbName}"""
-    sql """SET enable_variant_v2 = true"""
-    sql """SET force_jni_scanner = true"""
 
     try {
+        setFeConfigTemporary([enable_variant_v2: true]) {
+            assertTrue(getFeConfig("enable_variant_v2").toBoolean())
+            sql """SET force_jni_scanner = true"""
         // Fixed-bucket primary-key table: later rows replace the same key.
         sql """
             INSERT INTO t_variant_pk VALUES
@@ -149,7 +150,7 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
             ORDER BY id
         """
 
-        // Non-Variant Paimon writes remain unchanged while the session enables V2.
+        // Non-Variant Paimon writes remain unchanged while the FE config enables V2.
         sql """INSERT INTO t_non_variant VALUES (1, '{"plain":"string"}')"""
         order_qt_non_variant """SELECT id, payload FROM t_non_variant ORDER BY id"""
 
@@ -157,6 +158,7 @@ suite("test_paimon_write_variant_table_modes", "p0,external,paimon") {
         test {
             sql """INSERT INTO t_variant_required VALUES (1, CAST(NULL AS VARIANT))"""
             exception "Cannot write null to non-null column(payload)"
+        }
         }
     } finally {
         sql """SET force_jni_scanner = false"""

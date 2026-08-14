@@ -174,6 +174,10 @@ public:
 
         void deserialize_from_binary_column(const ColumnString* value, size_t row);
 
+        // Used only when a storage cell is the requested logical value. SQL NULL and encoded
+        // JSON null both become a missing value; object children keep their encoded null.
+        void deserialize_nullable_from_binary_column(const ColumnString* value, size_t row);
+
         /// Returns single column if subcolumn in finalizes.
         /// Otherwise -- undefined behaviour.
         IColumn& get_finalized_column();
@@ -613,10 +617,6 @@ public:
                                                   StringRef path,
                                                   const ColumnPtr& sparse_data_column, size_t start,
                                                   size_t end);
-
-    static size_t find_path_lower_bound_in_sparse_data(StringRef path,
-                                                       const ColumnString& sparse_data_paths,
-                                                       size_t start, size_t end);
 
     // Deserialize the i-th row of the column from the sparse column.
     static std::pair<Field, FieldInfo> deserialize_from_binary_column(const ColumnString* value,
