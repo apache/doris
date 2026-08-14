@@ -217,6 +217,9 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     state->be_exec_version(),
                     {.is_window_function = _is_window_function,
                      .is_foreach = is_foreach,
+                     .new_version_percentile =
+                             state->query_options().__isset.new_version_percentile &&
+                             state->query_options().new_version_percentile,
                      .column_names = std::move(column_names)});
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
@@ -224,6 +227,9 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     state->be_exec_version(),
                     {.is_window_function = _is_window_function,
                      .is_foreach = is_foreach,
+                     .new_version_percentile =
+                             state->query_options().__isset.new_version_percentile &&
+                             state->query_options().new_version_percentile,
                      .column_names = std::move(column_names)});
         }
     }

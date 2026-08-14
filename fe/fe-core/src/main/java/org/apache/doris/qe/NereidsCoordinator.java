@@ -492,6 +492,7 @@ public class NereidsCoordinator extends Coordinator {
         // Set this field to true to avoid data entering the normal cache LRU queue
         this.coordinatorContext.queryOptions.setDisableFileCache(true);
         this.coordinatorContext.queryOptions.setNewVersionUnixTimestamp(true);
+        this.coordinatorContext.queryOptions.setNewVersionPercentile(true);
     }
 
     private void setForQuery() {

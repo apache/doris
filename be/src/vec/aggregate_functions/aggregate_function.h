@@ -46,6 +46,7 @@ class IDataType;
 struct AggregateFunctionAttr {
     bool is_window_function {false};
     bool is_foreach {false};
+    bool new_version_percentile {false};
     std::vector<std::string> column_names;
 };
 
