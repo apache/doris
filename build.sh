@@ -291,6 +291,7 @@ eval set -- "${OPTS}"
 PARALLEL="$(($(nproc) / 4 + 1))"
 BUILD_FE=0
 BUILD_BE=0
+BUILD_DORIS_BE_BINARY='OFF'
 BUILD_CLOUD=0
 BUILD_META_TOOL='OFF'
 BUILD_FILE_CACHE_MICROBENCH_TOOL='OFF'
@@ -315,6 +316,7 @@ if [[ "$#" == 1 ]]; then
     # default
     BUILD_FE=1
     BUILD_BE=1
+    BUILD_DORIS_BE_BINARY='ON'
     BUILD_CLOUD=1
 
     BUILD_META_TOOL='OFF'
@@ -337,6 +339,7 @@ else
             ;;
         --be)
             BUILD_BE=1
+            BUILD_DORIS_BE_BINARY='ON'
             BUILD_BE_JAVA_EXTENSIONS=1
             BUILD_BE_CDC_CLIENT=1
             shift
@@ -744,6 +747,7 @@ fi
 echo "Get params:
     BUILD_FE                            -- ${BUILD_FE}
     BUILD_BE                            -- ${BUILD_BE}
+    BUILD_DORIS_BE_BINARY               -- ${BUILD_DORIS_BE_BINARY}
     BUILD_CLOUD                         -- ${BUILD_CLOUD}
     BUILD_META_TOOL                     -- ${BUILD_META_TOOL}
     BUILD_FILE_CACHE_MICROBENCH_TOOL    -- ${BUILD_FILE_CACHE_MICROBENCH_TOOL}
@@ -930,6 +934,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
         -DMAKE_TEST=OFF \
         -DBUILD_BENCHMARK="${BUILD_BENCHMARK}" \
+        -DBUILD_DORIS_BE_BINARY="${BUILD_DORIS_BE_BINARY}" \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         -DBUILD_TASK_EXECUTOR_SIMULATOR="${BUILD_TASK_EXECUTOR_SIMULATOR}" \
         -DBUILD_FILE_CACHE_LRU_TOOL="${BUILD_FILE_CACHE_LRU_TOOL}" \
@@ -1268,6 +1273,13 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
       rm "${DORIS_OUTPUT}/fe/arthas/math-game.jar"
       rm "${DORIS_OUTPUT}/fe/arthas/arthas-bin.zip"
     fi
+fi
+
+if [[ "${OUTPUT_BE_BINARY}" -eq 1 && "${BUILD_BENCHMARK}" == "ON" &&
+        "${BUILD_DORIS_BE_BINARY}" == "OFF" ]]; then
+    install -d "${DORIS_OUTPUT}/be/lib"
+    cp -r -p "${DORIS_HOME}/be/output/lib/benchmark_test" "${DORIS_OUTPUT}/be/lib/"
+    OUTPUT_BE_BINARY=0
 fi
 
 if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then

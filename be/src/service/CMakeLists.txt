@@ -36,7 +36,7 @@ add_library(Service STATIC ${SRC_FILES})
 
 pch_reuse(Service)
 
-if (${MAKE_TEST} STREQUAL "OFF" AND ${BUILD_BENCHMARK} STREQUAL "OFF")
+if (${MAKE_TEST} STREQUAL "OFF" AND BUILD_DORIS_BE_BINARY)
     add_executable(doris_be
         doris_main.cpp
     )

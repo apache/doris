@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "minimum_case_counts": {
+    "ParquetDecoder": 152,
+    "ParquetReader": 137
+  },
+  "smoke_min_time": "0.001s",
+  "measurement": {
+    "cpu": 8,
+    "min_time": "0.5s",
+    "warmup_time": "0.2",
+    "repetitions": 5,
+    "max_inconclusive_retries": 1
+  },
+  "thresholds": {
+    "regression_pct": 15,
+    "warning_pct": 5,
+    "confidence_margin_pct": 5,
+    "max_cv_pct": 3
+  },
+  "gate_cases": [
+    "ParquetDecoder/plain/int64/sel_100/clustered",
+    "ParquetDecoder/plain/int64/sel_1/alternating",
+    "ParquetDecoder/plain/byte_array/sel_100/clustered",
+    "ParquetDecoder/dictionary/int32/sel_1/alternating",
+    "ParquetDecoder/dictionary/byte_array/sel_10/clustered",
+    "ParquetDecoder/dictionary/byte_array/sel_10/alternating",
+    "ParquetDecoder/byte_stream_split/double/sel_100/clustered",
+    "ParquetDecoder/byte_stream_split/fixed_len_byte_array/sel_10/alternating",
+    "ParquetDecoder/delta_binary_packed/int64/sel_50/clustered",
+    "ParquetDecoder/delta_length_byte_array/byte_array/sel_10/alternating",
+    "ParquetDecoder/delta_byte_array/byte_array/sel_10/alternating",
+    "ParquetReader/open_to_first_block/plain/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0",
+    "ParquetReader/full_scan/plain/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0",
+    "ParquetReader/predicate_scan/plain/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0",
+    "ParquetReader/limit_1/plain/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0",
+    "ParquetReader/limit_1000/plain/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0",
+    "ParquetReader/predicate_scan/dictionary/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0",
+    "ParquetReader/predicate_scan/byte_stream_split/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0",
+    "ParquetReader/predicate_scan/delta_binary_packed/int32/null_10/alternating/sel_10/predicate_projected/width_32/predicate_0",
+    "ParquetReader/predicate_scan/plain/int32/null_90/clustered/sel_10/predicate_projected/width_32/predicate_0",
+    "ParquetReader/predicate_scan/plain/int32/null_10/alternating/sel_90/predicate_projected/width_32/predicate_0",
+    "ParquetReader/predicate_scan/plain/int32/null_10/alternating/sel_10/predicate_projected/width_512/predicate_511"
+  ]
+}

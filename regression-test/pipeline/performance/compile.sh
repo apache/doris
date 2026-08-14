@@ -41,9 +41,27 @@ if [[ -z "${pr_num_from_trigger}" ]]; then echo "ERROR: env pr_num_from_trigger 
 if [[ -z "${commit_id_from_trigger}" ]]; then echo "ERROR: env commit_id_from_trigger not set" && exit 2; fi
 if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 2; fi
 
+performance_dir="${teamcity_build_checkoutDir}/regression-test/pipeline/performance"
+tmp_env_helper="${teamcity_build_checkoutDir}/regression-test/pipeline/common/get-or-set-tmp-env.sh"
+set_performance_tmp_env() {
+    (
+        cd "${performance_dir}" || exit 1
+        bash "${tmp_env_helper}" 'set' "$1"
+    )
+}
+
 # shellcheck source=/dev/null
-source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
+source "$(cd "${performance_dir}" && bash "${tmp_env_helper}" 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
+
+parquet_microbenchmark_mode="${PARQUET_MICROBENCHMARK_MODE:-off}"
+case "${parquet_microbenchmark_mode}" in
+    off | report | gate) ;;
+    *)
+        echo "ERROR: PARQUET_MICROBENCHMARK_MODE must be off, report, or gate"
+        exit 2
+        ;;
+esac
 
 merge_pr_to_target_branch_latest() {
     local pr_num_from_trigger="$1"
@@ -56,17 +74,27 @@ merge_pr_to_target_branch_latest() {
     git reset --hard
     git fetch origin "${target_branch}"
     git checkout "${target_branch}"
-    git reset --hard origin/"${target_branch}"
-    git pull origin "${target_branch}"
+    if [[ -n "${PARQUET_BENCHMARK_BASE_SHA:-}" ]]; then
+        if [[ ! "${PARQUET_BENCHMARK_BASE_SHA}" =~ ^[0-9a-f]{40}$ ]] ||
+                ! git merge-base --is-ancestor "${PARQUET_BENCHMARK_BASE_SHA}" \
+                    origin/"${target_branch}"; then
+            echo "ERROR: invalid pinned Parquet benchmark base SHA: ${PARQUET_BENCHMARK_BASE_SHA}"
+            return 1
+        fi
+        echo "INFO: pin Parquet benchmark base to ${PARQUET_BENCHMARK_BASE_SHA}"
+        git reset --hard "${PARQUET_BENCHMARK_BASE_SHA}"
+    else
+        git reset --hard origin/"${target_branch}"
+        git pull origin "${target_branch}"
+    fi
     git submodule update --init --recursive --depth 1
-    local target_branch_commit_id
-    target_branch_commit_id=$(git rev-parse HEAD)
+    parquet_benchmark_base_sha=$(git rev-parse HEAD)
     git config user.email "ci@selectdb.com"
     git config user.name "ci"
     echo "git fetch origin refs/pull/${pr_num_from_trigger}/head"
     git fetch origin "refs/pull/${pr_num_from_trigger}/head"
     git merge --no-edit --allow-unrelated-histories FETCH_HEAD
-    echo "INFO: merge refs/pull/${pr_num_from_trigger}/head into master: ${target_branch_commit_id}"
+    echo "INFO: merge refs/pull/${pr_num_from_trigger}/head into master: ${parquet_benchmark_base_sha}"
     CONFLICTS=$(git ls-files -u | wc -l)
     if [[ "${CONFLICTS}" -gt 0 ]]; then
         echo "ERROR: merge refs/pull/${pr_num_from_trigger}/head into master failed. Aborting"
@@ -106,6 +134,25 @@ if ${merge_target_branch_latest:-true}; then
 else
     echo "INFO: skip merge_pr_to_target_branch_latest"
 fi
+if [[ "${parquet_microbenchmark_mode}" != off ]]; then
+    if [[ -z "${parquet_benchmark_base_sha:-}" ]]; then
+        if [[ -n "${PARQUET_BENCHMARK_BASE_SHA:-}" ]]; then
+            parquet_benchmark_base_sha="${PARQUET_BENCHMARK_BASE_SHA}"
+        else
+            parquet_benchmark_base_sha=$(
+                git -C "${teamcity_build_checkoutDir}" rev-parse "origin/${target_branch}"
+            )
+        fi
+    fi
+    if [[ ! "${parquet_benchmark_base_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+        echo "ERROR: invalid Parquet benchmark base SHA: ${parquet_benchmark_base_sha}"
+        if [[ "${parquet_microbenchmark_mode}" == gate ]]; then
+            exit 1
+        fi
+        echo "##teamcity[message text='Parquet microbenchmark base SHA is unavailable; report step will not block the build' status='WARNING']"
+        unset parquet_benchmark_base_sha
+    fi
+fi
 mount_swapfile=""
 if [[ -f /root/swapfile ]]; then mount_swapfile="-v /root/swapfile:/swapfile --memory-swap -1"; fi
 git_storage_path=$(grep storage "${teamcity_build_checkoutDir}"/.git/config | rev | cut -d ' ' -f 1 | rev | awk -F '/lfs' '{print $1}')
@@ -113,9 +160,18 @@ sudo docker container prune -f
 sudo docker image prune -f
 sudo docker pull "${docker_image}"
 docker_name=doris-compile-"${commit_id_from_trigger}"
-if sudo docker ps -a --no-trunc | grep "${docker_name}"; then
-    sudo docker stop "${docker_name}"
-    sudo docker rm "${docker_name}"
+if sudo docker container inspect "${docker_name}" >/dev/null 2>&1; then
+    sudo docker rm -f "${docker_name}" || true
+    for _ in $(seq 1 30); do
+        if ! sudo docker container inspect "${docker_name}" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+    if sudo docker container inspect "${docker_name}" >/dev/null 2>&1; then
+        echo "ERROR: timed out removing stale compile container ${docker_name}"
+        exit 1
+    fi
 fi
 rm -f custom_env.sh
 cp "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/custom_env.sh .
@@ -124,6 +180,12 @@ if [[ "${target_branch}" == "master" ]]; then
 fi
 rm -rf "${teamcity_build_checkoutDir}"/output
 USE_CUSTOM_LDB="wget -c -t3 -q https://doris-regression-hk.oss-cn-hongkong-internal.aliyuncs.com/tools/ldb-toolchain/v0.26/ldb_toolchain_gen.sh && rm -rf /usr/local/ldb-toolchain-v0.26 && bash ldb_toolchain_gen.sh /usr/local/ldb-toolchain-v0.26 && export PATH=/usr/local/ldb-toolchain-v0.26/bin:\$PATH"
+set_performance_tmp_env "export performance_docker_image=${docker_image}"
+if [[ "${parquet_microbenchmark_mode}" != off &&
+        -n "${parquet_benchmark_base_sha:-}" ]]; then
+    set_performance_tmp_env "export parquet_benchmark_base_sha=${parquet_benchmark_base_sha}"
+    set_performance_tmp_env "export performance_remote_ccache=${REMOTE_CCACHE}"
+fi
 set -x
 # shellcheck disable=SC2086
 sudo docker run -i --rm \
@@ -139,7 +201,7 @@ sudo docker run -i --rm \
     -v "${git_storage_path}":/root/git \
     -v "${teamcity_build_checkoutDir}":/root/doris \
     "${docker_image}" \
-    /bin/bash -c "mkdir -p ${git_storage_path} \
+    /bin/bash -o pipefail -c "mkdir -p ${git_storage_path} \
                     && cp -r /root/git/* ${git_storage_path}/ \
                     && cd /root/doris \
                     && export CCACHE_LOGFILE=/tmp/cache.debug \
@@ -150,7 +212,12 @@ sudo docker run -i --rm \
                     && export CUSTOM_NPM_REGISTRY=https://registry.npmjs.org \
                     && ${install_maven_cmd} ${USE_CUSTOM_LDB} \
                     && bash build.sh --fe --be --clean 2>&1 | tee build.log"
+docker_status=$?
 set +x
+if [[ "${docker_status}" -ne 0 ]]; then
+    echo "ERROR: performance build failed"
+    exit "${docker_status}"
+fi
 set -x
 succ_symble="Successfully build Doris"
 if [[ -d output ]] && grep "${succ_symble}" "${teamcity_build_checkoutDir}"/build.log; then
