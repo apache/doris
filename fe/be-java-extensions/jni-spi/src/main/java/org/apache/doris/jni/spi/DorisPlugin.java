@@ -23,7 +23,7 @@ import java.util.Collections;
  * Entry point of a BE Java plugin, discovered through {@link java.util.ServiceLoader} from
  * {@code META-INF/services/org.apache.doris.jni.spi.DorisPlugin} inside the plugin's own jars.
  *
- * <p>A plugin is a directory under {@code lib/java/plugins/}; the directory name is the plugin
+ * <p>A plugin is a directory under {@code plugins/jni/}; the directory name is the plugin
  * name BE uses to address it, so the interface deliberately carries no name of its own — there is
  * no way for a jar to disagree with the directory it was deployed into.
  *

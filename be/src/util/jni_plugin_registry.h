@@ -28,7 +28,7 @@
 
 namespace doris::Jni {
 
-// How BE names one Java factory: the plugin's directory under lib/java/plugins/, and the
+// How BE names one Java factory: the plugin's directory under plugins/jni/, and the
 // factory's own name within that plugin. It replaces the class name BE used to reflect on -
 // a concrete class is private to its plugin's classloader, so naming one from C++ stopped
 // being possible the moment plugins were isolated.
@@ -40,7 +40,7 @@ struct PluginRef {
 };
 
 // Every plugin and factory BE addresses, in one place because the plugin half is also a
-// deployment directory name: it appears in lib/java/plugins/, in build.sh, in the CI check
+// deployment directory name: it appears in plugins/jni/, in build.sh, in the CI check
 // that scans those directories, and in the "is not deployed" a user sees. It is named here
 // once so renaming a plugin is one edit rather than a hunt through the readers - the same
 // connector is reached from both the v1 and the v2 scan paths, and two independent string
