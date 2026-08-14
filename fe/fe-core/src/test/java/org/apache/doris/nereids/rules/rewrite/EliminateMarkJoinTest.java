@@ -134,4 +134,69 @@ class EliminateMarkJoinTest extends TestWithFeService implements MemoPatternMatc
                 .matches(logicalJoin().when(join -> !join.isMarkJoin()
                         && join.getJoinType() == JoinType.NULL_AWARE_LEFT_ANTI_JOIN));
     }
+
+    @Test
+    void existsSubqueryCleanElimination() {
+        // a bare EXISTS conjunct is extracted into its own conjunct and never creates a mark
+        // slot, so wrap it in ifnull(exists, false): visitExists now creates the marker (the
+        // conjunct is a compound holding a subquery) and the mark-join elimination drops it
+        // (Pair.second, the ifnull wrapper makes NULL and FALSE of the mark indistinguishable),
+        // leaving the marker-free apply to be lowered to a plain (non-mark) left semi join
+        String sql = "select t1.id from t1"
+                + " where ifnull(exists (select 1 from t3 where t3.score = t1.score), false)"
+                + " and t1.id > 0";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin().when(LogicalJoin::isMarkJoin))
+                .matches(logicalJoin().when(join ->
+                        join.getJoinType() == JoinType.LEFT_SEMI_JOIN && !join.isMarkJoin()));
+    }
+
+    @Test
+    void unCorrelatedExistsSubqueryCleanElimination() {
+        // the same marker-producing form for an uncorrelated EXISTS: the marker is dropped and
+        // the marker-free apply is lowered to a plain cross join with the limited subquery
+        String sql = "select t1.id from t1"
+                + " where ifnull(exists (select 1 from t3), false) and t1.id > 0";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin().when(LogicalJoin::isMarkJoin))
+                .matches(logicalJoin().when(join ->
+                        join.getJoinType() == JoinType.CROSS_JOIN && !join.isMarkJoin()));
+    }
+
+    @Test
+    void notExistsSubqueryCleanElimination() {
+        // a clean correlated NOT EXISTS through the marker-producing form: the marker is
+        // dropped and the apply is lowered to a plain (non-mark) left anti join
+        String sql = "select t1.id from t1"
+                + " where ifnull(not exists (select 1 from t3 where t3.score = t1.score), false)"
+                + " and t1.id > 0";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin().when(LogicalJoin::isMarkJoin))
+                .matches(logicalJoin().when(join ->
+                        join.getJoinType() == JoinType.LEFT_ANTI_JOIN && !join.isMarkJoin()));
+    }
+
+    @Test
+    void unCorrelatedNotExistsSubqueryCleanElimination() {
+        // an uncorrelated NOT EXISTS through the marker-producing form: the marker is dropped
+        // and the marker-free apply is lowered to a plain cross join with the count filter
+        String sql = "select t1.id from t1"
+                + " where ifnull(not exists (select 1 from t3), false) and t1.id > 0";
+
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .nonMatch(logicalJoin().when(LogicalJoin::isMarkJoin))
+                .matches(logicalJoin().when(join ->
+                        join.getJoinType() == JoinType.CROSS_JOIN && !join.isMarkJoin()));
+    }
 }

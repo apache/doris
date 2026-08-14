@@ -571,4 +571,117 @@ suite ("subquery_unnesting") {
                 order by side_phys_t.k;"""
         exception "correlate scalar subquery must return only 1 row"
     }
+
+    // =====================================================================
+    // stale-correlation null-aware NOT IN regression: `ifnull(o.k not in (select s.v
+    // from s where s.g = o.g or true), false)` records the outer slot o.g during analysis,
+    // then normalization folds `s.g = o.g or true` to `true`, leaving a STALE correlation
+    // slot on the apply (isCorrelated()=true but no correlation filter). the mark join is
+    // eliminated (Pair.second) and InApplyToJoin must select the NULL_AWARE_LEFT_ANTI_JOIN
+    // based on the EFFECTIVE correlation (a present correlation filter), not the stale slot:
+    // an ordinary anti join would emit the row even though s.v contains NULL and the NOT IN
+    // therefore evaluates to NULL, which the ifnull predicate must reject. both stale_o rows
+    // have a NULL in the effective build set {1, NULL}, so the correct result is empty (the
+    // pre-fix plan returned both rows).
+    sql "drop table if exists stale_o"
+    sql "drop table if exists stale_s"
+    sql """create table stale_o (k bigint, g bigint) DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table stale_s (v bigint null, g bigint) DUPLICATE KEY(v)
+            DISTRIBUTED BY HASH(v) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """insert into stale_o values (5,10),(7,20);"""
+    sql """insert into stale_s values (1,10),(null,10);"""
+    qt_stale_null_notin """select stale_o.k from stale_o
+            where ifnull(stale_o.k not in (select stale_s.v from stale_s
+                    where stale_s.g = stale_o.g or true), false)
+            order by stale_o.k;"""
+
+    // =====================================================================
+    // empty-EXISTS subtree-elimination regression: in
+    //   nvl(o.x = (select s.x from s) and exists (select 1 where false), false)
+    // the preorder stacks the uncorrelated scalar apply BELOW the higher empty EXISTS
+    // apply. the scalar is lowered to CrossJoin(o, LogicalAssertNumRows(s)) and the
+    // EXISTS marker is eliminated, leaving a non-mark CROSS join with an empty right
+    // side. EliminateEmptyRelation must NOT replace that join with an empty relation,
+    // because doing so deletes the lower scalar's LogicalAssertNumRows cardinality check
+    // and silently returns empty instead of raising the
+    // 'correlate scalar subquery must return only 1 row' error when s has multiple rows.
+    sql "drop table if exists empty_scalar_o"
+    sql "drop table if exists empty_scalar_s"
+    sql """create table empty_scalar_o (k bigint, x bigint) DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table empty_scalar_s (x bigint) DUPLICATE KEY(x)
+            DISTRIBUTED BY HASH(x) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """insert into empty_scalar_o values (1,10);"""
+    sql """insert into empty_scalar_s values (1),(2);"""
+    explain {
+        sql("""shape plan select empty_scalar_o.x from empty_scalar_o
+                where nvl(empty_scalar_o.x = (select empty_scalar_s.x from empty_scalar_s)
+                        and exists (select 1 where false), false)
+                order by empty_scalar_o.x;""")
+        contains("AssertNumRows")
+    }
+    test {
+        sql """select empty_scalar_o.x from empty_scalar_o
+                where nvl(empty_scalar_o.x = (select empty_scalar_s.x from empty_scalar_s)
+                        and exists (select 1 where false), false)
+                order by empty_scalar_o.x;"""
+        exception "Expected EQ 1 to be returned by expression"
+    }
+
+    // =====================================================================
+    // clean EXISTS marker elimination (positive oracles): a bare EXISTS conjunct is
+    // extracted into its own conjunct and never creates a mark slot, so it is wrapped in
+    // ifnull(exists, false) — visitExists then creates the marker (the conjunct is a
+    // compound holding a subquery) and the mark-join elimination (Pair.second, the ifnull
+    // wrapper makes NULL and FALSE of the mark indistinguishable) drops it, leaving
+    // ExistsApplyToJoin to lower the marker-free apply to a plain semi/anti/cross join.
+    // these are the positive counterparts of the marker-RETAINED EXISTS regressions above:
+    // disabling EXISTS elimination would leave every changed oracle green, so the
+    // marker-absent (notContains isMarkJoin=true) plus result oracles here catch it.
+    // both non-empty and empty inner sides are covered.
+    sql "drop table if exists emi_t1"
+    sql "drop table if exists emi_t3"
+    sql """create table emi_t1 (id int not null, score int null) DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table emi_t3 (id int not null, score int null) DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """insert into emi_t1 values (1,10),(2,20),(3,30);"""
+    sql """insert into emi_t3 values (1,10),(3,30),(4,40);"""
+    explain {
+        sql("""analyzed plan select emi_t1.id from emi_t1
+                where ifnull(exists (select 1 from emi_t3 where emi_t3.score = emi_t1.score), false)
+                    and emi_t1.id > 0
+                order by emi_t1.id;""")
+        notContains("isMarkJoin=true")
+    }
+    qt_emi_corr_exists """select emi_t1.id from emi_t1
+            where ifnull(exists (select 1 from emi_t3 where emi_t3.score = emi_t1.score), false)
+                and emi_t1.id > 0
+            order by emi_t1.id;"""
+    qt_emi_uncorr_exists """select emi_t1.id from emi_t1
+            where ifnull(exists (select 1 from emi_t3), false) and emi_t1.id > 0
+            order by emi_t1.id;"""
+    qt_emi_corr_not_exists """select emi_t1.id from emi_t1
+            where ifnull(not exists (select 1 from emi_t3 where emi_t3.score = emi_t1.score), false)
+                and emi_t1.id > 0
+            order by emi_t1.id;"""
+    qt_emi_uncorr_not_exists """select emi_t1.id from emi_t1
+            where ifnull(not exists (select 1 from emi_t3), false) and emi_t1.id > 0
+            order by emi_t1.id;"""
+    sql "truncate table emi_t3;"
+    qt_emi_empty_corr_exists """select emi_t1.id from emi_t1
+            where ifnull(exists (select 1 from emi_t3 where emi_t3.score = emi_t1.score), false)
+                and emi_t1.id > 0
+            order by emi_t1.id;"""
+    qt_emi_empty_uncorr_exists """select emi_t1.id from emi_t1
+            where ifnull(exists (select 1 from emi_t3), false) and emi_t1.id > 0
+            order by emi_t1.id;"""
+    qt_emi_empty_corr_not_exists """select emi_t1.id from emi_t1
+            where ifnull(not exists (select 1 from emi_t3 where emi_t3.score = emi_t1.score), false)
+                and emi_t1.id > 0
+            order by emi_t1.id;"""
+    qt_emi_empty_uncorr_not_exists """select emi_t1.id from emi_t1
+            where ifnull(not exists (select 1 from emi_t3), false) and emi_t1.id > 0
+            order by emi_t1.id;"""
 }

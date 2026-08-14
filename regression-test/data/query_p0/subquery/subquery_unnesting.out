@@ -1556,3 +1556,33 @@
 1	2
 2	4
 
+-- !stale_null_notin --
+
+-- !emi_corr_exists --
+1
+3
+
+-- !emi_uncorr_exists --
+1
+2
+3
+
+-- !emi_corr_not_exists --
+2
+
+-- !emi_uncorr_not_exists --
+
+-- !emi_empty_corr_exists --
+
+-- !emi_empty_uncorr_exists --
+
+-- !emi_empty_corr_not_exists --
+1
+2
+3
+
+-- !emi_empty_uncorr_not_exists --
+1
+2
+3
+
