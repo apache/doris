@@ -664,29 +664,17 @@ if (ENABLE_PAIMON_CPP)
     message(STATUS "Paimon C++ enabled: legacy thirdparty static linkage mode")
 endif()
 
-if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
-    add_library(hadoop_hdfs STATIC IMPORTED)
-    set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a)
+add_library(hadoop_hdfs STATIC IMPORTED)
+set_target_properties(hadoop_hdfs PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/hadoop_hdfs_3_4/native/libhdfs.a)
 
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        hadoop_hdfs
-    )
-    add_definitions(-DUSE_HADOOP_HDFS)
-    # USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
-    # the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface
-    add_definitions(-DUSE_DORIS_HADOOP_HDFS)
-else()
-    add_library(hdfs3 STATIC IMPORTED)
-    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libhdfs3.a)
-
-    # TODO: use arm hadoop hdfs to replace this
-    set(COMMON_THIRDPARTY
-        ${COMMON_THIRDPARTY}
-        hdfs3
-    )
-    add_definitions(-DUSE_LIBHDFS3)
-endif()
+set(COMMON_THIRDPARTY
+    ${COMMON_THIRDPARTY}
+    hadoop_hdfs
+)
+add_definitions(-DUSE_HADOOP_HDFS)
+# USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
+# the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface
+add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 
 if (absl_FOUND)
     set(COMMON_THIRDPARTY
