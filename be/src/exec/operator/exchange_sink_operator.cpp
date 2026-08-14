@@ -596,7 +596,7 @@ std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
     if (_sink_buffer) {
         fmt::format_to(debug_string_buffer,
-                       ", Sink Buffer: (_is_finishing = {}, blocks in queue: {}, queue capacity: "
+                       ", Sink Buffer: (_is_failed = {}, blocks in queue: {}, queue capacity: "
                        "{}, queue dep: {}), _reach_limit: {}, working channels: {}, total "
                        "channels: {}, remote channels: {}, each queue size: {}",
                        _sink_buffer->_is_failed.load(), _sink_buffer->_total_queue_size,

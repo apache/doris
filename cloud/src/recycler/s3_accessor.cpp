@@ -207,7 +207,8 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
         s3_conf.provider = S3Conf::AZURE;
         break;
     default:
-        LOG_WARNING("unknown provider type {}").tag("obj_info", proto_to_json(obj_info));
+        LOG_WARNING("unknown provider type {}", static_cast<int>(obj_info.provider()))
+                .tag("obj_info", proto_to_json(obj_info));
         return std::nullopt;
     }
 

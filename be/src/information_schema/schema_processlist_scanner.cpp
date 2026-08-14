@@ -144,7 +144,8 @@ Status SchemaProcessListScanner::_fill_block_impl(Block* block) {
                             {column_value.data(), column_value.size()}, *dv, nullptr, -1, params)) {
                     return Status::InternalError(
                             "process list meet invalid data, column={}, data={}, reason={}",
-                            _s_processlist_columns[col_idx].name, column_value);
+                            _s_processlist_columns[col_idx].name, column_value,
+                            "failed to parse datetime");
                 }
                 datas[row_idx] = &int_vals[row_idx];
             } else {
