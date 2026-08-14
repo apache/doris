@@ -60,7 +60,9 @@ Also make these boundaries clear:
   locally, but the scripts do not upload those binaries.
 - The scripts never send public emails. The RM must review and send the vote,
   result, and announce emails manually.
-- Step 04 writes to the Apache release SVN and requires PMC permission.
+- Step 04 writes to the Apache release SVN and requires PMC permission. It
+  confirms before every step and is safe to re-run: it reads the current SVN
+  state first and skips whatever is already done.
 
 ## Quick start for a new RC
 
@@ -248,17 +250,41 @@ Review the draft and send it manually from the RM's `@apache.org` address to
 Use this script only after the vote has passed and the `[RESULT]` email has
 been sent manually.
 
-It checks the passed RC source artifacts in the dev SVN, verifies the source
-tarball against the RC checksum and detached signature that voters approved,
-regenerates and verifies the final checksum sidecar with the RC-free source
-tarball name, then uses `svnmucc` to create the final release SVN directory,
-move the source tarball and detached signature there, upload the final checksum,
-and remove the dev RC folder in one SVN revision.
+Every step announces what it is about to do and waits for a `y` before running.
+Answering anything else stops the run without changing further state, and the
+run can be continued later by starting the script again.
 
-It then writes:
+The steps are:
 
-- `announce-email.txt`
-- `announce-email.eml`
+1. Inspect the dev and release SVN state. Read-only, and it decides what the
+   later steps do.
+2. Verify the RC artifacts and build the final checksum. It downloads the RC
+   tarball, signature and checksum, checks the sha512 and the detached
+   signature that voters approved, and regenerates the checksum sidecar under
+   the RC-free tarball name. Local only.
+3. Publish to the release SVN. One `svnmucc` revision creates the release
+   directory, moves the source tarball and detached signature there, uploads
+   the final checksum, and removes the dev RC folder.
+4. Write the announce email draft.
+
+The script is idempotent, so it is safe to re-run after a successful publish or
+after stopping at any prompt:
+
+- All three release artifacts already published: the publish steps are skipped.
+  A dev RC folder left behind is removed, and the announce email is drafted.
+- Nothing published yet: the full flow runs. A release directory that exists
+  but is empty is reused instead of being created again.
+- Some but not all release artifacts present: the script refuses to guess and
+  reports exactly which files are missing. `svnmucc` commits all of its
+  operations in one revision, so this state only comes from manual changes.
+
+It writes:
+
+- `announce-email.txt`, starting with a `Subject:` line so the subject and the
+  body can be copied from one file
+- `announce-email.eml`, carrying the same subject as a real mail header
+
+The subject is `[ANNOUNCE] Apache Doris <version> release`.
 
 Before sending the announce email, check that the release is visible on
 `downloads.apache.org`, update and verify the Doris download page, and wait for

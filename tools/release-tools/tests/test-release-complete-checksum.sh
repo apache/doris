@@ -161,7 +161,8 @@ export FAKE_MKTEMP_ROOT="$tmp/mktemp-root"
 export FAKE_MKTEMP_LOG="$tmp/mktemp.log"
 mkdir -p "$FAKE_MKTEMP_ROOT"
 
-printf 'y\n' | bash "$tmp/04-release-complete.sh" >/dev/null
+# One y per step: inspect, verify, publish, announce.
+printf 'y\ny\ny\ny\n' | bash "$tmp/04-release-complete.sh" >/dev/null
 
 if grep -q 'mv https://dist.example.test/dev/doris/9.9.9-rc01/apache-doris-9.9.9-rc01-src.tar.gz.sha512' "$FAKE_SVNMUCC_LOG"; then
   echo "release completion must not move the RC checksum sidecar unchanged" >&2
@@ -187,7 +188,7 @@ if [[ -e "$success_checksum_dir" ]]; then
   exit 1
 fi
 
-if FAKE_BAD_SHA512=1 bash "$tmp/04-release-complete.sh" >/dev/null 2>&1; then
+if printf 'y\ny\ny\ny\n' | FAKE_BAD_SHA512=1 bash "$tmp/04-release-complete.sh" >/dev/null 2>&1; then
   echo "release completion unexpectedly succeeded with a bad RC checksum" >&2
   exit 1
 fi
