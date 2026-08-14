@@ -295,6 +295,10 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                         throw new AnalysisException("Update flexible columns feature is only supported"
                                 + " on merge-on-write unique tables.");
                     }
+                    if (table.needRowBinlog()) {
+                        throw new AnalysisException("Update flexible columns feature does not support"
+                                + " row binlog table.");
+                    }
                     if (table.hasSkipBitmapColumn()) {
                         throw new AnalysisException("table " + table.getName()
                                 + " has enabled update flexible columns feature already.");

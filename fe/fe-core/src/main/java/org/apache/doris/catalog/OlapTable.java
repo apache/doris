@@ -3216,6 +3216,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      * 2. Must have skip_bitmap column
      * 3. Must have light_schema_change enabled
      * 4. Cannot have variant columns
+     * 5. Cannot enable row binlog
      * @throws UserException if any constraint is not satisfied
      */
     public void validateForFlexiblePartialUpdate() throws UserException {
@@ -3233,6 +3234,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
         if (hasVariantColumns()) {
             throw new UserException("Flexible partial update can only support table without variant columns.");
+        }
+        if (needRowBinlog()) {
+            throw new UserException("Flexible partial update does not support row binlog table.");
         }
     }
 

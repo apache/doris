@@ -19,9 +19,12 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
@@ -34,12 +37,15 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.EnableFeatureOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -127,6 +133,29 @@ public class AlterTableCommandTest {
         String sql = alterTableCommand.toSql();
         Assertions.assertTrue(sql.contains("ADD PARTITION KEY day(ts)"));
         Assertions.assertTrue(sql.contains("ADD PARTITION KEY bucket(8, id)"));
+    }
+
+    @Test
+    void testEnableFlexiblePartialUpdateRejectsRowBinlogTable() throws Exception {
+        List<AlterTableOp> ops = new ArrayList<>();
+        EnableFeatureOp op = new EnableFeatureOp("UPDATE_FLEXIBLE_COLUMNS");
+        op.validate(Mockito.mock(ConnectContext.class));
+        ops.add(op);
+        AlterTableCommand alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
+
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
+        Mockito.when(table.getEnableUniqueKeyMergeOnWrite()).thenReturn(true);
+        Mockito.when(table.needRowBinlog()).thenReturn(true);
+
+        Method method = AlterTableCommand.class.getDeclaredMethod(
+                "rewriteAlterOpForOlapTable", ConnectContext.class, OlapTable.class);
+        method.setAccessible(true);
+        InvocationTargetException exception = Assertions.assertThrows(InvocationTargetException.class,
+                () -> method.invoke(alterTableCommand, Mockito.mock(ConnectContext.class), table));
+        Assertions.assertInstanceOf(UserException.class, exception.getCause());
+        Assertions.assertTrue(exception.getCause().getMessage()
+                .contains("Update flexible columns feature does not support row binlog table."));
     }
 
     @Test

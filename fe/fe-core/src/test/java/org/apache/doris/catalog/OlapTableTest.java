@@ -89,6 +89,24 @@ public class OlapTableTest {
     }
 
     @Test
+    public void testFlexiblePartialUpdateRejectsRowBinlogTable() {
+        OlapTable table = Mockito.spy(new OlapTable());
+        Mockito.doReturn(true).when(table).getEnableUniqueKeyMergeOnWrite();
+        Mockito.doReturn(true).when(table).hasSkipBitmapColumn();
+        Mockito.doReturn(true).when(table).getEnableLightSchemaChange();
+        Mockito.doReturn(false).when(table).hasVariantColumns();
+        Mockito.doReturn(true).when(table).needRowBinlog();
+
+        try {
+            table.validateForFlexiblePartialUpdate();
+            Assert.fail("expected row binlog table to reject flexible partial update");
+        } catch (org.apache.doris.common.UserException e) {
+            Assert.assertTrue(e.getMessage().contains(
+                    "Flexible partial update does not support row binlog table."));
+        }
+    }
+
+    @Test
     public void test() throws IOException {
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
