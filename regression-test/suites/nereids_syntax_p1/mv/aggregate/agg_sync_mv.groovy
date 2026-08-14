@@ -512,5 +512,9 @@ suite("agg_sync_mv") {
     sql "insert into agg_mv_test select * from agg_mv_test;"
 
     sql "set parallel_pipeline_task_num=1"
-    qt_test "select kbint, map_agg(id, kstr) from agg_mv_test group by kbint order by kbint;"
+    // map_agg keeps null keys since #51343 (map_agg v2), and entry order inside one map is
+    // not deterministic across runs (CI produced both {0:"string1", null:"string1"} and
+    // {null:"string1", 0:"string1"} for the kbint=1 group), so compare exploded entries
+    // instead of the rendered map literal.
+    order_qt_test """select kbint, k, v from (select kbint, map_agg(id, kstr) as m from agg_mv_test group by kbint) t lateral view explode_map(m) tmp as k, v"""
 }

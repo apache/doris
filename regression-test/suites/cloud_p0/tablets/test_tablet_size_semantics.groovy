@@ -61,6 +61,15 @@ suite("test_tablet_size_semantics") {
     """
     sql "sync"
 
+    // In cloud mode a load on a non-MOW table never refreshes the BE's cached
+    // tablet view (only MOW loads call sync_rowsets), and backend_tablets
+    // reports exactly that cached view. Nothing else in this suite reads the
+    // table, so the BE-side sizes stay 0 until some background compaction
+    // attempt happens to sync the tablet — under a busy cluster that may never
+    // occur within the wait window. Read the table once so the BE
+    // deterministically syncs the committed rowsets before we poll.
+    sql "select count(*) from `${tableName}`"
+
     def showTabletRows = sql_return_maparray("show tablets from ${tableName}")
     assertTrue(showTabletRows.size() == 1)
     def showTabletRow = showTabletRows[0]

@@ -36,32 +36,52 @@ suite("test_time_series_compaction_polciy", "p0") {
         return rowsetCount
     }
 
-    // Manually POST cumulative compaction to every tablet. Fire-and-forget;
-    // per-tablet errors (e.g. CUMULATIVE_NO_SUITABLE_VERSION on a tablet with
-    // nothing to merge) are expected and surface via the polling assertion.
-    def trigger_cumulative_all = { tabletsList ->
-        for (def tablet in tabletsList) {
-            def be_host = backendId_to_backendIP["${tablet.BackendId}"]
-            def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
-            curl("POST", "http://${be_host}:${be_port}/api/compaction/run?tablet_id=${tablet.TabletId}&compact_type=cumulative")
-        }
-    }
-
-    // Poll get_rowset_count until count <= target or timeout. Returns the last
-    // observed count. Avoids the run_status race in trigger_and_wait_compaction
-    // for time_series mode (BE may have queued the task but not yet acquired
-    // the cumulative lock when first polled).
-    def wait_rowset_count_le = { tabletsList, target, timeoutSec ->
+    // Repeatedly trigger cumulative compaction and poll until the TOTAL rowset
+    // count of all replicas drops to totalTarget, or timeout. Returns the last
+    // observed total count.
+    //
+    // Why re-trigger in the loop instead of trigger-once-then-poll: BE filters
+    // compaction candidate rowsets by the FE-pushed partition visible version
+    // (Tablet::_pick_visible_rowsets_to_compaction). For a freshly created table
+    // this cache is usually unset (no filtering), but FE's periodic
+    // UpdateVisibleVersionTask (piggybacked on the ~60s tablet report, carrying a
+    // snapshot that itself can be up to 60s stale) may land between the inserts
+    // and the trigger. The pick then sees truncated candidates and returns
+    // E-2000 "_input_rowsets is empty" even though a mergeable run of empty
+    // rowsets exists, and a single fire-and-forget trigger is permanently lost.
+    // The stale value self-heals on the next report cycle (<= ~60s), so
+    // re-triggering until the deadline converges. It also absorbs E-216
+    // TRY_LOCK_FAILED when a trigger races with the previous round's task.
+    //
+    // Why perReplicaCeiling: only a replica whose own rowset count is still above
+    // the expected stable count of this phase is re-triggered. Blindly
+    // re-triggering every replica could merge the NEXT empty-rowset run early
+    // (e.g. drive 26 straight down to 22 in the first phase) and break the exact
+    // count assertions.
+    def compact_until_rowset_count = { tabletsList, perReplicaCeiling, totalTarget, timeoutSec ->
         long deadline = System.currentTimeMillis() + timeoutSec * 1000
-        int last = -1
-        while (System.currentTimeMillis() < deadline) {
-            last = get_rowset_count.call(tabletsList)
-            if (last <= target) {
-                return last
+        int total = -1
+        while (true) {
+            total = 0
+            for (def tablet in tabletsList) {
+                def (code, out, err) = curl("GET", tablet.CompactionStatus)
+                logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
+                assertEquals(code, 0)
+                def tabletJson = parseJson(out.trim())
+                assert tabletJson.rowsets instanceof List
+                int cnt = ((List<String>) tabletJson.rowsets).size()
+                total += cnt
+                if (cnt > perReplicaCeiling) {
+                    def be_host = backendId_to_backendIP["${tablet.BackendId}"]
+                    def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
+                    curl("POST", "http://${be_host}:${be_port}/api/compaction/run?tablet_id=${tablet.TabletId}&compact_type=cumulative")
+                }
             }
-            Thread.sleep(1000)
+            if (total <= totalTarget || System.currentTimeMillis() >= deadline) {
+                return total
+            }
+            Thread.sleep(2000)
         }
-        return last
     }
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
@@ -164,15 +184,16 @@ suite("test_time_series_compaction_polciy", "p0") {
     // after cumulative compaction, there is only 26 rowset.
     // 5 consecutive empty versions are merged into one empty version
     // 34 - 2*4 = 26
-    trigger_cumulative_all.call(tablets)
-    rowsetCount = wait_rowset_count_le.call(tablets, 26 * replicaNum, 60)
+    // per-replica: each tablet merges its first run of 5 empties, 17 -> 13
+    rowsetCount = compact_until_rowset_count.call(tablets, 13, 26 * replicaNum, 120)
     assert (rowsetCount == 26 * replicaNum) : "expected ${26 * replicaNum} rowsets, got ${rowsetCount}"
 
     // trigger cumulative compactions for all tablets in ${tableName}
     // after cumulative compaction, there is only 22 rowset.
     // 26 - 4 = 22
-    trigger_cumulative_all.call(tablets)
-    rowsetCount = wait_rowset_count_le.call(tablets, 22 * replicaNum, 60)
+    // per-replica: only the tablet holding the id=100 bucket still has a second
+    // run of 5 consecutive empty rowsets, 13 -> 9; the other stays at 13
+    rowsetCount = compact_until_rowset_count.call(tablets, 9, 22 * replicaNum, 120)
     assert (rowsetCount == 22 * replicaNum) : "expected ${22 * replicaNum} rowsets, got ${rowsetCount}"
 
     qt_sql_2 """ select count() from ${tableName}"""
@@ -183,8 +204,10 @@ suite("test_time_series_compaction_polciy", "p0") {
     sql """sync"""
     // trigger cumulative compactions for all tablets in ${tableName}
     // after cumulative compaction, there is only 11 rowset.
-    trigger_cumulative_all.call(tablets)
-    rowsetCount = wait_rowset_count_le.call(tablets, 11 * replicaNum, 60)
+    // per-replica: with file_count_threshold=10 the tablet holding the id=1
+    // bucket merges all its candidates into one, 13 -> 2; the other tablet's
+    // compaction score stays below the threshold and it remains at 9
+    rowsetCount = compact_until_rowset_count.call(tablets, 2, 11 * replicaNum, 120)
     assert (rowsetCount == 11 * replicaNum) : "expected ${11 * replicaNum} rowsets, got ${rowsetCount}"
     qt_sql_3 """ select count() from ${tableName}"""
 
