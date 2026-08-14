@@ -33,7 +33,7 @@ under the License.
         The Java side of BE's NATIVE filesystem reader - read it as "libhdfs-runtime", not as a
         be-java-extension. The C++ libhdfs in be/src/io reaches these classes through the system
         classpath, so this module is the one thing here that is deliberately NOT a plugin: it has no
-        plugin name, no DorisPlugin, and no directory under lib/java/plugins. build.sh deploys it
+        plugin name, no DorisPlugin, and no directory under plugins/jni. build.sh deploys it
         whole into lib/hadoop_hdfs/ instead.
 
         Consequences worth knowing before editing:
