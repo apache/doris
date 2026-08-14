@@ -1248,10 +1248,13 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # RC-4: self-contain the paimon connector plugin for OSS. The connector sets
     # fs.oss.impl=com.aliyun.jindodata.oss.JindoOssFileSystem; that impl lives in the jindofs jars,
     # which are packaged from thirdparty by post-build.sh into fe/lib/jindofs (NOT a maven artifact).
-    # The plugin runs child-first, so without its OWN copy JindoOssFileSystem resolves from the parent
-    # 'app' classloader and cannot be cast to the plugin's child-loaded org.apache.hadoop.fs.FileSystem.
-    # Copy the jindofs jars into the paimon plugin lib so JindoOssFileSystem loads child-first alongside
-    # the plugin's own hadoop FileSystem (same self-contained intent as the bundled hadoop-aws/S3A).
+    # com.aliyun.jindodata is child-first (only org.apache.doris.connector./.filesystem. and
+    # org.apache.hadoop. are parent-first, see ConnectorPluginManager.CONNECTOR_PARENT_FIRST_PREFIXES),
+    # so without its OWN copy JindoOssFileSystem resolves from the parent 'app' classloader.
+    # Historically that could not be cast to the plugin's child-loaded org.apache.hadoop.fs.FileSystem;
+    # since org.apache.hadoop. became parent-first the cast itself would now succeed, but the copy stays:
+    # it keeps the jindo classes in the plugin's own loader (same self-contained intent as the bundled
+    # hadoop-aws/S3A) and is what the plugin falls back to once the FE kernel stops shipping hadoop.
     # Naturally gated: a no-op unless jindofs was packaged (--jindofs / DISABLE_BUILD_JINDOFS=OFF).
     # CAVEAT (docker-gated, enablePaimonTest=true): jindo-core ships a native lib that can bind to only one
     # classloader per JVM, so this is safe only while no concurrent non-paimon path loads jindo from
@@ -1489,6 +1492,14 @@ if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     if [[ -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
         mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
         cp -r "${HADOOP_DEPS_JAR_DIR}/lib/"* "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs/"
+    fi
+    # copy-dependencies writes only the transitive deps to target/lib; the patched
+    # org.apache.hadoop.fs.FileSystem lives in the module's own jar at target/. Without this the
+    # meta-service would run on the vanilla class and silently ignore doris.fs.cache.key.<scheme>.
+    # cloud/script/start.sh loads it ahead of the vanilla hadoop jars beside it.
+    if [[ -f "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" ]]; then
+        mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
+        cp "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs/"
     fi
     cp -r -p "${DORIS_HOME}/cloud/output" "${DORIS_HOME}/output/ms"
 fi
