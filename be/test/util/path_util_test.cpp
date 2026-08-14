@@ -107,10 +107,13 @@ namespace {
 
 std::string create_temp_home() {
     namespace fs = std::filesystem;
+    static size_t sequence = 0;
     fs::path base = fs::temp_directory_path() / "doris_path_util_test";
     fs::create_directories(base);
     // ensure unique subdir per test run
-    fs::path home = base / std::to_string(reinterpret_cast<uintptr_t>(&base));
+    fs::path home = base / (std::to_string(reinterpret_cast<uintptr_t>(&base)) + "-" +
+                            std::to_string(sequence++));
+    fs::remove_all(home);
     fs::create_directories(home);
     return home.string();
 }
