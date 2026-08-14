@@ -154,6 +154,11 @@ public class IcebergScanPlanProviderTest {
                 (proxy, method, args) -> wrapSnapshotSummary(invoke(method, table, args), summaryOverrides));
     }
 
+    private static Table tableWithIo(Table table, FileIO fileIO) {
+        return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
+                (proxy, method, args) -> method.getName().equals("io") ? fileIO : invoke(method, table, args));
+    }
+
     private static Table tableWithMissingManifestRowsAndIo(Table table, FileIO fileIO) {
         return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
                 (proxy, method, args) -> {
@@ -2724,7 +2729,7 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void countPushdownWithPositionDeletesUsesDataRowsWhenIgnoringDangling() {
+    public void countPushdownWithPositionDeletesNetsDeleteRowsWhenIgnoringDangling() {
         Map<String, String> v2 = Collections.singletonMap(TableProperties.FORMAT_VERSION, "2");
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), v2);
         // 1000/100 = 10 data records.
@@ -2746,10 +2751,10 @@ public class IcebergScanPlanProviderTest {
 
         List<ConnectorScanRange> ranges = planCount(provider, session, true);
 
-        // The compatibility flag explicitly ignores position deletes. Use current data-manifest rows rather than
-        // the optional snapshot summary, preserving the public contract without reintroducing the original bug.
+        // Preserve the compatibility contract without trusting the optional summary: current data-manifest rows
+        // minus current position-delete file rows. The flag may still be inaccurate for dangling delete entries.
         Assertions.assertEquals(1, ranges.size());
-        Assertions.assertEquals(10L, ranges.get(0).getPushDownRowCount());
+        Assertions.assertEquals(7L, ranges.get(0).getPushDownRowCount());
     }
 
     @Test
@@ -3005,6 +3010,32 @@ public class IcebergScanPlanProviderTest {
         // The manifest list already carries exact live-row aggregates. Only the first manifest's entries are
         // needed to obtain a representative file for the collapsed range.
         Assertions.assertEquals(1, cache.size());
+    }
+
+    @Test
+    public void countPushdownManifestAggregateCacheFailureRetriesSdk() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2048, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f3.parquet", 3072, null, null))
+                .commit();
+        List<ManifestFile> manifests = table.currentSnapshot().dataManifests(table.io());
+        Assertions.assertEquals(1, manifests.size());
+
+        FailOnceFileIO fileIO = new FailOnceFileIO(table.io(), manifests.get(0).path());
+        Table wrapped = tableWithSnapshotSummary(tableWithIo(table, fileIO),
+                Collections.singletonMap("total-records", "not-a-number"));
+        IcebergManifestCache cache = new IcebergManifestCache();
+
+        // Usable manifest aggregates must not make the optional cache a query-availability dependency.
+        List<ConnectorScanRange> ranges = planCount(
+                manifestProvider(manifestCacheProps(), wrapped, cache), emptySession(), true);
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(60L, ranges.get(0).getPushDownRowCount());
+        Assertions.assertTrue(fileIO.failed.get());
+        Assertions.assertEquals(1L, cache.takeStats("q")[2]);
     }
 
     @Test
