@@ -96,7 +96,8 @@ public class PartitionCompensator {
         Set<String> mvValidPartitionNameSet = new HashSet<>();
         Set<String> mvValidBaseTablePartitionNameSet = new HashSet<>();
         Set<String> mvValidHasDataRelatedBaseTableNameSet = new HashSet<>();
-        Pair<Map<String, Set<String>>, Map<String, String>> partitionMapping = mtmv.calculateDoublyPartitionMappings();
+        Pair<Map<String, Set<String>>, Map<String, String>> partitionMapping = mtmv
+                .calculateDoublyPartitionMappings(queryUsedBaseTablePartitionNameSet);
         for (Partition mvValidPartition : mvValidPartitions) {
             mvValidPartitionNameSet.add(mvValidPartition.getName());
             Set<String> relatedBaseTablePartitions = partitionMapping.key().get(mvValidPartition.getName());

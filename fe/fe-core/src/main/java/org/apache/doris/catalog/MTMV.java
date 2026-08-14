@@ -33,6 +33,7 @@ import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
+import org.apache.doris.mtmv.MTMVPartitionExpander;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -381,7 +382,8 @@ public class MTMV extends OlapTable {
      * @return mvPartitionName ==> relationPartitionNames and relationPartitionName ==> mvPartitionName
      * @throws AnalysisException
      */
-    public Pair<Map<String, Set<String>>, Map<String, String>> calculateDoublyPartitionMappings()
+    public Pair<Map<String, Set<String>>, Map<String, String>> calculateDoublyPartitionMappings(
+            Set<String> queryUsedBaseTablePartitions)
             throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Pair.of(Maps.newHashMap(), Maps.newHashMap());
@@ -389,9 +391,11 @@ public class MTMV extends OlapTable {
         long start = System.currentTimeMillis();
         Map<String, Set<String>> mvToBase = Maps.newHashMap();
         Map<String, String> baseToMv = Maps.newHashMap();
-        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
-                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
         Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
+        Set<String> effectiveFilter = getEffectiveQueryUsedBaseTablePartitions(
+                queryUsedBaseTablePartitions, mvPartitionItems);
+        Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
+                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, effectiveFilter);
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             Set<String> basePartitionNames = relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(),
                     Sets.newHashSet());
@@ -417,14 +421,21 @@ public class MTMV extends OlapTable {
      * @throws AnalysisException
      */
     public Map<String, Set<String>> calculatePartitionMappings() throws AnalysisException {
+        return calculatePartitionMappings(null);
+    }
+
+    public Map<String, Set<String>> calculatePartitionMappings(Set<String> queryUsedBaseTablePartitions)
+            throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
             return Maps.newHashMap();
         }
         long start = System.currentTimeMillis();
+        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
+        Set<String> effectiveFilter = getEffectiveQueryUsedBaseTablePartitions(
+                queryUsedBaseTablePartitions, mvPartitionItems);
         Map<String, Set<String>> res = Maps.newHashMap();
         Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
-                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
-        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
+                .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, effectiveFilter);
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
                     relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Sets.newHashSet()));
@@ -434,6 +445,17 @@ public class MTMV extends OlapTable {
                     System.currentTimeMillis() - start, name);
         }
         return res;
+    }
+
+    private Set<String> getEffectiveQueryUsedBaseTablePartitions(
+            Set<String> queryUsedBaseTablePartitions, Map<String, PartitionItem> mvPartitionItems)
+            throws AnalysisException {
+        if (queryUsedBaseTablePartitions == null
+                || mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
+            return queryUsedBaseTablePartitions;
+        }
+        return MTMVPartitionExpander.expandToMvPartitionGranularity(queryUsedBaseTablePartitions,
+                mvPartitionItems, mvPartitionInfo.getRelatedTable());
     }
 
     public ConcurrentLinkedQueue<MTMVTask> getHistoryTasks() {

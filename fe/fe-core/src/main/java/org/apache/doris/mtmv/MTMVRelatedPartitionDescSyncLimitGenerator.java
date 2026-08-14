@@ -34,6 +34,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Only focus on partial partitions of related tables
@@ -42,7 +43,7 @@ public class MTMVRelatedPartitionDescSyncLimitGenerator implements MTMVRelatedPa
 
     @Override
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult) throws AnalysisException {
+            RelatedPartitionDescResult lastResult, Set<String> queryUsedPartitions) throws AnalysisException {
         Map<String, PartitionItem> partitionItems = lastResult.getItems();
         MTMVPartitionSyncConfig config = generateMTMVPartitionSyncConfigByProperties(mvProperties);
         if (config.getSyncLimit() <= 0) {
