@@ -50,7 +50,7 @@ list(FILTER SERVICE_UNITY_SKIP EXCLUDE REGEX ".*/service/http/.*")
 list(APPEND SERVICE_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/http/http_parser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/http/action/be_thread_stack_action.cpp)
-set_source_files_properties(${SERVICE_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+doris_skip_unity_inclusion(${SERVICE_UNITY_SKIP})
 set_target_properties(Service PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
                                          UNITY_BUILD_BATCH_SIZE 0)
 

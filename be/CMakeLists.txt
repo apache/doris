@@ -981,6 +981,24 @@ function(pch_reuse target)
     endif()
 endfunction(pch_reuse target)
 
+# Every unity opt-out goes through this helper. set_source_files_properties()
+# silently ignores paths that do not exist, so a skip entry going stale after
+# a rename or move would quietly re-join its unity batch -- slower builds, or
+# new file-scope clashes, with no diagnostic anywhere. Fail the configure
+# instead. Entries under GENSRC_DIR are exempt: they are emitted by
+# add_custom_command at build time (wkt_lex.l.cpp, the generated
+# thrift/protobuf sources) and legitimately do not exist on a fresh configure.
+function(doris_skip_unity_inclusion)
+    foreach(entry IN LISTS ARGN)
+        string(FIND "${entry}" "${GENSRC_DIR}" gensrc_prefix_pos)
+        if(NOT gensrc_prefix_pos EQUAL 0 AND NOT EXISTS "${entry}")
+            message(FATAL_ERROR
+                "unity skip entry does not exist (renamed or moved?): ${entry}")
+        endif()
+    endforeach()
+    set_source_files_properties(${ARGN} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+endfunction()
+
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)

@@ -32,6 +32,6 @@ pch_reuse(Load)
 set(LOAD_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/channel/load_stream.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/routine_load/routine_load_task_executor.cpp)
-set_source_files_properties(${LOAD_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+doris_skip_unity_inclusion(${LOAD_UNITY_SKIP})
 set_target_properties(Load PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
                                       UNITY_BUILD_BATCH_SIZE 12)

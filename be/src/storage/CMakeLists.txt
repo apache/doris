@@ -76,6 +76,6 @@ if (ENABLE_VARIANT_NESTED_GROUP)
     # unaudited, keep them individual.
     list(APPEND STORAGE_UNITY_SKIP ${VARIANT_NESTED_GROUP_SOURCES})
 endif()
-set_source_files_properties(${STORAGE_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+doris_skip_unity_inclusion(${STORAGE_UNITY_SKIP})
 set_target_properties(Storage PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
                                          UNITY_BUILD_BATCH_SIZE 12)

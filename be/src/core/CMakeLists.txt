@@ -67,6 +67,6 @@ set(CORE_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/value/variant/variant_scalar.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/value/variant/variant_value.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/wide_integer_from_double.cpp)
-set_source_files_properties(${CORE_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+doris_skip_unity_inclusion(${CORE_UNITY_SKIP})
 set_target_properties(Core PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
                                       UNITY_BUILD_BATCH_SIZE 12)

@@ -41,6 +41,6 @@ set(FORMAT_UNITY_SKIP ${SRC_FILES})
 list(FILTER FORMAT_UNITY_SKIP EXCLUDE REGEX ".*/format_v2/.*")
 list(APPEND FORMAT_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/../format_v2/table/adbc_reader.cpp)
-set_source_files_properties(${FORMAT_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+doris_skip_unity_inclusion(${FORMAT_UNITY_SKIP})
 set_target_properties(Format PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
                                         UNITY_BUILD_BATCH_SIZE 8)

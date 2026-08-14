@@ -35,7 +35,7 @@ set(COMMON_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/metrics/jvm_metrics.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/metrics/system_metrics.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/phdr_cache.cpp)
-set_source_files_properties(${COMMON_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+doris_skip_unity_inclusion(${COMMON_UNITY_SKIP})
 set_target_properties(Common PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
                                         UNITY_BUILD_BATCH_SIZE 0)
 

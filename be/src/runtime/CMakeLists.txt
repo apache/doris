@@ -45,6 +45,6 @@ pch_reuse(Runtime)
 set(RUNTIME_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/memory/jemalloc_hook.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/descriptors.cpp)
-set_source_files_properties(${RUNTIME_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+doris_skip_unity_inclusion(${RUNTIME_UNITY_SKIP})
 set_target_properties(Runtime PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
                                          UNITY_BUILD_BATCH_SIZE 12)

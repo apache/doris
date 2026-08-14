@@ -62,7 +62,7 @@ list(APPEND IO_UNITY_SKIP ${IO_UNITY_BENCH_SRCS})
 if (ENABLE_TDE)
     list(APPEND IO_UNITY_SKIP ${EXTRA_SOURCES})
 endif()
-set_source_files_properties(${IO_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+doris_skip_unity_inclusion(${IO_UNITY_SKIP})
 set_target_properties(IO PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
                                     UNITY_BUILD_BATCH_SIZE 16)
 

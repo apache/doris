@@ -43,7 +43,7 @@ list(FILTER GEN_UNITY_SKIP INCLUDE REGEX "\\.cc$")
 list(APPEND GEN_UNITY_SKIP
     ${GEN_CPP_DIR}/FrontendService_types.cpp
     ${GEN_CPP_DIR}/PlanNodes_types.cpp)
-set_source_files_properties(${GEN_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+doris_skip_unity_inclusion(${GEN_UNITY_SKIP})
 set_target_properties(DorisGen PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
                                           UNITY_BUILD_BATCH_SIZE 8)
 

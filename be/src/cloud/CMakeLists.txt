@@ -31,6 +31,6 @@ pch_reuse(Cloud)
 set(CLOUD_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/cloud_compaction_action.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/injection_point_action.cpp)
-set_source_files_properties(${CLOUD_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+doris_skip_unity_inclusion(${CLOUD_UNITY_SKIP})
 set_target_properties(Cloud PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
                                        UNITY_BUILD_BATCH_SIZE 12)
