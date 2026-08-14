@@ -17,14 +17,20 @@
 
 package org.apache.doris.dictionary;
 
+import org.apache.doris.datasource.ExternalScanTaskCacheKey;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.persist.CreateDictionaryPersistInfo;
 import org.apache.doris.persist.DictionaryDecreaseVersionInfo;
 import org.apache.doris.persist.DictionaryIncreaseVersionInfo;
 import org.apache.doris.persist.DropDictionaryPersistInfo;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.Collections;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Tests for dictionary version journal replay robustness.
@@ -108,5 +114,24 @@ public class DictionaryManagerTest {
 
         manager.replayIncreaseVersion(new DictionaryIncreaseVersionInfo(dict));
         Assert.assertEquals(2, manager.getDictionary(1001).getVersion());
+    }
+
+    @Test
+    public void testScheduledContextCleanupReleasesExternalScanTasks() throws Exception {
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext();
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        AtomicInteger loadCount = new AtomicInteger();
+        ExternalScanTaskCacheKey<Integer> key = new ExternalScanTaskCacheKey<Integer>() { };
+
+        statementContext.getExternalScanTaskCache().getOrLoad(
+                key, () -> Collections.singletonList(loadCount.incrementAndGet()));
+        DictionaryManager.cleanupScheduledContext(context);
+
+        Assert.assertNull(ConnectContext.get());
+        Assert.assertEquals(Collections.singletonList(2), statementContext.getExternalScanTaskCache().getOrLoad(
+                key, () -> Collections.singletonList(loadCount.incrementAndGet())));
+        Assert.assertEquals(2, loadCount.get());
     }
 }
