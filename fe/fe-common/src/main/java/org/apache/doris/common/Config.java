@@ -318,9 +318,25 @@ public class Config extends ConfigBase {
             + "BDBJE. The connection is abandoned if the clock skew is larger than this value.")
     public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
-    @ConfField(mutable = true, description = "Whether to enable "
-            + "authentication for all HTTP " + "interfaces", varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_all_http_auth = false;
+    @ConfField(description = "Whether to enable authentication for all HTTP interfaces. On by default. "
+            + "While it is off, some HTTP interfaces (for example parts of the metadata, statistics "
+            + "and admin surface) serve requests without checking the caller's privileges, and a few "
+            + "(statistics and import endpoints) without any credentials at all. "
+            + "This config is deliberately NOT mutable: turning authentication off must be a recorded, "
+            + "on-disk decision in fe.conf that survives a restart, not a runtime command. "
+            + "Upgrade note: a cluster upgrading from a version where this defaulted to false may have "
+            + "callers that poll those interfaces anonymously (monitoring, metrics scrapers, ops "
+            + "scripts, health probes); those callers will start getting 401 until they present "
+            + "credentials. The fix is to give them credentials -- setting this back to false in "
+            + "fe.conf is a temporary migration aid that leaves those interfaces unauthenticated. "
+            + "Also check fe_custom.conf when upgrading: it is read after fe.conf and overwrites it, "
+            + "and in releases where this flag was mutable an 'ADMIN SET FRONTEND CONFIG' with "
+            + "persist=true could have written false into it. Making the flag non-mutable does not "
+            + "remove or migrate such a value, so a cluster can look clean in fe.conf and still start "
+            + "with authentication off; delete the entry from fe_custom.conf to pick up the new default. "
+            + "Security scanning and penetration testing must never be run with this off.",
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_all_http_auth = true;
 
     @ConfField(description = "Whether to enable FE unified TLS configuration. When enabled, protocols not listed in "
             + "tls_excluded_protocols will use TLS implementation.")
