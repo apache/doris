@@ -140,9 +140,8 @@ public final class RuntimeFilter {
     private int waitTimeMs = -1;
 
     // Per-target monotonicity for BE-side runtime-filter partition pruning,
-    // keyed by the target scan node's plan id. Filled by the Nereids
-    // RuntimeFilterPartitionPruneClassifier at translation time from the final
-    // legacy target expression that will be sent to BE.
+    // keyed by the target scan node's plan id. Generated with the Nereids
+    // runtime filter and mapped to the legacy target scan id during translation.
     private final Map<PlanNodeId, Map<Long, TTargetExprMonotonicity>> targetPartitionMonotonicityByScanId
             = new HashMap<>();
     private final Set<PlanNodeId> partitionPruningTargetScanIds = new HashSet<>();
@@ -359,42 +358,34 @@ public final class RuntimeFilter {
         }
 
         // Per-target, per-partition monotonicity for BE-side partition pruning. Populated
-        // upstream by RuntimeFilterPartitionPruneClassifier; direct partition
+        // upstream by RuntimeFilterPruneClassifier; direct partition
         // column targets are monotonic increasing so BE can use one unified
         // partition-pruning path.
-        // Gated by session variable `enable_runtime_filter_partition_prune`.
-        ConnectContext rfPruneCtx = ConnectContext.get();
-        boolean enableRfPartitionPrune = rfPruneCtx != null
-                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterPartitionPrune();
-        if (enableRfPartitionPrune) {
-            if (!targetPartitionMonotonicityByScanId.isEmpty()) {
-                Map<Integer, List<TPartitionTargetExprMonotonicity>> partitionMonoMap = new HashMap<>();
-                for (Map.Entry<PlanNodeId, Map<Long, TTargetExprMonotonicity>> e
-                        : targetPartitionMonotonicityByScanId.entrySet()) {
-                    List<TPartitionTargetExprMonotonicity> partitionMonoList = new ArrayList<>();
-                    for (Map.Entry<Long, TTargetExprMonotonicity> partitionEntry : e.getValue().entrySet()) {
-                        Preconditions.checkArgument(
-                                partitionEntry.getValue() != TTargetExprMonotonicity.NON_MONOTONIC,
-                                "partition pruning monotonicity must not be NON_MONOTONIC");
-                        TPartitionTargetExprMonotonicity partitionMono =
-                                new TPartitionTargetExprMonotonicity();
-                        partitionMono.setPartitionId(partitionEntry.getKey());
-                        partitionMono.setMonotonicity(partitionEntry.getValue());
-                        partitionMonoList.add(partitionMono);
-                    }
-                    if (!partitionMonoList.isEmpty()) {
-                        partitionMonoMap.put(e.getKey().asInt(), partitionMonoList);
-                    }
+        if (!targetPartitionMonotonicityByScanId.isEmpty()) {
+            Map<Integer, List<TPartitionTargetExprMonotonicity>> partitionMonoMap = new HashMap<>();
+            for (Map.Entry<PlanNodeId, Map<Long, TTargetExprMonotonicity>> e
+                    : targetPartitionMonotonicityByScanId.entrySet()) {
+                List<TPartitionTargetExprMonotonicity> partitionMonoList = new ArrayList<>();
+                for (Map.Entry<Long, TTargetExprMonotonicity> partitionEntry : e.getValue().entrySet()) {
+                    Preconditions.checkArgument(
+                            partitionEntry.getValue() != TTargetExprMonotonicity.NON_MONOTONIC,
+                            "partition pruning monotonicity must not be NON_MONOTONIC");
+                    TPartitionTargetExprMonotonicity partitionMono =
+                            new TPartitionTargetExprMonotonicity();
+                    partitionMono.setPartitionId(partitionEntry.getKey());
+                    partitionMono.setMonotonicity(partitionEntry.getValue());
+                    partitionMonoList.add(partitionMono);
                 }
-                if (!partitionMonoMap.isEmpty()) {
-                    tFilter.setPlanIdToPartitionTargetMonotonicity(partitionMonoMap);
+                if (!partitionMonoList.isEmpty()) {
+                    partitionMonoMap.put(e.getKey().asInt(), partitionMonoList);
                 }
+            }
+            if (!partitionMonoMap.isEmpty()) {
+                tFilter.setPlanIdToPartitionTargetMonotonicity(partitionMonoMap);
             }
         }
 
-        boolean enableRfBucketPrune = rfPruneCtx != null
-                && rfPruneCtx.getSessionVariable().isEnableRuntimeFilterBucketPrune();
-        if (enableRfBucketPrune && !bucketPruningTargetScanIds.isEmpty()) {
+        if (!bucketPruningTargetScanIds.isEmpty()) {
             tFilter.setBucketPruningTargetIds(bucketPruningTargetScanIds.stream()
                     .map(PlanNodeId::asInt)
                     .collect(Collectors.toSet()));
@@ -425,7 +416,7 @@ public final class RuntimeFilter {
      * scan node. Used by OlapScanNode.toThrift to decide whether it is worth
      * serializing partition_boundaries to BE. The single source of truth for
      * that decision lives in
-     * RuntimeFilterPartitionPruneClassifier.
+     * RuntimeFilterPruneClassifier.
      */
     public boolean canPrunePartitionsFor(PlanNodeId scanNodeId) {
         return partitionPruningTargetScanIds.contains(scanNodeId);
