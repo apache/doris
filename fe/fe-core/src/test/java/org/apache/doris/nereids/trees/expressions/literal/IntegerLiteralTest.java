@@ -187,6 +187,10 @@ public class IntegerLiteralTest {
         Assertions.assertEquals(0, ((DateTimeV2Literal) expression).second);
         Assertions.assertEquals(0, ((DateTimeV2Literal) expression).microSecond);
 
+        IntegerLiteral invalidDate = new IntegerLiteral(1000);
+        Assertions.assertThrows(CastException.class,
+                () -> invalidDate.uncheckedCastTo(DateTimeV2Type.SYSTEM_DEFAULT));
+
         // to string
         d1 = new IntegerLiteral(701231);
         expression = d1.uncheckedCastTo(StringType.INSTANCE);

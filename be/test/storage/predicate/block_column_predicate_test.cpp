@@ -1367,6 +1367,31 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_zonemap_index) {
     }
 }
 
+TEST_F(BlockColumnPredicateTest, test_timestamp_ns_zonemap_predicates) {
+    const TimeStampNsValue minimum(-1);
+    const TimeStampNsValue middle(0);
+    const TimeStampNsValue maximum(1);
+    segment_v2::ZoneMap zone_map_info {.min_value = Field::create_field<TYPE_TIMESTAMP_NS>(minimum),
+                                       .max_value = Field::create_field<TYPE_TIMESTAMP_NS>(maximum),
+                                       .has_null = false,
+                                       .has_not_null = true};
+
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::EQ>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(middle), true);
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::EQ>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(-2)), false);
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::NE>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(middle), true);
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::LT>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(minimum), false);
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::LE>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(minimum), true);
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::GT>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(maximum), false);
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::GE>(
+            zone_map_info, Field::create_field<TYPE_TIMESTAMP_NS>(maximum), true);
+}
+
 template <PrimitiveType T, PredicateType PT>
 void single_column_predicate_test_func(const segment_v2::BloomFilter* bf, Field&& check_value,
                                        bool expect_match) {

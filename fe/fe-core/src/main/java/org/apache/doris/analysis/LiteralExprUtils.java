@@ -68,8 +68,9 @@ public class LiteralExprUtils {
             case DATETIME:
             case DATEV2:
             case DATETIMEV2:
+            case TIMESTAMP_NS:
             case TIMESTAMPTZ:
-                literalExpr = DateLiteralUtils.createDateLiteral(value, type);
+                literalExpr = DateLiteralUtils.createLiteral(value, type);
                 break;
             case IPV4:
                 literalExpr = new IPv4Literal(value);
@@ -104,6 +105,8 @@ public class LiteralExprUtils {
             case DATETIMEV2:
             case TIMESTAMPTZ:
                 return DateLiteral.createMinValue(type);
+            case TIMESTAMP_NS:
+                return TimeStampNsLiteral.createMinValue();
             default:
                 throw new AnalysisException("Invalid data type for creating infinity: " + type);
         }

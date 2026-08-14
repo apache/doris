@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
@@ -76,6 +77,7 @@ import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PConstantExprResult;
 import org.apache.doris.proto.Types.PScalarType;
@@ -107,6 +109,7 @@ import java.net.Inet4Address;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -125,6 +128,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
     public static final FoldConstantRuleOnBE INSTANCE = new FoldConstantRuleOnBE();
     private static final Logger LOG = LogManager.getLogger(FoldConstantRuleOnBE.class);
+    private static final long NANOS_PER_SECOND = 1_000_000_000L;
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
@@ -471,6 +475,15 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 Literal literal = new DecimalV3Literal(decimalV3Type, bigDecimal);
                 res.add(literal);
             }
+        } else if (type instanceof TimeStampNsType) {
+            // TIMESTAMP_NS crosses the BE-folding protobuf boundary as signed epoch nanoseconds.
+            // Keep it separate from DATETIMEV2, whose uint64 payload uses packed civil fields.
+            int num = resultContent.getInt64ValueCount();
+            for (int i = 0; i < num; ++i) {
+                LocalDateTime dateTime = convertEpochNanosToJavaDateTime(
+                        resultContent.getInt64Value(i));
+                res.add(TimeStampNsLiteral.fromJavaDateType(dateTime));
+            }
         } else if (type.isDateTimeV2Type()) {
             int num = resultContent.getUint64ValueCount();
             for (int i = 0; i < num; ++i) {
@@ -686,6 +699,12 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         } catch (DateTimeException e) {
             return null;
         }
+    }
+
+    private static LocalDateTime convertEpochNanosToJavaDateTime(long epochNanos) {
+        long epochSecond = Math.floorDiv(epochNanos, NANOS_PER_SECOND);
+        int nanoOfSecond = (int) Math.floorMod(epochNanos, NANOS_PER_SECOND);
+        return LocalDateTime.ofEpochSecond(epochSecond, nanoOfSecond, ZoneOffset.UTC);
     }
 
     private static LocalDate convertToJavaDateV2(int date) {

@@ -35,6 +35,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
+#include "core/value/timestamp_ns_value.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
@@ -153,8 +154,19 @@ public:
         _CLLDELETE(r);
     }
 
+    template <PrimitiveType primitive_type, typename StorageType>
+    Field create_bkd_query_field(StorageType value) {
+        if constexpr (primitive_type == TYPE_TIMESTAMP_NS) {
+            return Field::create_field<primitive_type>(TimeStampNsValue(value));
+        } else {
+            return Field::create_field<primitive_type>(value);
+        }
+    }
+
+    template <PrimitiveType primitive_type, typename StorageType>
     void check_bkd_index(std::string index_prefix, const TabletIndex* index_meta,
-                         const std::vector<int32_t>& values, const std::vector<int>& doc_ids) {
+                         const std::string& column_name, const std::vector<StorageType>& values,
+                         const std::vector<int>& doc_ids, StorageType range_value) {
         OlapReaderStatistics stats;
         RuntimeState runtime_state;
         TQueryOptions query_options;
@@ -178,8 +190,8 @@ public:
             context->stats = &stats;
             context->runtime_state = &runtime_state;
 
-            Field qp = Field::create_field<TYPE_INT>(values[i]);
-            auto status = bkd_reader->query(context, "c1", qp,
+            Field qp = create_bkd_query_field<primitive_type>(values[i]);
+            auto status = bkd_reader->query(context, column_name, qp,
                                             doris::segment_v2::InvertedIndexQueryType::EQUAL_QUERY,
                                             bitmap);
             EXPECT_TRUE(status.ok()) << status;
@@ -200,44 +212,43 @@ public:
         // Test range queries
         // Test LESS_THAN query
         std::shared_ptr<roaring::Roaring> less_than_bitmap = std::make_shared<roaring::Roaring>();
-        int32_t test_value = 200;
         auto context = std::make_shared<segment_v2::IndexQueryContext>();
         context->stats = &stats;
         context->runtime_state = &runtime_state;
 
-        Field test_qp = Field::create_field<TYPE_INT>(test_value);
-        auto status = bkd_reader->query(context, "c1", test_qp,
+        Field test_qp = create_bkd_query_field<primitive_type>(range_value);
+        auto status = bkd_reader->query(context, column_name, test_qp,
                                         doris::segment_v2::InvertedIndexQueryType::LESS_THAN_QUERY,
                                         less_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify documents with values less than test_value are in the result
         for (size_t i = 0; i < values.size(); i++) {
-            if (values[i] < test_value) {
+            if (values[i] < range_value) {
                 EXPECT_TRUE(less_than_bitmap->contains(doc_ids[i]))
-                        << "Value " << values[i] << " should be less than " << test_value;
+                        << "Value " << values[i] << " should be less than " << range_value;
             } else {
                 EXPECT_FALSE(less_than_bitmap->contains(doc_ids[i]))
-                        << "Value " << values[i] << " should not be less than " << test_value;
+                        << "Value " << values[i] << " should not be less than " << range_value;
             }
         }
 
         // Test GREATER_THAN query
         std::shared_ptr<roaring::Roaring> greater_than_bitmap =
                 std::make_shared<roaring::Roaring>();
-        status = bkd_reader->query(context, "c1", test_qp,
+        status = bkd_reader->query(context, column_name, test_qp,
                                    doris::segment_v2::InvertedIndexQueryType::GREATER_THAN_QUERY,
                                    greater_than_bitmap);
         EXPECT_TRUE(status.ok()) << status;
 
         // Verify documents with values greater than test_value are in the result
         for (size_t i = 0; i < values.size(); i++) {
-            if (values[i] > test_value) {
+            if (values[i] > range_value) {
                 EXPECT_TRUE(greater_than_bitmap->contains(doc_ids[i]))
-                        << "Value " << values[i] << " should be greater than " << test_value;
+                        << "Value " << values[i] << " should be greater than " << range_value;
             } else {
                 EXPECT_FALSE(greater_than_bitmap->contains(doc_ids[i]))
-                        << "Value " << values[i] << " should not be greater than " << test_value;
+                        << "Value " << values[i] << " should not be greater than " << range_value;
             }
         }
     }
@@ -628,7 +639,7 @@ public:
         std::vector<int> doc_ids = {0, 1, 2, 3, 4};
 
         // Verify the BKD index using the appropriate method
-        check_bkd_index(index_path_prefix, &idx_meta, values, doc_ids);
+        check_bkd_index<TYPE_INT>(index_path_prefix, &idx_meta, "c1", values, doc_ids, 200);
     }
 
     void test_unicode_string_write(std::string_view rowset_id, int seg_id,
@@ -788,6 +799,48 @@ TEST_F(InvertedIndexWriterTest, NullsWrite) {
 // Test case for numeric values
 TEST_F(InvertedIndexWriterTest, NumericWrite) {
     test_numeric_write("test_rowset_3", 0);
+}
+
+TEST_F(InvertedIndexWriterTest, TimeStampNsWriteReadFilter) {
+    TabletColumn field;
+    field.set_name("dt");
+    field.set_unique_id(0);
+    field.set_type(FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS);
+    field.set_is_nullable(false);
+
+    TabletIndexPB index_meta_pb;
+    index_meta_pb.set_index_type(IndexType::INVERTED);
+    index_meta_pb.set_index_id(1);
+    index_meta_pb.set_index_name("test_timestamp_ns");
+    index_meta_pb.add_col_unique_id(0);
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_meta_pb);
+
+    const std::string rowset_id = "test_timestamp_ns";
+    const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, rowset_id, 0))};
+    const std::string index_path =
+            InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(io::global_local_filesystem()->create_file(index_path, &file_writer).ok());
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
+            io::global_local_filesystem(), index_path_prefix, rowset_id, 0,
+            InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    ASSERT_TRUE(
+            IndexColumnWriter::create(&field, &column_writer, index_file_writer.get(), &index_meta)
+                    .ok());
+    const std::vector<int64_t> values = {std::numeric_limits<int64_t>::min(), -1, 0, 1,
+                                         std::numeric_limits<int64_t>::max()};
+    ASSERT_TRUE(column_writer->add_values("dt", values.data(), values.size()).ok());
+    ASSERT_TRUE(column_writer->finish().ok());
+    ASSERT_TRUE(index_file_writer->begin_close().ok());
+    ASSERT_TRUE(index_file_writer->finish_close().ok());
+
+    const std::vector<int> doc_ids = {0, 1, 2, 3, 4};
+    check_bkd_index<TYPE_TIMESTAMP_NS>(index_path_prefix, &index_meta, "dt", values, doc_ids,
+                                       int64_t {0});
 }
 
 // Test case for Unicode string values with enable_correct_term_write=true

@@ -45,7 +45,8 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
         createTables(
                 "CREATE TABLE IF NOT EXISTS T1 (\n"
                         + "    id bigint,\n"
-                        + "    score bigint\n"
+                        + "    score bigint,\n"
+                        + "    ts timestamp_ns\n"
                         + ")\n"
                         + "DUPLICATE KEY(id)\n"
                         + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
@@ -76,6 +77,15 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
                 + ")";
         Assertions.assertTrue(getOutputFragment(sql).getExplainString(TExplainLevel.BRIEF)
                 .contains("FILE SINK"));
+    }
+
+    @Test
+    public void testTimestampNsOrcOutfileIsRejected() {
+        String sql = "select ts from T1 into outfile 'file://~/timestamp_ns.orc' format as orc "
+                + "properties ('broker.name' = 'my_broker')";
+        Exception exception = Assertions.assertThrows(Exception.class, () -> getOutputFragment(sql));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "currently orc do not support column type: TIMESTAMP_NS"), exception.getMessage());
     }
 
     private PlanFragment getOutputFragment(String sql) throws Exception {

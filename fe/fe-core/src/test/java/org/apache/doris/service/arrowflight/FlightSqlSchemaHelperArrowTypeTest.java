@@ -89,6 +89,13 @@ public class FlightSqlSchemaHelperArrowTypeTest {
                 buildField(desc("d", TPrimitiveType.DATEV2)).getType());
     }
 
+    @Test
+    public void timestampNsIsRejectedUntilArrowOutputIsImplemented() {
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> buildField(desc("ts", TPrimitiveType.TIMESTAMP_NS)));
+        Assertions.assertEquals("TIMESTAMP_NS is not supported by Arrow Flight SQL", exception.getMessage());
+    }
+
     /**
      * An Arrow list carries its element type in its child and nowhere else, so the placeholder child this
      * replaced ({@code ZeroVector}'s Null type) described every array in the catalog as an array OF

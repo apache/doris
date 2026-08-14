@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
@@ -60,6 +61,7 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -458,6 +460,145 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 new GreaterThan(datetime2, new DateTimeV2Literal("9999-12-31 23:59:59.99")));
         assertRewrite(new EqualTo(new Cast(datetime2, DateTimeV2Type.of(6)), new DateTimeV2Literal("9999-12-31 23:59:59.999999")),
                 ExpressionUtils.falseOrNull(datetime2));
+    }
+
+    @Test
+    void testTimeStampNsBoundaryDateComparison() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyComparisonPredicate.INSTANCE)
+        ));
+
+        Expression datetime9 = new SlotReference("timestampNs", TimeStampNsType.INSTANCE, true);
+        Expression castToDate = new Cast(datetime9, DateV2Type.INSTANCE);
+        DateV2Literal minDate = new DateV2Literal("1677-09-21");
+        DateV2Literal maxDate = new DateV2Literal("2262-04-11");
+        TimeStampNsLiteral minValue = TimeStampNsLiteral.getMinValue();
+        TimeStampNsLiteral maxValue = TimeStampNsLiteral.getMaxValue();
+        TimeStampNsLiteral minDayEnd = new TimeStampNsLiteral("1677-09-21 23:59:59.999999999");
+        TimeStampNsLiteral maxDayStart = new TimeStampNsLiteral("2262-04-11 00:00:00.000000000");
+
+        assertRewrite(new EqualTo(castToDate, minDate), new And(
+                new GreaterThanEqual(datetime9, minValue), new LessThanEqual(datetime9, minDayEnd)));
+        assertRewrite(new EqualTo(castToDate, maxDate), new And(
+                new GreaterThanEqual(datetime9, maxDayStart), new LessThanEqual(datetime9, maxValue)));
+        assertRewrite(new GreaterThanEqual(castToDate, minDate), new GreaterThanEqual(datetime9, minValue));
+        assertRewrite(new LessThan(castToDate, minDate), new LessThan(datetime9, minValue));
+        assertRewrite(new GreaterThan(castToDate, maxDate), new GreaterThan(datetime9, maxValue));
+        assertRewrite(new LessThanEqual(castToDate, maxDate), new LessThanEqual(datetime9, maxValue));
+
+        DateV2Literal beforeMinDate = new DateV2Literal("1677-09-20");
+        DateV2Literal afterMaxDate = new DateV2Literal("2262-04-12");
+        assertRewrite(new EqualTo(castToDate, beforeMinDate), ExpressionUtils.falseOrNull(datetime9));
+        assertRewrite(new GreaterThan(castToDate, beforeMinDate), ExpressionUtils.trueOrNull(datetime9));
+        assertRewrite(new EqualTo(castToDate, afterMaxDate), ExpressionUtils.falseOrNull(datetime9));
+        assertRewrite(new LessThan(castToDate, afterMaxDate), ExpressionUtils.trueOrNull(datetime9));
+    }
+
+    @Test
+    void testDateTimeToTimeStampNsComparison() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyComparisonPredicate.INSTANCE)
+        ));
+
+        Expression datetimeV2 = new SlotReference("datetimeV2", DateTimeV2Type.of(6), true);
+        Expression castToTimestampNs = new Cast(datetimeV2, TimeStampNsType.INSTANCE);
+        TimeStampNsLiteral exact = new TimeStampNsLiteral("2024-01-02 03:04:05.123456000");
+        TimeStampNsLiteral inexact = new TimeStampNsLiteral("2024-01-02 03:04:05.123456789");
+        DateTimeV2Literal floor = new DateTimeV2Literal(
+                DateTimeV2Type.of(6), "2024-01-02 03:04:05.123456");
+        DateTimeV2Literal ceiling = new DateTimeV2Literal(
+                DateTimeV2Type.of(6), "2024-01-02 03:04:05.123457");
+
+        assertRewrite(new EqualTo(castToTimestampNs, exact), new EqualTo(datetimeV2, floor));
+        assertRewrite(new EqualTo(castToTimestampNs, inexact), ExpressionUtils.falseOrNull(datetimeV2));
+        assertRewrite(new NullSafeEqual(castToTimestampNs, inexact), BooleanLiteral.FALSE);
+        assertRewrite(new GreaterThan(castToTimestampNs, inexact), new GreaterThan(datetimeV2, floor));
+        assertRewrite(new LessThanEqual(castToTimestampNs, inexact), new LessThanEqual(datetimeV2, floor));
+        assertRewrite(new LessThan(castToTimestampNs, inexact), new LessThan(datetimeV2, ceiling));
+        assertRewrite(new GreaterThanEqual(castToTimestampNs, inexact),
+                new GreaterThanEqual(datetimeV2, ceiling));
+
+        Expression datetime = new SlotReference("datetime", DateTimeType.INSTANCE, true);
+        Expression castDatetimeToTimestampNs = new Cast(datetime, TimeStampNsType.INSTANCE);
+        TimeStampNsLiteral subsecond = new TimeStampNsLiteral("2024-01-02 03:04:05.000000001");
+        assertRewrite(new GreaterThan(castDatetimeToTimestampNs, subsecond),
+                new GreaterThan(datetime, new DateTimeLiteral("2024-01-02 03:04:05")));
+        assertRewrite(new LessThan(castDatetimeToTimestampNs, subsecond),
+                new LessThan(datetime, new DateTimeLiteral("2024-01-02 03:04:06")));
+
+        Expression timestampNs = new SlotReference("timestampNs", TimeStampNsType.INSTANCE, true);
+        Expression noOpCast = new Cast(timestampNs, TimeStampNsType.INSTANCE);
+        EqualTo noOpComparison = new EqualTo(noOpCast, exact);
+        assertRewrite(noOpComparison, noOpComparison);
+    }
+
+    @Test
+    void testTimeStampNsDateComparisonOperatorsAndOutsideRange() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyComparisonPredicate.INSTANCE)
+        ));
+
+        Expression timestampNs = new SlotReference("timestampNs", TimeStampNsType.INSTANCE, true);
+        Expression castToDate = new Cast(timestampNs, DateV2Type.INSTANCE);
+        DateV2Literal date = new DateV2Literal("2024-01-02");
+        TimeStampNsLiteral start = new TimeStampNsLiteral("2024-01-02 00:00:00.000000000");
+        TimeStampNsLiteral end = new TimeStampNsLiteral("2024-01-02 23:59:59.999999999");
+
+        assertRewrite(new GreaterThanEqual(castToDate, date), new GreaterThanEqual(timestampNs, start));
+        assertRewrite(new LessThan(castToDate, date), new LessThan(timestampNs, start));
+        assertRewrite(new GreaterThan(castToDate, date), new GreaterThan(timestampNs, end));
+        assertRewrite(new LessThanEqual(castToDate, date), new LessThanEqual(timestampNs, end));
+        assertRewrite(new EqualTo(castToDate, date), new And(
+                new GreaterThanEqual(timestampNs, start), new LessThanEqual(timestampNs, end)));
+        assertRewrite(new NullSafeEqual(castToDate, date), new And(ImmutableList.of(
+                new GreaterThanEqual(timestampNs, start),
+                new LessThanEqual(timestampNs, end),
+                new Not(new IsNull(timestampNs)))));
+
+        DateV2Literal beforeMin = new DateV2Literal("1677-09-20");
+        assertRewrite(new NullSafeEqual(castToDate, beforeMin), BooleanLiteral.FALSE);
+        assertRewrite(new GreaterThanEqual(castToDate, beforeMin), ExpressionUtils.trueOrNull(timestampNs));
+        assertRewrite(new LessThan(castToDate, beforeMin), ExpressionUtils.falseOrNull(timestampNs));
+        assertRewrite(new LessThanEqual(castToDate, beforeMin), ExpressionUtils.falseOrNull(timestampNs));
+
+        DateV2Literal afterMax = new DateV2Literal("2262-04-12");
+        assertRewrite(new NullSafeEqual(castToDate, afterMax), BooleanLiteral.FALSE);
+        assertRewrite(new LessThanEqual(castToDate, afterMax), ExpressionUtils.trueOrNull(timestampNs));
+        assertRewrite(new GreaterThan(castToDate, afterMax), ExpressionUtils.falseOrNull(timestampNs));
+        assertRewrite(new GreaterThanEqual(castToDate, afterMax), ExpressionUtils.falseOrNull(timestampNs));
+    }
+
+    @Test
+    void testDateToTimeStampNsSubMicrosecondComparison() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(SimplifyComparisonPredicate.INSTANCE)
+        ));
+
+        Expression date = new SlotReference("date", DateV2Type.INSTANCE, true);
+        Expression castToNano = new Cast(date, TimeStampNsType.INSTANCE);
+        TimeStampNsLiteral nanoAfterMidnight = new TimeStampNsLiteral(
+                "2024-01-01 00:00:00.000000001");
+        DateV2Literal currentDate = new DateV2Literal("2024-01-01");
+        DateV2Literal nextDate = new DateV2Literal("2024-01-02");
+
+        assertRewrite(new EqualTo(castToNano, nanoAfterMidnight), ExpressionUtils.falseOrNull(date));
+        assertRewrite(new EqualTo(nanoAfterMidnight, castToNano), ExpressionUtils.falseOrNull(date));
+        assertRewrite(new NullSafeEqual(castToNano, nanoAfterMidnight), BooleanLiteral.FALSE);
+        assertRewrite(new NullSafeEqual(nanoAfterMidnight, castToNano), BooleanLiteral.FALSE);
+
+        assertRewrite(new LessThan(castToNano, nanoAfterMidnight), new LessThan(date, nextDate));
+        assertRewrite(new LessThan(nanoAfterMidnight, castToNano), new GreaterThan(date, currentDate));
+        assertRewrite(new LessThanEqual(castToNano, nanoAfterMidnight), new LessThanEqual(date, currentDate));
+        assertRewrite(new LessThanEqual(nanoAfterMidnight, castToNano), new GreaterThanEqual(date, nextDate));
+        assertRewrite(new GreaterThan(castToNano, nanoAfterMidnight), new GreaterThan(date, currentDate));
+        assertRewrite(new GreaterThan(nanoAfterMidnight, castToNano), new LessThan(date, nextDate));
+        assertRewrite(new GreaterThanEqual(castToNano, nanoAfterMidnight), new GreaterThanEqual(date, nextDate));
+        assertRewrite(new GreaterThanEqual(nanoAfterMidnight, castToNano), new LessThanEqual(date, currentDate));
+
+        assertRewrite(new Not(new EqualTo(castToNano, nanoAfterMidnight)),
+                new Not(ExpressionUtils.falseOrNull(date)));
+        assertRewrite(new Not(new EqualTo(nanoAfterMidnight, castToNano)),
+                new Not(ExpressionUtils.falseOrNull(date)));
     }
 
     @Test
