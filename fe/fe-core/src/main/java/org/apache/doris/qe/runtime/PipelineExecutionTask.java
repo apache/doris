@@ -97,6 +97,7 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
             if (coordinatorContext.twoPhaseExecution()) {
                 sendAndWaitPhaseTwoRpc();
             }
+            coordinatorContext.getJobProcessor().markFragmentDispatchCompleted();
             return null;
         });
     }
