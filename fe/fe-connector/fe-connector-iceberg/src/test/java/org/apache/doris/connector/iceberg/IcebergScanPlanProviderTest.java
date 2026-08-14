@@ -51,6 +51,7 @@ import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionSpec;
@@ -93,6 +94,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.UnaryOperator;
 
 /**
@@ -150,6 +152,48 @@ public class IcebergScanPlanProviderTest {
     private static Table tableWithSnapshotSummary(Table table, Map<String, String> summaryOverrides) {
         return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
                 (proxy, method, args) -> wrapSnapshotSummary(invoke(method, table, args), summaryOverrides));
+    }
+
+    private static Table tableWithMissingManifestRowsAndIo(Table table, FileIO fileIO) {
+        return (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("io")) {
+                        return fileIO;
+                    }
+                    return wrapMissingManifestRows(invoke(method, table, args));
+                });
+    }
+
+    private static Object wrapMissingManifestRows(Object value) {
+        if (value instanceof TableScan) {
+            TableScan scan = (TableScan) value;
+            return Proxy.newProxyInstance(TableScan.class.getClassLoader(), new Class<?>[] {TableScan.class},
+                    (proxy, method, args) -> wrapMissingManifestRows(invoke(method, scan, args)));
+        }
+        if (value instanceof Snapshot) {
+            Snapshot snapshot = (Snapshot) value;
+            return Proxy.newProxyInstance(Snapshot.class.getClassLoader(), new Class<?>[] {Snapshot.class},
+                    (proxy, method, args) -> {
+                        Object result = invoke(method, snapshot, args);
+                        if (!method.getName().equals("dataManifests")) {
+                            return result;
+                        }
+                        List<ManifestFile> manifests = new ArrayList<>();
+                        for (Object manifestValue : (List<?>) result) {
+                            ManifestFile manifest = (ManifestFile) manifestValue;
+                            manifests.add((ManifestFile) Proxy.newProxyInstance(ManifestFile.class.getClassLoader(),
+                                    new Class<?>[] {ManifestFile.class}, (manifestProxy, manifestMethod, manifestArgs) -> {
+                                        if (manifestMethod.getName().equals("addedRowsCount")
+                                                || manifestMethod.getName().equals("existingRowsCount")) {
+                                            return null;
+                                        }
+                                        return invoke(manifestMethod, manifest, manifestArgs);
+                                    }));
+                        }
+                        return manifests;
+                    });
+        }
+        return value;
     }
 
     private static Object wrapSnapshotSummary(Object value, Map<String, String> summaryOverrides) {
@@ -2161,6 +2205,21 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void streamingSplitEstimateCountWithLiveDeleteUsesNormalStreamingScan() {
+        Table table = threeFileTable(Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        table.newRowDelta()
+                .addDeletes(positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, null, null))
+                .commit();
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        long estimate = provider.streamingSplitEstimate(batchSession(2, true),
+                new IcebergTableHandle("db1", "t1"), Optional.empty(), true);
+
+        Assertions.assertEquals(3L, estimate,
+                "a live delete prevents metadata collapse but must retain the backpressured normal scan");
+    }
+
+    @Test
     public void streamingSplitEstimateFilteredCountUsesNormalScan() {
         // File record counts cannot answer a filtered COUNT exactly, so retain normal streaming scan planning.
         IcebergScanPlanProvider provider = providerOver(threeFileTable());
@@ -2652,10 +2711,12 @@ public class IcebergScanPlanProviderTest {
                 .commit();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
 
-        List<ConnectorScanRange> ranges = planCount(provider, null, true);
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("ignore_iceberg_dangling_delete", "true"));
+        List<ConnectorScanRange> ranges = planCount(provider, session, true);
 
-        // Equality deletes prevent an exact manifest-only count, so fall back to the normal scan (every data
-        // file, each count -1 so BE reads and counts).
+        // The dangling-delete compatibility flag applies only to position deletes. Equality deletes still force
+        // the normal scan (every data file, each count -1 so BE reads and counts).
         Assertions.assertEquals(2, ranges.size());
         for (ConnectorScanRange range : ranges) {
             Assertions.assertEquals(-1L, range.getPushDownRowCount());
@@ -2663,7 +2724,7 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void countPushdownWithPositionDeletesScansAllEvenWhenIgnoringDangling() {
+    public void countPushdownWithPositionDeletesUsesDataRowsWhenIgnoringDangling() {
         Map<String, String> v2 = Collections.singletonMap(TableProperties.FORMAT_VERSION, "2");
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), v2);
         // 1000/100 = 10 data records.
@@ -2685,10 +2746,10 @@ public class IcebergScanPlanProviderTest {
 
         List<ConnectorScanRange> ranges = planCount(provider, session, true);
 
-        // A snapshot summary cannot prove whether position-delete entries are live or dangling. Even when the
-        // legacy compatibility flag is enabled, V2 must scan the data file rather than return an unverified count.
+        // The compatibility flag explicitly ignores position deletes. Use current data-manifest rows rather than
+        // the optional snapshot summary, preserving the public contract without reintroducing the original bug.
         Assertions.assertEquals(1, ranges.size());
-        Assertions.assertEquals(-1L, ranges.get(0).getPushDownRowCount());
+        Assertions.assertEquals(10L, ranges.get(0).getPushDownRowCount());
     }
 
     @Test
@@ -2849,9 +2910,6 @@ public class IcebergScanPlanProviderTest {
     }
 
     // --- PERF-04: streaming (C17) + COUNT(*) (C18) paths read through the manifest cache, LAZILY ---
-    // (fallback-to-SDK on a cache-read failure is not unit-tested: IcebergManifestCache is final so it cannot be
-    //  made to throw, exactly as the pre-existing synchronous planFileScanTask fallback is untested; the streaming/
-    //  count catch(Exception)+recordFailure mirrors that path verbatim.)
 
     @Test
     public void streamSplitsManifestCacheEnabledMatchesSdkPathAndConsumesCache() throws IOException {
@@ -2947,6 +3005,29 @@ public class IcebergScanPlanProviderTest {
         // The manifest list already carries exact live-row aggregates. Only the first manifest's entries are
         // needed to obtain a representative file for the collapsed range.
         Assertions.assertEquals(1, cache.size());
+    }
+
+    @Test
+    public void countPushdownLateManifestCacheFailureRetriesSdk() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2048, null, null)).commit();
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f3.parquet", 3072, null, null)).commit();
+        List<ManifestFile> manifests = table.currentSnapshot().dataManifests(table.io());
+        Assertions.assertTrue(manifests.size() >= 2, "precondition: failure must occur after iteration starts");
+
+        FailOnceFileIO fileIO = new FailOnceFileIO(table.io(), manifests.get(1).path());
+        Table wrapped = tableWithMissingManifestRowsAndIo(table, fileIO);
+        IcebergManifestCache cache = new IcebergManifestCache();
+
+        // A lazy phase-two failure must discard the partial accumulator before retrying the SDK path.
+        List<ConnectorScanRange> ranges = planCount(
+                manifestProvider(manifestCacheProps(), wrapped, cache), emptySession(), true);
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(60L, ranges.get(0).getPushDownRowCount());
+        Assertions.assertTrue(fileIO.failed.get());
+        Assertions.assertEquals(1L, cache.takeStats("q")[2]);
     }
 
     @Test
@@ -3972,6 +4053,41 @@ public class IcebergScanPlanProviderTest {
         @Override
         public void deleteFile(String path) {
             throw new UnsupportedOperationException();
+        }
+    }
+
+    /** Injects one manifest read failure while leaving the SDK scan's own FileIO untouched. */
+    private static final class FailOnceFileIO implements FileIO {
+        private final FileIO delegate;
+        private final String failingPath;
+        private final AtomicBoolean failed = new AtomicBoolean();
+
+        FailOnceFileIO(FileIO delegate, String failingPath) {
+            this.delegate = delegate;
+            this.failingPath = failingPath;
+        }
+
+        @Override
+        public Map<String, String> properties() {
+            return delegate.properties();
+        }
+
+        @Override
+        public InputFile newInputFile(String path) {
+            if (failingPath.equals(path) && failed.compareAndSet(false, true)) {
+                throw new RuntimeException("injected late manifest read failure");
+            }
+            return delegate.newInputFile(path);
+        }
+
+        @Override
+        public OutputFile newOutputFile(String path) {
+            return delegate.newOutputFile(path);
+        }
+
+        @Override
+        public void deleteFile(String path) {
+            delegate.deleteFile(path);
         }
     }
 

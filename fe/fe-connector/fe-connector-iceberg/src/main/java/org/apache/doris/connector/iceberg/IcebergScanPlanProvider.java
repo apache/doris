@@ -150,6 +150,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // FIX-M3 streaming (file-count) batch gate — keys byte-identical to fe-core SessionVariable.
     private static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
     private static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
+    private static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
     private static final long DEFAULT_NUM_FILES_IN_BATCH_MODE = 1024L;
 
     // Equality-delete schema discovery uses this stable Iceberg snapshot-summary key as a read-avoidance hint.
@@ -443,7 +444,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter, boolean countPushdown) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         if (iceHandle.isResolvedEmptySnapshot() || iceHandle.isSystemTable()
-                || (countPushdown && filter.isEmpty())
                 || !sessionBool(session, ENABLE_EXTERNAL_TABLE_BATCH_MODE, true)) {
             return -1;
         }
@@ -452,6 +452,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {
             return -1;
+        }
+        if (countPushdown && filter.isEmpty()) {
+            boolean ignorePositionDeletes = sessionBool(session, IGNORE_ICEBERG_DANGLING_DELETE, false);
+            ManifestDeleteState deleteState = manifestDeleteState(snapshot.deleteManifests(table.io()));
+            // Keep synchronous planning only while COUNT(*) can still collapse to one range. Once live deletes
+            // make that impossible, normal file enumeration needs the same streaming OOM protection as SELECT.
+            if (deleteState == ManifestDeleteState.NONE
+                    || (deleteState == ManifestDeleteState.PRESENT && ignorePositionDeletes
+                            && !hasNonIgnorableDeleteFiles(table, snapshot, true))
+                    || (deleteState == ManifestDeleteState.UNKNOWN
+                            && !hasNonIgnorableDeleteFiles(table, snapshot, ignorePositionDeletes))) {
+                return -1;
+            }
         }
         if (getFormatVersion(table) >= 3) {
             return -1;
@@ -1238,7 +1251,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * Build a collapsed COUNT(*) range from current manifest-list aggregates. Summing each data manifest's
      * added and existing row counts is O(manifests), while only the first live {@link FileScanTask} is needed as
      * the representative range. Old manifest lists that omit these aggregates use the bounded O(files) fallback.
-     * Any live delete file makes the optimization unsafe and tells the caller to perform a normal scan.
+     * Equality deletes and non-ignored position deletes make the optimization unsafe and tell the caller to
+     * perform a normal scan.
      */
     private Optional<List<ConnectorScanRange>> planCountPushdown(Table table, TableScan scan,
             int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
@@ -1248,32 +1262,36 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return Optional.of(Collections.emptyList());
         }
 
+        boolean ignorePositionDeletes = sessionBool(session, IGNORE_ICEBERG_DANGLING_DELETE, false);
         ManifestDeleteState deleteState = manifestDeleteState(snapshot.deleteManifests(table.io()));
-        if (deleteState == ManifestDeleteState.PRESENT) {
+        if (deleteState == ManifestDeleteState.PRESENT
+                && (!ignorePositionDeletes || hasNonIgnorableDeleteFiles(table, snapshot, true))) {
             return Optional.empty();
         }
-        if (deleteState == ManifestDeleteState.NONE) {
+        if (deleteState != ManifestDeleteState.UNKNOWN) {
             OptionalLong manifestCount = liveRowCountFromManifests(snapshot.dataManifests(table.io()));
             if (manifestCount.isPresent()) {
                 return planManifestCountRange(table, scan, manifestCount.getAsLong(), formatVersion,
-                        partitioned, orderedPartitionKeys, zone, uriNormalizer, session, filter);
+                        partitioned, orderedPartitionKeys, zone, uriNormalizer, session, filter,
+                        ignorePositionDeletes);
             }
         }
 
         // Older manifest lists may omit aggregate counters. Preserve correctness by falling back to the
         // bounded per-file enumeration instead of trusting snapshot summary metadata.
         return planCountPushdownFromFileTasks(table, scan, formatVersion, partitioned,
-                orderedPartitionKeys, zone, uriNormalizer, session, filter);
+                orderedPartitionKeys, zone, uriNormalizer, session, filter, ignorePositionDeletes);
     }
 
     private Optional<List<ConnectorScanRange>> planManifestCountRange(Table table, TableScan scan, long exactCount,
             int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter) {
+            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter,
+            boolean ignorePositionDeletes) {
         try (CloseableIterable<FileScanTask> tasks = countPushdownFileScanTasks(scan, session, table, filter)) {
             for (FileScanTask task : tasks) {
                 // Manifest-list delete counts are authoritative, but retain this defensive check for malformed
                 // metadata before exposing the aggregate as a query result.
-                if (!task.deletes().isEmpty() || task.file().recordCount() < 0) {
+                if (hasNonIgnorableTaskDeletes(task, ignorePositionDeletes) || task.file().recordCount() < 0) {
                     return Optional.empty();
                 }
                 return Optional.of(Collections.singletonList(buildRange(table, task.file(), task, formatVersion,
@@ -1288,13 +1306,38 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     private Optional<List<ConnectorScanRange>> planCountPushdownFromFileTasks(Table table, TableScan scan,
             int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter) {
+            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter,
+            boolean ignorePositionDeletes) {
+        if (!isManifestCacheEnabled()) {
+            return accumulateCountPushdownFileTasks(table, scan.planFiles(), formatVersion, partitioned,
+                    orderedPartitionKeys, zone, uriNormalizer, ignorePositionDeletes);
+        }
+        String statsQueryId = session != null ? session.getQueryId() : null;
+        try {
+            return accumulateCountPushdownFileTasks(table,
+                    cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId), formatVersion,
+                    partitioned, orderedPartitionKeys, zone, uriNormalizer, ignorePositionDeletes);
+        } catch (Exception e) {
+            LOG.warn("Iceberg count-pushdown plan with manifest cache failed, falling back to SDK scan: {}",
+                    e.getMessage(), e);
+            manifestCache.recordFailure(statsQueryId);
+            // The retry owns a fresh accumulator so rows consumed before a lazy cache failure are never counted
+            // twice and the SDK fallback remains an exact restart.
+            return accumulateCountPushdownFileTasks(table, scan.planFiles(), formatVersion, partitioned,
+                    orderedPartitionKeys, zone, uriNormalizer, ignorePositionDeletes);
+        }
+    }
+
+    private Optional<List<ConnectorScanRange>> accumulateCountPushdownFileTasks(Table table,
+            CloseableIterable<FileScanTask> tasks, int formatVersion, boolean partitioned,
+            List<String> orderedPartitionKeys, ZoneId zone, UnaryOperator<String> uriNormalizer,
+            boolean ignorePositionDeletes) {
         FileScanTask representative = null;
         long exactCount = 0;
-        try (CloseableIterable<FileScanTask> tasks = countPushdownFileScanTasks(scan, session, table, filter)) {
-            for (FileScanTask task : tasks) {
+        try (CloseableIterable<FileScanTask> closeableTasks = tasks) {
+            for (FileScanTask task : closeableTasks) {
                 // A metadata count is safe only when manifests alone prove the exact visible row count.
-                if (!task.deletes().isEmpty() || task.file().recordCount() < 0) {
+                if (hasNonIgnorableTaskDeletes(task, ignorePositionDeletes) || task.file().recordCount() < 0) {
                     return Optional.empty();
                 }
                 try {
@@ -1319,6 +1362,18 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer, exactCount, -1, null)));
     }
 
+    private static boolean hasNonIgnorableTaskDeletes(FileScanTask task, boolean ignorePositionDeletes) {
+        if (task.deletes() == null) {
+            return false;
+        }
+        for (DeleteFile delete : task.deletes()) {
+            if (!ignorePositionDeletes || delete.content() != FileContent.POSITION_DELETES) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private enum ManifestDeleteState {
         NONE,
         PRESENT,
@@ -1338,6 +1393,24 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return ManifestDeleteState.NONE;
+    }
+
+    private static boolean hasNonIgnorableDeleteFiles(Table table, Snapshot snapshot,
+            boolean ignorePositionDeletes) {
+        for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
+            try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
+                    manifest, table.io(), table.specs())) {
+                for (DeleteFile delete : reader) {
+                    if (!ignorePositionDeletes || delete.content() != FileContent.POSITION_DELETES) {
+                        return true;
+                    }
+                }
+            } catch (IOException e) {
+                throw new DorisConnectorException(
+                        "Failed to inspect iceberg delete manifest " + manifest.path() + ": " + e.getMessage(), e);
+            }
+        }
+        return false;
     }
 
     private static OptionalLong liveRowCountFromManifests(List<ManifestFile> manifests) {
@@ -1371,12 +1444,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private CloseableIterable<FileScanTask> countPushdownFileScanTasks(TableScan scan, ConnectorSession session,
             Table table, Optional<ConnectorExpression> filter) {
         if (isManifestCacheEnabled()) {
+            String statsQueryId = session != null ? session.getQueryId() : null;
             try {
-                return cacheBackedFileScanTasks(scan, session, table, filter, session.getQueryId());
+                return cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId);
             } catch (Exception e) {
                 LOG.warn("Iceberg count-pushdown plan with manifest cache failed, falling back to SDK scan: {}",
                         e.getMessage(), e);
-                manifestCache.recordFailure(session.getQueryId());
+                manifestCache.recordFailure(statsQueryId);
             }
         }
         return scan.planFiles();
