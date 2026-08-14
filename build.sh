@@ -1449,14 +1449,6 @@ EOF
         fi
     done
 
-    # lib/java_extensions is no longer a deploy layout, only a drop point: post-build.sh unpacks
-    # JindoFS and JuiceFS into it below, and bin/start_be.sh puts those two on the system classpath
-    # so the native libhdfs reader can resolve oss-hdfs:// and jfs://. Nothing maven-built lands
-    # here anymore - every module BE addresses by name has a plugin directory instead.
-    BE_JAVA_EXTENSIONS_DIR="${DORIS_OUTPUT}/be/lib/java_extensions/"
-    rm -rf "${BE_JAVA_EXTENSIONS_DIR}"
-    mkdir "${BE_JAVA_EXTENSIONS_DIR}"
-
     # The hadoop drop C++ libhdfs loads. Not a plugin and never was: libhdfs resolves it off the
     # system classpath, so it is deployed whole into lib/hadoop_hdfs rather than into a plugin
     # directory addressed by name.
@@ -1500,13 +1492,19 @@ EOF
         fs_plugin_dir="${BE_JAVA_PLUGINS_DIR}/${fs_plugin}"
         [[ -d "${fs_plugin_dir}" ]] || continue
         for fs_libs in jindofs juicefs; do
-            if [[ -d "${DORIS_OUTPUT}/be/lib/java_extensions/${fs_libs}" ]]; then
+            # The deploy location moved to lib/<name>, matching what FE has always used. The old
+            # lib/java_extensions/<name> is still read so a tree built before the move keeps working.
+            fs_src="${DORIS_OUTPUT}/be/lib/${fs_libs}"
+            if [[ ! -d "${fs_src}" ]]; then
+                fs_src="${DORIS_OUTPUT}/be/lib/java_extensions/${fs_libs}"
+            fi
+            if [[ -d "${fs_src}" ]]; then
                 echo "Copy ${fs_libs} jars into the ${fs_plugin} plugin"
-                cp -p "${DORIS_OUTPUT}/be/lib/java_extensions/${fs_libs}"/*.jar "${fs_plugin_dir}/"
+                cp -p "${fs_src}"/*.jar "${fs_plugin_dir}/"
             fi
         done
     done
-    unset fs_plugin fs_plugin_dir fs_libs
+    unset fs_plugin fs_plugin_dir fs_libs fs_src
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"

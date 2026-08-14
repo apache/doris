@@ -249,21 +249,25 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     done
 fi
 
-# add jindofs
-# should after jars in lib/hadoop_hdfs/, or it will override the hadoop jars in lib/hadoop_hdfs
-if [[ -d "${DORIS_HOME}/lib/java_extensions/jindofs" ]]; then
-    for f in "${DORIS_HOME}/lib/java_extensions/jindofs"/*.jar; do
-        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-    done
-fi
-
-# add juicefs
-# should after jars in lib/hadoop_hdfs/, or it will override the hadoop jars in lib/hadoop_hdfs
-if [[ -d "${DORIS_HOME}/lib/java_extensions/juicefs" ]]; then
-    for f in "${DORIS_HOME}/lib/java_extensions/juicefs"/*.jar; do
-        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
-    done
-fi
+# jindofs and juicefs go on the system classpath so the native libhdfs reader can resolve
+# oss-hdfs:// and jfs://. They must come after lib/hadoop_hdfs or they override its hadoop jars.
+#
+# lib/<name> is where both FE and BE put them now; lib/java_extensions/<name> is where BE alone
+# used to, and is still read so an existing deployment keeps resolving those schemes.
+for fs_libs in jindofs juicefs; do
+    fs_dir="${DORIS_HOME}/lib/${fs_libs}"
+    if [[ ! -d "${fs_dir}" ]] && [[ -d "${DORIS_HOME}/lib/java_extensions/${fs_libs}" ]]; then
+        fs_dir="${DORIS_HOME}/lib/java_extensions/${fs_libs}"
+        echo "WARN: ${fs_libs} found under the deprecated lib/java_extensions/${fs_libs};" \
+             "move it to lib/${fs_libs}, which is where this build deploys it." >&2
+    fi
+    if [[ -d "${fs_dir}" ]]; then
+        for f in "${fs_dir}"/*.jar; do
+            DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+        done
+    fi
+done
+unset fs_libs fs_dir
 
 # custom_lib and plugins/java_extensions hold user Java function jars, and they are deliberately
 # NOT put on this classpath any more: the java-udf plugin reads those two directories itself and
