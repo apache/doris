@@ -34,6 +34,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
@@ -46,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelBackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.BarrierLog;
+import org.apache.doris.system.RowTtlFeatureGate;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.SnapshotTask;
@@ -602,6 +604,23 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         checkAndFilterRestoreObjsExistInSnapshot(jobInfo, command);
 
+        BackupMeta restoreBackupMeta = getRestoreBackupMetaForRowTtlGate(repository, command, jobInfo);
+        boolean sourceHasRowTtl = sourceContainsRowTtlTable(restoreBackupMeta, jobInfo);
+        boolean targetHasRowTtl = targetContainsRowTtlTable(jobInfo, db);
+        validateRowTtlBackupVersion(sourceHasRowTtl, jobInfo.metaVersion);
+        validateRowTtlBackupVersion(sourceHasRowTtl,
+                command.getMetaVersion() == -1 ? jobInfo.metaVersion : command.getMetaVersion());
+        if (targetHasRowTtl) {
+            // A pre-barrier Row TTL table must never be adopted by activating it as a side effect
+            // of an unrelated restore.
+            RowTtlFeatureGate.ensureReadyForUse();
+        }
+        if (sourceHasRowTtl && !targetHasRowTtl) {
+            // The barrier must be durable before OP_RESTORE_JOB. Metadata preparation in the
+            // asynchronous RestoreJob is too late because an old FE may already replay the job.
+            RowTtlFeatureGate.activateForMutation();
+        }
+
         // Create a restore job
         RestoreJob restoreJob;
         if (command.isLocal()) {
@@ -615,7 +634,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                     jobInfo.getBackupTime(), TimeUtils.getDatetimeFormatWithHyphenWithTimeZone());
             restoreJob = new RestoreJob(command.getLabel(), backupTimestamp,
                 db.getId(), db.getFullName(), jobInfo, command.allowLoad(), command.getReplicaAlloc(),
-                command.getTimeoutMs(), command.getMetaVersion(), command.reserveReplica(), command.reserveColocate(),
+                command.getTimeoutMs(), metaVersion, command.reserveReplica(), command.reserveColocate(),
                 command.reserveDynamicPartitionEnable(), command.isBeingSynced(), command.isCleanTables(),
                 command.isCleanPartitions(), command.isAtomicRestore(), command.isForceReplace(),
                 env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
@@ -642,6 +661,68 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
         addBackupOrRestoreJob(db.getId(), restoreJob);
         LOG.info("finished to submit restore job: {}", restoreJob);
+    }
+
+    private BackupMeta getRestoreBackupMetaForRowTtlGate(
+            Repository repository, RestoreCommand command, BackupJobInfo jobInfo) throws DdlException {
+        if (command.isLocal()) {
+            BackupMeta backupMeta = command.getMeta();
+            if (backupMeta == null) {
+                throw new DdlException("Restore backup metadata is missing");
+            }
+            return backupMeta;
+        }
+
+        List<BackupMeta> backupMetas = Lists.newArrayList();
+        int metaVersion = command.getMetaVersion() == -1 ? jobInfo.metaVersion : command.getMetaVersion();
+        Status status = repository.getSnapshotMetaFile(jobInfo.name, backupMetas, metaVersion);
+        if (!status.ok()) {
+            throw new DdlException("Failed to get restore metadata for Row TTL capability check: "
+                    + status.getErrMsg());
+        }
+        if (backupMetas.size() != 1) {
+            throw new DdlException("Expected exactly one restore metadata object, but found "
+                    + backupMetas.size());
+        }
+        return backupMetas.get(0);
+    }
+
+    static void validateRowTtlBackupVersion(boolean containsRowTtl, int metaVersion) throws DdlException {
+        if (containsRowTtl && metaVersion < FeMetaVersion.VERSION_ROW_TTL_ACTIVATION) {
+            throw new DdlException("Row TTL restore metadata predates activation version "
+                    + FeMetaVersion.VERSION_ROW_TTL_ACTIVATION + " and cannot be safely restored");
+        }
+    }
+
+    private boolean sourceContainsRowTtlTable(BackupMeta backupMeta, BackupJobInfo jobInfo) throws DdlException {
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            Table table = backupMeta.getTable(tableName);
+            if (!(table instanceof OlapTable)) {
+                throw new DdlException("OLAP table " + tableName + " is missing from restore metadata");
+            }
+            if (((OlapTable) table).hasRowTtl()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean targetContainsRowTtlTable(BackupJobInfo jobInfo, Database db) {
+        for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
+            Table targetTable = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
+            if (targetTable instanceof OlapTable) {
+                OlapTable targetOlapTable = (OlapTable) targetTable;
+                targetOlapTable.readLock();
+                try {
+                    if (targetOlapTable.hasRowTtl()) {
+                        return true;
+                    }
+                } finally {
+                    targetOlapTable.readUnlock();
+                }
+            }
+        }
+        return false;
     }
 
     private void addBackupOrRestoreJob(long dbId, AbstractJob job) {

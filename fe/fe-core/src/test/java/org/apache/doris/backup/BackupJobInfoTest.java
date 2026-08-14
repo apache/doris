@@ -17,15 +17,24 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.Collections;
 
 public class BackupJobInfoTest {
 
@@ -161,5 +170,27 @@ public class BackupJobInfoTest {
 
         Assert.assertEquals(1, jobInfo.newBackupObjects.views.size());
         Assert.assertEquals("view1", jobInfo.newBackupObjects.views.get(0).name);
+        Assert.assertEquals(FeConstants.meta_version, jobInfo.metaVersion);
+    }
+
+    @Test
+    public void testActivatedBackupUsesSharedMetaVersion() {
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getEffectiveMetaVersion()).thenReturn(FeMetaVersion.VERSION_ROW_TTL_ACTIVATION);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            BackupMeta backupMeta = new BackupMeta(Collections.emptyList(), Collections.emptyList());
+            BackupJobInfo jobInfo = BackupJobInfo.fromCatalog(1L, "snapshot", "db", 2L,
+                    BackupCommand.BackupContent.ALL, backupMeta, Collections.emptyMap(), Collections.emptyMap());
+            Assert.assertEquals(FeMetaVersion.VERSION_ROW_TTL_ACTIVATION, jobInfo.metaVersion);
+        }
+    }
+
+    @Test
+    public void testPreActivationRowTtlBackupIsRejected() throws Exception {
+        Assert.assertThrows(DdlException.class, () -> BackupHandler.validateRowTtlBackupVersion(
+                true, FeMetaVersion.VERSION_ROW_TTL_ACTIVATION - 1));
+        BackupHandler.validateRowTtlBackupVersion(false, FeMetaVersion.VERSION_ROW_TTL_ACTIVATION - 1);
+        BackupHandler.validateRowTtlBackupVersion(true, FeMetaVersion.VERSION_ROW_TTL_ACTIVATION);
     }
 }

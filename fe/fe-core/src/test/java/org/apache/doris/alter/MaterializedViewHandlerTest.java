@@ -45,6 +45,31 @@ import java.util.Set;
 
 public class MaterializedViewHandlerTest {
     @Test
+    public void testRejectCreateMaterializedViewOnRowTtlTable() {
+        CreateMaterializedViewCommand command = Mockito.mock(CreateMaterializedViewCommand.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Mockito.when(olapTable.hasRowTtl()).thenReturn(true);
+        Mockito.when(olapTable.getName()).thenReturn("ttl_table");
+
+        DdlException exception = Assert.assertThrows(DdlException.class,
+                () -> new MaterializedViewHandler().processCreateMaterializedView(command, db, olapTable));
+        Assert.assertTrue(exception.getMessage().contains("do not support tables with row ttl"));
+    }
+
+    @Test
+    public void testRejectAddRollupOnLegacyDirectRowTtlTable() {
+        Database db = Mockito.mock(Database.class);
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Mockito.when(olapTable.isLegacyDirectRowTtl()).thenReturn(true);
+
+        DdlException exception = Assert.assertThrows(DdlException.class,
+                () -> new MaterializedViewHandler().processBatchAddRollup(
+                        "ALTER TABLE ttl_table ADD ROLLUP r1(k1)", Lists.newArrayList(), db, olapTable));
+        Assert.assertTrue(exception.getMessage().contains("direct row ttl is not supported"));
+    }
+
+    @Test
     public void testDifferentBaseTable() {
         CreateMaterializedViewCommand createMaterializedViewCommand = Mockito.mock(CreateMaterializedViewCommand.class);
         Database db = Mockito.mock(Database.class);

@@ -97,6 +97,7 @@ import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.RowTtlFeatureGate;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TTabletType;
@@ -660,10 +661,20 @@ public class Alter {
     public void processReplaceTable(Database db, OlapTable origTable, String newTblName,
                                     boolean swapTable, boolean isForce)
             throws UserException {
+        List<TableType> tableTypes = Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW);
+        Table replacement = db.getTableOrMetaException(newTblName, tableTypes);
+        if (origTable.hasRowTtl()
+                || (replacement instanceof OlapTable && ((OlapTable) replacement).hasRowTtl())) {
+            RowTtlFeatureGate.ensureReadyForUse();
+        }
         db.writeLockOrDdlException();
         try {
-            List<TableType> tableTypes = Lists.newArrayList(TableType.OLAP, TableType.MATERIALIZED_VIEW);
             Table newTbl = db.getTableOrMetaException(newTblName, tableTypes);
+            if (origTable.hasRowTtl()
+                    || (newTbl instanceof OlapTable && ((OlapTable) newTbl).hasRowTtl())) {
+                // Local heartbeat-only recheck closes the lookup-to-lock race. No Meta Service RPC is issued here.
+                RowTtlFeatureGate.ensureReadyForUse();
+            }
             if (newTbl.isTemporary()) {
                 throw new UserException("Do not support replace with temporary table");
             }

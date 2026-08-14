@@ -871,6 +871,8 @@ struct TFrontendPingFrontendResult {
     9: optional i64 processUUID
     10: optional i32 arrowFlightSqlPort
     11: optional string localResourceGroup
+    // Bit set advertised by the FE. Missing on an old FE means no optional features.
+    12: optional i64 nodeFeatureFlags
 }
 
 struct TPropertyVal {

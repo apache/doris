@@ -36,6 +36,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -93,6 +94,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -395,6 +397,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
                         tbl.getCompressionType(), tbl.getStorageFormat(), storagePolicy, isInMemory, false,
                         tbl.getName(), tbl.getTTLSeconds(),
+                        tbl.getRowTtlDurationMicros(), tbl.getRowTtlTimeZoneOffsetSeconds(),
+                        false,
                         enableUniqueKeyMergeOnWrite, tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
                         binlogConfig, tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                         tbl.getTimeSeriesCompactionFileCountThreshold(),
@@ -434,7 +438,9 @@ public class CloudInternalCatalog extends InternalCatalog {
             short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
             TStorageFormat storageFormat, String storagePolicy, boolean isInMemory, boolean isShadow,
-            String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
+            String tableName, long ttlSeconds, long rowTtlDurationMicros,
+            Optional<Integer> rowTtlTimeZoneOffsetSeconds, boolean allowLegacyRowTtlRestore,
+            boolean enableUniqueKeyMergeOnWrite,
             boolean storeRowColumn, int schemaVersion, BinlogConfig binlogConfig, String compactionPolicy,
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
@@ -522,6 +528,8 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setSequenceColIdx(sequenceCol);
         schemaBuilder.setCommitTsoColIdx(commitTsoCol);
         schemaBuilder.setStoreRowColumn(storeRowColumn);
+        setRowTtlSchemaFields(schemaBuilder, schemaColumns, rowTtlDurationMicros,
+                rowTtlTimeZoneOffsetSeconds, allowLegacyRowTtlRestore);
 
         if (dataSortInfo.getSortType() == TSortType.LEXICAL) {
             schemaBuilder.setSortType(OlapFile.SortType.LEXICAL);
@@ -644,6 +652,35 @@ public class CloudInternalCatalog extends InternalCatalog {
             builder.setEncryptionAlgorithm(encryptionAlgorithm);
         }
         return builder;
+    }
+
+    static void setRowTtlSchemaFields(OlapFile.TabletSchemaCloudPB.Builder schemaBuilder,
+            List<Column> schemaColumns, long rowTtlDurationMicros,
+            Optional<Integer> rowTtlTimeZoneOffsetSeconds, boolean allowLegacyRowTtlRestore)
+            throws DdlException {
+        int ttlCol = -1;
+        for (int i = 0; i < schemaColumns.size(); i++) {
+            if (schemaColumns.get(i).isTtlColumn()) {
+                Preconditions.checkState(ttlCol == -1, "multiple row TTL columns");
+                ttlCol = i;
+            }
+        }
+        if (ttlCol < 0) {
+            return;
+        }
+        PrimitiveType ttlType = schemaColumns.get(ttlCol).getType().getPrimitiveType();
+        if (ttlType == PrimitiveType.BIGINT && !allowLegacyRowTtlRestore) {
+            throw new DdlException(PropertyAnalyzer.ROW_TTL_DIRECT_NOT_SUPPORTED);
+        }
+        if (ttlType.isDateLikeType() && rowTtlTimeZoneOffsetSeconds.isEmpty()
+                && !allowLegacyRowTtlRestore) {
+            throw new DdlException("row ttl time zone is missing from legacy temporal table; "
+                    + "only restore may create tablets before the table is rebuilt or migrated");
+        }
+        schemaBuilder.setTtlColIdx(ttlCol);
+        schemaBuilder.setRowTtlDurationUs(rowTtlDurationMicros);
+        // Do not default an absent value to zero: absence marks legacy unpinned metadata.
+        rowTtlTimeZoneOffsetSeconds.ifPresent(schemaBuilder::setRowTtlTimeZoneOffsetSeconds);
     }
 
     private OlapFile.RowsetMetaCloudPB.Builder createInitialRowset(Tablet tablet, long partitionId,
@@ -1018,10 +1055,15 @@ public class CloudInternalCatalog extends InternalCatalog {
             LOG.debug("send create tablets rpc, createTabletsReq: {}", createTabletsReq);
         }
         Cloud.CreateTabletsResponse response = null;
+        boolean containsRowTtl = createTabletsReq.getTabletMetasList().stream()
+                .anyMatch(tabletMeta -> tabletMeta.hasSchema()
+                        && schemaContainsRowTtl(tabletMeta.getSchema()));
         int tryTimes = 0;
         while (tryTimes++ < Config.metaServiceRpcRetryTimes()) {
             try {
-                response = MetaServiceProxy.getInstance().createTablets(createTabletsReq);
+                response = containsRowTtl
+                        ? MetaServiceProxy.getInstance().createTabletsRowTtl(createTabletsReq)
+                        : MetaServiceProxy.getInstance().createTablets(createTabletsReq);
                 if (response.getStatus().getCode() != Cloud.MetaServiceCode.KV_TXN_CONFLICT) {
                     break;
                 }
@@ -1039,6 +1081,11 @@ public class CloudInternalCatalog extends InternalCatalog {
             throw new DdlException(response.getStatus().getMsg());
         }
         return response;
+    }
+
+    private static boolean schemaContainsRowTtl(OlapFile.TabletSchemaCloudPB schema) {
+        return (schema.hasTtlColIdx() && schema.getTtlColIdx() != -1)
+                || schema.getColumnList().stream().anyMatch(column -> column.getName().equals(Column.TTL_COL));
     }
 
     // END CREATE TABLE

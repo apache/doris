@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -114,6 +115,7 @@ public class RebalanceTest {
 
         mockedEnvStatic = Mockito.mockStatic(Env.class);
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+        mockedEnvStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
         mockedEnvStatic.when(Env::getCurrentEnvJournalVersion).thenReturn(FeConstants.meta_version);
         mockedEnvStatic.when(Env::getCurrentSystemInfo).thenReturn(systemInfoService);
         mockedEnvStatic.when(Env::getCurrentInvertedIndex).thenReturn(invertedIndex);
@@ -209,6 +211,55 @@ public class RebalanceTest {
                 Assert.assertTrue(rebalancer.hasPrioBackends());
             }
         }
+    }
+
+    @Test
+    public void testLegacyDirectRowTtlTableCannotBeBalanced() {
+        long directDbId = 91;
+        long directTableId = 92;
+        Database directDb = Mockito.mock(Database.class);
+        OlapTable directTable = Mockito.mock(OlapTable.class);
+        Mockito.when(catalog.getDbNullable(directDbId)).thenReturn(directDb);
+        Mockito.when(directDb.getTableNullable(directTableId)).thenReturn(directTable);
+        Mockito.when(directTable.isLegacyDirectRowTtl()).thenReturn(true);
+
+        TabletMeta tabletMeta = new TabletMeta(
+                directDbId, directTableId, 93, 94, 0, TStorageMedium.HDD);
+        Rebalancer rebalancer = new DiskRebalancer(
+                Env.getCurrentSystemInfo(), Env.getCurrentInvertedIndex(), null);
+        Assert.assertFalse(rebalancer.canBalanceTablet(tabletMeta));
+
+        Mockito.when(directTable.isLegacyDirectRowTtl()).thenReturn(false);
+        Assert.assertTrue(rebalancer.canBalanceTablet(tabletMeta));
+    }
+
+    @Test
+    public void testTabletCheckerDoesNotEnqueueLegacyDirectRowTtlRepair() throws Exception {
+        Partition partition = olapTable.getPartition("p0");
+        Tablet tablet = partition.getBaseIndex().getTablets().get(0);
+        long removedBackendId = tablet.getReplicas().get(2).getBackendId();
+        tablet.deleteReplicaByBackendId(removedBackendId);
+        Tablet.TabletHealth tabletHealth = tablet.getHealth(
+                systemInfoService, partition.getVisibleVersion(),
+                olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()),
+                systemInfoService.getAllBackendIds(true));
+        Assert.assertEquals(Tablet.TabletStatus.REPLICA_MISSING, tabletHealth.status);
+
+        OlapTable legacyDirectTable = Mockito.spy(olapTable);
+        Mockito.doReturn(true).when(legacyDirectTable).isLegacyDirectRowTtl();
+        db.unregisterTable(olapTable.getId());
+        Assert.assertTrue(db.registerTable(legacyDirectTable));
+        olapTable = legacyDirectTable;
+
+        TabletSchedulerStat stat = new TabletSchedulerStat();
+        TabletScheduler tabletScheduler = new TabletScheduler(
+                env, systemInfoService, invertedIndex, stat, "");
+        TabletChecker tabletChecker = new TabletChecker(
+                env, systemInfoService, tabletScheduler, stat);
+        tabletChecker.runAfterCatalogReady();
+
+        Assert.assertFalse(tabletScheduler.containsTablet(tablet.getId()));
+        Mockito.verify(legacyDirectTable, Mockito.atLeastOnce()).isLegacyDirectRowTtl();
     }
 
     @Test

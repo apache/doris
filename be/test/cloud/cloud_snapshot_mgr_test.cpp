@@ -131,6 +131,46 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     StorageResource storage_resource {_fs};
     std::unordered_map<std::string, std::string> file_mapping;
 
+    TabletMetaPB incompatible_meta_pb = input_meta_pb;
+    incompatible_meta_pb.mutable_schema()->set_ttl_col_idx(0);
+    TabletMetaPB unchanged_output_pb;
+    unchanged_output_pb.set_tablet_id(777);
+    Status incompatible_status =
+            _snapshot_mgr->convert_rowsets(&unchanged_output_pb, incompatible_meta_pb, 3000,
+                                           target_tablet, storage_resource, file_mapping);
+    EXPECT_TRUE(incompatible_status.is<ErrorCode::INVALID_ARGUMENT>()) << incompatible_status;
+    EXPECT_EQ(unchanged_output_pb.tablet_id(), 777);
+    EXPECT_TRUE(file_mapping.empty());
+
+    incompatible_meta_pb = input_meta_pb;
+    incompatible_meta_pb.mutable_rs_metas(0)->mutable_tablet_schema()->set_ttl_col_idx(0);
+    incompatible_status =
+            _snapshot_mgr->convert_rowsets(&unchanged_output_pb, incompatible_meta_pb, 3000,
+                                           target_tablet, storage_resource, file_mapping);
+    EXPECT_TRUE(incompatible_status.is<ErrorCode::INVALID_ARGUMENT>()) << incompatible_status;
+    EXPECT_EQ(unchanged_output_pb.tablet_id(), 777);
+    EXPECT_TRUE(file_mapping.empty());
+
+    incompatible_meta_pb = input_meta_pb;
+    *incompatible_meta_pb.add_inc_rs_metas()->mutable_tablet_schema() = input_meta_pb.schema();
+    incompatible_meta_pb.mutable_inc_rs_metas(0)->mutable_tablet_schema()->set_ttl_col_idx(0);
+    incompatible_status =
+            _snapshot_mgr->convert_rowsets(&unchanged_output_pb, incompatible_meta_pb, 3000,
+                                           target_tablet, storage_resource, file_mapping);
+    EXPECT_TRUE(incompatible_status.is<ErrorCode::INVALID_ARGUMENT>()) << incompatible_status;
+    EXPECT_EQ(unchanged_output_pb.tablet_id(), 777);
+    EXPECT_TRUE(file_mapping.empty());
+
+    incompatible_meta_pb = input_meta_pb;
+    *incompatible_meta_pb.add_stale_rs_metas()->mutable_tablet_schema() = input_meta_pb.schema();
+    incompatible_meta_pb.mutable_stale_rs_metas(0)->mutable_tablet_schema()->set_ttl_col_idx(0);
+    incompatible_status =
+            _snapshot_mgr->convert_rowsets(&unchanged_output_pb, incompatible_meta_pb, 3000,
+                                           target_tablet, storage_resource, file_mapping);
+    EXPECT_TRUE(incompatible_status.is<ErrorCode::INVALID_ARGUMENT>()) << incompatible_status;
+    EXPECT_EQ(unchanged_output_pb.tablet_id(), 777);
+    EXPECT_TRUE(file_mapping.empty());
+
     TabletMetaPB output_meta_pb;
     Status status = _snapshot_mgr->convert_rowsets(&output_meta_pb, input_meta_pb, 3000,
                                                    target_tablet, storage_resource, file_mapping);

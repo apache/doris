@@ -28,6 +28,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
@@ -35,6 +36,7 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.RowTtlFeatureGate;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -120,6 +122,13 @@ public class TableBinlogFunction extends TableValuedFunctionIf {
             this.rowBinlogTableWrapper = new RowBinlogTableWrapper(originTable);
         } finally {
             originTable.readUnlock();
+        }
+        if (originTable.hasRowTtl()) {
+            try {
+                RowTtlFeatureGate.ensureReadyForUse();
+            } catch (DdlException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
         }
     }
 

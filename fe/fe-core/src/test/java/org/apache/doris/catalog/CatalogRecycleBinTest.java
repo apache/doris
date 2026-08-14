@@ -34,6 +34,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -100,6 +101,45 @@ public class CatalogRecycleBinTest extends TestWithFeService {
 
         Assertions.assertTrue(recycleBin.recycleDatabase(emptyDb1, emptyTableNames, emptyTableIds, false, false, 0));
         Assertions.assertTrue(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
+    }
+
+    @Test
+    public void testPeekRowTtlDatabaseBeforeRecoverMutation() throws Exception {
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+        long dbId = 9001;
+        long tableId = 9002;
+        Database recycledDatabase = new Database(dbId, "ttl_db");
+        OlapTable ttlTable = Mockito.mock(OlapTable.class);
+        Mockito.when(ttlTable.getId()).thenReturn(tableId);
+        Mockito.when(ttlTable.getName()).thenReturn("ttl_table");
+        Mockito.when(ttlTable.hasRowTtl()).thenReturn(true);
+
+        Assertions.assertTrue(recycleBin.recycleTable(dbId, ttlTable, false, false, 0));
+        Assertions.assertTrue(recycleBin.recycleDatabase(recycledDatabase,
+                Sets.newHashSet("ttl_table"), Sets.newHashSet(tableId), false, false, 0));
+
+        Database resolved = recycleBin.getDatabaseToRecover("ttl_db", -1);
+        Assertions.assertEquals(dbId, resolved.getId());
+        Assertions.assertTrue(recycleBin.databaseToRecoverHasRowTtl(resolved.getId()));
+        Assertions.assertTrue(recycleBin.isRecycleDatabase(dbId));
+        Assertions.assertTrue(recycleBin.isRecycleTable(dbId, tableId));
+    }
+
+    @Test
+    public void testDetectLegacyRowTtlTableStoredOnlyInsideRecycledDatabase() {
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+        Database recycledDatabase = new Database(9011, "legacy_ttl_db");
+        Assertions.assertTrue(recycleBin.recycleDatabase(recycledDatabase,
+                Sets.newHashSet(), Sets.newHashSet(), false, false, 0));
+
+        OlapTable ttlTable = Mockito.mock(OlapTable.class);
+        Mockito.when(ttlTable.getId()).thenReturn(9012L);
+        Mockito.when(ttlTable.getName()).thenReturn("legacy_ttl_table");
+        Mockito.when(ttlTable.hasRowTtl()).thenReturn(true);
+        Assertions.assertTrue(recycledDatabase.registerTable(ttlTable));
+
+        Assertions.assertTrue(recycleBin.isRecycleTable(recycledDatabase.getId(), ttlTable.getId()));
+        Assertions.assertTrue(recycleBin.containsRowTtlTable());
     }
 
     @Test

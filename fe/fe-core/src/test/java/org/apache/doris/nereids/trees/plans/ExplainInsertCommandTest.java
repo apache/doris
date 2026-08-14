@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -37,6 +40,8 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.Map;
 
 public class ExplainInsertCommandTest extends TestWithFeService {
     private final NereidsParser parser = new NereidsParser();
@@ -66,6 +71,20 @@ public class ExplainInsertCommandTest extends TestWithFeService {
                 + "distributed by hash(k1) buckets 4\n"
                 + "properties(\n"
                 + "    \"replication_num\"=\"1\"\n"
+                + ")");
+        createTable("create table row_ttl_dup (\n"
+                + "    k int,\n"
+                + "    event_time datetimev2(6),\n"
+                + "    v int\n"
+                + ")\n"
+                + "duplicate key(k)\n"
+                + "distributed by hash(k) buckets 1\n"
+                + "properties(\n"
+                + "    \"replication_num\"=\"1\",\n"
+                + "    \"function_column.enable_row_ttl\"=\"true\",\n"
+                + "    \"function_column.ttl_col\"=\"event_time\",\n"
+                + "    \"function_column.ttl\"=\"1 day\",\n"
+                + "    \"function_column.ttl_time_zone\"=\"+08:00\"\n"
                 + ")");
         createTable("create table src (\n"
                 + "    k1 int,\n"
@@ -121,6 +140,50 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         Assertions.assertEquals(6, getOutputFragment(sql).getOutputExprs().size());
         sql = "explain insert into agg_have_dup_base values(-4, -4, -4, 'd')";
         Assertions.assertEquals(9, getOutputFragment(sql).getOutputExprs().size());
+    }
+
+    @Test
+    public void testInsertIntoRowTtlTable() throws Exception {
+        String sql = "explain insert into row_ttl_dup(k, event_time, v) values"
+                + "(1, now(6) - interval 2 day, 10),"
+                + "(2, null, 20),"
+                + "(3, now(6), 30)";
+        Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
+    }
+
+    @Test
+    public void testRejectInsertIntoLegacyDirectRowTtlTable() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable table = (OlapTable) db.getTableOrDdlException("row_ttl_dup");
+        Map<String, String> properties = table.getTableProperty().getProperties();
+        String ttlCol = properties.remove("function_column.ttl_col");
+        String ttl = properties.remove("function_column.ttl");
+        String timeZone = properties.remove("function_column.ttl_time_zone");
+        try {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> getOutputFragment("explain insert into row_ttl_dup(k, event_time, v) values(1, now(6), 1)"));
+            Assertions.assertTrue(exception.getMessage().contains("direct row ttl is not supported"));
+        } finally {
+            properties.put("function_column.ttl_col", ttlCol);
+            properties.put("function_column.ttl", ttl);
+            properties.put("function_column.ttl_time_zone", timeZone);
+        }
+    }
+
+    @Test
+    public void testRejectInsertIntoLegacyRowTtlTableWithoutTimeZone() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable table = (OlapTable) db.getTableOrDdlException("row_ttl_dup");
+        Map<String, String> properties = table.getTableProperty().getProperties();
+        String timeZone = properties.remove("function_column.ttl_time_zone");
+        try {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> getOutputFragment(
+                            "explain insert into row_ttl_dup(k, event_time, v) values(1, now(6), 1)"));
+            Assertions.assertTrue(exception.getMessage().contains("row ttl time zone is missing from table"));
+        } finally {
+            properties.put("function_column.ttl_time_zone", timeZone);
+        }
     }
 
     @Test

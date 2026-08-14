@@ -699,6 +699,13 @@ public class OlapScanNode extends ScanNode {
                     errs.add(err);
                     continue;
                 }
+                if (!isBackendCompatibleForScan(olapTable, backend)) {
+                    String err = "replica " + replica.getId() + "'s backend " + backendId
+                            + " does not support the activated Row TTL feature";
+                    LOG.warn(err);
+                    errs.add(err);
+                    continue;
+                }
                 if (!backend.isMixNode()) {
                     continue;
                 }
@@ -755,6 +762,12 @@ public class OlapScanNode extends ScanNode {
             addBucketSeqStatsIfNeeded(tabletId, locations, oneReplicaBytes);
             scanRangeLocations.add(locations);
         }
+    }
+
+    static boolean isBackendCompatibleForScan(OlapTable table, Backend backend) {
+        OlapTable originTable = table instanceof OlapTableWrapper
+                ? ((OlapTableWrapper) table).getOriginTable() : table;
+        return !originTable.hasRowTtl() || !backend.isNodeFeatureIncompatible();
     }
 
     private void addBucketSeqStatsIfNeeded(long tabletId, TScanRangeLocations locations, long oneReplicaBytes) {

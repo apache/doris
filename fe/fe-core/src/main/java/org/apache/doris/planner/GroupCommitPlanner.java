@@ -49,6 +49,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.RowTtlFeatureGate;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -194,6 +195,9 @@ public class GroupCommitPlanner {
         PrepareCommand prepareCommand = preparedStmtCtx.command;
         InsertIntoTableCommand command = (InsertIntoTableCommand) (prepareCommand.getLogicalPlan());
         OlapTable table = (OlapTable) command.getTable(ctx);
+        if (table.hasRowTtl()) {
+            RowTtlFeatureGate.ensureReadyForUse();
+        }
         for (int retry = 0; retry < MAX_RETRY; retry++) {
             if (Env.getCurrentEnv().getGroupCommitManager().isBlock(table.getId())) {
                 String msg = "insert table " + table.getId() + SCHEMA_CHANGE;

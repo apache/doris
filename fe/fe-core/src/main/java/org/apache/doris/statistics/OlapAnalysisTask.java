@@ -309,9 +309,10 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("subStringColName", getStringTypeColName(col));
 
         // For agg table and mor unique table, set PREAGGOPEN preAggHint.
-        if (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS)
+        if (!((OlapTable) tbl).hasRowTtl()
+                && (((OlapTable) tbl).getKeysType().equals(KeysType.AGG_KEYS)
                 || ((OlapTable) tbl).getKeysType().equals(KeysType.UNIQUE_KEYS)
-                && !((OlapTable) tbl).isUniqKeyMergeOnWrite()) {
+                && !((OlapTable) tbl).isUniqKeyMergeOnWrite())) {
             params.put("preAggHint", "/*+PREAGGOPEN*/");
         }
 

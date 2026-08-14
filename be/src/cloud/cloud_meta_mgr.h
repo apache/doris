@@ -70,6 +70,17 @@ Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concu
 // Exposed for unit tests.
 MetaServiceCode get_response_code(const MetaServiceResponseStatus& status);
 
+enum class RowTtlMetaServiceRpc {
+    NONE,
+    COMMIT_ROWSET,
+    PREPARE_RESTORE_JOB,
+    COMMIT_RESTORE_JOB,
+};
+
+// Exercises the production retry path with the selected Row TTL-only RPC.
+// Exposed for unit tests.
+Status retry_row_ttl_meta_service_rpc_for_test(RowTtlMetaServiceRpc rpc);
+
 class CloudMetaMgr {
 public:
     CloudMetaMgr() = default;

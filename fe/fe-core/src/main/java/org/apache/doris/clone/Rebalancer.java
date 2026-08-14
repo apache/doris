@@ -19,7 +19,9 @@ package org.apache.doris.clone;
 
 import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
@@ -127,10 +129,20 @@ public abstract class Rebalancer {
             recycleBin = Env.getCurrentRecycleBin();
         }
         return tabletMeta != null
+                && !isLegacyDirectRowTtl(tabletMeta)
                 && !alterTableIds.contains(tabletMeta.getTableId())
                 && (canBalanceColocateTable || !colocateTableIndex.isColocateTable(tabletMeta.getTableId()))
                 && (recycleBin == null || !recycleBin.isRecyclePartition(tabletMeta.getDbId(),
                         tabletMeta.getTableId(), tabletMeta.getPartitionId()));
+    }
+
+    private boolean isLegacyDirectRowTtl(TabletMeta tabletMeta) {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId());
+        if (db == null) {
+            return false;
+        }
+        org.apache.doris.catalog.Table table = db.getTableNullable(tabletMeta.getTableId());
+        return table instanceof OlapTable && ((OlapTable) table).isLegacyDirectRowTtl();
     }
 
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx)

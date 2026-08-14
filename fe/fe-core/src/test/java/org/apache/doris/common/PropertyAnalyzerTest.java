@@ -60,6 +60,142 @@ public class PropertyAnalyzerTest {
     public ExpectedException expectedEx = ExpectedException.none();
 
     @Test
+    public void testRowTtlProperties() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        Assert.assertFalse(PropertyAnalyzer.analyzeEnableRowTtl(properties, KeysType.DUP_KEYS));
+        Assert.assertFalse(PropertyAnalyzer.analyzeEnableRowTtl(null, KeysType.DUP_KEYS));
+        Assert.assertNull(PropertyAnalyzer.analyzeRowTtlCol(null, KeysType.DUP_KEYS));
+        Assert.assertEquals(-1L, PropertyAnalyzer.analyzeRowTtlDurationMicros(null));
+
+        properties.put("function_column.enable_row_ttl", "true");
+        properties.put("function_column.ttl_col", "event_time");
+        properties.put("function_column.ttl", "2 hours");
+        properties.put("function_column.ttl_time_zone", "UTC");
+
+        Assert.assertTrue(PropertyAnalyzer.analyzeEnableRowTtl(properties, KeysType.DUP_KEYS));
+        Assert.assertEquals("event_time",
+                PropertyAnalyzer.analyzeRowTtlCol(properties, KeysType.DUP_KEYS));
+        Assert.assertEquals(7_200_000_000L,
+                PropertyAnalyzer.analyzeRowTtlDurationMicros(properties));
+        Assert.assertEquals("+00:00", PropertyAnalyzer.analyzeRowTtlTimeZone(properties));
+        Assert.assertEquals("+00:00", properties.get("function_column.ttl_time_zone"));
+        properties.put("function_column.ttl_time_zone", "+08:30");
+        Assert.assertEquals("+08:30", PropertyAnalyzer.analyzeRowTtlTimeZone(properties));
+        Assert.assertEquals(30_600, PropertyAnalyzer.parseRowTtlTimeZoneOffsetSeconds("+08:30"));
+        properties.put("function_column.ttl_time_zone", "Z");
+        Assert.assertEquals("+00:00", PropertyAnalyzer.analyzeRowTtlTimeZone(properties));
+        for (String invalidTimeZone : List.of("Asia/Shanghai", "SYSTEM", "+08", "+0800", " +08:00",
+                "+08:00:01", "-12:01", "+14:01")) {
+            properties.put("function_column.ttl_time_zone", invalidTimeZone);
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzeRowTtlTimeZone(properties));
+        }
+        properties.put("function_column.ttl_time_zone", "+00:00");
+        Assert.assertEquals(604_800_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1 week"));
+        Assert.assertEquals(1_209_600_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("2 weeks"));
+        Assert.assertEquals(86_400_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1 day"));
+        Assert.assertEquals(172_800_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("2 days"));
+        Assert.assertEquals(86_400_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1d"));
+        Assert.assertEquals(3_600_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1h"));
+        Assert.assertEquals(60_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1 minute"));
+        Assert.assertEquals(120_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("2 minutes"));
+        Assert.assertEquals(60_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1m"));
+        Assert.assertEquals(1_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1 second"));
+        Assert.assertEquals(2_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("2 seconds"));
+        Assert.assertEquals(1_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1s"));
+        Assert.assertEquals(5_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("5"));
+        Assert.assertEquals(0L, PropertyAnalyzer.parseRowTtlDurationMicros("0"));
+
+        properties.remove("function_column.ttl");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeRowTtlCol(properties, KeysType.DUP_KEYS));
+        Assertions.assertEquals("function_column.ttl_col and function_column.ttl must be set together",
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> PropertyAnalyzer.analyzeEnableRowTtl(properties, KeysType.DUP_KEYS))
+                        .getDetailMessage());
+
+        properties.remove("function_column.ttl_col");
+        properties.put("function_column.ttl", "1 day");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeRowTtlCol(properties, KeysType.DUP_KEYS));
+        Assertions.assertEquals("function_column.ttl_col and function_column.ttl must be set together",
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> PropertyAnalyzer.analyzeEnableRowTtl(properties, KeysType.DUP_KEYS))
+                        .getDetailMessage());
+
+        properties.put("function_column.ttl_col", "event_time");
+        properties.put("function_column.ttl", "-1");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeRowTtlDurationMicros(properties));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeRowTtlCol(properties, KeysType.AGG_KEYS));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeEnableRowTtl(properties, KeysType.AGG_KEYS));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.parseRowTtlDurationMicros(Long.MAX_VALUE + "week"));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.parseRowTtlDurationMicros("abc"));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.parseRowTtlDurationMicros("1 month"));
+
+        Map<String, String> rowTtlWithSequenceProperties = new HashMap<>();
+        rowTtlWithSequenceProperties.put("function_column.enable_row_ttl", "true");
+        rowTtlWithSequenceProperties.put("function_column.ttl_col", "event_time");
+        rowTtlWithSequenceProperties.put("function_column.ttl", "1 day");
+        Map<String, String> sequenceProperties = Map.of(
+                "function_column.sequence_col", "event_time",
+                "function_column.sequence_type", "bigint",
+                "sequence_mapping.sequence_time", "event_time");
+        for (Map.Entry<String, String> sequenceProperty : sequenceProperties.entrySet()) {
+            rowTtlWithSequenceProperties.put(sequenceProperty.getKey(), sequenceProperty.getValue());
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzeEnableRowTtl(
+                            rowTtlWithSequenceProperties, KeysType.UNIQUE_KEYS));
+            Assertions.assertEquals(PropertyAnalyzer.ROW_TTL_SEQUENCE_COLUMN_CONFLICT,
+                    exception.getDetailMessage());
+            rowTtlWithSequenceProperties.remove(sequenceProperty.getKey());
+        }
+
+        Map<String, String> disabledRowTtlWithSequence = new HashMap<>();
+        disabledRowTtlWithSequence.put("function_column.enable_row_ttl", "false");
+        disabledRowTtlWithSequence.put("function_column.sequence_type", "bigint");
+        Assertions.assertFalse(PropertyAnalyzer.analyzeEnableRowTtl(
+                disabledRowTtlWithSequence, KeysType.UNIQUE_KEYS));
+
+        Map<String, String> directProperties = new HashMap<>();
+        directProperties.put("function_column.enable_row_ttl", "true");
+        AnalysisException directException = Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeEnableRowTtl(directProperties, KeysType.UNIQUE_KEYS));
+        Assert.assertEquals(PropertyAnalyzer.ROW_TTL_DIRECT_NOT_SUPPORTED,
+                directException.getDetailMessage());
+
+        Map<String, String> disabledProperties = new HashMap<>();
+        disabledProperties.put("function_column.ttl_col", "event_time");
+        disabledProperties.put("function_column.ttl", "1 day");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeEnableRowTtl(disabledProperties, KeysType.DUP_KEYS));
+        disabledProperties.put("function_column.enable_row_ttl", "false");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeEnableRowTtl(disabledProperties, KeysType.DUP_KEYS));
+        directProperties.put("function_column.enable_row_ttl", "invalid");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeEnableRowTtl(directProperties, KeysType.DUP_KEYS));
+    }
+
+    @Test
     public void testBfColumns() throws AnalysisException {
         List<Column> columns = Lists.newArrayList();
         columns.add(new Column("k1", PrimitiveType.INT));

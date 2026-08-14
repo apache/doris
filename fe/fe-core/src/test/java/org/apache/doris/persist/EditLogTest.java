@@ -17,6 +17,11 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.journal.JournalEntity;
+
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.File;
@@ -101,5 +106,21 @@ public class EditLogTest {
     @Test
     public void test() {
 
+    }
+
+    @Test
+    public void testOldFrontendRejectsRowTtlActivationJournalVersion() {
+        JournalEntity journal = new JournalEntity();
+        journal.setOpCode(OperationType.OP_META_VERSION);
+        journal.setData(new Text(Integer.toString(FeMetaVersion.VERSION_ROW_TTL_ACTIVATION)));
+
+        int replayVersion = EditLog.parseMetaVersionForReplay(journal);
+        UnsupportedOperationException exception = Assert.assertThrows(UnsupportedOperationException.class,
+                () -> EditLog.validateMetaVersionForReplay(
+                        replayVersion, FeMetaVersion.VERSION_CURRENT));
+        Assert.assertTrue(exception.getMessage().contains(
+                "maximum supported version " + FeMetaVersion.VERSION_CURRENT));
+        EditLog.validateMetaVersionForReplay(
+                replayVersion, FeMetaVersion.VERSION_MAX_SUPPORTED);
     }
 }

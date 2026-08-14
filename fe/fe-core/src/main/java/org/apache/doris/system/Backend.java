@@ -145,6 +145,10 @@ public class Backend implements Writable {
     // The physical memory available for use by BE.
     @SerializedName("beMemory")
     private long beMemory = 0;
+    @SerializedName("nodeFeatureFlags")
+    private volatile long nodeFeatureFlags = 0;
+    @SerializedName("nodeFeatureIncompatible")
+    private volatile boolean nodeFeatureIncompatible = false;
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -255,6 +259,23 @@ public class Backend implements Writable {
 
     public String getVersion() {
         return version;
+    }
+
+    public long getNodeFeatureFlags() {
+        return nodeFeatureFlags;
+    }
+
+    public void setNodeFeatureFlags(long nodeFeatureFlags) {
+        this.nodeFeatureFlags = nodeFeatureFlags;
+    }
+
+    public boolean supportsNodeFeature(long feature) {
+        return NodeFeature.contains(nodeFeatureFlags, feature);
+    }
+
+    public boolean isNodeFeatureIncompatible() {
+        return nodeFeatureIncompatible || (Env.getCurrentEnv().isRowTtlActivated()
+                && !supportsNodeFeature(NodeFeature.ROW_TTL));
     }
 
     public int getBePort() {
@@ -548,15 +569,15 @@ public class Backend implements Writable {
                 && Arrays.stream(debugDeadBeIds.split(",")).anyMatch(id -> Long.parseLong(id) == this.id)) {
             return false;
         }
-        return isAlive() && !isQueryDisabled() && !isShutDown();
+        return isAlive() && !isNodeFeatureIncompatible() && !isQueryDisabled() && !isShutDown();
     }
 
     public boolean isScheduleAvailable() {
-        return isAlive() && !isDecommissioned() && !isShutDown();
+        return isAlive() && !isNodeFeatureIncompatible() && !isDecommissioned() && !isShutDown();
     }
 
     public boolean isLoadAvailable() {
-        return isAlive() && !isLoadDisabled() && !isShutDown();
+        return isAlive() && !isNodeFeatureIncompatible() && !isLoadDisabled() && !isShutDown();
     }
 
     public void setDisks(ImmutableMap<String, DiskInfo> disks) {
@@ -871,6 +892,16 @@ public class Backend implements Writable {
     public boolean handleHbResponse(BackendHbResponse hbResponse, boolean isReplay) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
+            if (this.nodeFeatureFlags != hbResponse.getNodeFeatureFlags()) {
+                isChanged = true;
+                this.nodeFeatureFlags = hbResponse.getNodeFeatureFlags();
+            }
+            boolean incompatible = Env.getCurrentEnv().isRowTtlActivated()
+                    && !supportsNodeFeature(NodeFeature.ROW_TTL);
+            if (nodeFeatureIncompatible != incompatible) {
+                nodeFeatureIncompatible = incompatible;
+                isChanged = true;
+            }
             if (!this.version.equals(hbResponse.getVersion())) {
                 isChanged = true;
                 this.version = hbResponse.getVersion();
@@ -938,7 +969,8 @@ public class Backend implements Writable {
             this.backendStatus.currentFragmentNum = hbResponse.getFragmentNum();
             this.backendStatus.lastFragmentUpdateTime = hbResponse.getLastFragmentUpdateTime();
 
-            heartbeatErrMsg = "";
+            heartbeatErrMsg = nodeFeatureIncompatible
+                    ? "backend does not support the activated Row TTL feature" : "";
             this.heartbeatFailureCounter = 0;
 
             // even if no change, write an editlog to make lastUpdateMs in image update
@@ -1138,4 +1170,3 @@ public class Backend implements Writable {
     }
 
 }
-

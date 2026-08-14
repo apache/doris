@@ -384,6 +384,13 @@ public class OlapAnalysisTaskTest {
         Assertions.assertEquals("/*+PREAGGOPEN*/", params.get("preAggHint"));
         params.clear();
 
+        Mockito.when(mockTable3.hasRowTtl()).thenReturn(true);
+        task.getSampleParams(params, 1000,
+                new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
+        Assertions.assertNull(params.get("preAggHint"));
+        params.clear();
+
         OlapTable mockTable4 = Mockito.mock(OlapTable.class);
         Mockito.when(mockTable4.getKeysType()).thenReturn(KeysType.UNIQUE_KEYS);
         Mockito.when(mockTable4.isUniqKeyMergeOnWrite()).thenReturn(true);

@@ -20,6 +20,7 @@ package org.apache.doris.clone;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -33,6 +34,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -109,6 +111,54 @@ public class TabletSchedCtxTest extends TestWithFeService {
             TabletSchedCtx tablet = gotTablets.get(i);
             Assert.assertEquals(Type.REPAIR, tablet.getType());
             Assert.assertEquals((long) i, tablet.getCreateTime());
+        }
+    }
+
+    @Test
+    public void testRejectLegacyDirectRowTtlCloneBeforeReplicaMutation() {
+        TabletSchedCtx tabletCtx = new TabletSchedCtx(Type.REPAIR, 1, 2, 3, 4,
+                5, ReplicaAllocation.DEFAULT_ALLOCATION, System.currentTimeMillis());
+        LocalTablet tablet = new LocalTablet(5);
+        tabletCtx.setTablet(tablet);
+        tabletCtx.setIsLegacyDirectRowTtl(true);
+
+        SchedException exception = Assertions.assertThrows(
+                SchedException.class, tabletCtx::createCloneReplicaAndTask);
+        Assertions.assertEquals(SchedException.Status.UNRECOVERABLE, exception.getStatus());
+        Assertions.assertEquals(TabletSchedCtx.LEGACY_DIRECT_ROW_TTL_REPLICA_ERROR, exception.getMessage());
+        Assertions.assertTrue(tablet.getReplicas().isEmpty());
+    }
+
+    @Test
+    public void testRejectRowTtlCloneToBackendWithoutCapability() {
+        List<Backend> backends = Env.getCurrentSystemInfo().getBackendsByTag(Tag.DEFAULT_BACKEND_TAG);
+        Backend srcBackend = backends.get(0);
+        Backend destBackend = backends.get(1);
+        long srcFeatureFlags = srcBackend.getNodeFeatureFlags();
+        long destFeatureFlags = destBackend.getNodeFeatureFlags();
+        try {
+            srcBackend.setNodeFeatureFlags(NodeFeature.ROW_TTL);
+            destBackend.setNodeFeatureFlags(0);
+
+            TabletSchedCtx tabletCtx = new TabletSchedCtx(Type.REPAIR, 1, 2, 3, 4,
+                    5, ReplicaAllocation.DEFAULT_ALLOCATION, System.currentTimeMillis());
+            LocalTablet tablet = new LocalTablet(5);
+            LocalReplica srcReplica = new LocalReplica(
+                    6, srcBackend.getId(), 0, Replica.ReplicaState.NORMAL);
+            tablet.addReplica(srcReplica, true);
+            tabletCtx.setTablet(tablet);
+            tabletCtx.setSrc(srcReplica);
+            tabletCtx.setDest(destBackend.getId(), 0);
+            tabletCtx.setIsRowTtl(true);
+
+            SchedException exception = Assertions.assertThrows(
+                    SchedException.class, tabletCtx::createCloneReplicaAndTask);
+            Assertions.assertEquals(SchedException.Status.SCHEDULE_FAILED, exception.getStatus());
+            Assertions.assertTrue(exception.getMessage().contains("must support Row TTL"));
+            Assertions.assertEquals(1, tablet.getReplicas().size());
+        } finally {
+            srcBackend.setNodeFeatureFlags(srcFeatureFlags);
+            destBackend.setNodeFeatureFlags(destFeatureFlags);
         }
     }
 

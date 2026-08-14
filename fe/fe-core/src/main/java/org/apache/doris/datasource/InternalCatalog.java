@@ -28,6 +28,7 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.CatalogRecycleBin;
 import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
@@ -75,6 +76,7 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -141,6 +143,7 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.RowTtlFeatureGate;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -616,7 +619,14 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
 
-        Database db = Env.getCurrentRecycleBin().recoverDatabase(dbName, dbId);
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+        Database databaseToRecover = recycleBin.getDatabaseToRecover(dbName, dbId);
+        long resolvedDbId = databaseToRecover.getId();
+        if (recycleBin.databaseToRecoverHasRowTtl(resolvedDbId)) {
+            RowTtlFeatureGate.ensureReadyForUse();
+        }
+
+        Database db = recycleBin.recoverDatabase(dbName, resolvedDbId);
 
         // add db to catalog
         if (!tryLock(false)) {
@@ -659,6 +669,12 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
         Database db = getDbOrDdlException(dbName);
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+        Table tableToRecover = recycleBin.getTableToRecover(db, tableName, tableId);
+        if (tableToRecover instanceof OlapTable && ((OlapTable) tableToRecover).hasRowTtl()) {
+            RowTtlFeatureGate.ensureReadyForUse();
+        }
+        long resolvedTableId = tableToRecover.getId();
         db.writeLockOrDdlException();
         try {
             if (Strings.isNullOrEmpty(newTableName)) {
@@ -670,7 +686,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, newTableName);
                 }
             }
-            if (!Env.getCurrentRecycleBin().recoverTable(db, tableName, tableId, newTableName)) {
+            if (!recycleBin.recoverTable(db, tableName, resolvedTableId, newTableName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
         } finally {
@@ -682,6 +698,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                                     String newPartitionName, long partitionId) throws DdlException {
         Database db = getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+        if (olapTable.hasRowTtl()) {
+            RowTtlFeatureGate.ensureReadyForUse();
+        }
         olapTable.writeLockOrDdlException();
         try {
             if (Strings.isNullOrEmpty(newPartitionName)) {
@@ -1295,6 +1314,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (!CreateTableInfo.ENGINE_OLAP.equals(engineName)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
+        if (PropertyAnalyzer.analyzeEnableRowTtl(
+                createTableInfo.getProperties(), createTableInfo.getKeysDesc().getKeysType())) {
+            RowTtlFeatureGate.activateForMutation();
+        }
         return createOlapTable(db, createTableInfo);
     }
 
@@ -1501,6 +1524,9 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         // check
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+        if (olapTable.hasRowTtl()) {
+            RowTtlFeatureGate.ensureReadyForUse();
+        }
         olapTable.readLock();
         try {
             olapTable.checkNormalStateForAlter();
@@ -2149,6 +2175,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                                                    BinlogConfig binlogConfig,
                                                    boolean isStorageMediumSpecified)
             throws DdlException {
+        if (tbl.isLegacyDirectRowTtl()) {
+            throw new DdlException(PropertyAnalyzer.ROW_TTL_DIRECT_NOT_SUPPORTED);
+        }
         // create base index first.
         Preconditions.checkArgument(tbl.getBaseIndexId() != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(tbl.getBaseIndexId(), IndexState.NORMAL);
@@ -2261,7 +2290,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize(),
                             tbl.getColumnSeqMapping(),
-                            tbl.getVerticalCompactionNumColumnsPerGroup());
+                            tbl.getVerticalCompactionNumColumnsPerGroup(),
+                            tbl.getRowTtlDurationMicros(),
+                            tbl.getRowTtlTimeZoneOffsetSeconds());
                     if (isRowBinlogIndex) {
                         // BE locates the companion binlog tablet via base_tablet_id and writes it to the same disk.
                         task.setTabletRole(TTabletRole.TABLET_ROLE_ROW_BINLOG);
@@ -2490,6 +2521,22 @@ public class InternalCatalog implements CatalogIf<Database> {
         // set base index info to table
         // this should be done before create partition.
         Map<String, String> properties = createTableInfo.getProperties();
+        String ttlColProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL_COL;
+        String ttlProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL;
+        String ttlTimeZoneProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                + PropertyAnalyzer.PROPERTIES_TTL_TIME_ZONE;
+        Map<String, String> rowTtlProperties = new HashMap<>();
+        for (String property : List.of(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL,
+                ttlColProperty, ttlProperty, ttlTimeZoneProperty)) {
+            if (properties.containsKey(property)) {
+                rowTtlProperties.put(property, properties.remove(property));
+            }
+        }
+        if (!rowTtlProperties.isEmpty()) {
+            olapTable.setTableProperty(new TableProperty(rowTtlProperties));
+        }
 
         if (createTableInfo.isTemp()) {
             properties.put("binlog.enable", "false");
@@ -3622,6 +3669,9 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         Database db = getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
+        if (olapTable.hasRowTtl()) {
+            RowTtlFeatureGate.ensureReadyForUse();
+        }
 
         if (olapTable instanceof MTMV && !MTMVUtil.allowModifyMTMVData(ConnectContext.get())) {
             throw new DdlException("Not allowed to perform current operation on async materialized view");

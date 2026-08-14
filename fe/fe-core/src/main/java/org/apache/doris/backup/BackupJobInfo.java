@@ -18,6 +18,7 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OdbcCatalogResource;
@@ -604,7 +605,7 @@ public class BackupJobInfo implements GsonPostProcessable {
         jobInfo.name = label;
         jobInfo.dbName = dbName;
         jobInfo.dbId = dbId;
-        jobInfo.metaVersion = FeConstants.meta_version;
+        jobInfo.metaVersion = Env.getCurrentEnv().getEffectiveMetaVersion();
         jobInfo.content = content;
         jobInfo.tableCommitSeqMap = tableCommitSeqMap;
         jobInfo.majorVersion = Version.DORIS_BUILD_VERSION_MAJOR;

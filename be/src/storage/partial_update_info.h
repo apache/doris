@@ -32,6 +32,7 @@
 
 namespace doris {
 class TabletSchema;
+class TabletColumn;
 class PartialUpdateInfoPB;
 class BitmapValue;
 struct RowLocation;
@@ -57,7 +58,8 @@ struct PartialUpdateInfo {
                 const std::set<std::string>& partial_update_cols, bool is_strict_mode,
                 int64_t timestamp_ms, int32_t nano_seconds, const std::string& timezone,
                 const std::string& auto_increment_column, int32_t sequence_map_col_uid = -1,
-                int64_t cur_max_version = -1);
+                int64_t cur_max_version = -1, int32_t row_ttl_source_uid = -1,
+                const TabletColumn* row_ttl_source_column = nullptr);
     void to_pb(PartialUpdateInfoPB* partial_update_info) const;
     void from_pb(PartialUpdateInfoPB* partial_update_info);
     Status handle_new_key(const TabletSchema& tablet_schema,
@@ -85,6 +87,8 @@ struct PartialUpdateInfo {
     }
     UniqueKeyUpdateModePB update_mode() const { return partial_update_mode; }
     int32_t sequence_map_col_uid() const { return sequence_map_col_unqiue_id; }
+    int32_t row_ttl_source_cid() const { return row_ttl_source_column_cid; }
+    int32_t row_ttl_source_uid() const { return row_ttl_source_column_uid; }
 
 private:
     void _generate_default_values_for_missing_cids(const TabletSchema& tablet_schema);
@@ -110,6 +114,8 @@ public:
     std::vector<std::string> default_values;
 
     int32_t sequence_map_col_unqiue_id {-1};
+    int32_t row_ttl_source_column_cid {-1};
+    int32_t row_ttl_source_column_uid {-1};
 };
 
 // used in mow partial update

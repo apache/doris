@@ -234,6 +234,9 @@ public:
         // bypassing the value/key predicate split in _init_conditions_param.
         std::optional<int64_t> start_tso;
         std::optional<int64_t> end_tso;
+
+        // Compactions freeze one TTL collection time across all input readers.
+        int64_t row_ttl_gc_now_us = 0;
     };
 
     TabletReader() = default;

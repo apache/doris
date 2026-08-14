@@ -254,6 +254,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getCompressionType(), tbl.getStorageFormat(),
                                             tbl.getStoragePolicy(), tbl.isInMemory(), true,
                                             tbl.getName(), tbl.getTTLSeconds(),
+                                            tbl.getRowTtlDurationMicros(), tbl.getRowTtlTimeZoneOffsetSeconds(),
+                                            false,
                                             tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(),
                                             shadowSchemaVersion, null, tbl.getCompactionPolicy(),
                                             tbl.getTimeSeriesCompactionGoalSizeMbytes(),

@@ -21,8 +21,17 @@ import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Tablet.TabletHealth;
+import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer.BackendBuckets;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer.BucketStatistic;
@@ -30,6 +39,7 @@ import org.apache.doris.clone.ColocateTableCheckerAndBalancer.GlobalColocateStat
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -41,8 +51,10 @@ import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -180,6 +192,70 @@ public class ColocateTableCheckerAndBalancerTest {
         System.out.println(balancedBackendsPerBucketSeq);
         Assert.assertFalse(changed);
         Assert.assertTrue(balancedBackendsPerBucketSeq.isEmpty());
+    }
+
+    @Test
+    public void testLegacyDirectRowTtlColocateTabletIsNotScheduledForRepair() {
+        long dbId = 101;
+        long tableId = 102;
+        long tabletId = 103;
+        long backendId = 104;
+        GroupId groupId = new GroupId(dbId, 105);
+        ReplicaAllocation replicaAllocation = new ReplicaAllocation((short) 1);
+
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        SystemInfoService infoService = Mockito.mock(SystemInfoService.class);
+        ColocateTableIndex colocateIndex = Mockito.mock(ColocateTableIndex.class);
+        TabletScheduler tabletScheduler = Mockito.mock(TabletScheduler.class);
+        Database db = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Partition partition = Mockito.mock(Partition.class);
+        MaterializedIndex materializedIndex = Mockito.mock(MaterializedIndex.class);
+        Tablet tablet = Mockito.mock(Tablet.class);
+        ColocateGroupSchema groupSchema = Mockito.mock(ColocateGroupSchema.class);
+        TabletHealth tabletHealth = new TabletHealth();
+        tabletHealth.status = TabletStatus.COLOCATE_MISMATCH;
+
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+        Mockito.when(env.getColocateTableIndex()).thenReturn(colocateIndex);
+        Mockito.when(env.getTabletScheduler()).thenReturn(tabletScheduler);
+        Mockito.when(colocateIndex.getAllGroupIds()).thenReturn(Sets.newHashSet(groupId));
+        Mockito.when(colocateIndex.getGroupSchema(groupId)).thenReturn(groupSchema);
+        Mockito.when(groupSchema.getReplicaAlloc()).thenReturn(replicaAllocation);
+        Mockito.when(colocateIndex.getAllTableIds(groupId)).thenReturn(Lists.newArrayList(tableId));
+        Mockito.when(colocateIndex.getBackendsPerBucketSeqSet(groupId))
+                .thenReturn(Collections.singletonList(Sets.newHashSet(backendId)));
+        Mockito.when(catalog.getDbNullable(dbId)).thenReturn(db);
+        Mockito.when(db.getTableNullable(tableId)).thenReturn(table);
+        Mockito.when(table.getId()).thenReturn(tableId);
+        Mockito.when(colocateIndex.isColocateTable(tableId)).thenReturn(true);
+        Mockito.when(table.getPartitions()).thenReturn(Lists.newArrayList(partition));
+        Mockito.when(partition.getVisibleVersion()).thenReturn(1L);
+        Mockito.when(partition.getMaterializedIndices(IndexExtState.VISIBLE, true))
+                .thenReturn(Lists.newArrayList(materializedIndex));
+        Mockito.when(materializedIndex.getTablets()).thenReturn(Lists.newArrayList(tablet));
+        Mockito.when(materializedIndex.getTabletIdsInOrder()).thenReturn(Lists.newArrayList(tabletId));
+        Mockito.when(materializedIndex.getTablet(tabletId)).thenReturn(tablet);
+        Mockito.when(tablet.getId()).thenReturn(tabletId);
+        Mockito.when(tablet.getColocateHealth(
+                Mockito.anyLong(), Mockito.eq(replicaAllocation), Mockito.anySet()))
+                .thenReturn(tabletHealth);
+        Mockito.when(table.isLegacyDirectRowTtl()).thenReturn(true);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(infoService);
+            Deencapsulation.invoke(balancer, "matchGroups");
+        }
+
+        Mockito.verify(tabletScheduler, Mockito.never())
+                .addTablet(Mockito.any(TabletSchedCtx.class), Mockito.anyBoolean());
+        Mockito.verify(table).isLegacyDirectRowTtl();
+        Mockito.verify(tablet, Mockito.never())
+                .readyToBeRepaired(Mockito.any(SystemInfoService.class), Mockito.any());
+        Mockito.verify(colocateIndex).markGroupUnstable(
+                Mockito.eq(groupId), Mockito.contains("COLOCATE_MISMATCH"), Mockito.eq(true));
     }
 
     @Test

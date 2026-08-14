@@ -148,6 +148,30 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         }
     }
 
+    public boolean containsRowTtlTable() {
+        readLock();
+        try {
+            for (RecycleTableInfo tableInfo : idToTable.values()) {
+                Table table = tableInfo.getTable();
+                if (table instanceof OlapTable && ((OlapTable) table).hasRowTtl()) {
+                    return true;
+                }
+            }
+            // Legacy images may retain the table objects inside a recycled Database instead of
+            // materializing every entry in idToTable. Treat that representation as authoritative too.
+            for (RecycleDatabaseInfo databaseInfo : idToDatabase.values()) {
+                for (Table table : databaseInfo.getDb().getTables()) {
+                    if (table instanceof OlapTable && ((OlapTable) table).hasRowTtl()) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        } finally {
+            readUnlock();
+        }
+    }
+
     private void addRecycledTabletsForTable(Set<Long> recycledTabletSet, Table table) {
         if (table.isManagedTable()) {
             OlapTable olapTable = (OlapTable) table;
@@ -758,28 +782,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     public Database recoverDatabase(String dbName, long dbId) throws DdlException {
         writeLock();
         try {
-            RecycleDatabaseInfo dbInfo = null;
-            // The recycle time of the force dropped tables and databases will be set to zero, use 1 here to
-            // skip these databases and tables.
-            long recycleTime = 1;
-            Iterator<Map.Entry<Long, RecycleDatabaseInfo>> iterator = idToDatabase.entrySet().iterator();
-            while (iterator.hasNext()) {
-                Map.Entry<Long, RecycleDatabaseInfo> entry = iterator.next();
-                if (dbName.equals(entry.getValue().getDb().getFullName())) {
-                    if (dbId == -1) {
-                        if (recycleTime <= idToRecycleTime.get(entry.getKey())) {
-                            recycleTime = idToRecycleTime.get(entry.getKey());
-                            dbInfo = entry.getValue();
-                        }
-                    } else if (entry.getKey() == dbId) {
-                        dbInfo = entry.getValue();
-                        break;
-                    }
-                }
-            }
-
-            if (dbInfo == null) {
-                throw new DdlException("Unknown database '" + dbName + "' or database id '" + dbId + "'");
+            RecycleDatabaseInfo dbInfo = findDatabaseToRecover(dbName, dbId);
+            if (databaseInfoHasRowTtl(dbInfo) && !Env.getCurrentEnv().isRowTtlActivated()) {
+                throw new DdlException("Cannot recover a Row TTL database before metadata activation");
             }
 
             // 1. recover all tables in this db
@@ -791,7 +796,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             idToRecycleTime.remove(db.getId());
 
             dbNameToIds.computeIfPresent(dbInfo.getDb().getFullName(), (k, v) -> {
-                v.remove(dbId);
+                v.remove(db.getId());
                 return v.isEmpty() ? null : v;
             });
 
@@ -799,6 +804,70 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         } finally {
             writeUnlock();
         }
+    }
+
+    /** Resolve the exact recycled database before a caller performs an irreversible feature check. */
+    public Database getDatabaseToRecover(String dbName, long dbId) throws DdlException {
+        readLock();
+        try {
+            return findDatabaseToRecover(dbName, dbId).getDb();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public boolean databaseToRecoverHasRowTtl(long dbId) throws DdlException {
+        readLock();
+        try {
+            RecycleDatabaseInfo dbInfo = idToDatabase.get(dbId);
+            if (dbInfo == null) {
+                throw new DdlException("Unknown database id '" + dbId + "'");
+            }
+            return databaseInfoHasRowTtl(dbInfo);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    private boolean databaseInfoHasRowTtl(RecycleDatabaseInfo dbInfo) throws DdlException {
+        for (long tableId : dbInfo.getTableIds()) {
+            RecycleTableInfo tableInfo = idToTable.get(tableId);
+            if (tableInfo == null) {
+                throw new DdlException("Table id '" + tableId + "' is missing from recycled database '"
+                        + dbInfo.getDb().getFullName() + "'");
+            }
+            Table table = tableInfo.getTable();
+            if (table instanceof OlapTable && ((OlapTable) table).hasRowTtl()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private RecycleDatabaseInfo findDatabaseToRecover(String dbName, long dbId) throws DdlException {
+        RecycleDatabaseInfo dbInfo = null;
+        // The recycle time of the force dropped tables and databases will be set to zero, use 1 here to
+        // skip these databases and tables.
+        long recycleTime = 1;
+        for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {
+            if (!dbName.equals(entry.getValue().getDb().getFullName())) {
+                continue;
+            }
+            if (dbId == -1) {
+                if (recycleTime <= idToRecycleTime.get(entry.getKey())) {
+                    recycleTime = idToRecycleTime.get(entry.getKey());
+                    dbInfo = entry.getValue();
+                }
+            } else if (entry.getKey() == dbId) {
+                dbInfo = entry.getValue();
+                break;
+            }
+        }
+
+        if (dbInfo == null) {
+            throw new DdlException("Unknown database '" + dbName + "' or database id '" + dbId + "'");
+        }
+        return dbInfo;
     }
 
     public Database replayRecoverDatabase(long dbId) {
@@ -868,50 +937,63 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         writeLock();
         try {
             // make sure to get db lock
-            Table table = null;
-            // The recycle time of the force dropped tables and databases will be set to zero, use 1 here to
-            // skip these databases and tables.
-            long recycleTime = 1;
-            long dbId = db.getId();
-            Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
-            while (iterator.hasNext()) {
-                Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
-                RecycleTableInfo tableInfo = entry.getValue();
-                if (tableInfo.getDbId() != dbId) {
-                    continue;
-                }
-
-                if (!tableInfo.getTable().getName().equals(tableName)) {
-                    continue;
-                }
-
-                if (tableId == -1) {
-                    if (recycleTime <= idToRecycleTime.get(entry.getKey())) {
-                        recycleTime = idToRecycleTime.get(entry.getKey());
-                        table = tableInfo.getTable();
-                    }
-                } else if (entry.getKey() == tableId) {
-                    table = tableInfo.getTable();
-                    break;
-                }
-            }
-
-            if (table == null) {
-                throw new DdlException("Unknown table '" + tableName + "' or table id '" + tableId + "' in "
-                    + db.getFullName());
-            }
+            Table table = findTableToRecover(db, tableName, tableId);
 
             if (table.getType() == TableType.MATERIALIZED_VIEW) {
                 throw new DdlException("Can not recover materialized view '" + tableName + "' or table id '"
                         + tableId + "' in " + db.getFullName());
             }
+            if (table instanceof OlapTable && ((OlapTable) table).hasRowTtl()
+                    && !Env.getCurrentEnv().isRowTtlActivated()) {
+                throw new DdlException("Cannot recover a Row TTL table before metadata activation");
+            }
 
             innerRecoverTable(db, table, tableName, newTableName, null, false);
-            LOG.info("recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
+            LOG.info("recover db[{}] with table[{}]: {}", db.getId(), table.getId(), table.getName());
             return true;
         } finally {
             writeUnlock();
         }
+    }
+
+    /** Resolve the exact recycled table before a caller performs an irreversible feature check. */
+    public Table getTableToRecover(Database db, String tableName, long tableId) throws DdlException {
+        readLock();
+        try {
+            return findTableToRecover(db, tableName, tableId);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    private Table findTableToRecover(Database db, String tableName, long tableId) throws DdlException {
+        Table table = null;
+        // The recycle time of the force dropped tables and databases will be set to zero, use 1 here to
+        // skip these databases and tables.
+        long recycleTime = 1;
+        long dbId = db.getId();
+        for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
+            RecycleTableInfo tableInfo = entry.getValue();
+            if (tableInfo.getDbId() != dbId || !tableInfo.getTable().getName().equals(tableName)) {
+                continue;
+            }
+
+            if (tableId == -1) {
+                if (recycleTime <= idToRecycleTime.get(entry.getKey())) {
+                    recycleTime = idToRecycleTime.get(entry.getKey());
+                    table = tableInfo.getTable();
+                }
+            } else if (entry.getKey() == tableId) {
+                table = tableInfo.getTable();
+                break;
+            }
+        }
+
+        if (table == null) {
+            throw new DdlException("Unknown table '" + tableName + "' or table id '" + tableId + "' in "
+                    + db.getFullName());
+        }
+        return table;
     }
 
     public void replayRecoverTable(Database db, long tableId, String newTableName) throws DdlException {
@@ -998,6 +1080,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         try {
             if (table.getType() == TableType.MATERIALIZED_VIEW) {
                 throw new DdlException("Can not recover partition in materialized view: " + table.getName());
+            }
+            if (table.hasRowTtl() && !Env.getCurrentEnv().isRowTtlActivated()) {
+                throw new DdlException("Cannot recover a Row TTL partition before metadata activation");
             }
 
             long recycleTime = -1;

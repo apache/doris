@@ -33,6 +33,7 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
@@ -41,6 +42,13 @@ import java.util.function.Function;
 public class MetaServiceProxy {
     private static final Logger LOG = LogManager.getLogger(MetaServiceProxy.class);
     private static final MetaServiceRpcRateLimiter META_SERVICE_RPC_RATE_LIMITER = new MetaServiceRpcRateLimiter();
+    private static final Set<String> ROW_TTL_RPC_METHODS = Set.of(
+            "getMetaServiceCapability",
+            "createTabletsRowTtl",
+            "updateTabletRowTtl",
+            "commitRowsetRowTtl",
+            "prepareRestoreJobRowTtl",
+            "commitRestoreJobRowTtl");
 
     // use exclusive lock to make sure only one thread can add or remove client from
     // serviceMap.
@@ -285,6 +293,9 @@ public class MetaServiceProxy {
                         case DEADLINE_EXCEEDED:
                             shouldRetry = tried <= Config.meta_service_rpc_timeout_retry_times;
                             break;
+                        case UNIMPLEMENTED:
+                            shouldRetry = ROW_TTL_RPC_METHODS.contains(methodName);
+                            break;
                         default:
                             shouldRetry = false;
                     }
@@ -412,8 +423,27 @@ public class MetaServiceProxy {
                 Cloud.CreateTabletsResponse::getStatus);
     }
 
+    public Cloud.GetMetaServiceCapabilityResponse getMetaServiceCapability(
+            Cloud.GetMetaServiceCapabilityRequest request) throws RpcException {
+        return executeWithMetrics("getMetaServiceCapability",
+                (client) -> client.getMetaServiceCapability(request),
+                Cloud.GetMetaServiceCapabilityResponse::getStatus);
+    }
+
+    public Cloud.CreateTabletsResponse createTabletsRowTtl(Cloud.CreateTabletsRequest request)
+            throws RpcException {
+        return executeWithMetrics("createTabletsRowTtl", (client) -> client.createTabletsRowTtl(request),
+                Cloud.CreateTabletsResponse::getStatus);
+    }
+
     public Cloud.UpdateTabletResponse updateTablet(Cloud.UpdateTabletRequest request) throws RpcException {
         return executeWithMetrics("updateTablet", (client) -> client.updateTablet(request),
+                Cloud.UpdateTabletResponse::getStatus);
+    }
+
+    public Cloud.UpdateTabletResponse updateTabletRowTtl(Cloud.UpdateTabletRequest request)
+            throws RpcException {
+        return executeWithMetrics("updateTabletRowTtl", (client) -> client.updateTabletRowTtl(request),
                 Cloud.UpdateTabletResponse::getStatus);
     }
 

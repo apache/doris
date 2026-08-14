@@ -64,12 +64,15 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.DateTimeException;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -144,9 +147,18 @@ public class PropertyAnalyzer {
     // This is common prefix for function column
     public static final String PROPERTIES_FUNCTION_COLUMN = "function_column";
     public static final String PROPERTIES_SEQUENCE_TYPE = "sequence_type";
+    public static final String PROPERTIES_ENABLE_ROW_TTL =
+            PROPERTIES_FUNCTION_COLUMN + ".enable_row_ttl";
+    public static final String PROPERTIES_TTL_COL = "ttl_col";
+    public static final String PROPERTIES_TTL = "ttl";
+    public static final String PROPERTIES_TTL_TIME_ZONE = "ttl_time_zone";
     public static final String PROPERTIES_SEQUENCE_COL = "sequence_col";
 
     public static final String PROPERTIES_SEQUENCE_MAPPING = "sequence_mapping";
+    public static final String ROW_TTL_SEQUENCE_COLUMN_CONFLICT =
+            "row ttl and sequence column cannot be enabled at the same time";
+    public static final String ROW_TTL_DIRECT_NOT_SUPPORTED =
+            "direct row ttl is not supported; function_column.ttl_col and function_column.ttl are required";
 
     public static final String PROPERTIES_SWAP_TABLE = "swap";
 
@@ -1403,6 +1415,181 @@ public class PropertyAnalyzer {
             throw new AnalysisException("sequence column only support UNIQUE_KEYS");
         }
         return sequenceCol;
+    }
+
+    public static boolean analyzeEnableRowTtl(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
+        if (properties == null) {
+            return false;
+        }
+        String value = properties.get(PROPERTIES_ENABLE_ROW_TTL);
+        String colProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL_COL;
+        String ttlProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL;
+        String timeZoneProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL_TIME_ZONE;
+        if (value == null) {
+            if (properties.containsKey(colProperty) || properties.containsKey(ttlProperty)
+                    || properties.containsKey(timeZoneProperty)) {
+                throw new AnalysisException(
+                        PROPERTIES_ENABLE_ROW_TTL + " must be true when row ttl properties are specified");
+            }
+            return false;
+        }
+        if (!value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
+            throw new AnalysisException(PROPERTIES_ENABLE_ROW_TTL + " must be true or false");
+        }
+        boolean enabled = Boolean.parseBoolean(value);
+        if (!enabled && (properties.containsKey(colProperty) || properties.containsKey(ttlProperty)
+                || properties.containsKey(timeZoneProperty))) {
+            throw new AnalysisException(
+                    PROPERTIES_ENABLE_ROW_TTL + " must be true when row ttl properties are specified");
+        }
+        if (enabled) {
+            boolean hasTtlCol = properties.containsKey(colProperty);
+            boolean hasTtl = properties.containsKey(ttlProperty);
+            if (hasTtlCol != hasTtl) {
+                throw new AnalysisException("function_column.ttl_col and function_column.ttl must be set together");
+            }
+            if (!hasTtlCol) {
+                throw new AnalysisException(ROW_TTL_DIRECT_NOT_SUPPORTED);
+            }
+        }
+        if (enabled && keysType == KeysType.AGG_KEYS) {
+            throw new AnalysisException("row ttl does not support AGG_KEYS");
+        }
+        String sequenceColProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_COL;
+        String sequenceTypeProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_TYPE;
+        if (enabled && (properties.containsKey(sequenceColProperty)
+                || properties.containsKey(sequenceTypeProperty) || hasSeqMapping(properties))) {
+            throw new AnalysisException(ROW_TTL_SEQUENCE_COLUMN_CONFLICT);
+        }
+        return enabled;
+    }
+
+    public static String analyzeRowTtlCol(Map<String, String> properties, KeysType keysType)
+            throws AnalysisException {
+        if (properties == null) {
+            return null;
+        }
+        String colProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL_COL;
+        String ttlProperty = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL;
+        String ttlCol = properties.get(colProperty);
+        String ttl = properties.get(ttlProperty);
+        if ((ttlCol == null) != (ttl == null)) {
+            throw new AnalysisException("function_column.ttl_col and function_column.ttl must be set together");
+        }
+        if (ttlCol != null && keysType == KeysType.AGG_KEYS) {
+            throw new AnalysisException("row ttl does not support AGG_KEYS");
+        }
+        return ttlCol;
+    }
+
+    public static long analyzeRowTtlDurationMicros(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties == null) {
+            return -1;
+        }
+        String ttl = properties.get(PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL);
+        return ttl == null ? -1 : parseRowTtlDurationMicros(ttl);
+    }
+
+    /** Parse and canonicalize the fixed UTC offset used by a temporal row TTL column. */
+    public static String analyzeRowTtlTimeZone(Map<String, String> properties) throws AnalysisException {
+        if (properties == null) {
+            return null;
+        }
+        String property = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL_TIME_ZONE;
+        String value = properties.get(property);
+        if (value == null) {
+            return null;
+        }
+
+        int totalSeconds = parseRowTtlTimeZoneOffsetSeconds(value);
+        int absoluteMinutes = Math.abs(totalSeconds) / 60;
+        String canonical = String.format(Locale.ROOT, "%s%02d:%02d", totalSeconds < 0 ? "-" : "+",
+                absoluteMinutes / 60, absoluteMinutes % 60);
+        properties.put(property, canonical);
+        return canonical;
+    }
+
+    /** Parse UTC/Z or a strict minute-precision offset in the range supported by Doris. */
+    public static int parseRowTtlTimeZoneOffsetSeconds(String value) throws AnalysisException {
+        String property = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_TTL_TIME_ZONE;
+        if (value.equalsIgnoreCase("UTC") || value.equalsIgnoreCase("Z")) {
+            return 0;
+        }
+        if (!value.matches("[+-]\\d{2}:\\d{2}")) {
+            throw new AnalysisException(property
+                    + " must be UTC, Z, or a fixed UTC offset in the form +HH:MM or -HH:MM");
+        }
+        int totalSeconds;
+        try {
+            totalSeconds = ZoneOffset.of(value).getTotalSeconds();
+        } catch (DateTimeException e) {
+            throw new AnalysisException(property
+                    + " must be a fixed UTC offset between -12:00 and +14:00", e);
+        }
+        if (totalSeconds < -12 * 60 * 60 || totalSeconds > 14 * 60 * 60) {
+            throw new AnalysisException(property
+                    + " must be a fixed UTC offset between -12:00 and +14:00");
+        }
+        return totalSeconds;
+    }
+
+    public static long parseRowTtlDurationMicros(String ttl) throws AnalysisException {
+        String normalized = ttl.trim().toLowerCase();
+        long multiplier = 1_000_000L;
+        if (normalized.endsWith("weeks")) {
+            normalized = normalized.substring(0, normalized.length() - 5).trim();
+            multiplier = 7L * 24 * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("week")) {
+            normalized = normalized.substring(0, normalized.length() - 4).trim();
+            multiplier = 7L * 24 * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("days")) {
+            normalized = normalized.substring(0, normalized.length() - 4).trim();
+            multiplier = 24L * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("day")) {
+            normalized = normalized.substring(0, normalized.length() - 3).trim();
+            multiplier = 24L * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("hours")) {
+            normalized = normalized.substring(0, normalized.length() - 5).trim();
+            multiplier = 60L * 60 * 1_000_000;
+        } else if (normalized.endsWith("hour")) {
+            normalized = normalized.substring(0, normalized.length() - 4).trim();
+            multiplier = 60L * 60 * 1_000_000;
+        } else if (normalized.endsWith("minutes")) {
+            normalized = normalized.substring(0, normalized.length() - 7).trim();
+            multiplier = 60L * 1_000_000;
+        } else if (normalized.endsWith("minute")) {
+            normalized = normalized.substring(0, normalized.length() - 6).trim();
+            multiplier = 60L * 1_000_000;
+        } else if (normalized.endsWith("seconds")) {
+            normalized = normalized.substring(0, normalized.length() - 7).trim();
+            multiplier = 1_000_000L;
+        } else if (normalized.endsWith("second")) {
+            normalized = normalized.substring(0, normalized.length() - 6).trim();
+            multiplier = 1_000_000L;
+        } else if (normalized.endsWith("d")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+            multiplier = 24L * 60 * 60 * 1_000_000;
+        } else if (normalized.endsWith("h")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+            multiplier = 60L * 60 * 1_000_000;
+        } else if (normalized.endsWith("m")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+            multiplier = 60L * 1_000_000;
+        } else if (normalized.endsWith("s")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+            multiplier = 1_000_000L;
+        }
+        try {
+            long value = Long.parseLong(normalized);
+            if (value < 0) {
+                throw new AnalysisException("row ttl duration must not be negative");
+            }
+            return Math.multiplyExact(value, multiplier);
+        } catch (NumberFormatException | ArithmeticException e) {
+            throw new AnalysisException("invalid or overflowing row ttl duration: " + ttl);
+        }
     }
 
     public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key,

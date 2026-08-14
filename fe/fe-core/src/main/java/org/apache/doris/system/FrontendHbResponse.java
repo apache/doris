@@ -45,6 +45,8 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     private long processUUID;
     private List<FeDiskInfo> diskInfos;
     private String localResourceGroup;
+    @SerializedName(value = "nodeFeatureFlags")
+    private long nodeFeatureFlags = 0;
 
     public FrontendHbResponse() {
         super(HeartbeatResponse.Type.FRONTEND);
@@ -115,6 +117,14 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
 
     public String getLocalResourceGroup() {
         return localResourceGroup;
+    }
+
+    public long getNodeFeatureFlags() {
+        return nodeFeatureFlags;
+    }
+
+    public void setNodeFeatureFlags(long nodeFeatureFlags) {
+        this.nodeFeatureFlags = nodeFeatureFlags;
     }
 
     @Override

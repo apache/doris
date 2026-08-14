@@ -86,8 +86,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RowTtlIsVisible;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -116,6 +118,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.RowTtlFeatureGate;
 import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Preconditions;
@@ -316,6 +319,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     partIds, tabletIds, cascadesContext);
         }
         if (cascadesContext.getStatementContext().isHintForcePreAggOn()) {
+            if (((OlapTable) table).hasRowTtl()) {
+                throw new AnalysisException(
+                        "PREAGGOPEN hint is not supported on tables with row TTL: " + table.getName());
+            }
             return scan.withPreAggStatus(PreAggStatus.on());
         }
         if (needGenerateLogicalAggForRandomDistAggTable(scan)) {
@@ -324,8 +331,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return preAggForRandomDistribution(scan);
         } else {
             // it's a duplicate, unique or hash distribution agg table
-            // add delete sign filter on olap scan if needed
-            return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
+            // add post-merge row visibility conditions on olap scan if needed
+            return addRowVisibilityFilters(scan, ConnectContext.get(), (OlapTable) table);
         }
     }
 
@@ -464,12 +471,47 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
     }
 
-    /**
-     * Add delete sign filter on olap scan if need.
-     */
-    public static LogicalPlan checkAndAddDeleteSignFilter(LogicalOlapScan scan, ConnectContext connectContext,
+    /** Add the ordinary row-visibility conditions after storage merge. */
+    public static LogicalPlan addRowVisibilityFilters(LogicalOlapScan scan, ConnectContext connectContext,
             OlapTable olapTable) {
-        return checkAndAddDeleteSignFilter(scan, connectContext, olapTable, false);
+        if (!olapTable.hasRowTtl()) {
+            return checkAndAddDeleteSignFilter(scan, connectContext, olapTable, false);
+        }
+        try {
+            RowTtlFeatureGate.ensureReadyForUse();
+        } catch (org.apache.doris.common.DdlException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+        if (olapTable.isMorTable()) {
+            scan = scan.withPreAggStatus(PreAggStatus.off(
+                    Column.TTL_COL + " is used as conjuncts."));
+        }
+        LogicalPlan plan = checkAndAddDeleteSignFilter(scan, connectContext, olapTable, false);
+        Slot ttlSlot = plan.getOutput().stream()
+                .filter(slot -> slot.getName().equalsIgnoreCase(Column.TTL_COL))
+                .findFirst()
+                .orElseThrow(() -> new AnalysisException(
+                        "row ttl hidden column is missing from table " + olapTable.getName()));
+        Expression rowTtlIsVisible;
+        BigIntLiteral durationMicros = new BigIntLiteral(olapTable.getRowTtlDurationMicros());
+        if (ttlSlot.getDataType().isDateLikeType()) {
+            String rowTtlCol = olapTable.getRowTtlCol();
+            Column sourceColumn = rowTtlCol == null ? null : olapTable.getColumn(rowTtlCol);
+            if (sourceColumn == null) {
+                throw new AnalysisException("row ttl column does not exist: " + rowTtlCol);
+            }
+            if (sourceColumn.isGeneratedColumn()) {
+                throw new AnalysisException("row ttl column does not support generated columns: " + rowTtlCol);
+            }
+            int timeZoneOffsetSeconds = olapTable.getRowTtlTimeZoneOffsetSeconds()
+                    .orElseThrow(() -> new AnalysisException(
+                            "row ttl time zone is missing from table " + olapTable.getName()));
+            rowTtlIsVisible = new RowTtlIsVisible(ttlSlot, durationMicros,
+                    new IntegerLiteral(timeZoneOffsetSeconds));
+        } else {
+            rowTtlIsVisible = new RowTtlIsVisible(ttlSlot, durationMicros);
+        }
+        return new LogicalFilter<>(ImmutableSet.of(rowTtlIsVisible), plan);
     }
 
     private static LogicalPlan checkAndAddDeleteSignFilter(LogicalOlapScan scan, ConnectContext connectContext,
@@ -521,6 +563,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
      * and (for mow) historical value recorded in binlog for the union right branch.
      */
     private void validateTimeTravel(OlapTable olapTable) {
+        if (olapTable.hasRowTtl()) {
+            throw new AnalysisException("FOR VERSION/TIME AS OF is not supported on tables with row TTL. Table "
+                    + olapTable.getQualifiedName() + ".");
+        }
         if (!olapTable.enableTso()) {
             throw new AnalysisException("FOR VERSION/TIME AS OF requires row binlog "
                     + "(PROPERTIES('binlog.enable'='true','binlog.format'='ROW')) on table "
@@ -570,6 +616,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         "Invalid version in FOR VERSION AS OF: " + snapshot.getValue());
             }
         }
+
         long ms = OlapScanNode.parseChangeTimestamp(snapshot.getValue());
         return TSOTimestamp.composeFullTimestamp(ms);
     }
@@ -587,7 +634,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 .filter(slot -> !(slot instanceof SlotReference)
                         || ((SlotReference) slot).isVisible())
                 .collect(Collectors.toList());
-
         // left: base survived rows at t1 = delete_sign=0 AND commit_tso<=t1, projected to visible.
         LogicalPlan left = checkAndAddDeleteSignFilter(baseScan, ConnectContext.get(), olapTable, true);
         left = projectFromOriginSlots(addCommitTsoFilter(left, targetTso, olapTable), visibleOutput);
@@ -672,6 +718,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
             throws AnalysisException {
         if (scanParams == null || !scanParams.incrementalRead()) {
             return null;
+        }
+        if (olapTable.hasRowTtl()) {
+            throw new AnalysisException("INCR query is not supported on tables with row TTL. Table "
+                    + olapTable.getQualifiedName() + ".");
         }
         if (!olapTable.needRowBinlog()) {
             throw new AnalysisException("INCR query requires ROW binlog enabled on base table.");

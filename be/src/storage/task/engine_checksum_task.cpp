@@ -36,6 +36,7 @@
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_reader.h"
+#include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 
 namespace doris {
@@ -55,6 +56,18 @@ EngineChecksumTask::EngineChecksumTask(StorageEngine& engine, TTabletId tablet_i
 
 EngineChecksumTask::~EngineChecksumTask() = default;
 
+bool EngineChecksumTask::is_supported(const TabletSchema& tablet_schema) {
+    return !tablet_schema.has_ttl_col();
+}
+
+Status EngineChecksumTask::check_supported(const TabletSchema& tablet_schema,
+                                           TTabletId tablet_id) {
+    if (!is_supported(tablet_schema)) {
+        return Status::NotSupported("checksum is not supported for row ttl tablet {}", tablet_id);
+    }
+    return Status::OK();
+}
+
 Status EngineChecksumTask::execute() {
     return _compute_checksum();
 } // execute
@@ -73,6 +86,7 @@ Status EngineChecksumTask::_compute_checksum() {
     if (nullptr == tablet) {
         return Status::InternalError("could not find tablet {}", _tablet_id);
     }
+    RETURN_IF_ERROR(check_supported(*tablet->tablet_schema(), _tablet_id));
 
     std::vector<RowsetSharedPtr> input_rowsets;
     Version version(0, _version);
