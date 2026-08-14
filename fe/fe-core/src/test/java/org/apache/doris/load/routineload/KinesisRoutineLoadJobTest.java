@@ -17,25 +17,39 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
+import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kinesis.KinesisConfiguration;
 import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
+import org.apache.doris.persist.EditLog;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import com.google.gson.JsonParser;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -234,47 +248,55 @@ public class KinesisRoutineLoadJobTest {
     }
 
     @Test
-    public void testFailedAlterDoesNotChangeRuntimeOrLoadDefinition() throws Exception {
-        KinesisRoutineLoadJob routineLoadJob = new KinesisRoutineLoadJob(1L, "job_atomic", 1L,
-                1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
-        Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
-        Map<String, String> originalCustomProperties = Maps.newHashMap();
-        originalCustomProperties.put("client.id", "old-client");
-        Deencapsulation.setField(routineLoadJob, "customProperties", originalCustomProperties);
-        Map<String, String> originalConvertedProperties = Maps.newHashMap(originalCustomProperties);
-        Deencapsulation.setField(routineLoadJob, "convertedCustomProperties", originalConvertedProperties);
-        Deencapsulation.setField(routineLoadJob, "customKinesisShards", Lists.newArrayList("shard-1"));
-        Map<String, String> originalProgress = Maps.newHashMap();
-        originalProgress.put("shard-1", "10");
-        Deencapsulation.setField(routineLoadJob, "progress", new KinesisProgress(originalProgress));
-        routineLoadJob.updateLoadDefinition(null);
-        Object originalLoadDefinition = Deencapsulation.getField(routineLoadJob, "loadDefinition");
+    public void testAlterReplayKeepsDeltaAndCsvCachesInCheckpointParity() throws Exception {
+        KinesisRoutineLoadJob leader = createPausedJobWithInitialLoadDesc();
+        KinesisRoutineLoadJob replay = createPausedJobWithInitialLoadDesc();
 
-        Map<String, String> originalDataSourceProperties = Maps.newHashMap();
-        originalDataSourceProperties.put("property.client.id", "new-client");
-        originalDataSourceProperties.put(KinesisConfiguration.KINESIS_REGION.getName(), "us-east-1");
-        KinesisDataSourceProperties dataSourceProperties =
-                new KinesisDataSourceProperties(originalDataSourceProperties);
-        Map<String, String> alteredCustomProperties = Maps.newHashMap();
-        alteredCustomProperties.put("client.id", "new-client");
-        Deencapsulation.setField(dataSourceProperties, "customKinesisProperties", alteredCustomProperties);
-        Deencapsulation.setField(dataSourceProperties, "region", "us-east-1");
-        dataSourceProperties.setKinesisShardPositions(Lists.newArrayList(Pair.of("shard-2", "20")));
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "\"");
+        jobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, "\\");
+        jobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL, "true");
+        RoutineLoadDesc delta = new RoutineLoadDesc(null, new Separator("\n", "\\n"),
+                null, null, null, null, null, LoadTask.MergeType.APPEND, "sequence_col");
         AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
-        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(Maps.newHashMap());
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
+        Mockito.when(command.getDataSourceProperties()).thenReturn(null);
+        Mockito.when(command.getRoutineLoadDesc()).thenReturn(delta);
+
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        ArgumentCaptor<AlterRoutineLoadJobOperationLog> logCaptor =
+                ArgumentCaptor.forClass(AlterRoutineLoadJobOperationLog.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
+            leader.modifyProperties(command);
+            Mockito.verify(editLog).logAlterRoutineLoadJob(logCaptor.capture());
+        }
+
+        AlterRoutineLoadJobOperationLog log = logCaptor.getValue();
+        replay.replayModifyProperties(log);
+
+        Assert.assertSame(delta, log.getRoutineLoadDesc());
+        assertAlterResult(leader);
+        assertAlterResult(replay);
+        Assert.assertEquals(JsonParser.parseString(checkpointJson(leader)),
+                JsonParser.parseString(checkpointJson(replay)));
+    }
+
+    @Test
+    public void testAlterValidatesCsvBeforeDataSourceMutation() {
+        KinesisRoutineLoadJob job = createPausedJobWithInitialLoadDesc();
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, "invalid");
+        KinesisDataSourceProperties dataSourceProperties = Mockito.mock(KinesisDataSourceProperties.class);
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
         Mockito.when(command.getDataSourceProperties()).thenReturn(dataSourceProperties);
 
-        Assert.assertThrows(UserException.class, () -> routineLoadJob.modifyProperties(command));
-
-        Assert.assertEquals("ap-southeast-1", routineLoadJob.getRegion());
-        Assert.assertEquals(Lists.newArrayList("shard-1"),
-                Deencapsulation.getField(routineLoadJob, "customKinesisShards"));
-        Map<String, String> currentCustomProperties = Deencapsulation.getField(routineLoadJob, "customProperties");
-        Map<String, String> currentConvertedProperties =
-                Deencapsulation.getField(routineLoadJob, "convertedCustomProperties");
-        Assert.assertEquals("old-client", currentCustomProperties.get("client.id"));
-        Assert.assertEquals("old-client", currentConvertedProperties.get("client.id"));
-        Assert.assertSame(originalLoadDefinition, Deencapsulation.getField(routineLoadJob, "loadDefinition"));
+        Assert.assertThrows(AnalysisException.class, () -> job.modifyProperties(command));
+        Assert.assertEquals("stream-1", job.getStream());
+        Mockito.verifyNoInteractions(dataSourceProperties);
     }
 
     @Test
@@ -385,6 +407,35 @@ public class KinesisRoutineLoadJobTest {
         Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.secret_key"));
         Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.session_key"));
         Assert.assertEquals("role_arn_value", showCreateCustomProperties.get("property.aws.role_arn"));
+    }
+
+    private KinesisRoutineLoadJob createPausedJobWithInitialLoadDesc() {
+        KinesisRoutineLoadJob job = new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+        Deencapsulation.setField(job, "createTimestamp", 123L);
+        job.setRoutineLoadDesc(new RoutineLoadDesc(new Separator("|", "|"), null,
+                null, null, null, null, null, LoadTask.MergeType.APPEND, null));
+        return job;
+    }
+
+    private void assertAlterResult(KinesisRoutineLoadJob job) {
+        Assert.assertEquals("|", job.getColumnSeparator().getSeparator());
+        Assert.assertEquals("\n", job.getLineDelimiter().getSeparator());
+        Assert.assertEquals("sequence_col", job.getSequenceCol());
+        Assert.assertEquals((byte) '"', job.getEnclose());
+        Assert.assertEquals((byte) '\\', job.getEscape());
+        Assert.assertTrue(job.getEmptyFieldAsNull());
+    }
+
+    private String checkpointJson(RoutineLoadJob job) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            job.write(out);
+        }
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            return Text.readString(in);
+        }
     }
 
     private Set<String> collectAssignedShards(KinesisRoutineLoadJob routineLoadJob) {

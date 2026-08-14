@@ -51,8 +51,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileCompressType;
-import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
-import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -66,7 +64,6 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
-import org.apache.commons.lang3.BooleanUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -187,20 +184,19 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             return;
         }
 
-        Pair<Map<String, String>, String> convertedProperties = buildConvertedCustomProperties(
-                customProperties, kinesisDefaultPosition);
-        convertedCustomProperties.clear();
-        convertedCustomProperties.putAll(convertedProperties.first);
-        kinesisDefaultPosition = convertedProperties.second;
-    }
+        if (rebuild) {
+            convertedCustomProperties.clear();
+        }
 
-    private Pair<Map<String, String>, String> buildConvertedCustomProperties(
-            Map<String, String> sourceProperties, String currentDefaultPosition) {
-        Map<String, String> convertedProperties = Maps.newHashMap(sourceProperties);
-        String convertedDefaultPosition = convertedProperties.getOrDefault(
-                "kinesis_default_pos", currentDefaultPosition);
-        // Keep kinesis_default_pos in convertedProperties so BE can use it.
-        return Pair.of(convertedProperties, convertedDefaultPosition);
+        for (Map.Entry<String, String> entry : customProperties.entrySet()) {
+            convertedCustomProperties.put(entry.getKey(), entry.getValue());
+        }
+
+        // Handle default position
+        if (convertedCustomProperties.containsKey("kinesis_default_pos")) {
+            kinesisDefaultPosition = convertedCustomProperties.get("kinesis_default_pos");
+            // Keep it in convertedCustomProperties so BE can use it
+        }
     }
 
     private String convertedDefaultPosition() {
@@ -534,7 +530,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
         kinesisRoutineLoadJob.setOptional(info);
         kinesisRoutineLoadJob.checkCustomProperties();
-        kinesisRoutineLoadJob.initializeLoadDefinition(info);
 
         return kinesisRoutineLoadJob;
     }
@@ -663,27 +658,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         return getMaskedCustomProperties("property.");
     }
 
-    @Override
-    protected void updateLoadDefinitionDataSourceProperties(Map<String, String> dataSourceProperties) {
-        dataSourceProperties.put(KinesisConfiguration.KINESIS_REGION.getName(), region);
-        dataSourceProperties.put(KinesisConfiguration.KINESIS_STREAM.getName(), stream);
-        if (endpoint == null) {
-            dataSourceProperties.remove(KinesisConfiguration.KINESIS_ENDPOINT.getName());
-            dataSourceProperties.remove("kinesis_endpoint");
-        } else {
-            dataSourceProperties.put(KinesisConfiguration.KINESIS_ENDPOINT.getName(), endpoint);
-        }
-        dataSourceProperties.remove(KinesisConfiguration.KINESIS_POSITIONS.getName());
-        if (customKinesisShards.isEmpty()) {
-            dataSourceProperties.remove(KinesisConfiguration.KINESIS_SHARDS.getName());
-        } else {
-            dataSourceProperties.put(KinesisConfiguration.KINESIS_SHARDS.getName(),
-                    Joiner.on(",").join(customKinesisShards));
-        }
-        customProperties.forEach((key, value) -> dataSourceProperties.put(
-                key.startsWith("aws.") ? key : "property." + key, value));
-    }
-
     private Map<String, String> getMaskedCustomProperties(String keyPrefix) {
         Map<String, String> maskedProperties = new HashMap<>();
         customProperties.forEach((key, value) -> {
@@ -712,7 +686,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
             setRoutineLoadDesc(command.getRoutineLoadDesc());
-            updateLoadDefinition(dataSourceProperties);
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
                     jobProperties, dataSourceProperties, command.getRoutineLoadDesc());
@@ -725,120 +698,73 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
                                           KinesisDataSourceProperties dataSourceProperties)
             throws UserException {
-        PreparedKinesisAlter preparedAlter = prepareAlter(jobProperties, dataSourceProperties);
-        applyAlter(jobProperties, dataSourceProperties, preparedAlter);
-        LOG.info("modify the properties of kinesis routine load job: {}, jobProperties: {}, datasource properties: {}",
-                this.id, jobProperties, dataSourceProperties);
-    }
-
-    private PreparedKinesisAlter prepareAlter(Map<String, String> jobProperties,
-            KinesisDataSourceProperties dataSourceProperties) throws UserException {
-        TUniqueKeyUpdateMode validatedUniqueKeyUpdateMode = validateCommonJobProperties(jobProperties);
-        List<Pair<String, String>> shardPositions = Lists.newArrayList();
-        Map<String, String> alteredCustomProperties = Maps.newHashMap();
-        if (dataSourceProperties != null
-                && MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
-            shardPositions = dataSourceProperties.getKinesisShardPositions();
-            alteredCustomProperties = dataSourceProperties.getCustomKinesisProperties();
-        }
-
-        Map<String, String> stagedCustomProperties = null;
-        Map<String, String> stagedConvertedCustomProperties = null;
-        String stagedDefaultPosition = kinesisDefaultPosition;
-        if (!alteredCustomProperties.isEmpty()) {
-            stagedCustomProperties = Maps.newHashMap(customProperties);
-            stagedCustomProperties.putAll(alteredCustomProperties);
-            Pair<Map<String, String>, String> convertedProperties = buildConvertedCustomProperties(
-                    stagedCustomProperties, stagedDefaultPosition);
-            stagedConvertedCustomProperties = convertedProperties.first;
-            stagedDefaultPosition = convertedProperties.second;
-        }
-
-        boolean resetProgress = dataSourceProperties != null
-                && !Strings.isNullOrEmpty(dataSourceProperties.getStream());
-        if (!shardPositions.isEmpty() && !resetProgress) {
-            ((KinesisProgress) progress).checkShards(shardPositions);
-        }
-        return new PreparedKinesisAlter(validatedUniqueKeyUpdateMode, shardPositions,
-                stagedCustomProperties, stagedConvertedCustomProperties, stagedDefaultPosition, resetProgress);
-    }
-
-    private void applyAlter(Map<String, String> jobProperties, KinesisDataSourceProperties dataSourceProperties,
-            PreparedKinesisAlter preparedAlter) {
+        validateCommonJobProperties(jobProperties);
         if (dataSourceProperties != null) {
-            if (preparedAlter.stagedCustomProperties != null) {
-                customProperties.clear();
-                customProperties.putAll(preparedAlter.stagedCustomProperties);
-                convertedCustomProperties.clear();
-                convertedCustomProperties.putAll(preparedAlter.stagedConvertedCustomProperties);
-                kinesisDefaultPosition = preparedAlter.stagedDefaultPosition;
+            List<Pair<String, String>> shardPositions = Lists.newArrayList();
+            Map<String, String> customKinesisProperties = Maps.newHashMap();
+            boolean resetProgress = false;
+            boolean hasExplicitShardPositions = false;
+
+            if (MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
+                shardPositions = dataSourceProperties.getKinesisShardPositions();
+                customKinesisProperties = dataSourceProperties.getCustomKinesisProperties();
+                hasExplicitShardPositions = !shardPositions.isEmpty();
             }
+
+            // Update custom properties
+            if (!customKinesisProperties.isEmpty()) {
+                this.customProperties.putAll(customKinesisProperties);
+                convertCustomProperties(true);
+            }
+
+            // Modify stream if provided
             if (!Strings.isNullOrEmpty(dataSourceProperties.getStream())) {
-                stream = dataSourceProperties.getStream();
+                this.stream = dataSourceProperties.getStream();
+                resetProgress = true;
             }
+
+            // Modify region if provided
             if (!Strings.isNullOrEmpty(dataSourceProperties.getRegion())) {
-                region = dataSourceProperties.getRegion();
+                this.region = dataSourceProperties.getRegion();
             }
+
+            // Modify endpoint if provided
             if (!Strings.isNullOrEmpty(dataSourceProperties.getEndpoint())) {
-                endpoint = dataSourceProperties.getEndpoint();
+                this.endpoint = dataSourceProperties.getEndpoint();
             }
-            if (preparedAlter.resetProgress) {
-                progress = new KinesisProgress();
-                openKinesisShards.clear();
-                closedKinesisShards.clear();
-                cachedShardWithMillsBehindLatest.clear();
+
+            if (resetProgress) {
+                this.progress = new KinesisProgress();
+                this.openKinesisShards.clear();
+                this.closedKinesisShards.clear();
+                this.cachedShardWithMillsBehindLatest.clear();
             }
-            if (!preparedAlter.shardPositions.isEmpty()) {
-                customKinesisShards.clear();
-                for (Pair<String, String> shardPosition : preparedAlter.shardPositions) {
-                    customKinesisShards.add(shardPosition.first);
+
+            if (hasExplicitShardPositions) {
+                this.customKinesisShards.clear();
+                for (Pair<String, String> shardPosition : shardPositions) {
+                    this.customKinesisShards.add(shardPosition.first);
                 }
-            } else if (preparedAlter.resetProgress) {
+            } else if (resetProgress) {
                 // Stream change without explicit shards should fall back to dynamic shard discovery.
-                customKinesisShards.clear();
+                this.customKinesisShards.clear();
             }
-            if (!preparedAlter.shardPositions.isEmpty()) {
-                ((KinesisProgress) progress).modifyPosition(preparedAlter.shardPositions);
+
+            if (!shardPositions.isEmpty()) {
+                if (!resetProgress) {
+                    ((KinesisProgress) progress).checkShards(shardPositions);
+                }
+                ((KinesisProgress) progress).modifyPosition(shardPositions);
             }
         }
+
         if (!jobProperties.isEmpty()) {
             Map<String, String> copiedJobProperties = Maps.newHashMap(jobProperties);
-            modifyCommonJobProperties(copiedJobProperties, preparedAlter.validatedUniqueKeyUpdateMode);
+            modifyCommonJobProperties(copiedJobProperties);
             this.jobProperties.putAll(copiedJobProperties);
-            if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
-                this.isPartialUpdate = BooleanUtils.toBoolean(jobProperties.get(CreateRoutineLoadInfo.PARTIAL_COLUMNS));
-            }
-            if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY)) {
-                String policy = jobProperties.get(CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY);
-                if ("ERROR".equalsIgnoreCase(policy)) {
-                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.ERROR;
-                } else {
-                    this.partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
-                }
-            }
         }
-    }
-
-    private static class PreparedKinesisAlter {
-        private final TUniqueKeyUpdateMode validatedUniqueKeyUpdateMode;
-        private final List<Pair<String, String>> shardPositions;
-        private final Map<String, String> stagedCustomProperties;
-        private final Map<String, String> stagedConvertedCustomProperties;
-        private final String stagedDefaultPosition;
-        private final boolean resetProgress;
-
-        private PreparedKinesisAlter(TUniqueKeyUpdateMode validatedUniqueKeyUpdateMode,
-                List<Pair<String, String>> shardPositions,
-                Map<String, String> stagedCustomProperties,
-                Map<String, String> stagedConvertedCustomProperties,
-                String stagedDefaultPosition, boolean resetProgress) {
-            this.validatedUniqueKeyUpdateMode = validatedUniqueKeyUpdateMode;
-            this.shardPositions = shardPositions;
-            this.stagedCustomProperties = stagedCustomProperties;
-            this.stagedConvertedCustomProperties = stagedConvertedCustomProperties;
-            this.stagedDefaultPosition = stagedDefaultPosition;
-            this.resetProgress = resetProgress;
-        }
+        LOG.info("modify the properties of kinesis routine load job: {}, jobProperties: {}, datasource properties: {}",
+                this.id, jobProperties, dataSourceProperties);
     }
 
     @Override
@@ -847,7 +773,6 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             modifyPropertiesInternal(log.getJobProperties(),
                     (KinesisDataSourceProperties) log.getDataSourceProperties());
             setRoutineLoadDesc(log.getRoutineLoadDesc());
-            updateLoadDefinition(log.getDataSourceProperties());
         } catch (UserException e) {
             LOG.error("failed to replay modify kinesis routine load job: {}", id, e);
         }

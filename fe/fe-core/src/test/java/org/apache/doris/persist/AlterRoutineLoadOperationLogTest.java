@@ -17,15 +17,22 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
@@ -34,23 +41,19 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 
 public class AlterRoutineLoadOperationLogTest {
-    private static String fileName = "./AlterRoutineLoadOperationLogTest";
+    private static final String A8928245_LEGACY_LOG =
+            "/upgrade/routine-load/a8928245/alter-routine-load-log.b64";
 
     @Test
     public void testSerializeAlterRoutineLoadOperationLog() throws IOException, UserException {
-        // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        file.deleteOnExit();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
-
         long jobId = 1000;
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "5");
@@ -65,18 +68,31 @@ public class AlterRoutineLoadOperationLogTest {
         routineLoadDataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
         routineLoadDataSourceProperties.analyze();
 
-        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(null, null, null, null, null, null, null,
-                LoadTask.MergeType.APPEND, "sequence_col");
+        Separator columnSeparator = new Separator(",", "\\x2c");
+        Separator lineDelimiter = new Separator("\n", "\\n");
+        List<ImportColumnDesc> columns = Lists.newArrayList(
+                new ImportColumnDesc("source_col"),
+                new ImportColumnDesc("mapped_col", new StringLiteral("mapped_value")));
+        BinaryPredicate precedingFilter = new BinaryPredicate(BinaryPredicate.Operator.GT,
+                new IntLiteral(3L), new IntLiteral(2L));
+        BinaryPredicate where = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new StringLiteral("selected"), new StringLiteral("selected"));
+        PartitionNamesInfo partitions = new PartitionNamesInfo(true, Lists.newArrayList("p1", "p2"));
+        BinaryPredicate deleteCondition = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new IntLiteral(1L), new IntLiteral(1L));
+        RoutineLoadDesc routineLoadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, columns,
+                precedingFilter, where, partitions, deleteCondition, LoadTask.MergeType.MERGE, "sequence_col");
         AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId,
                 jobProperties, routineLoadDataSourceProperties, routineLoadDesc);
-        log.write(out);
-        out.flush();
-        out.close();
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (DataOutputStream out = new DataOutputStream(bytes)) {
+            log.write(out);
+        }
 
-        // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
-
-        AlterRoutineLoadJobOperationLog log2 = AlterRoutineLoadJobOperationLog.read(in);
+        AlterRoutineLoadJobOperationLog log2;
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            log2 = AlterRoutineLoadJobOperationLog.read(in);
+        }
         Assert.assertEquals(1, log2.getJobProperties().size());
         Assert.assertEquals("5", log2.getJobProperties().get(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY));
         KafkaDataSourceProperties kafkaDataSourceProperties = (KafkaDataSourceProperties) log2.getDataSourceProperties();
@@ -88,23 +104,45 @@ public class AlterRoutineLoadOperationLogTest {
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(0));
         Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
                 kafkaDataSourceProperties.getKafkaPartitionOffsets().get(1));
-        Assert.assertEquals("sequence_col", log2.getRoutineLoadDesc().getSequenceColName());
-
-        in.close();
+        RoutineLoadDesc restoredDesc = log2.getRoutineLoadDesc();
+        Assert.assertEquals(",", restoredDesc.getColumnSeparator().getSeparator());
+        Assert.assertEquals("\\x2c", restoredDesc.getColumnSeparator().getOriSeparator());
+        Assert.assertEquals("\n", restoredDesc.getLineDelimiter().getSeparator());
+        Assert.assertEquals("\\n", restoredDesc.getLineDelimiter().getOriSeparator());
+        Assert.assertEquals(2, restoredDesc.getColumnsInfo().size());
+        Assert.assertEquals("source_col", restoredDesc.getColumnsInfo().get(0).getColumnName());
+        Assert.assertEquals("mapped_col", restoredDesc.getColumnsInfo().get(1).getColumnName());
+        Assert.assertNotNull(restoredDesc.getColumnsInfo().get(1).getExpr());
+        Assert.assertNotNull(restoredDesc.getPrecedingFilter());
+        Assert.assertNotNull(restoredDesc.getFilter());
+        Assert.assertTrue(restoredDesc.getPartitionNamesInfo().isTemp());
+        Assert.assertEquals(Lists.newArrayList("p1", "p2"),
+                restoredDesc.getPartitionNamesInfo().getPartitionNames());
+        Assert.assertNotNull(restoredDesc.getDeleteCondition());
+        Assert.assertEquals(LoadTask.MergeType.MERGE, restoredDesc.getMergeType());
+        Assert.assertEquals("sequence_col", restoredDesc.getSequenceColName());
+        Assert.assertEquals(GsonUtils.GSON.toJson(routineLoadDesc), GsonUtils.GSON.toJson(restoredDesc));
     }
 
     @Test
     public void testDeserializeLegacyLogWithoutRoutineLoadDesc() throws IOException {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        try (DataOutputStream out = new DataOutputStream(bytes)) {
-            Text.writeString(out, "{\"jobId\":1000,\"jobProperties\":{},"
-                    + "\"dataSourceProperties\":null}");
-        }
-
-        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+        byte[] bytes = loadBase64Fixture(A8928245_LEGACY_LOG);
+        try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes))) {
             AlterRoutineLoadJobOperationLog log = AlterRoutineLoadJobOperationLog.read(in);
-            Assert.assertEquals(1000L, log.getJobId());
+            Assert.assertEquals(7001L, log.getJobId());
+            Assert.assertTrue(log.getJobProperties().isEmpty());
+            Assert.assertNull(log.getDataSourceProperties());
             Assert.assertNull(log.getRoutineLoadDesc());
+        }
+    }
+
+    private static byte[] loadBase64Fixture(String resource) throws IOException {
+        try (InputStream in = AlterRoutineLoadOperationLogTest.class.getResourceAsStream(resource)) {
+            if (in == null) {
+                throw new IOException("missing fixture " + resource);
+            }
+            String base64 = new String(in.readAllBytes(), StandardCharsets.UTF_8).trim();
+            return Base64.getDecoder().decode(base64);
         }
     }
 
