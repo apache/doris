@@ -27,11 +27,13 @@
 
 #include "core/assert_cast.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_string.h"
 #include "format/parquet/schema_desc.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_column_reader.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
+#include "io/io_common.h"
 #include "runtime/runtime_state.h"
 #include "util/coding.h"
 #include "util/thrift_util.h"
@@ -416,6 +418,41 @@ TEST(ParquetColumnChunkReaderTest, ScalarDictionaryReadUsesExplicitProbe) {
     EXPECT_EQ(std::string(strings.get_data_at(0)), "alice");
     EXPECT_EQ(std::string(strings.get_data_at(1)), "bob");
     EXPECT_EQ(std::string(strings.get_data_at(2)), "carol");
+}
+
+TEST(ParquetColumnChunkReaderTest, ScalarNestedReadRestoresColumnWhenStopped) {
+    ColumnChunkFixture fixture;
+    ASSERT_TRUE(make_plain_fixture(&fixture).ok());
+    auto file_reader = std::make_shared<CountingFileReader>(std::move(fixture.data));
+    auto string_type = std::make_shared<DataTypeString>();
+    fixture.field_schema.data_type = string_type;
+    fixture.field_schema.parquet_schema.__set_type(tparquet::Type::BYTE_ARRAY);
+
+    RowRanges row_ranges;
+    row_ranges.add({0, 1});
+    io::IOContext io_ctx;
+    ScalarColumnReader<true, false> reader(row_ranges, 1, fixture.chunk, nullptr, nullptr, &io_ctx);
+    reader.set_column_in_nested();
+
+    TQueryOptions query_options;
+    query_options.__set_enable_parquet_file_page_cache(false);
+    RuntimeState runtime_state(query_options, TQueryGlobals());
+    ASSERT_TRUE(reader.init(file_reader, &fixture.field_schema,
+                            /*max_buf_size=*/1024 * 1024, &runtime_state)
+                        .ok());
+
+    ColumnPtr column = ColumnString::create();
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(nullptr, 0, false).ok());
+    size_t read_rows = 0;
+    bool eof = false;
+    io_ctx.should_stop = true;
+
+    Status status = reader.read_column_data(column, string_type, nullptr, filter_map, 1, &read_rows,
+                                            &eof, false);
+    EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
+    ASSERT_TRUE(column);
+    EXPECT_TRUE(column->empty());
 }
 
 void expect_offset_index_skip(ColumnChunkFixture fixture) {
