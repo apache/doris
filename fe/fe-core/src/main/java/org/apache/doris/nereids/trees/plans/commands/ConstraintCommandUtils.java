@@ -26,6 +26,8 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.info.TableNameInfoUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -34,7 +36,6 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /** Shared locking helpers for constraint DDL commands. */
@@ -42,42 +43,71 @@ final class ConstraintCommandUtils {
     private ConstraintCommandUtils() {
     }
 
-    /** Lock all databases referenced by a constraint in a deterministic order. */
-    static LockedDatabases lockCurrentDatabases(List<TableNameInfo> tableNameInfos)
+    static ExternalCatalogSnapshots snapshotExternalCatalogs(List<TableNameInfo> tableNameInfos)
             throws DdlException {
-        Map<String, ResolvedDatabase> resolvedByName = new LinkedHashMap<>();
+        Map<Long, ExternalCatalogSnapshot> snapshots = new LinkedHashMap<>();
         for (TableNameInfo tableNameInfo : tableNameInfos) {
-            String databaseKey = databaseKey(tableNameInfo);
-            if (!resolvedByName.containsKey(databaseKey)) {
-                CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = Env.getCurrentEnv()
-                        .getCatalogMgr().getCatalogOrDdlException(tableNameInfo.getCtl());
-                DatabaseIf<? extends TableIf> database =
-                        catalog.getDbOrDdlException(tableNameInfo.getDb());
-                resolvedByName.put(databaseKey,
-                        new ResolvedDatabase(databaseKey, tableNameInfo, catalog, database));
+            CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrDdlException(tableNameInfo.getCtl());
+            if (catalog instanceof ExternalCatalog) {
+                ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+                snapshots.putIfAbsent(externalCatalog.getId(),
+                        new ExternalCatalogSnapshot(tableNameInfo.getCtl(), externalCatalog,
+                                externalCatalog.snapshotConstraintMetadata()));
             }
         }
-        Map<String, ResolvedTable> resolvedTables = new LinkedHashMap<>();
-        for (TableNameInfo tableNameInfo : tableNameInfos) {
-            DatabaseIf<? extends TableIf> database =
-                    resolvedByName.get(databaseKey(tableNameInfo)).database;
-            TableIf table = database.getTableNullable(tableNameInfo.getTbl());
-            long metadataGeneration = database instanceof ExternalDatabase
-                    ? ((ExternalDatabase<?>) database).getMetadataGeneration()
-                    : -1L;
-            resolvedTables.put(tableKey(tableNameInfo),
-                    new ResolvedTable(table, metadataGeneration));
+        return new ExternalCatalogSnapshots(snapshots);
+    }
+
+    /** Lock external catalog fences and internal databases referenced by a constraint. */
+    static LockedDatabases lockCurrentDatabases(List<TableNameInfo> tableNameInfos,
+            ExternalCatalogSnapshots externalCatalogSnapshots, List<TableIf> analyzedTables)
+            throws DdlException {
+        Map<String, TableIf> analyzedExternalTables = new LinkedHashMap<>();
+        for (TableIf table : analyzedTables) {
+            if (table != null
+                    && table.getDatabase().getCatalog() instanceof ExternalCatalog) {
+                TableNameInfo tableNameInfo = TableNameInfoUtils.fromCatalogDb(
+                        table.getDatabase().getCatalog(), table.getDatabase(), table);
+                analyzedExternalTables.put(tableKey(tableNameInfo), table);
+            }
         }
-        List<ResolvedDatabase> lockOrder = new ArrayList<>(resolvedByName.values());
-        lockOrder.sort(Comparator
-                .comparingLong((ResolvedDatabase resolved) -> resolved.database.getId())
-                .thenComparing(resolved -> resolved.databaseKey));
-        for (ResolvedDatabase resolved : lockOrder) {
-            resolved.database.readLock();
-        }
-        LockedDatabases lockedDatabases =
-                new LockedDatabases(resolvedByName, resolvedTables, lockOrder);
+        LockedExternalCatalogs lockedExternalCatalogs = externalCatalogSnapshots.lock();
+        Map<String, ResolvedDatabase> resolvedByName = new LinkedHashMap<>();
+        LockedDatabases lockedDatabases = null;
         try {
+            for (TableNameInfo tableNameInfo : tableNameInfos) {
+                String databaseKey = databaseKey(tableNameInfo);
+                if (!resolvedByName.containsKey(databaseKey)) {
+                    CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = Env.getCurrentEnv()
+                            .getCatalogMgr().getCatalogOrDdlException(tableNameInfo.getCtl());
+                    if (catalog instanceof ExternalCatalog) {
+                        externalCatalogSnapshots.requireSame(tableNameInfo.getCtl(), catalog);
+                        continue;
+                    }
+                    DatabaseIf<? extends TableIf> database =
+                            catalog.getDbOrDdlException(tableNameInfo.getDb());
+                    resolvedByName.put(databaseKey,
+                            new ResolvedDatabase(databaseKey, tableNameInfo, catalog, database));
+                }
+            }
+            Map<String, TableIf> resolvedTables = new LinkedHashMap<>(analyzedExternalTables);
+            for (TableNameInfo tableNameInfo : tableNameInfos) {
+                ResolvedDatabase resolvedDatabase = resolvedByName.get(databaseKey(tableNameInfo));
+                if (resolvedDatabase != null) {
+                    resolvedTables.put(tableKey(tableNameInfo),
+                            resolvedDatabase.database.getTableNullable(tableNameInfo.getTbl()));
+                }
+            }
+            List<ResolvedDatabase> lockOrder = new ArrayList<>(resolvedByName.values());
+            lockOrder.sort(Comparator
+                    .comparingLong((ResolvedDatabase resolved) -> resolved.database.getId())
+                    .thenComparing(resolved -> resolved.databaseKey));
+            for (ResolvedDatabase resolved : lockOrder) {
+                resolved.database.readLock();
+            }
+            lockedDatabases = new LockedDatabases(
+                    resolvedByName, resolvedTables, lockOrder, lockedExternalCatalogs);
             for (ResolvedDatabase resolved : lockOrder) {
                 if (Env.getCurrentEnv().getCatalogMgr().getCatalog(
                         resolved.tableNameInfo.getCtl()) != resolved.catalog
@@ -90,7 +120,11 @@ final class ConstraintCommandUtils {
             }
             return lockedDatabases;
         } catch (DdlException | RuntimeException e) {
-            lockedDatabases.close();
+            if (lockedDatabases == null) {
+                lockedExternalCatalogs.close();
+            } else {
+                lockedDatabases.close();
+            }
             throw e;
         }
     }
@@ -145,6 +179,18 @@ final class ConstraintCommandUtils {
         return databaseKey(tableNameInfo) + "\0" + tableNameInfo.getTbl();
     }
 
+    static TableNameInfo qualifyTableName(ConnectContext ctx, List<String> nameParts) {
+        String catalogName = ctx.getCurrentCatalog() == null
+                ? "internal" : ctx.getCurrentCatalog().getName();
+        if (nameParts.size() == 1) {
+            return new TableNameInfo(catalogName, ctx.getDatabase(), nameParts.get(0));
+        }
+        if (nameParts.size() == 2) {
+            return new TableNameInfo(catalogName, nameParts.get(0), nameParts.get(1));
+        }
+        return new TableNameInfo(nameParts);
+    }
+
     static boolean sameTables(List<TableNameInfo> first, List<TableNameInfo> second) {
         Set<String> firstKeys = new HashSet<>();
         for (TableNameInfo tableNameInfo : first) {
@@ -159,62 +205,31 @@ final class ConstraintCommandUtils {
 
     static final class LockedDatabases implements AutoCloseable {
         private final Map<String, ResolvedDatabase> resolvedByName;
-        private final Map<String, ResolvedTable> resolvedTables;
+        private final Map<String, TableIf> resolvedTables;
         private final List<ResolvedDatabase> lockOrder;
+        private final LockedExternalCatalogs lockedExternalCatalogs;
 
         private LockedDatabases(Map<String, ResolvedDatabase> resolvedByName,
-                Map<String, ResolvedTable> resolvedTables, List<ResolvedDatabase> lockOrder) {
+                Map<String, TableIf> resolvedTables, List<ResolvedDatabase> lockOrder,
+                LockedExternalCatalogs lockedExternalCatalogs) {
             this.resolvedByName = resolvedByName;
             this.resolvedTables = resolvedTables;
             this.lockOrder = lockOrder;
+            this.lockedExternalCatalogs = lockedExternalCatalogs;
         }
 
         TableIf getCurrentTable(TableNameInfo tableNameInfo) throws DdlException {
             ResolvedDatabase resolvedDatabase =
                     resolvedByName.get(databaseKey(tableNameInfo));
+            if (resolvedDatabase == null) {
+                return resolvedTables.get(tableKey(tableNameInfo));
+            }
             DatabaseIf<? extends TableIf> database = resolvedDatabase.database;
-            ResolvedTable resolved = resolvedTables.get(tableKey(tableNameInfo));
-            TableIf resolvedTable = resolved.table;
-            if (database instanceof ExternalDatabase) {
-                if (Env.getCurrentEnv().getCatalogMgr().getCatalog(
-                        tableNameInfo.getCtl()) != resolvedDatabase.catalog
-                        || !(resolvedDatabase.catalog instanceof ExternalCatalog)
-                        || !((ExternalCatalog) resolvedDatabase.catalog)
-                                .getDbForReplay(tableNameInfo.getDb())
-                                .filter(currentDatabase -> currentDatabase == database)
-                                .isPresent()) {
-                    throw new DdlException(
-                            "External database metadata changed while altering constraint on "
-                                    + tableNameInfo);
-                }
-                ExternalDatabase<?> externalDatabase = (ExternalDatabase<?>) database;
-                Optional<? extends TableIf> currentTable =
-                        externalDatabase.getTableForReplay(tableNameInfo.getTbl());
-                if (externalDatabase.getMetadataGeneration()
-                        != resolved.externalMetadataGeneration) {
-                    throw new DdlException(
-                            "External table metadata changed while altering constraint on "
-                                    + tableNameInfo);
-                }
-                if (resolvedTable == null) {
-                    if (currentTable.isPresent()) {
-                        throw new DdlException(
-                                "External table metadata changed while altering constraint on "
-                                        + tableNameInfo);
-                    }
-                    return null;
-                }
-                if (!currentTable.isPresent() || currentTable.get() != resolvedTable) {
-                    throw new DdlException(
-                            "External table metadata changed while altering constraint on "
-                                    + tableNameInfo);
-                }
-            } else {
-                TableIf currentTable = database.getTableNullable(tableNameInfo.getTbl());
-                if (currentTable != resolvedTable) {
-                    throw new DdlException(
-                            "Table changed while altering constraint on " + tableNameInfo);
-                }
+            TableIf resolvedTable = resolvedTables.get(tableKey(tableNameInfo));
+            TableIf currentTable = database.getTableNullable(tableNameInfo.getTbl());
+            if (currentTable != resolvedTable) {
+                throw new DdlException(
+                        "Table changed while altering constraint on " + tableNameInfo);
             }
             return resolvedTable;
         }
@@ -224,6 +239,7 @@ final class ConstraintCommandUtils {
             for (int i = lockOrder.size() - 1; i >= 0; i--) {
                 lockOrder.get(i).database.readUnlock();
             }
+            lockedExternalCatalogs.close();
         }
     }
 
@@ -270,13 +286,70 @@ final class ConstraintCommandUtils {
         }
     }
 
-    private static final class ResolvedTable {
-        private final TableIf table;
-        private final long externalMetadataGeneration;
+    static final class ExternalCatalogSnapshots {
+        private final Map<Long, ExternalCatalogSnapshot> snapshots;
 
-        private ResolvedTable(TableIf table, long externalMetadataGeneration) {
-            this.table = table;
-            this.externalMetadataGeneration = externalMetadataGeneration;
+        private ExternalCatalogSnapshots(Map<Long, ExternalCatalogSnapshot> snapshots) {
+            this.snapshots = snapshots;
+        }
+
+        private LockedExternalCatalogs lock() throws DdlException {
+            List<ExternalCatalogSnapshot> lockOrder = new ArrayList<>(snapshots.values());
+            lockOrder.sort(Comparator.comparingLong(snapshot -> snapshot.catalog.getId()));
+            List<ExternalCatalog.ConstraintMetadataReadGuard> guards = new ArrayList<>();
+            try {
+                for (ExternalCatalogSnapshot snapshot : lockOrder) {
+                    requireSame(snapshot.catalogName, snapshot.catalog);
+                    guards.add(snapshot.catalog.lockConstraintMetadata(snapshot.sequence));
+                    requireSame(snapshot.catalogName, snapshot.catalog);
+                }
+                return new LockedExternalCatalogs(guards);
+            } catch (DdlException | RuntimeException e) {
+                closeGuards(guards);
+                throw e;
+            }
+        }
+
+        private void requireSame(String catalogName, CatalogIf<?> catalog) throws DdlException {
+            ExternalCatalogSnapshot snapshot = snapshots.get(catalog.getId());
+            if (snapshot == null || snapshot.catalog != catalog
+                    || Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName) != catalog) {
+                throw new DdlException(
+                        "External catalog changed while altering constraints on " + catalogName);
+            }
+        }
+    }
+
+    private static final class ExternalCatalogSnapshot {
+        private final String catalogName;
+        private final ExternalCatalog catalog;
+        private final long sequence;
+
+        private ExternalCatalogSnapshot(String catalogName, ExternalCatalog catalog, long sequence) {
+            this.catalogName = catalogName;
+            this.catalog = catalog;
+            this.sequence = sequence;
+        }
+    }
+
+    private static final class LockedExternalCatalogs implements AutoCloseable {
+        private final List<ExternalCatalog.ConstraintMetadataReadGuard> guards;
+
+        private LockedExternalCatalogs(
+                List<ExternalCatalog.ConstraintMetadataReadGuard> guards) {
+            this.guards = guards;
+        }
+
+        @Override
+        public void close() {
+            closeGuards(guards);
+        }
+    }
+
+    private static void closeGuards(
+            List<ExternalCatalog.ConstraintMetadataReadGuard> guards) {
+        for (int i = guards.size() - 1; i >= 0; i--) {
+            guards.get(i).close();
         }
     }
 }

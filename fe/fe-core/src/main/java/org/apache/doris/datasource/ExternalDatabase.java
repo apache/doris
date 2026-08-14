@@ -59,7 +59,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -91,7 +90,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     private MetaCacheEntry<String, NameCacheValue> tableNames;
     private MetaCacheEntry<String, T> tables;
     private transient IdNameIndex tableIdNameIndex = new IdNameIndex("external table");
-    private transient AtomicLong metadataGeneration = new AtomicLong();
 
     private volatile boolean isInitializing = false;
 
@@ -128,7 +126,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             synchronized (this) {
                 this.initialized = false;
                 invalidateAllTableCache();
-                metadataGeneration.incrementAndGet();
             }
         } finally {
             writeUnlock();
@@ -138,10 +135,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
 
     public boolean isInitialized() {
         return initialized;
-    }
-
-    public long getMetadataGeneration() {
-        return metadataGeneration.get();
     }
 
     public final void makeSureInitialized() {
@@ -776,7 +769,6 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         this.initialized = false;
         rwLock = new MonitoredReentrantReadWriteLock(true);
         tableIdNameIndex = new IdNameIndex("external table");
-        metadataGeneration = new AtomicLong();
     }
 
     @Override

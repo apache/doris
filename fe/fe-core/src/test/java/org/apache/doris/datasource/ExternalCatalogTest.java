@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -886,13 +887,20 @@ public class ExternalCatalogTest extends TestWithFeService {
                 new TestExternalDatabase(catalog, legacyId, "db_by_id", "Db_By_Id");
         catalog.addDatabaseForTest(legacyDb);
         Assertions.assertEquals("db_by_id", catalog.getDbNameForReplay(legacyId).orElse(null));
+        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                catalog.beginConstraintMetadataMutation()) {
+            // Transient fence state must not be persisted into the image.
+        }
+        Assertions.assertNotEquals(0L, catalog.snapshotConstraintMetadata());
 
         String json = GsonUtils.GSON.toJson(catalog, CatalogIf.class);
         Assertions.assertFalse(json.contains("dbIdNameIndex"));
+        Assertions.assertFalse(json.contains("constraintMetadataSequence"));
         TestExternalCatalog restored =
                 (TestExternalCatalog) GsonUtils.GSON.fromJson(json, CatalogIf.class);
         restored.setInitializedForTest(true);
 
+        Assertions.assertEquals(0L, restored.snapshotConstraintMetadata());
         Assertions.assertTrue(restored.getDbNameForReplay(legacyId).isEmpty());
         ExternalDatabase<? extends ExternalTable> loadedDb = restored.getDbNullable("db_by_id");
         long canonicalId = Util.genIdByName(restored.getName(), "db_by_id");
@@ -1396,6 +1404,70 @@ public class ExternalCatalogTest extends TestWithFeService {
             NameMissCatalogProvider.reset();
             Config.enable_external_meta_cache_name_miss_refresh = original;
         }
+    }
+
+    @Test
+    public void testConstraintMetadataReadGuardBlocksMutationBegin() throws Exception {
+        TestExternalCatalog catalog =
+                newFenceTestCatalog(1201L, "constraint_fence_test");
+        long snapshot = catalog.snapshotConstraintMetadata();
+        ExternalCatalog.ConstraintMetadataReadGuard readGuard =
+                catalog.lockConstraintMetadata(snapshot);
+        boolean readGuardClosed = false;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch mutationAttempted = new CountDownLatch(1);
+        CountDownLatch mutationStarted = new CountDownLatch(1);
+        try {
+            Future<?> mutation = executor.submit(() -> {
+                mutationAttempted.countDown();
+                try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                        catalog.beginConstraintMetadataMutation()) {
+                    mutationStarted.countDown();
+                }
+            });
+            Assertions.assertTrue(mutationAttempted.await(5, TimeUnit.SECONDS));
+            Assertions.assertFalse(mutationStarted.await(200, TimeUnit.MILLISECONDS));
+
+            readGuard.close();
+            readGuardClosed = true;
+            Assertions.assertTrue(mutationStarted.await(5, TimeUnit.SECONDS));
+            mutation.get(5, TimeUnit.SECONDS);
+            Assertions.assertThrows(DdlException.class,
+                    () -> catalog.lockConstraintMetadata(snapshot));
+        } finally {
+            if (!readGuardClosed) {
+                readGuard.close();
+            }
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testConstraintMetadataTracksOverlappingMutations() throws Exception {
+        TestExternalCatalog catalog =
+                newFenceTestCatalog(1202L, "constraint_overlap_test");
+        ExternalCatalog.ConstraintMetadataMutationGuard first =
+                catalog.beginConstraintMetadataMutation();
+        ExternalCatalog.ConstraintMetadataMutationGuard second =
+                catalog.beginConstraintMetadataMutation();
+        first.close();
+
+        long whileSecondIsActive = catalog.snapshotConstraintMetadata();
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.lockConstraintMetadata(whileSecondIsActive));
+
+        second.close();
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.lockConstraintMetadata(whileSecondIsActive));
+        try (ExternalCatalog.ConstraintMetadataReadGuard ignored =
+                catalog.lockConstraintMetadata(catalog.snapshotConstraintMetadata())) {
+            // Both mutation scopes completed and the catalog can be locked again.
+        }
+    }
+
+    private TestExternalCatalog newFenceTestCatalog(long catalogId, String name) {
+        return new TestExternalCatalog(catalogId, name, "",
+                Map.of("catalog_provider.class", RefreshCatalogProvider.class.getName()), "");
     }
 
     private void assertColdDatabaseNameEventFencesInFlightLoad(boolean createEvent) throws Exception {

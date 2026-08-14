@@ -27,6 +27,8 @@ import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
@@ -72,16 +74,29 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         TableNameInfo tableNameInfo;
-        try {
-            TableIf table = extractTable(ctx, plan);
-            tableNameInfo = TableNameInfoUtils.fromCatalogDb(
-                    table.getDatabase().getCatalog(), table.getDatabase(), table);
-        } catch (Exception e) {
-            // Table may no longer exist (e.g., external table deleted by another system).
-            // Fall back to extracting the table name from the unresolved plan.
-            LOG.warn("Table resolution failed for dropping constraint {}, "
-                    + "falling back to name-based lookup: {}", name, e.getMessage());
-            tableNameInfo = extractTableNameFromPlan(ctx);
+        TableNameInfo unresolvedTableName = plan instanceof UnboundRelation
+                ? extractTableNameFromPlan(ctx) : null;
+        CatalogIf<?> unresolvedCatalog = unresolvedTableName == null ? null
+                : Env.getCurrentEnv().getCatalogMgr().getCatalog(unresolvedTableName.getCtl());
+        if (unresolvedCatalog instanceof ExternalCatalog) {
+            // External PK/FK/UK constraints are authoritative in ConstraintManager. Avoid connector
+            // schema loading so DROP works with cache disabled or session cache bypass.
+            tableNameInfo = unresolvedTableName;
+        } else {
+            try {
+                TableIf table = extractTable(ctx, plan);
+                tableNameInfo = TableNameInfoUtils.fromCatalogDb(
+                        table.getDatabase().getCatalog(), table.getDatabase(), table);
+            } catch (Exception e) {
+                // Table may no longer exist (e.g., external table deleted by another system).
+                // Fall back to extracting the table name from the unresolved plan.
+                LOG.warn("Table resolution failed for dropping constraint {}, "
+                        + "falling back to name-based lookup: {}", name, e.getMessage());
+                if (unresolvedTableName == null) {
+                    throw e;
+                }
+                tableNameInfo = unresolvedTableName;
+            }
         }
         // must be checked on both paths above: table resolution failing (which includes an
         // authorization failure) falls back to a name-only lookup that binds nothing.
@@ -92,11 +107,14 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
         List<TableNameInfo> affectedTableInfos = new ArrayList<>();
         affectedTableInfos.add(tableNameInfo);
         affectedTableInfos.addAll(initialCascadeDropTables);
+        ConstraintCommandUtils.ExternalCatalogSnapshots externalCatalogSnapshots =
+                ConstraintCommandUtils.snapshotExternalCatalogs(affectedTableInfos);
 
         Constraint constraint;
         List<MTMV> dependentMtmvs;
         try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
-                ConstraintCommandUtils.lockCurrentDatabases(affectedTableInfos);
+                ConstraintCommandUtils.lockCurrentDatabases(
+                        affectedTableInfos, externalCatalogSnapshots, List.of());
                 ConstraintCommandUtils.LockedTables lockedTables =
                         ConstraintCommandUtils.lockCurrentTablesIfPresent(
                                 lockedDatabases, affectedTableInfos)) {
@@ -171,19 +189,7 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
                     "Cannot resolve table for dropping constraint " + name);
         }
         UnboundRelation unbound = (UnboundRelation) plan;
-        List<String> parts = unbound.getNameParts();
-        String ctl = ctx.getCurrentCatalog() != null
-                ? ctx.getCurrentCatalog().getName()
-                : "internal";
-        String db = ctx.getDatabase();
-        // Fill in default catalog/db from connect context if not specified
-        if (parts.size() == 1) {
-            return new TableNameInfo(ctl, db, parts.get(0));
-        }
-        if (parts.size() == 2) {
-            return new TableNameInfo(ctl, parts.get(0), parts.get(1));
-        }
-        return new TableNameInfo(parts);
+        return ConstraintCommandUtils.qualifyTableName(ctx, unbound.getNameParts());
     }
 
     private TableIf extractTable(ConnectContext ctx, LogicalPlan plan) {

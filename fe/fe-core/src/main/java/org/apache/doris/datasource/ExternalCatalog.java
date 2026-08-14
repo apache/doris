@@ -80,6 +80,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -170,6 +171,9 @@ public abstract class ExternalCatalog
     protected MetaCacheEntry<String, NameCacheValue> databaseNames;
     protected MetaCacheEntry<String, ExternalDatabase<? extends ExternalTable>> databases;
     protected transient IdNameIndex dbIdNameIndex = new IdNameIndex("external database");
+    private transient ReentrantReadWriteLock constraintMetadataLock = new ReentrantReadWriteLock(true);
+    private transient long constraintMetadataSequence;
+    private transient int activeConstraintMetadataMutations;
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
 
@@ -183,6 +187,83 @@ public abstract class ExternalCatalog
         this.name = name;
         this.logType = logType;
         this.comment = Strings.nullToEmpty(comment);
+    }
+
+    /**
+     * Returns a stable baseline for constraint analysis without loading connector metadata.
+     */
+    public final long snapshotConstraintMetadata() {
+        constraintMetadataLock.readLock().lock();
+        try {
+            return constraintMetadataSequence;
+        } finally {
+            constraintMetadataLock.readLock().unlock();
+        }
+    }
+
+    /**
+     * Prevents an external metadata mutation from starting after constraint metadata is validated.
+     */
+    public final ConstraintMetadataReadGuard lockConstraintMetadata(long expectedSequence)
+            throws DdlException {
+        constraintMetadataLock.readLock().lock();
+        if (activeConstraintMetadataMutations != 0
+                || constraintMetadataSequence != expectedSequence) {
+            constraintMetadataLock.readLock().unlock();
+            throw new DdlException("External catalog metadata changed while altering constraints on "
+                    + name + ", retry the statement");
+        }
+        return new ConstraintMetadataReadGuard();
+    }
+
+    /**
+     * Marks a metadata mutation before its remote operation starts and until its local publication completes.
+     */
+    public final ConstraintMetadataMutationGuard beginConstraintMetadataMutation() {
+        constraintMetadataLock.writeLock().lock();
+        try {
+            activeConstraintMetadataMutations++;
+            constraintMetadataSequence++;
+        } finally {
+            constraintMetadataLock.writeLock().unlock();
+        }
+        return new ConstraintMetadataMutationGuard();
+    }
+
+    public final class ConstraintMetadataReadGuard implements AutoCloseable {
+        private boolean closed;
+
+        private ConstraintMetadataReadGuard() {
+        }
+
+        @Override
+        public void close() {
+            Preconditions.checkState(!closed, "constraint metadata read guard is already closed");
+            closed = true;
+            constraintMetadataLock.readLock().unlock();
+        }
+    }
+
+    public final class ConstraintMetadataMutationGuard implements AutoCloseable {
+        private boolean closed;
+
+        private ConstraintMetadataMutationGuard() {
+        }
+
+        @Override
+        public void close() {
+            Preconditions.checkState(!closed, "constraint metadata mutation guard is already closed");
+            constraintMetadataLock.writeLock().lock();
+            try {
+                Preconditions.checkState(activeConstraintMetadataMutations > 0,
+                        "constraint metadata mutation count must be positive");
+                constraintMetadataSequence++;
+                activeConstraintMetadataMutations--;
+                closed = true;
+            } finally {
+                constraintMetadataLock.writeLock().unlock();
+            }
+        }
     }
 
     /**
@@ -1130,6 +1211,9 @@ public abstract class ExternalCatalog
             tableAutoAnalyzePolicy = Maps.newHashMap();
         }
         this.dbIdNameIndex = new IdNameIndex("external database");
+        this.constraintMetadataLock = new ReentrantReadWriteLock(true);
+        this.constraintMetadataSequence = 0;
+        this.activeConstraintMetadataMutations = 0;
     }
 
     public void addDatabaseForTest(ExternalDatabase<? extends ExternalTable> db) {
@@ -1160,8 +1244,10 @@ public abstract class ExternalCatalog
     }
 
     public void replayCreateDb(String dbName) {
-        // Invalidate the FE cache directly so follower FEs reflect the create on edit-log replay.
-        resetMetaCacheNames();
+        try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
+            // Invalidate the FE cache directly so follower FEs reflect the create on edit-log replay.
+            resetMetaCacheNames();
+        }
     }
 
     @Override
@@ -1171,8 +1257,10 @@ public abstract class ExternalCatalog
     }
 
     public void replayDropDb(String dbName) {
-        // Drop the db from the cache on replay.
-        unregisterDatabase(dbName);
+        try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
+            // Drop the db from the cache on replay.
+            unregisterDatabase(dbName);
+        }
     }
 
     @Override
@@ -1182,8 +1270,10 @@ public abstract class ExternalCatalog
     }
 
     public void replayCreateTable(String dbName, String tblName) {
-        // Refresh the db's table-name cache on replay.
-        getDbForReplay(dbName).ifPresent(db -> db.resetMetaCacheNames());
+        try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
+            // Refresh the db's table-name cache on replay.
+            getDbForReplay(dbName).ifPresent(db -> db.resetMetaCacheNames());
+        }
     }
 
     @Override
@@ -1200,8 +1290,10 @@ public abstract class ExternalCatalog
     }
 
     public void replayDropTable(String dbName, String tblName) {
-        // Remove the table from the cache on replay.
-        getDbForReplay(dbName).ifPresent(db -> db.unregisterTable(tblName));
+        try (ConstraintMetadataMutationGuard ignored = beginConstraintMetadataMutation()) {
+            // Remove the table from the cache on replay.
+            getDbForReplay(dbName).ifPresent(db -> db.unregisterTable(tblName));
+        }
     }
 
     /**

@@ -33,6 +33,7 @@ import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -72,6 +73,15 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        List<TableNameInfo> preAnalysisTableNames = new ArrayList<>();
+        preAnalysisTableNames.add(extractTableNameBeforeAnalysis(ctx, constraint.toProject()));
+        if (constraint.isForeignKey()) {
+            preAnalysisTableNames.add(
+                    extractTableNameBeforeAnalysis(ctx, constraint.toReferenceProject()));
+        }
+        ConstraintCommandUtils.ExternalCatalogSnapshots externalCatalogSnapshots =
+                ConstraintCommandUtils.snapshotExternalCatalogs(preAnalysisTableNames);
+
         Pair<ImmutableList<String>, TableIf> columnsAndTable = extractColumnsAndTable(ctx, constraint.toProject());
         TableIf table = columnsAndTable.second;
         TableNameInfo tableNameInfo = TableNameInfoUtils.fromCatalogDb(
@@ -115,7 +125,8 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
             throw new AnalysisException("Unsupported constraint type: " + constraint);
         }
         addConstraintWithLocks(
-                tableNameInfo, affectedTables, catalogConstraint, table, referencedTable);
+                tableNameInfo, affectedTables, catalogConstraint, table, referencedTable,
+                externalCatalogSnapshots);
     }
 
     private void checkAlterPriv(ConnectContext ctx, TableNameInfo tableNameInfo)
@@ -131,10 +142,18 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
     private void addConstraintWithLocks(TableNameInfo tableNameInfo,
             List<TableNameInfo> affectedTableInfos,
             org.apache.doris.catalog.constraint.Constraint constraint,
-            TableIf analyzedTable, TableIf analyzedReferencedTable) throws Exception {
+            TableIf analyzedTable, TableIf analyzedReferencedTable,
+            ConstraintCommandUtils.ExternalCatalogSnapshots externalCatalogSnapshots)
+            throws Exception {
+        List<TableIf> analyzedTables = new ArrayList<>();
+        analyzedTables.add(analyzedTable);
+        if (analyzedReferencedTable != null) {
+            analyzedTables.add(analyzedReferencedTable);
+        }
         List<MTMV> dependentMtmvs;
         try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
-                ConstraintCommandUtils.lockCurrentDatabases(affectedTableInfos);
+                ConstraintCommandUtils.lockCurrentDatabases(
+                        affectedTableInfos, externalCatalogSnapshots, analyzedTables);
                 ConstraintCommandUtils.LockedTables lockedTables =
                         ConstraintCommandUtils.lockCurrentTables(
                                 lockedDatabases, affectedTableInfos)) {
@@ -165,6 +184,15 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
         MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                 String.format("after add constraint %s on table %s",
                         constraint.getName(), tableNameInfo));
+    }
+
+    private TableNameInfo extractTableNameBeforeAnalysis(ConnectContext ctx, LogicalPlan plan) {
+        Set<UnboundRelation> relations = plan.collect(UnboundRelation.class::isInstance);
+        if (relations.size() != 1) {
+            throw new AnalysisException("Can not found table in constraint " + constraint);
+        }
+        return ConstraintCommandUtils.qualifyTableName(
+                ctx, relations.iterator().next().getNameParts());
     }
 
     private Pair<ImmutableList<String>, TableIf> extractColumnsAndTable(ConnectContext ctx, LogicalPlan plan) {

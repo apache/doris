@@ -1005,6 +1005,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     public void testAddColumnRoutesConvertsAndLogsRefresh() throws Exception {
         ExternalTable table = mockAlterTable();
         ConnectorTableHandle handle = stubAlterHandle();
+        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
 
         catalog.addColumn(table, nullableIntColumn("age"), ColumnPosition.FIRST);
 
@@ -1022,6 +1023,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
         Assertions.assertEquals("db1", logCap.getValue().getDbName());
         Assertions.assertEquals("t1", logCap.getValue().getTableName());
+        Assertions.assertNotEquals(
+                constraintMetadataBaseline, catalog.snapshotConstraintMetadata());
     }
 
     @Test
@@ -1155,6 +1158,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     public void testCreateOrReplaceBranchRoutesConvertsAndRefreshes() throws Exception {
         ExternalTable table = mockAlterTable();
         ConnectorTableHandle handle = stubAlterHandle();
+        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
         catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
 
         CreateOrReplaceBranchInfo info = new CreateOrReplaceBranchInfo("b1", true, false, true,
@@ -1167,6 +1171,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         // mapping). A mutation dropping any field makes one of these asserts red.
         ArgumentCaptor<BranchChange> cap = ArgumentCaptor.forClass(BranchChange.class);
         Mockito.verify(metadata).createOrReplaceBranch(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        Assertions.assertEquals(
+                constraintMetadataBaseline, catalog.snapshotConstraintMetadata());
         BranchChange b = cap.getValue();
         Assertions.assertEquals("b1", b.getName());
         Assertions.assertTrue(b.isCreate());

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
@@ -27,6 +28,7 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.test.TestExternalCatalog;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -34,7 +36,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 
 class ConstraintCommandUtilsTest {
     @Test
@@ -54,10 +56,12 @@ class ConstraintCommandUtilsTest {
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ConstraintCommandUtils.ExternalCatalogSnapshots snapshots =
+                    ConstraintCommandUtils.snapshotExternalCatalogs(List.of(tableNameInfo));
 
             Assertions.assertThrows(DdlException.class,
                     () -> ConstraintCommandUtils.lockCurrentDatabases(
-                            List.of(tableNameInfo)));
+                            List.of(tableNameInfo), snapshots, List.of()));
 
             Mockito.verify(resolvedDatabase).readLock();
             Mockito.verify(resolvedDatabase).readUnlock();
@@ -85,10 +89,13 @@ class ConstraintCommandUtilsTest {
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ConstraintCommandUtils.ExternalCatalogSnapshots snapshots =
+                    ConstraintCommandUtils.snapshotExternalCatalogs(
+                            List.of(firstTable, secondTable));
 
             try (ConstraintCommandUtils.LockedDatabases ignored =
                     ConstraintCommandUtils.lockCurrentDatabases(
-                            List.of(firstTable, secondTable))) {
+                            List.of(firstTable, secondTable), snapshots, List.of())) {
                 org.mockito.InOrder inOrder =
                         Mockito.inOrder(secondDatabase, firstDatabase);
                 inOrder.verify(secondDatabase).readLock();
@@ -138,9 +145,12 @@ class ConstraintCommandUtilsTest {
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ConstraintCommandUtils.ExternalCatalogSnapshots snapshots =
+                    ConstraintCommandUtils.snapshotExternalCatalogs(
+                            List.of(firstTableInfo, secondTableInfo));
             try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
                     ConstraintCommandUtils.lockCurrentDatabases(
-                            List.of(firstTableInfo, secondTableInfo));
+                            List.of(firstTableInfo, secondTableInfo), snapshots, List.of());
                     ConstraintCommandUtils.LockedTables ignored =
                             ConstraintCommandUtils.lockCurrentTables(
                                     lockedDatabases,
@@ -188,9 +198,12 @@ class ConstraintCommandUtilsTest {
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ConstraintCommandUtils.ExternalCatalogSnapshots snapshots =
+                    ConstraintCommandUtils.snapshotExternalCatalogs(
+                            List.of(existingTableInfo, missingTableInfo));
             try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
                     ConstraintCommandUtils.lockCurrentDatabases(
-                            List.of(existingTableInfo, missingTableInfo))) {
+                            List.of(existingTableInfo, missingTableInfo), snapshots, List.of())) {
                 Assertions.assertThrows(DdlException.class,
                         () -> ConstraintCommandUtils.lockCurrentTables(
                                 lockedDatabases,
@@ -211,10 +224,10 @@ class ConstraintCommandUtilsTest {
     }
 
     @Test
-    void externalTableIsResolvedBeforeDatabaseLockWithoutReload() throws Exception {
+    void externalTableUsesAnalyzedObjectWithoutCacheLookup() throws Exception {
         Env env = Mockito.mock(Env.class);
         CatalogMgr catalogManager = Mockito.mock(CatalogMgr.class);
-        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        ExternalCatalog catalog = newExternalCatalog();
         ExternalDatabase<ExternalTable> externalDatabase =
                 Mockito.mock(ExternalDatabase.class);
         ExternalTable externalTable = Mockito.mock(ExternalTable.class);
@@ -222,82 +235,116 @@ class ConstraintCommandUtilsTest {
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogManager);
         Mockito.when(catalogManager.getCatalogOrDdlException("external")).thenReturn(catalog);
         Mockito.when(catalogManager.getCatalog("external")).thenReturn(catalog);
-        Mockito.when(catalog.getName()).thenReturn("external");
-        Mockito.doReturn(externalDatabase)
-                .when(catalog).getDbOrDdlException("db");
-        Mockito.doReturn(externalDatabase)
-                .when(catalog).getDbNullable("db");
-        Mockito.doReturn(Optional.of(externalDatabase))
-                .when(catalog).getDbForReplay("db");
-        Mockito.when(externalDatabase.getId()).thenReturn(1L);
         Mockito.when(externalDatabase.getFullName()).thenReturn("db");
         Mockito.when(externalDatabase.getCatalog()).thenReturn(catalog);
-        Mockito.when(externalDatabase.getTableNullable("tbl")).thenReturn(externalTable);
-        Mockito.when(externalDatabase.getTableForReplay("tbl"))
-                .thenReturn(Optional.of(externalTable));
-        Mockito.when(externalDatabase.getMetadataGeneration()).thenReturn(1L);
         Mockito.when(externalTable.getDatabase()).thenReturn(externalDatabase);
-        Mockito.when(externalTable.getId()).thenReturn(1L);
+        Mockito.when(externalTable.getCatalog()).thenReturn(catalog);
         Mockito.when(externalTable.getName()).thenReturn("tbl");
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ConstraintCommandUtils.ExternalCatalogSnapshots snapshots =
+                    ConstraintCommandUtils.snapshotExternalCatalogs(List.of(tableNameInfo));
             try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
-                    ConstraintCommandUtils.lockCurrentDatabases(List.of(tableNameInfo));
+                    ConstraintCommandUtils.lockCurrentDatabases(
+                            List.of(tableNameInfo), snapshots, List.of(externalTable));
                     ConstraintCommandUtils.LockedTables lockedTables =
                             ConstraintCommandUtils.lockCurrentTables(
                                     lockedDatabases, List.of(tableNameInfo))) {
                 Assertions.assertSame(externalTable, lockedTables.get(tableNameInfo));
             }
 
-            Mockito.verify(externalDatabase, Mockito.times(1)).getTableNullable("tbl");
-            Mockito.verify(externalDatabase, Mockito.times(1)).getTableForReplay("tbl");
-            org.mockito.InOrder lockOrder = Mockito.inOrder(externalDatabase);
-            lockOrder.verify(externalDatabase).getTableNullable("tbl");
-            lockOrder.verify(externalDatabase).readLock();
-            lockOrder.verify(externalDatabase).getTableForReplay("tbl");
-            lockOrder.verify(externalDatabase).readUnlock();
+            Mockito.verify(externalDatabase, Mockito.never()).getTableNullable("tbl");
+            Mockito.verify(externalDatabase, Mockito.never()).getTableForReplay("tbl");
+            Mockito.verify(externalDatabase, Mockito.never()).readLock();
+            Mockito.verify(externalDatabase, Mockito.never()).readUnlock();
             Mockito.verify(externalTable, Mockito.never()).writeLock();
             Mockito.verify(externalTable, Mockito.never()).writeUnlock();
         }
     }
 
     @Test
-    void externalMetadataResetRejectsResolvedTableWithoutReloading() throws Exception {
+    void activeExternalMutationRejectsConstraintLock() throws Exception {
         Env env = Mockito.mock(Env.class);
         CatalogMgr catalogManager = Mockito.mock(CatalogMgr.class);
-        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
-        ExternalDatabase<ExternalTable> externalDatabase =
-                Mockito.mock(ExternalDatabase.class);
-        ExternalTable externalTable = Mockito.mock(ExternalTable.class);
+        ExternalCatalog catalog = newExternalCatalog();
         TableNameInfo tableNameInfo = new TableNameInfo("external", "db", "tbl");
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogManager);
         Mockito.when(catalogManager.getCatalogOrDdlException("external")).thenReturn(catalog);
         Mockito.when(catalogManager.getCatalog("external")).thenReturn(catalog);
-        Mockito.doReturn(externalDatabase)
-                .when(catalog).getDbOrDdlException("db");
-        Mockito.doReturn(externalDatabase)
-                .when(catalog).getDbNullable("db");
-        Mockito.doReturn(Optional.of(externalDatabase))
-                .when(catalog).getDbForReplay("db");
-        Mockito.when(externalDatabase.getId()).thenReturn(1L);
-        Mockito.when(externalDatabase.getTableNullable("tbl")).thenReturn(externalTable);
-        Mockito.when(externalDatabase.getTableForReplay("tbl")).thenReturn(Optional.empty());
-        Mockito.when(externalDatabase.getMetadataGeneration()).thenReturn(1L, 2L);
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
-                    ConstraintCommandUtils.lockCurrentDatabases(List.of(tableNameInfo))) {
+            ConstraintCommandUtils.ExternalCatalogSnapshots snapshots =
+                    ConstraintCommandUtils.snapshotExternalCatalogs(List.of(tableNameInfo));
+            try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                    catalog.beginConstraintMetadataMutation()) {
                 Assertions.assertThrows(
                         DdlException.class,
-                        () -> ConstraintCommandUtils.lockCurrentTables(
-                                lockedDatabases, List.of(tableNameInfo)));
+                        () -> ConstraintCommandUtils.lockCurrentDatabases(
+                                List.of(tableNameInfo), snapshots, List.of()));
             }
         }
-
-        Mockito.verify(externalDatabase, Mockito.times(1)).getTableNullable("tbl");
-        Mockito.verify(externalDatabase, Mockito.times(1)).getTableForReplay("tbl");
     }
 
+    @Test
+    void completedExternalMutationRejectsOldSnapshot() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogManager = Mockito.mock(CatalogMgr.class);
+        ExternalCatalog catalog = newExternalCatalog();
+        TableNameInfo tableNameInfo = new TableNameInfo("external", "db", "tbl");
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogManager);
+        Mockito.when(catalogManager.getCatalogOrDdlException("external")).thenReturn(catalog);
+        Mockito.when(catalogManager.getCatalog("external")).thenReturn(catalog);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ConstraintCommandUtils.ExternalCatalogSnapshots snapshots =
+                    ConstraintCommandUtils.snapshotExternalCatalogs(List.of(tableNameInfo));
+            try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                    catalog.beginConstraintMetadataMutation()) {
+                // Complete one mutation after the constraint analysis baseline.
+            }
+            Assertions.assertThrows(
+                    DdlException.class,
+                    () -> ConstraintCommandUtils.lockCurrentDatabases(
+                            List.of(tableNameInfo), snapshots, List.of()));
+        }
+    }
+
+    @Test
+    void replacedExternalCatalogRejectsOldSnapshot() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr catalogManager = Mockito.mock(CatalogMgr.class);
+        ExternalCatalog original = newExternalCatalog();
+        ExternalCatalog replacement = newExternalCatalog();
+        TableNameInfo tableNameInfo = new TableNameInfo("external", "db", "tbl");
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogManager);
+        Mockito.when(catalogManager.getCatalogOrDdlException("external"))
+                .thenReturn(original);
+        Mockito.when(catalogManager.getCatalog("external")).thenReturn(replacement);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            ConstraintCommandUtils.ExternalCatalogSnapshots snapshots =
+                    ConstraintCommandUtils.snapshotExternalCatalogs(List.of(tableNameInfo));
+
+            Assertions.assertThrows(
+                    DdlException.class,
+                    () -> ConstraintCommandUtils.lockCurrentDatabases(
+                            List.of(tableNameInfo), snapshots, List.of()));
+        }
+    }
+
+    private ExternalCatalog newExternalCatalog() {
+        return new TestExternalCatalog(10L, "external", "",
+                Map.of("catalog_provider.class", EmptyCatalogProvider.class.getName()), "");
+    }
+
+    public static class EmptyCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
+        @Override
+        public Map<String, Map<String, List<Column>>> getMetadata() {
+            return Map.of();
+        }
+    }
 }

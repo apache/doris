@@ -461,6 +461,33 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
     }
 
     @Test
+    void externalConstraintCommandWorksWithoutMetadataCache() throws Exception {
+        Config.edit_log_type = "local";
+        FeConstants.runningUnitTest = true;
+        createCatalog("create catalog extCtlNoCache properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"use_meta_cache\" = \"false\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\""
+                + ");");
+
+        TableNameInfo tableNameInfo =
+                new TableNameInfo("extCtlNoCache", "db1", "tbl11");
+        ConstraintManager manager =
+                Env.getCurrentEnv().getConstraintManager();
+
+        addConstraint("alter table extCtlNoCache.db1.tbl11 "
+                + "add constraint no_cache_pk primary key (a11)");
+        Assertions.assertNotNull(
+                manager.getConstraint(tableNameInfo, "no_cache_pk"));
+
+        dropConstraint("alter table extCtlNoCache.db1.tbl11 "
+                + "drop constraint no_cache_pk");
+        Assertions.assertNull(
+                manager.getConstraint(tableNameInfo, "no_cache_pk"));
+    }
+
+    @Test
     void dropConstraintLogPersistForExternalTest() throws Exception {
         Config.edit_log_type = "local";
         FeConstants.runningUnitTest = true;

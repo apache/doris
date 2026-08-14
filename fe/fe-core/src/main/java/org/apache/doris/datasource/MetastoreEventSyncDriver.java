@@ -247,6 +247,18 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
     // legacy event.process() bodies called, now generalized to work on a flipped catalog.
     private void applyOne(PluginDrivenExternalCatalog catalog, Connector connector,
             MetastoreChangeDescriptor descriptor) throws Exception {
+        if (!affectsConstraintMetadata(descriptor)) {
+            applyOneInternal(catalog, connector, descriptor);
+            return;
+        }
+        try (ExternalCatalog.ConstraintMetadataMutationGuard ignored =
+                catalog.beginConstraintMetadataMutation()) {
+            applyOneInternal(catalog, connector, descriptor);
+        }
+    }
+
+    private void applyOneInternal(PluginDrivenExternalCatalog catalog, Connector connector,
+            MetastoreChangeDescriptor descriptor) throws Exception {
         String catalogName = catalog.getName();
         CatalogMgr catalogMgr = Env.getCurrentEnv().getCatalogMgr();
         invalidateStructuralEventCaches(connector, descriptor);
@@ -295,6 +307,26 @@ public class MetastoreEventSyncDriver extends MasterDaemon {
                 break;
             default:
                 break;
+        }
+    }
+
+    private boolean affectsConstraintMetadata(MetastoreChangeDescriptor descriptor) {
+        switch (descriptor.getOp()) {
+            case REGISTER_DATABASE:
+            case UNREGISTER_DATABASE:
+            case RENAME_DATABASE:
+            case REGISTER_TABLE:
+            case UNREGISTER_TABLE:
+            case RENAME_TABLE:
+            case REFRESH_TABLE:
+                return true;
+            case ADD_PARTITIONS:
+            case DROP_PARTITIONS:
+            case REFRESH_PARTITIONS:
+                return false;
+            default:
+                throw new IllegalStateException(
+                        "Unsupported metastore change op: " + descriptor.getOp());
         }
     }
 

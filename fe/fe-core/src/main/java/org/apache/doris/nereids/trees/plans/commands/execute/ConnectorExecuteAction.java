@@ -38,6 +38,7 @@ import org.apache.doris.connector.spi.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.spi.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.spi.procedure.ProcedureExecutionMode;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.connector.converter.UnboundExpressionToConnectorPredicateConverter;
@@ -155,35 +156,38 @@ public class ConnectorExecuteAction implements ExecuteAction {
         // so it goes to the distributed rewrite driver. Lower a present WHERE to a neutral ConnectorPredicate
         // here (engine half, no iceberg types); the converter is fail-loud, so an unrepresentable WHERE throws
         // rather than silently widening the rewrite scope.
-        if (mode == ProcedureExecutionMode.DISTRIBUTED) {
-            ConnectorPredicate loweredWhere = whereCondition.isPresent()
-                    ? UnboundExpressionToConnectorPredicateConverter.convert(whereCondition.get(), table)
-                    : null;
-            ConnectorRewriteDriver driver = new ConnectorRewriteDriver(ConnectContext.get(), table, catalog,
-                    metadata, procedureOps, session, tableHandle, actionType, properties, partitionNames,
-                    loweredWhere);
+        try (ExternalCatalog.ConstraintMetadataMutationGuard mutationGuard =
+                catalog.beginConstraintMetadataMutation()) {
+            if (mode == ProcedureExecutionMode.DISTRIBUTED) {
+                ConnectorPredicate loweredWhere = whereCondition.isPresent()
+                        ? UnboundExpressionToConnectorPredicateConverter.convert(whereCondition.get(), table)
+                        : null;
+                ConnectorRewriteDriver driver = new ConnectorRewriteDriver(ConnectContext.get(), table, catalog,
+                        metadata, procedureOps, session, tableHandle, actionType, properties, partitionNames,
+                        loweredWhere);
+                try {
+                    ConnectorProcedureResult result = driver.run();
+                    refreshTableCachesAfterMutation();
+                    return wrapResult(result);
+                } catch (DorisConnectorException e) {
+                    throw new UserException(e.getMessage(), e);
+                }
+            }
+
+            // SINGLE_CALL: a synchronous single-result procedure.
             try {
-                ConnectorProcedureResult result = driver.run();
+                ConnectorProcedureResult result = procedureOps.execute(
+                        session, tableHandle, actionType, properties, null, partitionNames);
                 refreshTableCachesAfterMutation();
                 return wrapResult(result);
             } catch (DorisConnectorException e) {
+                // Surface the connector's unchecked exception as a checked UserException so
+                // ExecuteActionCommand.run() catches it and re-wraps it with the legacy "Failed to execute action:"
+                // prefix. Use the plain UserException type the legacy action bodies threw (e.g.
+                // IcebergRollbackToSnapshotAction.executeAction), so getMessage() formats identically; the message
+                // is kept verbatim (the connector preserves the legacy text byte-for-byte — T08 byte-parity).
                 throw new UserException(e.getMessage(), e);
             }
-        }
-
-        // SINGLE_CALL: a synchronous single-result procedure.
-        try {
-            ConnectorProcedureResult result = procedureOps.execute(
-                    session, tableHandle, actionType, properties, null, partitionNames);
-            refreshTableCachesAfterMutation();
-            return wrapResult(result);
-        } catch (DorisConnectorException e) {
-            // Surface the connector's unchecked exception as a checked UserException so
-            // ExecuteActionCommand.run() catches it and re-wraps it with the legacy "Failed to execute action:"
-            // prefix. Use the plain UserException type the legacy action bodies threw (e.g.
-            // IcebergRollbackToSnapshotAction.executeAction), so getMessage() formats identically; the message is
-            // kept verbatim (the connector preserves the legacy text byte-for-byte — T08 byte-parity).
-            throw new UserException(e.getMessage(), e);
         }
     }
 
