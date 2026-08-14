@@ -33,8 +33,9 @@
 3	35
 4	40
 5	50
+
 -- !child_incremental_after_root_complete --
-FAILED	IVM incremental refresh failed for mv=child_ivm_commit_tso, reason=BINLOG_BROKEN, detail=Stream binlog is marked as broken
+FAILED	IVM baseline rebuild is pending for mv=child_ivm_commit_tso; run an AUTO or COMPLETE refresh first
 
 -- !child_auto_refresh_mode --
 COMPLETE
@@ -43,3 +44,4 @@ COMPLETE
 3	35
 4	40
 5	50
+

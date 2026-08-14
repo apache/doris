@@ -87,32 +87,24 @@ suite("test_ivm_drop_column_fallback_reason", "nonConcurrent") {
 
     sql """REFRESH MATERIALIZED VIEW ivm_drop_col_reason_mv INCREMENTAL"""
     taskId = waitForNewTask(taskId)
-    order_qt_strict_task """
-        SELECT Status, RefreshMode, IvmFallbackReason
+    order_qt_after_drop_column_task """
+        SELECT Status
         FROM tasks('type'='mv') WHERE TaskId = '${taskId}'
         ORDER BY TaskId
     """
-
-    sql """REFRESH MATERIALIZED VIEW ivm_drop_col_reason_mv INCREMENTAL FALLBACK"""
-    taskId = waitForNewTask(taskId)
-    order_qt_fallback_task """
-        SELECT Status, RefreshMode, IvmFallbackReason
-        FROM tasks('type'='mv') WHERE TaskId = '${taskId}'
-        ORDER BY TaskId
-    """
-    order_qt_rows_after_fallback """
+    order_qt_rows_after_drop_column """
         SELECT id, value FROM ivm_drop_col_reason_mv ORDER BY id
     """
 
     sql """INSERT INTO ivm_drop_col_reason_t(id, value) VALUES (4, 40)"""
     sql """REFRESH MATERIALIZED VIEW ivm_drop_col_reason_mv INCREMENTAL"""
     taskId = waitForNewTask(taskId)
-    order_qt_recovered_task """
-        SELECT Status, IFNULL(IvmFallbackReason, 'NONE')
+    order_qt_following_incremental_task """
+        SELECT Status
         FROM tasks('type'='mv') WHERE TaskId = '${taskId}'
         ORDER BY TaskId
     """
-    order_qt_rows_after_recovered_incremental """
+    order_qt_rows_after_following_incremental """
         SELECT id, value FROM ivm_drop_col_reason_mv ORDER BY id
     """
 }

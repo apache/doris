@@ -17,14 +17,11 @@
 
 package org.apache.doris.mtmv.ivm;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.job.exception.JobException;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -138,47 +135,6 @@ public class IvmIncrRefreshManager {
             plan = plan.child(0);
         }
         return (LogicalPlan) plan;
-    }
-
-    public static long markIvmBaselineBroken(MTMV mtmv) {
-        mtmv.writeMvLock();
-        try {
-            // Stage a detached metadata snapshot before catalog update and journaling.
-            IvmInfo updatedIvmInfo = new IvmInfo(mtmv.getIvmInfo());
-            if (!updatedIvmInfo.isBinlogBroken()) {
-                updatedIvmInfo.setBinlogBroken(true);
-                persistFullRefreshIvmInfo(mtmv, updatedIvmInfo);
-            }
-            return mtmv.getIvmBinlogBrokenGeneration();
-        } finally {
-            mtmv.writeMvUnlock();
-        }
-    }
-
-    public static void finishIvmFullRefresh(MTMV mtmv, long expectedGeneration,
-            IvmPlanSignature planSignature) throws JobException {
-        Objects.requireNonNull(planSignature, "planSignature can not be null");
-        mtmv.writeMvLock();
-        try {
-            if (expectedGeneration != mtmv.getIvmBinlogBrokenGeneration()) {
-                throw new JobException("Base table metadata changed during COMPLETE refresh, mv="
-                        + mtmv.getName());
-            }
-            IvmInfo updatedIvmInfo = new IvmInfo(mtmv.getIvmInfo());
-            updatedIvmInfo.setPlanSignature(planSignature.getSha256());
-            updatedIvmInfo.setBinlogBroken(false);
-            persistFullRefreshIvmInfo(mtmv, updatedIvmInfo);
-            LOG.info("IVM baseline published after full refresh for mv={}, signature={}, canonicalLayout={}",
-                    mtmv.getName(), updatedIvmInfo.getPlanSignature(),
-                    planSignature.getCanonicalString());
-        } finally {
-            mtmv.writeMvUnlock();
-        }
-    }
-
-    private static void persistFullRefreshIvmInfo(MTMV mtmv, IvmInfo ivmInfo) {
-        TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
-        Env.getCurrentEnv().alterMTMVIvmInfo(tableName, ivmInfo);
     }
 
 }

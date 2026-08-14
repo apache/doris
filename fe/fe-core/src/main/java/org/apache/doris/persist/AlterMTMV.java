@@ -145,7 +145,7 @@ public class AlterMTMV implements Writable {
     }
 
     public void setIvmInfo(IvmInfo ivmInfo) {
-        this.ivmInfo = ivmInfo;
+        this.ivmInfo = ivmInfo == null ? null : new IvmInfo(ivmInfo);
     }
 
     @Override

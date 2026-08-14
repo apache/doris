@@ -25,9 +25,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.EnvInfo;
+import org.apache.doris.mtmv.MTMVAlterOpType;
 import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
@@ -49,6 +51,10 @@ import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
+import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
+import org.apache.doris.persist.AlterMTMV;
+import org.apache.doris.persist.EditLog.EditLogItem;
+import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -234,8 +240,10 @@ public class MTMV extends OlapTable {
         return Config.isCloudMode() ? getNextVersion() : getIvmInfo().getRefreshVersion() + 1;
     }
 
-    public boolean addTaskResult(MTMVTask task, MTMVRelation relation,
-            Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots, boolean isReplay) {
+    public boolean addTaskResult(AlterMTMV alterMTMV, boolean isReplay) {
+        MTMVTask task = alterMTMV.getTask();
+        MTMVRelation relation = alterMTMV.getRelation();
+        Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = alterMTMV.getPartitionSnapshots();
         MTMVCache mtmvCacheWithGuard = null;
         MTMVCache mtmvCacheWithoutGuard = null;
         boolean needUpdateCache = false;
@@ -265,6 +273,7 @@ public class MTMV extends OlapTable {
                 LOG.warn("generate cache failed", e);
             }
         }
+        EditLogItem editLogItem;
         writeMvLock();
         try {
             if (!isReplay && task.getMtmvSchemaChangeVersion() != this.schemaChangeVersion) {
@@ -275,11 +284,22 @@ public class MTMV extends OlapTable {
                         name, task.getTaskId(), task.getMtmvSchemaChangeVersion(), this.schemaChangeVersion);
                 return false;
             }
+            if (isReplay && alterMTMV.getIvmInfo() != null) {
+                // Replay the final IVM state; ADD_TASK does not change schemaChangeVersion.
+                ivmInfo = new IvmInfo(alterMTMV.getIvmInfo());
+            }
             if (task.getStatus() == TaskStatus.SUCCESS) {
                 this.status.setState(MTMVState.NORMAL);
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
+                if (!isReplay && ivmInfo.isEnableIvm()) {
+                    String refreshedIvmPlanSignature = task.getRefreshedIvmPlanSignature();
+                    if (refreshedIvmPlanSignature != null) {
+                        ivmInfo.setPlanSignature(refreshedIvmPlanSignature);
+                    }
+                    ivmInfo.clearBaselineRebuild();
+                }
                 if (needUpdateCache) {
                     if (cacheGeneration == rewriteCacheGeneration) {
                         // Initialize cacheWithGuard, cacheWithoutGuard will be lazily generated when needed
@@ -296,15 +316,26 @@ public class MTMV extends OlapTable {
             this.refreshSnapshot.updateSnapshots(partitionSnapshots, getPartitionNames());
             Env.getCurrentEnv().getMtmvService()
                     .refreshComplete(this, relation, task);
-            return true;
+            if (isReplay) {
+                return true;
+            }
+            if (ivmInfo.isEnableIvm()) {
+                alterMTMV.setIvmInfo(ivmInfo);
+            }
+            editLogItem = submitAlterLog(alterMTMV);
         } finally {
             writeMvUnlock();
         }
+        // Preserve MV-lock order in the journal without waiting while holding the lock.
+        editLogItem.await();
+        return true;
     }
 
-    public Map<String, String> alterMvProperties(Map<String, String> mvProperties) {
+    public void alterMvProperties(AlterMTMV alterMTMV, boolean isReplay) {
+        EditLogItem editLogItem;
         writeMvLock();
         try {
+            Map<String, String> mvProperties = alterMTMV.getMvProperties();
             boolean containsExcludedTriggerTables = mvProperties.containsKey(
                     PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES);
             Set<TableNameInfo> oldExcludedTriggerTables = containsExcludedTriggerTables
@@ -318,12 +349,28 @@ public class MTMV extends OlapTable {
                     // snapshots so the next AUTO refresh rebuilds a complete baseline with the new rules.
                     this.schemaChangeVersion++;
                     this.refreshSnapshot = new MTMVRefreshSnapshot();
+                    if (ivmInfo != null && ivmInfo.isEnableIvm()
+                            && relation != null && relation.getBaseTables() != null) {
+                        for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
+                            TableNameInfo baseTableName = new TableNameInfo(baseTableInfo.getCtlName(),
+                                    baseTableInfo.getDbName(), baseTableInfo.getTableName());
+                            if (MTMVPartitionUtil.isTableExcluded(oldExcludedTriggerTables, baseTableName)
+                                    && !MTMVPartitionUtil.isTableExcluded(newExcludedTriggerTables, baseTableName)) {
+                                ivmInfo.requireCompleteBaselineRebuild();
+                                break;
+                            }
+                        }
+                    }
                 }
             }
-            return this.mvProperties;
+            if (isReplay) {
+                return;
+            }
+            editLogItem = submitAlterLog(alterMTMV);
         } finally {
             writeMvUnlock();
         }
+        editLogItem.await();
     }
 
     public long getGracePeriod() {
@@ -499,39 +546,96 @@ public class MTMV extends OlapTable {
         }
     }
 
+    // ALTER_IVM_INFO replay applies a detached snapshot here. Live IVM changes submit their journal
+    // from the mutating method so mutation and journal enqueue stay under the same MV write lock.
     public void alterIvmInfo(IvmInfo ivmInfo) {
         writeMvLock();
         try {
-            this.ivmInfo = ivmInfo;
+            this.ivmInfo = new IvmInfo(ivmInfo);
         } finally {
             writeMvUnlock();
         }
     }
 
-    public boolean markIvmBinlogBroken() {
+    public void invalidateIvmBaseline() {
+        EditLogItem editLogItem;
         writeMvLock();
         try {
             if (ivmInfo == null) {
                 ivmInfo = new IvmInfo();
             }
-            ivmInfo.increaseBinlogBrokenGeneration();
-            if (ivmInfo.isBinlogBroken()) {
-                return false;
-            }
-            ivmInfo.setBinlogBroken(true);
-            return true;
+            ivmInfo.requireCompleteBaselineRebuild();
+            // Bump the version even when a rebuild is already pending, so a task that started before
+            // this visible base-table change cannot clear the barrier with an old result.
+            schemaChangeVersion++;
+            editLogItem = submitIvmInfoChange();
         } finally {
             writeMvUnlock();
         }
+        editLogItem.await();
     }
 
-    public long getIvmBinlogBrokenGeneration() {
-        readMvLock();
+    public void invalidateIvmBaseline(BaseTableInfo baseTableInfo, Map<String, Long> changedPartitions) {
+        EditLogItem editLogItem;
+        writeMvLock();
         try {
-            return ivmInfo == null ? 0 : ivmInfo.getBinlogBrokenGeneration();
+            if (ivmInfo == null) {
+                ivmInfo = new IvmInfo();
+            }
+            if (mvPartitionInfo.getPartitionType() != MTMVPartitionType.SELF_MANAGE
+                    && mvPartitionInfo.getPctInfos().stream()
+                    .anyMatch(pctInfo -> pctInfo.getTableInfo().equals(baseTableInfo))) {
+                Optional<Set<String>> mvPartitionNames = refreshSnapshot.getMvPartitionNames(baseTableInfo,
+                        changedPartitions);
+                if (mvPartitionNames.isPresent()) {
+                    ivmInfo.addPendingBaselineRebuildPartitions(mvPartitionNames.get());
+                } else {
+                    // Without a snapshot for every changed base partition, a PARTITIONS rebuild is unsafe.
+                    ivmInfo.requireCompleteBaselineRebuild();
+                }
+            } else {
+                ivmInfo.requireCompleteBaselineRebuild();
+            }
+            schemaChangeVersion++;
+            editLogItem = submitIvmInfoChange();
         } finally {
-            readMvUnlock();
+            writeMvUnlock();
         }
+        editLogItem.await();
+    }
+
+    public void persistIvmBaselineGuard(RefreshMode refreshMode, Set<String> baselinePartitions,
+            long expectedSchemaChangeVersion) throws JobException {
+        EditLogItem editLogItem;
+        writeMvLock();
+        try {
+            if (schemaChangeVersion != expectedSchemaChangeVersion) {
+                throw new JobException("Base table metadata changed before IVM baseline refresh, mv=" + getName());
+            }
+            if (refreshMode == RefreshMode.COMPLETE) {
+                ivmInfo.requireCompleteBaselineRebuild();
+            } else {
+                ivmInfo.addPendingBaselineRebuildPartitions(baselinePartitions);
+            }
+            editLogItem = submitIvmInfoChange();
+        } finally {
+            writeMvUnlock();
+        }
+        editLogItem.await();
+    }
+
+    private EditLogItem submitIvmInfoChange() {
+        // The caller has already mutated ivmInfo under the MV write lock. Submit its snapshot directly;
+        // replay later applies the payload through alterIvmInfo().
+        AlterMTMV alterMTMV = new AlterMTMV(
+                new TableNameInfo(getQualifiedDbName(), getName()), MTMVAlterOpType.ALTER_IVM_INFO);
+        alterMTMV.setIvmInfo(ivmInfo);
+        return submitAlterLog(alterMTMV);
+    }
+
+    private EditLogItem submitAlterLog(AlterMTMV alterMTMV) {
+        // Callers hold the MV write lock so journal order matches metadata mutation order.
+        return Env.getCurrentEnv().getEditLog().submitEdit(OperationType.OP_ALTER_MTMV, alterMTMV);
     }
 
     public List<String> getInsertedColumnNames()  {
@@ -549,6 +653,20 @@ public class MTMV extends OlapTable {
         readMvLock();
         try {
             return schemaChangeVersion;
+        } finally {
+            readMvUnlock();
+        }
+    }
+
+    public void validateIvmRefreshStart(long expectedSchemaChangeVersion) throws JobException {
+        readMvLock();
+        try {
+            if (schemaChangeVersion != expectedSchemaChangeVersion) {
+                throw new JobException("Base table metadata changed before IVM refresh, mv=" + getName());
+            }
+            if (ivmInfo != null && ivmInfo.isBaselineRebuildRequired()) {
+                throw new JobException("IVM baseline rebuild is pending, mv=" + getName());
+            }
         } finally {
             readMvUnlock();
         }

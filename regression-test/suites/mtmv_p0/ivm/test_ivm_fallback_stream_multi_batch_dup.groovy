@@ -20,7 +20,7 @@ suite("test_ivm_fallback_stream_multi_batch_dup", "nonConcurrent") {
         return
     }
 
-    def forcedFallbackDebugPoint = "IvmRefreshManager.doRefresh.force_fallback_reason"
+    def forcedFallbackDebugPoint = "IvmIncrRefreshManager.doRefresh.force_fallback_reason"
     GetDebugPoint().disableDebugPointForAllFEs(forcedFallbackDebugPoint)
 
     sql """drop materialized view if exists ivm_fbs_dup_mv;"""
