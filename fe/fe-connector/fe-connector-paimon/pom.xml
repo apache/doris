@@ -284,17 +284,15 @@ under the License.
             <scope>test</scope>
         </dependency>
 
-        <!-- TEST ONLY: the offline FE->BE serde round-trip smoke
-             (PaimonTableSerdeRoundTripTest) builds a REAL local-filesystem catalog and
-             createTable()'s a table; paimon's table writer/validator resolves the default
-             'parquet' FileFormatFactory, which ships in paimon-format. This is already on the FE
-             runtime classpath in fe-core and on BE's paimon-scanner classpath, so it is not a new
-             runtime dependency for the connector — only the offline smoke needs it at test time.
-             Version comes from dependencyManagement (${paimon.version}, R-007). -->
+        <!-- Paimon resolves parquet/orc/blob formats through FileFormatFactory's ServiceLoader.
+             Connector plugins run child-first and cannot rely on fe-core's flat classpath, so the
+             format implementation and its META-INF/services entry must ship in the plugin ZIP.
+             Without this runtime dependency, catalog listing works but loading any parquet-backed
+             table fails with "Could not find any factory for identifier 'parquet'". Version comes
+             from dependencyManagement (${paimon.version}, R-007). -->
         <dependency>
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-format</artifactId>
-            <scope>test</scope>
         </dependency>
 
         <!-- TEST ONLY: the buildRealDataSplit-based tests (count-pushdown / native sub-split /
