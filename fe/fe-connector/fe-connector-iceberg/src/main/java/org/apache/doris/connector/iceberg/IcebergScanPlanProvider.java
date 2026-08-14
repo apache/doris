@@ -427,7 +427,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         IcebergTableHandle icebergHandle = (IcebergTableHandle) request.getTableHandle();
         try {
-            if (session == null) {
+            if (session == null || !session.isExternalScanTaskReuseEnabled()) {
                 return planScanInternal(session, icebergHandle, request.getColumns(),
                         request.getFilter(), request.isCountPushdown());
             }
