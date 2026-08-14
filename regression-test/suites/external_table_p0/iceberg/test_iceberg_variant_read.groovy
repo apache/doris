@@ -897,43 +897,51 @@ public class AppendVariantEqualityDelete {
                         ARRAY(), MAP()),
                 (5, NULL, NULL, NULL)
         """
+        // Spark caches Iceberg snapshots, so refresh after a Doris commit before cross-engine reads.
+        spark_iceberg """REFRESH TABLE demo.${dbName}.variant_nested"""
 
-        List<List<Object>> sparkNestedVariantValues = spark_iceberg """
+        List<List<Object>> sparkNestedContainers = spark_iceberg """
             SELECT id,
                    info.label,
                    variant_get(info.payload, '\$.kind', 'string'),
                    variant_get(info.payload, '\$.n', 'int'),
-                   to_json(events[0]),
-                   events[1] IS NULL,
-                   to_json(events[2]),
-                   to_json(events[3]),
-                   variant_get(attrs['object'], '\$.kind', 'string'),
-                   variant_get(attrs['object'], '\$.n', 'int'),
-                   to_json(attrs['json_null']),
-                   attrs['sql_null'] IS NULL
-            FROM demo.${dbName}.variant_nested
-            WHERE id = 3
-        """
-        assertEquals([[
-                "3", "doris-nested", "struct", "3", "null", "true", '"null"', "{}",
-                "map", "30", "null", "true"
-        ]], sparkNestedVariantValues.collect { row ->
-            row.collect { value -> value == null ? null : value.toString().toLowerCase() }
-        })
-
-        List<List<Object>> sparkNestedContainers = spark_iceberg """
-            SELECT id,
-                   info IS NULL,
+                   info.payload IS NULL,
                    events IS NULL, size(events),
                    attrs IS NULL, size(attrs)
             FROM demo.${dbName}.variant_nested
-            WHERE id IN (4, 5)
+            WHERE id IN (3, 4, 5)
             ORDER BY id
         """
         assertEquals([
-                ["4", "false", "false", "0", "false", "0"],
-                ["5", "true", "true", null, "true", null]
+                ["3", "doris-nested", "struct", "3", "false", "false", "4", "false", "3"],
+                ["4", "empty", null, null, "false", "false", "0", "false", "0"],
+                ["5", null, null, null, "true", "true", null, "true", null]
         ], sparkNestedContainers.collect { row ->
+            row.collect { value -> value == null ? null : value.toString().toLowerCase() }
+        })
+
+        // Iceberg 1.10.1 cannot materialize Variant values from ArrayData/MapData in Spark 4.
+        // Doris still validates every nested value written to the shared Parquet files.
+        List<List<Object>> dorisNestedVariantValues = sql """
+            SELECT id,
+                   CAST(info.payload['kind'] AS STRING),
+                   CAST(info.payload['n'] AS INT),
+                   VARIANT_TYPE(events[1]),
+                   events[2] IS NULL,
+                   VARIANT_TYPE(events[3]),
+                   CAST(events[3] AS STRING),
+                   VARIANT_TYPE(events[4]),
+                   CAST(attrs['object']['kind'] AS STRING),
+                   CAST(attrs['object']['n'] AS INT),
+                   VARIANT_TYPE(attrs['json_null']),
+                   attrs['sql_null'] IS NULL
+            FROM variant_nested
+            WHERE id = 3
+        """
+        assertEquals([[
+                "3", "struct", "3", "null", "true", "string", "null", "object",
+                "map", "30", "null", "true"
+        ]], dorisNestedVariantValues.collect { row ->
             row.collect { value -> value == null ? null : value.toString().toLowerCase() }
         })
 
@@ -966,19 +974,32 @@ public class AppendVariantEqualityDelete {
                     )
                 )
         """
-        List<List<Object>> sparkDeepVariantRows = spark_iceberg """
+        spark_iceberg """REFRESH TABLE demo.${dbName}.variant_nested_deep"""
+        List<List<Object>> sparkDeepContainerRows = spark_iceberg """
             SELECT id,
                    deep.level1[0]['outer'].note,
-                   variant_get(deep.level1[0]['outer'].payload,
-                           '\$.level2.level3.value', 'string'),
-                   deep.level1[0]['outer'].payload IS NULL
+                   size(deep.level1)
             FROM demo.${dbName}.variant_nested_deep
+            ORDER BY id
+        """
+        assertEquals([
+                ["1", "from-doris", "1"],
+                ["2", "sql-null", "1"]
+        ], sparkDeepContainerRows.collect { row ->
+            row.collect { value -> value == null ? null : value.toString().toLowerCase() }
+        })
+        List<List<Object>> dorisDeepVariantRows = sql """
+            SELECT id,
+                   deep.level1[1]['outer'].note,
+                   CAST(deep.level1[1]['outer'].payload['level2']['level3']['value'] AS STRING),
+                   deep.level1[1]['outer'].payload IS NULL
+            FROM variant_nested_deep
             ORDER BY id
         """
         assertEquals([
                 ["1", "from-doris", "deep-ok", "false"],
                 ["2", "sql-null", null, "true"]
-        ], sparkDeepVariantRows.collect { row ->
+        ], dorisDeepVariantRows.collect { row ->
             row.collect { value -> value == null ? null : value.toString().toLowerCase() }
         })
 
@@ -1000,6 +1021,7 @@ public class AppendVariantEqualityDelete {
             WHEN MATCHED THEN UPDATE SET `operation` = s.payload
             WHEN NOT MATCHED THEN INSERT (id, `operation`) VALUES (s.id, s.payload)
         """
+        spark_iceberg """REFRESH TABLE demo.${dbName}.variant_operation_column"""
         List<List<Object>> sparkOperationRows = spark_iceberg """
             SELECT id,
                    variant_get(`operation`, '\$.stage', 'string'),
@@ -1065,6 +1087,7 @@ public class AppendVariantEqualityDelete {
             WHEN MATCHED THEN UPDATE SET payload = t.payload
             WHEN NOT MATCHED THEN INSERT (id, payload) VALUES (s.id, 1)
         """
+        spark_iceberg """REFRESH TABLE demo.${dbName}.variant_doris_write"""
         List<List<Object>> sparkUnchangedMergeVariant = spark_iceberg """
             SELECT variant_get(payload, '\$.name', 'string'),
                    variant_get(payload, '\$.n', 'int'),
@@ -1100,9 +1123,10 @@ public class AppendVariantEqualityDelete {
                     DISTRIBUTED BY HASH(id) BUCKETS 1
                     PROPERTIES ("replication_num" = "1")
                 """
+                // Let the sink build the parameterized legacy Variant used by the target column.
                 sql """
                     INSERT INTO internal.${internalVariantDbName}.variant_source VALUES
-                        (1, PARSE_TO_VARIANT('{"name":"legacy"}'))
+                        (1, '{"name":"legacy"}')
                 """
 
                 sql """DROP TABLE IF EXISTS variant_doris_legacy_write"""
@@ -1127,19 +1151,21 @@ public class AppendVariantEqualityDelete {
                 """
                 assertEquals("0", sparkLegacyVariantRows[0][0].toString())
 
+                // Legacy execution rejects nested Variant containers before Iceberg sink analysis.
                 test {
                     sql """
                         INSERT INTO variant_nested_legacy_guard
                         SELECT id, ARRAY(payload)
                         FROM internal.${internalVariantDbName}.variant_source
                     """
-                    exception "Writing legacy Doris VARIANT to Iceberg VARIANT column 'events[]' is not supported"
+                    exception "array does not support jsonb/variant type"
                 }
                 List<List<Object>> sparkLegacyNestedRows = spark_iceberg """
                     SELECT COUNT(*) FROM demo.${dbName}.variant_nested_legacy_guard
                 """
                 assertEquals("0", sparkLegacyNestedRows[0][0].toString())
 
+                // MERGE materializes the compute-only target before sink-specific validation.
                 test {
                     sql """
                         MERGE INTO variant_operation_column t
@@ -1147,7 +1173,7 @@ public class AppendVariantEqualityDelete {
                         ON t.id = s.id
                         WHEN MATCHED THEN UPDATE SET `operation` = s.payload
                     """
-                    exception "Writing legacy Doris VARIANT to Iceberg VARIANT column 'operation' is not supported"
+                    exception "Cast between legacy Variant and compute-only Variant V2 is not supported"
                 }
                 List<List<Object>> sparkOperationAfterRejectedMerge = spark_iceberg """
                     SELECT variant_get(`operation`, '\$.stage', 'string')

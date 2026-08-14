@@ -131,6 +131,9 @@ true	5	170	4.17
 -- !variant_nested_projection --
 1	first	{"deep":{"name":"inside"},"x":11}	{"kind":"open","score":101}	{"enabled":true,"score":1001}
 2	second	\N	null	{"enabled":false,"score":2002}
+3	doris-nested	{"kind":"struct","n":3}	null	\N
+4	empty	{}	\N	\N
+5	\N	\N	\N	\N
 
 -- !variant_nested_filter --
 1
@@ -138,6 +141,9 @@ true	5	170	4.17
 -- !variant_nested_expressions --
 1	11	inside	open	\N	true	1002
 2	\N	\N	\N	202	false	2003
+3	\N	\N	\N	\N	\N	\N
+4	\N	\N	\N	\N	\N	\N
+5	\N	\N	\N	\N	\N	\N
 
 -- !variant_evolution_renamed_snapshot --
 1	initial	10	v1
