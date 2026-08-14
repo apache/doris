@@ -455,7 +455,7 @@ TEST(RateLimitedObjStorageClientTest, recursive_delete_charges_one_put_qps) {
     EXPECT_EQ(4, fake->delete_objects_recursively_provider_calls);
 }
 
-TEST(RateLimitedObjStorageClientTest, azure_noop_multipart_create_charges_one_put_qps) {
+TEST(RateLimitedObjStorageClientTest, multipart_create_charges_one_logical_put_qps) {
     RateLimiterConfigGuard guard;
     config::enable_s3_rate_limiter = true;
     auto& manager = S3RateLimiterManager::instance();
@@ -463,20 +463,20 @@ TEST(RateLimitedObjStorageClientTest, azure_noop_multipart_create_charges_one_pu
     manager.bytes_limiter(S3RateLimitType::PUT)->reset(0, 0, 0);
 
     auto fake = std::make_shared<FakeObjStorageClient>();
-    // Azure implements create_multipart_upload as a provider-side no-op.
-    fake->create_multipart_upload_provider_calls_per_logical_call = 0;
+    // Provider coordination may need multiple requests, but admission remains per logical API call.
+    fake->create_multipart_upload_provider_calls_per_logical_call = 2;
     RateLimitedObjStorageClient client(fake);
     ObjectStoragePathOptions opts {.bucket = "b", .key = "k"};
 
     EXPECT_EQ(0, client.create_multipart_upload(opts).resp.status.code);
     EXPECT_EQ(1, fake->create_multipart_upload_calls);
-    EXPECT_EQ(0, fake->create_multipart_upload_provider_calls);
+    EXPECT_EQ(2, fake->create_multipart_upload_provider_calls);
 
     auto resp = client.create_multipart_upload(opts);
     EXPECT_EQ(ErrorCode::EXCEEDED_LIMIT, resp.resp.status.code);
     EXPECT_EQ(0, resp.resp.http_code);
     EXPECT_EQ(1, fake->create_multipart_upload_calls);
-    EXPECT_EQ(0, fake->create_multipart_upload_provider_calls);
+    EXPECT_EQ(2, fake->create_multipart_upload_provider_calls);
 }
 
 TEST(RateLimitedObjStorageClientTest, presigned_url_bypasses_rate_limiters) {

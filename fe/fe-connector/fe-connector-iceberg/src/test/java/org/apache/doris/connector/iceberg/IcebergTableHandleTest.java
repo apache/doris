@@ -58,6 +58,17 @@ public class IcebergTableHandleTest {
     }
 
     @Test
+    public void explicitEmptySnapshotIsDistinctFromNoPin() {
+        IcebergTableHandle bare = new IcebergTableHandle("db1", "t1");
+        IcebergTableHandle empty = bare.withSnapshot(-1L, null, -1L);
+
+        Assertions.assertFalse(empty.hasSnapshotPin());
+        Assertions.assertFalse(empty.hasSnapshotSelection());
+        Assertions.assertTrue(empty.isSnapshotResolved());
+        Assertions.assertNotEquals(bare, empty);
+    }
+
+    @Test
     public void withSnapshotPinsByRef() {
         IcebergTableHandle pinned = new IcebergTableHandle("db1", "t1").withSnapshot(7L, "b1", 2L);
         // WHY: a tag/branch read pins by REF (useRef), so a ref pin alone must count as a pin even if an id is

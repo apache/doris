@@ -398,4 +398,14 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
         Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
     }
+
+    @Test
+    public void testCoordinatorThriftLimitPropagatesToBackends() {
+        TQueryOptions queryOptions = new SessionVariable().toThrift();
+
+        Assertions.assertTrue(queryOptions.isSetCoordinatorThriftMaxMessageSize());
+        Assertions.assertEquals(Config.thrift_max_message_size,
+                queryOptions.getCoordinatorThriftMaxMessageSize());
+        Assertions.assertTrue(queryOptions.isSupportsExternalFileReportAck());
+    }
 }

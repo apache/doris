@@ -404,6 +404,23 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void explicitEmptySnapshotDoesNotDriftToFirstConcurrentCommit() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergTableHandle emptyPin = new IcebergTableHandle("db1", "t1")
+                .withSnapshot(-1L, null, -1L);
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/concurrent.parquet", 1024, null, null)).commit();
+        // Keep construction behind the shared helper so catalog-property API migrations do not break this test.
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(emptyPin, Collections.emptyList()).build());
+
+        Assertions.assertTrue(ranges.isEmpty(),
+                "an explicit empty MVCC pin must not be replaced by the table's first snapshot");
+    }
+
+    @Test
     public void planScanRewriteFileScopeKeepsOnlyRawScopedFiles() {
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         // oss:// data-file paths: the context normalizes oss:// -> s3:// for the BE-facing range path, so this

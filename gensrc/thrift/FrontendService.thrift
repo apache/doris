@@ -183,6 +183,8 @@ struct TListPrivilegesResult{
 struct TReportExecStatusResult {
   // required in V1
   1: optional Status.TStatus status
+  // Set only after FE accepts the external-file commit vectors for this report.
+  2: optional bool external_file_commit_data_accepted
 }
 
 // Service Protocol Details

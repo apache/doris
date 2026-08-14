@@ -55,7 +55,11 @@ final class HiveWriteUtils {
                 THivePartitionUpdate old = merged.get(pu.getName());
                 old.setFileSize(old.getFileSize() + pu.getFileSize());
                 old.setRowCount(old.getRowCount() + pu.getRowCount());
-                if (old.getS3MpuPendingUploads() != null && pu.getS3MpuPendingUploads() != null) {
+                if (pu.getS3MpuPendingUploads() != null && !pu.getS3MpuPendingUploads().isEmpty()) {
+                    // A missing legacy list is empty state, not ownership of later completion records.
+                    if (old.getS3MpuPendingUploads() == null) {
+                        old.setS3MpuPendingUploads(new ArrayList<>());
+                    }
                     old.getS3MpuPendingUploads().addAll(pu.getS3MpuPendingUploads());
                 }
                 old.getFileNames().addAll(pu.getFileNames());

@@ -631,6 +631,10 @@ public:
     [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos) {
         return state->minimum_operator_memory_required_bytes();
     }
+    [[nodiscard]] virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos,
+                                                      const Block* block) {
+        return get_reserve_mem_size(state, eos);
+    }
     bool is_blockable(RuntimeState* state) const override {
         return state->get_sink_local_state()->is_blockable();
     }
