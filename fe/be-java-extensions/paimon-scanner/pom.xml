@@ -171,6 +171,68 @@ under the License.
         </dependency>
         <!-- Huawei OBS: hadoop-huaweicloud lives in the `obs` profile below;
              disabled via -Ddisable.obs=true (build.sh exclude-obs-dependencies flag). -->
+
+        <!--
+          Paimon shades parquet, but not the hadoop classes parquet extends: inside paimon-format
+          org.apache.paimon.shade.org.apache.parquet.hadoop.ParquetInputFormat is still an
+          org.apache.hadoop.mapreduce.lib.input.FileInputFormat. Every parquet split goes through
+          ParquetReadOptions.Builder, which calls ParquetInputFormat.getFilter, so resolving that
+          call loads the hadoop superclass - on the read path, not just the write path this artifact
+          was first added for. parquet is also file.format's default, so a plugin directory without
+          this dies on the first data file it opens with "NoClassDefFoundError:
+          org/apache/hadoop/mapreduce/lib/input/FileInputFormat".
+
+          It was test scope until an end-to-end paimon scan said otherwise. Surefire puts test
+          dependencies on the test classpath, so readsBackWhatItWrote - which does read a real
+          parquet file - stayed green while the deployed plugin could not read one at all; runtime
+          scope is what makes those two classpaths agree.
+        -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-core</artifactId>
+            <scope>runtime</scope>
+            <!--
+              Only the class hierarchy is wanted, and it is entirely inside this one jar. What the
+              artifact drags behind it is a job client: YARN, its jersey/guice/jaxb web stack,
+              jetty's websocket client and netty-all - 53 more jars for a superclass, none of them
+              reachable from a scanner that never submits a job.
+
+              slf4j-reload4j and the reload4j it binds are the reason this is not merely wasteful:
+              a second slf4j provider in the directory is a coin flip over which one wins, and the
+              plugin's logging only reaches log/jni.log through slf4j-jdk14 - which is also why
+              hadoop-common above excludes reload4j.
+
+              hadoop-hdfs-client is excluded on the same principle as elsewhere in this file: hdfs://
+              arrives through the explicit declaration above and nowhere else.
+            -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-hdfs-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-yarn-client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-yarn-common</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-reload4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.google.inject.extensions</groupId>
+                    <artifactId>guice-servlet</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>netty-all</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
         <!--
           The AWS SDK hadoop-aws runs on. fe/pom.xml excludes hadoop-aws's own dependency on the
           monolithic software.amazon.awssdk:bundle, so the modules it actually uses are named here:
@@ -233,29 +295,6 @@ under the License.
             <artifactId>log4j-to-slf4j</artifactId>
             <version>${log4j2.version}</version>
             <scope>runtime</scope>
-        </dependency>
-        <!--
-          Test only, and deliberately: the end-to-end test has to write a table before it can read
-          one back, and Paimon's writer references org.apache.hadoop.mapreduce FileInputFormat.
-          BE only ever reads, so this must not end up in the plugin directory - the FE paimon
-          connector reached the same conclusion for the same reason.
-        -->
-        <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-mapreduce-client-core</artifactId>
-            <scope>test</scope>
-            <!--
-              It carries hadoop-hdfs-client, which would put DistributedFileSystem on the test
-              classpath no matter what this pom declares - and the scheme test above would then
-              pass whether or not the plugin directory has it. Verified by deleting the real
-              declaration and watching that test stay green.
-            -->
-            <exclusions>
-                <exclusion>
-                    <groupId>org.apache.hadoop</groupId>
-                    <artifactId>hadoop-hdfs-client</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
