@@ -512,6 +512,8 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
                 location, symbol, null, null);
         function.setChecksum(checksum);
         function.setNullableMode(returnNullMode);
+        function.setStaticLoad(isStaticLoad);
+        function.setExpirationTime(expirationTime);
         function.setUDTFunction(true);
         function.setRuntimeVersion(runtimeVersion);
         function.setFunctionCode(functionCode);
