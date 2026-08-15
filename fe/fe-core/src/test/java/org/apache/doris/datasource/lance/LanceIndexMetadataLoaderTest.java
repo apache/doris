@@ -33,6 +33,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class LanceIndexMetadataLoaderTest {
 
@@ -53,7 +54,7 @@ public class LanceIndexMetadataLoaderTest {
     }
 
     @Test
-    public void testDescribeUserIndexesSkipsSystemIndexesAndDeduplicatesNames() {
+    public void testDescribeUserIndexesSkipsSystemIndexesAndDeduplicatesPhysicalEntries() {
         Dataset dataset = Mockito.mock(Dataset.class);
         IndexDescription first = description(
                 "first_idx", Collections.singletonList(1), "BTREE", null);
@@ -61,7 +62,7 @@ public class LanceIndexMetadataLoaderTest {
                 "__user_idx", Collections.singletonList(2), "BTREE", null);
         Mockito.when(dataset.listIndexes()).thenReturn(Arrays.asList(
                 "__lance_frag_reuse", "first_idx", "__lance_mem_wal",
-                "first_idx", "__mem_wal", "__user_idx"));
+                "first_idx", "__user_idx"));
         Mockito.when(dataset.describeIndices(Mockito.any(IndexCriteria.class)))
                 .thenAnswer(invocation -> {
                     IndexCriteria criteria = invocation.getArgument(0);
@@ -88,7 +89,7 @@ public class LanceIndexMetadataLoaderTest {
     public void testDescribeUserIndexesReturnsEmptyForOnlySystemIndexes() {
         Dataset dataset = Mockito.mock(Dataset.class);
         Mockito.when(dataset.listIndexes()).thenReturn(Arrays.asList(
-                "__lance_frag_reuse", "__lance_mem_wal", "__mem_wal",
+                "__lance_frag_reuse", "__lance_mem_wal",
                 "__lance_frag_reuse"));
 
         Assertions.assertTrue(
@@ -100,13 +101,30 @@ public class LanceIndexMetadataLoaderTest {
     }
 
     @Test
+    public void testShortMemWalNameIsNotTreatedAsSystemIndex() {
+        Dataset dataset = Mockito.mock(Dataset.class);
+        IndexDescription userDescription = description(
+                "__mem_wal", Collections.singletonList(1), "BTREE", null);
+        Mockito.when(dataset.listIndexes())
+                .thenReturn(Collections.singletonList("__mem_wal"));
+        Mockito.when(dataset.describeIndices(Mockito.any(IndexCriteria.class)))
+                .thenReturn(Collections.singletonList(userDescription));
+
+        Assertions.assertEquals(Collections.singletonList(userDescription),
+                LanceIndexMetadataLoader.describeUserIndexes(dataset));
+        Mockito.verify(dataset).describeIndices(Mockito.argThat(criteria ->
+                criteria.getHasName().filter("__mem_wal"::equals).isPresent()));
+    }
+
+    @Test
     public void testDescribeUserIndexesEnforcesUniqueUserIndexLimitBeforeDescribe() {
         Dataset atLimitDataset = Mockito.mock(Dataset.class);
         List<String> atLimitNames = new ArrayList<>();
         for (int index = 0; index < 256; ++index) {
             atLimitNames.add("idx_" + index);
         }
-        atLimitNames.add("idx_0");
+        atLimitNames.addAll(Arrays.asList(
+                "__lance_frag_reuse", "__lance_mem_wal"));
         Mockito.when(atLimitDataset.listIndexes()).thenReturn(atLimitNames);
         Mockito.when(atLimitDataset.describeIndices(Mockito.any(IndexCriteria.class)))
                 .thenAnswer(invocation -> {
@@ -130,6 +148,27 @@ public class LanceIndexMetadataLoaderTest {
                 IllegalArgumentException.class,
                 () -> LanceIndexMetadataLoader.describeUserIndexes(overLimitDataset));
         Assertions.assertTrue(exception.getMessage().contains("256"));
+        Mockito.verify(overLimitDataset, Mockito.never())
+                .describeIndices(Mockito.any(IndexCriteria.class));
+    }
+
+    @Test
+    public void testDescribeUserIndexesBoundsRawPhysicalEntriesIncludingSystemEntries() {
+        Dataset atLimitDataset = Mockito.mock(Dataset.class);
+        Mockito.when(atLimitDataset.listIndexes()).thenReturn(
+                Collections.nCopies(16384, "__lance_frag_reuse"));
+        Assertions.assertTrue(
+                LanceIndexMetadataLoader.describeUserIndexes(atLimitDataset).isEmpty());
+
+        Dataset overLimitDataset = Mockito.mock(Dataset.class);
+        Mockito.when(overLimitDataset.listIndexes()).thenReturn(
+                Collections.nCopies(16385, "__lance_frag_reuse"));
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceIndexMetadataLoader.describeUserIndexes(overLimitDataset));
+
+        Assertions.assertTrue(exception.getMessage().contains("16384"));
         Mockito.verify(overLimitDataset, Mockito.never())
                 .describeIndices(Mockito.any(IndexCriteria.class));
     }
@@ -167,6 +206,47 @@ public class LanceIndexMetadataLoaderTest {
                 .thenThrow(sdkFailure);
         Assertions.assertSame(sdkFailure, Assertions.assertThrows(RuntimeException.class,
                 () -> LanceIndexMetadataLoader.describeUserIndexes(failingDataset)));
+    }
+
+    @Test
+    public void testDescribeUserIndexesRequiresExactlyOneMatchingDescription() {
+        IndexDescription requested = description(
+                "user_idx", Collections.singletonList(1), "BTREE", null);
+        for (List<IndexDescription> invalidDescriptions : Arrays.<List<IndexDescription>>asList(
+                Collections.emptyList(), Arrays.asList(requested, requested))) {
+            Dataset dataset = Mockito.mock(Dataset.class);
+            Mockito.when(dataset.listIndexes())
+                    .thenReturn(Collections.singletonList("user_idx"));
+            Mockito.when(dataset.describeIndices(Mockito.any(IndexCriteria.class)))
+                    .thenReturn(invalidDescriptions);
+
+            IllegalArgumentException exception = Assertions.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> LanceIndexMetadataLoader.describeUserIndexes(dataset));
+            Assertions.assertTrue(exception.getMessage().contains("exactly one"));
+        }
+
+        Dataset nullDescriptionDataset = Mockito.mock(Dataset.class);
+        Mockito.when(nullDescriptionDataset.listIndexes())
+                .thenReturn(Collections.singletonList("user_idx"));
+        Mockito.when(nullDescriptionDataset.describeIndices(Mockito.any(IndexCriteria.class)))
+                .thenReturn(Collections.singletonList(null));
+        IllegalArgumentException nullDescription = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceIndexMetadataLoader.describeUserIndexes(nullDescriptionDataset));
+        Assertions.assertTrue(nullDescription.getMessage().contains("must not be null"));
+
+        Dataset mismatchedNameDataset = Mockito.mock(Dataset.class);
+        Mockito.when(mismatchedNameDataset.listIndexes())
+                .thenReturn(Collections.singletonList("user_idx"));
+        Mockito.when(mismatchedNameDataset.describeIndices(Mockito.any(IndexCriteria.class)))
+                .thenReturn(Collections.singletonList(description(
+                        "different_idx", Collections.singletonList(1), "BTREE", null)));
+        IllegalArgumentException mismatchedName = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceIndexMetadataLoader.describeUserIndexes(mismatchedNameDataset));
+        Assertions.assertTrue(mismatchedName.getMessage().contains(
+                "does not match requested name"));
     }
 
     @Test
@@ -291,6 +371,45 @@ public class LanceIndexMetadataLoaderTest {
     }
 
     @Test
+    public void testRejectsSchemaDepthOverLimit() {
+        Map<Integer, String> atLimit = LanceIndexMetadataLoader.buildFieldNamesById(
+                Collections.singletonList(nestedFieldChain(64)));
+        Assertions.assertEquals(64, atLimit.size());
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceIndexMetadataLoader.buildFieldNamesById(
+                        Collections.singletonList(nestedFieldChain(65))));
+        Assertions.assertTrue(exception.getMessage().contains("depth"));
+        Assertions.assertTrue(exception.getMessage().contains("64"));
+    }
+
+    @Test
+    public void testRejectsAggregateSchemaFieldCountOverLimit() {
+        LanceField root = field(0, "root");
+        LanceField repeatedChild = field(1, "child");
+        AtomicInteger childId = new AtomicInteger();
+        Mockito.when(repeatedChild.getId()).thenAnswer(
+                invocation -> childId.incrementAndGet());
+
+        Mockito.when(root.getChildren()).thenReturn(
+                Collections.nCopies(16383, repeatedChild));
+        Map<Integer, String> atLimit = LanceIndexMetadataLoader.buildFieldNamesById(
+                Collections.singletonList(root));
+        Assertions.assertEquals(16384, atLimit.size());
+
+        childId.set(0);
+        Mockito.when(root.getChildren()).thenReturn(
+                Collections.nCopies(16384, repeatedChild));
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceIndexMetadataLoader.buildFieldNamesById(
+                        Collections.singletonList(root)));
+        Assertions.assertTrue(exception.getMessage().contains("field count"));
+        Assertions.assertTrue(exception.getMessage().contains("16384"));
+    }
+
+    @Test
     public void testRejectsUnknownDuplicateNullAndEmptyFieldIds() {
         IllegalArgumentException unknown = Assertions.assertThrows(
                 IllegalArgumentException.class,
@@ -396,6 +515,29 @@ public class LanceIndexMetadataLoaderTest {
                 () -> LanceIndexMetadataLoader.normalize(
                         Collections.singletonList(description(
                                 "wide", fieldIds, "BTREE", null)), fields));
+        Assertions.assertTrue(exception.getMessage().contains("16384"));
+    }
+
+    @Test
+    public void testRejectsAggregateColumnNameBytesAcrossIndexes() {
+        List<Integer> firstFieldIds = new ArrayList<>();
+        List<Integer> secondFieldIds = new ArrayList<>();
+        Map<Integer, String> fields = new HashMap<>();
+        for (int id = 1; id <= 18; ++id) {
+            if (id <= 9) {
+                firstFieldIds.add(id);
+            } else {
+                secondFieldIds.add(id);
+            }
+            fields.put(id, repeat("x", 1024));
+        }
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceIndexMetadataLoader.normalize(Arrays.asList(
+                        description("first", firstFieldIds, "BTREE", null),
+                        description("second", secondFieldIds, "BTREE", null)), fields));
+        Assertions.assertTrue(exception.getMessage().contains("aggregate"));
         Assertions.assertTrue(exception.getMessage().contains("16384"));
     }
 
@@ -559,6 +701,19 @@ public class LanceIndexMetadataLoaderTest {
         Mockito.when(field.getName()).thenReturn(name);
         Mockito.when(field.getChildren()).thenReturn(Collections.emptyList());
         return field;
+    }
+
+    private static LanceField nestedFieldChain(int depth) {
+        LanceField child = null;
+        for (int level = depth; level >= 1; --level) {
+            LanceField parent = field(level, "level_" + level);
+            if (child != null) {
+                Mockito.when(parent.getChildren())
+                        .thenReturn(Collections.singletonList(child));
+            }
+            child = parent;
+        }
+        return child;
     }
 
     private static Map<Integer, String> fieldNames(String... names) {
