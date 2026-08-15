@@ -112,6 +112,7 @@ int main(int argc, char** argv) {
 
     int res = RUN_ALL_TESTS();
 
+    service->stop();
     doris::ExecEnv::GetInstance()->set_non_block_close_thread_pool(nullptr);
     return res;
 }

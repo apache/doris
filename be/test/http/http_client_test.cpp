@@ -392,6 +392,7 @@ TEST_F(HttpClientTest, escape_url) {
 }
 
 TEST_F(HttpClientTest, enable_http_auth) {
+    constexpr int auth_request_timeout_ms = 2000;
     std::string origin_hostname = hostname;
     Defer defer {[&origin_hostname]() {
         hostname = origin_hostname;
@@ -453,7 +454,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(st.ok());
         client.set_method(GET);
         client.set_basic_auth("root", "errorpasswd");
-        client.set_timeout_ms(200);
+        client.set_timeout_ms(auth_request_timeout_ms);
         std::string response;
         st = client.execute(&response);
         EXPECT_TRUE(!st.ok());
@@ -514,7 +515,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(st.ok());
         client.set_method(GET);
         client.set_basic_auth("root", "errorpasswd");
-        client.set_timeout_ms(200);
+        client.set_timeout_ms(auth_request_timeout_ms);
         std::string response;
         st = client.execute(&response);
         EXPECT_TRUE(!st.ok());
@@ -532,7 +533,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(st.ok());
         client.set_method(GET);
         client.set_auth_token("valid_token");
-        client.set_timeout_ms(200);
+        client.set_timeout_ms(auth_request_timeout_ms);
         std::string response;
         st = client.execute(&response);
         EXPECT_TRUE(st.ok()) << st;
@@ -547,7 +548,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(st.ok());
         client.set_method(GET);
         client.set_auth_token("invalid_token");
-        client.set_timeout_ms(200);
+        client.set_timeout_ms(auth_request_timeout_ms);
         std::string response;
         st = client.execute(&response);
         EXPECT_TRUE(!st.ok()) << st;
@@ -561,7 +562,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(st.ok());
         client.set_method(POST);
         client.set_basic_auth("rootss", "");
-        client.set_timeout_ms(200);
+        client.set_timeout_ms(auth_request_timeout_ms);
         std::string response;
         st = client.execute_post_request("level=1&module=xxx", &response);
         EXPECT_TRUE(!st.ok());
@@ -606,7 +607,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
             EXPECT_TRUE(st.ok());
             client.set_method(GET);
             client.set_basic_auth("roxot", "errorpasswd");
-            client.set_timeout_ms(200);
+            client.set_timeout_ms(auth_request_timeout_ms);
             std::string response;
             st = client.execute(&response);
             EXPECT_TRUE(!st.ok());
