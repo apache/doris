@@ -255,14 +255,16 @@ Status make_plain_fixture(ColumnChunkFixture* fixture, int page_count = 1) {
     return Status::OK();
 }
 
-Status make_empty_boolean_v2_fixture(bool is_null, ColumnChunkFixture* fixture) {
+Status make_empty_boolean_v2_fixture(bool is_null, bool is_required, ColumnChunkFixture* fixture) {
     BlockCompressionCodec* codec = nullptr;
     RETURN_IF_ERROR(get_block_compression_codec(segment_v2::CompressionTypePB::SNAPPY, &codec));
     const uint8_t unused = 0;
     faststring compressed_values;
     RETURN_IF_ERROR(codec->compress(Slice(&unused, 0), &compressed_values));
 
-    const std::vector<uint8_t> definition_levels {2, static_cast<uint8_t>(is_null ? 0 : 1)};
+    const std::vector<uint8_t> definition_levels =
+            is_required ? std::vector<uint8_t> {}
+                        : std::vector<uint8_t> {2, static_cast<uint8_t>(is_null ? 0 : 1)};
     std::vector<uint8_t> payload = definition_levels;
     if (compressed_values.size() != 0) {
         payload.insert(payload.end(), compressed_values.data(),
@@ -297,7 +299,7 @@ Status make_empty_boolean_v2_fixture(bool is_null, ColumnChunkFixture* fixture) 
     metadata.__set_total_compressed_size(data_page_size);
 
     fixture->field_schema.physical_type = tparquet::Type::BOOLEAN;
-    fixture->field_schema.definition_level = 1;
+    fixture->field_schema.definition_level = is_required ? 0 : 1;
     return Status::OK();
 }
 
@@ -438,7 +440,7 @@ TEST(ParquetColumnChunkReaderTest, FailedDictionaryCheckCanBeRetried) {
 
 TEST(ParquetColumnChunkReaderTest, CompressedV2AllNullBooleanAcceptsEmptyValueSection) {
     ColumnChunkFixture fixture;
-    ASSERT_TRUE(make_empty_boolean_v2_fixture(true, &fixture).ok());
+    ASSERT_TRUE(make_empty_boolean_v2_fixture(true, false, &fixture).ok());
     CountingBufferedReader buffered_reader(std::move(fixture.data));
     ParquetPageReadContext page_read_ctx(false);
     ColumnChunkReader<false, false> reader(&buffered_reader, &fixture.chunk, &fixture.field_schema,
@@ -464,7 +466,7 @@ TEST(ParquetColumnChunkReaderTest, CompressedV2AllNullBooleanAcceptsEmptyValueSe
 
 TEST(ParquetColumnChunkReaderTest, CompressedV2NonNullBooleanRejectsEmptyValueSection) {
     ColumnChunkFixture fixture;
-    ASSERT_TRUE(make_empty_boolean_v2_fixture(false, &fixture).ok());
+    ASSERT_TRUE(make_empty_boolean_v2_fixture(false, false, &fixture).ok());
     CountingBufferedReader buffered_reader(std::move(fixture.data));
     ParquetPageReadContext page_read_ctx(false);
     ColumnChunkReader<false, false> reader(&buffered_reader, &fixture.chunk, &fixture.field_schema,
@@ -475,6 +477,31 @@ TEST(ParquetColumnChunkReaderTest, CompressedV2NonNullBooleanRejectsEmptyValueSe
     ASSERT_TRUE(reader.load_page_data().ok());
     EXPECT_TRUE(reader.skip_values(1).is<ErrorCode::CORRUPTION>());
     EXPECT_EQ(reader.remaining_num_values(), 1);
+
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(nullptr, 0, false).ok());
+    ColumnSelectVector select_vector;
+    const std::vector<uint16_t> null_map {1};
+    ASSERT_TRUE(select_vector.init(null_map, 1, nullptr, &filter_map, 0).ok());
+    MutableColumnPtr column = ColumnUInt8::create();
+    DataTypePtr data_type = std::make_shared<DataTypeUInt8>();
+    EXPECT_TRUE(reader.decode_values(column, data_type, select_vector, false)
+                        .is<ErrorCode::CORRUPTION>());
+    EXPECT_EQ(reader.remaining_num_values(), 1);
+    EXPECT_TRUE(column->empty());
+}
+
+TEST(ParquetColumnChunkReaderTest, CompressedV2RequiredBooleanRejectsEmptyValueSection) {
+    ColumnChunkFixture fixture;
+    ASSERT_TRUE(make_empty_boolean_v2_fixture(false, true, &fixture).ok());
+    CountingBufferedReader buffered_reader(std::move(fixture.data));
+    ParquetPageReadContext page_read_ctx(false);
+    ColumnChunkReader<false, false> reader(&buffered_reader, &fixture.chunk, &fixture.field_schema,
+                                           nullptr, 1, nullptr, page_read_ctx);
+
+    ASSERT_TRUE(reader.init().ok());
+    ASSERT_TRUE(reader.parse_page_header().ok());
+    ASSERT_TRUE(reader.load_page_data().ok());
 
     FilterMap filter_map;
     ASSERT_TRUE(filter_map.init(nullptr, 0, false).ok());

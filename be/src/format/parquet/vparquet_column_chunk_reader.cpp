@@ -398,10 +398,11 @@ Status ColumnChunkReader<IN_COLLECTION, OFFSET_INDEX>::load_page_data() {
         _decoders[static_cast<int>(encoding)] = std::move(page_decoder);
         encoding_decoder = _decoders[static_cast<int>(encoding)].get();
     }
-    _empty_value_section = _page_data.empty() && _max_def_level > 0;
+    _empty_value_section = _page_data.empty();
     if (_empty_value_section) {
-        // Nullable all-NULL pages legally contain only definition levels. Use a dedicated decoder
-        // so a later non-NULL definition level cannot consume stale state from the previous page.
+        // Nullable all-NULL pages legally contain only definition levels, while required pages
+        // with logical values and no physical values are corrupt. Use a dedicated decoder so both
+        // cases avoid encoding-specific decoders that require a non-null input buffer.
         if (_empty_value_decoder == nullptr) {
             _empty_value_decoder = std::make_unique<EmptyValueSectionDecoder>();
         }
