@@ -109,6 +109,13 @@ TEST(AzureObjStorageClientTlsHelperTest, appends_debug_suffix_only_for_tls_ca_er
               "");
 }
 
+TEST(AzureObjStorageClientBatchDeleteTest, failure_message_preserves_object_key) {
+    EXPECT_EQ(io::build_azure_batch_delete_failure_message({.bucket = "container"},
+                                                           "directory/failed-blob"),
+              "Azure batch delete failed, path msg bucket container, key directory/failed-blob, "
+              "prefix , path ");
+}
+
 class AzureObjStorageClientTest : public testing::Test {
 protected:
     static std::shared_ptr<ObjStorageClient> obj_storage_client;

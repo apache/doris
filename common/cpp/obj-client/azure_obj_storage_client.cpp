@@ -34,6 +34,12 @@ std::string wrap_object_storage_path_msg(const doris::ObjStoragePath& opts) {
                        opts.path.native());
 }
 
+doris::ObjStoragePath with_object_key(const doris::ObjStoragePath& opts, std::string_view key) {
+    auto path = opts;
+    path.key = key;
+    return path;
+}
+
 std::string to_lower_ascii(std::string_view input) {
     std::string lowered(input);
     std::transform(lowered.begin(), lowered.end(), lowered.begin(),
@@ -61,6 +67,12 @@ namespace doris {
 
 std::string azure_multipart_block_id(std::string_view upload_id, int part_num) {
     return encode_azure_block_id(upload_id, part_num);
+}
+
+std::string build_azure_batch_delete_failure_message(const ObjStoragePath& opts,
+                                                     std::string_view key) {
+    return fmt::format("Azure batch delete failed, path msg {}",
+                       wrap_object_storage_path_msg(with_object_key(opts, key)));
 }
 
 // As Azure's doc said, the batch size is 256
@@ -121,14 +133,15 @@ ObjStorageResponse do_azure_client_call(Func f, const ObjStoragePath& opts,
 
 struct AzureBatchDeleter {
     AzureBatchDeleter(BlobContainerClient* client, const ObjStoragePath& opts,
-                      std::string_view tls_debug_context)
+                      std::string_view representative_key, std::string_view tls_debug_context)
             : _client(client),
               _batch(client->CreateBatch()),
-              _opts(opts),
+              _opts(with_object_key(opts, representative_key)),
               _tls_debug_context(tls_debug_context) {}
     // Submit one blob to be deleted in `AzureBatchDeleter::execute`
     void delete_blob(const std::string& blob_name) {
-        deferred_resps.emplace_back(_batch.DeleteBlob(blob_name));
+        deferred_resps.emplace_back(DeferredDeleteResponse {
+                .key = blob_name, .response = _batch.DeleteBlob(blob_name)});
     }
     ObjStorageResponse execute() {
         if (deferred_resps.empty()) {
@@ -145,12 +158,11 @@ struct AzureBatchDeleter {
             return resp;
         }
 
-        for (auto&& defer_response : deferred_resps) {
+        for (auto&& deferred : deferred_resps) {
             try {
-                auto r = defer_response.GetResponse();
+                auto r = deferred.response.GetResponse();
                 if (!r.Value.Deleted) {
-                    auto msg = fmt::format("Azure batch delete failed, path msg {}",
-                                           wrap_object_storage_path_msg(_opts));
+                    auto msg = build_azure_batch_delete_failure_message(_opts, deferred.key);
                     LOG(WARNING) << msg;
                     return {.status =
                                     ObjStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
@@ -167,7 +179,7 @@ struct AzureBatchDeleter {
                         "Azure request failed because {}, error msg {}, http code {}, path msg "
                         "{}{}",
                         e.what(), e.Message, static_cast<int>(e.StatusCode),
-                        wrap_object_storage_path_msg(_opts),
+                        wrap_object_storage_path_msg(with_object_key(_opts, deferred.key)),
                         build_azure_tls_debug_suffix(fmt::format("{} {}", e.what(), e.Message),
                                                      _tls_debug_context));
                 LOG(WARNING) << msg;
@@ -181,11 +193,16 @@ struct AzureBatchDeleter {
     }
 
 private:
+    struct DeferredDeleteResponse {
+        std::string key;
+        Azure::Storage::DeferredResponse<Models::DeleteBlobResult> response;
+    };
+
     BlobContainerClient* _client;
     BlobContainerBatch _batch;
-    const ObjStoragePath& _opts;
+    ObjStoragePath _opts;
     std::string_view _tls_debug_context;
-    std::vector<Azure::Storage::DeferredResponse<Models::DeleteBlobResult>> deferred_resps;
+    std::vector<DeferredDeleteResponse> deferred_resps;
 };
 
 ObjStorageUploadResult AzureObjStorageClient::create_multipart_upload(const ObjStoragePath&) {
@@ -408,7 +425,6 @@ ObjStorageResponse AzureObjStorageClient::delete_objects(const ObjStoragePath& o
     auto end = std::end(objs);
 
     while (begin != end) {
-        auto deleter = AzureBatchDeleter(_client.get(), opts, _config.tls_debug_context);
         auto chunk_end = begin;
         size_t batch_size = BlobBatchMaxOperations;
         TEST_SYNC_POINT_CALLBACK("AzureObjClient::delete_objects", &batch_size);
@@ -417,6 +433,7 @@ ObjStorageResponse AzureObjStorageClient::delete_objects(const ObjStoragePath& o
         std::advance(chunk_end,
                      std::min(batch_size, static_cast<size_t>(std::distance(begin, end))));
 
+        auto deleter = AzureBatchDeleter(_client.get(), opts, *begin, _config.tls_debug_context);
         std::ranges::for_each(std::ranges::subrange(begin, chunk_end),
                               [&](const std::string& obj) { deleter.delete_blob(obj); });
         begin = chunk_end;
