@@ -56,18 +56,11 @@ private:
     void _make_nullable_output_key(Block* block);
     bool _should_expand_preagg_hash_tables();
 
-    void _swap_cache_block(Block* block) {
-        DCHECK(!_cache_block.is_empty_column());
-        block->swap(_cache_block);
-        _cache_block = block->clone_empty();
-    }
-
     IColumn::Selector _distinct_row;
     Arena _arena;
     size_t _input_num_rows = 0;
     bool _should_expand_hash_table = true;
     bool _stop_emplace_flag = false;
-    const int batch_size;
     std::unique_ptr<DistinctDataVariants> _agg_data = nullptr;
     // group by k1,k2
     VExprContextSPtrs _probe_expr_ctxs;
@@ -75,7 +68,6 @@ private:
     bool _child_eos = false;
     bool _reach_limit = false;
     std::unique_ptr<Block> _aggregated_block = nullptr;
-    Block _cache_block;
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
