@@ -35,14 +35,24 @@ import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivilegedExceptionAction;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 /**
  * Hudi connector implementation. Manages the lifecycle of an
@@ -67,6 +77,9 @@ public class HudiConnector implements Connector {
     // here is a peek at it, not this connector interpreting a property of its own.
     private static final String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
 
+    // fs.s3a.impl.disable.cache and its per-scheme siblings, as the FE emits them.
+    private static final Pattern FS_DISABLE_CACHE = Pattern.compile("fs\\..+\\.impl\\.disable\\.cache");
+
     private final HudiCatalogProperties props;
     private final Map<String, String> properties;
     private final ConnectorContext context;
@@ -81,6 +94,14 @@ public class HudiConnector implements Connector {
     // gateway's hive-loader authenticator would split the UGI copy across loaders).
     private volatile HadoopAuthenticator pluginAuth;
     private volatile boolean pluginAuthComputed;
+
+    // One UGI per distinct catalog configuration, which is what keys Hadoop's FileSystem cache to the
+    // credentials that opened it. See fileSystemScope(). Static and never evicted on purpose: an entry is
+    // one UGI, there is one per catalog, and dropping one would strand the filesystems cached under it -
+    // a REFRESH CATALOG rebuilds this connector and must land on the SAME scope, not a fresh one.
+    private static final ConcurrentHashMap<String, UserGroupInformation> FS_SCOPES = new ConcurrentHashMap<>();
+    private volatile UserGroupInformation fsScope;
+    private volatile boolean fsScopeComputed;
 
     public HudiConnector(Map<String, String> properties, ConnectorContext context) {
         this.props = HudiCatalogProperties.of(properties);
@@ -115,6 +136,10 @@ public class HudiConnector implements Connector {
                     HadoopAuthenticator auth = pluginAuthenticator();
                     if (auth != null) {
                         return auth.doAs(action::call);
+                    }
+                    UserGroupInformation scope = fileSystemScope();
+                    if (scope != null) {
+                        return scope.doAs((PrivilegedExceptionAction<T>) action::call);
                     }
                     return context.executeAuthenticated(action);
                 } catch (Exception e) {
@@ -259,6 +284,89 @@ public class HudiConnector implements Connector {
      * so the FE-injected auth path is preserved unchanged. Construction is cheap — the keytab login is lazy in
      * {@code getUGI()} on the first {@code doAs}. Mirrors {@code HiveConnector.pluginAuthenticator}.
      */
+    /**
+     * The {@link UserGroupInformation} this catalog's metadata reads run under, so that Hadoop's
+     * {@code FileSystem} cache can stay ON without letting two catalogs share one filesystem.
+     *
+     * <p>The FE gives every S3-compatible catalog {@code fs.s3a.impl.disable.cache=true}
+     * ({@code S3FileSystemProperties.toHadoopConfigurationMap}), because that cache is keyed on
+     * (scheme, authority, ugi) and ignores credentials - and every non-Kerberos catalog arrives under the
+     * SAME ugi, {@code HadoopSimpleAuthenticator}'s {@code createRemoteUser(hadoop.username)}. Two
+     * catalogs on one bucket would otherwise read through whichever S3AFileSystem was built first.
+     *
+     * <p>Disabling the cache does stop that, and leaks instead. Every {@code FileSystem.get()} behind a
+     * {@code HoodieTableMetaClient} then builds a new S3AFileSystem and a new AWS SDK client that nobody
+     * closes; the filesystems are collected but each SDK client's scheduled executor is kept alive by its
+     * own worker threads. Measured at about 62 threads per query, until the FE cannot start a thread:
+     * {@code OutOfMemoryError: unable to create native thread}, and every session dies with it.
+     *
+     * <p>So the cache goes back on ({@code buildHadoopConf} clears the flag) and the separation it was
+     * disabled for moves into the cache key: one UGI per catalog configuration. The UGI carries the name
+     * the simple authenticator would have used - a second Subject for one user, not another user - so an
+     * {@code hdfs://} warehouse still sees the identity it always saw. A Kerberos catalog never reaches
+     * here: its own authenticator runs the doAs above with credentials this cannot reproduce, and that
+     * UGI already partitions the cache per principal.
+     */
+    private UserGroupInformation fileSystemScope() {
+        if (!fsScopeComputed) {
+            synchronized (this) {
+                if (!fsScopeComputed) {
+                    fsScope = buildFileSystemScope();
+                    fsScopeComputed = true;
+                }
+            }
+        }
+        return fsScope;
+    }
+
+    private UserGroupInformation buildFileSystemScope() {
+        try {
+            String userName = UserGroupInformation.getCurrentUser().getUserName();
+            return FS_SCOPES.computeIfAbsent(fileSystemScopeKey(properties),
+                    key -> UserGroupInformation.createRemoteUser(userName));
+        } catch (Exception e) {
+            LOG.warn("failed to derive a FileSystem scope for catalog '{}', keeping the shared one",
+                    context.getCatalogName(), e);
+            return null;
+        }
+    }
+
+    /**
+     * Turns Hadoop's {@code FileSystem} cache back on for a configuration the FE built with it off.
+     * Without this every {@code FileSystem.get()} behind a metaClient returns a filesystem nobody closes;
+     * with it, this catalog holds one. Safe for either auth path because both run under a UGI that is
+     * stable for the catalog and unique to it - {@link #fileSystemScope()} for a non-Kerberos catalog, the
+     * connector's own lazily-built authenticator for a Kerberos one - so the cache key separates catalogs
+     * exactly where the flag was separating them.
+     */
+    static void enableFileSystemCache(Configuration conf) {
+        List<String> disabled = new ArrayList<>();
+        for (Map.Entry<String, String> entry : conf) {
+            if (FS_DISABLE_CACHE.matcher(entry.getKey()).matches()) {
+                disabled.add(entry.getKey());
+            }
+        }
+        // Collected first: Configuration's iterator walks a live view, and set() during the walk trips it.
+        disabled.forEach(key -> conf.set(key, "false"));
+    }
+
+    /**
+     * Identifies a catalog configuration so {@link #FS_SCOPES} hands the same UGI to two connectors exactly
+     * when they may share a filesystem. Digested rather than used directly because the properties hold
+     * credentials and a map key is easy to print by accident.
+     */
+    static String fileSystemScopeKey(Map<String, String> properties) throws NoSuchAlgorithmException {
+        StringBuilder canonical = new StringBuilder();
+        new TreeMap<>(properties).forEach((k, v) -> canonical.append(k).append('=').append(v).append('\n'));
+        byte[] digest = MessageDigest.getInstance("SHA-256")
+                .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+        StringBuilder hex = new StringBuilder(digest.length * 2);
+        for (byte b : digest) {
+            hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+        }
+        return hex.toString();
+    }
+
     private HadoopAuthenticator pluginAuthenticator() {
         if (!pluginAuthComputed) {
             synchronized (this) {
