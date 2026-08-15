@@ -3135,10 +3135,15 @@ TEST_F(VariantColumnWriterReaderTest,
     SegmentFooterPB extracted_footer;
     std::string extracted_file_path;
     const auto extracted_metrics_before = shredded_writer_metric_values();
+    const size_t materializations_before =
+            ColumnVariantV2::TestAccess::encoded_range_materializations(*source);
     ASSERT_TRUE(write_extracted_variant_segment(source->get_ptr(), source_type,
                                                 "v2_shredded_extracted", &extracted_footer,
-                                                &extracted_file_path, 1)
+                                                &extracted_file_path)
                         .ok());
+    EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(*source) -
+                      materializations_before,
+              1);
     const auto extracted_metrics_after = shredded_writer_metric_values();
     EXPECT_EQ(extracted_metrics_after.first - extracted_metrics_before.first, 2);
     EXPECT_EQ(extracted_metrics_after.second - extracted_metrics_before.second, 2);
@@ -3147,6 +3152,58 @@ TEST_F(VariantColumnWriterReaderTest,
     ASSERT_TRUE(read_extracted_variant_rows(extracted_footer, extracted_file_path, &extracted_rows)
                         .ok());
     EXPECT_EQ(extracted_rows, jsons);
+}
+
+TEST_F(VariantColumnWriterReaderTest,
+       v2_extracted_subcolumn_writer_materializes_once_per_active_run) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v", 1);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+    const TabletColumn& parent_column = _tablet_schema->column_by_uid(1);
+    TabletColumn extracted_column;
+    extracted_column.set_name(parent_column.name_lower_case() + ".payload");
+    extracted_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    extracted_column.set_parent_unique_id(parent_column.unique_id());
+    extracted_column.set_path_info(PathInData(parent_column.name_lower_case() + ".payload"));
+    extracted_column.set_is_nullable(true);
+    _tablet_schema->append_column(extracted_column);
+    init_tablet_from_current_schema(11107);
+
+    const std::vector<std::string> jsons {
+            "7",
+            R"({"hot":1})",
+            R"({"hot":2,"keep":"second"})",
+            "[3]",
+            R"({"hot":4})",
+            R"({"cold":5})",
+            R"({"hot":6})",
+            R"({"hot":7,"keep":"last"})",
+    };
+    ColumnVariantV2::MutablePtr source;
+    ASSERT_TRUE(create_shredded_variant_v2_source(jsons, "hot", std::make_shared<DataTypeInt32>(),
+                                                  &source)
+                        .ok());
+    ASSERT_TRUE(source->is_shredded());
+    const auto source_type = std::make_shared<DataTypeVariantV2>(1, false);
+    const size_t materializations_before =
+            ColumnVariantV2::TestAccess::encoded_range_materializations(*source);
+
+    SegmentFooterPB footer;
+    std::string file_path;
+    ASSERT_TRUE(write_extracted_variant_segment(source->get_ptr(), source_type,
+                                                "v2_shredded_extracted_active_runs", &footer,
+                                                &file_path)
+                        .ok());
+    EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(*source) -
+                      materializations_before,
+              3);
+    EXPECT_TRUE(source->is_shredded());
+
+    std::vector<std::string> actual;
+    ASSERT_TRUE(read_extracted_variant_rows(footer, file_path, &actual).ok());
+    EXPECT_EQ(actual, jsons);
 }
 
 TEST_F(VariantColumnWriterReaderTest, v2_root_only_preserves_layout_validation) {

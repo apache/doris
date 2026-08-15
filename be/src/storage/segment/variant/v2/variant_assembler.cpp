@@ -68,23 +68,30 @@ DorisVector<const MaterializedPath*> sorted_path_refs(const DorisVector<Material
 // 1. create() makes materialized paths relative to the requested subtree, sorts them, and binds
 //    their optional shredded field indices once.
 // 2. prepare_hierarchical_batch() unwraps concrete columns once per batch.
-// 3. The row loop merges already ordered materialized and sparse/doc paths. A row-local cursor
-//    exposes persisted cells, while ObjectEmitter owns the open object scopes.
-// 4. Non-DOC whole-root reads with a fixed scalar layout route visible scalar leaves directly into
-//    owned shredded fields while ObjectEmitter writes the residual E. DOC roots are authoritative
-//    encoded values and never use footer hints to construct S; subtree reads also remain encoded.
+// 3. Non-DOC whole-root fixed layouts classify one local batch plan. Clean mapped runs append
+//    residual, presence, and children in bulk; sparse, root-sidecar, structural, and conflict rows
+//    use the existing ordered row merge. A row-local cursor exposes persisted cells, while
+//    ObjectEmitter owns the open object scopes.
+// 4. Clean first batches can transfer only mapped visible scalar owners into shredded children.
+//    DOC roots are authoritative encoded values and never use footer hints to construct S; subtree
+//    reads also remain encoded.
 // 5. The completed E or S value column and outer null map are published atomically.
 //
 // StorageMapRowCursor and ObjectEmitter are deliberately local implementation state. Neither is a
 // reusable reader abstraction: the former only advances one persisted map row, and the latter only
 // translates this merge's ordered paths into VariantBatchBuilder calls.
 
-void publish_assembled(VariantBatchBuilder* builder,
+struct AssemblyRouteCounts {
+    size_t clean_mapped_runs = 0;
+    size_t clean_mapped_rows = 0;
+    size_t slow_rows = 0;
+};
+
+void publish_assembled(ColumnVariantV2::MutablePtr values,
                        VariantShreddedColumnBuilder::Batch* shredded_batch,
                        ColumnUInt8::MutablePtr outer_nulls, ColumnNullable::MutablePtr* output) {
-    VariantBatchBuilder block = builder->finish_batch();
-    auto values = ColumnVariantV2::create();
-    values->insert_encoded_batch(block);
+    DORIS_CHECK(static_cast<bool>(values));
+    DORIS_CHECK(values->is_encoded());
     if (shredded_batch != nullptr) {
         values = shredded_batch->finish(std::move(values));
     }
@@ -412,17 +419,94 @@ PreparedHierarchicalBatch prepare_hierarchical_batch(
         output.materialized.push_back(variant_assembler_detail::prepare_materialized_column(
                 slot.type, column, batch.num_rows));
     }
-    if (owns_materialized) {
-        for (size_t index = 0; index < materialized_slots.size(); ++index) {
-            const size_t batch_index = materialized_slots[index].batch_index;
-            output.materialized[index].owner =
-                    std::move(batch.owned_materialized_columns[batch_index]);
-        }
-    }
     if (storage_map_kind != StorageMapKind::NONE) {
         map_cursor->bind(batch.storage_map, batch.num_rows);
     }
     return output;
+}
+
+DorisVector<uint8_t> classify_clean_mapped_rows(
+        StorageMapKind storage_map_kind, bool has_root,
+        std::span<const MaterializedSlot> materialized_slots,
+        const PreparedHierarchicalBatch& batch, const StorageMapRowCursor& map_cursor,
+        size_t rows) {
+    DORIS_CHECK(storage_map_kind != StorageMapKind::DOC);
+    DorisVector<size_t> unmapped_materialized;
+    unmapped_materialized.reserve(materialized_slots.size());
+    for (size_t index = 0; index < materialized_slots.size(); ++index) {
+        if (!materialized_slots[index].shredded_path_index.has_value()) {
+            unmapped_materialized.push_back(index);
+        }
+    }
+
+    DorisVector<uint8_t> clean(rows, 1);
+    for (size_t row = 0; row < rows; ++row) {
+        if (batch.root_nulls != nullptr && batch.root_nulls[row] != 0) {
+            clean[row] = 0;
+            continue;
+        }
+        if (has_root && batch.root_values->get_data_at(row).size != 0) {
+            clean[row] = 0;
+            continue;
+        }
+        if (storage_map_kind == StorageMapKind::SPARSE && !map_cursor.row_empty(row)) {
+            clean[row] = 0;
+            continue;
+        }
+        for (size_t index : unmapped_materialized) {
+            if (variant_assembler_detail::is_materialized_value_visible(
+                        batch.materialized[index], row,
+                        materialized_slots[index].relative_path.empty())) {
+                clean[row] = 0;
+                break;
+            }
+        }
+    }
+    return clean;
+}
+
+void transfer_clean_mapped_owners(std::span<const MaterializedSlot> materialized_slots,
+                                  VariantAssemblerBatch& batch,
+                                  const DorisVector<uint8_t>& clean_mapped_rows,
+                                  PreparedHierarchicalBatch& prepared) {
+    if (batch.num_rows == 0 || batch.owned_materialized_columns.empty() ||
+        !std::ranges::all_of(clean_mapped_rows, [](uint8_t clean) { return clean != 0; })) {
+        return;
+    }
+    for (size_t index = 0; index < materialized_slots.size(); ++index) {
+        if (!materialized_slots[index].shredded_path_index.has_value()) {
+            continue;
+        }
+        auto& materialized = prepared.materialized[index];
+        const bool has_present_value =
+                materialized.nulls == nullptr ||
+                std::any_of(materialized.nulls, materialized.nulls + batch.num_rows,
+                            [](uint8_t value) { return value == 0; });
+        if (has_present_value) {
+            materialized.owner = std::move(
+                    batch.owned_materialized_columns[materialized_slots[index].batch_index]);
+        }
+    }
+}
+
+std::optional<VariantShreddedColumnBuilder::Batch> bind_shredded_sources(
+        const VariantShreddedColumnBuilder* shredded_builder, size_t rows,
+        std::span<const MaterializedSlot> materialized_slots, PreparedHierarchicalBatch& prepared) {
+    if (shredded_builder == nullptr) {
+        return std::nullopt;
+    }
+    std::optional<VariantShreddedColumnBuilder::Batch> shredded_batch(
+            shredded_builder->begin_batch(rows));
+    for (size_t index = 0; index < materialized_slots.size(); ++index) {
+        const auto& path_index = materialized_slots[index].shredded_path_index;
+        if (!path_index.has_value()) {
+            continue;
+        }
+        auto& materialized = prepared.materialized[index];
+        shredded_batch->bind_materialized_source(*path_index, *materialized.data,
+                                                 materialized.nulls, std::move(materialized.owner));
+    }
+    return shredded_batch;
 }
 
 struct MergeValue {
@@ -724,54 +808,80 @@ Status assemble_hierarchical(StorageMapKind storage_map_kind, bool has_root,
                              std::span<const MaterializedSlot> materialized_slots,
                              VariantAssemblerBatch& batch,
                              const VariantShreddedColumnBuilder* shredded_builder,
-                             ColumnNullable::MutablePtr* output) {
+                             ColumnNullable::MutablePtr* output,
+                             AssemblyRouteCounts& route_counts) {
     StorageMapRowCursor map_cursor;
     PreparedHierarchicalBatch prepared = prepare_hierarchical_batch(
             storage_map_kind, has_root, materialized_slots, batch, &map_cursor);
-    VariantBatchBuilder builder(
-            {.rows = batch.num_rows, .metadata_keys = materialized_slots.size() + 8});
+    DorisVector<uint8_t> clean_mapped_rows;
+    if (shredded_builder != nullptr) {
+        clean_mapped_rows =
+                classify_clean_mapped_rows(storage_map_kind, has_root, materialized_slots, prepared,
+                                           map_cursor, batch.num_rows);
+        transfer_clean_mapped_owners(materialized_slots, batch, clean_mapped_rows, prepared);
+    }
+
+    auto residual = ColumnVariantV2::create();
     auto outer = ColumnUInt8::create();
     outer->reserve(batch.num_rows);
-    std::optional<VariantShreddedColumnBuilder::Batch> shredded_batch;
-    if (shredded_builder != nullptr) {
-        shredded_batch.emplace(shredded_builder->begin_batch(batch.num_rows));
-        for (size_t index = 0; index < materialized_slots.size(); ++index) {
-            const auto& path_index = materialized_slots[index].shredded_path_index;
-            if (!path_index.has_value()) {
-                continue;
-            }
-            auto& materialized = prepared.materialized[index];
-            shredded_batch->bind_materialized_source(*path_index, *materialized.data,
-                                                     materialized.nulls,
-                                                     std::move(materialized.owner));
-        }
-    }
+    auto shredded_batch =
+            bind_shredded_sources(shredded_builder, batch.num_rows, materialized_slots, prepared);
     VariantShreddedColumnBuilder::Batch* shredded_batch_ptr =
             shredded_batch.has_value() ? &shredded_batch.value() : nullptr;
     DorisVector<MergeValue> pending;
     ObjectEmitter emitter;
-    for (size_t row_index = 0; row_index < batch.num_rows; ++row_index) {
-        auto row = builder.begin_row();
-        if (prepared.root_nulls != nullptr && prepared.root_nulls[row_index] != 0) {
-            outer->insert_value(1);
-            row.add_null();
+    for (size_t run_begin = 0; run_begin < batch.num_rows;) {
+        const bool is_clean_mapped =
+                shredded_builder != nullptr && clean_mapped_rows[run_begin] != 0;
+        size_t run_end = batch.num_rows;
+        if (shredded_builder != nullptr) {
+            run_end = run_begin + 1;
+            while (run_end < batch.num_rows &&
+                   (clean_mapped_rows[run_end] != 0) == is_clean_mapped) {
+                ++run_end;
+            }
+        }
+        const size_t run_length = run_end - run_begin;
+        if (is_clean_mapped) {
+            DORIS_CHECK(shredded_batch_ptr != nullptr);
+            residual->insert_many_defaults(run_length);
+            outer->insert_many_defaults(run_length);
+            shredded_batch_ptr->append_bound_materialized_range(run_begin, run_length);
+            ++route_counts.clean_mapped_runs;
+            route_counts.clean_mapped_rows += run_length;
+            run_begin = run_end;
+            continue;
+        }
+
+        VariantBatchBuilder slow_builder(
+                {.rows = run_length, .metadata_keys = materialized_slots.size() + 8});
+        for (size_t row_index = run_begin; row_index < run_end; ++row_index) {
+            auto row = slow_builder.begin_row();
+            if (prepared.root_nulls != nullptr && prepared.root_nulls[row_index] != 0) {
+                outer->insert_value(1);
+                row.add_null();
+                row.finish();
+                if (shredded_batch_ptr != nullptr) {
+                    shredded_batch_ptr->finish_row();
+                }
+                continue;
+            }
+            bool is_outer_null = false;
+            RETURN_IF_ERROR(assemble_hierarchical_row(
+                    storage_map_kind, has_root, requested, materialized_slots, prepared, row_index,
+                    &row, &map_cursor, &pending, &emitter, shredded_batch_ptr, &is_outer_null));
+            outer->insert_value(is_outer_null ? 1 : 0);
             row.finish();
             if (shredded_batch_ptr != nullptr) {
                 shredded_batch_ptr->finish_row();
             }
-            continue;
         }
-        bool is_outer_null = false;
-        RETURN_IF_ERROR(assemble_hierarchical_row(
-                storage_map_kind, has_root, requested, materialized_slots, prepared, row_index,
-                &row, &map_cursor, &pending, &emitter, shredded_batch_ptr, &is_outer_null));
-        outer->insert_value(is_outer_null ? 1 : 0);
-        row.finish();
-        if (shredded_batch_ptr != nullptr) {
-            shredded_batch_ptr->finish_row();
-        }
+        VariantBatchBuilder slow_batch = slow_builder.finish_batch();
+        residual->insert_encoded_batch(slow_batch);
+        route_counts.slow_rows += run_length;
+        run_begin = run_end;
     }
-    publish_assembled(&builder, shredded_batch_ptr, std::move(outer), output);
+    publish_assembled(std::move(residual), shredded_batch_ptr, std::move(outer), output);
     return Status::OK();
 }
 
@@ -971,6 +1081,18 @@ size_t VariantAssembler::TestAccess::direct_shredded_builds(const VariantAssembl
                    : assembler._shredded_builder->test_direct_batches();
 }
 
+size_t VariantAssembler::TestAccess::clean_mapped_runs(const VariantAssembler& assembler) {
+    return assembler._test_clean_mapped_runs;
+}
+
+size_t VariantAssembler::TestAccess::clean_mapped_rows(const VariantAssembler& assembler) {
+    return assembler._test_clean_mapped_rows;
+}
+
+size_t VariantAssembler::TestAccess::slow_rows(const VariantAssembler& assembler) {
+    return assembler._test_slow_rows;
+}
+
 #endif
 
 Status VariantAssembler::assemble(VariantAssemblerBatch& batch,
@@ -978,12 +1100,18 @@ Status VariantAssembler::assemble(VariantAssemblerBatch& batch,
     DORIS_CHECK(output != nullptr);
     try {
         ColumnNullable::MutablePtr result;
+        AssemblyRouteCounts route_counts;
         const Status status =
                 assemble_hierarchical(_storage_map_kind, _has_root, _requested, _materialized,
-                                      batch, _shredded_builder.get(), &result);
+                                      batch, _shredded_builder.get(), &result, route_counts);
         if (!status.ok()) {
             return status;
         }
+#ifdef BE_TEST
+        _test_clean_mapped_runs += route_counts.clean_mapped_runs;
+        _test_clean_mapped_rows += route_counts.clean_mapped_rows;
+        _test_slow_rows += route_counts.slow_rows;
+#endif
         *output = std::move(result);
         return Status::OK();
     } catch (const Exception& exception) {

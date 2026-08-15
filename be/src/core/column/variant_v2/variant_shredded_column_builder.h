@@ -66,6 +66,10 @@ public:
                                       const uint8_t* nulls, MutableColumnPtr owner = {});
         void append_materialized(size_t path_index, size_t source_row);
 
+        // Appends an aligned run from every bound materialized source. Presence is generated in
+        // bulk; only a field already promoted to encoded visits values row by row.
+        void append_bound_materialized_range(size_t source_start, size_t length);
+
         // Extracts all matching scalar leaves from root and appends its residual projection.
         // extract=false preserves root unchanged and records all shredded fields as missing.
         void append_root(VariantRef root, VariantBatchBuilder::Row& residual, bool extract);

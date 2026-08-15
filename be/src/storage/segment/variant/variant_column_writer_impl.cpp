@@ -1966,6 +1966,85 @@ Status VariantSubcolumnWriter::_ensure_input_format(const VariantColumnData& col
     return Status::OK();
 }
 
+namespace {
+
+Status append_encoded_path_range(VariantPathBuilder& builder, const ColumnVariantV2::ReadView& view,
+                                 size_t input_begin, size_t num_rows,
+                                 std::span<const uint8_t> outer_nulls, size_t output_begin) {
+    DORIS_CHECK(view.is_encoded());
+    DORIS_CHECK(outer_nulls.empty() || outer_nulls.size() == num_rows);
+    for (size_t offset = 0; offset < num_rows; ++offset) {
+        if (!outer_nulls.empty() && outer_nulls[offset] != 0) {
+            continue;
+        }
+        const VariantRef value = view.value_at(input_begin + offset);
+        if (!value.is_null()) {
+            RETURN_IF_ERROR(builder.append(value, output_begin + offset));
+        }
+    }
+    return Status::OK();
+}
+
+bool shredded_row_has_active_field(const ColumnVariantV2::ReadView& view, size_t row) {
+    for (size_t field = 0; field < view.shredded_field_count(); ++field) {
+        if (view.shredded_field_presence(field).get_data()[row] != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+Status append_active_shredded_run(VariantPathBuilder& builder, const ColumnVariantV2& source,
+                                  size_t input_begin, size_t run_length, size_t output_begin) {
+    ColumnVariantV2::MutablePtr encoded_run;
+    RETURN_IF_CATCH_EXCEPTION(
+            { encoded_run = source.materialize_encoded_range(input_begin, run_length); });
+    DORIS_CHECK(encoded_run->is_encoded());
+    return append_encoded_path_range(builder, encoded_run->read_view(), 0, run_length, {},
+                                     output_begin);
+}
+
+Status append_shredded_path_range(VariantPathBuilder& builder, const ColumnVariantV2& source,
+                                  size_t input_begin, size_t num_rows,
+                                  std::span<const uint8_t> outer_nulls, size_t output_begin,
+                                  VariantShredderAppendStats& stats) {
+    DORIS_CHECK(source.is_shredded());
+    const ColumnVariantV2::ReadView view = source.read_view();
+    for (size_t offset = 0; offset < num_rows;) {
+        if (!outer_nulls.empty() && outer_nulls[offset] != 0) {
+            ++stats.native_shredded_rows;
+            ++offset;
+            continue;
+        }
+        const size_t input_row = input_begin + offset;
+        if (!shredded_row_has_active_field(view, input_row)) {
+            const VariantRef residual = view.residual_value_at(input_row);
+            if (!residual.is_null()) {
+                RETURN_IF_ERROR(builder.append(residual, output_begin + offset));
+            }
+            ++stats.native_shredded_rows;
+            ++offset;
+            continue;
+        }
+
+        // An extracted path consumes whole values, so one contiguous active run shares one
+        // encoded snapshot while missing/SQL-NULL rows stay on the native residual lane.
+        const size_t run_begin = offset;
+        ++offset;
+        while (offset < num_rows && (outer_nulls.empty() || outer_nulls[offset] == 0) &&
+               shredded_row_has_active_field(view, input_begin + offset)) {
+            ++offset;
+        }
+        const size_t run_length = offset - run_begin;
+        RETURN_IF_ERROR(append_active_shredded_run(builder, source, input_row, run_length,
+                                                   output_begin + run_begin));
+        stats.encoded_fallback_rows += run_length;
+    }
+    return Status::OK();
+}
+
+} // namespace
+
 Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_t num_rows,
                                           std::span<const uint8_t> outer_nulls,
                                           VariantShredderAppendStats* append_stats) {
@@ -1979,23 +2058,10 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
     }
     DORIS_CHECK(outer_nulls.empty() || outer_nulls.size() == num_rows);
 
-    const auto append_encoded = [&](const ColumnVariantV2::ReadView& view, size_t begin) -> Status {
-        DORIS_CHECK(view.is_encoded());
-        for (size_t offset = 0; offset < num_rows; ++offset) {
-            if (!outer_nulls.empty() && outer_nulls[offset] != 0) {
-                continue;
-            }
-            const size_t input_row = begin + offset;
-            const VariantRef value = view.value_at(input_row);
-            if (!value.is_null()) {
-                RETURN_IF_ERROR(_v2_builder->append(value, _num_rows + offset));
-            }
-        }
-        return Status::OK();
-    };
-
     if (source->is_encoded()) {
-        const Status status = append_encoded(source->read_view(), column.row_pos);
+        const Status status =
+                append_encoded_path_range(*_v2_builder, source->read_view(), column.row_pos,
+                                          num_rows, outer_nulls, _num_rows);
         if (status.ok() && append_stats != nullptr) {
             *append_stats = {};
         }
@@ -2004,41 +2070,8 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
 
     if (source->is_shredded()) {
         VariantShredderAppendStats result_stats;
-        const ColumnVariantV2::ReadView view = source->read_view();
-        for (size_t offset = 0; offset < num_rows; ++offset) {
-            if (!outer_nulls.empty() && outer_nulls[offset] != 0) {
-                ++result_stats.native_shredded_rows;
-                continue;
-            }
-            const size_t input_row = column.row_pos + offset;
-            bool has_active_field = false;
-            for (size_t field = 0; field < view.shredded_field_count(); ++field) {
-                if (view.shredded_field_presence(field).get_data()[input_row] != 0) {
-                    has_active_field = true;
-                    break;
-                }
-            }
-            if (!has_active_field) {
-                const VariantRef residual = view.residual_value_at(input_row);
-                if (!residual.is_null()) {
-                    RETURN_IF_ERROR(_v2_builder->append(residual, _num_rows + offset));
-                }
-                ++result_stats.native_shredded_rows;
-                continue;
-            }
-
-            // An extracted subcolumn is a whole-value consumer. Reconstruct only rows that carry
-            // active shredded fields; missing-field/scalar/array rows use the residual directly.
-            ColumnVariantV2::MutablePtr encoded_row;
-            RETURN_IF_CATCH_EXCEPTION(
-                    { encoded_row = source->materialize_encoded_range(input_row, 1); });
-            DORIS_CHECK(encoded_row->is_encoded());
-            const VariantRef value = encoded_row->get_value_ref(0);
-            if (!value.is_null()) {
-                RETURN_IF_ERROR(_v2_builder->append(value, _num_rows + offset));
-            }
-            ++result_stats.encoded_fallback_rows;
-        }
+        RETURN_IF_ERROR(append_shredded_path_range(*_v2_builder, *source, column.row_pos, num_rows,
+                                                   outer_nulls, _num_rows, result_stats));
         if (append_stats != nullptr) {
             *append_stats = result_stats;
         }
@@ -2049,7 +2082,8 @@ Status VariantSubcolumnWriter::_append_v2(const VariantColumnData& column, size_
     RETURN_IF_CATCH_EXCEPTION(
             { encoded_batch = source->materialize_encoded_range(column.row_pos, num_rows); });
     DORIS_CHECK(encoded_batch->is_encoded());
-    const Status status = append_encoded(encoded_batch->read_view(), 0);
+    const Status status = append_encoded_path_range(*_v2_builder, encoded_batch->read_view(), 0,
+                                                    num_rows, outer_nulls, _num_rows);
     if (status.ok() && append_stats != nullptr) {
         *append_stats = {};
     }

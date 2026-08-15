@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <numeric>
 #include <optional>
 #include <string_view>
 #include <utility>
@@ -281,7 +282,9 @@ struct ShreddedFieldBuilder {
                 if (presence->get_data()[row] == 0) {
                     append_encoded_null();
                 } else {
-                    const size_t source_row = materialized_owner ? row : materialized_rows[row];
+                    const size_t source_row = materialized_owner || materialized_rows.empty()
+                                                      ? row
+                                                      : static_cast<size_t>(materialized_rows[row]);
                     append_encoded_materialized(source_row);
                 }
             }
@@ -335,9 +338,6 @@ struct ShreddedFieldBuilder {
         materialized_values = &values;
         materialized_nulls = nulls;
         materialized_owner = std::move(owner);
-        if (!materialized_owner) {
-            materialized_rows.reserve(expected_rows);
-        }
     }
 
     void append_materialized(size_t source_row, size_t completed_rows) {
@@ -355,13 +355,71 @@ struct ShreddedFieldBuilder {
             append_encoded_materialized(source_row);
             return;
         }
-        if (!materialized_owner) {
+        if (!materialized_owner && (!materialized_rows.empty() || source_row != completed_rows)) {
             if (materialized_rows.empty()) {
-                materialized_rows.resize(completed_rows, 0);
+                materialized_rows.resize(completed_rows);
+                std::iota(materialized_rows.begin(), materialized_rows.end(), uint32_t {0});
             }
             DORIS_CHECK_EQ(materialized_rows.size(), completed_rows);
             materialized_rows.push_back(static_cast<uint32_t>(source_row));
         }
+    }
+
+    bool append_materialized_range(size_t source_start, size_t length, size_t completed_rows) {
+        DORIS_CHECK(has_materialized_source());
+        DORIS_CHECK_EQ(source_start, completed_rows)
+                << "bulk materialized rows must retain their physical row alignment";
+        DORIS_CHECK_LE(source_start, expected_rows);
+        DORIS_CHECK_LE(length, expected_rows - source_start);
+        if (length == 0) {
+            return false;
+        }
+
+        bool has_present = materialized_nulls == nullptr;
+        if (!has_present) {
+            has_present = std::any_of(materialized_nulls + source_start,
+                                      materialized_nulls + source_start + length,
+                                      [](uint8_t value) { return value == 0; });
+        }
+        if (!is_activated() && !has_present) {
+            return false;
+        }
+
+        const bool was_activated = is_activated();
+        ensure_presence(completed_rows);
+        if (materialized_nulls == nullptr) {
+            presence->insert_many_vals(1, length);
+            if (encoded_values) {
+                for (size_t source_row = source_start; source_row < source_start + length;
+                     ++source_row) {
+                    append_encoded_materialized(source_row);
+                }
+            }
+        } else {
+            auto& presence_data = presence->get_data();
+            const size_t old_size = presence_data.size();
+            presence_data.resize(old_size + length);
+            for (size_t offset = 0; offset < length; ++offset) {
+                const size_t source_row = source_start + offset;
+                const bool present = materialized_nulls[source_row] == 0;
+                presence_data[old_size + offset] = present ? 1 : 0;
+                if (encoded_values) {
+                    if (present) {
+                        append_encoded_materialized(source_row);
+                    } else {
+                        append_encoded_null();
+                    }
+                }
+            }
+        }
+        if (!materialized_owner && !materialized_rows.empty()) {
+            materialized_rows.reserve(materialized_rows.size() + length);
+            for (size_t source_row = source_start; source_row < source_start + length;
+                 ++source_row) {
+                materialized_rows.push_back(static_cast<uint32_t>(source_row));
+            }
+        }
+        return !was_activated;
     }
 
     void append_missing(size_t completed_rows) {
@@ -376,9 +434,9 @@ struct ShreddedFieldBuilder {
         }
         if (has_materialized_source()) {
             DORIS_CHECK_NE(expected_rows, 0);
-            if (!materialized_owner) {
+            if (!materialized_owner && !materialized_rows.empty()) {
                 DORIS_CHECK_EQ(materialized_rows.size(), completed_rows);
-                materialized_rows.push_back(0);
+                materialized_rows.push_back(static_cast<uint32_t>(completed_rows));
             }
             return;
         }
@@ -436,9 +494,11 @@ struct ShreddedFieldBuilder {
                 values = std::move(materialized_owner);
                 DORIS_CHECK_EQ(values.get(), materialized_values);
             } else {
-                DORIS_CHECK_EQ(materialized_rows.size(), expected_rows);
                 values = scalar_type->create_column();
-                if (!materialized_rows.empty()) {
+                if (materialized_rows.empty()) {
+                    values->insert_range_from(*materialized_values, 0, expected_rows);
+                } else {
+                    DORIS_CHECK_EQ(materialized_rows.size(), expected_rows);
                     values->insert_indices_from(
                             *materialized_values, materialized_rows.data(),
                             materialized_rows.data() + materialized_rows.size());
@@ -590,6 +650,22 @@ void VariantShreddedColumnBuilder::Batch::append_materialized(size_t path_index,
         _impl->activated_path_indices.push_back(path_index);
     }
     _impl->selected[path_index] = 1;
+}
+
+void VariantShreddedColumnBuilder::Batch::append_bound_materialized_range(size_t source_start,
+                                                                          size_t length) {
+    DORIS_CHECK_EQ(_impl->materialized_source_count, _impl->field_builders.size());
+    DORIS_CHECK_EQ(source_start, _impl->completed_rows);
+    DORIS_CHECK_LE(source_start, _impl->expected_rows);
+    DORIS_CHECK_LE(length, _impl->expected_rows - source_start);
+    DORIS_CHECK(std::ranges::all_of(_impl->selected, [](uint8_t value) { return value == 0; }));
+    for (size_t path_index = 0; path_index < _impl->field_builders.size(); ++path_index) {
+        if (_impl->field_builders[path_index].append_materialized_range(source_start, length,
+                                                                        _impl->completed_rows)) {
+            _impl->activated_path_indices.push_back(path_index);
+        }
+    }
+    _impl->completed_rows += length;
 }
 
 void VariantShreddedColumnBuilder::Batch::append_root(VariantRef root,

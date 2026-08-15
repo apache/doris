@@ -35,19 +35,33 @@ Status append_assembled_variant(MutableColumnPtr& dst, ColumnNullable::MutablePt
     if (!dst || !assembled) {
         return Status::InvalidArgument("Variant V2 assembled output or destination is null");
     }
+    const auto& assembled_nullable = static_cast<const ColumnNullable&>(*assembled);
     const auto* assembled_values =
-            check_and_get_column<ColumnVariantV2>(&assembled->get_nested_column());
+            check_and_get_column<ColumnVariantV2>(&assembled_nullable.get_nested_column());
     if (assembled_values == nullptr) {
         return Status::InvalidArgument(
                 "Variant V2 assembled output must be Nullable<ColumnVariantV2>");
     }
 
-    if (try_get_variant_v2_destination(*dst) == nullptr) {
+    ColumnVariantV2* destination_values = try_get_variant_v2_destination(*dst);
+    if (destination_values == nullptr) {
         return Status::InvalidArgument("Variant V2 reader requires a ColumnVariantV2 destination");
     }
+    // The first S batch after encoded history establishes this Block's fixed layout once. History
+    // is projected into it, then later compatible S batches use ordinary bulk range insertion.
+    const auto cross_into_assembled_layout = [](const IColumn& history, const IColumn& incoming) {
+        MutableColumnPtr crossed = incoming.clone_empty();
+        crossed->insert_range_from(history, 0, history.size());
+        crossed->insert_range_from(incoming, 0, incoming.size());
+        return crossed;
+    };
     if (is_column_nullable(*dst)) {
         if (dst->empty()) {
             dst = std::move(assembled);
+            return Status::OK();
+        }
+        if (destination_values->is_encoded() && assembled_values->is_shredded()) {
+            dst = cross_into_assembled_layout(*dst, *assembled);
             return Status::OK();
         }
         dst = IColumn::mutate(std::move(dst));
@@ -64,6 +78,8 @@ Status append_assembled_variant(MutableColumnPtr& dst, ColumnNullable::MutablePt
         ColumnPtr values = static_cast<const ColumnNullable&>(*assembled).get_nested_column_ptr();
         assembled.reset();
         dst = IColumn::mutate(std::move(values));
+    } else if (destination_values->is_encoded() && assembled_values->is_shredded()) {
+        dst = cross_into_assembled_layout(*dst, *assembled_values);
     } else {
         dst = IColumn::mutate(std::move(dst));
         auto& values = assert_cast<ColumnVariantV2&>(*dst);

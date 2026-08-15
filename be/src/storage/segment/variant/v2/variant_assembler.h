@@ -71,14 +71,13 @@ struct MaterializedSlot {
 
 } // namespace variant_assembler_detail
 
-// Consumed storage batch. Borrowed materialized_columns remain valid until assemble() returns.
-// Alternatively, after all columns validate, prepare moves every owner from
-// owned_materialized_columns so native typed children can reuse physical data without a copy; once
-// that transfer begins, a later assembly failure still leaves the owners consumed. The two spans are
-// mutually exclusive and stay in the same order as the paths supplied to create(). A nullable
-// root_jsonb is the authoritative whole-root SQL NULL state, and storage_map uses persisted
-// Map<String,String>. The assembler remains reusable after a failed batch, but a batch whose owners
-// were transferred does not.
+// Storage batch. Borrowed materialized_columns remain valid until assemble() returns. Alternatively,
+// owned_materialized_columns lets a fully clean mapped batch transfer only visible mapped scalar
+// owners into the result; unmapped, inactive, and slow-lane owners remain in the caller's span. Once
+// a mapped transfer begins, a later assembly failure may still leave that owner consumed. The two
+// spans are mutually exclusive and stay in the same order as the paths supplied to create(). A
+// nullable root_jsonb is the authoritative whole-root SQL NULL state, and storage_map uses persisted
+// Map<String,String>. The assembler remains reusable after a failed batch.
 struct VariantAssemblerBatch {
     size_t num_rows = 0;
     const IColumn* root_jsonb = nullptr;
@@ -107,6 +106,9 @@ public:
     struct TestAccess {
         static size_t encoded_shredded_builds(const VariantAssembler& assembler);
         static size_t direct_shredded_builds(const VariantAssembler& assembler);
+        static size_t clean_mapped_runs(const VariantAssembler& assembler);
+        static size_t clean_mapped_rows(const VariantAssembler& assembler);
+        static size_t slow_rows(const VariantAssembler& assembler);
     };
 #endif
 
@@ -120,6 +122,11 @@ private:
     PathInData _requested;
     DorisVector<variant_assembler_detail::MaterializedSlot> _materialized;
     std::unique_ptr<VariantShreddedColumnBuilder> _shredded_builder;
+#ifdef BE_TEST
+    mutable size_t _test_clean_mapped_runs = 0;
+    mutable size_t _test_clean_mapped_rows = 0;
+    mutable size_t _test_slow_rows = 0;
+#endif
 };
 
 } // namespace segment_v2::variant_v2

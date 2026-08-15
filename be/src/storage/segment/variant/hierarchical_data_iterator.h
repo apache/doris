@@ -230,9 +230,10 @@ private:
         const size_t nrows = observed_rows;
 
         if (use_variant_v2) {
-            RETURN_IF_ERROR(_assemble_variant_v2(dst, nrows, has_null));
-            _rows_read += nrows;
+            const Status assemble_status = _assemble_variant_v2(dst, nrows, has_null);
             _clear_read_columns();
+            RETURN_IF_ERROR(assemble_status);
+            _rows_read += nrows;
             return Status::OK();
         }
 

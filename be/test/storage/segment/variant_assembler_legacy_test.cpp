@@ -888,6 +888,106 @@ TEST(VariantAssemblerLegacyTest, UnsortedMaterializedPathsKeepSourceColumns) {
     EXPECT_EQ(json_at(assembled_values(output), 0), R"({"a":20,"m":{"child":30},"z":10})");
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros inflate ownership checks.
+TEST(VariantAssemblerLegacyTest, WholeRootCleanMappedRunUsesBulkRoute) {
+    auto values = ColumnInt32::create();
+    for (Int32 value : {10, 0, 30, 40}) {
+        values->insert_value(value);
+    }
+    auto nulls = ColumnUInt8::create();
+    for (UInt8 is_null : {0, 1, 0, 0}) {
+        nulls->insert_value(is_null);
+    }
+    auto materialized = ColumnNullable::create(std::move(values), std::move(nulls));
+    auto missing_values = ColumnInt32::create();
+    missing_values->insert_many_defaults(materialized->size());
+    auto missing = ColumnNullable::create(std::move(missing_values),
+                                          ColumnUInt8::create(materialized->size(), 1));
+
+    VariantAssemblerOptions options;
+    options.materialized_paths = {
+            {.path = PathInData("a"), .type = make_nullable(std::make_shared<DataTypeInt32>())},
+            {.path = PathInData("b"), .type = make_nullable(std::make_shared<DataTypeInt32>())},
+    };
+    auto assembler = create_assembler(std::move(options));
+    const IColumn* transferred_owner = materialized.get();
+    const IColumn* retained_missing_owner = missing.get();
+    DorisVector<MutableColumnPtr> owners;
+    owners.push_back(std::move(materialized));
+    owners.push_back(std::move(missing));
+    VariantAssemblerBatch batch;
+    batch.num_rows = 4;
+    batch.owned_materialized_columns = owners;
+
+    ColumnNullable::MutablePtr output;
+    ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+
+    EXPECT_FALSE(owners[0]);
+    EXPECT_EQ(owners[1].get(), retained_missing_owner);
+    EXPECT_EQ(VariantAssembler::TestAccess::clean_mapped_runs(*assembler), 1);
+    EXPECT_EQ(VariantAssembler::TestAccess::clean_mapped_rows(*assembler), 4);
+    EXPECT_EQ(VariantAssembler::TestAccess::slow_rows(*assembler), 0);
+    const auto& result = assembled_values(output);
+    ASSERT_TRUE(result.is_shredded());
+    ASSERT_EQ(result.shredded_field_count(), 2);
+    EXPECT_EQ(&result.shredded_field_values(0).typed_column(), transferred_owner);
+    EXPECT_EQ(result.shredded_field_path(0), PathInData("a"));
+    EXPECT_EQ(result.shredded_field_presence(0).get_data(), (PaddedPODArray<UInt8> {1, 0, 1, 1}));
+    EXPECT_EQ(result.shredded_field_path(1), PathInData("b"));
+    EXPECT_EQ(result.shredded_field_presence(1).get_data(), (PaddedPODArray<UInt8> {0, 0, 0, 0}));
+    for (size_t row = 0; row < result.size(); ++row) {
+        EXPECT_EQ(json_ref(result.read_view().residual_value_at(row)), "{}");
+    }
+}
+
+TEST(VariantAssemblerLegacyTest, WholeRootSparseAndRootRowsStayOnSlowRoute) {
+    auto values = ColumnInt32::create();
+    for (Int32 value : {10, 0, 0, 0, 50}) {
+        values->insert_value(value);
+    }
+    auto nulls = ColumnUInt8::create();
+    for (UInt8 is_null : {0, 1, 1, 1, 0}) {
+        nulls->insert_value(is_null);
+    }
+    auto materialized = ColumnNullable::create(std::move(values), std::move(nulls));
+    auto sparse = map_column_rows({{}, {}, {{"a", jsonb_storage_cell(R"({"b":2})")}}, {}, {}});
+    auto root = ColumnString::create();
+    root->insert_many_defaults(3);
+    auto root_value = jsonb_column(R"({"root":3})");
+    root->insert_from(*root_value, 0);
+    root->insert_default();
+
+    VariantAssemblerOptions options;
+    options.has_root = true;
+    options.storage_map_kind = StorageMapKind::SPARSE;
+    options.materialized_paths = {
+            {.path = PathInData("a"), .type = make_nullable(std::make_shared<DataTypeInt32>())},
+    };
+    auto assembler = create_assembler(std::move(options));
+    const IColumn* materialized_ptr = materialized.get();
+    VariantAssemblerBatch batch;
+    batch.num_rows = materialized->size();
+    batch.root_jsonb = root.get();
+    batch.materialized_columns = {&materialized_ptr, 1};
+    batch.storage_map = sparse.get();
+
+    ColumnNullable::MutablePtr output;
+    ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+
+    EXPECT_EQ(VariantAssembler::TestAccess::clean_mapped_runs(*assembler), 2);
+    EXPECT_EQ(VariantAssembler::TestAccess::clean_mapped_rows(*assembler), 3);
+    EXPECT_EQ(VariantAssembler::TestAccess::slow_rows(*assembler), 2);
+    const auto& result = assembled_values(output);
+    ASSERT_TRUE(result.is_shredded());
+    EXPECT_EQ(result.shredded_field_presence(0).get_data(),
+              (PaddedPODArray<UInt8> {1, 0, 0, 0, 1}));
+    EXPECT_EQ(json_ref(result.read_view().residual_value_at(0)), "{}");
+    EXPECT_EQ(json_ref(result.read_view().residual_value_at(1)), "{}");
+    EXPECT_EQ(json_ref(result.read_view().residual_value_at(2)), R"({"a":{"b":2}})");
+    EXPECT_EQ(json_ref(result.read_view().residual_value_at(3)), R"({"root":3})");
+    EXPECT_EQ(json_ref(result.read_view().residual_value_at(4)), "{}");
+}
+
 TEST(VariantAssemblerLegacyTest, WholeRootShreddedTypeConflictPromotesOnlyShreddedChild) {
     auto integers = ColumnInt32::create();
     integers->insert_many_vals(11, 2);
@@ -911,6 +1011,9 @@ TEST(VariantAssemblerLegacyTest, WholeRootShreddedTypeConflictPromotesOnlyShredd
     ASSERT_TRUE(assembler->assemble(batch, &output).ok());
     EXPECT_EQ(VariantAssembler::TestAccess::encoded_shredded_builds(*assembler), 0);
     EXPECT_EQ(VariantAssembler::TestAccess::direct_shredded_builds(*assembler), 1);
+    EXPECT_EQ(VariantAssembler::TestAccess::clean_mapped_runs(*assembler), 1);
+    EXPECT_EQ(VariantAssembler::TestAccess::clean_mapped_rows(*assembler), 1);
+    EXPECT_EQ(VariantAssembler::TestAccess::slow_rows(*assembler), 1);
     const auto& values = assembled_values(output);
     ASSERT_TRUE(values.is_shredded());
     ASSERT_EQ(values.shredded_field_count(), 1);
@@ -953,6 +1056,9 @@ TEST(VariantAssemblerLegacyTest, WholeRootShreddedScalarObjectConflictKeepsObjec
     ASSERT_TRUE(assembler->assemble(batch, &output).ok());
     EXPECT_EQ(VariantAssembler::TestAccess::encoded_shredded_builds(*assembler), 0);
     EXPECT_EQ(VariantAssembler::TestAccess::direct_shredded_builds(*assembler), 1);
+    EXPECT_EQ(VariantAssembler::TestAccess::clean_mapped_runs(*assembler), 1);
+    EXPECT_EQ(VariantAssembler::TestAccess::clean_mapped_rows(*assembler), 2);
+    EXPECT_EQ(VariantAssembler::TestAccess::slow_rows(*assembler), 2);
     const auto& values = assembled_values(output);
     ASSERT_TRUE(values.is_shredded());
     ASSERT_EQ(values.shredded_field_count(), 1);

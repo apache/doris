@@ -29,6 +29,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant_v2.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "storage/segment/variant/v2/variant_assembler.h"
@@ -59,6 +60,19 @@ ColumnNullable::MutablePtr typed_int_batch(std::initializer_list<int32_t> values
             ColumnNullable::create(std::move(ints), std::move(inner_nulls)),
             std::make_shared<DataTypeInt32>());
     return ColumnNullable::create(std::move(variant), uint8_column(outer_nulls));
+}
+
+ColumnNullable::MutablePtr encoded_batch(std::initializer_list<std::string_view> values) {
+    auto variant = ColumnVariantV2::create();
+    DataTypeVariantV2SerDe serde;
+    DataTypeSerDe::FormatOptions options;
+    for (std::string_view value : values) {
+        Slice slice(value.data(), value.size());
+        DORIS_CHECK(serde.deserialize_one_cell_from_json(*variant, slice, options).ok());
+    }
+    auto outer_nulls = ColumnUInt8::create();
+    outer_nulls->insert_many_defaults(values.size());
+    return ColumnNullable::create(std::move(variant), std::move(outer_nulls));
 }
 
 MutableColumnPtr nullable_variant_destination() {
@@ -236,6 +250,65 @@ TEST(VariantV2ColumnReaderAdapterTest,
     EXPECT_EQ(json_at(values, 0), "{}");
     EXPECT_EQ(json_at(values, 1), "{}");
     EXPECT_EQ(json_at(values, 2), R"({"a":30})");
+}
+
+TEST(VariantV2ColumnReaderAdapterTest, EncodedHistoryAdoptsFirstShreddedSegmentLayoutOnce) {
+    MutableColumnPtr destination = nullable_variant_destination();
+    ASSERT_TRUE(append_assembled_variant(destination,
+                                         encoded_batch({R"({"keep":1})", R"({"a":{"nested":2}})"}))
+                        .ok());
+    ASSERT_TRUE(assert_cast<const ColumnVariantV2&>(
+                        assert_cast<const ColumnNullable&>(*destination).get_nested_column())
+                        .is_encoded());
+
+    VariantAssemblerOptions options;
+    options.materialized_paths = {
+            {.path = PathInData("a"), .type = std::make_shared<DataTypeInt32>()},
+    };
+    auto assembler_result = VariantAssembler::create(std::move(options));
+    ASSERT_TRUE(assembler_result.has_value()) << assembler_result.error();
+    auto assembler = std::move(assembler_result).value();
+    auto materialized = ColumnInt32::create();
+    materialized->insert_value(30);
+    materialized->insert_value(40);
+    const IColumn* materialized_ptr = materialized.get();
+    VariantAssemblerBatch batch;
+    batch.num_rows = materialized->size();
+    batch.materialized_columns = {&materialized_ptr, 1};
+    ColumnNullable::MutablePtr shredded;
+    ASSERT_TRUE(assembler->assemble(batch, &shredded).ok());
+    EXPECT_EQ(VariantAssembler::TestAccess::direct_shredded_builds(*assembler), 1);
+    const auto& source = assert_cast<const ColumnVariantV2&>(shredded->get_nested_column());
+    ColumnPtr source_observer = shredded->get_nested_column_ptr();
+    ASSERT_TRUE(source.is_shredded());
+    EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(source), 0);
+
+    MutableColumnPtr generic_source_column = source.clone_resized(source.size());
+    const auto& generic_source = assert_cast<const ColumnVariantV2&>(*generic_source_column);
+    auto generic_history = encoded_batch({R"({"keep":1})", R"({"a":{"nested":2}})"});
+    auto generic_destination = ColumnVariantV2::create();
+    generic_destination->insert_range_from(generic_history->get_nested_column(), 0,
+                                           generic_history->size());
+    generic_destination->insert_range_from(generic_source, 0, generic_source.size());
+    ASSERT_TRUE(generic_destination->is_encoded());
+    EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(generic_source), 1);
+
+    ASSERT_TRUE(append_assembled_variant(destination, std::move(shredded)).ok());
+    EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(
+                      assert_cast<const ColumnVariantV2&>(*source_observer)),
+              0);
+
+    const auto& nullable = assert_cast<const ColumnNullable&>(*destination);
+    const auto& result = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    ASSERT_TRUE(result.is_shredded());
+    ASSERT_EQ(result.shredded_field_count(), 1);
+    EXPECT_EQ(result.shredded_field_path(0), PathInData("a"));
+    EXPECT_EQ(result.shredded_field_presence(0).get_data(), (PaddedPODArray<UInt8> {0, 0, 1, 1}));
+    EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(result), 0);
+    EXPECT_EQ(json_at(result, 0), R"({"keep":1})");
+    EXPECT_EQ(json_at(result, 1), R"({"a":{"nested":2}})");
+    EXPECT_EQ(json_at(result, 2), R"({"a":30})");
+    EXPECT_EQ(json_at(result, 3), R"({"a":40})");
 }
 
 TEST(VariantV2ColumnReaderAdapterTest, AlternatingOwnedSourceLayoutsKeepFirstBlockLayout) {
