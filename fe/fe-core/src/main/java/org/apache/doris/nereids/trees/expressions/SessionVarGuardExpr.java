@@ -42,15 +42,33 @@ import java.util.Objects;
 public class SessionVarGuardExpr extends Expression implements UnaryExpression {
 
     private final Map<String, String> sessionVars;
+    // True when the guard comes from a shared materialized-view rewrite cache (added by MTMVCache.from for
+    // the guard families that differ between the query session and the MV creation session), false when it
+    // comes from expanding a persisted object (view / generated column) into the query. The two kinds must
+    // stay structurally distinct: expression equality (used by materialized view matching) must not let a
+    // query-side nested-object guard equal a cache-mismatch guard, otherwise a cross-zone query could
+    // substitute a materialized value computed in the object's creation zone (e.g. date_trunc on a
+    // timestamptz truncates to the UTC day in the cache while the query would evaluate it in the local
+    // zone after the guard is dropped).
+    private final boolean cacheGuard;
 
     public SessionVarGuardExpr(Expression child, Map<String, String> sessionVars) {
+        this(child, sessionVars, false);
+    }
+
+    public SessionVarGuardExpr(Expression child, Map<String, String> sessionVars, boolean cacheGuard) {
         super(ImmutableList.of(child));
         Preconditions.checkNotNull(sessionVars, "sessionVars cannot be null in SessionVarGuardExpr");
         this.sessionVars = ImmutableMap.copyOf(sessionVars);
+        this.cacheGuard = cacheGuard;
     }
 
     public Map<String, String> getSessionVars() {
         return sessionVars;
+    }
+
+    public boolean isCacheGuard() {
+        return cacheGuard;
     }
 
     @Override
@@ -83,7 +101,7 @@ public class SessionVarGuardExpr extends Expression implements UnaryExpression {
     public Expression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1, "SessionVarGuardExpr must have exactly one child");
         // Rebuild the wrapped expression with provided children, then wrap again
-        return new SessionVarGuardExpr(children.get(0), sessionVars);
+        return new SessionVarGuardExpr(children.get(0), sessionVars, cacheGuard);
     }
 
     @Override
@@ -106,12 +124,13 @@ public class SessionVarGuardExpr extends Expression implements UnaryExpression {
             return false;
         }
         SessionVarGuardExpr that = (SessionVarGuardExpr) o;
-        return Objects.equals(child(), that.child()) && Objects.equals(sessionVars, that.sessionVars);
+        return cacheGuard == that.cacheGuard
+                && Objects.equals(child(), that.child()) && Objects.equals(sessionVars, that.sessionVars);
     }
 
     @Override
     public int computeHashCode() {
-        return Objects.hash(super.computeHashCode(), child(), sessionVars);
+        return Objects.hash(super.computeHashCode(), child(), sessionVars, cacheGuard);
     }
 
     @Override

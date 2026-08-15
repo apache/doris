@@ -51,6 +51,9 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -377,6 +380,12 @@ public class MTMVPartitionUtil {
     /**
      * like p_00000101_20170201
      *
+     * The generated name must be deterministic: the same {@link PartitionKeyDesc} must always yield the same
+     * name, because the name is generated when the MTMV is created and re-generated later when validating
+     * a partition refresh request. A time-based suffix (e.g. System.currentTimeMillis()) makes the two
+     * generations diverge for long names (e.g. TIMESTAMPTZ(6) bounded range boundaries), causing
+     * "partition not exist" even when the user passes the real partition name from SHOW PARTITIONS.
+     *
      * @param desc
      * @return
      */
@@ -385,10 +394,33 @@ public class MTMVPartitionUtil {
         String prefix = hasNullPartitionValue(desc) ? PARTITION_NAME_NULL_PREFIX : PARTITION_NAME_PREFIX;
         String partitionName = prefix + matcher.replaceAll("").replaceAll("\\,", "_");
         if (partitionName.length() > 50) {
-            partitionName = partitionName.substring(0, 30) + Math.abs(Objects.hash(partitionName))
-                    + "_" + System.currentTimeMillis();
+            // truncate and append a stable collision-resistant digest of the full name; no time suffix so
+            // repeated generation (e.g. MTMV creation vs. partition refresh validation) always produces the
+            // same name. A 64-bit SHA-256 truncation makes two distinct long descriptions mapping to the
+            // same physical name (and silently dropping/losing a partition) practically impossible, which
+            // a 32-bit Objects.hash could not guarantee.
+            partitionName = partitionName.substring(0, 30) + sha256HexDigest(partitionName);
         }
         return partitionName;
+    }
+
+    /**
+     * First 8 bytes (64 bits) of the SHA-256 digest of {@code input}, rendered as 16 lowercase hex chars.
+     * Used to build the deterministic suffix of long MTMV partition names.
+     */
+    private static String sha256HexDigest(String input) {
+        try {
+            byte[] bytes = MessageDigest.getInstance("SHA-256")
+                    .digest(input.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(16);
+            for (int i = 0; i < 8; i++) {
+                hex.append(Character.forDigit((bytes[i] >> 4) & 0xF, 16));
+                hex.append(Character.forDigit(bytes[i] & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is not available", e);
+        }
     }
 
     /**
@@ -439,11 +471,26 @@ public class MTMVPartitionUtil {
      * @throws DdlException
      */
     public static void addPartition(MTMV mtmv, PartitionKeyDesc oldPartitionKeyDesc)
-            throws DdlException {
+            throws DdlException, AnalysisException {
+        String partitionName = generatePartitionName(oldPartitionKeyDesc);
+        // Collision guard: the generated name must uniquely identify this description. If a partition with
+        // the same generated name already exists but describes DIFFERENT boundaries, fail loudly instead of
+        // letting the ifNotExists add silently no-op, which would leave the base partition permanently
+        // unrepresented in the MTMV.
+        if (mtmv.getPartition(partitionName) != null) {
+            PartitionKeyDesc existingDesc = mtmv.getPartitionItemOrAnalysisException(partitionName)
+                    .toPartitionKeyDesc();
+            if (!existingDesc.equals(oldPartitionKeyDesc)) {
+                throw new DdlException(String.format(
+                        "MTMV partition name '%s' already exists with a different partition description "
+                                + "(existing: %s, new: %s), refusing to add partition",
+                        partitionName, existingDesc.toSql(), oldPartitionKeyDesc.toSql()));
+            }
+            return;
+        }
         Map<String, String> partitionProperties = Maps.newHashMap();
         SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(true,
-                generatePartitionName(oldPartitionKeyDesc),
-                oldPartitionKeyDesc, partitionProperties);
+                partitionName, oldPartitionKeyDesc, partitionProperties);
 
         AddPartitionOp addPartitionClause = new AddPartitionOp(singlePartitionDesc.translateToPartitionDefinition(),
                 mtmv.getDefaultDistributionInfo().toDistributionDesc().toDistributionDescriptor(),
