@@ -47,6 +47,8 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaValidation;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
@@ -1005,6 +1007,15 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         rejectDistribution(request);
         Identifier id = Identifier.create(request.getDbName(), request.getTableName());
         Schema schema = PaimonSchemaBuilder.build(request);
+        // REST catalogs can persist the schema before a client loads and validates the Vortex table.
+        if ("vortex".equalsIgnoreCase(schema.options().get(CoreOptions.FILE_FORMAT.key()))) {
+            try {
+                SchemaValidation.validateTableSchema(TableSchema.create(0, schema));
+            } catch (RuntimeException e) {
+                throw new DorisConnectorException(
+                        "Invalid Paimon table schema for " + id + ": " + e.getMessage(), e);
+            }
+        }
         try {
             context.executeAuthenticated(() -> {
                 catalogOps.createTable(id, schema, false);
