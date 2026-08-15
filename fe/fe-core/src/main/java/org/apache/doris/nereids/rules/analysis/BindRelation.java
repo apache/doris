@@ -950,8 +950,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
         try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(parentContext.getConnectContext(),
                 viewInfo.second)) {
             analyzedPlan = parseAndAnalyzeView(view, viewInfo.first, parentContext);
-            if (!SessionVarGuardRewriter.checkSessionVariablesMatch(currentSessionVars, viewInfo.second)) {
-                SessionVarGuardRewriter exprRewriter = new SessionVarGuardRewriter(viewInfo.second, parentContext);
+            if (SessionVarGuardRewriter.needsSessionVarGuard(currentSessionVars, viewInfo.second)) {
+                SessionVarGuardRewriter exprRewriter = new SessionVarGuardRewriter(
+                        viewInfo.second, currentSessionVars, parentContext);
                 analyzedPlan = SessionVarGuardRewriter.rewritePlanTree(exprRewriter, analyzedPlan);
             }
         }

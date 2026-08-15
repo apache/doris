@@ -531,10 +531,11 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = ((Alias) boundExpression).child();
                 }
                 boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
-                if (!SessionVarGuardRewriter.checkSessionVariablesMatch(
+                if (SessionVarGuardRewriter.needsSessionVarGuard(
                         currentSessionVars, column.getSessionVariables())) {
                     boundExpression = boundExpression.accept(
-                            new AddSessionVarGuardRewriter(column.getSessionVariables()), Boolean.FALSE);
+                            new AddSessionVarGuardRewriter(column.getSessionVariables(), currentSessionVars),
+                            Boolean.FALSE);
                 }
                 Alias output = new Alias(boundExpression, column.getName());
                 columnToOutput.put(column.getName(), output);
@@ -562,10 +563,11 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = ((Alias) boundExpression).child();
                 }
                 boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
-                if (!SessionVarGuardRewriter.checkSessionVariablesMatch(
+                if (SessionVarGuardRewriter.needsSessionVarGuard(
                         currentSessionVars, column.getSessionVariables())) {
                     boundExpression = boundExpression.accept(
-                            new AddSessionVarGuardRewriter(column.getSessionVariables()), Boolean.FALSE);
+                            new AddSessionVarGuardRewriter(column.getSessionVariables(), currentSessionVars),
+                            Boolean.FALSE);
                 }
                 boundExpression = TypeCoercionUtils.castIfNotSameType(boundExpression,
                         DataType.fromCatalogType(column.getType()));

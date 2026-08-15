@@ -159,9 +159,12 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             // Both partitions should roll up to the same UTC day range.
             // The +00:00 suffix ensures TimestampTzLiteral.fromSessionTimeZone
             // treats the bounds as explicit UTC rather than session-local time.
+            // The fractional digits must match DateLiteral#getStringValue() for TIMESTAMPTZ(6),
+            // otherwise the roll-up desc is not string-equal to the desc of the actually-created
+            // MTMV partition and the partition-mapping lookup finds no mapping (no rewrite).
             PartitionKeyDesc expectDesc = PartitionKeyDesc.createFixed(
-                    Lists.newArrayList(new PartitionValue("2024-01-15 00:00:00+00:00")),
-                    Lists.newArrayList(new PartitionValue("2024-01-16 00:00:00+00:00")));
+                    Lists.newArrayList(new PartitionValue("2024-01-15 00:00:00.000000+00:00")),
+                    Lists.newArrayList(new PartitionValue("2024-01-16 00:00:00.000000+00:00")));
             Assert.assertEquals(1, res.size());
             Assert.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc));
 

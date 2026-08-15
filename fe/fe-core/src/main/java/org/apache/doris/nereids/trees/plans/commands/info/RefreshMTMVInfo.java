@@ -17,8 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.AllPartitionDesc;
-import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -38,11 +37,12 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
+import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -97,18 +97,76 @@ public class RefreshMTMVInfo {
                         "The partition method of this asynchronous materialized view "
                                 + "does not support refreshing by partition");
             }
-            List<AllPartitionDesc> partitionDescs = MTMVPartitionUtil.getPartitionDescsByRelatedTable(
-                    mtmv.getTableProperty().getProperties(), mtmv.getMvPartitionInfo(), mtmv.getMvProperties(),
-                    mtmv.getPartitionColumns());
-            Set<String> shouldExistPartitionNames = Sets.newHashSetWithExpectedSize(partitionDescs.size());
-            partitionDescs.stream().forEach(desc -> {
-                shouldExistPartitionNames.add(((SinglePartitionDesc) desc).getPartitionName());
-            });
-            for (String partition : partitions) {
-                if (!shouldExistPartitionNames.contains(partition)) {
-                    throw new org.apache.doris.common.AnalysisException("partition not exist: " + partition);
+            // First validate against the real physical partition names already stored in the MTMV metadata.
+            // SHOW PARTITIONS returns these names, and MVs created before partition name generation was made
+            // deterministic may carry a historical time suffix, so regenerating names here could produce a
+            // different string than the stored one and wrongly reject a valid refresh request.
+            Set<String> existPartitionNames = mtmv.getPartitionNames();
+            // Secondly validate against the partition names that would be generated (and aligned) from the
+            // related base table partition descs, so that refreshing a not-yet-created partition is allowed.
+            Set<PartitionKeyDesc> relatedPartitionDescs = MTMVPartitionUtil.generateRelatedPartitionDescs(
+                    mtmv.getMvPartitionInfo(), mtmv.getMvProperties(), mtmv.getPartitionColumns(),
+                    Maps.newHashMap()).keySet();
+            // Index every related partition desc by its generated (regenerated/alias) name so each requested
+            // alias below is resolved in O(1). Rescanning relatedPartitionDescs for every alias would
+            // re-serialize every descriptor (including SHA-256 work for long names) per alias, which is
+            // O(n * m) while the MTMV and all PCT tables stay read-locked. Constructing the index is also
+            // the right place to reject duplicate generated names: two distinct descriptors mapping to the
+            // same name would make the alias ambiguous.
+            Map<String, PartitionKeyDesc> generatedNameToDesc = Maps.newHashMap();
+            for (PartitionKeyDesc desc : relatedPartitionDescs) {
+                String generatedName = MTMVPartitionUtil.generatePartitionName(desc);
+                PartitionKeyDesc previous = generatedNameToDesc.putIfAbsent(generatedName, desc);
+                if (previous != null) {
+                    throw new org.apache.doris.common.AnalysisException(
+                            "duplicate generated partition name: " + generatedName);
                 }
             }
+            Set<String> shouldExistPartitionNames = generatedNameToDesc.keySet();
+            // Map every stored physical partition desc back to its physical name. A regenerated (alias)
+            // name whose descriptor is already physically present under a legacy time-suffixed name must be
+            // remapped to that physical name, otherwise alignMvPartition sees the descriptor as already
+            // represented (and adds nothing) while calculateNeedRefreshPartitions drops the nonphysical
+            // alias, and the manual refresh completes as NOT_REFRESH without refreshing anything.
+            Map<PartitionKeyDesc, String> descToPhysicalName = Maps.newHashMap();
+            for (String partitionName : existPartitionNames) {
+                descToPhysicalName.putIfAbsent(
+                        mtmv.getPartitionItemOrAnalysisException(partitionName).toPartitionKeyDesc(),
+                        partitionName);
+            }
+            List<String> resolvedPartitions = Lists.newArrayList();
+            for (String partition : partitions) {
+                if (shouldExistPartitionNames.contains(partition)) {
+                    if (existPartitionNames.contains(partition)) {
+                        // regenerated name equals the stored physical name (deterministic naming)
+                        resolvedPartitions.add(partition);
+                        continue;
+                    }
+                    // The partition is addressed by its regenerated (SHA) name. If a physical partition with
+                    // the same descriptor already exists under a legacy name, remap to it; otherwise the
+                    // alias is a not-yet-created partition that alignMvPartition will materialize.
+                    // partition is in shouldExistPartitionNames (the map's key set), so the lookup is
+                    // guaranteed to succeed.
+                    String physicalName = descToPhysicalName.get(generatedNameToDesc.get(partition));
+                    resolvedPartitions.add(physicalName != null ? physicalName : partition);
+                    continue;
+                }
+                if (!existPartitionNames.contains(partition)) {
+                    throw new org.apache.doris.common.AnalysisException("partition not exist: " + partition);
+                }
+                // A real stored physical name (possibly with a historical time suffix) is accepted only while
+                // its descriptor is still derivable from the current base table partitions. A stale name whose
+                // base partition was dropped / re-partitioned must be rejected so the async task does not
+                // later dereference a partition removed by alignMvPartition.
+                PartitionKeyDesc storedDesc = mtmv.getPartitionItemOrAnalysisException(partition)
+                        .toPartitionKeyDesc();
+                if (!relatedPartitionDescs.contains(storedDesc)) {
+                    throw new org.apache.doris.common.AnalysisException("partition not exist: " + partition
+                            + " (its base partition is no longer valid)");
+                }
+                resolvedPartitions.add(partition);
+            }
+            this.partitions = resolvedPartitions;
         } finally {
             MetaLockUtils.readUnlockTables(tables);
         }

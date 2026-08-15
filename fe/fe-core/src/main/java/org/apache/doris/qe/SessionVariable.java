@@ -1373,7 +1373,13 @@ public class SessionVariable implements Serializable, Writable {
     public int netReadTimeout = 600;
 
     // The current time zone
-    @VarAttrDef.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResultInExecution = true)
+    // affectQueryResultInPlan is required: TIMESTAMPTZ expressions (date_trunc/cast/floor on timestamptz)
+    // are evaluated in the session time zone, so the time zone must be captured when persisting session
+    // variables for views / materialized views / generated columns, and must be compared when deciding
+    // whether a materialized view can be used for rewrite. Otherwise a MV built in one time zone may be
+    // rewritten in a session with a different time zone and return stale materialized values.
+    @VarAttrDef.VarAttr(name = TIME_ZONE, needForward = true, affectQueryResultInPlan = true,
+            affectQueryResultInExecution = true)
     public String timeZone = TimeUtils.getSystemTimeZone().getID();
 
     @VarAttrDef.VarAttr(name = LC_TIME_NAMES, needForward = true, affectQueryResultInExecution = true,
