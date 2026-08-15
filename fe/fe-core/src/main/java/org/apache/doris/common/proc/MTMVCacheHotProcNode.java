@@ -76,7 +76,7 @@ public class MTMVCacheHotProcNode implements ProcNodeInterface {
                     String.valueOf(entry.mtmvId),
                     dbName,
                     mvName,
-                    entry.guarded ? "Yes" : "No",
+                    entry.guardMask != 0 ? "Yes" : "No",
                     String.valueOf(entry.idleMs)));
         }
         return result;
