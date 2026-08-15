@@ -1031,6 +1031,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                 conf.set(key, entry.getValue());
             }
         }
+        HudiConnector.enableFileSystemCache(conf);
         return conf;
     }
 
