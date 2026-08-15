@@ -112,6 +112,7 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
     // Update tablet stats
     tablet->fetch_add_approximate_num_rowsets(1);
     tablet->fetch_add_approximate_cumu_num_rowsets(1);
+    tablet->fetch_add_approximate_cumu_num_deltas(1);
 
     // TODO(liaoxin) delete operator don't send calculate delete bitmap task from fe,
     //  then we don't need to set_txn_related_info here.
@@ -122,7 +123,8 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
                 request.transaction_id, tablet->tablet_id(), delete_bitmap, rowset_ids, rowset,
                 request.timeout, nullptr);
     } else {
-        if (config::enable_cloud_make_rs_visible_on_be) {
+        if (config::enable_cloud_make_rs_visible_on_be &&
+            !tablet->tablet_schema()->is_tso_enabled()) {
             engine.meta_mgr().cache_committed_rowset(rowset->rowset_meta(), context.txn_expiration);
         }
     }

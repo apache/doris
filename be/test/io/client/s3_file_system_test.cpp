@@ -928,9 +928,8 @@ TEST_F(S3FileSystemTest, RateLimiterGetDownloadTest) {
 
 // Test: S3 rate limiter for PUT operations - multipart upload
 TEST_F(S3FileSystemTest, RateLimiterPutMultipartTest) {
-    // Skip if using Azure provider - Azure's create_multipart_upload is a no-op and doesn't
-    // consume rate limiter quota, while S3's CreateMultipartUpload does. This causes different
-    // failure timing that makes the test assertions invalid for Azure.
+    // This test asserts the S3 provider's exact multipart request/failure sequence; Azure uses
+    // lease coordination and therefore has different failure timing.
     if (config_->get_provider() == "AZURE") {
         GTEST_SKIP() << "This test relies on S3-specific multipart upload quota consumption "
                         "behavior, not applicable for Azure";
@@ -1437,9 +1436,8 @@ TEST_F(S3FileSystemTest, RateLimiterGetDeleteDirectoryListTest) {
 
 // Test: S3 rate limiter for PUT operations - multipart upload with UploadPart failure
 TEST_F(S3FileSystemTest, RateLimiterPutMultipartUploadPartFailureTest) {
-    // Skip if using Azure provider - Azure's create_multipart_upload is a no-op and doesn't
-    // consume rate limiter quota, while S3's CreateMultipartUpload does. This causes different
-    // failure timing that makes the test assertions invalid for Azure.
+    // This test asserts the S3 provider's exact multipart request/failure sequence; Azure uses
+    // lease coordination and therefore has different failure timing.
     if (config_->get_provider() == "AZURE") {
         GTEST_SKIP() << "This test relies on S3-specific multipart upload quota consumption "
                         "behavior, not applicable for Azure";
@@ -1866,8 +1864,7 @@ TEST_F(S3FileSystemTest, RateLimiterPutDeleteDirectoryDeleteObjectsTest) {
 
 // Test: S3 CreateMultipartUpload failure - simulates error when initiating multipart upload
 TEST_F(S3FileSystemTest, CreateMultipartUploadFailureTest) {
-    // Skip if using Azure provider - SyncPoint mechanism is S3-specific
-    // Also, Azure's create_multipart_upload is a no-op that always succeeds
+    // Skip if using Azure provider because the SyncPoint mechanism is S3-specific.
     if (config_->get_provider() == "AZURE") {
         GTEST_SKIP() << "This test uses S3-specific SyncPoint mechanism and multipart semantics, "
                         "not applicable for Azure";

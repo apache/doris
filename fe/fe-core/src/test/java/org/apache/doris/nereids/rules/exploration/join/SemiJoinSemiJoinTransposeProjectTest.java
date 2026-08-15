@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -92,6 +93,60 @@ public class SemiJoinSemiJoinTransposeProjectTest implements MemoPatternMatchSup
                                         ).when(project -> project.getProjects().size() == 2),
                                         logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")))
                                 ).when(join -> join.getJoinType() == JoinType.LEFT_SEMI_JOIN)
+                        )
+                );
+    }
+
+    @Test
+    public void testSemiProjectSemiCommuteRejectedWhenTopJoinReferencesBottomMarkSlot() {
+        /*
+         * the transpose must be rejected when the bottom semi join is a mark join and the
+         * top semi join references the mark slot in its conjuncts. otherwise the transposed
+         * plan would move the conjuncts that reference the mark slot to a join whose
+         * children don't output the mark slot, which fails physical planning with
+         * "slot not from children".
+         *
+         *        topJoin(references mark)        the transpose is rejected, the plan
+         *        /       \                       keeps the original order:
+         *    abProject    t3                     topJoin
+         *      |                                  /      \
+         * bottomMarkJoin(t1 anti t2)        abProject   t3
+         *    /      \                          |
+         *   t1      t2                   bottomMarkJoin
+         *                                       /      \
+         *                                      t1      t2
+         */
+        // bottom mark join: t1 left anti t2, markJoinConjuncts = (t1#0 = t2#0),
+        // output = [t1#0, t1#1, markSlot]
+        LogicalPlan bottomMarkJoin = new LogicalPlanBuilder(scan1)
+                .markJoinWithMarkConjuncts(scan2, JoinType.LEFT_ANTI_JOIN, Pair.of(0, 0))
+                .build();
+        // project exposes [t1#0, markSlot]
+        LogicalPlan abProject = new LogicalPlanBuilder(bottomMarkJoin)
+                .project(ImmutableList.of(0, 2))
+                .build();
+        // top anti join on t3 whose other conjunct references the mark slot of the bottom
+        // mark join, this is exactly the plan shape that used to trigger the bug
+        Slot markSlot = abProject.getOutput().get(1);
+        LogicalPlan topJoin = new LogicalPlanBuilder(abProject)
+                .join(scan3, JoinType.LEFT_ANTI_JOIN, ImmutableList.of(), ImmutableList.of(markSlot))
+                .projectAll()
+                .build();
+        // the transpose is rejected, so the plan keeps the original order and the
+        // mark join still produces the mark slot below the top anti join
+        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
+                .applyExploration(SemiJoinSemiJoinTransposeProject.INSTANCE.build())
+                .matches(
+                        logicalProject(
+                                logicalJoin(
+                                        logicalProject(
+                                                logicalJoin(
+                                                        logicalOlapScan().when(s -> s.getTable().getName().equals("t1")),
+                                                        logicalOlapScan().when(s -> s.getTable().getName().equals("t2"))
+                                                ).when(join -> join.getJoinType() == JoinType.LEFT_ANTI_JOIN)
+                                        ),
+                                        logicalOlapScan().when(s -> s.getTable().getName().equals("t3"))
+                                ).when(join -> join.getJoinType() == JoinType.LEFT_ANTI_JOIN)
                         )
                 );
     }

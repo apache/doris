@@ -22,6 +22,11 @@
 #include <string>
 #include <utility>
 
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "exprs/vexpr_context.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/paimon_reader.h"
@@ -31,6 +36,50 @@
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris::format::paimon {
+namespace {
+
+DataTypePtr nullable_like_original(const DataTypePtr& original, DataTypePtr nested) {
+    return original != nullptr && original->is_nullable() ? make_nullable(nested) : nested;
+}
+
+DataTypePtr apply_paimon_timestamp_semantics(format::ColumnDefinition* column) {
+    DORIS_CHECK(column != nullptr);
+    DORIS_CHECK(column->type != nullptr);
+    const auto primitive = remove_nullable(column->type)->get_primitive_type();
+    if (column->timestamp_is_adjusted_to_utc.has_value() &&
+        (primitive == TYPE_DATETIMEV2 || primitive == TYPE_TIMESTAMPTZ)) {
+        const auto target =
+                *column->timestamp_is_adjusted_to_utc ? TYPE_TIMESTAMPTZ : TYPE_DATETIMEV2;
+        column->type = DataTypeFactory::instance().create_data_type(
+                target, column->type->is_nullable(), 0, column->type->get_scale());
+        return column->type;
+    }
+
+    std::vector<DataTypePtr> child_types;
+    child_types.reserve(column->children.size());
+    for (auto& child : column->children) {
+        child_types.push_back(apply_paimon_timestamp_semantics(&child));
+    }
+    if (primitive == TYPE_ARRAY && child_types.size() == 1) {
+        column->type = nullable_like_original(column->type,
+                                              std::make_shared<DataTypeArray>(child_types.front()));
+    } else if (primitive == TYPE_MAP && child_types.size() == 2) {
+        column->type = nullable_like_original(
+                column->type, std::make_shared<DataTypeMap>(make_nullable(child_types[0]),
+                                                            make_nullable(child_types[1])));
+    } else if (primitive == TYPE_STRUCT && child_types.size() == column->children.size()) {
+        Strings child_names;
+        child_names.reserve(column->children.size());
+        for (const auto& child : column->children) {
+            child_names.push_back(child.name);
+        }
+        column->type = nullable_like_original(
+                column->type, std::make_shared<DataTypeStruct>(child_types, child_names));
+    }
+    return column->type;
+}
+
+} // namespace
 
 Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
     {
@@ -69,7 +118,14 @@ Status PaimonReader::annotate_file_schema(std::vector<format::ColumnDefinition>*
     if (mapping_mode() != format::TableColumnMappingMode::BY_FIELD_ID) {
         return Status::OK();
     }
-    return format::annotate_file_schema_from_history(_scan_params, _split_schema_id, file_schema);
+    RETURN_IF_ERROR(
+            format::annotate_file_schema_from_history(_scan_params, _split_schema_id, file_schema));
+    if (_format == format::FileFormat::PARQUET) {
+        for (auto& column : *file_schema) {
+            apply_paimon_timestamp_semantics(&column);
+        }
+    }
+    return Status::OK();
 }
 
 Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,

@@ -45,7 +45,6 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
     export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
 fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
-export TP_INSTALLED_DIR="${DORIS_THIRDPARTY}/installed"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 . "${DORIS_HOME}/env.sh"
 
@@ -224,6 +223,7 @@ echo "Get params:
     PARALLEL            -- ${PARALLEL}
     CLEAN               -- ${CLEAN}
     ENABLE_PCH          -- ${ENABLE_PCH}
+    ENABLE_UNITY_BUILD  -- ${ENABLE_UNITY_BUILD:-ON}
     EXTRA_BE_MODULES    -- ${EXTRA_BE_MODULES}
 "
 echo "Build Backend UT"
@@ -251,13 +251,7 @@ update_submodule() {
     fi
 }
 
-echo "install datasketches-cpp to thirdparty path before build backend ut"
 update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
-cd "${DORIS_HOME}/contrib/datasketches-cpp"
-"${CMAKE_CMD}" -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALLED_DIR -DBUILD_TESTS=OFF
-"${CMAKE_CMD}" --build build/Release -t install
-cd "${DORIS_HOME}"
-
 update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
 update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
 
@@ -342,6 +336,7 @@ cd "${CMAKE_BUILD_DIR}"
     ${CMAKE_USE_CCACHE_CXX:+${CMAKE_USE_CCACHE_CXX}} \
     ${CMAKE_USE_CCACHE_C:+${CMAKE_USE_CCACHE_C}} \
     -DENABLE_PCH="${ENABLE_PCH}" \
+    -DENABLE_UNITY_BUILD="${ENABLE_UNITY_BUILD:-ON}" \
     -DDORIS_JAVA_HOME="${JAVA_HOME}" \
     -DBUILD_AZURE="${BUILD_AZURE}" \
     "${BE_EXTRA_CMAKE_ARGS[@]}" \

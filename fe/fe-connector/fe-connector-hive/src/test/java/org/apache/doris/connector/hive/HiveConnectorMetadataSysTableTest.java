@@ -50,7 +50,7 @@ import java.util.Optional;
 public class HiveConnectorMetadataSysTableTest {
 
     private HiveConnectorMetadata metadata() {
-        return new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext());
+        return new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext());
     }
 
     private HiveTableHandle partitionedHandle() {

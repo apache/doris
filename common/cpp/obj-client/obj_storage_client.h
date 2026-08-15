@@ -173,22 +173,21 @@ public:
 
     ObjStorageClient(const ObjStorageClient&) = delete;
     ObjStorageClient& operator=(const ObjStorageClient&) = delete;
-    // Create a multi-part upload request. On AWS-compatible systems, it will return an upload ID, but not on Azure.
+    // Create a multipart upload request. The returned token may be provider-issued or local and
+    // identifies this writer's parts.
     // The input parameters should include the bucket and key for the object storage.
     virtual ObjStorageUploadResult create_multipart_upload(const ObjStoragePath& opts) = 0;
     // To directly upload a piece of data to object storage and generate a user-visible file.
     // You need to clearly specify the bucket and key
     virtual ObjStorageResponse put_object(const ObjStoragePath& opts, std::string_view stream) = 0;
-    // To upload a part of a large file to object storage as a temporary file, which is not visible to the user
-    // The temporary file's ID is the value of the part_num passed in
-    // AWS-compatible systems also require the upload_id returned by create_multipart_upload.
-    // For the same bucket and key, as well as the same part_num, it will directly replace the original temporary file.
+    // Upload one part of a large object without making the object visible to users. upload_id is
+    // the provider-issued or local writer token returned by create_multipart_upload.
+    // Reusing the same bucket, key, upload_id, and part_num replaces that writer's staged part.
     virtual ObjStorageUploadResult upload_part(const ObjStoragePath& opts,
                                                const std::string& upload_id,
                                                std::string_view stream, int part_num) = 0;
-    // To combine the previously uploaded multiple file parts into a complete file, the file name is the name of the key passed in.
-    // If it is an AWS-compatible system, the upload_id needs to be included.
-    // After a successful execution, the large file can be accessed in the object storage
+    // Combine the parts belonging to upload_id into the key passed in opts. After this succeeds,
+    // the complete object is visible in object storage.
     virtual ObjStorageResponse complete_multipart_upload(
             const ObjStoragePath& opts, const std::string& upload_id,
             const std::vector<ObjStorageCompletedPart>& completed_parts) = 0;

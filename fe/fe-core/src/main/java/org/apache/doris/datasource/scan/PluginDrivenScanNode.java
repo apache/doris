@@ -52,6 +52,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.connector.converter.ExprToConnectorExpressionConverter;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -64,6 +65,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
 import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.split.FileSplit;
 import org.apache.doris.datasource.split.PluginDrivenSplit;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -214,15 +216,17 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         Connector connector = catalog.getConnector();
         ConnectorSession session = catalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-        String dbName = table.getDb() != null ? table.getDb().getRemoteName() : "";
         // Resolve through the table's sys-aware seam (NOT raw metadata.getTableHandle): for a normal
         // table this is identical to getTableHandle(session, dbName, remoteName), but for a
         // PluginDrivenSysExternalTable the override returns the connector's SYSTEM handle (carrying
         // sysTableName + forceJni), so the scan path threads force-JNI correctly for binlog/audit_log.
         ConnectorTableHandle handle = table.resolveConnectorTableHandle(session, metadata)
-                .orElseThrow(() -> new RuntimeException(
-                        "Table handle not found for plugin-driven table: " + dbName + "."
-                                + table.getRemoteName()));
+                // Use analysis semantics and local names: mapped remote identifiers are connector internals and
+                // a generic RuntimeException would be reported as ERR_UNKNOWN_ERROR by EXPLAIN.
+                .orElseThrow(() -> new AnalysisException(
+                        "Table '" + catalog.getName() + "."
+                                + (table.getDb() == null ? "" : table.getDb().getFullName()) + "." + table.getName()
+                                + "' does not exist"));
         return new PluginDrivenScanNode(id, desc, needCheckColumnPriv, sv,
                 scanContext, connector, session, handle);
     }
@@ -251,6 +255,22 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             resolvedScanProvider = cached;
         }
         return cached.provider;
+    }
+
+    @Override
+    protected String getHiveParquetTimeZone() throws UserException {
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider == null || !onPluginClassLoader(
+                scanProvider, scanProvider::usesHiveParquetInt96TimeZone)) {
+            return "";
+        }
+        TableIf table = getTargetTable();
+        if (!(table instanceof ExternalTable)) {
+            return "";
+        }
+        // The provider capability owns the file semantics; a plugin catalog type is intentionally
+        // not required to masquerade as a built-in HMS or Hudi catalog to consume this setting.
+        return ((ExternalTable) table).getConfiguredHiveParquetTimeZone();
     }
 
     /**
@@ -1262,6 +1282,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (!(getTargetTable() instanceof PluginDrivenSysExternalTable)) {
             return;
         }
+        String connectorName = connectorDisplayName();
         boolean timeTravelSupported = sysTableSupportsTimeTravel();
         TableScanParams scanParams = getScanParams();
         if (scanParams != null) {
@@ -1272,21 +1293,30 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             String sysTableName = sysTableName();
             if (scanParams.incrementalRead()) {
                 if (!sysTableSupportsScanParam(p -> p.supportsSystemTableIncrementalRead(sysTableName))) {
-                    throw new UserException("Plugin system table '" + sysTableName
+                    throw new UserException(connectorName + " system table '" + sysTableName
                             + "' does not support INCR scan params.");
                 }
             } else if (scanParams.isOptions()) {
                 if (!sysTableSupportsScanParam(p -> p.supportsSystemTableOptions(sysTableName))) {
-                    throw new UserException("Plugin system table '" + sysTableName
+                    throw new UserException(connectorName + " system table '" + sysTableName
                             + "' does not support OPTIONS scan params.");
                 }
             } else if (!timeTravelSupported) {
-                throw new UserException("Plugin system tables do not support scan params.");
+                throw new UserException(connectorName + " system tables do not support scan params.");
             }
         }
         if (getQueryTableSnapshot() != null && !timeTravelSupported) {
-            throw new UserException("Plugin system tables do not support time travel.");
+            throw new UserException(connectorName + " system tables do not support time travel.");
         }
+    }
+
+    private String connectorDisplayName() throws UserException {
+        String engine = getTargetTable().getEngine();
+        // The engine is already the connector-owned display name; changing its case corrupts identities such
+        // as iRODS and makes equivalent connector errors differ by execution path.
+        return engine == null || engine.isEmpty()
+                ? "Plugin"
+                : engine;
     }
 
     /**
@@ -2183,7 +2213,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 ConnectorColumnHandle ch = allHandles.get(name);
                 if (ch != null) {
                     selected.add(withProjectedFieldIds(ch, slot));
-                } else if (pinnedNames.contains(name)) {
+                } else if (requiresPinnedColumnHandle(slot.getColumn(), pinnedNames)) {
                     throw new UserException("Column '" + name + "' of table "
                             + getTargetTable().getName() + " resolves in the pinned time-travel schema"
                             + " but has no connector column handle; refusing to silently drop it"
@@ -2192,6 +2222,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             }
         }
         return selected;
+    }
+
+    static boolean requiresPinnedColumnHandle(Column column, Set<String> pinnedNames) {
+        // A connector-reserved passthrough column is generated by the scan provider rather than resolved
+        // from the physical table schema, so it may legitimately be absent from the column-handle map.
+        return pinnedNames.contains(column.getName()) && !column.isReservedPassthrough();
     }
 
     static ConnectorColumnHandle withProjectedFieldIds(

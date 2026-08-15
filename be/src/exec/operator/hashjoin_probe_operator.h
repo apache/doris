@@ -20,6 +20,7 @@
 
 #include "common/be_mock_util.h"
 #include "common/status.h"
+#include "exec/operator/join/process_hash_table_probe.h"
 #include "exec/operator/join_probe_operator.h"
 #include "exec/operator/operator.h"
 

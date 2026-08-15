@@ -19,10 +19,10 @@
 
 #include <gen_cpp/ExternalTableSchema_types.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <ranges>
 #include <string>
 #include <unordered_map>
 #include <vector>

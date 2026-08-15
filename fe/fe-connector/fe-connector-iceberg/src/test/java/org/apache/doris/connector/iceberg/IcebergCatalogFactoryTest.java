@@ -17,6 +17,9 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.metastore.iceberg.glue.IcebergGlueMetaStoreProperties;
+import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
+import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
@@ -60,36 +63,24 @@ public class IcebergCatalogFactoryTest {
         return m;
     }
 
-    // ---------------------------------------------------------------------
-    // resolveFlavor — lower-cased iceberg.catalog.type, null when absent/blank
-    // ---------------------------------------------------------------------
-
-    @Test
-    public void resolveFlavorLowerCasesTheCatalogType() {
-        // WHY: the second-level dispatch keys off the flavor; the legacy code lower-cases the raw
-        // iceberg.catalog.type so a user who writes "REST"/"Hms" still routes correctly. MUTATION:
-        // returning the raw value (no toLowerCase) -> "REST" != "rest" -> red.
-        Assertions.assertEquals("rest",
-                IcebergCatalogFactory.resolveFlavor(props("iceberg.catalog.type", "REST")));
-        Assertions.assertEquals("hms",
-                IcebergCatalogFactory.resolveFlavor(props("iceberg.catalog.type", "Hms")));
-        Assertions.assertEquals("glue",
-                IcebergCatalogFactory.resolveFlavor(props("iceberg.catalog.type", "glue")));
+    /**
+     * Binds the raw map the way {@code buildCatalogProperties} does before calling the rest appender, so these
+     * tests keep expressing their input as the properties a user writes.
+     */
+    private static void appendRest(Map<String, String> opts, Map<String, String> raw,
+            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        IcebergCatalogFactory.appendRestProperties(opts, IcebergRestMetaStoreProperties.of(raw), raw, chosenS3);
     }
 
-    @Test
-    public void resolveFlavorReturnsNullWhenAbsent() {
-        // WHY: an absent iceberg.catalog.type must resolve to null (the "no second-level flavor"
-        // signal), NOT throw or invent a default. MUTATION: defaulting to a flavor string -> red.
-        Assertions.assertNull(IcebergCatalogFactory.resolveFlavor(Collections.emptyMap()));
+    /** Same, for the glue appender. */
+    private static void appendGlue(Map<String, String> opts, Map<String, String> raw,
+            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        IcebergCatalogFactory.appendGlueProperties(opts, IcebergGlueMetaStoreProperties.of(raw), chosenS3);
     }
 
-    @Test
-    public void resolveFlavorReturnsNullWhenBlank() {
-        // WHY: a present-but-empty value is treated as absent (the production guard is
-        // null-or-isEmpty), so it must also fold to null. MUTATION: dropping the isEmpty() guard ->
-        // returns "" -> red.
-        Assertions.assertNull(IcebergCatalogFactory.resolveFlavor(props("iceberg.catalog.type", "")));
+    /** Same, for the jdbc appender. */
+    private static void appendJdbc(Map<String, String> opts, Map<String, String> raw) {
+        IcebergCatalogFactory.appendJdbcProperties(opts, IcebergJdbcMetaStoreProperties.of(raw));
     }
 
     // ---------------------------------------------------------------------
@@ -335,6 +326,17 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
+    public void selectEffectiveStoragesDropsGenericS3WhenOssIsPresent() {
+        FakeS3CompatibleStorageProperties genericS3 = new FakeS3CompatibleStorageProperties("S3");
+        FakeS3CompatibleStorageProperties oss = new FakeS3CompatibleStorageProperties("OSS");
+
+        List<StorageProperties> selected = IcebergCatalogFactory.selectEffectiveStorages(
+                Arrays.asList(genericS3, oss));
+
+        Assertions.assertEquals(Collections.singletonList(oss), selected);
+    }
+
+    @Test
     public void chooseS3CompatibleEmptyWhenNoS3Storage() {
         // WHY: a credential-less / HDFS-only catalog has no S3-compatible storage, so no S3FileIO props
         // are emitted (empty Optional). MUTATION: returning a present value -> red.
@@ -350,12 +352,12 @@ public class IcebergCatalogFactoryTest {
         // WHY: legacy puts CatalogProperties.URI UNCONDITIONALLY (field default ""), alias priority
         // iceberg.rest.uri > uri. MUTATION: only-if-nonblank put OR wrong alias order -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.uri", "https://rest", "uri", "https://other"), Optional.empty());
         Assertions.assertEquals("https://rest", opts.get("uri"));
 
         Map<String, String> empty = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(empty, props(), Optional.empty());
+        appendRest(empty, props(), Optional.empty());
         Assertions.assertEquals("", empty.get("uri"), "uri must be emitted as empty string when no alias is set");
     }
 
@@ -363,10 +365,10 @@ public class IcebergCatalogFactoryTest {
     public void appendRestEmitsPrefixOnlyWhenSet() {
         // WHY: legacy emits "prefix" only if iceberg.rest.prefix is non-blank. MUTATION: unconditional put -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts, props("iceberg.rest.prefix", "p1"), Optional.empty());
+        appendRest(opts, props("iceberg.rest.prefix", "p1"), Optional.empty());
         Assertions.assertEquals("p1", opts.get("prefix"));
         Map<String, String> none = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(none, props(), Optional.empty());
+        appendRest(none, props(), Optional.empty());
         Assertions.assertNull(none.get("prefix"));
     }
 
@@ -376,11 +378,11 @@ public class IcebergCatalogFactoryTest {
         // Boolean.parseBoolean(iceberg.rest.vended-credentials-enabled). MUTATION: wrong header key/value or
         // emitting when disabled -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.vended-credentials-enabled", "true"), Optional.empty());
         Assertions.assertEquals("vended-credentials", opts.get("header.X-Iceberg-Access-Delegation"));
         Map<String, String> off = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(off, props(), Optional.empty());
+        appendRest(off, props(), Optional.empty());
         Assertions.assertNull(off.get("header.X-Iceberg-Access-Delegation"));
     }
 
@@ -390,11 +392,11 @@ public class IcebergCatalogFactoryTest {
         // keys rest.client.connection-timeout-ms / rest.client.socket-timeout-ms. MUTATION: wrong defaults or
         // wrong literal keys -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts, props(), Optional.empty());
+        appendRest(opts, props(), Optional.empty());
         Assertions.assertEquals("10000", opts.get("rest.client.connection-timeout-ms"));
         Assertions.assertEquals("60000", opts.get("rest.client.socket-timeout-ms"));
         Map<String, String> over = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(over,
+        appendRest(over,
                 props("iceberg.rest.connection-timeout-ms", "5000", "iceberg.rest.socket-timeout-ms", "7000"),
                 Optional.empty());
         Assertions.assertEquals("5000", over.get("rest.client.connection-timeout-ms"));
@@ -407,7 +409,7 @@ public class IcebergCatalogFactoryTest {
         // server-uri/scope + token-refresh-enabled (default "true" from OAuth2Properties default).
         // MUTATION: emitting token instead, wrong keys, or dropping token-refresh-enabled -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.security.type", "oauth2",
                         "iceberg.rest.oauth2.credential", "id:secret",
                         "iceberg.rest.oauth2.server-uri", "https://auth",
@@ -425,7 +427,7 @@ public class IcebergCatalogFactoryTest {
         // WHY: oauth2 with no credential uses the pre-configured token flow: emit OAuth2Properties.TOKEN.
         // MUTATION: emitting credential / token-refresh-enabled here -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.security.type", "oauth2", "iceberg.rest.oauth2.token", "tok"), Optional.empty());
         Assertions.assertEquals("tok", opts.get("token"));
         Assertions.assertNull(opts.get("credential"));
@@ -437,7 +439,7 @@ public class IcebergCatalogFactoryTest {
         // WHY: the oauth2 block is gated on security.type==oauth2 (default none). MUTATION: applying it
         // unconditionally would leak credential/token even for a non-oauth2 catalog -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.oauth2.credential", "id:secret"), Optional.empty());
         Assertions.assertNull(opts.get("credential"));
     }
@@ -445,10 +447,10 @@ public class IcebergCatalogFactoryTest {
     @Test
     public void appendRestSigningBlockEmitsSigningKeysAndS3ExplicitCredentials() {
         // WHY: when signing-name is set, legacy emits rest.signing-name/sigv4-enabled/signing-region; for
-        // glue/s3tables the credentials come from the chosen S3 store, EXPLICIT (static AK/SK) -> rest.* creds
+        // managed signing names get credentials from the chosen S3 store, EXPLICIT (static AK/SK) -> rest.* creds
         // (AwsProperties.REST_*). MUTATION: wrong signing keys, or sourcing creds from the wrong place -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.signing-name", "glue", "iceberg.rest.sigv4-enabled", "true",
                         "iceberg.rest.signing-region", "us-east-1"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").accessKey("AK").secretKey("SK")
@@ -462,12 +464,51 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
+    public void buildRestCatalogForOssTablesUsesSharedS3Credentials() {
+        Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
+                IcebergCatalogProperties.of(props("type", "iceberg",
+                        "iceberg.catalog.type", "rest",
+                        "iceberg.rest.uri", "https://cn-hangzhou.oss-tables.aliyuncs.com/iceberg",
+                        "warehouse", "acs:osstables:cn-hangzhou:1234567890:bucket/my-table-bucket",
+                        "iceberg.rest.signing-name", "osstables",
+                        "iceberg.rest.signing-region", "cn-hangzhou",
+                        "iceberg.rest.sigv4-enabled", "true",
+                        "iceberg.rest.view-enabled", "false",
+                        "io-impl", "org.apache.iceberg.aws.s3.S3FileIO")),
+                Optional.of(new FakeS3CompatibleStorageProperties("OSS")
+                        .endpoint("https://oss-cn-hangzhou.aliyuncs.com")
+                        .region("cn-hangzhou")
+                        .accessKey("OSS_AK")
+                        .secretKey("OSS_SK")
+                        .sessionToken("OSS_TOKEN")
+                        .usePathStyle("false")));
+
+        Assertions.assertEquals("https://cn-hangzhou.oss-tables.aliyuncs.com/iceberg", opts.get("uri"));
+        Assertions.assertEquals("acs:osstables:cn-hangzhou:1234567890:bucket/my-table-bucket",
+                opts.get("warehouse"));
+        Assertions.assertEquals("org.apache.iceberg.aws.s3.S3FileIO", opts.get("io-impl"));
+        Assertions.assertEquals("osstables", opts.get("rest.signing-name"));
+        Assertions.assertEquals("cn-hangzhou", opts.get("rest.signing-region"));
+        Assertions.assertEquals("true", opts.get("rest.sigv4-enabled"));
+        Assertions.assertEquals("OSS_AK", opts.get("rest.access-key-id"));
+        Assertions.assertEquals("OSS_SK", opts.get("rest.secret-access-key"));
+        Assertions.assertEquals("OSS_TOKEN", opts.get("rest.session-token"));
+        Assertions.assertEquals("https://oss-cn-hangzhou.aliyuncs.com", opts.get("s3.endpoint"));
+        Assertions.assertEquals("cn-hangzhou", opts.get("client.region"));
+        Assertions.assertEquals("OSS_AK", opts.get("s3.access-key-id"));
+        Assertions.assertEquals("OSS_SK", opts.get("s3.secret-access-key"));
+        Assertions.assertEquals("OSS_TOKEN", opts.get("s3.session-token"));
+        Assertions.assertEquals("false", opts.get("s3.path-style-access"));
+        Assertions.assertNull(opts.get("type"));
+    }
+
+    @Test
     public void appendRestSigningGlueAssumeRoleWhenNoStaticCreds() {
         // WHY: legacy getCredentialType precedence is EXPLICIT then ASSUME_ROLE; with no static AK/SK but a role
-        // ARN the glue/s3tables signing path emits the assume-role block (client.factory + client.assume-role.*).
+        // ARN the managed signing path emits the assume-role block (client.factory + client.assume-role.*).
         // MUTATION: emitting rest.access-key-id from a blank AK, or skipping assume-role -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.signing-name", "s3tables", "iceberg.rest.sigv4-enabled", "true",
                         "iceberg.rest.signing-region", "us-west-2"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-west-2")
@@ -479,10 +520,10 @@ public class IcebergCatalogFactoryTest {
 
     @Test
     public void appendRestSigningOtherNameUsesIcebergRestCredentials() {
-        // WHY: a signing-name NOT in {glue,s3tables} uses the iceberg.rest.* explicit creds (not the S3 store).
+        // WHY: a non-managed signing name uses the iceberg.rest.* explicit creds (not the S3 store).
         // MUTATION: reading the S3 store here -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.signing-name", "custom",
                         "iceberg.rest.access-key-id", "RAK", "iceberg.rest.secret-access-key", "RSK"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").accessKey("SHOULD_NOT_USE")
@@ -493,11 +534,11 @@ public class IcebergCatalogFactoryTest {
 
     @Test
     public void appendRestSigningGlueProviderChainPinsNonDefaultProvider() {
-        // F14: glue/s3tables signing with NO static creds and NO role -> PROVIDER_CHAIN. A non-DEFAULT
+        // F14: managed signing with NO static creds and NO role -> PROVIDER_CHAIN. A non-DEFAULT
         // s3.credentials_provider_type must pin client.credentials-provider to that provider class (was silently
         // dropped). MUTATION: dropping the else branch -> the key is absent -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.signing-name", "glue", "s3.credentials_provider_type", "anonymous"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-east-1")));
         Assertions.assertEquals(AnonymousCredentialsProvider.class.getName(),
@@ -505,7 +546,7 @@ public class IcebergCatalogFactoryTest {
 
         // DEFAULT / absent -> nothing emitted (SDK default chain, the common case).
         Map<String, String> defaultOpts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(defaultOpts,
+        appendRest(defaultOpts,
                 props("iceberg.rest.signing-name", "glue"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-east-1")));
         Assertions.assertNull(defaultOpts.get("client.credentials-provider"),
@@ -514,10 +555,10 @@ public class IcebergCatalogFactoryTest {
 
     @Test
     public void appendRestSigningOtherNameProviderChainPinsNonDefaultProvider() {
-        // F14: a non-glue/s3tables signing-name with NO explicit iceberg.rest.* creds falls to PROVIDER_CHAIN;
+        // F14: a non-managed signing name with NO explicit iceberg.rest.* creds falls to PROVIDER_CHAIN;
         // iceberg.rest.credentials_provider_type pins the provider class. MUTATION: dropping the else -> absent.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts,
+        appendRest(opts,
                 props("iceberg.rest.signing-name", "custom",
                         "iceberg.rest.credentials_provider_type", "web-identity"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3")));
@@ -531,7 +572,7 @@ public class IcebergCatalogFactoryTest {
         // WHY: the entire signing block is gated on a non-blank signing-name. MUTATION: emitting rest.signing-name
         // (even empty) without the gate -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendRestProperties(opts, props(), Optional.empty());
+        appendRest(opts, props(), Optional.empty());
         Assertions.assertNull(opts.get("rest.signing-name"));
         Assertions.assertNull(opts.get("rest.sigv4-enabled"));
     }
@@ -546,7 +587,7 @@ public class IcebergCatalogFactoryTest {
         // unset session token is written as "". MUTATION: blank-guarding these puts (like the base S3FileIO path)
         // -> the empty s3.session-token would be absent -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(opts, props("glue.access_key", "a", "glue.secret_key", "b",
+        appendGlue(opts, props("glue.access_key", "a", "glue.secret_key", "b",
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").accessKey("S3AK").secretKey("S3SK")
                         .endpoint("https://s3").usePathStyle("true")));
@@ -563,7 +604,7 @@ public class IcebergCatalogFactoryTest {
         // provider keys and RETURN (mutually exclusive with the IAM-role branch). MUTATION: wrong key/value, or
         // also emitting client.factory (IAM branch) -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(opts,
+        appendGlue(opts,
                 props("glue.access_key", "GAK", "glue.secret_key", "GSK", "aws.glue.session-token", "GST",
                         "glue.role_arn", "arn:aws:iam::1:role/should-not-fire",
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
@@ -586,7 +627,7 @@ public class IcebergCatalogFactoryTest {
         // provider used to read only ak/sk, so a supplied token was dropped here and AWS then rejected the
         // temporary credentials. MUTATION: dropping the token read in create() -> AwsBasicCredentials -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(opts,
+        appendGlue(opts,
                 props("glue.access_key", "GAK", "glue.secret_key", "GSK", "aws.glue.session-token", "GST",
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
                 Optional.empty());
@@ -609,7 +650,7 @@ public class IcebergCatalogFactoryTest {
         // -> AwsSessionCredentials.create accepts a blank token silently -> this turns red instead of AWS
         // rejecting it much later with a confusing 4xx.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(opts,
+        appendGlue(opts,
                 props("glue.access_key", "GAK", "glue.secret_key", "GSK",
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com"),
                 Optional.empty());
@@ -629,7 +670,7 @@ public class IcebergCatalogFactoryTest {
         // aws.region + client.assume-role.arn/region + optional external-id). MUTATION: wrong keys or skipping
         // external-id -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(opts,
+        appendGlue(opts,
                 props("glue.role_arn", "arn:aws:iam::1:role/r", "glue.external_id", "eid", "glue.region", "eu-west-1",
                         "glue.endpoint", "https://glue.eu-west-1.amazonaws.com"),
                 Optional.empty());
@@ -645,7 +686,7 @@ public class IcebergCatalogFactoryTest {
         // WHY: legacy always puts glue.endpoint (AwsProperties.GLUE_CATALOG_ENDPOINT) and client.region. MUTATION:
         // dropping either -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(opts,
+        appendGlue(opts,
                 props("glue.access_key", "a", "glue.secret_key", "b", "glue.region", "ap-south-1",
                         "glue.endpoint", "https://glue.ap-south-1.amazonaws.com"),
                 Optional.empty());
@@ -658,14 +699,14 @@ public class IcebergCatalogFactoryTest {
         // WHY: legacy resolves the region from glue.region first, else extracts it from the endpoint host via
         // ENDPOINT_PATTERN, else us-east-1. MUTATION: not extracting from the endpoint, or wrong fallback -> red.
         Map<String, String> fromEndpoint = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(fromEndpoint,
+        appendGlue(fromEndpoint,
                 props("glue.access_key", "a", "glue.secret_key", "b",
                         "glue.endpoint", "https://glue-fips.ca-central-1.api.aws"),
                 Optional.empty());
         Assertions.assertEquals("ca-central-1", fromEndpoint.get("client.region"));
 
         Map<String, String> defaulted = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(defaulted,
+        appendGlue(defaulted,
                 props("glue.access_key", "a", "glue.secret_key", "b", "glue.endpoint", "https://not-a-glue-host"),
                 Optional.empty());
         Assertions.assertEquals("us-east-1", defaulted.get("client.region"));
@@ -676,14 +717,14 @@ public class IcebergCatalogFactoryTest {
         // WHY: legacy putIfAbsent(WAREHOUSE_LOCATION, "s3://doris") — fills the placeholder only when the user
         // did not supply a warehouse. MUTATION: an unconditional put would clobber the user's warehouse -> red.
         Map<String, String> defaulted = new HashMap<>();
-        IcebergCatalogFactory.appendGlueProperties(defaulted,
+        appendGlue(defaulted,
                 props("glue.access_key", "a", "glue.secret_key", "b", "glue.endpoint", "https://glue.x.amazonaws.com"),
                 Optional.empty());
         Assertions.assertEquals("s3://doris", defaulted.get("warehouse"));
 
         Map<String, String> userWh = new HashMap<>();
         userWh.put("warehouse", "s3://mybucket/wh");
-        IcebergCatalogFactory.appendGlueProperties(userWh,
+        appendGlue(userWh,
                 props("glue.access_key", "a", "glue.secret_key", "b", "glue.endpoint", "https://glue.x.amazonaws.com"),
                 Optional.empty());
         Assertions.assertEquals("s3://mybucket/wh", userWh.get("warehouse"));
@@ -697,7 +738,7 @@ public class IcebergCatalogFactoryTest {
     public void appendJdbcEmitsUriWithAliasPriority() {
         // WHY: legacy uri alias priority is {uri, iceberg.jdbc.uri} (uri wins). MUTATION: wrong order -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendJdbcProperties(opts,
+        appendJdbc(opts,
                 props("uri", "jdbc:mysql://h/db", "iceberg.jdbc.uri", "jdbc:other"));
         Assertions.assertEquals("jdbc:mysql://h/db", opts.get("uri"));
     }
@@ -707,7 +748,7 @@ public class IcebergCatalogFactoryTest {
         // WHY: legacy addIfNotBlank maps each iceberg.jdbc.<x> to the dotted jdbc.<x> only when non-blank.
         // MUTATION: wrong emitted key spelling or emitting a blank value -> red.
         Map<String, String> opts = new HashMap<>();
-        IcebergCatalogFactory.appendJdbcProperties(opts,
+        appendJdbc(opts,
                 props("uri", "jdbc:mysql://h/db", "iceberg.jdbc.user", "u", "iceberg.jdbc.password", "p",
                         "iceberg.jdbc.init-catalog-tables", "true", "iceberg.jdbc.schema-version", "V1",
                         "iceberg.jdbc.strict-mode", "false"));
@@ -718,7 +759,7 @@ public class IcebergCatalogFactoryTest {
         Assertions.assertEquals("false", opts.get("jdbc.strict-mode"));
 
         Map<String, String> bare = new HashMap<>();
-        IcebergCatalogFactory.appendJdbcProperties(bare, props("uri", "jdbc:mysql://h/db"));
+        appendJdbc(bare, props("uri", "jdbc:mysql://h/db"));
         Assertions.assertNull(bare.get("jdbc.user"), "an unset jdbc.user must NOT be emitted");
     }
 
@@ -733,8 +774,7 @@ public class IcebergCatalogFactoryTest {
         // iceberg.catalog.type key is a separate raw key carried by copy-all and is harmless. MUTATION: not
         // setting impl, or leaving "type" -> red.
         Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
-                props("iceberg.catalog.type", "hadoop", "warehouse", "s3://b/wh", "type", "hadoop"),
-                "hadoop", Optional.empty());
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "hadoop", "warehouse", "s3://b/wh", "type", "hadoop")), Optional.empty());
         Assertions.assertEquals("org.apache.iceberg.hadoop.HadoopCatalog", opts.get("catalog-impl"));
         Assertions.assertNull(opts.get("type"), "the SDK 'type' key must be removed before building");
     }
@@ -744,9 +784,8 @@ public class IcebergCatalogFactoryTest {
         // WHY: iceberg.jdbc.catalog_name is the positional catalog NAME, removed from the options map by legacy
         // initCatalog. MUTATION: leaving it in the map -> red (iceberg would treat it as an unknown option).
         Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
-                props("iceberg.catalog.type", "jdbc", "uri", "jdbc:mysql://h/db", "warehouse", "s3://b/wh",
-                        "iceberg.jdbc.catalog_name", "mycat"),
-                "jdbc", Optional.empty());
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "jdbc", "uri", "jdbc:mysql://h/db", "warehouse", "s3://b/wh",
+                        "iceberg.jdbc.catalog_name", "mycat")), Optional.empty());
         Assertions.assertEquals("org.apache.iceberg.jdbc.JdbcCatalog", opts.get("catalog-impl"));
         Assertions.assertNull(opts.get("iceberg.jdbc.catalog_name"),
                 "the jdbc catalog_name must be consumed positionally, not left in the options map");
@@ -757,7 +796,7 @@ public class IcebergCatalogFactoryTest {
         // WHY: legacy iceberg HMS does NOT call toFileIOProperties — object-store access rides the HiveConf, not
         // the s3.* options. MUTATION: appending the base S3FileIO for HMS -> s3.endpoint present -> red.
         Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
-                props("iceberg.catalog.type", "hms"), "hms",
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "hms")),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").endpoint("https://s3").accessKey("AK")));
         Assertions.assertEquals("org.apache.iceberg.hive.HiveCatalog", opts.get("catalog-impl"));
         Assertions.assertNull(opts.get("s3.endpoint"), "HMS must not emit S3FileIO options");
@@ -772,10 +811,9 @@ public class IcebergCatalogFactoryTest {
         // carried by copy-all is inert (iceberg reads client.region). Legacy toFileIOProperties supplied this in
         // its chosen==null branch. MUTATION: dropping the empty-chosenS3 region fallback -> client.region absent -> red.
         Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
-                props("iceberg.catalog.type", "rest", "uri", "https://rest",
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "rest", "uri", "https://rest",
                         "iceberg.rest.vended-credentials-enabled", "true", "s3.endpoint", "https://minio:9000",
-                        "s3.region", "us-east-1"),
-                "rest", Optional.empty());
+                        "s3.region", "us-east-1")), Optional.empty());
         Assertions.assertEquals("us-east-1", opts.get("client.region"),
                 "vended REST (no bound S3) must still translate s3.region -> client.region");
     }
@@ -789,17 +827,15 @@ public class IcebergCatalogFactoryTest {
         // RED before widening: AWS_REGION (uppercase) does not match the narrow lowercase aws.region and
         // iceberg.rest.signing-region is absent from the narrow 4-alias set -> client.region null.
         Map<String, String> viaAwsRegion = IcebergCatalogFactory.buildCatalogProperties(
-                props("iceberg.catalog.type", "rest", "uri", "https://rest",
-                        "iceberg.rest.vended-credentials-enabled", "true", "AWS_REGION", "us-east-1"),
-                "rest", Optional.empty());
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "rest", "uri", "https://rest",
+                        "iceberg.rest.vended-credentials-enabled", "true", "AWS_REGION", "us-east-1")), Optional.empty());
         Assertions.assertEquals("us-east-1", viaAwsRegion.get("client.region"),
                 "region supplied only via AWS_REGION must translate to client.region");
 
         Map<String, String> viaSigningRegion = IcebergCatalogFactory.buildCatalogProperties(
-                props("iceberg.catalog.type", "rest", "uri", "https://rest",
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "rest", "uri", "https://rest",
                         "iceberg.rest.vended-credentials-enabled", "true",
-                        "iceberg.rest.signing-region", "eu-west-1"),
-                "rest", Optional.empty());
+                        "iceberg.rest.signing-region", "eu-west-1")), Optional.empty());
         Assertions.assertEquals("eu-west-1", viaSigningRegion.get("client.region"),
                 "region supplied only via iceberg.rest.signing-region must translate to client.region");
     }
@@ -815,8 +851,8 @@ public class IcebergCatalogFactoryTest {
         // manifest-cache + S3FileIO creds, and adds NEITHER "catalog-impl" NOR removes "type" (those are the
         // CatalogUtil path's concern). MUTATION: adding catalog-impl, removing type, or dropping S3FileIO -> red.
         Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
-                props("iceberg.catalog.type", "s3tables", "type", "iceberg",
-                        "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b"),
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "s3tables", "type", "iceberg",
+                        "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b")),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3")
                         .endpoint("https://s3.us-east-1.amazonaws.com").region("us-east-1")
                         .accessKey("AK").secretKey("SK").sessionToken("TK").usePathStyle("true")));
@@ -841,7 +877,7 @@ public class IcebergCatalogFactoryTest {
         // legacy putS3FileIOCredentialProperties ASSUME_ROLE branch emits. MUTATION: missing assume-role keys
         // OR leaking static AK/SK -> red.
         Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
-                props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-west-2:1:bucket/b"),
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-west-2:1:bucket/b")),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-west-2")
                         .roleArn("arn:aws:iam::1:role/r").externalId("eid")));
         Assertions.assertEquals("org.apache.iceberg.aws.AssumeRoleAwsClientFactory", opts.get("client.factory"));
@@ -858,8 +894,8 @@ public class IcebergCatalogFactoryTest {
         // s3.credentials_provider_type pins client.credentials-provider (mirrors legacy putCredentialsProvider).
         // MUTATION: dropping the else branch in appendS3TablesFileIOProperties -> the key is absent -> red.
         Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
-                props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-west-2:1:bucket/b",
-                        "s3.credentials_provider_type", "ENV"),
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-west-2:1:bucket/b",
+                        "s3.credentials_provider_type", "ENV")),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-west-2")));
         Assertions.assertEquals(EnvironmentVariableCredentialsProvider.class.getName(),
                 opts.get("client.credentials-provider"));
@@ -874,7 +910,7 @@ public class IcebergCatalogFactoryTest {
         // The s3tables path must NOT reuse the always-emit appendS3FileIOProperties helper. MUTATION: emitting the
         // assume-role block (client.factory / client.assume-role.*) when static creds are present -> red.
         Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
-                props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-west-2:1:bucket/b"),
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-west-2:1:bucket/b")),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-west-2")
                         .accessKey("AK").secretKey("SK").roleArn("arn:aws:iam::1:role/r")));
         Assertions.assertEquals("AK", opts.get("s3.access-key-id"));
@@ -891,7 +927,7 @@ public class IcebergCatalogFactoryTest {
         // because there is no region to propagate. (When a region IS present it is now emitted; see
         // buildS3TablesCatalogPropertiesPropagatesClientRegionWithoutBoundS3.) MUTATION: fabricating any s3.* -> red.
         Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
-                props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b"),
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b")),
                 Optional.empty());
         Assertions.assertEquals("arn:aws:s3tables:us-east-1:1:bucket/b", opts.get("warehouse"));
         Assertions.assertNull(opts.get("s3.access-key-id"));
@@ -906,8 +942,8 @@ public class IcebergCatalogFactoryTest {
         // DefaultAwsRegionProviderChain. Parallels the REST vended-cred region test. RED at HEAD (the old
         // ifPresent-only path emitted nothing without a storage). No s3.* credential keys (none are bound).
         Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
-                props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b",
-                        "s3.region", "us-east-1"),
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b",
+                        "s3.region", "us-east-1")),
                 Optional.empty());
         Assertions.assertEquals("us-east-1", opts.get("client.region"),
                 "no-storage s3tables must propagate s3.region -> client.region for the data-plane S3FileIO");
@@ -915,7 +951,8 @@ public class IcebergCatalogFactoryTest {
     }
 
     // ---------------------------------------------------------------------
-    // resolveCatalogName — jdbc positional vs default
+    // resolveCatalogName — jdbc positional vs default (the flavor now comes from the properties,
+    // so each fixture names its own iceberg.catalog.type rather than passing one alongside)
     // ---------------------------------------------------------------------
 
     @Test
@@ -923,7 +960,8 @@ public class IcebergCatalogFactoryTest {
         // WHY: legacy passes iceberg.jdbc.catalog_name as the catalog NAME (overriding the Doris catalog name).
         // MUTATION: returning the default name for jdbc -> red.
         Assertions.assertEquals("mycat", IcebergCatalogFactory.resolveCatalogName(
-                props("iceberg.jdbc.catalog_name", "mycat"), "jdbc", "doris_cat"));
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "jdbc",
+                        "iceberg.jdbc.catalog_name", "mycat")), "doris_cat"));
     }
 
     @Test
@@ -932,7 +970,8 @@ public class IcebergCatalogFactoryTest {
         // must fail loud rather than silently fall back to the Doris catalog name. MUTATION: returning the default
         // -> no exception -> red.
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
-                () -> IcebergCatalogFactory.resolveCatalogName(props(), "jdbc", "doris_cat"));
+                () -> IcebergCatalogFactory.resolveCatalogName(
+                        IcebergCatalogProperties.of(props("iceberg.catalog.type", "jdbc")), "doris_cat"));
         Assertions.assertTrue(ex.getMessage().contains("iceberg.jdbc.catalog_name"));
     }
 
@@ -940,7 +979,8 @@ public class IcebergCatalogFactoryTest {
     public void resolveCatalogNameUsesDefaultForNonJdbc() {
         // WHY: every non-jdbc flavor uses the Doris catalog name. MUTATION: reading catalog_name for hms -> red.
         Assertions.assertEquals("doris_cat", IcebergCatalogFactory.resolveCatalogName(
-                props("iceberg.jdbc.catalog_name", "ignored"), "hms", "doris_cat"));
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "hms",
+                        "iceberg.jdbc.catalog_name", "ignored")), "doris_cat"));
     }
 
     // ---------------------------------------------------------------------

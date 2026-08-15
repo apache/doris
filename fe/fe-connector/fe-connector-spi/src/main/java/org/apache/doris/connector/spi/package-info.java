@@ -188,7 +188,7 @@
  *     and defaults stay entirely inside the connector — <b>prefix the key with the connector's type name</b>
  *     so two connectors cannot collide. Shipped precedent: {@code hive.ignore_absent_partitions},
  *     {@code hive.enable_hms_events_incremental_sync} and {@code hive.hms_events_batch_size_per_rpc} are
- *     declared in {@code HiveConnectorProperties} and read in {@code HiveScanPlanProvider} /
+ *     declared in {@code HiveCatalogProperties} and read in {@code HiveScanPlanProvider} /
  *     {@code HiveConnector}; those key strings appear nowhere in {@code fe-core}.</li>
  * <li><b>Per FE process</b> (one deployment-level value for every catalog, e.g. a driver directory)
  *     &rarr; a key in the plugin's own {@code <name>.conf}, read with {@code ConnectorConf.get}. The engine

@@ -96,6 +96,7 @@ private:
     // open
     void _reset_split_state(JNIEnv* env);
     void _prepare_jni_scanner_schema();
+    void _apply_common_scanner_params();
     Status _register_jni_class_functions_once(JNIEnv* env);
     Status _create_jni_scanner_object(JNIEnv* env, int batch_size);
     // get_next

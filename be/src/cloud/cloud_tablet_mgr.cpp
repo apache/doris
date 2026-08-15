@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "runtime/memory/cache_policy.h"
+#include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "util/debug_points.h"
 #include "util/lru_cache.h"
 #include "util/stack_util.h"
@@ -188,6 +189,12 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
     auto* handle = _cache->lookup(key);
 
     if (handle == nullptr) {
+#ifdef BE_TEST
+        if (auto tablet = _tablet_map->get(tablet_id); tablet != nullptr) {
+            set_tablet_access_time_ms(tablet.get());
+            return tablet;
+        }
+#endif
         if (force_use_only_cached) {
             LOG(INFO) << "tablet=" << tablet_id
                       << "does not exists in local tablet cache, because param "
@@ -426,15 +433,24 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
 
 Status CloudTabletMgr::get_topn_tablets_to_compact(
         int n, CompactionType compaction_type, const std::function<bool(CloudTablet*)>& filter_out,
-        std::vector<std::shared_ptr<CloudTablet>>* tablets, int64_t* max_score) {
+        std::vector<std::shared_ptr<CloudTablet>>* tablets, CompactionScoreStats* score_stats) {
     DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
-           compaction_type == CompactionType::CUMULATIVE_COMPACTION);
-    *max_score = 0;
+           compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
+           compaction_type == CompactionType::CUMU_BINLOG_COMPACTION);
+    *score_stats = {};
+    score_stats->scanned = true;
     int64_t max_score_tablet_id = 0;
     // clang-format off
     auto score = [compaction_type](CloudTablet* t) {
+        if (compaction_type == CompactionType::CUMU_BINLOG_COMPACTION && !t->is_row_binlog_tablet()) {
+            return int64_t {0};
+        }
+        if (compaction_type != CompactionType::CUMU_BINLOG_COMPACTION && t->is_row_binlog_tablet()) {
+            return int64_t {0};
+        }
         return compaction_type == CompactionType::BASE_COMPACTION ? t->get_cloud_base_compaction_score()
-               : compaction_type == CompactionType::CUMULATIVE_COMPACTION ? t->get_cloud_cumu_compaction_score()
+               : (compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
+                  compaction_type == CompactionType::CUMU_BINLOG_COMPACTION) ? t->get_cloud_cumu_compaction_score()
                : 0;
     };
 
@@ -489,9 +505,18 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
 
         int64_t s = score(t.get());
         if (s <= 0) { continue; }
-        if (s > *max_score) {
+        if (s > score_stats->max_score) {
             max_score_tablet_id = t->tablet_id();
-            *max_score = s;
+            score_stats->max_score = s;
+        }
+        if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+            int64_t* policy_max_score =
+                    t->tablet_meta()->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY
+                            ? &score_stats->time_series_max_score
+                            : &score_stats->size_based_max_score;
+            if (s > *policy_max_score) {
+                *policy_max_score = s;
+            }
         }
 
         if (filter_out(t.get())) { ++num_filtered; continue; }
@@ -506,7 +531,7 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
     LOG_EVERY_N(INFO, 1000) << "get_topn_compaction_score, n=" << n << " type=" << compaction_type
                << " num_tablets=" << weak_tablets.size() << " num_skipped=" << num_skipped
                << " num_disabled=" << num_disabled << " num_filtered=" << num_filtered
-               << " max_score=" << *max_score << " max_score_tablet=" << max_score_tablet_id
+               << " max_score=" << score_stats->max_score << " max_score_tablet=" << max_score_tablet_id
                << " tablets=[" << [&buf] { std::stringstream ss; for (auto& i : buf) ss << i.first->tablet_id() << ":" << i.second << ","; return ss.str(); }() << "]"
                ;
     // clang-format on

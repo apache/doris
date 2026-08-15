@@ -20,7 +20,6 @@ package org.apache.doris.connector.jdbc;
 import org.apache.doris.connector.jdbc.client.JdbcConnectorClient;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
-import org.apache.doris.connector.spi.ConnectorConf;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -42,9 +41,7 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.Collections;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -58,48 +55,24 @@ public class JdbcDorisConnector implements Connector {
 
     private static final Logger LOG = LogManager.getLogger(JdbcDorisConnector.class);
 
-    private final Map<String, String> properties;
+    private final JdbcCatalogProperties props;
     private final ConnectorContext context;
     private volatile JdbcConnectorClient client;
     private volatile JdbcScanPlanProvider scanPlanProvider;
     private volatile boolean closed;
 
-    static final String JDBC_PROPERTIES_PREFIX = "jdbc.";
-
     public JdbcDorisConnector(Map<String, String> properties, ConnectorContext context) {
-        Map<String, String> normalized = new HashMap<>();
-        // Strip "jdbc." prefix from property keys for backward compatibility.
-        // Users may write "jdbc.jdbc_url" or "jdbc.user" in CREATE CATALOG;
-        // internally we use the short form ("jdbc_url", "user").
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            String key = entry.getKey();
-            if (key.startsWith(JDBC_PROPERTIES_PREFIX)) {
-                String shortKey = key.substring(JDBC_PROPERTIES_PREFIX.length());
-                // Only strip if the short key is not already present
-                if (!properties.containsKey(shortKey)) {
-                    normalized.put(shortKey, entry.getValue());
-                    continue;
-                }
-            }
-            normalized.put(key, entry.getValue());
-        }
-        String rawUrl = normalized.get(JdbcConnectorProperties.JDBC_URL);
-        if (rawUrl != null && !rawUrl.isEmpty()) {
-            JdbcDbType dbType = JdbcDbType.parseFromUrl(rawUrl);
-            normalized.put(JdbcConnectorProperties.JDBC_URL,
-                    JdbcUrlNormalizer.normalize(rawUrl, dbType,
-                            Boolean.parseBoolean(ConnectorConf.get(context,
-                                    JdbcConnectorProperties.CONF_FORCE_SQLSERVER_ENCRYPT_FALSE,
-                                    JdbcConnectorProperties.ENV_FORCE_SQLSERVER_ENCRYPT_FALSE,
-                                    "false"))));
-        }
-        this.properties = Collections.unmodifiableMap(normalized);
+        // The URL normalization needs a per-FE setting, which is why the holder takes it as a function
+        // rather than reading deployment config itself -- see JdbcCatalogProperties.of.
+        this.props = JdbcCatalogProperties.of(properties,
+                url -> JdbcUrlNormalizer.normalize(url, JdbcDbType.parseFromUrl(url),
+                        JdbcConf.forceSqlServerEncryptFalse(context)));
         this.context = context;
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new JdbcConnectorMetadata(getOrCreateClient(), properties);
+        return new JdbcConnectorMetadata(getOrCreateClient(), props);
     }
 
     @Override
@@ -131,7 +104,7 @@ public class JdbcDorisConnector implements Connector {
                     // so OceanBase Oracle mode is detected correctly
                     JdbcDbType dbType = getOrCreateClient().getDbType();
                     scanPlanProvider = new JdbcScanPlanProvider(
-                            dbType, properties, context.getCatalogId());
+                            dbType, props, context.getCatalogId());
                 }
             }
         }
@@ -201,13 +174,13 @@ public class JdbcDorisConnector implements Connector {
         // Returning a non-null provider routes jdbc writes through the unified plan-provider sink
         // path (PhysicalPlanTranslator.visitPhysicalConnectorTableSink). The provider builds the
         // TJdbcTableSink itself (P6.3-T02 / OQ-1); there is no config-bag path anymore.
-        return new JdbcWritePlanProvider(getOrCreateClient(), properties);
+        return new JdbcWritePlanProvider(getOrCreateClient(), props);
     }
 
     @Override
     public void preCreateValidation(ConnectorValidationContext context) throws Exception {
         // 1. Validate/resolve JDBC driver — format, whitelist, secure_path, file existence.
-        String driverUrl = properties.get(JdbcConnectorProperties.DRIVER_URL);
+        String driverUrl = props.getDriverUrl();
         if (driverUrl != null && !driverUrl.isEmpty()) {
             // Mandatory, non-configurable security rule, enforced on catalog creation only.
             checkDriverUrlSecurityRule(driverUrl);
@@ -215,7 +188,7 @@ public class JdbcDorisConnector implements Connector {
 
             // 2. Compute and verify checksum.
             String computedChecksum = context.computeDriverChecksum(driverUrl);
-            String providedChecksum = context.getProperty(JdbcConnectorProperties.DRIVER_CHECKSUM);
+            String providedChecksum = context.getProperty(JdbcCatalogProperties.DRIVER_CHECKSUM);
             if (providedChecksum != null && !providedChecksum.isEmpty()) {
                 if (!providedChecksum.equals(computedChecksum)) {
                     throw new DorisConnectorException(
@@ -224,14 +197,14 @@ public class JdbcDorisConnector implements Connector {
                                     + ") for the driver_url.");
                 }
             } else {
-                context.storeProperty(JdbcConnectorProperties.DRIVER_CHECKSUM, computedChecksum);
+                context.storeProperty(JdbcCatalogProperties.DRIVER_CHECKSUM, computedChecksum);
             }
         }
 
         // 3. Test BE→JDBC connectivity via BRPC (only when test_connection is enabled).
         // The connector builds the serialized payload; the engine sends it after validation.
         boolean testConnection = Boolean.parseBoolean(
-                properties.getOrDefault("test_connection", "true"));
+                props.getRaw().getOrDefault(JdbcCatalogProperties.TEST_CONNECTION, "true"));
         if (testConnection) {
             TTableDescriptor testThrift = buildTestTableDescriptor(context);
             TOdbcTableType tableType = parseOdbcType();
@@ -272,40 +245,29 @@ public class JdbcDorisConnector implements Connector {
     }
 
     private JdbcConnectorClient createClient() {
-        String jdbcUrl = properties.get(JdbcConnectorProperties.JDBC_URL);
+        String jdbcUrl = props.getJdbcUrl();
         if (jdbcUrl == null || jdbcUrl.isEmpty()) {
-            throw new DorisConnectorException("JDBC URL ('" + JdbcConnectorProperties.JDBC_URL + "') is required");
+            throw new DorisConnectorException("JDBC URL ('" + JdbcCatalogProperties.JDBC_URL + "') is required");
         }
         JdbcDbType dbType = JdbcDbType.parseFromUrl(jdbcUrl);
-        String user = properties.getOrDefault(JdbcConnectorProperties.USER, "");
-        String password = properties.getOrDefault(JdbcConnectorProperties.PASSWORD, "");
-        String driverUrl = resolveDriverUrl(properties.get(JdbcConnectorProperties.DRIVER_URL));
-        String driverClass = properties.get(JdbcConnectorProperties.DRIVER_CLASS);
-        int poolMinSize = JdbcConnectorProperties.getInt(
-                properties, JdbcConnectorProperties.CONNECTION_POOL_MIN_SIZE,
-                JdbcConnectorProperties.DEFAULT_POOL_MIN_SIZE);
-        int poolMaxSize = JdbcConnectorProperties.getInt(
-                properties, JdbcConnectorProperties.CONNECTION_POOL_MAX_SIZE,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_SIZE);
-        int poolMaxWaitTime = JdbcConnectorProperties.getInt(
-                properties, JdbcConnectorProperties.CONNECTION_POOL_MAX_WAIT_TIME,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_WAIT_TIME);
-        int poolMaxLifeTime = JdbcConnectorProperties.getInt(
-                properties, JdbcConnectorProperties.CONNECTION_POOL_MAX_LIFE_TIME,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_LIFE_TIME);
-        boolean onlySpecifiedDatabase = Boolean.parseBoolean(
-                properties.getOrDefault(JdbcConnectorProperties.ONLY_SPECIFIED_DATABASE, "false"));
-        boolean enableMappingVarbinary = Boolean.parseBoolean(
-                properties.getOrDefault(JdbcConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
-        boolean enableMappingTimestampTz = Boolean.parseBoolean(
-                properties.getOrDefault(JdbcConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
+        String user = props.getUser();
+        String password = props.getPassword();
+        String driverUrl = resolveDriverUrl(props.getDriverUrl());
+        String driverClass = props.getDriverClass();
+        int poolMinSize = props.getConnectionPoolMinSize();
+        int poolMaxSize = props.getConnectionPoolMaxSize();
+        int poolMaxWaitTime = props.getConnectionPoolMaxWaitTime();
+        int poolMaxLifeTime = props.getConnectionPoolMaxLifeTime();
+        boolean onlySpecifiedDatabase = props.isOnlySpecifiedDatabase();
+        boolean enableMappingVarbinary = props.isEnableMappingVarbinary();
+        boolean enableMappingTimestampTz = props.isEnableMappingTimestampTz();
 
         LOG.info("Creating JDBC connector client for dbType={}, url={}", dbType, jdbcUrl);
         return JdbcConnectorClient.create(
                 dbType, context.getCatalogName(), jdbcUrl, user, password,
                 driverUrl, driverClass,
                 poolMinSize, poolMaxSize, poolMaxWaitTime, poolMaxLifeTime,
-                onlySpecifiedDatabase, properties,
+                onlySpecifiedDatabase, props.getRaw(),
                 enableMappingVarbinary, enableMappingTimestampTz,
                 context::sanitizeOutboundUrl);
     }
@@ -339,9 +301,8 @@ public class JdbcDorisConnector implements Connector {
         }
         // Plain filename — resolve under the configured drivers directory. doris_home is engine-wide
         // rather than this connector's setting, so it keeps coming from the engine environment.
-        String driversDir = ConnectorConf.get(context, JdbcConnectorProperties.CONF_DRIVERS_DIR,
-                JdbcConnectorProperties.ENV_DRIVERS_DIR, null);
-        String dorisHome = context.getEnvironment().get(JdbcConnectorProperties.ENV_DORIS_HOME);
+        String driversDir = JdbcConf.driversDir(context);
+        String dorisHome = JdbcConf.dorisHome(context);
         if (driversDir != null && !driversDir.isEmpty()) {
             String newPath = driversDir + "/" + driverUrl;
             if (new File(newPath).exists()) {
@@ -370,33 +331,23 @@ public class JdbcDorisConnector implements Connector {
     private TTableDescriptor buildTestTableDescriptor(ConnectorValidationContext context) {
         TJdbcTable tJdbcTable = new TJdbcTable();
         tJdbcTable.setCatalogId(context.getCatalogId());
-        tJdbcTable.setJdbcUrl(properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, ""));
-        tJdbcTable.setJdbcUser(properties.getOrDefault(JdbcConnectorProperties.USER, ""));
-        tJdbcTable.setJdbcPassword(properties.getOrDefault(JdbcConnectorProperties.PASSWORD, ""));
+        tJdbcTable.setJdbcUrl(props.getJdbcUrl());
+        tJdbcTable.setJdbcUser(props.getUser());
+        tJdbcTable.setJdbcPassword(props.getPassword());
         tJdbcTable.setJdbcTableName("test_jdbc_connection");
         tJdbcTable.setJdbcDriverClass(
-                properties.getOrDefault(JdbcConnectorProperties.DRIVER_CLASS, ""));
+                props.getDriverClass());
         tJdbcTable.setJdbcDriverUrl(
-                properties.getOrDefault(JdbcConnectorProperties.DRIVER_URL, ""));
+                props.getDriverUrl());
         tJdbcTable.setJdbcResourceName("");
         // Use the checksum that was computed/verified during driver validation.
-        String checksum = context.getProperty(JdbcConnectorProperties.DRIVER_CHECKSUM);
+        String checksum = context.getProperty(JdbcCatalogProperties.DRIVER_CHECKSUM);
         tJdbcTable.setJdbcDriverChecksum(checksum != null ? checksum : "");
-        tJdbcTable.setConnectionPoolMinSize(JdbcConnectorProperties.getInt(
-                properties, JdbcConnectorProperties.CONNECTION_POOL_MIN_SIZE,
-                JdbcConnectorProperties.DEFAULT_POOL_MIN_SIZE));
-        tJdbcTable.setConnectionPoolMaxSize(JdbcConnectorProperties.getInt(
-                properties, JdbcConnectorProperties.CONNECTION_POOL_MAX_SIZE,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_SIZE));
-        tJdbcTable.setConnectionPoolMaxWaitTime(JdbcConnectorProperties.getInt(
-                properties, JdbcConnectorProperties.CONNECTION_POOL_MAX_WAIT_TIME,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_WAIT_TIME));
-        tJdbcTable.setConnectionPoolMaxLifeTime(JdbcConnectorProperties.getInt(
-                properties, JdbcConnectorProperties.CONNECTION_POOL_MAX_LIFE_TIME,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_LIFE_TIME));
-        tJdbcTable.setConnectionPoolKeepAlive(Boolean.parseBoolean(
-                properties.getOrDefault(JdbcConnectorProperties.CONNECTION_POOL_KEEP_ALIVE,
-                        String.valueOf(JdbcConnectorProperties.DEFAULT_POOL_KEEP_ALIVE))));
+        tJdbcTable.setConnectionPoolMinSize(props.getConnectionPoolMinSize());
+        tJdbcTable.setConnectionPoolMaxSize(props.getConnectionPoolMaxSize());
+        tJdbcTable.setConnectionPoolMaxWaitTime(props.getConnectionPoolMaxWaitTime());
+        tJdbcTable.setConnectionPoolMaxLifeTime(props.getConnectionPoolMaxLifeTime());
+        tJdbcTable.setConnectionPoolKeepAlive(props.isConnectionPoolKeepAlive());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(
                 0, TTableType.JDBC_TABLE, 0, 0, "test_jdbc_connection", "");
         tTableDescriptor.setJdbcTable(tJdbcTable);
@@ -404,7 +355,7 @@ public class JdbcDorisConnector implements Connector {
     }
 
     private TOdbcTableType parseOdbcType() {
-        String jdbcUrl = properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, "");
+        String jdbcUrl = props.getJdbcUrl();
         JdbcDbType dbType = JdbcDbType.parseFromUrl(jdbcUrl);
         try {
             return TOdbcTableType.valueOf(dbType.name());
@@ -414,7 +365,7 @@ public class JdbcDorisConnector implements Connector {
     }
 
     private String getTestQuery() {
-        String jdbcUrl = properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, "");
+        String jdbcUrl = props.getJdbcUrl();
         JdbcDbType dbType = JdbcDbType.parseFromUrl(jdbcUrl);
         switch (dbType) {
             case ORACLE:

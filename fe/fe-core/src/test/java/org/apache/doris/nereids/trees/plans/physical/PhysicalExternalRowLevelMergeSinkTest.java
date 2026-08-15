@@ -19,6 +19,9 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -133,6 +136,87 @@ public class PhysicalExternalRowLevelMergeSinkTest {
     }
 
     @Test
+    public void reconstructCarriesNestedSourcePathWithoutRandomFallback() {
+        ExprId payload = exprId("payload");
+        List<MergePartitionField> out = new ArrayList<>();
+        ConnectorWritePartitionField nested = new ConnectorWritePartitionField(
+                "bucket[8]", 8, "payload", "payload_part_bucket", 3);
+        Column payloadColumn = new Column("payload", new StructType(
+                new StructField("part", Type.INT)));
+        payloadColumn.setUniqueId(2);
+        payloadColumn.getChildren().get(0).setUniqueId(3);
+
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(
+                out, spec(4, nested), map("payload", payload), ImmutableList.of(payloadColumn));
+
+        Assertions.assertTrue(result.success);
+        Assertions.assertEquals(ImmutableList.of(
+                new MergePartitionField("bucket[8]", payload, 8, "payload_part_bucket", 3,
+                        ImmutableList.of(0))), out);
+    }
+
+    @Test
+    public void reconstructNestedSourceUsesTopLevelIdMapFromProductionPath() {
+        ExprId payload = exprId("payload");
+        List<MergePartitionField> out = new ArrayList<>();
+        ConnectorWritePartitionField nested = new ConnectorWritePartitionField(
+                "bucket[8]", 8, "payload", "payload_part_bucket", 3);
+        Column payloadColumn = new Column("payload", new StructType(
+                new StructField("part", Type.INT)));
+        payloadColumn.setUniqueId(2);
+        payloadColumn.getChildren().get(0).setUniqueId(3);
+
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(
+                out, spec(4, nested), map("payload", payload),
+                java.util.Collections.singletonMap(2, payload), ImmutableList.of(payloadColumn));
+
+        // Production maps expressions by top-level column id, while Iceberg partition sources carry the
+        // nested child id. The root id must select the slot and the child id must select the path within it.
+        Assertions.assertTrue(result.success);
+        Assertions.assertEquals(ImmutableList.of(
+                new MergePartitionField("bucket[8]", payload, 8, "payload_part_bucket", 3,
+                        ImmutableList.of(0))), out);
+    }
+
+    @Test
+    public void reconstructUnstampedNestedSourceHardFails() {
+        ExprId payload = exprId("payload");
+        List<MergePartitionField> out = new ArrayList<>();
+        ConnectorWritePartitionField nested = new ConnectorWritePartitionField(
+                "bucket[8]", 8, "payload", "payload_part_bucket", 3);
+        Column payloadColumn = new Column("payload", new StructType(
+                new StructField("part", Type.INT)));
+
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(
+                out, spec(4, nested), map("payload", payload), ImmutableList.of(payloadColumn));
+
+        // An unstamped tree cannot prove whether the requested id is top-level or nested. Treating it as an
+        // empty path would hash the whole struct and silently diverge from the writer's partition source.
+        Assertions.assertFalse(result.success);
+        Assertions.assertTrue(out.isEmpty());
+    }
+
+    @Test
+    public void reconstructMissingNestedSourceIdHardFails() {
+        Column payloadColumn = new Column("payload", new StructType(
+                new StructField("part", Type.INT)));
+        payloadColumn.setUniqueId(2);
+        payloadColumn.getChildren().get(0).setUniqueId(3);
+        List<MergePartitionField> out = new ArrayList<>();
+
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(
+                out,
+                spec(4, new ConnectorWritePartitionField(
+                        "bucket[8]", 8, "payload", "payload_part_bucket", 99)),
+                map("payload", exprId("payload")),
+                ImmutableList.of(payloadColumn));
+
+        Assertions.assertFalse(result.success,
+                "an evolved schema must not hash the whole struct when the nested source id disappeared");
+        Assertions.assertTrue(out.isEmpty());
+    }
+
+    @Test
     public void reconstructNullSourceColumnNameHardFailsAndClears() {
         // PARITY-1a: a null source-column-name field hard-fails the whole spec; the already-added prior
         // field is cleared (so the result is EMPTY, not a partial list) and no MergePartitionField is
@@ -164,6 +248,20 @@ public class PhysicalExternalRowLevelMergeSinkTest {
         Assertions.assertTrue(out.isEmpty(), "the prior resolved field must be cleared on hard fail");
         Assertions.assertFalse(result.hasNonIdentity, "all identity transforms => no non-identity");
         Assertions.assertEquals(Integer.valueOf(7), result.partitionSpecId);
+    }
+
+    @Test
+    public void reconstructRejectsSameNameWithReplacementFieldId() {
+        ExprId oldIdExpr = exprId("id");
+        List<MergePartitionField> out = new ArrayList<>();
+
+        InsertPartitionFieldResult result = PhysicalExternalRowLevelMergeSink.reconstructPartitionFields(out,
+                spec(8, field("identity", null, "id", "id", 2)), map("id", oldIdExpr),
+                java.util.Collections.singletonMap(1, oldIdExpr));
+
+        // The live field reused the name but not the bound identity; name fallback would route wrong values.
+        Assertions.assertFalse(result.success);
+        Assertions.assertTrue(out.isEmpty());
     }
 
     @Test
@@ -206,6 +304,7 @@ public class PhysicalExternalRowLevelMergeSinkTest {
         // must flow into the DistributionSpecMerge: one identity partition column 'id' resolved to the
         // child's id slot, insertRandom=false, spec id carried.
         Column id = new Column("id", PrimitiveType.INT);
+        id.setUniqueId(1);
         SlotReference idSlot = new SlotReference("id", IntegerType.INSTANCE);
         SlotReference opSlot = new SlotReference(MergeOperation.OPERATION_COLUMN, IntegerType.INSTANCE);
         SlotReference rowidSlot = new SlotReference(Column.ICEBERG_ROWID_COL, IntegerType.INSTANCE);

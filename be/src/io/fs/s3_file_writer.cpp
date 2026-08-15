@@ -85,7 +85,8 @@ S3FileWriter::~S3FileWriter() {
         _wait_until_finish(fmt::format("wait s3 file {} upload to be finished",
                                        _obj_storage_path_opts.path.native()));
     }
-    // We won't do S3 abort operation in BE, we let s3 service do it own.
+    // Deferred uploads are reported to FE for cleanup. Uploads that never reach FE are left to
+    // the provider lifecycle policy, so destroying a writer must not mutate provider state here.
     if (state() == State::OPENED && !_failed) {
         s3_bytes_written_total << _bytes_appended;
     }

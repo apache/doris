@@ -60,6 +60,8 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     boolean databaseExists;
     /** Canned existence answer for {@link #tableExists(String, String)}. */
     boolean tableExists;
+    /** Optional exact failure thrown by {@link #tableExists(String, String)}. */
+    RuntimeException tableExistsFailure;
     /** Canned existence answer for {@link #viewExists(String, String)}. */
     boolean viewExists;
     /** Canned SDK view returned by {@link #loadView(String, String)}. */
@@ -74,6 +76,8 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     Table table;
     /** When set, {@link #loadTable(String, String)} throws instead of returning {@link #table}. */
     boolean throwOnLoadTable;
+    /** Optional exact failure thrown by {@link #loadTable(String, String)}. */
+    RuntimeException loadTableFailure;
     /** When set, {@link #loadTable(String, String)} throws {@link NoSuchTableException} (concurrent-drop race). */
     boolean throwNoSuchTableOnLoadTable;
     /**
@@ -163,6 +167,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
         log.add("tableExists:" + dbName + "." + tableName);
         lastExistsDb = dbName;
         lastExistsTable = tableName;
+        if (tableExistsFailure != null) {
+            throw tableExistsFailure;
+        }
         return tableExists;
     }
 
@@ -200,6 +207,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
         lastLoadTable = tableName;
         if (throwNoSuchTableOnLoadTable) {
             throw new NoSuchTableException("simulated missing table %s.%s", dbName, tableName);
+        }
+        if (loadTableFailure != null) {
+            throw loadTableFailure;
         }
         if (throwOnLoadTable) {
             throw new RuntimeException("simulated loadTable failure for " + dbName + "." + tableName);

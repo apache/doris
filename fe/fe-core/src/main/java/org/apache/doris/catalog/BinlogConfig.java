@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TBinlogConfig;
 import org.apache.doris.thrift.TBinlogFormat;
 
@@ -218,6 +219,19 @@ public class BinlogConfig {
         }
         tBinlogConfig.setNeedHistoricalValue(needHistoricalValue);
         return tBinlogConfig;
+    }
+
+    public OlapFile.BinlogConfigPB toProtobuf() {
+        OlapFile.BinlogConfigPB.Builder binlogConfigBuilder = OlapFile.BinlogConfigPB.newBuilder();
+        binlogConfigBuilder.setEnable(enable);
+        binlogConfigBuilder.setTtlSeconds(ttlSeconds);
+        binlogConfigBuilder.setMaxBytes(maxBytes);
+        binlogConfigBuilder.setMaxHistoryNums(maxHistoryNums);
+        if (binlogFormat != null) {
+            binlogConfigBuilder.setBinlogFormat(OlapFile.BinlogFormatPB.valueOf(binlogFormat.name()));
+        }
+        binlogConfigBuilder.setNeedHistoricalValue(needHistoricalValue);
+        return binlogConfigBuilder.build();
     }
 
     public Map<String, String> toProperties() {

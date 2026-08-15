@@ -41,10 +41,8 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
-#define private public
 #include "exprs/vslot_ref.h"
 #include "storage/segment/segment.h"
-#undef private
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif

@@ -496,9 +496,6 @@ DEFINE_mInt32(binlog_compaction_task_num_per_disk, "4");
 DEFINE_mInt32(binlog_compaction_file_count_threshold, "100");
 DEFINE_mInt32(binlog_level_compaction_max_deltas, "2000");
 DEFINE_mInt64(binlog_compaction_time_threshold_seconds, "3600");
-DEFINE_mInt32(binlog_compaction_permits_percent, "30");
-DEFINE_Validator(binlog_compaction_permits_percent,
-                 [](const int config) -> bool { return config >= 1 && config <= 80; });
 DEFINE_mInt32(max_binlog_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");
@@ -653,10 +650,6 @@ DEFINE_Int32(webserver_num_workers, "128");
 DEFINE_mInt32(async_reply_timeout_s, "60");
 DEFINE_Validator(async_reply_timeout_s, [](const int config) -> bool { return config >= 3; });
 
-DEFINE_Bool(enable_single_replica_load, "true");
-// Number of download workers for single replica load
-DEFINE_Int32(single_replica_load_download_num_workers, "64");
-
 // Used for mini Load. mini load data file will be removed after this time.
 DEFINE_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
@@ -698,7 +691,6 @@ DEFINE_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
-DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DEFINE_mBool(enable_stream_load_record, "false");

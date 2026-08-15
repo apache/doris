@@ -152,11 +152,10 @@ public class SessionVariablesTest extends TestWithFeService {
 
         Field field = SessionVariable.class.getDeclaredField("insertVisibleTimeoutReturnMode");
         VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
-        Assertions.assertArrayEquals(new String[] {
-                "控制普通内表 INSERT 在 publish timeout 时返回给客户端的状态。",
+        Assertions.assertEquals(
                 "Controls the status returned to the client when a normal internal-table INSERT times out "
-                        + "while waiting for publish visibility."
-        }, varAttr.description());
+                        + "while waiting for publish visibility.",
+                varAttr.description());
         Assertions.assertArrayEquals(new String[] {
                 SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_COMMITTED,
                 SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR
@@ -196,13 +195,11 @@ public class SessionVariablesTest extends TestWithFeService {
 
         Field field = SessionVariable.class.getDeclaredField("runtimeFilterBroadcastJoinProducerNum");
         VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
-        Assertions.assertArrayEquals(new String[] {
-                "控制 Nereids 分布式规划中每个 broadcast join runtime filter 的生产 BE 数量。"
-                        + "设置为小于等于 0 时不限制。Legacy Coordinator 路径保持原行为。",
+        Assertions.assertEquals(
                 "Controls the number of producer BEs for each broadcast join runtime filter in "
                         + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
-                        + "The legacy Coordinator path keeps the existing behavior."
-        }, varAttr.description());
+                        + "The legacy Coordinator path keeps the existing behavior.",
+                varAttr.description());
     }
 
     @Test
@@ -400,5 +397,15 @@ public class SessionVariablesTest extends TestWithFeService {
         TQueryOptions queryOptions = variable.toThrift();
         Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
         Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
+    }
+
+    @Test
+    public void testCoordinatorThriftLimitPropagatesToBackends() {
+        TQueryOptions queryOptions = new SessionVariable().toThrift();
+
+        Assertions.assertTrue(queryOptions.isSetCoordinatorThriftMaxMessageSize());
+        Assertions.assertEquals(Config.thrift_max_message_size,
+                queryOptions.getCoordinatorThriftMaxMessageSize());
+        Assertions.assertTrue(queryOptions.isSupportsExternalFileReportAck());
     }
 }

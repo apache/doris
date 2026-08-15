@@ -34,7 +34,6 @@ if [[ -z "${DORIS_THIRDPARTY}" ]]; then
     export DORIS_THIRDPARTY="${DORIS_HOME}/thirdparty"
 fi
 export TP_INCLUDE_DIR="${DORIS_THIRDPARTY}/installed/include"
-export TP_INSTALLED_DIR="${DORIS_THIRDPARTY}/installed"
 export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
@@ -68,6 +67,11 @@ Usage: $0 <options>
      --be-extension-ignore      build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
      --enable-dynamic-arch      enable dynamic CPU detection in OpenBLAS. Default ON.
      --disable-dynamic-arch     disable dynamic CPU detection in OpenBLAS.
+     --exclude-obs-dependencies exclude all Huawei Cloud OBS (com.huaweicloud) dependencies and the
+                                fe-filesystem-obs module; nothing from Huawei is resolved, compiled,
+                                or bundled. Use when repo.huaweicloud.com is unreachable or forbidden.
+     --exclude-cos-dependencies exclude all Tencent Cloud COS dependencies and the fe-filesystem-cos
+                                module; nothing from Tencent COS is resolved, compiled, or bundled.
      --clean                    clean and build target
      --compile-bench            BE compile-speed benchmark: cold, cache-free BE-only build
                                 (fresh dedicated build dir, ccache disabled) with a per-phase
@@ -270,6 +274,8 @@ if ! OPTS="$(getopt \
     -l 'be-extension-ignore:' \
     -l 'enable-dynamic-arch' \
     -l 'disable-dynamic-arch' \
+    -l 'exclude-obs-dependencies' \
+    -l 'exclude-cos-dependencies' \
     -l 'clean' \
     -l 'compile-bench' \
     -l 'coverage' \
@@ -463,22 +469,74 @@ fi
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
+
+if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
+    clean_gensrc
+    clean_be
+    clean_fe
+    exit 0
+fi
+
 # build thirdparty libraries if necessary. check last thirdparty lib installation
 if [[ "${TARGET_SYSTEM}" == 'Darwin' ]]; then
     LAST_THIRDPARTY_LIB='libbrotlienc.a'
 else
     LAST_THIRDPARTY_LIB='hadoop_hdfs/native/libhdfs.a'
 fi
+
+# The final-library sentinel only proves that some third-party build completed. It cannot
+# distinguish an older prebuilt whose Arrow/Paimon closure predates the selected sources.
+# shellcheck source=thirdparty/arrow-paimon-vars.sh
+. "${DORIS_HOME}/thirdparty/arrow-paimon-vars.sh"
+NEED_ARROW_PAIMON_THIRDPARTY=false
+if [[ "${BUILD_BE}" -eq 1 || "${BUILD_CLOUD}" -eq 1 ||
+    "${BUILD_META_TOOL}" == "ON" || "${BUILD_FILE_CACHE_MICROBENCH_TOOL}" == "ON" ||
+    "${BUILD_INDEX_TOOL}" == "ON" ]]; then
+    NEED_ARROW_PAIMON_THIRDPARTY=true
+fi
+
+rebuild_thirdparty_libraries() {
+    local remove_installed="$1"
+    shift
+    local build_script="${DORIS_THIRDPARTY}/build-thirdparty.sh"
+    local build_args=(-j "${PARALLEL}")
+    local selected_thirdparty_root
+    local checkout_thirdparty_root
+
+    if [[ ! -f "${build_script}" ]]; then
+        echo "Cannot rebuild thirdparty libraries: ${build_script} is missing." >&2
+        echo "DORIS_THIRDPARTY=${DORIS_THIRDPARTY} is an install-only or incomplete prefix. Use a matching compilation image/prebuilt, or unset DORIS_THIRDPARTY to rebuild with this checkout's thirdparty tree." >&2
+        exit 1
+    fi
+    selected_thirdparty_root="$(cd "${DORIS_THIRDPARTY}" && pwd -P)"
+    checkout_thirdparty_root="$(cd "${DORIS_HOME}/thirdparty" && pwd -P)"
+    if [[ "${selected_thirdparty_root}" != "${checkout_thirdparty_root}" ]]; then
+        echo "Cannot rebuild thirdparty libraries with an external source tree: ${selected_thirdparty_root}." >&2
+        echo "Unset DORIS_THIRDPARTY to rebuild with this checkout's thirdparty tree, then use the resulting version-matched installation." >&2
+        exit 1
+    fi
+    build_script="${checkout_thirdparty_root}/build-thirdparty.sh"
+    if [[ "${remove_installed}" == "true" ]]; then
+        # Some libraries, such as lz4, fail when an earlier installation remains.
+        rm -rf "${DORIS_THIRDPARTY}/installed"
+    fi
+    if [[ "${CLEAN}" -eq 1 ]]; then
+        build_args+=(--clean)
+    fi
+    bash "${build_script}" "${build_args[@]}" "$@"
+    if ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
+        echo "Rebuilt Arrow/Paimon artifacts do not match this checkout's selected inputs." >&2
+        exit 1
+    fi
+}
+
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     echo "Thirdparty libraries need to be build ..."
-    # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
-    rm -rf "${DORIS_THIRDPARTY}/installed"
-
-    if [[ "${CLEAN}" -eq 0 ]]; then
-        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
-    else
-        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
-    fi
+    rebuild_thirdparty_libraries true
+elif [[ "${NEED_ARROW_PAIMON_THIRDPARTY}" == "true" ]] &&
+    ! arrow_paimon_prebuilt_valid "${DORIS_THIRDPARTY}/installed"; then
+    echo "Arrow/Paimon thirdparty libraries need to be rebuilt ..."
+    rebuild_thirdparty_libraries false "${ARROW_PAIMON_BUILD_PACKAGES[@]}"
 fi
 
 update_submodule() {
@@ -516,13 +574,6 @@ update_submodule() {
         curl -L "${commit_specific_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
     fi
 }
-
-if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_CLOUD} -eq 0 ]]; then
-    clean_gensrc
-    clean_be
-    clean_fe
-    exit 0
-fi
 
 if [[ -z "${GLIBC_COMPATIBILITY}" ]]; then
     if [[ "${TARGET_SYSTEM}" != 'Darwin' ]]; then
@@ -716,6 +767,7 @@ echo "Get params:
     DENABLE_CLANG_COVERAGE              -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                          -- ${ENABLE_PCH}
+    ENABLE_UNITY_BUILD                  -- ${ENABLE_UNITY_BUILD:-ON}
     EXTRA_FE_MODULES                    -- ${EXTRA_FE_MODULES}
     EXTRA_BE_MODULES                    -- ${EXTRA_BE_MODULES}
     EXTRA_CLOUD_MODULES                 -- ${EXTRA_CLOUD_MODULES}
@@ -757,6 +809,14 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-filesystem/fe-filesystem-api")
     modules+=("fe-filesystem/fe-filesystem-spi")
     for _fs_mod in s3-base s3 gcs minio ozone oss cos obs azure hdfs-base hdfs oss-hdfs jfs local broker http; do
+        # Skip the modules whose Maven profile is deactivated so the -pl list stays consistent with
+        # the reactor: obs is absent under -Ddisable.obs=true, cos under -Ddisable.cos=true.
+        if [[ "${_fs_mod}" == "obs" && "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
+        if [[ "${_fs_mod}" == "cos" && "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
         if [[ -d "${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${_fs_mod}" ]]; then
             modules+=("fe-filesystem/fe-filesystem-${_fs_mod}")
         fi
@@ -812,19 +872,9 @@ FE_MODULES="$(
 if [[ "${BUILD_BE}" -eq 1 ]]; then
 
     if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
-        compile_bench_phase_begin "datasketches_install"
-    fi
-    echo "install datasketches-cpp to thirdparty path before build be"
-    update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
-    cd "${DORIS_HOME}/contrib/datasketches-cpp"
-    "${CMAKE_CMD}" -S . -B build/Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$TP_INSTALLED_DIR -DBUILD_TESTS=OFF
-    "${CMAKE_CMD}" --build build/Release -t install
-    cd "${DORIS_HOME}"
-    if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
-        compile_bench_phase_end
         compile_bench_phase_begin "contrib_submodules"
     fi
-
+    update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
     update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
     update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
     update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
@@ -894,6 +944,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
+        -DENABLE_UNITY_BUILD="${ENABLE_UNITY_BUILD:-ON}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DARM_MARCH="${ARM_MARCH}" \
@@ -1025,10 +1076,14 @@ function build_fe_modules() {
         extra_mvn_opts=(${MVN_OPT})
     fi
     if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
-        dependency_mvn_opts+=("-Dobs.dependency.scope=provided")
+        # Deactivates the `obs` Maven profile in fe-core, hadoop-deps and fe-filesystem, so no
+        # com.huaweicloud artifact is resolved and the Huawei OBS module is not built or bundled.
+        dependency_mvn_opts+=("-Ddisable.obs=true")
     fi
     if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
-        dependency_mvn_opts+=("-Dcos.dependency.scope=provided")
+        # Deactivates the `cos` Maven profile in fe-core and fe-filesystem, so no Tencent COS
+        # artifact is resolved and the fe-filesystem-cos module is not built or bundled.
+        dependency_mvn_opts+=("-Ddisable.cos=true")
     fi
     if [[ -n "${USER_SETTINGS_MVN_REPO}" && -f "${USER_SETTINGS_MVN_REPO}" ]]; then
         user_settings_opts=(-gs "${USER_SETTINGS_MVN_REPO}")
@@ -1146,6 +1201,14 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         if [ ! -d "${fs_module_dir}" ]; then
             continue
         fi
+        # These modules are not built when their Maven profile is deactivated, so their plugin zip
+        # does not exist; skip the unpack to keep packaging consistent with the reactor.
+        if [[ "${fs_module}" == "obs" && "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
+        if [[ "${fs_module}" == "cos" && "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
         mkdir -p "${fs_plugin_target}"
         # Unpack the self-contained plugin zip produced by maven-assembly-plugin.
         # Layout inside the zip: <plugin>.jar at root + lib/*.jar for runtime deps.
@@ -1185,10 +1248,13 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # RC-4: self-contain the paimon connector plugin for OSS. The connector sets
     # fs.oss.impl=com.aliyun.jindodata.oss.JindoOssFileSystem; that impl lives in the jindofs jars,
     # which are packaged from thirdparty by post-build.sh into fe/lib/jindofs (NOT a maven artifact).
-    # The plugin runs child-first, so without its OWN copy JindoOssFileSystem resolves from the parent
-    # 'app' classloader and cannot be cast to the plugin's child-loaded org.apache.hadoop.fs.FileSystem.
-    # Copy the jindofs jars into the paimon plugin lib so JindoOssFileSystem loads child-first alongside
-    # the plugin's own hadoop FileSystem (same self-contained intent as the bundled hadoop-aws/S3A).
+    # com.aliyun.jindodata is child-first (only org.apache.doris.connector./.filesystem. and
+    # org.apache.hadoop. are parent-first, see ConnectorPluginManager.CONNECTOR_PARENT_FIRST_PREFIXES),
+    # so without its OWN copy JindoOssFileSystem resolves from the parent 'app' classloader.
+    # Historically that could not be cast to the plugin's child-loaded org.apache.hadoop.fs.FileSystem;
+    # since org.apache.hadoop. became parent-first the cast itself would now succeed, but the copy stays:
+    # it keeps the jindo classes in the plugin's own loader (same self-contained intent as the bundled
+    # hadoop-aws/S3A) and is what the plugin falls back to once the FE kernel stops shipping hadoop.
     # Naturally gated: a no-op unless jindofs was packaged (--jindofs / DISABLE_BUILD_JINDOFS=OFF).
     # CAVEAT (docker-gated, enablePaimonTest=true): jindo-core ships a native lib that can bind to only one
     # classloader per JVM, so this is safe only while no concurrent non-paimon path loads jindo from
@@ -1426,6 +1492,14 @@ if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     if [[ -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
         mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
         cp -r "${HADOOP_DEPS_JAR_DIR}/lib/"* "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs/"
+    fi
+    # copy-dependencies writes only the transitive deps to target/lib; the patched
+    # org.apache.hadoop.fs.FileSystem lives in the module's own jar at target/. Without this the
+    # meta-service would run on the vanilla class and silently ignore doris.fs.cache.key.<scheme>.
+    # cloud/script/start.sh loads it ahead of the vanilla hadoop jars beside it.
+    if [[ -f "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" ]]; then
+        mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
+        cp "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs/"
     fi
     cp -r -p "${DORIS_HOME}/cloud/output" "${DORIS_HOME}/output/ms"
 fi

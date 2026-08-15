@@ -23,7 +23,6 @@ import org.apache.doris.connector.spi.ConnectorPassthroughSqlOps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
 import java.util.Set;
 
 /**
@@ -37,7 +36,7 @@ import java.util.Set;
 public class HiveConnectorCapabilitiesTest {
 
     private Set<ConnectorCapability> capabilities() {
-        return new HiveConnector(Collections.emptyMap(), new FakeConnectorContext()).getCapabilities();
+        return new HiveConnector(HiveTestProperties.minimalMap(), new FakeConnectorContext()).getCapabilities();
     }
 
     @Test

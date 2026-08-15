@@ -28,15 +28,12 @@
 #include "storage/segment/column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 
-// Use #define private public to access private members for testing
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
-#define private public
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
-#undef private
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif

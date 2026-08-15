@@ -157,11 +157,14 @@ const std::string ROWSET_ID_PREFIX = "s_";
 const std::string REMOTE_ROWSET_GC_PREFIX = "gc_";
 const std::string REMOTE_TABLET_GC_PREFIX = "tgc_";
 
-// Declare copy constructor and equal operator as private
+// Declare copy constructor and equal operator as private.
+// No trailing semicolon: call sites write `DISALLOW_COPY_AND_ASSIGN(X);`, same
+// contract as butil/macros.h's definition of the same macro (which wins in TUs
+// that include butil first — keep the two expansions call-site compatible).
 #ifndef DISALLOW_COPY_AND_ASSIGN
 #define DISALLOW_COPY_AND_ASSIGN(type_t) \
     type_t& operator=(const type_t&);    \
-    type_t(const type_t&);
+    type_t(const type_t&)
 #endif
 
 #define SAFE_DELETE(ptr)      \

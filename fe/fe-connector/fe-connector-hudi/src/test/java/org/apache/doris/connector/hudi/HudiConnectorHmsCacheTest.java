@@ -151,7 +151,7 @@ public class HudiConnectorHmsCacheTest {
     // ── helpers ────────────────────────────────────────────────────────────────────────────────────────────
 
     private static HudiConnector connector() {
-        return new HudiConnector(Collections.emptyMap(), new ConnectorContext() {
+        return new HudiConnector(HudiTestProperties.minimalMap(), new ConnectorContext() {
             @Override
             public String getCatalogName() {
                 return "test_catalog";
@@ -173,7 +173,7 @@ public class HudiConnectorHmsCacheTest {
         // hive-sync so collectPartitions lists partition names from HMS (where the fresh/cached split lives);
         // the stub executor returns the canned instant latestInstant would read off the timeline.
         return new HudiConnectorMetadata(hms,
-                Collections.singletonMap("use_hive_sync_partition", "true"), stub(7L));
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"), stub(7L));
     }
 
     /** Executor that ignores the action and returns a canned value (stubs out the live metaClient). */

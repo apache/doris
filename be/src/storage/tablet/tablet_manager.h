@@ -82,7 +82,8 @@ public:
     // single compaction tasks for the tablet.
     std::vector<TabletCompactionContext> find_best_tablets_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
-            const std::unordered_set<TabletSharedPtr>& tablet_submitted_compaction, uint32_t* score,
+            const std::unordered_set<TabletSharedPtr>& tablet_submitted_compaction,
+            CompactionScoreStats* score_stats,
             const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
                     all_cumulative_compaction_policies);
 
@@ -206,6 +207,7 @@ private:
 
     TabletSharedPtr _internal_create_tablet_unlocked(const TCreateTabletReq& request,
                                                      const bool is_schema_change,
+                                                     const bool is_colocated_row_binlog,
                                                      const Tablet* base_tablet,
                                                      const std::vector<DataDir*>& data_dirs,
                                                      RuntimeProfile* profile);

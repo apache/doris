@@ -130,6 +130,22 @@ class Suite implements GroovyInterceptable {
         return getConf("suites." + name + "." + key, defaultValue)
     }
 
+    List<String> getDorisConnectorTlsArgs() {
+        if (!Boolean.parseBoolean(getConf("enableTLS", "false"))) {
+            return Collections.emptyList()
+        }
+
+        String tlsVerifyMode = getConf("tlsVerifyMode", "strict")
+        boolean skipHostnameVerification = !tlsVerifyMode.equalsIgnoreCase("strict")
+        String excludedProtocols = getConf("tlsExcludedProtocols", "")
+        return [
+                "--doris-enable-tls", "true",
+                "--doris-tls-ca-certificate-path", getConf("trustCACert"),
+                "--doris-tls-skip-hostname-verification", skipHostnameVerification.toString(),
+                "--doris-tls-excluded-protocols", excludedProtocols
+        ]
+    }
+
     Properties getConfs(String prefix) {
         Properties p = new Properties()
         for (String name : context.config.otherConfigs.stringPropertyNames()) {
@@ -2323,10 +2339,16 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    static String buildJobNameQuery(String dbName, String mtmvName) {
+        return ("select Name from jobs('type'='mv') where MvDatabaseName = '${dbName}' "
+                + "and MvName = '${mtmvName}'")
+    }
+
     String getJobName(String dbName, String mtmvName) {
-        String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
-	    logger.info(showMTMV)
-        List<List<Object>> result = sql(showMTMV)
+        // Job lookup must not materialize unrelated MVs whose external metadata may be unavailable.
+        String showJob = buildJobNameQuery(dbName, mtmvName)
+        logger.info(showJob)
+        List<List<Object>> result = sql(showJob)
         logger.info("result: " + result.toString())
         if (result.isEmpty()) {
             Assert.fail();

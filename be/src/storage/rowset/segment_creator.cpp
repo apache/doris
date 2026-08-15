@@ -49,6 +49,7 @@
 #include "storage/segment/segment_writer.h"
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/transform/block_transform.h"
 #include "storage/utils.h"
 #include "util/debug_points.h"
 #include "util/json/json_parser.h"
@@ -57,6 +58,24 @@
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+
+segment_v2::TransformExecContext make_transform_exec_context(RowsetWriterContext& context,
+                                                             int32_t segment_id) {
+    return {.tablet_schema = context.tablet_schema,
+            .write_type = context.write_type,
+            .tablet = context.tablet,
+            .mow_context = context.mow_context,
+            .partial_update_info = context.partial_update_info,
+            .rowset_ctx = &context,
+            .rowset_id = context.rowset_id,
+            .segment_id = segment_id,
+            .derived_column = {},
+            .partial_update_stats = {}};
+}
+
+} // namespace
 
 SegmentFlusher::SegmentFlusher(RowsetWriterContext& context, SegmentFileCollection& seg_files,
                                InvertedIndexFileCollection& idx_files)
@@ -72,19 +91,41 @@ Status SegmentFlusher::flush_single_block(const Block* block, int32_t segment_id
     }
     Block flush_block(*block);
     bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
+    segment_v2::DerivedColumn derived_column;
+    RETURN_IF_ERROR(transform_block(&flush_block, segment_id, &derived_column));
     bool use_vertical_segment_writer =
             config::enable_vertical_segment_writer && !_context.write_binlog_opt().enable;
     if (use_vertical_segment_writer) {
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
+        // the vertical writer feeds the derived column in small fixed-size batches
+        writer->set_derived_column(std::move(derived_column));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_add_rows(writer, &flush_block, 0, flush_block.rows()));
         RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
     } else {
+        // the horizontal writer has no streaming feed, build it all up front
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                segment_v2::materialize_derived_columns(derived_column, &flush_block));
         std::unique_ptr<segment_v2::SegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_add_rows(writer, &flush_block, 0, flush_block.rows()));
         RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
     }
+    return Status::OK();
+}
+
+Status SegmentFlusher::transform_block(Block* block, int32_t segment_id,
+                                       segment_v2::DerivedColumn* derived_column) {
+    auto transform_ctx = make_transform_exec_context(_context, segment_id);
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+            segment_v2::build_transform_chain(_context).apply(transform_ctx, block));
+    // fold the fill stages' probe counters into the flusher totals; the horizontal
+    // writer no longer sees partial-update rows
+    _num_rows_updated += transform_ctx.partial_update_stats.num_rows_updated;
+    _num_rows_deleted += transform_ctx.partial_update_stats.num_rows_deleted;
+    _num_rows_new_added += transform_ctx.partial_update_stats.num_rows_new_added;
+    _num_rows_filtered += transform_ctx.partial_update_stats.num_rows_filtered;
+    *derived_column = std::move(transform_ctx.derived_column);
     return Status::OK();
 }
 
@@ -296,10 +337,6 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     total_timer.start();
 
     uint32_t row_num = writer->num_rows_written();
-    _num_rows_updated += writer->num_rows_updated();
-    _num_rows_deleted += writer->num_rows_deleted();
-    _num_rows_new_added += writer->num_rows_new_added();
-    _num_rows_filtered += writer->num_rows_filtered();
 
     if (row_num == 0) {
         return Status::OK();
@@ -406,6 +443,17 @@ Status SegmentCreator::add_block(const Block* block) {
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
     size_t row_offset = 0;
+    // This seam always feeds the horizontal writer, so the derived column is
+    // materialized up front, like flush_single_block's horizontal branch.
+    Block* shared_block = const_cast<Block*>(block);
+    auto transform_block = [&]() -> Status {
+        segment_v2::DerivedColumn derived_column;
+        RETURN_IF_ERROR(
+                _segment_flusher.transform_block(shared_block, /*segment_id=*/-1, &derived_column));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                segment_v2::materialize_derived_columns(derived_column, shared_block));
+        return Status::OK();
+    };
 
     if (_flush_writer == nullptr) {
         RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, allocate_segment_id()));
@@ -421,6 +469,7 @@ Status SegmentCreator::add_block(const Block* block) {
             DCHECK(max_row_add > 0);
         }
         size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
+        RETURN_IF_ERROR(transform_block());
         RETURN_IF_ERROR(_flush_writer->add_rows(block, row_offset, input_row_num));
         row_offset += input_row_num;
     } while (row_offset < block_row_num);

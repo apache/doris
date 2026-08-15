@@ -1943,6 +1943,110 @@ TEST(KeysTest, VersionedLogKeyTest) {
     }
 }
 
+TEST(KeysTest, TableStreamOffsetKeyTest) {
+    using namespace doris::cloud;
+
+    std::string instance_id = "instance_id";
+    int64_t base_db_id = 101;
+    int64_t base_table_id = 102;
+    int64_t stream_db_id = 103;
+    int64_t stream_id = 104;
+    int64_t partition_id = 105;
+
+    TableStreamOffsetKeyInfo info {instance_id,  base_db_id, base_table_id,
+                                   stream_db_id, stream_id,  partition_id};
+    std::string key = table_stream_offset_key(info);
+    std::string prefix = table_stream_offset_key_prefix(instance_id, base_db_id, base_table_id,
+                                                        stream_db_id, stream_id);
+    ASSERT_TRUE(key.starts_with(prefix));
+
+    std::string meta_prefix;
+    std::string decoded_instance_id;
+    std::string offset_infix;
+    int64_t decoded_base_db_id = 0;
+    int64_t decoded_base_table_id = 0;
+    int64_t decoded_stream_db_id = 0;
+    int64_t decoded_stream_id = 0;
+    int64_t decoded_partition_id = 0;
+
+    std::string_view key_sv(key);
+    remove_user_space_prefix(&key_sv);
+    ASSERT_EQ(decode_bytes(&key_sv, &meta_prefix), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &offset_infix), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_base_db_id), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_base_table_id), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_stream_db_id), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_stream_id), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_partition_id), 0);
+    ASSERT_TRUE(key_sv.empty());
+
+    EXPECT_EQ(meta_prefix, "meta");
+    EXPECT_EQ(decoded_instance_id, instance_id);
+    EXPECT_EQ(offset_infix, "table_stream_offset");
+    EXPECT_EQ(decoded_base_db_id, base_db_id);
+    EXPECT_EQ(decoded_base_table_id, base_table_id);
+    EXPECT_EQ(decoded_stream_db_id, stream_db_id);
+    EXPECT_EQ(decoded_stream_id, stream_id);
+    EXPECT_EQ(decoded_partition_id, partition_id);
+}
+
+TEST(KeysTest, VersionedTableStreamOffsetKeyTest) {
+    using namespace doris::cloud;
+
+    std::string instance_id = "instance_id";
+    int64_t base_db_id = 101;
+    int64_t base_table_id = 102;
+    int64_t stream_db_id = 103;
+    int64_t stream_id = 104;
+    int64_t partition_id = 105;
+    Versionstamp timestamp(888, 99);
+
+    versioned::TableStreamOffsetKeyInfo info {instance_id,  base_db_id, base_table_id,
+                                              stream_db_id, stream_id,  partition_id};
+    std::string key = versioned::table_stream_offset_key(info);
+    std::string prefix = versioned::table_stream_offset_key_prefix(
+            instance_id, base_db_id, base_table_id, stream_db_id, stream_id);
+    ASSERT_TRUE(key.starts_with(prefix));
+    encode_versionstamp(timestamp, &key);
+    encode_versionstamp_end(&key);
+
+    std::string meta_prefix;
+    std::string decoded_instance_id;
+    std::string offset_infix;
+    int64_t decoded_base_db_id = 0;
+    int64_t decoded_base_table_id = 0;
+    int64_t decoded_stream_db_id = 0;
+    int64_t decoded_stream_id = 0;
+    int64_t decoded_partition_id = 0;
+    Versionstamp decoded_timestamp;
+
+    std::string_view key_sv(key);
+    remove_versioned_space_prefix(&key_sv);
+    ASSERT_EQ(decode_bytes(&key_sv, &meta_prefix), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &offset_infix), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_base_db_id), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_base_table_id), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_stream_db_id), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_stream_id), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_partition_id), 0);
+    ASSERT_EQ(decode_versionstamp(&key_sv, &decoded_timestamp), 0);
+    ASSERT_EQ(decode_versionstamp_end(&key_sv), 0);
+    ASSERT_TRUE(key_sv.empty());
+
+    EXPECT_EQ(meta_prefix, "meta");
+    EXPECT_EQ(decoded_instance_id, instance_id);
+    EXPECT_EQ(offset_infix, "table_stream_offset");
+    EXPECT_EQ(decoded_base_db_id, base_db_id);
+    EXPECT_EQ(decoded_base_table_id, base_table_id);
+    EXPECT_EQ(decoded_stream_db_id, stream_db_id);
+    EXPECT_EQ(decoded_stream_id, stream_id);
+    EXPECT_EQ(decoded_partition_id, partition_id);
+    EXPECT_EQ(decoded_timestamp.version(), timestamp.version());
+    EXPECT_EQ(decoded_timestamp.order(), timestamp.order());
+}
+
 TEST(KeysTest, RestoreJobKeysTest) {
     using namespace doris::cloud;
     std::string instance_id = "instance_id_deadbeef";

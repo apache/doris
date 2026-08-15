@@ -40,9 +40,11 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "cpp/sync_point.h"
+#include "exec/common/variant_util.h"
 #include "exprs/expr_zonemap_filter.h"
 #include "exprs/vexpr_context.h"
 #include "io/cache/block_file_cache.h"
@@ -371,8 +373,7 @@ bool Segment::is_tso_placeholder_col(int cid, const Schema& schema,
     if (read_options.version.first != read_options.version.second) {
         return false;
     }
-    if (read_options.io_ctx.reader_type != ReaderType::READER_BINLOG &&
-        read_options.io_ctx.reader_type != ReaderType::READER_BINLOG_COMPACTION) {
+    if (!read_options.read_row_binlog) {
         return false;
     }
     // tso_col_idx() is -1 for non-binlog schemas, so this returns false there.
@@ -1241,21 +1242,26 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
             .io_ctx = io_ctx,
     };
 
+    const auto runtime_type = remove_nullable(slot->type());
+    const auto* variant_type = typeid_cast<const DataTypeVariant*>(runtime_type.get());
+    const auto* variant_v2_type = typeid_cast<const DataTypeVariantV2*>(runtime_type.get());
+
     if (!slot->column_paths().empty()) {
+        DORIS_CHECK(variant_type != nullptr || variant_v2_type != nullptr);
         // here need create column readers to make sure column reader is created before seek_and_read_by_rowid
         // if segment cache miss, column reader will be created to make sure the variant column result not coredump
         RETURN_IF_ERROR(
                 _create_column_meta_once(storage_read_options.stats, &storage_read_options.io_ctx));
 
-        const auto& dt_variant =
-                assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()));
-        TabletColumn column = TabletColumn::create_materialized_variant_column(
-                schema.column_by_uid(slot->col_unique_id()).name_lower_case(), slot->column_paths(),
-                slot->col_unique_id(), dt_variant.variant_max_subcolumns_count(),
-                dt_variant.enable_doc_mode());
+        const PathInData path(schema.column_by_uid(slot->col_unique_id()).name_lower_case(),
+                              slot->column_paths());
+        TabletColumn column = variant_util::get_column_by_type(
+                make_nullable(slot->type()), path.get_path(),
+                variant_util::ExtraInfo {.parent_unique_id = slot->col_unique_id(),
+                                         .path_info = path});
         auto storage_type = get_data_type_of(column, storage_read_options);
-        MutableColumnPtr file_storage_column = storage_type->create_column();
         DCHECK(storage_type != nullptr);
+        MutableColumnPtr file_storage_column = storage_type->create_column();
 
         if (iterator_hint == nullptr) {
             RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_options));
@@ -1268,6 +1274,13 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         RETURN_IF_ERROR(variant_util::cast_column(
                 ColumnWithTypeAndName(file_storage_column->get_ptr(), storage_type, column.name()),
                 slot->type(), &source_ptr));
+        // An empty Variant V2 destination has no representation to preserve. Adopt the cast
+        // result so a homogeneous scalar leaf stays in typed state; subsequent batches with the
+        // same typed identity can append without converting every value to encoded Variant bytes.
+        if (variant_v2_type != nullptr && result->empty()) {
+            result = IColumn::mutate(std::move(source_ptr));
+            return Status::OK();
+        }
         RETURN_IF_CATCH_EXCEPTION(result->insert_range_from(*source_ptr, 0, row_ids.size()));
     } else {
         int index = (slot->col_unique_id() >= 0) ? schema.field_index(slot->col_unique_id())
@@ -1278,9 +1291,13 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                << ", field_name_to_index=" << schema.get_all_field_names();
             return Status::InternalError(ss.str());
         }
+        TabletColumn column = schema.column(index);
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
+            DORIS_CHECK(variant_type != nullptr || variant_v2_type != nullptr);
+            column.set_variant_is_v2(variant_v2_type != nullptr);
+        }
         if (iterator_hint == nullptr) {
-            RETURN_IF_ERROR(new_column_iterator(schema.column(index), &iterator_hint,
-                                                &storage_read_options));
+            RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_options));
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
         RETURN_IF_ERROR(iterator_hint->read_by_rowids(row_ids.data(), row_ids.size(), result));

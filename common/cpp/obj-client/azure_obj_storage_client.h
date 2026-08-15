@@ -64,6 +64,7 @@ static const Azure::DateTime SystemClockEpoch {1970, 1, 1};
 bool is_azure_tls_ca_error_message(std::string_view message);
 std::string build_azure_tls_debug_suffix(std::string_view error_message,
                                          std::string_view tls_debug_context);
+std::string azure_multipart_block_id(std::string_view upload_id, int part_num);
 
 class ObjClientHolder;
 
@@ -116,6 +117,7 @@ private:
 
 namespace doris::io {
 using ::doris::AzureObjStorageClient;
+using ::doris::azure_multipart_block_id;
 using ::doris::build_azure_tls_debug_suffix;
 using ::doris::is_azure_tls_ca_error_message;
 } // namespace doris::io

@@ -94,9 +94,15 @@ suite("test_catalogs_tvf", "p0,external") {
     // The two removed properties, kept verbatim for restoration (do not delete):
     //     "hive.metastore.type" = "dlf",
     //     "dlf.proxy.mode" = "DLF_ONLY",
+    // Removing "hive.metastore.type" turned this back into a plain thrift hms catalog, and such a
+    // catalog must name its metastore -- an hms catalog with no address can only ever fail on first
+    // use, so CREATE CATALOG refuses it. The address below is never dialled: this suite reads the
+    // catalog's properties through catalogs() and never queries it. Drop this line again together
+    // with restoring the two properties above.
     sql """
         CREATE CATALOG catalog_tvf_test_dlf PROPERTIES (
         "type"="hms",
+        "hive.metastore.uris" = "thrift://127.0.0.1:7004",
         "dlf.endpoint" = "dlf-vpc.cn-beijing.aliyuncs.com",
         "dlf.region" = "cn-beijing",
         "dlf.uid" = "123456789",

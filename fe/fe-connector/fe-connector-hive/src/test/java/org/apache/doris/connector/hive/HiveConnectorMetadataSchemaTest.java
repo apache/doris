@@ -64,7 +64,7 @@ public class HiveConnectorMetadataSchemaTest {
 
     private ConnectorTableSchema schemaOf(HmsTableInfo tableInfo) {
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
-                new FakeHmsClient(tableInfo), Collections.emptyMap(), new FakeConnectorContext());
+                new FakeHmsClient(tableInfo), HiveTestProperties.minimal(), new FakeConnectorContext());
         HiveTableHandle handle = new HiveTableHandle.Builder(
                 tableInfo.getDbName(), tableInfo.getTableName(), HiveTableType.HIVE).build();
         return metadata.getTableSchema(null, handle);
@@ -193,6 +193,24 @@ public class HiveConnectorMetadataSchemaTest {
         List<String> names = schema.getColumns().stream()
                 .map(ConnectorColumn::getName).collect(Collectors.toList());
         Assertions.assertEquals(Arrays.asList("id", "name", "year", "region"), names);
+    }
+
+    @Test
+    public void testWriteMetadataIdentityPreservesDataAndPartitionRoles() {
+        ConnectorTableSchema partitioned = schemaOf(HmsTableInfo.builder()
+                .dbName("db").tableName("t").inputFormat(PARQUET_INPUT_FORMAT)
+                .columns(Collections.singletonList(col("a", "INT")))
+                .partitionKeys(Collections.singletonList(col("b", "INT")))
+                .parameters(Collections.emptyMap()).build());
+        ConnectorTableSchema unpartitioned = schemaOf(HmsTableInfo.builder()
+                .dbName("db").tableName("t").inputFormat(PARQUET_INPUT_FORMAT)
+                .columns(Arrays.asList(col("a", "INT"), col("b", "INT")))
+                .partitionKeys(Collections.emptyList())
+                .parameters(Collections.emptyMap()).build());
+
+        Assertions.assertNotNull(partitioned.getWriteMetadataIdentity());
+        Assertions.assertNotEquals(partitioned.getWriteMetadataIdentity(), unpartitioned.getWriteMetadataIdentity(),
+                "the write fence must distinguish equal flattened columns with different partition roles");
     }
 
     @Test
@@ -349,7 +367,7 @@ public class HiveConnectorMetadataSchemaTest {
         // Without the override fe-core falls back to a generic SCHEMA_TABLE descriptor; pin that a hive table
         // produces a HIVE_TABLE descriptor carrying a THiveTable with the db/table names and column count.
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
-                new FakeHmsClient(partitionedTable().build()), Collections.emptyMap(), new FakeConnectorContext());
+                new FakeHmsClient(partitionedTable().build()), HiveTestProperties.minimal(), new FakeConnectorContext());
         TTableDescriptor desc = metadata.buildTableDescriptor(null, 42L, "t", "db", "t", 4, 7L);
         Assertions.assertEquals(TTableType.HIVE_TABLE, desc.getTableType());
         Assertions.assertEquals(4, desc.getNumCols());

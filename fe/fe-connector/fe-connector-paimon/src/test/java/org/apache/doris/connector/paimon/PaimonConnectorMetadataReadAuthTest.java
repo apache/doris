@@ -50,7 +50,7 @@ public class PaimonConnectorMetadataReadAuthTest {
 
     private static PaimonConnectorMetadata metadata(RecordingPaimonCatalogOps ops,
             RecordingConnectorContext ctx) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), ctx);
     }
 
     private static PaimonTableHandle baseHandle() {

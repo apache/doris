@@ -40,6 +40,7 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -412,6 +413,8 @@ public class PluginDrivenExternalTableTest {
                     observed.set(Thread.currentThread().getContextClassLoader());
                     return Optional.of(Collections.emptyList());
                 });
+        Mockito.when(provider.getWriteMetadataIdentity(Mockito.any(), Mockito.any()))
+                .thenReturn("pinned-generation");
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
@@ -426,6 +429,10 @@ public class PluginDrivenExternalTableTest {
         PluginDrivenExternalTable table = Mockito.mock(
                 PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(table, "catalog", catalog);
+        Mockito.doReturn(99L).when(table).getId();
+        ConnectContext ctx = new ConnectContext();
+        ctx.setStatementContext(new StatementContext());
+        ctx.setThreadLocalInfo();
 
         ClassLoader original = Thread.currentThread().getContextClassLoader();
         ClassLoader previous = new ClassLoader(null) { };
@@ -433,9 +440,38 @@ public class PluginDrivenExternalTableTest {
         try {
             Assertions.assertTrue(table.resolveWriteColumns(Optional.empty()).isPresent());
             Assertions.assertSame(provider.getClass().getClassLoader(), observed.get());
+            Assertions.assertEquals("pinned-generation", ctx.getStatementContext()
+                    .getConnectorWriteMetadataIdentity(99L).orElse(null));
             Assertions.assertSame(previous, Thread.currentThread().getContextClassLoader());
         } finally {
             Thread.currentThread().setContextClassLoader(original);
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void writeSchemaSnapshotUsesStatementPinnedMetadataIdentity() {
+        PluginDrivenSchemaCacheValue cached = Mockito.mock(PluginDrivenSchemaCacheValue.class);
+        Mockito.when(cached.getSchema()).thenReturn(BASE_SCHEMA);
+        Mockito.when(cached.getPartitionColumns()).thenReturn(Collections.emptyList());
+        Mockito.when(cached.getWriteMetadataIdentity()).thenReturn("cached-generation");
+        PluginDrivenExternalTable table = Mockito.mock(
+                PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doNothing().when(table).makeSureInitialized();
+        Mockito.doReturn(Optional.of(cached)).when(table).getSchemaCacheValue(Optional.empty());
+        Mockito.doReturn(99L).when(table).getId();
+        ConnectContext ctx = new ConnectContext();
+        StatementContext statementContext = new StatementContext();
+        statementContext.setConnectorWriteMetadataIdentity(99L, "pinned-generation");
+        ctx.setStatementContext(statementContext);
+        ctx.setThreadLocalInfo();
+
+        try {
+            Assertions.assertEquals("pinned-generation",
+                    table.getWriteSchemaSnapshot().getWriteMetadataIdentity(),
+                    "the sink fence must use the identity captured with its statement-pinned columns");
+        } finally {
+            ConnectContext.remove();
         }
     }
 

@@ -101,6 +101,27 @@ public class PhysicalConnectorTableSinkTest {
                 "local sort must be on the partition column");
     }
 
+    @Test
+    public void distributionUsesBindTimeSchemaAfterLiveRefresh() {
+        SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
+        SlotReference partSlot = new SlotReference("part", IntegerType.INSTANCE);
+        PluginDrivenExternalTable table = table(
+                true, true, ImmutableList.of(PART), ImmutableList.of(DATA, PART));
+        PhysicalConnectorTableSink<Plan> sink = sink(
+                table, Arrays.asList(DATA, PART), ImmutableList.of(dataSlot, partSlot));
+
+        // Simulate a refresh after binding that reuses names at different positions. Distribution must keep
+        // the coherent schema generation captured by the sink instead of indexing its older output with S1.
+        Mockito.when(table.getPartitionColumns()).thenReturn(ImmutableList.of(DATA));
+        Mockito.when(table.getFullSchema()).thenReturn(ImmutableList.of(PART, DATA));
+
+        PhysicalProperties props = sink.getRequirePhysicalProperties();
+        DistributionSpecHiveTableSinkHashPartitioned dist =
+                (DistributionSpecHiveTableSinkHashPartitioned) props.getDistributionSpec();
+        Assertions.assertEquals(ImmutableList.of(partSlot.getExprId()), dist.getOutputColExprIds());
+        Assertions.assertEquals(partSlot, props.getOrderSpec().getOrderKeys().get(0).getExpr());
+    }
+
     /**
      * Pure-dynamic write with a REORDERED explicit column list ({@code INSERT INTO mc (part, data)
      * SELECT vpart, vdata}, schema [data, part]): the bind layer projects the child to FULL-SCHEMA
@@ -324,9 +345,8 @@ public class PhysicalConnectorTableSinkTest {
 
     /**
      * Builds a {@link PhysicalConnectorTableSink} exercising only {@code getRequirePhysicalProperties()}.
-     * Uses CALLS_REAL_METHODS to skip the heavyweight ctor and injects the three fields the method
-     * reads ({@code targetTable}, {@code cols}, and the single child via the {@code children} field, so
-     * the real {@code child()} resolves to it).
+     * Uses CALLS_REAL_METHODS to skip the heavyweight ctor and injects the bind-time schemas, target,
+     * columns, and single child needed by the real method.
      */
     private static PhysicalConnectorTableSink<Plan> sink(PluginDrivenExternalTable table,
             List<Column> cols, List<Slot> childOutput) {
@@ -336,6 +356,10 @@ public class PhysicalConnectorTableSinkTest {
         PhysicalConnectorTableSink<Plan> sink =
                 Mockito.mock(PhysicalConnectorTableSink.class, Mockito.CALLS_REAL_METHODS);
         Deencapsulation.setField(sink, "targetTable", table);
+        // Production carries both lists from one bind-time cache value; seed the real-method mock with
+        // that immutable view so the test also fails if the implementation re-reads the live table.
+        Deencapsulation.setField(sink, "boundTargetSchema", table.getFullSchema());
+        Deencapsulation.setField(sink, "boundPartitionColumns", table.getPartitionColumns());
         Deencapsulation.setField(sink, "cols", cols);
         Deencapsulation.setField(sink, "children", ImmutableList.of(child));
         return sink;

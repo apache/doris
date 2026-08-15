@@ -81,7 +81,7 @@ public class PaimonCatalogFactoryTest {
     @Test
     public void filesystemSetsMetastoreFilesystemAndWarehouse() {
         Options opts = PaimonCatalogFactory.buildCatalogOptions(
-                props("paimon.catalog.type", "filesystem", "warehouse", "/wh"));
+                PaimonCatalogProperties.of(props("paimon.catalog.type", "filesystem", "warehouse", "/wh")));
 
         // WHY: filesystem is the default flavor; its metastore identifier selects
         // FileSystemCatalogFactory and the warehouse is the on-disk root. Both are load-bearing
@@ -92,10 +92,10 @@ public class PaimonCatalogFactoryTest {
 
     @Test
     public void hmsSetsHiveMetastoreUriPoolAndLocation() {
-        Options opts = PaimonCatalogFactory.buildCatalogOptions(props(
+        Options opts = PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(props(
                 "paimon.catalog.type", "hms",
                 "warehouse", "/wh",
-                "hive.metastore.uris", "thrift://nn:9083"));
+                "hive.metastore.uris", "thrift://nn:9083")));
 
         // WHY: hms maps to paimon's "hive" metastore; the legacy HMS flavor always emits the
         // metastore uri plus the pool-eviction + location-in-properties defaults. Dropping any
@@ -109,12 +109,12 @@ public class PaimonCatalogFactoryTest {
 
     @Test
     public void hmsAcceptsUriAliasAndOverrides() {
-        Options opts = PaimonCatalogFactory.buildCatalogOptions(props(
+        Options opts = PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(props(
                 "paimon.catalog.type", "hms",
                 "warehouse", "/wh",
                 "uri", "thrift://alias:9083",
                 "client-pool-cache.eviction-interval-ms", "60000",
-                "location-in-properties", "true"));
+                "location-in-properties", "true")));
 
         // WHY: the legacy HMS flavor accepts the bare "uri" alias for the metastore URI and lets
         // the user override the pool/location defaults. MUTATION: ignoring the alias or hardcoding
@@ -126,10 +126,10 @@ public class PaimonCatalogFactoryTest {
 
     @Test
     public void restSetsMetastoreRestUriAndStripsRestPrefix() {
-        Options opts = PaimonCatalogFactory.buildCatalogOptions(props(
+        Options opts = PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(props(
                 "paimon.catalog.type", "rest",
                 "paimon.rest.uri", "http://rest:8080",
-                "paimon.rest.token.provider", "bear"));
+                "paimon.rest.token.provider", "bear")));
 
         // WHY: rest maps to the "rest" metastore; the legacy rest flavor sets "uri" from
         // paimon.rest.uri and re-keys every paimon.rest.* prop by stripping the prefix (so
@@ -142,13 +142,13 @@ public class PaimonCatalogFactoryTest {
 
     @Test
     public void jdbcSetsMetastoreUriUserAndRawJdbcKeys() {
-        Options opts = PaimonCatalogFactory.buildCatalogOptions(props(
+        Options opts = PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(props(
                 "paimon.catalog.type", "jdbc",
                 "warehouse", "/wh",
                 "uri", "jdbc:mysql://db:3306/meta",
                 "paimon.jdbc.user", "alice",
                 "jdbc.password", "secret",
-                "jdbc.foo", "bar"));
+                "jdbc.foo", "bar")));
 
         // WHY: jdbc maps to JdbcCatalogFactory; the legacy jdbc flavor sets the CatalogOptions URI,
         // the jdbc.user/jdbc.password (read from either alias), and passes through any raw jdbc.*
@@ -168,19 +168,19 @@ public class PaimonCatalogFactoryTest {
         // than emit a metastore.client.class naming a class that no longer ships. MUTATION: re-adding the dlf
         // arm -> red.
         IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> PaimonCatalogFactory.buildCatalogOptions(props(
+                () -> PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(props(
                         "paimon.catalog.type", "dlf",
-                        "warehouse", "/wh")));
+                        "warehouse", "/wh"))));
         Assertions.assertTrue(ex.getMessage().contains("dlf"), ex.getMessage());
     }
 
     @Test
     public void paimonPrefixPassthroughExcludesStoragePrefixes() {
-        Options opts = PaimonCatalogFactory.buildCatalogOptions(props(
+        Options opts = PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(props(
                 "paimon.catalog.type", "filesystem",
                 "warehouse", "/wh",
                 "paimon.read.batch-size", "4096",
-                "paimon.s3.access-key", "should-not-leak"));
+                "paimon.s3.access-key", "should-not-leak")));
 
         // WHY: the legacy appendCatalogOptions re-keys generic paimon.* props by stripping the
         // prefix, BUT deliberately excludes storage prefixes (paimon.s3./s3a./fs.s3./fs.oss.)
@@ -194,9 +194,9 @@ public class PaimonCatalogFactoryTest {
 
     @Test
     public void restBuildOptionsOmitsBlankWarehouse() {
-        Options opts = PaimonCatalogFactory.buildCatalogOptions(props(
+        Options opts = PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(props(
                 "paimon.catalog.type", "rest",
-                "paimon.rest.uri", "http://rest:8080"));
+                "paimon.rest.uri", "http://rest:8080")));
 
         // WHY: this pins option ASSEMBLY only (independent of validate, which now requires a
         // warehouse for rest too): the common appender sets the warehouse option only when the

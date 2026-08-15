@@ -71,7 +71,6 @@ public:
 
 private:
     Status _close_impl();
-    Status _abort();
     [[nodiscard]] std::string _dump_completed_part() const;
     void _wait_until_finish(std::string_view task_name);
     Status _complete();

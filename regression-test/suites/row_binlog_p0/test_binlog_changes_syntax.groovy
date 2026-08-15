@@ -16,9 +16,6 @@
 // under the License.
 
 suite("test_binlog_changes_syntax", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
     sql "DROP DATABASE IF EXISTS test_binlog_changes_syntax_db"
     sql "CREATE DATABASE test_binlog_changes_syntax_db"
     sql "USE test_binlog_changes_syntax_db"

@@ -73,6 +73,27 @@ void append_collected_value(CollectedArrayNode* node, VariantRef value, bool for
     node->offsets.push_back(node->child->size());
 }
 
+bool array_dimensions_match(VariantRef value, const CollectedArrayNode& target) {
+    if (value.is_null()) {
+        // Doris permits null-literal ARRAY leaves to adapt to a deeper target dimension.
+        return true;
+    }
+    if (target.child == nullptr) {
+        // ARRAY<VariantV2> deliberately keeps arbitrary Variant values as leaves.
+        return target.type->get_primitive_type() == TYPE_VARIANT ||
+               value.basic_type() != VariantBasicType::ARRAY;
+    }
+    if (value.basic_type() != VariantBasicType::ARRAY) {
+        return false;
+    }
+    for (uint32_t element = 0; element < value.num_elements(); ++element) {
+        if (!array_dimensions_match(value.array_at(element), *target.child)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 ColumnPtr variant_column_from_refs(std::span<const VariantRef> values, ForcedNulls nulls) {
     VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = values.size()});
     for (size_t row_index = 0; row_index < values.size(); ++row_index) {
@@ -139,15 +160,72 @@ Status cast_variant_to_array(FunctionContext* context, const ColumnVariantV2& so
         return Status::InvalidArgument("Invalid Variant V2 input shape for ARRAY CAST");
     }
     if (source.is_typed()) {
-        *output = make_all_null_column(target_type, rows);
-        return Status::OK();
+        if (context == nullptr) {
+            // vexplode_v2 requests only already-encoded arrays. A typed Variant has no array
+            // representation to expose on that internal path.
+            *output = make_all_null_column(target_type, rows);
+            return Status::OK();
+        }
+        // The typed state already owns a concrete Doris column. Reuse the same non-strict CAST
+        // executor as scalar targets so typed strings such as "[]" retain the V1 String->Array
+        // behavior.
+        return cast_typed_variant_to_scalar(context, source, target_type, rows, forced_nulls,
+                                            output);
     }
     std::unique_ptr<CollectedArrayNode> root = make_collected_node(target_type);
     for (size_t row_index = 0; row_index < rows; ++row_index) {
-        append_collected_value(root.get(), source.get_value_ref(row_index),
-                               !forced_nulls.empty() && forced_nulls[row_index] != 0);
+        const VariantRef value = source.get_value_ref(row_index);
+        const bool row_is_null = (!forced_nulls.empty() && forced_nulls[row_index] != 0) ||
+                                 !array_dimensions_match(value, *root);
+        append_collected_value(root.get(), value, row_is_null);
     }
-    return finalize_collected_node(context, *root, output);
+    ColumnPtr direct;
+    RETURN_IF_ERROR(finalize_collected_node(context, *root, &direct));
+
+    // An encoded Variant string is allowed to contain the textual representation of an array.
+    // V1 delegates that case to the ordinary non-strict String->Array CAST. Parse only those
+    // rows through the shared executor; native Variant arrays keep the direct recursive path
+    // above, which is also required for ARRAY<VariantV2>.
+    if (context == nullptr) {
+        *output = std::move(direct);
+        return Status::OK();
+    }
+    DorisVector<size_t> string_rows;
+    DorisVector<VariantRef> string_values;
+    for (size_t row_index = 0; row_index < rows; ++row_index) {
+        if (!forced_nulls.empty() && forced_nulls[row_index] != 0) {
+            continue;
+        }
+        const VariantRef value = source.get_value_ref(row_index);
+        const VariantBasicType basic_type = value.basic_type();
+        if (basic_type == VariantBasicType::SHORT_STRING ||
+            (basic_type == VariantBasicType::PRIMITIVE &&
+             value.primitive_id() == VariantPrimitiveId::STRING)) {
+            string_rows.push_back(row_index);
+            string_values.push_back(value);
+        }
+    }
+    if (string_rows.empty()) {
+        *output = std::move(direct);
+        return Status::OK();
+    }
+
+    ColumnPtr parsed_strings;
+    RETURN_IF_ERROR(
+            cast_variant_refs_to_scalar(context, string_values, target_type, {}, &parsed_strings));
+    MutableColumnPtr merged = make_nullable(target_type)->create_column();
+    merged->reserve(rows);
+    size_t string_index = 0;
+    for (size_t row_index = 0; row_index < rows; ++row_index) {
+        if (string_index < string_rows.size() && string_rows[string_index] == row_index) {
+            merged->insert_from(*parsed_strings, string_index++);
+        } else {
+            merged->insert_from(*direct, row_index);
+        }
+    }
+    DCHECK_EQ(string_index, string_rows.size());
+    *output = std::move(merged);
+    return Status::OK();
 }
 
 } // namespace doris::CastWrapper::variant_v2_internal
