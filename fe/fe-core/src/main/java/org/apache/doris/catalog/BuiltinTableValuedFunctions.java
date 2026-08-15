@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
+import org.apache.doris.nereids.trees.expressions.functions.table.LanceIndexEntries;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
@@ -67,6 +68,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(MvInfos.class, "mv_infos"),
             tableValued(Partitions.class, "partitions"),
             tableValued(Jobs.class, "jobs"),
+            tableValued(LanceIndexEntries.class, "lance_index_entries"),
             tableValued(Tasks.class, "tasks"),
             tableValued(Query.class, "query"),
             tableValued(PartitionValues.class, "partition_values"),

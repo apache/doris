@@ -815,6 +815,13 @@ struct TParquetMetadataParams {
   6: optional string bloom_literal
 }
 
+// Identifies a Lance table for read-only physical index entry inspection.
+struct TLanceIndexMetadataParams {
+  1: optional string catalog
+  2: optional string database
+  3: optional string table
+}
+
 struct TMetaScanRange {
   1: optional Types.TMetadataType metadata_type
   2: optional TIcebergMetadataParams iceberg_params // deprecated
@@ -835,6 +842,7 @@ struct TMetaScanRange {
   15: optional string serialized_table;
   16: optional list<string> serialized_splits;
   17: optional TParquetMetadataParams parquet_params;
+  18: optional TLanceIndexMetadataParams lance_index_params;
 }
 
 // Specification of an individual data range which is held in its entirety
