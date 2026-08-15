@@ -540,6 +540,69 @@ public class PolicyMgr implements Writable {
         }
     }
 
+    public void dropPoliciesByRole(String roleName, boolean isReplay) {
+        writeLock();
+        try {
+            List<Policy> policies = getPoliciesByType(PolicyTypeEnum.ROW);
+            List<DropPolicyLog> dropLogs = Lists.newArrayList();
+            policies.removeIf(policy -> {
+                if (policy instanceof RowPolicy) {
+                    RowPolicy rowPolicy = (RowPolicy) policy;
+                    if (roleName.equals(rowPolicy.getRoleName())) {
+                        dropTablePolicies(rowPolicy);
+                        if (!isReplay) {
+                            dropLogs.add(new DropPolicyLog(rowPolicy.getCtlName(), rowPolicy.getDbName(),
+                                    rowPolicy.getTableName(), PolicyTypeEnum.ROW, rowPolicy.getPolicyName(),
+                                    rowPolicy.getUser(), rowPolicy.getRoleName()));
+                        }
+                        return true;
+                    }
+                }
+                return false;
+            });
+            typeToPolicyMap.put(PolicyTypeEnum.ROW, policies);
+            if (!isReplay) {
+                for (DropPolicyLog log : dropLogs) {
+                    Env.getCurrentEnv().getEditLog().logDropPolicy(log);
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void dropPoliciesByUser(UserIdentity user, boolean isReplay) {
+        writeLock();
+        try {
+            List<Policy> policies = getPoliciesByType(PolicyTypeEnum.ROW);
+            List<DropPolicyLog> dropLogs = Lists.newArrayList();
+            policies.removeIf(policy -> {
+                if (policy instanceof RowPolicy) {
+                    RowPolicy rowPolicy = (RowPolicy) policy;
+                    if (rowPolicy.getUser() != null
+                            && user.getQualifiedUser().equals(rowPolicy.getUser().getQualifiedUser())) {
+                        dropTablePolicies(rowPolicy);
+                        if (!isReplay) {
+                            dropLogs.add(new DropPolicyLog(rowPolicy.getCtlName(), rowPolicy.getDbName(),
+                                    rowPolicy.getTableName(), PolicyTypeEnum.ROW, rowPolicy.getPolicyName(),
+                                    rowPolicy.getUser(), rowPolicy.getRoleName()));
+                        }
+                        return true;
+                    }
+                }
+                return false;
+            });
+            typeToPolicyMap.put(PolicyTypeEnum.ROW, policies);
+            if (!isReplay) {
+                for (DropPolicyLog log : dropLogs) {
+                    Env.getCurrentEnv().getEditLog().logDropPolicy(log);
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     private void addTablePolicies(RowPolicy policy) {
         if (policy.getUser() != null) {
             policy.getUser().setIsAnalyzed();
