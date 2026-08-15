@@ -232,7 +232,7 @@ TEST_F(S3ClientFactoryTest, SelectsRateLimiterByDeploymentAndBucketType) {
         if (expect_limited) {
             EXPECT_EQ(second.resp.status.code, static_cast<int>(ErrorCode::EXCEEDED_LIMIT));
             EXPECT_EQ(second.resp.http_code, 0);
-            EXPECT_NE(second.resp.status.msg.find("GET request exceeds QPS limit"),
+            EXPECT_NE(second.resp.status.msg.find("s3 get request exceeds QPS limit"),
                       std::string::npos);
         } else {
             EXPECT_TRUE(second.resp.ok());
@@ -274,7 +274,7 @@ TEST_F(S3ClientFactoryTest, RateLimitResponseDistinguishesBytesFromProviderThrot
 
     EXPECT_EQ(response.status.code, static_cast<int>(ErrorCode::EXCEEDED_LIMIT));
     EXPECT_EQ(response.http_code, 0);
-    EXPECT_NE(response.status.msg.find("GET request exceeds bytes limit"), std::string::npos);
+    EXPECT_NE(response.status.msg.find("s3 get request exceeds bytes limit"), std::string::npos);
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
