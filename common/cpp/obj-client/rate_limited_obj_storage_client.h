@@ -64,9 +64,6 @@ public:
     ObjStorageResponse delete_objects(const ObjStoragePath& opts,
                                       std::vector<std::string> objs) override;
     ObjStorageResponse delete_object(const ObjStoragePath& opts) override;
-    ObjStorageResponse delete_objects_recursively(
-            const ObjStoragePath& path, const ObjStorageRecursiveDeleteOptions& delete_options =
-                                                ObjStorageRecursiveDeleteOptions {}) override;
     ObjStorageCapabilities capabilities() const override { return inner_->capabilities(); }
     std::string generate_presigned_url(const ObjStoragePath& opts,
                                        int64_t expiration_secs) override;

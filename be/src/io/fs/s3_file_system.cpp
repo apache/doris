@@ -226,11 +226,12 @@ Status S3FileSystem::delete_directory_impl(const Path& dir) {
         prefix.push_back('/');
     }
 
-    auto resp = client->delete_objects_recursively({
+    ObjStoragePath delete_path {
             .path = full_s3_path(prefix),
             .bucket = _bucket,
             .prefix = prefix,
-    });
+    };
+    auto resp = delete_objects_recursively(std::move(client), delete_path);
     return {resp.status.code, std::move(resp.status.msg)};
 }
 

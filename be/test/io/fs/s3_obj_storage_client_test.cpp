@@ -121,7 +121,8 @@ TEST_F(S3ObjStorageClientTest, delete_objects_recursively) {
     EXPECT_EQ(objects.size(), 22);
     objects.clear();
 
-    response = S3ObjStorageClientTest::obj_storage_client->delete_objects_recursively(
+    response = delete_objects_recursively(
+            S3ObjStorageClientTest::obj_storage_client,
             {.bucket = bucket, .prefix = "S3ObjStorageClientTest/delete_objects_recursively"});
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 

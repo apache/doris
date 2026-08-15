@@ -487,13 +487,12 @@ int S3Accessor::init() {
 
 int S3Accessor::delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time) {
     LOG_INFO("delete prefix").tag("uri", to_uri(path_prefix));
-    return obj_client_
-            ->delete_objects_recursively(
-                    {
-                            .bucket = conf_.bucket,
-                            .prefix = get_key(path_prefix),
-                    },
-                    make_recursive_delete_options(expiration_time, worker_pool))
+    ObjStoragePath delete_path {
+            .bucket = conf_.bucket,
+            .prefix = get_key(path_prefix),
+    };
+    return delete_objects_recursively(obj_client_, delete_path,
+                                      make_recursive_delete_options(expiration_time, worker_pool))
             .status.code;
 }
 
@@ -556,7 +555,7 @@ int S3Accessor::put_file(const std::string& path, const std::string& content) {
 
 int S3Accessor::list_prefix(const std::string& path_prefix, std::unique_ptr<ListIterator>* res) {
     *res = std::make_unique<S3ListIterator>(
-            obj_client_->list_objects({.bucket = conf_.bucket, .prefix = get_key(path_prefix)}),
+            list_objects(obj_client_, {.bucket = conf_.bucket, .prefix = get_key(path_prefix)}),
             conf_.prefix.empty() ? 0 : conf_.prefix.length() + 1);
     return 0;
 }
@@ -620,7 +619,7 @@ int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expi
     int skip = 0;
     int64_t del_nonexisted = 0;
     int del = 0;
-    auto iter = obj_client_->list_objects({.bucket = conf_.bucket, .prefix = get_key(path_prefix)});
+    auto iter = list_objects(obj_client_, {.bucket = conf_.bucket, .prefix = get_key(path_prefix)});
     for (;;) {
         auto result = iter->next();
         if (!result.object.has_value()) {

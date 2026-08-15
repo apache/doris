@@ -111,17 +111,6 @@ ObjStorageResponse RateLimitedObjStorageClient::delete_object(const ObjStoragePa
     return inner_->delete_object(opts);
 }
 
-ObjStorageResponse RateLimitedObjStorageClient::delete_objects_recursively(
-        const ObjStoragePath& path, const ObjStorageRecursiveDeleteOptions& delete_options) {
-    // Preserve the original BE behavior: recursive deletion is admitted as one logical PUT.
-    // Request-level admission for its internal list pages and delete batches is a follow-up.
-    auto rate_limit = acquire(S3RateLimitType::PUT);
-    if (!rate_limit.resp.ok()) {
-        return rate_limit.resp;
-    }
-    return inner_->delete_objects_recursively(path, delete_options);
-}
-
 std::string RateLimitedObjStorageClient::generate_presigned_url(const ObjStoragePath& opts,
                                                                 int64_t expiration_secs) {
     return inner_->generate_presigned_url(opts, expiration_secs);

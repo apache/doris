@@ -203,7 +203,8 @@ TEST_F(AzureObjStorageClientTest, delete_objects_recursively) {
     EXPECT_EQ(objects.size(), 22);
     objects.clear();
 
-    response = AzureObjStorageClientTest::obj_storage_client->delete_objects_recursively(
+    response = delete_objects_recursively(
+            AzureObjStorageClientTest::obj_storage_client,
             {.prefix = "AzureObjStorageClientTest/delete_objects_recursively"});
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 

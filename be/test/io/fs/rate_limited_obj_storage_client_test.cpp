@@ -85,12 +85,6 @@ public:
         return ObjStorageResponse::OK();
     }
 
-    ObjStorageResponse delete_objects_recursively(
-            const ObjStoragePath&, const ObjStorageRecursiveDeleteOptions&) override {
-        ++calls;
-        return ObjStorageResponse::OK();
-    }
-
     std::string generate_presigned_url(const ObjStoragePath&, int64_t) override {
         ++presigned_url_calls;
         return "url";
@@ -170,7 +164,7 @@ TEST(RateLimitedObjStorageClientTest, AppliesAdmissionPolicyToEveryClientOperati
     EXPECT_TRUE(client->list_objects(opts, &objects).ok());
     EXPECT_TRUE(client->delete_objects(opts, {"one", "two", "three"}).ok());
     EXPECT_TRUE(client->delete_object(opts).ok());
-    EXPECT_TRUE(client->delete_objects_recursively(opts).ok());
+    EXPECT_TRUE(delete_objects_recursively(client, opts).ok());
     int64_t expiration_days = 0;
     EXPECT_TRUE(client->get_lifecycle("bucket", &expiration_days).ok());
     EXPECT_TRUE(client->check_versioning("bucket").ok());
@@ -183,7 +177,7 @@ TEST(RateLimitedObjStorageClientTest, AppliesAdmissionPolicyToEveryClientOperati
             {S3RateLimitType::PUT, 0}, {S3RateLimitType::PUT, 3}, {S3RateLimitType::PUT, 4},
             {S3RateLimitType::PUT, 0}, {S3RateLimitType::GET, 0}, {S3RateLimitType::GET, 10},
             {S3RateLimitType::GET, 0}, {S3RateLimitType::PUT, 0}, {S3RateLimitType::PUT, 0},
-            {S3RateLimitType::PUT, 0}, {S3RateLimitType::GET, 0}, {S3RateLimitType::GET, 0},
+            {S3RateLimitType::GET, 0}, {S3RateLimitType::GET, 0}, {S3RateLimitType::GET, 0},
             {S3RateLimitType::PUT, 0},
     };
     ASSERT_EQ(policy->requests.size(), expected.size());
@@ -216,7 +210,7 @@ TEST(RateLimitedObjStorageClientTest, RejectsEveryOperationBeforeDispatchingToIn
     expect_rejected(client->list_objects(opts, &objects));
     expect_rejected(client->delete_objects(opts, {"one", "two"}));
     expect_rejected(client->delete_object(opts));
-    expect_rejected(client->delete_objects_recursively(opts));
+    expect_rejected(delete_objects_recursively(client, opts));
     int64_t expiration_days = 0;
     expect_rejected(client->get_lifecycle("bucket", &expiration_days));
     expect_rejected(client->check_versioning("bucket"));

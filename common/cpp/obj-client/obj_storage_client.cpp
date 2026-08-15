@@ -22,26 +22,31 @@
 
 #include <algorithm>
 #include <chrono>
+#include <iterator>
 
 namespace doris {
-std::unique_ptr<ObjStorageListIterator> ObjStorageClient::list_objects(const ObjStoragePath& opts) {
-    return std::make_unique<ObjStorageListIterator>(shared_from_this(), opts);
+std::unique_ptr<ObjStorageListIterator> list_objects(std::shared_ptr<ObjStorageClient> client,
+                                                     const ObjStoragePath& opts) {
+    return std::make_unique<ObjStorageListIterator>(std::move(client), opts);
 }
 
 ObjStorageResponse ObjStorageClient::list_objects(const ObjStoragePath& opts,
                                                   std::vector<ObjectMeta>* objects) {
     objects->clear();
-    auto iter = list_objects(opts);
-    for (;;) {
-        auto result = iter->next();
-        if (!result.object.has_value()) {
-            if (!result.resp.ok()) {
-                objects->clear();
-            }
-            return result.resp;
+    std::string continuation_token;
+    bool has_more = true;
+    while (has_more) {
+        auto page = list_objects_page(opts, continuation_token);
+        if (!page.resp.ok()) {
+            objects->clear();
+            return page.resp;
         }
-        objects->emplace_back(std::move(*result.object));
+        objects->insert(objects->end(), std::make_move_iterator(page.objects.begin()),
+                        std::make_move_iterator(page.objects.end()));
+        continuation_token = std::move(page.continuation_token);
+        has_more = page.has_more;
     }
+    return ObjStorageResponse::OK();
 }
 
 ObjStorageResponse ObjStorageListIterator::has_next() {
@@ -85,19 +90,15 @@ ObjStorageListResult ObjStorageListIterator::next() {
     };
 }
 
-ObjStorageResponse ObjStorageClient::delete_objects_recursively(
-        const ObjStoragePath& path, const ObjStorageRecursiveDeleteOptions& delete_options) {
-    return delete_objects_recursively_impl(path, delete_options);
-}
-
-ObjStorageResponse ObjStorageClient::delete_objects_recursively_impl(
-        const ObjStoragePath& path, const ObjStorageRecursiveDeleteOptions& delete_options) {
+ObjStorageResponse delete_objects_recursively(
+        std::shared_ptr<ObjStorageClient> client, const ObjStoragePath& path,
+        const ObjStorageRecursiveDeleteOptions& delete_options) {
     const auto start_time = std::chrono::steady_clock::now();
     auto list_path = path;
     if (list_path.prefix.empty()) {
         list_path.prefix = list_path.key;
     }
-    auto delete_batch_size = std::max<size_t>(1, capabilities().max_delete_batch);
+    auto delete_batch_size = std::max<size_t>(1, client->capabilities().max_delete_batch);
     TEST_SYNC_POINT_CALLBACK("ObjStorageClient::delete_objects_recursively_", &delete_batch_size);
     delete_batch_size = std::max<size_t>(1, delete_batch_size);
     const auto max_tasks_per_batch = std::max<size_t>(1, delete_options.max_tasks_per_batch);
@@ -148,9 +149,10 @@ ObjStorageResponse ObjStorageClient::delete_objects_recursively_impl(
         return response;
     };
     auto submit_delete_task = [&]() -> bool {
-        ObjStorageDeleteTask task = [this, bucket = path.bucket,
+        ObjStorageDeleteTask task = [client, bucket = path.bucket,
                                      batch = std::move(keys)]() mutable {
-            return delete_objects(ObjStoragePath {.bucket = std::move(bucket)}, std::move(batch));
+            return client->delete_objects(ObjStoragePath {.bucket = std::move(bucket)},
+                                          std::move(batch));
         };
         keys.clear();
         keys.reserve(delete_batch_size);
@@ -175,7 +177,7 @@ ObjStorageResponse ObjStorageClient::delete_objects_recursively_impl(
         return first_error.ok();
     };
 
-    auto iter = list_objects(list_path);
+    auto iter = list_objects(client, list_path);
     for (;;) {
         auto result = iter->next();
         if (!result.object.has_value()) {

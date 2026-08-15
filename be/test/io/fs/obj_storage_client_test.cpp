@@ -130,7 +130,7 @@ TEST(ObjStorageClientTest, SupportsLazyAndEagerListing) {
     };
     ObjStoragePath opts {.bucket = "bucket", .prefix = "prefix"};
 
-    auto iter = client->list_objects(opts);
+    auto iter = list_objects(client, opts);
     EXPECT_EQ(client->list_page_calls, 0);
     auto first = iter->next();
     ASSERT_TRUE(first.object.has_value());

@@ -251,8 +251,8 @@ std::vector<ObjectMeta> make_objects(size_t count) {
 
 TEST(RecyclerBatchDeleteTest, UsesProviderBatchCapability) {
     auto provider_client = std::make_shared<MockObjStorageClient>(make_objects(10), 3);
-    auto response = provider_client->delete_objects_recursively(
-            {.bucket = "bucket", .prefix = "test_key_"});
+    auto response = delete_objects_recursively(provider_client,
+                                               {.bucket = "bucket", .prefix = "test_key_"});
 
     EXPECT_TRUE(response.ok());
     EXPECT_EQ(provider_client->delete_calls(), 4);
@@ -275,18 +275,19 @@ TEST(RecyclerBatchDeleteTest, CountsDeleteObjectsOperationOnce) {
     EXPECT_EQ(inner_client->delete_calls(), 1);
 }
 
-TEST(RecyclerBatchDeleteTest, CountsRecursiveDeleteOperationOnce) {
+TEST(RecyclerBatchDeleteTest, RateLimitsEveryRecursiveDeleteRequest) {
     auto inner_client = std::make_shared<MockObjStorageClient>(make_objects(5), 2);
     size_t get_requests = 0;
     size_t put_requests = 0;
-    RateLimitedObjStorageClient client(
+    auto client = std::make_shared<RateLimitedObjStorageClient>(
             inner_client, std::make_shared<CountingRateLimitPolicy>(&get_requests, &put_requests));
 
-    auto response = client.delete_objects_recursively({.bucket = "bucket", .prefix = "test_key_"});
+    auto response = delete_objects_recursively(client, {.bucket = "bucket", .prefix = "test_key_"});
 
     EXPECT_TRUE(response.ok());
-    EXPECT_EQ(get_requests, 0);
-    EXPECT_EQ(put_requests, 1);
+    EXPECT_EQ(get_requests, 5);
+    EXPECT_EQ(put_requests, 3);
+    EXPECT_EQ(inner_client->list_calls(), 5);
     EXPECT_EQ(inner_client->delete_calls(), 3);
 }
 
@@ -301,8 +302,8 @@ TEST(RecyclerBatchDeleteTest, ProductionExecutorRunsMultipleTaskBatches) {
             std::make_shared<CountingDeleteExecutor>(options.executor, &executor_batches);
 
     auto provider_client = std::make_shared<MockObjStorageClient>(make_objects(10), 2);
-    auto response = provider_client->delete_objects_recursively(
-            {.bucket = "bucket", .prefix = "test_key_"}, options);
+    auto response = delete_objects_recursively(
+            provider_client, {.bucket = "bucket", .prefix = "test_key_"}, options);
 
     EXPECT_TRUE(response.ok());
     EXPECT_EQ(executor_batches, 3);
@@ -316,8 +317,9 @@ TEST(RecyclerBatchDeleteTest, LogsBatchProgressAndFinalSummary) {
     ScopedLogSink scoped_log_sink(&logs);
     auto provider_client = std::make_shared<MockObjStorageClient>(make_objects(5), 2);
 
-    auto response = provider_client->delete_objects_recursively(
-            {.bucket = "bucket", .prefix = "test_key_"}, {.max_tasks_per_batch = 2});
+    auto response =
+            delete_objects_recursively(provider_client, {.bucket = "bucket", .prefix = "test_key_"},
+                                       {.max_tasks_per_batch = 2});
 
     EXPECT_TRUE(response.ok());
     EXPECT_TRUE(
@@ -340,8 +342,8 @@ TEST(RecyclerBatchDeleteTest, StreamsDeleteTasksWhileListing) {
                                                                   &list_calls_at_submit),
     };
 
-    auto response = provider_client->delete_objects_recursively(
-            {.bucket = "bucket", .prefix = "test_key_"}, options);
+    auto response = delete_objects_recursively(
+            provider_client, {.bucket = "bucket", .prefix = "test_key_"}, options);
 
     EXPECT_TRUE(response.ok());
     ASSERT_EQ(list_calls_at_submit.size(), 5);
@@ -357,9 +359,9 @@ TEST(RecyclerBatchDeleteTest, ProductionExecutorStopsListingAfterCancellation) {
 
     auto provider_client = std::make_shared<MockObjStorageClient>(make_objects(6), 1);
     provider_client->fail_delete();
-    auto response = provider_client->delete_objects_recursively(
-            {.bucket = "bucket", .prefix = "test_key_"},
-            TestS3Accessor::make_recursive_delete_options(0, pool));
+    auto response =
+            delete_objects_recursively(provider_client, {.bucket = "bucket", .prefix = "test_key_"},
+                                       TestS3Accessor::make_recursive_delete_options(0, pool));
 
     EXPECT_FALSE(response.ok());
     EXPECT_EQ(response.status.msg, "object storage batch deletion did not finish");
@@ -390,8 +392,8 @@ TEST(RecyclerBatchDeleteTest, InvalidMaxTasksPerBatchUsesDefault) {
 
 TEST(RecyclerBatchDeleteTest, FiltersByExpirationTime) {
     auto provider_client = std::make_shared<MockObjStorageClient>(make_objects(10), 1000);
-    auto response = provider_client->delete_objects_recursively(
-            {.bucket = "bucket", .prefix = "test_key_"}, {.expiration_time = 4});
+    auto response = delete_objects_recursively(
+            provider_client, {.bucket = "bucket", .prefix = "test_key_"}, {.expiration_time = 4});
 
     EXPECT_TRUE(response.ok());
     ASSERT_EQ(provider_client->deleted_keys().size(), 5);
@@ -403,16 +405,15 @@ TEST(RecyclerBatchDeleteTest, PropagatesListAndDeleteFailures) {
     ScopedLogSink scoped_log_sink(&logs);
     auto list_failure_provider_client =
             std::make_shared<MockObjStorageClient>(make_objects(10), 3, 2);
-    EXPECT_FALSE(
-            list_failure_provider_client
-                    ->delete_objects_recursively({.bucket = "bucket", .prefix = "list_failure"})
-                    .ok());
+    EXPECT_FALSE(delete_objects_recursively(list_failure_provider_client,
+                                            {.bucket = "bucket", .prefix = "list_failure"})
+                         .ok());
 
     auto delete_failure_provider_client =
             std::make_shared<MockObjStorageClient>(make_objects(7), 3);
     delete_failure_provider_client->fail_delete();
-    auto delete_response = delete_failure_provider_client->delete_objects_recursively(
-            {.bucket = "bucket", .prefix = "delete_failure"});
+    auto delete_response = delete_objects_recursively(
+            delete_failure_provider_client, {.bucket = "bucket", .prefix = "delete_failure"});
     EXPECT_FALSE(delete_response.ok());
     EXPECT_EQ(delete_response.status.msg, "simulated delete failure");
     EXPECT_EQ(delete_failure_provider_client->list_calls(), 3);

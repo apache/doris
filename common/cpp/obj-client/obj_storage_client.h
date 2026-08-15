@@ -165,8 +165,7 @@ class RateLimitedObjStorageClient;
 
 // Provider implementations are in common/cpp/obj-client/s3_obj_storage_client.cpp and
 // common/cpp/obj-client/azure_obj_storage_client.cpp.
-// Clients are shared-owned so a lazy list iterator can keep the complete decorator chain alive.
-class ObjStorageClient : public std::enable_shared_from_this<ObjStorageClient> {
+class ObjStorageClient {
 public:
     ObjStorageClient() = default;
     virtual ~ObjStorageClient() = default;
@@ -198,9 +197,7 @@ public:
     // and starting from the offset, it reads bytes_read bytes into the buffer, with size_return recording the actual number of bytes read
     virtual ObjStorageResponse get_object(const ObjStoragePath& opts, void* buffer, size_t offset,
                                           size_t bytes_read, size_t* size_return) = 0;
-    // Return a lazy iterator that fetches one provider page at a time.
-    virtual std::unique_ptr<ObjStorageListIterator> list_objects(const ObjStoragePath& opts);
-    // Collect all objects by consuming the lazy iterator. This preserves the eager BE API.
+    // Collect all objects one provider page at a time. This preserves the eager BE API.
     // **Notice**: The files returned by this function contain the full key in object storage.
     virtual ObjStorageResponse list_objects(const ObjStoragePath& opts,
                                             std::vector<ObjectMeta>* objects);
@@ -210,11 +207,6 @@ public:
                                               std::vector<std::string> objs) = 0;
     // Delete the file named key in the object storage bucket.
     virtual ObjStorageResponse delete_object(const ObjStoragePath& opts) = 0;
-    // Provider-independent recursive deletion shared by concrete clients. Decorators may override
-    // this method to apply policy to the logical operation before forwarding it to an inner client.
-    virtual ObjStorageResponse delete_objects_recursively(
-            const ObjStoragePath& path, const ObjStorageRecursiveDeleteOptions& delete_options =
-                                                ObjStorageRecursiveDeleteOptions {});
     virtual ObjStorageCapabilities capabilities() const = 0;
     // Return a presigned URL for users to access the object
     virtual std::string generate_presigned_url(const ObjStoragePath& opts,
@@ -235,8 +227,6 @@ protected:
     // Fetch at most one page. One call corresponds to exactly one provider request.
     virtual ObjStorageListPageResult list_objects_page(const ObjStoragePath& opts,
                                                        std::string_view continuation_token) = 0;
-    ObjStorageResponse delete_objects_recursively_impl(
-            const ObjStoragePath& path, const ObjStorageRecursiveDeleteOptions& delete_options);
 
 private:
     friend class ObjStorageListIterator;
@@ -262,6 +252,18 @@ private:
     bool has_more_ = true;
     bool is_valid_ = true;
 };
+
+// Return a lazy iterator that owns the complete client decorator chain and fetches one provider
+// page at a time.
+std::unique_ptr<ObjStorageListIterator> list_objects(std::shared_ptr<ObjStorageClient> client,
+                                                     const ObjStoragePath& opts);
+
+// Provider-independent recursive deletion shared by concrete clients. Passing the complete client
+// decorator chain keeps it alive for asynchronous delete tasks and applies policy per list page and
+// delete batch.
+ObjStorageResponse delete_objects_recursively(std::shared_ptr<ObjStorageClient> client,
+                                              const ObjStoragePath& path,
+                                              const ObjStorageRecursiveDeleteOptions& options = {});
 } // namespace doris
 
 // Keep the BE namespace spelling source-compatible while the implementation is
@@ -284,4 +286,6 @@ using ::doris::ObjStorageResponse;
 using ::doris::ObjStorageStatus;
 using ::doris::ObjStorageUploadResult;
 using ::doris::ObjectMeta;
+using ::doris::delete_objects_recursively;
+using ::doris::list_objects;
 } // namespace doris::io
