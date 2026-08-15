@@ -21,6 +21,8 @@
 
 namespace doris {
 
+class ColumnVariantV2;
+
 // Direct SerDe used when the logical Variant type carries a ColumnVariantV2 physical column.
 class DataTypeVariantV2SerDe final : public DataTypeSerDe {
 public:
@@ -28,7 +30,12 @@ public:
 
     static int64_t get_uncompressed_serialized_bytes(const IColumn& column, int be_exec_version);
     static char* serialize(const IColumn& column, char* buf, int be_exec_version);
+    // The IDataType overload below has no outer buffer length. The bounded overload validates the
+    // shredded envelope and structure; encoded and typed child bodies retain their existing wire
+    // framing and deserializers.
     static const char* deserialize(const char* buf, MutableColumnPtr* column, int be_exec_version);
+    static const char* deserialize(const char* buf, const char* end, MutableColumnPtr* column,
+                                   int be_exec_version);
 
     std::string get_name() const override;
 
@@ -66,8 +73,23 @@ public:
                                int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
+    void to_string_batch(const IColumn& column, ColumnString& column_to,
+                         const FormatOptions& options) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                    const FormatOptions& options) const override;
+
+private:
+    static int64_t get_encoded_payload_size(const ColumnVariantV2& column, int be_exec_version);
+    static char* serialize_encoded_payload(const ColumnVariantV2& column, char* buf,
+                                           int be_exec_version);
+    static const char* deserialize_encoded_payload(const char* buf, ColumnVariantV2* column,
+                                                   int be_exec_version);
+    static int64_t get_non_shredded_payload_size(const ColumnVariantV2& column,
+                                                 int be_exec_version);
+    static char* serialize_non_shredded_payload(const ColumnVariantV2& column, char* buf,
+                                                int be_exec_version);
+    static const char* deserialize_non_shredded_payload(const char* buf, MutableColumnPtr* column,
+                                                        int be_exec_version);
 };
 
 } // namespace doris

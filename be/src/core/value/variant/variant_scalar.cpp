@@ -242,6 +242,91 @@ VariantScalarRef VariantScalarRef::uuid(const std::array<uint8_t, 16>& value) no
     return result;
 }
 
+bool VariantScalarRef::get_bool() const {
+    if (_physical_id == VariantPrimitiveId::TRUE_VALUE) {
+        return true;
+    }
+    if (_physical_id == VariantPrimitiveId::FALSE_VALUE) {
+        return false;
+    }
+    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                    "Variant scalar bool accessor cannot read primitive id {}",
+                    static_cast<uint8_t>(_physical_id));
+}
+
+int64_t VariantScalarRef::get_int() const {
+    if (integer_width(_physical_id) == 0) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant scalar integer accessor cannot read primitive id {}",
+                        static_cast<uint8_t>(_physical_id));
+    }
+    return static_cast<int64_t>(_signed_value);
+}
+
+float VariantScalarRef::get_float() const {
+    if (_physical_id != VariantPrimitiveId::FLOAT) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant scalar float accessor cannot read primitive id {}",
+                        static_cast<uint8_t>(_physical_id));
+    }
+    return std::bit_cast<float>(static_cast<uint32_t>(_floating_bits));
+}
+
+double VariantScalarRef::get_double() const {
+    if (_physical_id != VariantPrimitiveId::DOUBLE) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant scalar double accessor cannot read primitive id {}",
+                        static_cast<uint8_t>(_physical_id));
+    }
+    return std::bit_cast<double>(_floating_bits);
+}
+
+VariantDecimal VariantScalarRef::get_decimal() const {
+    const uint8_t width = decimal_width(_physical_id);
+    if (width == 0) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant scalar decimal accessor cannot read primitive id {}",
+                        static_cast<uint8_t>(_physical_id));
+    }
+    return {.unscaled = _signed_value, .scale = _scale, .width = width};
+}
+
+int32_t VariantScalarRef::get_date() const {
+    if (_physical_id != VariantPrimitiveId::DATE) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant scalar date accessor cannot read primitive id {}",
+                        static_cast<uint8_t>(_physical_id));
+    }
+    return static_cast<int32_t>(_signed_value);
+}
+
+int64_t VariantScalarRef::get_timestamp_micros() const {
+    if (_physical_id != VariantPrimitiveId::TIMESTAMP_MICROS) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant scalar timestamp micros accessor cannot read primitive id {}",
+                        static_cast<uint8_t>(_physical_id));
+    }
+    return static_cast<int64_t>(_signed_value);
+}
+
+int64_t VariantScalarRef::get_timestamp_ntz_micros() const {
+    if (_physical_id != VariantPrimitiveId::TIMESTAMP_NTZ_MICROS) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant scalar timestamp NTZ micros accessor cannot read primitive id {}",
+                        static_cast<uint8_t>(_physical_id));
+    }
+    return static_cast<int64_t>(_signed_value);
+}
+
+StringRef VariantScalarRef::get_string() const {
+    if (_physical_id != VariantPrimitiveId::STRING) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant scalar string accessor cannot read primitive id {}",
+                        static_cast<uint8_t>(_physical_id));
+    }
+    return _bytes;
+}
+
 size_t VariantScalarRef::encoded_size() const noexcept {
     switch (_physical_id) {
     case VariantPrimitiveId::NULL_VALUE:

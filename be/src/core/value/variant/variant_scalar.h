@@ -50,6 +50,18 @@ public:
     static VariantScalarRef time_ntz_micros(int64_t value) noexcept;
     static VariantScalarRef uuid(const std::array<uint8_t, 16>& value) noexcept;
 
+    VariantPrimitiveId primitive_id() const noexcept { return _physical_id; }
+    bool is_null() const noexcept { return _physical_id == VariantPrimitiveId::NULL_VALUE; }
+    bool get_bool() const;
+    int64_t get_int() const;
+    float get_float() const;
+    double get_double() const;
+    VariantDecimal get_decimal() const;
+    int32_t get_date() const;
+    int64_t get_timestamp_micros() const;
+    int64_t get_timestamp_ntz_micros() const;
+    StringRef get_string() const;
+
     size_t encoded_size() const noexcept;
 
     // Writes exactly encoded_size() bytes. Invalid destination/capacity fails before modifying

@@ -17,10 +17,13 @@
 
 #include "storage/segment/variant/hierarchical_data_iterator.h"
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <span>
+#include <string_view>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -29,6 +32,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_variant.h"
 #include "core/column/variant_column_utils.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nothing.h"
@@ -60,7 +64,8 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
     // None leave node need merge with root
     std::unique_ptr<HierarchicalDataIterator> stream_iter(
             new HierarchicalDataIterator(path, read_type));
-    if (node != nullptr && read_type == ReadType::SUBCOLUMNS_AND_SPARSE) {
+    const bool add_materialized_streams = read_type == ReadType::SUBCOLUMNS_AND_SPARSE;
+    if (node != nullptr && add_materialized_streams) {
         std::vector<const SubcolumnColumnMetaInfo::Node*> leaves;
         PathsInData leaves_paths;
         SubcolumnColumnMetaInfo::get_leaves_of_node(node, leaves, leaves_paths);
@@ -183,10 +188,12 @@ Status HierarchicalDataIterator::read_by_rowids(const rowid_t* rowids, const siz
 Status HierarchicalDataIterator::_assemble_variant_v2(MutableColumnPtr& dst, size_t nrows,
                                                       bool* has_null) {
     DORIS_CHECK(_variant_v2_assembler != nullptr);
-    DorisVector<const IColumn*> materialized;
+    DorisVector<MutableColumnPtr> materialized;
     materialized.reserve(_substream_reader.size());
-    for (const auto& entry : _substream_reader) {
-        materialized.push_back(entry->data.column.get());
+    for (auto& entry : _substream_reader) {
+        MutableColumnPtr replacement = entry->data.column->clone_empty();
+        materialized.push_back(std::move(entry->data.column));
+        entry->data.column = std::move(replacement);
     }
 
     const ColumnMap* storage_map = nullptr;
@@ -197,13 +204,18 @@ Status HierarchicalDataIterator::_assemble_variant_v2(MutableColumnPtr& dst, siz
         }
     }
 
-    variant_v2::VariantAssemblerBatchView batch;
+    variant_v2::VariantAssemblerBatch batch;
     batch.num_rows = nrows;
     batch.root_jsonb = _root_reader ? _root_reader->column.get() : nullptr;
-    batch.materialized_columns = materialized;
+    batch.owned_materialized_columns = materialized;
     batch.storage_map = storage_map;
     ColumnNullable::MutablePtr assembled;
     RETURN_IF_ERROR(_variant_v2_assembler->assemble(batch, &assembled));
+    const auto& assembled_values =
+            assert_cast<const ColumnVariantV2&>(assembled->get_nested_column());
+    if (assembled_values.is_shredded()) {
+        _stats->variant_v2_shredded_output_rows += cast_set<int64_t>(assembled->size());
+    }
     if (has_null != nullptr) {
         *has_null = assembled->has_null();
     }

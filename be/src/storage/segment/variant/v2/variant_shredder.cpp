@@ -21,15 +21,18 @@
 #include <limits>
 #include <numeric>
 #include <optional>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2_typed_column.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exec/common/variant_util.h"
@@ -155,7 +158,8 @@ struct VariantShredder::Impl {
         return Status::OK();
     }
 
-    Status append_leaf(VariantRef value, PathIndex path_index, size_t row) {
+    Status prepare_leaf(PathIndex path_index, size_t row, bool* should_append) {
+        DORIS_CHECK(should_append != nullptr);
         PathState& path_state = paths[path_index];
         const size_t row_marker = row + 1;
         if (path_state.last_row_marker == row_marker) {
@@ -163,10 +167,18 @@ struct VariantShredder::Impl {
                 return Status::InvalidArgument("may contains duplicated entry : {}",
                                                path_state.path.get_path());
             }
+            *should_append = false;
             return Status::OK();
         }
         path_state.last_row_marker = row_marker;
-        if (value.is_null()) {
+        *should_append = true;
+        return Status::OK();
+    }
+
+    Status append_leaf(VariantRef value, PathIndex path_index, size_t row) {
+        bool should_append = false;
+        RETURN_IF_ERROR(prepare_leaf(path_index, row, &should_append));
+        if (!should_append || value.is_null()) {
             return Status::OK();
         }
         return get_or_create_builder(path_index)->append(value, row);
@@ -207,6 +219,122 @@ struct VariantShredder::Impl {
         }
         metadata_cache.child_paths.emplace(cache_key, child_index);
         return child_index;
+    }
+
+    PathIndex resolve_shredded_path(const PathInData& path) {
+        // Match encoded object traversal exactly: storage path identity is the canonical dotted
+        // namespace, not the execution layout's part identity or typed marker.
+        PathInData canonical(path.get_path());
+        if (const auto found = path_indices.find(canonical); found != path_indices.end()) {
+            return found->second;
+        }
+        if (paths.size() > std::numeric_limits<PathIndex>::max()) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant path count exceeds uint32 limit");
+        }
+        const PathIndex index = static_cast<PathIndex>(paths.size());
+        path_indices.emplace(canonical, index);
+        paths.emplace_back(canonical);
+        return index;
+    }
+
+    bool residual_contains_canonical_leaf(VariantRef value, std::string_view canonical_path) const {
+        if (value.basic_type() != VariantBasicType::OBJECT) {
+            return false;
+        }
+        const uint32_t children = value.num_elements();
+        for (uint32_t index = 0; index < children; ++index) {
+            uint32_t field = 0;
+            const VariantRef child = value.object_value_at(index, &field);
+            const std::string_view key = value.metadata.key_at(field).to_string_view();
+            if (!canonical_path.starts_with(key)) {
+                continue;
+            }
+            if (key.size() == canonical_path.size()) {
+                if (child.is_null()) {
+                    if (options.check_duplicate_json_path) {
+                        return true;
+                    }
+                } else if (child.basic_type() != VariantBasicType::OBJECT) {
+                    // Arrays are leaves in the storage traversal, just like scalars.
+                    return true;
+                }
+                continue;
+            }
+            if (canonical_path[key.size()] != '.' ||
+                child.basic_type() != VariantBasicType::OBJECT) {
+                continue;
+            }
+            if (residual_contains_canonical_leaf(child, canonical_path.substr(key.size() + 1))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    Status append_shredded_field(const ColumnVariantV2::ReadView& field, size_t input_row,
+                                 PathIndex path_index, size_t output_row,
+                                 DorisVector<char>* encoded_slow_scratch) {
+        if (field.is_encoded()) {
+            const VariantRef value = field.value_at(input_row);
+            return value.is_null() && !options.check_duplicate_json_path
+                           ? Status::OK()
+                           : append_leaf(value, path_index, output_row);
+        }
+        DORIS_CHECK(field.is_typed());
+        DORIS_CHECK(encoded_slow_scratch != nullptr);
+        const auto& nullable = assert_cast<const ColumnNullable&>(field.typed_column());
+        const uint32_t scale = field.typed_type()->get_scale();
+        DORIS_CHECK_LE(scale, static_cast<uint32_t>(std::numeric_limits<uint8_t>::max()));
+
+        if (nullable.is_null_at(input_row)) {
+            if (options.check_duplicate_json_path) {
+                bool should_append = false;
+                RETURN_IF_ERROR(prepare_leaf(path_index, output_row, &should_append));
+            }
+            return Status::OK();
+        }
+
+        bool should_append = false;
+        RETURN_IF_ERROR(prepare_leaf(path_index, output_row, &should_append));
+        if (!should_append) {
+            return Status::OK();
+        }
+        Status status;
+        dispatch_variant_typed_column(
+                nullable.get_nested_column(), field.typed_type()->get_primitive_type(),
+                [&]<PrimitiveType Type>(const auto& nested) {
+                    with_variant_typed_scalar<Type>(
+                            nested, input_row, static_cast<uint8_t>(scale),
+                            [&](const VariantScalarRef& scalar) {
+                                bool used_encoded_scratch = false;
+                                status = get_or_create_builder(path_index)
+                                                 ->append_scalar(scalar, output_row,
+                                                                 *encoded_slow_scratch,
+                                                                 &used_encoded_scratch);
+#ifdef BE_TEST
+                                if (status.ok()) {
+                                    if (used_encoded_scratch) {
+                                        ++typed_encoded_slow_appends;
+                                    } else {
+                                        ++typed_direct_scalar_appends;
+                                    }
+                                }
+#endif
+                            });
+                });
+        return status;
+    }
+
+    bool shredded_field_participates(const ColumnVariantV2::ReadView& field,
+                                     size_t input_row) const {
+        if (options.check_duplicate_json_path) {
+            return true;
+        }
+        if (field.is_encoded()) {
+            return !field.value_at(input_row).is_null();
+        }
+        DORIS_CHECK(field.is_typed());
+        return !assert_cast<const ColumnNullable&>(field.typed_column()).is_null_at(input_row);
     }
 
     Status visit(VariantRef value, MetadataPathCache& metadata_cache, PathIndex path_index,
@@ -587,6 +715,10 @@ struct VariantShredder::Impl {
     DorisVector<PathState> paths;
     ColumnString::MutablePtr root_values = ColumnString::create();
     JsonbWriter root_writer;
+#ifdef BE_TEST
+    size_t typed_direct_scalar_appends = 0;
+    size_t typed_encoded_slow_appends = 0;
+#endif
 };
 
 VariantShredder::VariantShredder(VariantShredderOptions options)
@@ -599,7 +731,7 @@ VariantShredder& VariantShredder::operator=(VariantShredder&&) noexcept = defaul
 Status VariantShredder::append(const ColumnVariantV2::ReadView& view, size_t begin, size_t length,
                                std::span<const uint8_t> outer_nulls) {
     RETURN_IF_ERROR(_impl->require_collecting());
-    if (view.is_typed()) {
+    if (!view.is_encoded()) {
         return _impl->fail(Status::InvalidArgument(
                 "Variant shredder requires encoded E-state input; caller must ensure_encoded"));
     }
@@ -659,6 +791,173 @@ Status VariantShredder::append(const ColumnVariantV2::ReadView& view, size_t beg
     }
 }
 
+Status VariantShredder::append_shredded(const ColumnVariantV2& source, size_t begin, size_t length,
+                                        std::span<const uint8_t> outer_nulls,
+                                        VariantShredderAppendStats* append_stats) {
+    RETURN_IF_ERROR(_impl->require_collecting());
+    const ColumnVariantV2::ReadView view = source.read_view();
+    if (!view.is_shredded()) {
+        return _impl->fail(
+                Status::InvalidArgument("Variant shredder shredded append requires S-state input"));
+    }
+    if (begin > view.size() || length > view.size() - begin) {
+        return _impl->fail(
+                Status::InvalidArgument("Variant shredder range [{}, {}) exceeds input size {}",
+                                        begin, begin + length, view.size()));
+    }
+    if (!outer_nulls.empty() && outer_nulls.size() != length) {
+        return _impl->fail(
+                Status::InvalidArgument("Variant shredder outer-null span has {} rows, expected {}",
+                                        outer_nulls.size(), length));
+    }
+    if (length > std::numeric_limits<size_t>::max() - _impl->rows) {
+        return _impl->fail(Status::InvalidArgument("Variant shredder row count overflows size_t"));
+    }
+
+    VariantShredderAppendStats result_stats;
+    try {
+        DorisVector<Impl::MetadataPathCache> residual_metadata_caches;
+        residual_metadata_caches.reserve(view.residual_metadata_count());
+        for (size_t metadata_index = 0; metadata_index < view.residual_metadata_count();
+             ++metadata_index) {
+            residual_metadata_caches.emplace_back(
+                    view.residual_metadata_at(static_cast<uint32_t>(metadata_index)));
+        }
+
+        const size_t field_count = view.shredded_field_count();
+        DorisVector<ColumnVariantV2::ReadView> field_views;
+        field_views.reserve(field_count);
+        DorisVector<std::optional<Impl::PathIndex>> field_path_indices(field_count);
+        DorisVector<size_t> field_canonical_groups(field_count, 0);
+        std::unordered_map<std::string_view, size_t> canonical_field_groups;
+        canonical_field_groups.reserve(field_count);
+        for (size_t field_index = 0; field_index < field_count; ++field_index) {
+            field_views.emplace_back(view.shredded_field_values(field_index).read_view());
+            const PathInData& field_path = view.shredded_field_path(field_index);
+            const auto [group, inserted] = canonical_field_groups.emplace(
+                    field_path.get_path(), canonical_field_groups.size());
+            static_cast<void>(inserted);
+            field_canonical_groups[field_index] = group->second;
+        }
+        DorisVector<std::string_view> canonical_group_paths(canonical_field_groups.size());
+        for (const auto& [path, group] : canonical_field_groups) {
+            canonical_group_paths[group] = path;
+        }
+        DorisVector<size_t> active_group_markers(canonical_field_groups.size(), 0);
+
+        DorisVector<size_t> active_fields;
+        active_fields.reserve(field_count);
+        DorisVector<size_t> active_groups;
+        active_groups.reserve(canonical_field_groups.size());
+        DorisVector<char> encoded_slow_scratch;
+        for (size_t offset = 0; offset < length; ++offset) {
+            if (!outer_nulls.empty() && outer_nulls[offset] != 0) {
+                _impl->append_default_root();
+                ++_impl->rows;
+                ++result_stats.native_shredded_rows;
+                continue;
+            }
+
+            const size_t input_row = begin + offset;
+            active_fields.clear();
+            active_groups.clear();
+            bool duplicate_active_path = false;
+            const size_t row_marker = offset + 1;
+            for (size_t field_index = 0; field_index < field_count; ++field_index) {
+                if (view.shredded_field_presence(field_index).get_data()[input_row] != 0) {
+                    active_fields.push_back(field_index);
+                    if (!_impl->shredded_field_participates(field_views[field_index], input_row)) {
+                        continue;
+                    }
+                    const size_t group = field_canonical_groups[field_index];
+                    duplicate_active_path |= active_group_markers[group] == row_marker;
+                    if (active_group_markers[group] != row_marker) {
+                        active_group_markers[group] = row_marker;
+                        active_groups.push_back(group);
+                    }
+                }
+            }
+
+            const uint32_t metadata_index = view.residual_metadata_id_at(input_row);
+            if (metadata_index >= residual_metadata_caches.size()) {
+                return _impl->fail(Status::Corruption(
+                        "Variant residual row {} metadata index {} exceeds {} entries", input_row,
+                        metadata_index, residual_metadata_caches.size()));
+            }
+            const VariantRef residual = view.residual_value_at(input_row);
+
+            // A literal dotted key and a nested path intentionally collide in the legacy storage
+            // namespace. Probe only residual branches that can spell a currently active canonical
+            // path; unrelated dotted keys do not trigger a full residual pre-scan.
+            Impl::MetadataPathCache& residual_metadata_cache =
+                    residual_metadata_caches[metadata_index];
+            bool residual_collision = false;
+            if (!duplicate_active_path) {
+                for (size_t group : active_groups) {
+                    const std::string_view canonical_path = canonical_group_paths[group];
+                    if (canonical_path.find('.') != std::string_view::npos &&
+                        _impl->residual_contains_canonical_leaf(residual, canonical_path)) {
+                        residual_collision = true;
+                        break;
+                    }
+                }
+            }
+            if (duplicate_active_path || residual_collision) {
+                ColumnVariantV2::MutablePtr encoded_row =
+                        source.materialize_encoded_range(input_row, 1);
+                DORIS_CHECK(encoded_row->is_encoded());
+                const Status status = append(encoded_row->read_view(), 0, 1);
+                if (!status.ok()) {
+                    return status;
+                }
+                ++result_stats.encoded_fallback_rows;
+                continue;
+            }
+
+            Status status;
+            if (active_fields.empty()) {
+                status = _impl->append_root(residual);
+            } else {
+                _impl->append_default_root();
+            }
+            if (!status.ok()) {
+                return _impl->fail(std::move(status));
+            }
+            if (residual.basic_type() == VariantBasicType::OBJECT) {
+                status = _impl->visit(residual, residual_metadata_cache, 0, _impl->rows);
+                if (!status.ok()) {
+                    return _impl->fail(std::move(status));
+                }
+            }
+            for (size_t field_index : active_fields) {
+                if (!field_path_indices[field_index].has_value()) {
+                    const Impl::PathIndex path_index =
+                            _impl->resolve_shredded_path(view.shredded_field_path(field_index));
+                    status = _impl->validate_doc_path(path_index);
+                    if (!status.ok()) {
+                        return _impl->fail(std::move(status));
+                    }
+                    field_path_indices[field_index] = path_index;
+                }
+                status = _impl->append_shredded_field(field_views[field_index], input_row,
+                                                      *field_path_indices[field_index], _impl->rows,
+                                                      &encoded_slow_scratch);
+                if (!status.ok()) {
+                    return _impl->fail(std::move(status));
+                }
+            }
+            ++_impl->rows;
+            ++result_stats.native_shredded_rows;
+        }
+        if (append_stats != nullptr) {
+            *append_stats = result_stats;
+        }
+        return Status::OK();
+    } catch (const Exception& exception) {
+        return _impl->fail(exception.to_status());
+    }
+}
+
 Status VariantShredder::finish(VariantShreddedColumns* output) {
     RETURN_IF_ERROR(_impl->require_collecting());
     if (output == nullptr) {
@@ -699,5 +998,15 @@ size_t VariantShredder::byte_size() const {
     size += sizeof(JsonbOutStream) + _impl->root_writer.getOutput()->allocated_bytes();
     return size;
 }
+
+#ifdef BE_TEST
+size_t VariantShredder::TestAccess::typed_direct_scalar_appends(const VariantShredder& shredder) {
+    return shredder._impl->typed_direct_scalar_appends;
+}
+
+size_t VariantShredder::TestAccess::typed_encoded_slow_appends(const VariantShredder& shredder) {
+    return shredder._impl->typed_encoded_slow_appends;
+}
+#endif
 
 } // namespace doris::segment_v2

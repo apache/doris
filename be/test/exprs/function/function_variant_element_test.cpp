@@ -19,9 +19,64 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/value/jsonb_value.h"
+#include "exprs/function/parse/variant_string_parse.h"
 
 namespace doris {
+namespace {
+
+ColumnVariantV2::MutablePtr nested_shredded_variant_v2() {
+    constexpr std::array<std::string_view, 6> RESIDUAL {"{}", R"({"a":9})", R"({"a":{"other":2}})",
+                                                        "{}", "{}",         R"({"a":null})"};
+    JsonStringToVariantEncoder encoder;
+    for (std::string_view json : RESIDUAL) {
+        encoder.add_json({json.data(), json.size()});
+    }
+    auto residual = ColumnVariantV2::create();
+    residual->insert_encoded_batch(encoder.finish_batch());
+
+    auto values = ColumnInt64::create();
+    auto child_nulls = ColumnUInt8::create();
+    for (const auto [value, is_null] : std::array<std::pair<int64_t, uint8_t>, 6> {
+                 {{7, 0}, {0, 1}, {8, 0}, {0, 1}, {0, 1}, {0, 1}}}) {
+        values->insert_value(value);
+        child_nulls->insert_value(is_null);
+    }
+    auto child = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(values), std::move(child_nulls)),
+            std::make_shared<DataTypeInt64>());
+    auto presence = ColumnUInt8::create();
+    for (const auto present : std::array<uint8_t, 6> {1, 0, 1, 0, 0, 0}) {
+        presence->insert_value(present);
+    }
+    ColumnVariantV2::ShreddedFields fields;
+    fields.emplace_back(PathInData(std::vector<std::string> {"a", "b"}), std::move(child),
+                        std::move(presence));
+    return ColumnVariantV2::create_shredded(std::move(residual), std::move(fields));
+}
+
+ColumnPtr execute_variant_v2_element(ColumnPtr source, const DataTypePtr& source_type,
+                                     std::string_view key) {
+    auto index_values = ColumnString::create();
+    index_values->insert_data(key.data(), key.size());
+    ColumnPtr index = ColumnConst::create(std::move(index_values), source->size());
+    const auto index_type = std::make_shared<DataTypeString>();
+    const DataTypePtr result_type = make_nullable(remove_nullable(source_type));
+    Block block {{std::move(source), source_type, "source"},
+                 {std::move(index), index_type, "index"},
+                 {result_type->create_column(), result_type, "result"}};
+    const Status status =
+            FunctionVariantElement::create()->execute(nullptr, block, {0, 1}, 2, block.rows());
+    EXPECT_TRUE(status.ok()) << status;
+    return block.get_by_position(2).column;
+}
+
+} // namespace
 
 TEST(function_variant_element_test, extract_from_sparse_column) {
     auto variant_column = ColumnVariant::create(1 /*max_subcolumns_count*/, false);
@@ -150,6 +205,70 @@ TEST(function_variant_element_test, exact_storage_json_null_remains_variant_null
                 .serialize_one_row_to_string(0, &logical_value, options);
         EXPECT_EQ(logical_value, "null");
     }
+}
+
+TEST(function_variant_element_test, v2_nested_element_at_preserves_shredded_intermediate) {
+    auto source_values = nested_shredded_variant_v2();
+    const ColumnVariantV2* source_identity = source_values.get();
+    auto source_nulls = ColumnUInt8::create();
+    for (const auto is_null : std::array<uint8_t, 6> {0, 0, 0, 0, 1, 0}) {
+        source_nulls->insert_value(is_null);
+    }
+    const DataTypePtr source_type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    ColumnPtr source = ColumnNullable::create(std::move(source_values), std::move(source_nulls));
+
+    ColumnPtr ancestor = execute_variant_v2_element(source, source_type, "a");
+    const auto& ancestor_nullable = assert_cast<const ColumnNullable&>(*ancestor);
+    EXPECT_EQ(ancestor_nullable.get_null_map_data(), (NullMap {0, 0, 0, 1, 1, 0}));
+    const auto& ancestor_values =
+            assert_cast<const ColumnVariantV2&>(ancestor_nullable.get_nested_column());
+    ASSERT_TRUE(ancestor_values.is_shredded());
+    ASSERT_EQ(ancestor_values.shredded_field_count(), 1);
+    EXPECT_EQ(ancestor_values.shredded_field_path(0).get_parts(),
+              PathInData(std::vector<std::string> {"b"}).get_parts());
+    EXPECT_TRUE(source_identity->is_shredded());
+
+    const ColumnVariantV2* ancestor_identity = &ancestor_values;
+    const ColumnVariantV2* child_identity = &ancestor_values.shredded_field_values(0);
+    ColumnPtr leaf = execute_variant_v2_element(ancestor, source_type, "b");
+    const auto& leaf_nullable = assert_cast<const ColumnNullable&>(*leaf);
+    EXPECT_EQ(leaf_nullable.get_null_map_data(), (NullMap {0, 1, 0, 1, 1, 1}));
+    const auto& leaf_values =
+            assert_cast<const ColumnVariantV2&>(leaf_nullable.get_nested_column());
+    ASSERT_TRUE(leaf_values.is_typed());
+    EXPECT_EQ(&leaf_values, child_identity);
+    EXPECT_TRUE(ancestor_identity->is_shredded());
+}
+
+TEST(function_variant_element_test, v2_const_shredded_source_stays_const_and_shares_child) {
+    auto residual = ColumnVariantV2::create();
+    JsonStringToVariantEncoder encoder;
+    encoder.add_json(StringRef("{}"));
+    residual->insert_encoded_batch(encoder.finish_batch());
+    auto values = ColumnInt64::create();
+    values->insert_value(7);
+    auto child = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(values), ColumnUInt8::create(1, 0)),
+            std::make_shared<DataTypeInt64>());
+    auto presence = ColumnUInt8::create(1, 1);
+    ColumnVariantV2::ShreddedFields fields;
+    fields.emplace_back(PathInData(std::vector<std::string> {"a"}), std::move(child),
+                        std::move(presence));
+    auto source_values = ColumnVariantV2::create_shredded(std::move(residual), std::move(fields));
+    const ColumnVariantV2* child_identity = &source_values->shredded_field_values(0);
+    constexpr size_t ROWS = 128;
+    ColumnPtr source = ColumnConst::create(std::move(source_values), ROWS);
+
+    ColumnPtr result = execute_variant_v2_element(std::move(source),
+                                                  std::make_shared<DataTypeVariantV2>(), "a");
+    const auto* constant = check_and_get_column<ColumnConst>(result.get());
+    ASSERT_NE(constant, nullptr);
+    EXPECT_EQ(constant->size(), ROWS);
+    const auto& physical = assert_cast<const ColumnNullable&>(constant->get_data_column());
+    const auto& values_result = assert_cast<const ColumnVariantV2&>(physical.get_nested_column());
+    EXPECT_EQ(&values_result, child_identity);
+    const auto& typed = assert_cast<const ColumnNullable&>(values_result.typed_column());
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(typed.get_nested_column()).get_data()[0], 7);
 }
 
 } // namespace doris

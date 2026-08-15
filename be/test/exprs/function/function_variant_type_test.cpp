@@ -69,6 +69,23 @@ ColumnVariantV2::MutablePtr encoded_json(std::initializer_list<std::string_view>
     return result;
 }
 
+ColumnVariantV2::MutablePtr shredded_type_rows() {
+    auto residual = encoded_json({"{}", R"("scalar conflict")", "[]", "null", "true"});
+    auto values = ColumnInt32::create();
+    values->insert_value(7);
+    values->insert_many_defaults(4);
+    auto child = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(values), ColumnUInt8::create(5, 0)),
+            std::make_shared<DataTypeInt32>());
+    auto presence = ColumnUInt8::create();
+    presence->insert_value(1);
+    presence->insert_many_defaults(4);
+    ColumnVariantV2::ShreddedFields fields;
+    fields.emplace_back(PathInData(std::vector<std::string> {"a"}), std::move(child),
+                        std::move(presence));
+    return ColumnVariantV2::create_shredded(std::move(residual), std::move(fields));
+}
+
 void expect_values(const ExecutionResult& result,
                    std::initializer_list<std::optional<std::string_view>> expected) {
     ASSERT_TRUE(result.status.ok()) << result.status;
@@ -110,6 +127,23 @@ TEST(FunctionVariantTypeTest, VariantV2TypedValuesRetainNullAsVariantValue) {
     const ExecutionResult result = execute_variant_type(std::move(source), variant_type);
 
     expect_values(result, {"tinyint", "int"});
+}
+
+TEST(FunctionVariantTypeTest, VariantV2ShreddedUsesConstEncodedSnapshot) {
+    const auto variant_type = std::make_shared<DataTypeVariantV2>();
+    ColumnPtr source = shredded_type_rows();
+    const auto& shredded = assert_cast<const ColumnVariantV2&>(*source);
+    ASSERT_TRUE(shredded.is_shredded());
+
+    auto outer_nulls = ColumnUInt8::create();
+    outer_nulls->insert_many_defaults(4);
+    outer_nulls->insert_value(1);
+    ColumnPtr outer_null_map = std::move(outer_nulls);
+    const ExecutionResult result = execute_variant_type(
+            ColumnNullable::create(source, outer_null_map), make_nullable(variant_type));
+
+    expect_values(result, {"object", "string", "array", "null", std::nullopt});
+    EXPECT_TRUE(shredded.is_shredded());
 }
 
 TEST(FunctionVariantTypeTest, VariantV2OuterNullRemainsSqlNull) {

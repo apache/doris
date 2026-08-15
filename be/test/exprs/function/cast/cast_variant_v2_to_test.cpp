@@ -16,6 +16,7 @@
 // under the License.
 
 #include <array>
+#include <vector>
 
 #include "core/assert_cast.h"
 #include "core/column/column_array.h"
@@ -77,6 +78,28 @@ ColumnVariantV2::MutablePtr one_encoded_int(int64_t value) {
     auto result = ColumnVariantV2::create();
     result->insert_encoded_batch(block);
     return result;
+}
+
+ColumnVariantV2::MutablePtr one_shredded_object(int32_t value) {
+    VariantBatchBuilder residual_builder(VariantBatchBuilder::ReserveHint {.rows = 1});
+    auto residual_row = residual_builder.begin_row();
+    auto residual_object = residual_row.start_object();
+    residual_object.finish();
+    residual_row.finish();
+    auto residual = ColumnVariantV2::create();
+    residual->insert_encoded_batch(residual_builder.finish_batch());
+
+    auto values = ColumnInt32::create();
+    values->insert_value(value);
+    auto child = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(values), ColumnUInt8::create(1, 0)),
+            std::make_shared<DataTypeInt32>());
+    auto presence = ColumnUInt8::create();
+    presence->insert_value(1);
+    ColumnVariantV2::ShreddedFields fields;
+    fields.emplace_back(PathInData(std::vector<std::string> {"a"}), std::move(child),
+                        std::move(presence));
+    return ColumnVariantV2::create_shredded(std::move(residual), std::move(fields));
 }
 
 } // namespace
@@ -176,7 +199,7 @@ TEST(CastVariantV2ToTest, StringTypesAreStringScalarsAndAreNotParsed) {
         ASSERT_TRUE(cast.status.ok()) << source_type->get_name() << ": " << cast.status;
         auto encoded = IColumn::mutate(cast.column);
         auto& variant = assert_cast<ColumnVariantV2&>(*encoded);
-        variant.ensure_encoded();
+        ColumnVariantV2::TestAccess::ensure_encoded(variant);
         ASSERT_EQ(variant.get_value_ref(0).basic_type(), VariantBasicType::SHORT_STRING)
                 << source_type->get_name();
         EXPECT_EQ(variant.get_value_ref(0).get_string(), StringRef(R"({"a":1})"))
@@ -226,6 +249,27 @@ TEST(CastVariantV2ToTest, ArrayRecursesAndPreservesElementNull) {
     EXPECT_EQ(array.array_at(0).get_int(), 1);
     EXPECT_TRUE(array.array_at(1).is_null());
     EXPECT_EQ(array.array_at(2).get_int(), 3);
+}
+
+TEST(CastVariantV2ToTest, ArrayWithShreddedVariantLeafUsesConstEncodedSnapshot) {
+    auto shredded = one_shredded_object(7);
+    const ColumnVariantV2* source_identity = shredded.get();
+    auto elements = ColumnNullable::create(std::move(shredded), ColumnUInt8::create(1, 0));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().push_back(1);
+    auto source = ColumnArray::create(std::move(elements), std::move(offsets));
+    auto type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeVariantV2>());
+
+    CastResult cast = execute_to_variant(source->get_ptr(), type);
+
+    ASSERT_TRUE(cast.status.ok()) << cast.status;
+    const VariantRef array = assert_cast<const ColumnVariantV2&>(*cast.column).get_value_ref(0);
+    ASSERT_EQ(array.basic_type(), VariantBasicType::ARRAY);
+    ASSERT_EQ(array.num_elements(), 1);
+    VariantRef field;
+    ASSERT_TRUE(array.array_at(0).object_find(StringRef("a"), &field));
+    EXPECT_EQ(field.get_int(), 7);
+    EXPECT_TRUE(source_identity->is_shredded());
 }
 
 TEST(CastVariantV2ToTest, EmptyArrayOfNothingIsLegal) {

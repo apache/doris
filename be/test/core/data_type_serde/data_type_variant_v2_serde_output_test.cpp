@@ -88,7 +88,7 @@ ColumnVariantV2::MutablePtr typed_doubles(std::initializer_list<double> values) 
 ColumnPtr encoded_copy(const ColumnVariantV2& typed) {
     ColumnPtr copy = typed.clone();
     MutableColumnPtr mutable_copy = IColumn::mutate(std::move(copy));
-    assert_cast<ColumnVariantV2&>(*mutable_copy).ensure_encoded();
+    ColumnVariantV2::TestAccess::ensure_encoded(assert_cast<ColumnVariantV2&>(*mutable_copy));
     return mutable_copy;
 }
 
@@ -103,6 +103,19 @@ ColumnVariantV2::MutablePtr encoded_json(std::initializer_list<std::string_view>
     auto result = ColumnVariantV2::create();
     result->insert_encoded_batch(block);
     return result;
+}
+
+ColumnVariantV2::MutablePtr shredded_documents() {
+    auto residual = encoded_json({R"({})", R"({"tail":2})", R"({})"});
+    auto child = typed_strings(
+            {std::string_view("first"), std::string_view("unused"), std::string_view("third")});
+    auto presence = ColumnUInt8::create();
+    const std::array<uint8_t, 3> presence_values {1, 0, 1};
+    presence->get_data().insert(presence_values.begin(), presence_values.end());
+    ColumnVariantV2::ShreddedFields fields;
+    fields.emplace_back(PathInData(std::vector<std::string> {"head"}), std::move(child),
+                        std::move(presence));
+    return ColumnVariantV2::create_shredded(std::move(residual), std::move(fields));
 }
 
 std::string cell_json(const DataTypeVariantV2SerDe& serde, const IColumn& column, size_t row) {
@@ -395,6 +408,55 @@ TEST(DataTypeVariantV2SerdeOutputTest, ConstNullableAndOuterMasksPreserveBoundar
     EXPECT_EQ(status.code(), ErrorCode::INVALID_ARGUMENT);
     EXPECT_EQ(reversed_builder.length(), 0);
     EXPECT_TRUE(invalid_dates->is_typed());
+}
+
+TEST(DataTypeVariantV2SerdeOutputTest, ShreddedOutputMaterializesOncePerSerdeCall) {
+    DataTypeVariantV2SerDe serde;
+    auto source = shredded_documents();
+    const std::vector<std::optional<std::string>> expected {R"({"head":"first"})", R"({"tail":2})",
+                                                            R"({"head":"third"})"};
+
+    auto output = ColumnString::create();
+    BufferWritable writer(*output);
+    DataTypeSerDe::FormatOptions options;
+    options.field_delim = "|";
+    size_t materializations = ColumnVariantV2::TestAccess::encoded_range_materializations(*source);
+    ASSERT_TRUE(serde.serialize_column_to_json(*source, 0, source->size(), writer, options).ok());
+    writer.commit();
+    EXPECT_EQ(output->get_data_at(0), StringRef(R"({"head":"first"}|{"tail":2}|{"head":"third"})"));
+    EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(*source),
+              materializations + 1);
+
+    materializations = ColumnVariantV2::TestAccess::encoded_range_materializations(*source);
+    EXPECT_EQ(cell_json(serde, *source, 2), R"({"head":"third"})");
+    EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(*source),
+              materializations + 1);
+
+    materializations = ColumnVariantV2::TestAccess::encoded_range_materializations(*source);
+    EXPECT_EQ((arrow_values<arrow::StringBuilder, arrow::StringArray>(serde, *source)), expected);
+    EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(*source),
+              materializations + 1);
+
+    materializations = ColumnVariantV2::TestAccess::encoded_range_materializations(*source);
+    EXPECT_EQ(orc_values(serde, *source), expected);
+    EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(*source),
+              materializations + 1);
+
+    materializations = ColumnVariantV2::TestAccess::encoded_range_materializations(*source);
+    EXPECT_EQ(mysql_binary(serde, *source, 0), R"({"head":"first"})");
+    EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(*source),
+              materializations + 1);
+
+    materializations = ColumnVariantV2::TestAccess::encoded_range_materializations(*source);
+    auto strings = ColumnString::create();
+    serde.to_string_batch(*source, *strings, options);
+    ASSERT_EQ(strings->size(), expected.size());
+    for (size_t row = 0; row < expected.size(); ++row) {
+        EXPECT_EQ(strings->get_data_at(row).to_string(), *expected[row]);
+    }
+    EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(*source),
+              materializations + 1);
+    EXPECT_TRUE(source->is_shredded());
 }
 
 } // namespace doris

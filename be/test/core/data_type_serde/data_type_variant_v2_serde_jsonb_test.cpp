@@ -54,7 +54,7 @@ ColumnVariantV2::MutablePtr typed_int(int32_t value, bool is_null = false) {
 ColumnPtr encoded_copy(const ColumnVariantV2& typed) {
     ColumnPtr copy = typed.clone();
     MutableColumnPtr mutable_copy = IColumn::mutate(std::move(copy));
-    assert_cast<ColumnVariantV2&>(*mutable_copy).ensure_encoded();
+    ColumnVariantV2::TestAccess::ensure_encoded(assert_cast<ColumnVariantV2&>(*mutable_copy));
     return mutable_copy;
 }
 

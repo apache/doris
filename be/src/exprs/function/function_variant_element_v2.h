@@ -28,6 +28,7 @@
 namespace doris {
 
 class ColumnVariantV2;
+class PathInData;
 
 class VariantElementV2PathSegment {
 public:
@@ -56,8 +57,9 @@ private:
     int64_t _index;
 };
 
-// Owns an explicit, already-tokenized path. It intentionally does not parse dotted strings: the
-// runtime SQL adapter contract remains deferred until the coordinated Variant V2 cutover.
+// Owns an explicit, already-tokenized path and its immutable derived object-path metadata. It
+// intentionally does not parse dotted strings: the runtime SQL adapter contract remains deferred
+// until the coordinated Variant V2 cutover.
 class ResolvedVariantElementV2Path {
 public:
     ~ResolvedVariantElementV2Path();
@@ -71,6 +73,8 @@ public:
     VariantElementV2PathSegment::Kind kind_at(size_t position) const;
     StringRef object_key_at(size_t position) const;
     int64_t array_index_at(size_t position) const;
+    size_t object_key_count() const noexcept;
+    const PathInData* object_path() const noexcept;
 
 private:
     struct Impl;
@@ -86,10 +90,20 @@ private:
 Status resolve_variant_element_v2_path(std::span<const VariantElementV2PathSegment> segments,
                                        std::unique_ptr<ResolvedVariantElementV2Path>* output);
 
-// The source must be materialized by IFunction routing, which also owns ColumnConst expansion and
-// supplies the outer SQL-null map. The output is always Nullable(ColumnVariantV2).
+// The source is the physical non-Const ColumnVariantV2 payload. IFunction routing owns Const and
+// outer SQL-null handling. Exact shredded leaves may return their original child through COW;
+// other results are newly owned Nullable(ColumnVariantV2) columns.
 Status extract_variant_element_v2(const ColumnVariantV2& source,
                                   const ResolvedVariantElementV2Path& path,
                                   std::span<const uint8_t> outer_nulls, ColumnPtr* output);
+
+#ifdef BE_TEST
+struct VariantElementV2TestAccess {
+    static void reset_shredded_path_inspections();
+    static size_t shredded_path_inspections();
+    static bool has_exact_shredded_path(const ColumnVariantV2& source,
+                                        const PathInData& requested_path);
+};
+#endif
 
 } // namespace doris

@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 
 #include "common/status.h"
@@ -32,6 +33,7 @@
 namespace doris {
 
 class ColumnMap;
+class VariantShreddedColumnBuilder;
 
 namespace segment_v2::variant_v2 {
 
@@ -63,18 +65,25 @@ struct MaterializedSlot {
     PathInData relative_path;
     DataTypePtr type;
     size_t batch_index = 0;
+    // Block-local index into VariantShreddedColumnBuilder::layout(), bound once by create().
+    std::optional<size_t> shredded_path_index;
 };
 
 } // namespace variant_assembler_detail
 
-// Borrowed storage batch. All spans and pointers only need to remain valid until assemble()
-// returns; the assembler retains none of them. Hierarchical materialized columns stay in the same
-// order as the paths supplied to create(); a nullable root_jsonb is the authoritative whole-root
-// SQL NULL state, and storage_map uses persisted Map<String,String>.
-struct VariantAssemblerBatchView {
+// Consumed storage batch. Borrowed materialized_columns remain valid until assemble() returns.
+// Alternatively, after all columns validate, prepare moves every owner from
+// owned_materialized_columns so native typed children can reuse physical data without a copy; once
+// that transfer begins, a later assembly failure still leaves the owners consumed. The two spans are
+// mutually exclusive and stay in the same order as the paths supplied to create(). A nullable
+// root_jsonb is the authoritative whole-root SQL NULL state, and storage_map uses persisted
+// Map<String,String>. The assembler remains reusable after a failed batch, but a batch whose owners
+// were transferred does not.
+struct VariantAssemblerBatch {
     size_t num_rows = 0;
     const IColumn* root_jsonb = nullptr;
     std::span<const IColumn* const> materialized_columns;
+    std::span<MutableColumnPtr> owned_materialized_columns;
     const ColumnMap* storage_map = nullptr;
 };
 
@@ -84,22 +93,33 @@ class VariantAssembler final {
 public:
     static Result<std::unique_ptr<VariantAssembler>> create(VariantAssemblerOptions options);
 
+    ~VariantAssembler();
+
     VariantAssembler(const VariantAssembler&) = delete;
     VariantAssembler& operator=(const VariantAssembler&) = delete;
 
-    // The nullable wrapper is the complete owning result: its nested column is ColumnVariantV2 and
+    // The nullable wrapper is the complete owning result: its nested column is encoded for subtree
+    // and DOC-root reads, and may be shredded only for a non-DOC whole-root fixed scalar layout;
     // its null map is the assembled outer-null state. It is assigned only after the batch succeeds.
-    Status assemble(const VariantAssemblerBatchView& batch,
-                    ColumnNullable::MutablePtr* output) const;
+    Status assemble(VariantAssemblerBatch& batch, ColumnNullable::MutablePtr* output) const;
+
+#ifdef BE_TEST
+    struct TestAccess {
+        static size_t encoded_shredded_builds(const VariantAssembler& assembler);
+        static size_t direct_shredded_builds(const VariantAssembler& assembler);
+    };
+#endif
 
 private:
     VariantAssembler(StorageMapKind storage_map_kind, bool has_root, const PathInData& requested,
-                     DorisVector<variant_assembler_detail::MaterializedSlot> materialized);
+                     DorisVector<variant_assembler_detail::MaterializedSlot> materialized,
+                     std::unique_ptr<VariantShreddedColumnBuilder> shredded_builder);
 
     StorageMapKind _storage_map_kind;
     bool _has_root;
     PathInData _requested;
     DorisVector<variant_assembler_detail::MaterializedSlot> _materialized;
+    std::unique_ptr<VariantShreddedColumnBuilder> _shredded_builder;
 };
 
 } // namespace segment_v2::variant_v2

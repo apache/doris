@@ -32,11 +32,15 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
+#include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nothing.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exprs/function/parse/variant_string_parse.h"
+#include "storage/segment/column_reader_cache.h"
+#include "storage/segment/variant/v2/variant_assembler.h"
 #include "util/json/path_in_data.h"
 
 using doris::Status;
@@ -383,6 +387,204 @@ private:
     ordinal_t _current_ordinal = 0;
 };
 
+struct OwnedTypedStreamState {
+    const doris::IColumn* wrapper = nullptr;
+    const doris::IColumn* payload = nullptr;
+    ordinal_t current_ordinal = 0;
+};
+
+class ThreeRowNullableInt32Iterator final : public ColumnIterator {
+public:
+    explicit ThreeRowNullableInt32Iterator(std::shared_ptr<OwnedTypedStreamState> state)
+            : _state(std::move(state)) {}
+
+    Status init(const ColumnIteratorOptions&) override { return Status::OK(); }
+    Status seek_to_ordinal(ordinal_t ordinal) override {
+        if (ordinal > VALUES.size()) {
+            return Status::InvalidArgument("typed stream ordinal {} exceeds row count {}", ordinal,
+                                           VALUES.size());
+        }
+        _state->current_ordinal = ordinal;
+        return Status::OK();
+    }
+    ordinal_t get_current_ordinal() const override { return _state->current_ordinal; }
+
+    Status next_batch(size_t* rows, MutableColumnPtr& dst, bool* has_null) override {
+        auto* nullable = check_and_get_column<doris::ColumnNullable>(dst.get());
+        if (nullable == nullptr) {
+            return Status::InvalidArgument("typed stream destination is not nullable");
+        }
+        auto* values = check_and_get_column<doris::ColumnInt32>(&nullable->get_nested_column());
+        if (values == nullptr) {
+            return Status::InvalidArgument("typed stream payload is not Int32");
+        }
+
+        DCHECK_LE(_state->current_ordinal, VALUES.size());
+        const size_t produced = std::min(*rows, VALUES.size() - _state->current_ordinal);
+        _state->wrapper = nullable;
+        _state->payload = values;
+        bool batch_has_null = false;
+        for (size_t row = 0; row < produced; ++row) {
+            const size_t source_row = _state->current_ordinal + row;
+            values->insert_value(VALUES[source_row]);
+            nullable->get_null_map_data().push_back(NULLS[source_row]);
+            batch_has_null = batch_has_null || NULLS[source_row] != 0;
+        }
+        *rows = produced;
+        _state->current_ordinal += produced;
+        if (has_null != nullptr) {
+            *has_null = batch_has_null;
+        }
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const doris::segment_v2::rowid_t*, const size_t,
+                          MutableColumnPtr&) override {
+        return Status::NotSupported("ThreeRowNullableInt32Iterator only supports sequential reads");
+    }
+
+private:
+    static constexpr std::array<doris::Int32, 3> VALUES {10, 0, 30};
+    static constexpr std::array<doris::UInt8, 3> NULLS {0, 1, 0};
+    std::shared_ptr<OwnedTypedStreamState> _state;
+};
+
+class SingleTypedColumnReader final : public doris::segment_v2::ColumnReader {
+public:
+    explicit SingleTypedColumnReader(std::shared_ptr<OwnedTypedStreamState> state)
+            : _state(std::move(state)) {}
+
+    Status new_iterator(doris::segment_v2::ColumnIteratorUPtr* iterator, const doris::TabletColumn*,
+                        const doris::StorageReadOptions*) override {
+        *iterator = std::make_unique<ThreeRowNullableInt32Iterator>(_state);
+        return Status::OK();
+    }
+
+private:
+    std::shared_ptr<OwnedTypedStreamState> _state;
+};
+
+class SingleTypedColumnReaderCache final : public doris::segment_v2::ColumnReaderCache {
+public:
+    explicit SingleTypedColumnReaderCache(std::shared_ptr<OwnedTypedStreamState> state)
+            : ColumnReaderCache(nullptr, {}, {}, 3,
+                                [](std::shared_ptr<doris::segment_v2::SegmentFooterPB>&,
+                                   OlapReaderStatistics*, const doris::io::IOContext*) {
+                                    return Status::InternalError(
+                                            "synthetic typed cache has no segment footer");
+                                }),
+              _reader(std::make_shared<SingleTypedColumnReader>(std::move(state))) {}
+
+    Status get_path_column_reader(int32_t, PathInData relative_path,
+                                  std::shared_ptr<doris::segment_v2::ColumnReader>* column_reader,
+                                  OlapReaderStatistics*,
+                                  const doris::segment_v2::SubcolumnColumnMetaInfo::Node*,
+                                  const doris::io::IOContext*) override {
+        if (relative_path != PathInData("a")) {
+            return Status::InvalidArgument("unexpected synthetic typed path {}",
+                                           relative_path.get_path());
+        }
+        *column_reader = _reader;
+        return Status::OK();
+    }
+
+private:
+    std::shared_ptr<doris::segment_v2::ColumnReader> _reader;
+};
+
+static std::string bounded_doc_key(size_t index) {
+    constexpr size_t WIDTH = 10;
+    std::string suffix = std::to_string(index);
+    DORIS_CHECK_LE(suffix.size(), WIDTH);
+    std::string key = "k";
+    key.append(WIDTH - suffix.size(), '0');
+    key.append(suffix);
+    return key;
+}
+
+class UniqueKeyDocIterator final : public ColumnIterator {
+public:
+    explicit UniqueKeyDocIterator(size_t total_rows) : _total_rows(total_rows) {}
+
+    Status init(const ColumnIteratorOptions&) override { return Status::OK(); }
+    Status seek_to_ordinal(ordinal_t ordinal) override {
+        if (ordinal > _total_rows) {
+            return Status::InvalidArgument("unique-key DOC ordinal {} exceeds row count {}",
+                                           ordinal, _total_rows);
+        }
+        _current_ordinal = ordinal;
+        return Status::OK();
+    }
+    ordinal_t get_current_ordinal() const override { return _current_ordinal; }
+
+    Status next_batch(size_t* rows, MutableColumnPtr& dst, bool* has_null) override {
+        auto* map = check_and_get_column<ColumnMap>(dst.get());
+        if (map == nullptr) {
+            return Status::InvalidArgument("unique-key DOC destination is not a map");
+        }
+        if (has_null != nullptr) {
+            *has_null = false;
+        }
+        DCHECK_LE(_current_ordinal, _total_rows);
+        const size_t produced = std::min(*rows, _total_rows - _current_ordinal);
+        auto& keys = assert_cast<ColumnString&>(map->get_keys());
+        auto& values = assert_cast<ColumnString&>(map->get_values());
+        auto& offsets = map->get_offsets();
+        auto jsonb_type = std::make_shared<doris::DataTypeJsonb>();
+        auto source = jsonb_type->create_column();
+        auto serde = jsonb_type->get_serde();
+        doris::DataTypeSerDe::FormatOptions options;
+        for (size_t row = 0; row < produced; ++row) {
+            const std::string value = std::to_string(_current_ordinal + row);
+            doris::Slice json(value.data(), value.size());
+            RETURN_IF_ERROR(serde->deserialize_one_cell_from_json(*source, json, options));
+        }
+
+        auto& value_chars = values.get_chars();
+        for (size_t row = 0; row < produced; ++row) {
+            const std::string key = bounded_doc_key(_current_ordinal + row);
+            keys.insert_data(key.data(), key.size());
+            serde->write_one_cell_to_binary(*source, value_chars, row);
+            values.get_offsets().push_back(value_chars.size());
+            offsets.push_back(keys.size());
+        }
+        *rows = produced;
+        _current_ordinal += produced;
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const doris::segment_v2::rowid_t*, const size_t,
+                          MutableColumnPtr&) override {
+        return Status::NotSupported("UniqueKeyDocIterator only supports sequential reads");
+    }
+
+private:
+    ordinal_t _current_ordinal = 0;
+    size_t _total_rows;
+};
+
+class RejectingDocPathColumnReaderCache final : public doris::segment_v2::ColumnReaderCache {
+public:
+    explicit RejectingDocPathColumnReaderCache(size_t rows)
+            : ColumnReaderCache(
+                      nullptr, {}, {}, rows,
+                      [](std::shared_ptr<doris::segment_v2::SegmentFooterPB>&,
+                         OlapReaderStatistics*, const doris::io::IOContext*) {
+                          return Status::InternalError("synthetic DOC cache has no segment footer");
+                      }) {}
+
+    Status get_path_column_reader(int32_t, PathInData relative_path,
+                                  std::shared_ptr<doris::segment_v2::ColumnReader>*,
+                                  OlapReaderStatistics*,
+                                  const doris::segment_v2::SubcolumnColumnMetaInfo::Node*,
+                                  const doris::io::IOContext*) override {
+        ++path_reader_calls;
+        return Status::InternalError("DOC root opened leaf reader '{}'", relative_path.get_path());
+    }
+
+    size_t path_reader_calls = 0;
+};
+
 static std::unique_ptr<SubstreamIterator> make_dummy_sparse_stream() {
     return std::make_unique<SubstreamIterator>(doris::ColumnVariant::create_binary_column_fn(),
                                                std::make_unique<DummySparseIterator>(), nullptr);
@@ -437,7 +639,12 @@ struct VariantJsonWriter {
 
 static std::string variant_v2_json_at(const doris::ColumnVariantV2& column, size_t row) {
     VariantJsonWriter writer;
-    doris::to_json(column.get_value_ref(row), writer);
+    if (column.is_encoded()) {
+        doris::to_json(column.get_value_ref(row), writer);
+    } else {
+        auto encoded = column.materialize_encoded_range(row, 1);
+        doris::to_json(encoded->get_value_ref(0), writer);
+    }
     return writer.value;
 }
 
@@ -663,6 +870,97 @@ TEST(HierarchicalDataIteratorTest, TwoPhysicalStreamsAppendTwoPlusOneBatchesForV
             }
         }
     }
+}
+
+TEST(HierarchicalDataIteratorTest, VariantV2TransfersPhysicalTypedStreamIntoShreddedChild) {
+    auto int_type = doris::make_nullable(std::make_shared<doris::DataTypeInt32>());
+    doris::segment_v2::SubcolumnColumnMetaInfo metadata;
+    ASSERT_TRUE(metadata.add(PathInData("a"),
+                             doris::segment_v2::SubcolumnMeta {.file_column_type = int_type}));
+
+    auto typed_state = std::make_shared<OwnedTypedStreamState>();
+    SingleTypedColumnReaderCache cache(typed_state);
+    doris::segment_v2::ColumnIteratorUPtr iterator;
+    OlapReaderStatistics stats;
+    ASSERT_TRUE(HierarchicalDataIterator::create(
+                        &iterator, 0, PathInData(), metadata.get_root(),
+                        make_empty_sparse_stream(3), nullptr, &cache, &stats,
+                        HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE,
+                        /*use_variant_v2=*/true)
+                        .ok());
+
+    ColumnIteratorOptions options;
+    options.stats = &stats;
+    ASSERT_TRUE(iterator->init(options).ok());
+    ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+
+    MutableColumnPtr dst = doris::ColumnVariantV2::create();
+    size_t rows = 3;
+    ASSERT_TRUE(iterator->next_batch(&rows, dst).ok());
+    ASSERT_EQ(rows, 3);
+    ASSERT_EQ(dst->size(), 3);
+
+    const auto& variant = assert_cast<const doris::ColumnVariantV2&>(*dst);
+    ASSERT_TRUE(variant.is_shredded());
+    ASSERT_EQ(variant.shredded_field_count(), 1);
+    EXPECT_EQ(variant.shredded_field_path(0).get_path(), "a");
+    EXPECT_EQ(variant.shredded_field_presence(0).get_data(),
+              (doris::PaddedPODArray<doris::UInt8> {1, 0, 1}));
+    const auto& child = variant.shredded_field_values(0);
+    ASSERT_TRUE(child.is_typed());
+    ASSERT_NE(typed_state->wrapper, nullptr);
+    ASSERT_NE(typed_state->payload, nullptr);
+    EXPECT_EQ(&child.typed_column(), typed_state->wrapper);
+    const auto& nullable = assert_cast<const doris::ColumnNullable&>(child.typed_column());
+    EXPECT_EQ(&nullable.get_nested_column(), typed_state->payload);
+    EXPECT_EQ(nullable.get_null_map_data(), (doris::NullMap {0, 1, 0}));
+    EXPECT_EQ(variant_v2_json_at(variant, 0), R"({"a":10})");
+    EXPECT_EQ(variant_v2_json_at(variant, 1), "{}");
+    EXPECT_EQ(variant_v2_json_at(variant, 2), R"({"a":30})");
+    EXPECT_EQ(doris::ColumnVariantV2::TestAccess::full_shredded_validations(variant), 0);
+    EXPECT_EQ(stats.variant_v2_shredded_output_rows, 3);
+}
+
+TEST(HierarchicalDataIteratorTest, VariantV2DocRootIgnoresFooterPathsAndStaysEncoded) {
+    constexpr size_t rows = 2;
+    auto int_type = doris::make_nullable(std::make_shared<doris::DataTypeInt32>());
+    doris::segment_v2::SubcolumnColumnMetaInfo metadata;
+    for (size_t row = 0; row < rows; ++row) {
+        ASSERT_TRUE(metadata.add(PathInData(bounded_doc_key(row)),
+                                 doris::segment_v2::SubcolumnMeta {.file_column_type = int_type}));
+    }
+
+    auto doc_stream = std::make_unique<SubstreamIterator>(
+            doris::ColumnVariant::create_binary_column_fn(),
+            std::make_unique<UniqueKeyDocIterator>(rows), nullptr);
+    RejectingDocPathColumnReaderCache cache(rows);
+    doris::segment_v2::ColumnIteratorUPtr iterator;
+    OlapReaderStatistics stats;
+    ASSERT_TRUE(
+            HierarchicalDataIterator::create(&iterator, 0, PathInData(), metadata.get_root(),
+                                             std::move(doc_stream), nullptr, &cache, &stats,
+                                             HierarchicalDataIterator::ReadType::DOC_VALUE_COLUMN,
+                                             /*use_variant_v2=*/true)
+                    .ok());
+    EXPECT_EQ(cache.path_reader_calls, 0);
+
+    ColumnIteratorOptions options;
+    options.stats = &stats;
+    ASSERT_TRUE(iterator->init(options).ok());
+    ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+
+    MutableColumnPtr dst = doris::ColumnVariantV2::create();
+    size_t read_rows = rows;
+    ASSERT_TRUE(iterator->next_batch(&read_rows, dst).ok());
+    ASSERT_EQ(read_rows, rows);
+    EXPECT_EQ(cache.path_reader_calls, 0);
+
+    const auto& variant = assert_cast<const doris::ColumnVariantV2&>(*dst);
+    ASSERT_TRUE(variant.is_encoded());
+    ASSERT_EQ(variant.shredded_field_count(), 0);
+    EXPECT_EQ(variant_v2_json_at(variant, 0), "{\"" + bounded_doc_key(0) + "\":0}");
+    EXPECT_EQ(variant_v2_json_at(variant, 1), "{\"" + bounded_doc_key(1) + "\":1}");
+    EXPECT_EQ(stats.variant_v2_shredded_output_rows, 0);
 }
 
 TEST(HierarchicalDataIteratorTest, CurrentOrdinalFallsBackToSparseStream) {

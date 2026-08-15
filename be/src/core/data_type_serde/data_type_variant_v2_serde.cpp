@@ -24,7 +24,9 @@
 #include <limits>
 #include <orc/Vector.hh>
 #include <span>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "common/cast_set.h"
 #include "common/exception.h"
@@ -34,6 +36,7 @@
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/column/variant_v2/column_variant_v2_typed_column.h"
+#include "core/column/variant_v2/variant_shredded_path.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -47,6 +50,7 @@
 #include "exprs/function/parse/variant_string_parse.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
+#include "util/utf8_check.h"
 
 namespace doris {
 namespace {
@@ -102,7 +106,354 @@ void write_sql_value(VariantRef value, Writer& writer,
     to_sql_string(value, writer, json_options);
 }
 
+// Output formats commonly render a range twice: once to compute lengths and once to write. Keep a
+// range-local encoded owner so an S input crosses the generic output boundary only once per SerDe
+// call. Non-shredded inputs remain borrowed and keep their existing direct visitor paths.
+class VariantV2OutputRange {
+public:
+    VariantV2OutputRange(const IColumn& source, size_t start, size_t end)
+            : _column(&source),
+              _logical_start(start),
+              _logical_end(end),
+              _visit_start(start),
+              _visit_end(end) {
+        const IColumn* physical = &source;
+        bool constant = false;
+        if (const auto* const_column = check_and_get_column<ColumnConst>(source)) {
+            physical = &const_column->get_data_column();
+            constant = true;
+        }
+        const auto* variant = check_and_get_column<ColumnVariantV2>(*physical);
+        if (variant == nullptr) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Variant reader requires ColumnVariantV2, got {}", source.get_name());
+        }
+        if (start > end || end > source.size()) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Variant row range [{}, {}) exceeds column size {}", start, end,
+                            source.size());
+        }
+        if (!variant->is_shredded() || start == end) {
+            return;
+        }
+
+        const size_t physical_start = constant ? 0 : start;
+        const size_t physical_rows = constant ? 1 : end - start;
+        ColumnPtr encoded = variant->materialize_encoded_range(physical_start, physical_rows);
+        if (constant) {
+            _owner = ColumnConst::create(encoded, end - start);
+        } else {
+            _owner = std::move(encoded);
+        }
+        _column = _owner.get();
+        _visit_start = 0;
+        _visit_end = end - start;
+        _row_offset = start;
+    }
+
+    template <typename NullCallback, typename ValueCallback>
+    void visit(std::span<const NullMap::value_type> outer_nulls, NullCallback&& on_null,
+               ValueCallback&& on_value) const {
+        if (_logical_start == _logical_end) {
+            return;
+        }
+
+        auto visit_nulls = outer_nulls;
+        if (_owner && !outer_nulls.empty()) {
+            if (outer_nulls.size() < _logical_end) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "Variant null map size {} is smaller than row end {}",
+                                outer_nulls.size(), _logical_end);
+            }
+            visit_nulls = outer_nulls.subspan(_logical_start, _logical_end - _logical_start);
+        }
+        visit_variant_v2_values(
+                *_column, _visit_start, _visit_end, visit_nulls,
+                [&](size_t row) { on_null(row + _row_offset); },
+                [&](size_t row, VariantRef value) { on_value(row + _row_offset, value); });
+    }
+
+private:
+    ColumnPtr _owner;
+    const IColumn* _column;
+    size_t _logical_start;
+    size_t _logical_end;
+    size_t _visit_start;
+    size_t _visit_end;
+    size_t _row_offset = 0;
+};
+
 constexpr size_t VARIANT_V2_TYPE_META_BYTES = sizeof(int32_t) * 4;
+constexpr size_t VARIANT_V2_COLUMN_HEADER_BYTES = sizeof(bool) + sizeof(size_t) * 2;
+static_assert(sizeof(bool) == sizeof(uint8_t));
+
+enum class VariantV2WireRepresentation : uint8_t {
+    ENCODED = 0,
+    TYPED_SCALAR = 1,
+    SHREDDED = 2,
+};
+
+constexpr uint8_t SHREDDED_WIRE_VERSION_WITHOUT_LAYOUT_STATE = 1;
+constexpr uint8_t SHREDDED_WIRE_VERSION = 2;
+constexpr size_t SHREDDED_WIRE_HEADER_BYTES = sizeof(uint8_t) * 2 + sizeof(uint64_t);
+
+class ShreddedWireCursor {
+public:
+    ShreddedWireCursor(const char* data, size_t size) : _position(data), _remaining(size) {}
+
+    template <typename T>
+    T read(const char* description) {
+        _require(sizeof(T), description);
+        const T value = unaligned_load<T>(_position);
+        _position += sizeof(T);
+        _remaining -= sizeof(T);
+        return value;
+    }
+
+    std::span<const char> read_bytes(uint64_t size, const char* description) {
+        if (size > std::numeric_limits<size_t>::max()) {
+            throw Exception(Status::Corruption(
+                    "Shredded ColumnVariantV2 {} length {} exceeds size_t", description, size));
+        }
+        const auto bytes = static_cast<size_t>(size);
+        _require(bytes, description);
+        const std::span<const char> result {_position, bytes};
+        _position += bytes;
+        _remaining -= bytes;
+        return result;
+    }
+
+    const char* position() const { return _position; }
+    size_t remaining() const { return _remaining; }
+
+    void require_empty(const char* description) const {
+        if (_remaining != 0) {
+            throw Exception(Status::Corruption("Shredded ColumnVariantV2 {} has {} trailing bytes",
+                                               description, _remaining));
+        }
+    }
+
+private:
+    void _require(size_t size, const char* description) const {
+        if (size > _remaining) {
+            throw Exception(Status::Corruption(
+                    "Shredded ColumnVariantV2 {} needs {} bytes but only {} remain", description,
+                    size, _remaining));
+        }
+    }
+
+    const char* _position;
+    size_t _remaining;
+};
+
+struct SerializedColumnHeader {
+    bool is_const;
+    size_t logical_rows;
+    size_t saved_rows;
+};
+
+SerializedColumnHeader read_serialized_column_header(ShreddedWireCursor& cursor,
+                                                     const char* description) {
+    const uint8_t const_flag = cursor.read<uint8_t>(description);
+    if (const_flag > 1) {
+        throw Exception(Status::Corruption("Shredded ColumnVariantV2 {} has invalid const flag {}",
+                                           description, const_flag));
+    }
+    const auto logical_rows = cursor.read<size_t>(description);
+    const auto saved_rows = cursor.read<size_t>(description);
+    if ((const_flag != 0 && saved_rows != 1) || (const_flag == 0 && saved_rows != logical_rows)) {
+        throw Exception(Status::Corruption(
+                "Shredded ColumnVariantV2 {} has invalid row header: const={}, logical rows={}, "
+                "saved rows={}",
+                description, const_flag, logical_rows, saved_rows));
+    }
+    return {.is_const = const_flag != 0, .logical_rows = logical_rows, .saved_rows = saved_rows};
+}
+
+void add_serialized_size(int64_t& total, int64_t addition) {
+    if (addition < 0 || total > std::numeric_limits<int64_t>::max() - addition) {
+        throw Exception(ErrorCode::BUFFER_OVERFLOW,
+                        "ColumnVariantV2 serialized size exceeds int64 limit");
+    }
+    total += addition;
+}
+
+void add_serialized_size(int64_t& total, size_t addition) {
+    if (addition > static_cast<size_t>(std::numeric_limits<int64_t>::max())) {
+        throw Exception(ErrorCode::BUFFER_OVERFLOW,
+                        "ColumnVariantV2 serialized size exceeds int64 limit");
+    }
+    add_serialized_size(total, static_cast<int64_t>(addition));
+}
+
+void add_serialized_array_size(int64_t& total, size_t count, size_t element_size) {
+    if (element_size != 0 && count > std::numeric_limits<size_t>::max() / element_size) {
+        throw Exception(ErrorCode::BUFFER_OVERFLOW,
+                        "ColumnVariantV2 serialized array size overflows size_t");
+    }
+    add_serialized_size(total, count * element_size);
+}
+
+uint32_t checked_wire_count(size_t value, const char* name) {
+    if (value > std::numeric_limits<uint32_t>::max()) {
+        throw Exception(ErrorCode::BUFFER_OVERFLOW,
+                        "ColumnVariantV2 {} count {} exceeds uint32 limit", name, value);
+    }
+    return static_cast<uint32_t>(value);
+}
+
+uint64_t checked_wire_length(int64_t value, const char* name) {
+    if (value < 0) {
+        throw Exception(ErrorCode::BUFFER_OVERFLOW, "ColumnVariantV2 {} length {} is negative",
+                        name, value);
+    }
+    return static_cast<uint64_t>(value);
+}
+
+VariantV2WireRepresentation wire_representation(const ColumnVariantV2& column) {
+    switch (column.representation()) {
+    case ColumnVariantV2::Representation::ENCODED:
+        return VariantV2WireRepresentation::ENCODED;
+    case ColumnVariantV2::Representation::TYPED_SCALAR:
+        return VariantV2WireRepresentation::TYPED_SCALAR;
+    case ColumnVariantV2::Representation::SHREDDED:
+        return VariantV2WireRepresentation::SHREDDED;
+    }
+    __builtin_unreachable();
+}
+
+void validate_shredded_wire_fields(const ColumnVariantV2& residual,
+                                   const ColumnVariantV2::ShreddedFields& fields) {
+    const auto residual_view = residual.read_view();
+    for (const auto& field : fields) {
+        const auto& values = assert_cast<const ColumnVariantV2&>(*field.values);
+        const auto values_view = values.read_view();
+        const auto& presence = static_cast<const ColumnUInt8::Ptr&>(field.presence)->get_data();
+        const auto& parts = field.path.get_parts();
+        for (size_t row = 0; row < presence.size(); ++row) {
+            const bool present = presence[row] != 0;
+            if (present && values.is_encoded()) {
+                const VariantBasicType basic_type = values_view.value_at(row).basic_type();
+                if (basic_type == VariantBasicType::OBJECT ||
+                    basic_type == VariantBasicType::ARRAY) {
+                    throw Exception(Status::Corruption(
+                            "ColumnVariantV2 active shredded field must be scalar at path {} row "
+                            "{}",
+                            field.path.get_path(), row));
+                }
+            }
+            VariantRef current = residual_view.value_at(row);
+            for (size_t depth = 0; depth < parts.size(); ++depth) {
+                if (current.basic_type() != VariantBasicType::OBJECT) {
+                    if (present) {
+                        throw Exception(Status::Corruption(
+                                "ColumnVariantV2 residual has a scalar or array ancestor of "
+                                "shredded path {} at row {}",
+                                field.path.get_path(), row));
+                    }
+                    break;
+                }
+                VariantRef child;
+                const auto& key = parts[depth].key;
+                if (!current.object_find({key.data(), key.size()}, &child)) {
+                    break;
+                }
+                if (depth + 1 == parts.size()) {
+                    if (present) {
+                        throw Exception(Status::Corruption(
+                                "ColumnVariantV2 residual overlaps a present shredded field at "
+                                "path {} at row {}",
+                                field.path.get_path(), row));
+                    }
+                    const VariantBasicType basic_type = child.basic_type();
+                    if (basic_type != VariantBasicType::OBJECT &&
+                        basic_type != VariantBasicType::ARRAY) {
+                        throw Exception(Status::Corruption(
+                                "ColumnVariantV2 residual owns an exact scalar for an absent "
+                                "shredded field at path {} row {}",
+                                field.path.get_path(), row));
+                    }
+                    break;
+                }
+                current = child;
+            }
+        }
+    }
+}
+
+PathInData deserialize_shredded_path(ShreddedWireCursor& cursor, uint32_t field_index,
+                                     const PathInData* previous) {
+    const auto part_count = cursor.read<uint32_t>("path part count");
+    if (part_count == 0) {
+        throw Exception(Status::Corruption("Shredded ColumnVariantV2 field {} has an empty path",
+                                           field_index));
+    }
+    if (part_count > VARIANT_MAX_NESTING_DEPTH) {
+        throw Exception(Status::Corruption(
+                "Shredded ColumnVariantV2 field {} path depth {} exceeds maximum {}", field_index,
+                part_count, VARIANT_MAX_NESTING_DEPTH));
+    }
+
+    std::vector<std::string> keys;
+    PathInData::Parts parts;
+    keys.reserve(part_count);
+    parts.reserve(part_count);
+    for (uint32_t part_index = 0; part_index < part_count; ++part_index) {
+        const auto key_size = cursor.read<uint32_t>("path key length");
+        const auto key = cursor.read_bytes(key_size, "path key");
+        keys.emplace_back(key.data(), key.size());
+        if (!keys.back().empty() && !validate_utf8(keys.back().data(), keys.back().size())) {
+            throw Exception(
+                    Status::Corruption("Shredded ColumnVariantV2 path part is not valid UTF-8"));
+        }
+        const auto is_nested = cursor.read<uint8_t>("path nested flag");
+        const auto anonymous_array_level = cursor.read<uint8_t>("path array level");
+        if (is_nested > 1) {
+            throw Exception(Status::Corruption(
+                    "Shredded ColumnVariantV2 path part has invalid nested flag {}", is_nested));
+        }
+        if (is_nested != 0 || anonymous_array_level != 0) {
+            throw Exception(Status::Corruption(
+                    "Shredded ColumnVariantV2 does not support array path parts"));
+        }
+        parts.emplace_back(keys.back(), is_nested != 0, anonymous_array_level);
+    }
+
+    PathInData path(parts);
+    if (previous != nullptr) {
+        if (!variant_shredded_path_less(*previous, path)) {
+            throw Exception(
+                    Status::Corruption("Shredded ColumnVariantV2 paths are not strictly ordered"));
+        }
+        if (variant_shredded_path_is_prefix(*previous, path)) {
+            throw Exception(
+                    Status::Corruption("Shredded ColumnVariantV2 paths are not prefix-free"));
+        }
+    }
+    return path;
+}
+
+ColumnUInt8::MutablePtr deserialize_shredded_presence(ShreddedWireCursor& cursor,
+                                                      size_t saved_rows) {
+    const auto presence_count = cursor.read<uint64_t>("presence row count");
+    if (presence_count != static_cast<uint64_t>(saved_rows)) {
+        throw Exception(Status::Corruption(
+                "Shredded ColumnVariantV2 presence row count {} does not match saved row count {}",
+                presence_count, saved_rows));
+    }
+    const auto presence_bytes = cursor.read_bytes(presence_count, "presence values");
+    auto presence = ColumnUInt8::create();
+    auto& data = presence->get_data();
+    data.resize(saved_rows);
+    if (!presence_bytes.empty()) {
+        std::memcpy(data.data(), presence_bytes.data(), presence_bytes.size());
+    }
+    if (!std::ranges::all_of(data, [](uint8_t value) { return value <= 1; })) {
+        throw Exception(Status::Corruption(
+                "Shredded ColumnVariantV2 presence contains a value other than zero or one"));
+    }
+    return presence;
+}
 
 const ColumnVariantV2& get_variant_v2_column(const IColumn& column) {
     const IColumn* physical = &column;
@@ -143,8 +494,8 @@ DataTypePtr read_variant_v2_type(const char*& buf) {
     const auto length = unaligned_load<int32_t>(buf);
     buf += sizeof(int32_t);
     if (!is_supported_variant_typed_identity(primitive)) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Unsupported Variant V2 typed identity {}",
-                        static_cast<int32_t>(primitive));
+        throw Exception(Status::Corruption("Unsupported Variant V2 typed identity {}",
+                                           static_cast<int32_t>(primitive)));
     }
     return DataTypeFactory::instance().create_data_type(primitive, false, precision, scale, length);
 }
@@ -172,10 +523,10 @@ const char* deserialize_meta_ids(const char* buf, MutableColumnPtr* column) {
     return buf + bytes;
 }
 
-void preflight_json(const IColumn& column, size_t start, size_t end,
+void preflight_json(const VariantV2OutputRange& output,
                     const DataTypeSerDe::FormatOptions& options) {
-    visit_variant_v2_values(
-            column, start, end, {}, [](size_t) {},
+    output.visit(
+            {}, [](size_t) {},
             [&](size_t, VariantRef value) {
                 CountingWriter writer;
                 write_json_value(value, writer, options);
@@ -186,19 +537,159 @@ void preflight_json(const IColumn& column, size_t start, size_t end,
 
 DataTypeVariantV2SerDe::DataTypeVariantV2SerDe(int nesting_level) : DataTypeSerDe(nesting_level) {}
 
+int64_t DataTypeVariantV2SerDe::get_encoded_payload_size(const ColumnVariantV2& column,
+                                                         int be_exec_version) {
+    const DataTypeString string_type;
+    int64_t size = 0;
+    add_serialized_size(size, string_type.get_uncompressed_serialized_bytes(*column._metadatas,
+                                                                            be_exec_version));
+    add_serialized_size(size, sizeof(size_t));
+    add_serialized_array_size(size, column._meta_ids->size(), sizeof(uint32_t));
+    add_serialized_size(
+            size, string_type.get_uncompressed_serialized_bytes(*column._values, be_exec_version));
+    return size;
+}
+
+char* DataTypeVariantV2SerDe::serialize_encoded_payload(const ColumnVariantV2& column, char* buf,
+                                                        int be_exec_version) {
+    const DataTypeString string_type;
+    buf = string_type.serialize(*column._metadatas, buf, be_exec_version);
+    buf = serialize_meta_ids(*column._meta_ids, buf);
+    return string_type.serialize(*column._values, buf, be_exec_version);
+}
+
+const char* DataTypeVariantV2SerDe::deserialize_encoded_payload(const char* buf,
+                                                                ColumnVariantV2* column,
+                                                                int be_exec_version) {
+    const DataTypeString string_type;
+    MutableColumnPtr metadatas = string_type.create_column();
+    MutableColumnPtr meta_ids = MetaIdsColumn::create();
+    MutableColumnPtr values = string_type.create_column();
+    buf = string_type.deserialize(buf, &metadatas, be_exec_version);
+    buf = deserialize_meta_ids(buf, &meta_ids);
+    buf = string_type.deserialize(buf, &values, be_exec_version);
+
+    const auto& ids = assert_cast<const MetaIdsColumn&>(*meta_ids).get_data();
+    if (ids.size() != values->size()) {
+        throw Exception(Status::Corruption(
+                "ColumnVariantV2 metadata id count {} does not match value count {}", ids.size(),
+                values->size()));
+    }
+    for (uint32_t id : ids) {
+        if (id >= metadatas->size()) {
+            throw Exception(
+                    Status::Corruption("ColumnVariantV2 metadata id {} exceeds metadata count {}",
+                                       id, metadatas->size()));
+        }
+    }
+
+    auto decoded = ColumnVariantV2::create();
+    static_cast<ColumnString::Ptr&>(decoded->_metadatas) =
+            ColumnString::cast_to_column_ptr(assert_cast<const ColumnString*>(metadatas.get()));
+    static_cast<MetaIdsColumn::Ptr&>(decoded->_meta_ids) =
+            MetaIdsColumn::cast_to_column_ptr(assert_cast<const MetaIdsColumn*>(meta_ids.get()));
+    static_cast<ColumnString::Ptr&>(decoded->_values) =
+            ColumnString::cast_to_column_ptr(assert_cast<const ColumnString*>(values.get()));
+    decoded->sanity_check();
+    column->_adopt_state_from(*decoded);
+    return buf;
+}
+
+int64_t DataTypeVariantV2SerDe::get_non_shredded_payload_size(const ColumnVariantV2& column,
+                                                              int be_exec_version) {
+    if (column.is_shredded()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Nested shredded ColumnVariantV2 payload is not supported");
+    }
+    int64_t size = sizeof(uint8_t);
+    if (column.is_encoded()) {
+        add_serialized_size(size, get_encoded_payload_size(column, be_exec_version));
+        return size;
+    }
+    add_serialized_size(size, VARIANT_V2_TYPE_META_BYTES);
+    const DataTypePtr nullable_type = make_nullable(column._typed_type);
+    add_serialized_size(size, nullable_type->get_uncompressed_serialized_bytes(*column._typed,
+                                                                               be_exec_version));
+    return size;
+}
+
+char* DataTypeVariantV2SerDe::serialize_non_shredded_payload(const ColumnVariantV2& column,
+                                                             char* buf, int be_exec_version) {
+    if (column.is_shredded()) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Nested shredded ColumnVariantV2 payload is not supported");
+    }
+    const auto representation = wire_representation(column);
+    unaligned_store<uint8_t>(buf, static_cast<uint8_t>(representation));
+    buf += sizeof(uint8_t);
+    if (column.is_encoded()) {
+        return serialize_encoded_payload(column, buf, be_exec_version);
+    }
+    write_variant_v2_type(column._typed_type, buf);
+    return make_nullable(column._typed_type)->serialize(*column._typed, buf, be_exec_version);
+}
+
+const char* DataTypeVariantV2SerDe::deserialize_non_shredded_payload(const char* buf,
+                                                                     MutableColumnPtr* column,
+                                                                     int be_exec_version) {
+    const auto representation =
+            static_cast<VariantV2WireRepresentation>(unaligned_load<uint8_t>(buf));
+    buf += sizeof(uint8_t);
+    if (representation == VariantV2WireRepresentation::ENCODED) {
+        auto decoded = ColumnVariantV2::create();
+        buf = deserialize_encoded_payload(buf, decoded.get(), be_exec_version);
+        *column = std::move(decoded);
+        return buf;
+    }
+    if (representation == VariantV2WireRepresentation::TYPED_SCALAR) {
+        DataTypePtr type = read_variant_v2_type(buf);
+        const DataTypePtr nullable_type = make_nullable(type);
+        MutableColumnPtr typed_column = nullable_type->create_column();
+        buf = nullable_type->deserialize(buf, &typed_column, be_exec_version);
+        *column = ColumnVariantV2::create_typed(std::move(typed_column), std::move(type));
+        return buf;
+    }
+    if (representation == VariantV2WireRepresentation::SHREDDED) {
+        throw Exception(Status::Corruption(
+                "Nested shredded ColumnVariantV2 field payload is not supported"));
+    }
+    throw Exception(Status::Corruption("Unknown ColumnVariantV2 representation tag {}",
+                                       static_cast<uint8_t>(representation)));
+}
+
 int64_t DataTypeVariantV2SerDe::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                   int be_exec_version) {
     const auto& variant = get_variant_v2_column(column);
-    int64_t size = sizeof(bool) + sizeof(size_t) * 2 + sizeof(bool);
-    if (variant.is_typed()) {
-        const DataTypePtr nullable_type = make_nullable(variant._typed_type);
-        return size + VARIANT_V2_TYPE_META_BYTES +
-               nullable_type->get_uncompressed_serialized_bytes(*variant._typed, be_exec_version);
+    int64_t size = VARIANT_V2_COLUMN_HEADER_BYTES;
+    if (!variant.is_shredded()) {
+        add_serialized_size(size, get_non_shredded_payload_size(variant, be_exec_version));
+        return size;
     }
-    const DataTypeString string_type;
-    size += string_type.get_uncompressed_serialized_bytes(*variant._metadatas, be_exec_version);
-    size += sizeof(size_t) + variant._meta_ids->size() * sizeof(uint32_t);
-    size += string_type.get_uncompressed_serialized_bytes(*variant._values, be_exec_version);
+
+    add_serialized_size(size, SHREDDED_WIRE_HEADER_BYTES);
+    add_serialized_size(size, sizeof(uint8_t));
+    add_serialized_size(size, sizeof(uint64_t));
+    add_serialized_size(size, get_encoded_payload_size(variant, be_exec_version));
+    checked_wire_count(variant._shredded_fields.size(), "shredded field");
+    add_serialized_size(size, sizeof(uint32_t));
+    for (const auto& field : variant._shredded_fields) {
+        const auto& parts = field.path.get_parts();
+        checked_wire_count(parts.size(), "path part");
+        add_serialized_size(size, sizeof(uint32_t));
+        for (const auto& part : parts) {
+            checked_wire_count(part.key.size(), "path key byte");
+            add_serialized_size(size, sizeof(uint32_t));
+            add_serialized_size(size, part.key.size());
+            add_serialized_size(size, sizeof(uint8_t) * 2);
+        }
+        const auto& presence = static_cast<const ColumnUInt8::Ptr&>(field.presence)->get_data();
+        add_serialized_size(size, sizeof(uint64_t));
+        add_serialized_size(size, presence.size());
+        add_serialized_size(size, sizeof(uint64_t));
+        add_serialized_size(
+                size, get_non_shredded_payload_size(
+                              assert_cast<const ColumnVariantV2&>(*field.values), be_exec_version));
+    }
     return size;
 }
 
@@ -208,71 +699,260 @@ char* DataTypeVariantV2SerDe::serialize(const IColumn& column, char* buf, int be
     buf = serialize_const_flag_and_row_num(&physical, buf, &saved_rows);
     const auto& variant = assert_cast<const ColumnVariantV2&>(*physical);
     DCHECK_EQ(variant.size(), saved_rows);
-    unaligned_store<bool>(buf, variant.is_typed());
-    buf += sizeof(bool);
-    if (variant.is_typed()) {
-        write_variant_v2_type(variant._typed_type, buf);
-        return make_nullable(variant._typed_type)->serialize(*variant._typed, buf, be_exec_version);
+
+    if (!variant.is_shredded()) {
+        return serialize_non_shredded_payload(variant, buf, be_exec_version);
     }
-    const DataTypeString string_type;
-    buf = string_type.serialize(*variant._metadatas, buf, be_exec_version);
-    buf = serialize_meta_ids(*variant._meta_ids, buf);
-    return string_type.serialize(*variant._values, buf, be_exec_version);
+
+    unaligned_store<uint8_t>(buf, static_cast<uint8_t>(VariantV2WireRepresentation::SHREDDED));
+    buf += sizeof(uint8_t);
+    unaligned_store<uint8_t>(buf, SHREDDED_WIRE_VERSION);
+    buf += sizeof(uint8_t);
+    char* payload_size_position = buf;
+    buf += sizeof(uint64_t);
+    char* const payload_begin = buf;
+
+    // Version 2 reserved this byte for the former mutable-layout state. Keep the framing stable;
+    // fixed-layout S columns always publish the final layout.
+    unaligned_store<uint8_t>(buf, 1);
+    buf += sizeof(uint8_t);
+    char* residual_size_position = buf;
+    buf += sizeof(uint64_t);
+    char* const residual_begin = buf;
+    buf = serialize_encoded_payload(variant, buf, be_exec_version);
+    unaligned_store<uint64_t>(
+            residual_size_position,
+            checked_wire_length(buf - residual_begin, "shredded residual payload"));
+    unaligned_store<uint32_t>(
+            buf, checked_wire_count(variant._shredded_fields.size(), "shredded field"));
+    buf += sizeof(uint32_t);
+    for (const auto& field : variant._shredded_fields) {
+        const auto& parts = field.path.get_parts();
+        unaligned_store<uint32_t>(buf, checked_wire_count(parts.size(), "path part"));
+        buf += sizeof(uint32_t);
+        for (const auto& part : parts) {
+            unaligned_store<uint32_t>(buf, checked_wire_count(part.key.size(), "path key byte"));
+            buf += sizeof(uint32_t);
+            if (!part.key.empty()) {
+                std::memcpy(buf, part.key.data(), part.key.size());
+                buf += part.key.size();
+            }
+            unaligned_store<uint8_t>(buf, part.is_nested ? 1 : 0);
+            buf += sizeof(uint8_t);
+            unaligned_store<uint8_t>(buf, part.anonymous_array_level);
+            buf += sizeof(uint8_t);
+        }
+        const auto& presence = static_cast<const ColumnUInt8::Ptr&>(field.presence)->get_data();
+        unaligned_store<uint64_t>(buf, presence.size());
+        buf += sizeof(uint64_t);
+        if (!presence.empty()) {
+            std::memcpy(buf, presence.data(), presence.size());
+            buf += presence.size();
+        }
+        char* child_size_position = buf;
+        buf += sizeof(uint64_t);
+        char* const child_begin = buf;
+        buf = serialize_non_shredded_payload(assert_cast<const ColumnVariantV2&>(*field.values),
+                                             buf, be_exec_version);
+        unaligned_store<uint64_t>(child_size_position,
+                                  checked_wire_length(buf - child_begin, "shredded child payload"));
+    }
+    unaligned_store<uint64_t>(payload_size_position,
+                              checked_wire_length(buf - payload_begin, "shredded payload"));
+    return buf;
 }
 
 const char* DataTypeVariantV2SerDe::deserialize(const char* buf, MutableColumnPtr* column,
                                                 int be_exec_version) {
-    auto* destination = assert_cast<ColumnVariantV2*>(column->get());
-    size_t saved_rows = 0;
-    buf = deserialize_const_flag_and_row_num(buf, column, &saved_rows);
-    const bool typed = unaligned_load<bool>(buf);
-    buf += sizeof(bool);
-
-    ColumnVariantV2::MutablePtr decoded;
-    if (typed) {
-        DataTypePtr type = read_variant_v2_type(buf);
-        const DataTypePtr nullable_type = make_nullable(type);
-        MutableColumnPtr typed_column = nullable_type->create_column();
-        buf = nullable_type->deserialize(buf, &typed_column, be_exec_version);
-        decoded = ColumnVariantV2::create_typed(std::move(typed_column), std::move(type));
-    } else {
-        const DataTypeString string_type;
-        MutableColumnPtr metadatas = string_type.create_column();
-        MutableColumnPtr meta_ids = MetaIdsColumn::create();
-        MutableColumnPtr values = string_type.create_column();
-        buf = string_type.deserialize(buf, &metadatas, be_exec_version);
-        buf = deserialize_meta_ids(buf, &meta_ids);
-        buf = string_type.deserialize(buf, &values, be_exec_version);
-
-        const auto& ids = assert_cast<const MetaIdsColumn&>(*meta_ids).get_data();
-        if (ids.size() != values->size()) {
+    constexpr size_t REPRESENTATION_OFFSET = VARIANT_V2_COLUMN_HEADER_BYTES;
+    const char* const representation_position = buf + REPRESENTATION_OFFSET;
+    const auto representation = static_cast<VariantV2WireRepresentation>(
+            unaligned_load<uint8_t>(representation_position));
+    if (representation == VariantV2WireRepresentation::SHREDDED) {
+        const char* const payload_size_position = representation_position + sizeof(uint8_t) * 2;
+        const uint64_t payload_size = unaligned_load<uint64_t>(payload_size_position);
+        const uintptr_t payload_address =
+                reinterpret_cast<uintptr_t>(payload_size_position) + sizeof(uint64_t);
+        if (payload_size > std::numeric_limits<uintptr_t>::max() - payload_address) {
             throw Exception(Status::Corruption(
-                    "ColumnVariantV2 metadata id count {} does not match value count {}",
-                    ids.size(), values->size()));
+                    "Shredded ColumnVariantV2 payload length {} overflows address space",
+                    payload_size));
         }
-        for (uint32_t id : ids) {
-            if (id >= metadatas->size()) {
-                throw Exception(Status::Corruption(
-                        "ColumnVariantV2 metadata id {} exceeds metadata count {}", id,
-                        metadatas->size()));
-            }
-        }
-        decoded = ColumnVariantV2::create();
-        static_cast<ColumnString::Ptr&>(decoded->_metadatas) =
-                ColumnString::cast_to_column_ptr(assert_cast<const ColumnString*>(metadatas.get()));
-        static_cast<MetaIdsColumn::Ptr&>(decoded->_meta_ids) = MetaIdsColumn::cast_to_column_ptr(
-                assert_cast<const MetaIdsColumn*>(meta_ids.get()));
-        static_cast<ColumnString::Ptr&>(decoded->_values) =
-                ColumnString::cast_to_column_ptr(assert_cast<const ColumnString*>(values.get()));
-        decoded->sanity_check();
+        return deserialize(buf, reinterpret_cast<const char*>(payload_address + payload_size),
+                           column, be_exec_version);
     }
-    if (decoded->size() != saved_rows) {
+
+    auto* destination = assert_cast<ColumnVariantV2*>(column->get());
+    const auto is_const_flag = unaligned_load<uint8_t>(buf);
+    if (is_const_flag > 1) {
+        throw Exception(
+                Status::Corruption("ColumnVariantV2 has invalid const flag {}", is_const_flag));
+    }
+    const bool is_const = is_const_flag != 0;
+    buf += sizeof(bool);
+    const auto logical_rows = unaligned_load<size_t>(buf);
+    buf += sizeof(size_t);
+    const auto saved_rows = unaligned_load<size_t>(buf);
+    buf += sizeof(size_t);
+    if ((is_const && saved_rows != 1) || (!is_const && saved_rows != logical_rows)) {
+        throw Exception(Status::Corruption(
+                "ColumnVariantV2 invalid row header: const={}, logical rows={}, saved rows={}",
+                is_const, logical_rows, saved_rows));
+    }
+
+    MutableColumnPtr decoded;
+    if (representation != VariantV2WireRepresentation::ENCODED &&
+        representation != VariantV2WireRepresentation::TYPED_SCALAR) {
+        throw Exception(Status::Corruption("Unknown ColumnVariantV2 representation tag {}",
+                                           static_cast<uint8_t>(representation)));
+    }
+    buf = deserialize_non_shredded_payload(buf, &decoded, be_exec_version);
+
+    const auto& decoded_variant = assert_cast<const ColumnVariantV2&>(*decoded);
+    if (decoded_variant.size() != saved_rows) {
         throw Exception(Status::Corruption(
                 "ColumnVariantV2 saved row count {} does not match decoded row count {}",
-                saved_rows, decoded->size()));
+                saved_rows, decoded_variant.size()));
     }
-    destination->_adopt_state_from(*decoded);
+    if (is_const) {
+        ColumnPtr decoded_data = std::move(decoded);
+        *column = ColumnConst::create(std::move(decoded_data), logical_rows);
+    } else {
+        destination->_adopt_state_from(assert_cast<ColumnVariantV2&>(*decoded));
+    }
     return buf;
+}
+
+const char* DataTypeVariantV2SerDe::deserialize(const char* buf, const char* end,
+                                                MutableColumnPtr* column, int be_exec_version) {
+    if (buf == nullptr || end == nullptr || end < buf) {
+        throw Exception(Status::Corruption("ColumnVariantV2 has an invalid wire buffer"));
+    }
+
+    ShreddedWireCursor cursor(buf, static_cast<size_t>(end - buf));
+    const auto header = read_serialized_column_header(cursor, "column header");
+    const char* const representation_position = cursor.position();
+    const auto representation =
+            static_cast<VariantV2WireRepresentation>(cursor.read<uint8_t>("representation header"));
+
+    MutableColumnPtr decoded;
+    const char* result = nullptr;
+    if (representation == VariantV2WireRepresentation::ENCODED ||
+        representation == VariantV2WireRepresentation::TYPED_SCALAR) {
+        result = deserialize_non_shredded_payload(representation_position, &decoded,
+                                                  be_exec_version);
+        if (result > end) {
+            throw Exception(
+                    Status::Corruption("ColumnVariantV2 payload exceeds the provided wire buffer"));
+        }
+    } else if (representation == VariantV2WireRepresentation::SHREDDED) {
+        const auto wire_version = cursor.read<uint8_t>("shredded wire version");
+        if (wire_version != SHREDDED_WIRE_VERSION_WITHOUT_LAYOUT_STATE &&
+            wire_version != SHREDDED_WIRE_VERSION) {
+            throw Exception(Status::Corruption(
+                    "Unsupported shredded ColumnVariantV2 wire version {}", wire_version));
+        }
+        const auto payload_size = cursor.read<uint64_t>("shredded payload length");
+        const auto payload = cursor.read_bytes(payload_size, "shredded payload");
+        result = cursor.position();
+
+        ShreddedWireCursor payload_cursor(payload.data(), payload.size());
+        if (wire_version == SHREDDED_WIRE_VERSION) {
+            const uint8_t sealed_flag =
+                    payload_cursor.read<uint8_t>("shredded path-set sealed flag");
+            if (sealed_flag > 1) {
+                throw Exception(Status::Corruption(
+                        "Shredded ColumnVariantV2 has invalid path-set sealed flag {}",
+                        sealed_flag));
+            }
+        }
+        const auto residual_size = payload_cursor.read<uint64_t>("residual payload length");
+        const auto residual_payload = payload_cursor.read_bytes(residual_size, "residual payload");
+
+        auto residual = ColumnVariantV2::create();
+        const char* const residual_end = deserialize_encoded_payload(
+                residual_payload.data(), residual.get(), be_exec_version);
+        if (residual_end != residual_payload.data() + residual_payload.size()) {
+            throw Exception(Status::Corruption(
+                    "Shredded ColumnVariantV2 residual length does not match its framing"));
+        }
+        if (residual->size() != header.saved_rows) {
+            throw Exception(Status::Corruption(
+                    "Shredded ColumnVariantV2 residual row count {} does not match saved row "
+                    "count {}",
+                    residual->size(), header.saved_rows));
+        }
+
+        const auto field_count = payload_cursor.read<uint32_t>("shredded field count");
+        if (field_count == 0) {
+            throw Exception(
+                    Status::Corruption("Shredded ColumnVariantV2 wire payload has no fields"));
+        }
+        constexpr size_t MINIMUM_FIELD_WIRE_BYTES =
+                sizeof(uint32_t) * 2 + sizeof(uint8_t) * 2 + sizeof(uint64_t) * 2 + sizeof(uint8_t);
+        if (header.saved_rows > std::numeric_limits<size_t>::max() - MINIMUM_FIELD_WIRE_BYTES ||
+            field_count >
+                    payload_cursor.remaining() / (MINIMUM_FIELD_WIRE_BYTES + header.saved_rows)) {
+            throw Exception(Status::Corruption(
+                    "Shredded ColumnVariantV2 field count {} exceeds the payload boundary",
+                    field_count));
+        }
+        ColumnVariantV2::ShreddedFields fields;
+        fields.reserve(field_count);
+        for (uint32_t field_index = 0; field_index < field_count; ++field_index) {
+            const PathInData* previous = fields.empty() ? nullptr : &fields.back().path;
+            auto path = deserialize_shredded_path(payload_cursor, field_index, previous);
+            auto presence = deserialize_shredded_presence(payload_cursor, header.saved_rows);
+            const auto child_size = payload_cursor.read<uint64_t>("child payload length");
+            const auto child_payload = payload_cursor.read_bytes(child_size, "child payload");
+            ShreddedWireCursor child_header(child_payload.data(), child_payload.size());
+            const auto child_representation = static_cast<VariantV2WireRepresentation>(
+                    child_header.read<uint8_t>("child representation"));
+            if (child_representation != VariantV2WireRepresentation::ENCODED &&
+                child_representation != VariantV2WireRepresentation::TYPED_SCALAR) {
+                throw Exception(Status::Corruption(
+                        "Unsupported shredded ColumnVariantV2 child representation {}",
+                        static_cast<uint8_t>(child_representation)));
+            }
+
+            MutableColumnPtr values;
+            const char* const child_end = deserialize_non_shredded_payload(
+                    child_payload.data(), &values, be_exec_version);
+            if (child_end != child_payload.data() + child_payload.size()) {
+                throw Exception(Status::Corruption(
+                        "Shredded ColumnVariantV2 child length does not match its framing"));
+            }
+            if (values->size() != header.saved_rows) {
+                throw Exception(Status::Corruption(
+                        "Shredded ColumnVariantV2 child row count {} does not match saved row "
+                        "count {}",
+                        values->size(), header.saved_rows));
+            }
+            fields.emplace_back(std::move(path), std::move(values), std::move(presence));
+        }
+        payload_cursor.require_empty("payload");
+        validate_shredded_wire_fields(*residual, fields);
+        decoded = ColumnVariantV2::_create_shredded_from_valid_parts(std::move(residual),
+                                                                     std::move(fields));
+    } else {
+        throw Exception(Status::Corruption("Unknown ColumnVariantV2 representation header {}",
+                                           static_cast<uint8_t>(representation)));
+    }
+
+    const auto& decoded_variant = assert_cast<const ColumnVariantV2&>(*decoded);
+    if (decoded_variant.size() != header.saved_rows) {
+        throw Exception(Status::Corruption(
+                "ColumnVariantV2 saved row count {} does not match decoded row count {}",
+                header.saved_rows, decoded_variant.size()));
+    }
+    if (header.is_const) {
+        ColumnPtr decoded_data = std::move(decoded);
+        *column = ColumnConst::create(std::move(decoded_data), header.logical_rows);
+    } else {
+        auto* destination = assert_cast<ColumnVariantV2*>(column->get());
+        destination->_adopt_state_from(assert_cast<ColumnVariantV2&>(*decoded));
+    }
+    return result;
 }
 
 std::string DataTypeVariantV2SerDe::get_name() const {
@@ -284,9 +964,10 @@ Status DataTypeVariantV2SerDe::serialize_one_cell_to_json(const IColumn& column,
                                                           FormatOptions& options) const {
     RETURN_IF_CATCH_EXCEPTION({
         const size_t row = checked_row(row_num);
-        preflight_json(column, row, row + 1, options);
-        visit_variant_v2_values(
-                column, row, row + 1, {}, [](size_t) {},
+        VariantV2OutputRange output(column, row, row + 1);
+        preflight_json(output, options);
+        output.visit(
+                {}, [](size_t) {},
                 [&](size_t, VariantRef value) { write_json_value(value, bw, options); });
     });
     return Status::OK();
@@ -298,9 +979,10 @@ Status DataTypeVariantV2SerDe::serialize_column_to_json(const IColumn& column, i
     RETURN_IF_CATCH_EXCEPTION({
         const size_t start = checked_row(start_idx);
         const size_t end = checked_row(end_idx);
-        preflight_json(column, start, end, options);
-        visit_variant_v2_values(
-                column, start, end, {}, [](size_t) {},
+        VariantV2OutputRange output(column, start, end);
+        preflight_json(output, options);
+        output.visit(
+                {}, [](size_t) {},
                 [&](size_t row, VariantRef value) {
                     if (row != start) {
                         bw.write(options.field_delim.data(), options.field_delim.size());
@@ -439,17 +1121,12 @@ void DataTypeVariantV2SerDe::read_one_cell_from_jsonb(IColumn& column,
 
 namespace {
 
-DorisVector<size_t> json_lengths(const IColumn& column, size_t start, size_t end,
+DorisVector<size_t> json_lengths(const VariantV2OutputRange& output, size_t start, size_t end,
                                  const NullMap* null_map,
                                  const DataTypeSerDe::FormatOptions& options) {
-    if (start > end || end > column.size()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant row range [{}, {}) exceeds column size {}", start, end,
-                        column.size());
-    }
     DorisVector<size_t> lengths(end - start, 0);
-    visit_variant_v2_values(
-            column, start, end, forced_nulls(null_map), [](size_t) {},
+    output.visit(
+            forced_nulls(null_map), [](size_t) {},
             [&](size_t row, VariantRef value) {
                 CountingWriter writer;
                 write_json_value(value, writer, options);
@@ -461,15 +1138,16 @@ DorisVector<size_t> json_lengths(const IColumn& column, size_t start, size_t end
 template <typename Builder>
 Status write_arrow(const IColumn& column, const NullMap* null_map, Builder& builder, size_t start,
                    size_t end, const DataTypeSerDe::FormatOptions& options) {
-    const DorisVector<size_t> lengths = json_lengths(column, start, end, null_map, options);
+    VariantV2OutputRange output(column, start, end);
+    const DorisVector<size_t> lengths = json_lengths(output, start, end, null_map, options);
     const size_t maximum = lengths.empty() ? 0 : *std::ranges::max_element(lengths);
     if (maximum > static_cast<size_t>(std::numeric_limits<typename Builder::offset_type>::max())) {
         return Status::InvalidArgument("Variant JSON value exceeds Arrow offset range");
     }
     DorisVector<char> rendered(maximum);
     Status status = Status::OK();
-    visit_variant_v2_values(
-            column, start, end, forced_nulls(null_map),
+    output.visit(
+            forced_nulls(null_map),
             [&](size_t) {
                 if (status.ok()) {
                     status = checkArrowStatus(builder.AppendNull(), column, builder);
@@ -506,20 +1184,47 @@ void DataTypeVariantV2SerDe::to_string(const IColumn& column, size_t row_num, Bu
             });
 }
 
+void DataTypeVariantV2SerDe::to_string_batch(const IColumn& column, ColumnString& column_to,
+                                             const FormatOptions& options) const {
+    const size_t rows = column.size();
+    column_to.reserve(rows);
+    BufferWritable writer(column_to);
+    VariantV2OutputRange output(column, 0, rows);
+    output.visit(
+            {},
+            [&](size_t) {
+                if (_nesting_level > 1) {
+                    writer.write("null", 4);
+                } else {
+                    writer.write("NULL", 4);
+                }
+                writer.commit();
+            },
+            [&](size_t, VariantRef value) {
+                if (_nesting_level > 1) {
+                    write_json_value(value, writer, options);
+                } else {
+                    write_sql_value(value, writer, options);
+                }
+                writer.commit();
+            });
+}
+
 Status DataTypeVariantV2SerDe::write_column_to_mysql_binary(const IColumn& column,
                                                             MysqlRowBinaryBuffer& row_buffer,
                                                             int64_t row_idx, bool col_const,
                                                             const FormatOptions& options) const {
     RETURN_IF_CATCH_EXCEPTION({
         const size_t row = col_const ? 0 : checked_row(row_idx);
+        VariantV2OutputRange output(column, row, row + 1);
         CountingWriter counter;
-        visit_variant_v2_values(
-                column, row, row + 1, {}, [](size_t) {},
+        output.visit(
+                {}, [](size_t) {},
                 [&](size_t, VariantRef value) { write_sql_value(value, counter, options); });
         const size_t rendered_size = counter.count;
         DorisVector<char> rendered(rendered_size == 0 ? 1 : rendered_size);
-        visit_variant_v2_values(
-                column, row, row + 1, {}, [](size_t) {},
+        output.visit(
+                {}, [](size_t) {},
                 [&](size_t, VariantRef value) {
                     FixedWriter writer {.destination = rendered.data(), .capacity = rendered_size};
                     write_sql_value(value, writer, options);
@@ -571,7 +1276,8 @@ Status DataTypeVariantV2SerDe::write_column_to_orc(const std::string&, const ICo
     RETURN_IF_CATCH_EXCEPTION({
         const size_t first = checked_row(start);
         const size_t last = checked_row(end);
-        const DorisVector<size_t> lengths = json_lengths(column, first, last, null_map, options);
+        VariantV2OutputRange output(column, first, last);
+        const DorisVector<size_t> lengths = json_lengths(output, first, last, null_map, options);
         size_t total_size = 0;
         for (size_t length : lengths) {
             if (length > std::numeric_limits<size_t>::max() - total_size) {
@@ -579,11 +1285,11 @@ Status DataTypeVariantV2SerDe::write_column_to_orc(const std::string&, const ICo
             }
             total_size += length;
         }
-        char* output = total_size == 0 ? nullptr : arena.alloc(total_size);
+        char* output_bytes = total_size == 0 ? nullptr : arena.alloc(total_size);
         size_t offset = 0;
         batch->hasNulls = null_map != nullptr;
-        visit_variant_v2_values(
-                column, first, last, forced_nulls(null_map),
+        output.visit(
+                forced_nulls(null_map),
                 [&](size_t row) {
                     batch->notNull[row] = 0;
                     batch->data[row] = nullptr;
@@ -591,8 +1297,8 @@ Status DataTypeVariantV2SerDe::write_column_to_orc(const std::string&, const ICo
                 },
                 [&](size_t row, VariantRef value) {
                     batch->notNull[row] = 1;
-                    batch->data[row] = output + offset;
-                    FixedWriter writer {.destination = output + offset,
+                    batch->data[row] = output_bytes + offset;
+                    FixedWriter writer {.destination = output_bytes + offset,
                                         .capacity = lengths[row - first]};
                     write_json_value(value, writer, options);
                     DCHECK_EQ(writer.written, lengths[row - first]);

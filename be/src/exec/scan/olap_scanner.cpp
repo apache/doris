@@ -1039,6 +1039,8 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.variant_subtree_sparse_iter_count);
     COUNTER_UPDATE(local_state->_variant_doc_value_column_iter_count,
                    stats.variant_doc_value_column_iter_count);
+    COUNTER_UPDATE(local_state->_variant_v2_shredded_output_rows,
+                   stats.variant_v2_shredded_output_rows);
 
     if (stats.adaptive_batch_size_predict_max_rows > 0) {
         local_state->_adaptive_batch_predict_min_rows_counter->set(
