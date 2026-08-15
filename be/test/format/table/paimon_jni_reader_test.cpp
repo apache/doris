@@ -101,13 +101,13 @@ TEST(LegacyPaimonJniReaderTest, DecodesVariantV2BinaryStructFromJavaMetadata) {
     std::array<uint8_t, 2> outer_nulls {0, 1};
     std::array<uint8_t, 2> child_nulls {0, 1};
     std::array<JavaVarbinaryEntry, 2> value_entries {
-            JavaVarbinaryEntry {static_cast<int64_t>(expected.value.size),
-                                reinterpret_cast<uint64_t>(expected.value.data)},
-            JavaVarbinaryEntry {0, 0}};
+            JavaVarbinaryEntry {.length = static_cast<int64_t>(expected.value.size),
+                                .address = reinterpret_cast<uint64_t>(expected.value.data)},
+            JavaVarbinaryEntry {.length = 0, .address = 0}};
     std::array<JavaVarbinaryEntry, 2> metadata_entries {
-            JavaVarbinaryEntry {static_cast<int64_t>(expected.metadata.size),
-                                reinterpret_cast<uint64_t>(expected.metadata.data)},
-            JavaVarbinaryEntry {0, 0}};
+            JavaVarbinaryEntry {.length = static_cast<int64_t>(expected.metadata.size),
+                                .address = reinterpret_cast<uint64_t>(expected.metadata.data)},
+            JavaVarbinaryEntry {.length = 0, .address = 0}};
     std::array<long, 5> metadata {reinterpret_cast<long>(outer_nulls.data()),
                                   reinterpret_cast<long>(child_nulls.data()),
                                   reinterpret_cast<long>(value_entries.data()),
@@ -130,7 +130,8 @@ TEST(LegacyPaimonJniReaderTest, DecodesVariantV2BinaryStructFromJavaMetadata) {
     EXPECT_TRUE(variants.get_value_ref(1).is_null());
 }
 
-TEST(LegacyPaimonJniReaderTest, DecodesLegacyVariantBinaryStructFromJavaMetadata) {
+TEST(LegacyPaimonJniReaderTest, // NOLINT(readability-function-cognitive-complexity)
+     DecodesLegacyVariantBinaryStructFromJavaMetadata) {
     const std::vector<std::string> json_rows {
             R"({"name":"alpha","score":12.5,"tags":["dts","fluss","paimon"]})",
             R"({"active":true,"name":"beta","nested":{"version":"2.0"}})", "null", "null", "123"};
@@ -146,13 +147,13 @@ TEST(LegacyPaimonJniReaderTest, DecodesLegacyVariantBinaryStructFromJavaMetadata
     std::array<JavaVarbinaryEntry, 5> metadata_entries;
     for (size_t row = 0; row < json_rows.size(); ++row) {
         const VariantRef value = source.value_at(row);
-        value_entries[row] = {static_cast<int64_t>(value.value.size),
-                              reinterpret_cast<uint64_t>(value.value.data)};
-        metadata_entries[row] = {static_cast<int64_t>(value.metadata.size),
-                                 reinterpret_cast<uint64_t>(value.metadata.data)};
+        value_entries[row] = {.length = static_cast<int64_t>(value.value.size),
+                              .address = reinterpret_cast<uint64_t>(value.value.data)};
+        metadata_entries[row] = {.length = static_cast<int64_t>(value.metadata.size),
+                                 .address = reinterpret_cast<uint64_t>(value.metadata.data)};
     }
-    value_entries[3] = {0, 0};
-    metadata_entries[3] = {0, 0};
+    value_entries[3] = {.length = 0, .address = 0};
+    metadata_entries[3] = {.length = 0, .address = 0};
     std::array<long, 5> metadata {reinterpret_cast<long>(outer_nulls.data()),
                                   reinterpret_cast<long>(child_nulls.data()),
                                   reinterpret_cast<long>(value_entries.data()),
