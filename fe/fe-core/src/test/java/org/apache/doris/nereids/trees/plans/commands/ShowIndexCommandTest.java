@@ -30,7 +30,6 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalDatabase;
-import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.lance.LanceLogicalIndex;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.info.TableNameInfo;
@@ -204,43 +203,19 @@ public class ShowIndexCommandTest extends TestWithFeService {
     }
 
     @Test
-    void testLanceRestUnsupportedErrorPropagatesThroughRouting() throws Exception {
-        LanceExternalCatalog realCatalog = (LanceExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
+    void testAuthorizedLanceRestRejectedBeforeCatalogInitialization() throws Exception {
+        LanceExternalCatalog catalog = (LanceExternalCatalog) Env.getCurrentEnv().getCatalogMgr()
                 .getCatalog(REST_LANCE_CATALOG);
-        AnalysisException catalogException = Assertions.assertThrows(
-                AnalysisException.class,
-                () -> realCatalog.loadTableIndexMetadata("unreachable_db", "unreachable_table"));
+        Assertions.assertFalse(catalog.isInitialized());
+        ShowIndexCommand command = new ShowIndexCommand(
+                new TableNameInfo(REST_LANCE_CATALOG, "unreachable_db", "unreachable_table"));
+
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class, () -> command.doRun(connectContext, null));
+
         Assertions.assertEquals(
-                "SHOW INDEX is not supported for Lance REST catalogs", catalogException.getDetailMessage());
-
-        Env mockedEnvironment = Mockito.mock(Env.class);
-        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
-        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
-        LanceExternalCatalog catalog = Mockito.mock(LanceExternalCatalog.class);
-        LanceExternalDatabase database = Mockito.mock(LanceExternalDatabase.class);
-        LanceExternalTable table = Mockito.mock(LanceExternalTable.class);
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(mockedEnvironment);
-            Mockito.when(mockedEnvironment.getAccessManager()).thenReturn(accessManager);
-            Mockito.when(accessManager.checkTblPriv(
-                    Mockito.any(ConnectContext.class), Mockito.eq("lance_rest"), Mockito.eq("db"),
-                    Mockito.eq("table"),
-                    Mockito.eq(PrivPredicate.SHOW))).thenReturn(true);
-            Mockito.when(mockedEnvironment.getCatalogMgr()).thenReturn(catalogMgr);
-            Mockito.when(catalogMgr.getCatalogOrAnalysisException("lance_rest")).thenReturn(catalog);
-            Mockito.doReturn(database).when(catalog).getDbOrAnalysisException("db");
-            Mockito.when(database.getTableOrAnalysisException("table")).thenReturn(table);
-            Mockito.when(table.loadIndexMetadata()).thenThrow(
-                    new AnalysisException("SHOW INDEX is not supported for Lance REST catalogs"));
-            ShowIndexCommand command = new ShowIndexCommand(
-                    new TableNameInfo("lance_rest", "db", "table"));
-
-            AnalysisException exception = Assertions.assertThrows(
-                    AnalysisException.class, () -> command.doRun(connectContext, null));
-
-            Assertions.assertEquals(
-                    "SHOW INDEX is not supported for Lance REST catalogs", exception.getDetailMessage());
-        }
+                "SHOW INDEX is not supported for Lance REST catalogs", exception.getDetailMessage());
+        Assertions.assertFalse(catalog.isInitialized());
     }
 
     @Test
@@ -260,6 +235,7 @@ public class ShowIndexCommandTest extends TestWithFeService {
                     Mockito.eq(PrivPredicate.SHOW))).thenReturn(true);
             Mockito.when(mockedEnvironment.getCatalogMgr()).thenReturn(catalogMgr);
             Mockito.when(catalogMgr.getCatalogOrAnalysisException("lance_fs")).thenReturn(catalog);
+            Mockito.when(catalog.isRestCatalogConfigured()).thenReturn(false);
             Mockito.doReturn(database).when(catalog).getDbOrAnalysisException("db");
             Mockito.doReturn(notLanceTable).when(database).getTableOrAnalysisException("table");
             ShowIndexCommand command = new ShowIndexCommand(

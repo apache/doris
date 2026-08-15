@@ -52,6 +52,7 @@ suite("test_lance_show_index", "p0,external") {
         order_qt_show_indexes """SHOW INDEXES FROM `${filesystemCatalog}`.`doris`.`vector_search`"""
         order_qt_show_key """SHOW KEY FROM `${filesystemCatalog}`.`doris`.`vector_search`"""
         order_qt_show_keys """SHOW KEYS FROM `${filesystemCatalog}`.`doris`.`vector_search`"""
+        order_qt_nested_index """SHOW INDEX FROM `${filesystemCatalog}`.`doris`.`nested_index`"""
         order_qt_no_indexes """SHOW INDEX FROM `${filesystemCatalog}`.`doris`.`predicate_pushdown`"""
 
         sql """
