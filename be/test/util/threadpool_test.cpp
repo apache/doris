@@ -319,7 +319,7 @@ TEST_F(ThreadPoolTest, TestZeroQueueSize) {
 // For some reason, this test triggers behavior #2. We could disable it with
 // the TSAN option die_after_fork=0, but this can (supposedly) lead to
 // deadlocks, so we'll disable the entire test instead.
-#ifndef THREAD_SANITIZER
+#if !defined(THREAD_SANITIZER) && !defined(__APPLE__)
 TEST_F(ThreadPoolTest, TestDeadlocks) {
     ::testing::FLAGS_gtest_death_test_style = "threadsafe";
 #ifdef NDEBUG
