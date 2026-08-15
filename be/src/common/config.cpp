@@ -1673,11 +1673,16 @@ DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/trino_plugins")
 DEFINE_String(jni_plugin_dir, "${DORIS_HOME}/plugins/jni");
 
 // Whether to load every deployed plugin at startup rather than on the query that first needs
-// one. On by default because the alternative is that a broken deployment is discovered by a
-// user's query rather than by the log. It is not a reason to create a JVM: with no plugin
-// deployed there is nothing to warm, and a BE that reads no Java table format still starts
-// without one.
-DEFINE_Bool(java_plugin_warmup, "true");
+// one. Off by default: warming a plugin keeps its whole jar closure open for the life of the
+// process - one classloader per plugin, holding every jar in its directory - which is several
+// hundred file descriptors on a BE that may never read a Java table format at all. That budget
+// is shared with everything else the process opens, and on macOS a descriptor numbered past
+// FD_SETSIZE breaks every libcurl transfer, because curl is built without poll() there and its
+// select() fallback cannot name one. Turning this on buys the opposite trade: a broken
+// deployment is found in the log at startup rather than in a user's query.
+// It is not a reason to create a JVM either way: with no plugin deployed there is nothing to
+// warm, and a BE that reads no Java table format still starts without one.
+DEFINE_Bool(java_plugin_warmup, "false");
 
 // ca_cert_file is in this path by default, Normally no modification is required
 // ca cert default path is different from different OS
