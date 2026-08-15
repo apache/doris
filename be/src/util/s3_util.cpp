@@ -175,7 +175,7 @@ S3ClientFactory::S3ClientFactory() {
         return std::make_shared<DorisAWSLogger>(logLevel);
     };
     Aws::InitAPI(_aws_options);
-    _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
+    _get_ca_cert_file_path();
 
 #ifdef USE_AZURE
     auto azureLogLevel =
@@ -279,19 +279,17 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_azure_cli
     options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
     options.Retry.MaxRetries = config::max_s3_client_retry;
     options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
-    if (_ca_cert_file_path.empty()) {
-        _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
-    }
-    if (!_ca_cert_file_path.empty()) {
+    auto ca_cert_file_path = _get_ca_cert_file_path();
+    if (!ca_cert_file_path.empty()) {
         Azure::Core::Http::CurlTransportOptions curl_options;
-        curl_options.CAInfo = _ca_cert_file_path;
+        curl_options.CAInfo = ca_cert_file_path;
         options.Transport.Transport =
                 std::make_shared<Azure::Core::Http::CurlTransport>(std::move(curl_options));
     }
 
     std::string normalized_uri = normalize_http_uri(uri);
     VLOG_DEBUG << "uri:" << uri << ", normalized_uri:" << normalized_uri;
-    std::string tls_debug_context = build_azure_tls_debug_context(_ca_cert_file_path);
+    std::string tls_debug_context = build_azure_tls_debug_context(ca_cert_file_path);
 
     auto built = AzureAuthFactory::create(uri,
                                           {
@@ -320,10 +318,19 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_azure_cli
 #endif
 }
 
+std::string S3ClientFactory::_get_ca_cert_file_path() {
+    std::lock_guard lock(_ca_cert_lock);
+    if (_ca_cert_file_path.empty()) {
+        _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
+    }
+    return _ca_cert_file_path;
+}
+
 AwsCredentialResult S3ClientFactory::create_aws_credentials_provider(const S3ClientConf& s3_conf) {
     auto sts_config = S3ClientFactory::getClientConfiguration();
-    if (!_ca_cert_file_path.empty()) {
-        sts_config.caFile = _ca_cert_file_path;
+    auto ca_cert_file_path = _get_ca_cert_file_path();
+    if (!ca_cert_file_path.empty()) {
+        sts_config.caFile = ca_cert_file_path;
     }
     return AwsCredentialFactory::create({
             .version = config::aws_credentials_provider_version == "v2"
@@ -352,12 +359,9 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client
     }
     aws_config.region = s3_conf.region;
 
-    if (_ca_cert_file_path.empty()) {
-        _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
-    }
-
-    if (!_ca_cert_file_path.empty()) {
-        aws_config.caFile = _ca_cert_file_path;
+    auto ca_cert_file_path = _get_ca_cert_file_path();
+    if (!ca_cert_file_path.empty()) {
+        aws_config.caFile = ca_cert_file_path;
     }
 
     if (s3_conf.max_connections > 0) {

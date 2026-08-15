@@ -24,6 +24,9 @@
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/cloud.pb.h>
+#ifdef BE_TEST
+#include <gtest/gtest_prod.h>
+#endif
 
 #include <functional>
 #include <map>
@@ -167,14 +170,19 @@ public:
 #endif
 
 private:
+#ifdef BE_TEST
+    FRIEND_TEST(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider);
+#endif
     Result<std::shared_ptr<io::ObjStorageClient>> _create_s3_client(const S3ClientConf& s3_conf);
     Result<std::shared_ptr<io::ObjStorageClient>> _create_azure_client(const S3ClientConf& s3_conf);
+    std::string _get_ca_cert_file_path();
     S3ClientFactory();
 
     Aws::SDKOptions _aws_options;
     std::mutex _lock;
     std::unordered_map<S3ClientConf, std::shared_ptr<io::ObjStorageClient>, S3ClientConfHash>
             _cache;
+    std::mutex _ca_cert_lock;
     std::string _ca_cert_file_path;
 #ifdef BE_TEST
     std::function<std::shared_ptr<io::ObjStorageClient>(const S3ClientConf&)> _test_client_creator;

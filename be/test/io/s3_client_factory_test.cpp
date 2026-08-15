@@ -21,8 +21,11 @@
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/s3/model/HeadObjectResult.h>
 #include <gtest/gtest.h>
+#include <unistd.h>
 
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -360,6 +363,45 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
     }
 
     config::aws_credentials_provider_version = "v2";
+}
+
+TEST_F(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider) {
+    auto& factory = S3ClientFactory::instance();
+    auto old_ca_cert_file_paths = config::ca_cert_file_paths;
+    std::string old_ca_cert_file_path;
+    {
+        std::lock_guard lock(factory._ca_cert_lock);
+        old_ca_cert_file_path = std::exchange(factory._ca_cert_file_path, "");
+    }
+
+    auto ca_cert_file_path = std::filesystem::temp_directory_path() /
+                             ("doris_s3_client_factory_ca_" + std::to_string(getpid()) + ".pem");
+    std::filesystem::remove(ca_cert_file_path);
+    config::ca_cert_file_paths = ca_cert_file_path.string();
+
+    S3ClientConf role_conf;
+    role_conf.cred_provider_type = CredProviderType::InstanceProfile;
+    role_conf.role_arn = "role_arn";
+    auto provider_without_ca = factory.create_aws_credentials_provider(role_conf).provider;
+
+    {
+        std::ofstream ca_cert_file(ca_cert_file_path);
+        ca_cert_file << "test CA bundle";
+    }
+    auto provider_with_ca = factory.create_aws_credentials_provider(role_conf).provider;
+
+    std::string refreshed_ca_cert_file_path;
+    {
+        std::lock_guard lock(factory._ca_cert_lock);
+        refreshed_ca_cert_file_path = factory._ca_cert_file_path;
+        factory._ca_cert_file_path = std::move(old_ca_cert_file_path);
+    }
+    config::ca_cert_file_paths = std::move(old_ca_cert_file_paths);
+    std::filesystem::remove(ca_cert_file_path);
+
+    EXPECT_NE(provider_without_ca, nullptr);
+    EXPECT_NE(provider_with_ca, nullptr);
+    EXPECT_EQ(refreshed_ca_cert_file_path, ca_cert_file_path.string());
 }
 
 TEST_F(S3ClientFactoryTest, SetS3ClientDefaultHttpScheme) {
