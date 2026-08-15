@@ -83,6 +83,46 @@ under the License.
                     </archive>
                 </configuration>
             </plugin>
+            <!--
+              Every module here that deploys as a plugin fills target/lib with copy-dependencies,
+              and build.sh copies target/lib/*.jar into the plugin directory verbatim. copy-
+              dependencies only ever adds: it never removes a jar the pom has stopped declaring. So
+              a working copy built twice without `mvn clean` - the normal way to iterate - deploys
+              the union of both dependency sets, and the second build's plugin directory is not the
+              one CI would produce from the same pom.
+
+              That difference runs the wrong way round. A dependency dropped or narrowed to test
+              scope keeps working locally, out of a jar nothing declares any more, while the clean
+              build that finds out is somebody else's. Wiping the directory in the phase before
+              copy-dependencies refills it makes an incremental build's plugin directory equal to a
+              clean one's.
+
+              A cache-restored module skips both executions and keeps the target/lib its own last
+              real build wrote, which is consistent for the same reason.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-clean-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>wipe-plugin-lib</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Only this directory. The default set is target/ as a whole, which
+                                 at prepare-package would delete the classes about to be jarred. -->
+                            <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                            <filesets>
+                                <fileset>
+                                    <directory>${project.build.directory}/lib</directory>
+                                </fileset>
+                            </filesets>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
