@@ -24,6 +24,7 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -256,9 +257,18 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
             // Emit an explicit +00:00 suffix so that downstream consumers
             // (PartitionKey.createPartitionKey -> TimestampTzLiteral.fromSessionTimeZone)
             // interpret the value as UTC rather than session-local time.
-            return String.format(PartitionExprUtil.DATETIME_FORMATTER,
+            // The fractional-second digits must match DateLiteral#getStringValue() for TIMESTAMPTZ,
+            // otherwise the roll-up partition key desc is not string-equal to the desc of the
+            // actually-created MTMV partition and the partition-mapping lookup in
+            // MTMV#calculatePartitionMappings finds no mapping (MTMV becomes unusable for rewrite).
+            int scale = ((ScalarType) partitionColumnType).getScalarScale();
+            String timeStr = String.format(PartitionExprUtil.DATETIME_FORMATTER,
                     literal.getYear(), literal.getMonth(), literal.getDay(),
-                    literal.getHour(), literal.getMinute(), literal.getSecond()) + "+00:00";
+                    literal.getHour(), literal.getMinute(), literal.getSecond());
+            if (scale > 0) {
+                timeStr += String.format(".%0" + scale + "d", literal.getMicroSecond());
+            }
+            return timeStr + "+00:00";
         } else {
             throw new AnalysisException(
                     "MTMV not support partition with column type : " + partitionColumnType);

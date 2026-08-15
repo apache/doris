@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
@@ -220,6 +221,22 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             MaterializationContext materializationContext) throws AnalysisException {
         List<Plan> rewriteResults = new ArrayList<>();
         StructInfo viewStructInfo = materializationContext.getStructInfo();
+        // A guarded rewrite cache is built when the query session differs from the MV creation session for
+        // some affectQueryResult family (e.g. a different time zone), and MTMVCache.from wraps the affected
+        // expressions in cache SessionVarGuardExpr. Such a cache must never be substituted for the query:
+        // the materialized values were computed in the creation session, and reading them would silently
+        // differ from what the query computes in its own session (e.g. date_trunc on a timestamptz truncates
+        // to the UTC day in a UTC-created cache while the +08:00 query would evaluate it in the local zone).
+        // This is the definitive gate for both the CBO path and the pre-RBO path, where the recorded query
+        // plan may still carry the query-side guard that BindRelation added while expanding a nested view,
+        // so expression-level matching alone cannot tell the two guards apart.
+        if (containsCacheGuard(viewStructInfo.getOriginalPlan())) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "Materialized view cache carries a session-variable guard",
+                    () -> String.format("the cache was built for a different session, plan is %s",
+                            viewStructInfo.getOriginalPlan().treeString()));
+            return rewriteResults;
+        }
         MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations(),
                 cascadesContext);
         if (MatchMode.COMPLETE != matchMode && MatchMode.QUERY_PARTIAL != matchMode) {
@@ -1058,6 +1075,23 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     protected boolean checkIfRewritten(Plan plan, MaterializationContext context) {
         return plan.getGroupExpression().isPresent()
                 && context.alreadyRewrite(plan.getGroupExpression().get().getOwnerGroup().getGroupId());
+    }
+
+    /**
+     * Whether the materialized view plan carries a cache guard: a {@link SessionVarGuardExpr} added by
+     * MTMVCache.from for a guard family that differs between the query session and the MV creation session.
+     * Such a cache must not rewrite the query (see {@link #doRewrite}).
+     */
+    private static boolean containsCacheGuard(Plan plan) {
+        for (Plan node : plan.<Plan>collectToList(p -> true)) {
+            for (Expression expr : node.getExpressions()) {
+                Optional<SessionVarGuardExpr> guard = expr.collectFirst(SessionVarGuardExpr.class::isInstance);
+                if (guard.isPresent() && guard.get().isCacheGuard()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     // check mv plan is valid or not, this can use cache for performance
