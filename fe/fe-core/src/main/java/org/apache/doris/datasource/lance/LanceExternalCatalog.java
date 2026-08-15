@@ -345,9 +345,20 @@ public class LanceExternalCatalog extends ExternalCatalog {
 
         ResolvedTableAccess tableAccess = null;
         try {
+            // Keep Directory namespace resolution on the caller while it owns the catalog's
+            // shared namespace and allocator. Moving that shared owner into a timed task would
+            // let catalog close release it after the caller returns but before the task ends.
+            // The deadline below covers the Dataset/JNI index metadata read itself.
             tableAccess = resolveTableAccess(dbName, tableName);
-            return LanceIndexMetadataLoader.load(
-                    tableAccess.datasetUri, tableAccess.javaStorageOptions, allocator);
+            String datasetUri = tableAccess.datasetUri;
+            Map<String, String> storageOptions = tableAccess.javaStorageOptions;
+            return LanceMetadataReadExecutor.execute(() -> {
+                // The caller may return on deadline while JNI is still running. A task-owned
+                // allocator prevents catalog close from releasing native resources prematurely.
+                try (BufferAllocator readAllocator = new RootAllocator(ALLOCATOR_LIMIT)) {
+                    return LanceIndexMetadataLoader.load(datasetUri, storageOptions, readAllocator);
+                }
+            });
         } catch (Exception e) {
             String datasetUri = tableAccess == null ? null : tableAccess.datasetUri;
             Map<String, String> runtimeStorageOptions = tableAccess == null

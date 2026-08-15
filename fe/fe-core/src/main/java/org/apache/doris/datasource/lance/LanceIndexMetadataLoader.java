@@ -50,15 +50,18 @@ import java.util.TreeMap;
 public final class LanceIndexMetadataLoader {
     private static final int MAX_LOGICAL_INDEXES = 256;
     private static final int MAX_COLUMNS_PER_INDEX = 64;
+    // Post-JNI cap for physical entries, independent of the logical-name limit.
+    private static final int MAX_PHYSICAL_INDEX_ENTRIES = 16 * 1024;
     private static final int MAX_COLUMN_NAMES_BYTES = 16 * 1024;
+    private static final int MAX_SCHEMA_FIELDS = MAX_LOGICAL_INDEXES * MAX_COLUMNS_PER_INDEX;
+    private static final int MAX_SCHEMA_DEPTH = 64;
     private static final int MAX_EXTERNAL_STRING_BYTES = 1024;
     private static final int MAX_PROPERTIES_BYTES = 400;
 
-    // Accept both MemWAL spellings exposed by Lance producers/SDK paths.
+    // System entries exposed by the pinned Lance producers and SDK paths.
     private static final Set<String> SYSTEM_INDEX_NAMES = ImmutableSet.of(
             "__lance_frag_reuse",
-            "__lance_mem_wal",
-            "__mem_wal");
+            "__lance_mem_wal");
     private static final Set<String> TOP_LEVEL_PROPERTY_ALLOWLIST = ImmutableSet.of(
             "metric_type",
             "target_partition_size");
@@ -94,6 +97,11 @@ public final class LanceIndexMetadataLoader {
         if (listedNames == null) {
             throw new IllegalArgumentException("Lance index names must not be null");
         }
+        if (listedNames.size() > MAX_PHYSICAL_INDEX_ENTRIES) {
+            throw new IllegalArgumentException(
+                    "Lance physical index entry count exceeds limit "
+                            + MAX_PHYSICAL_INDEX_ENTRIES);
+        }
 
         Set<String> userIndexNames = new LinkedHashSet<>();
         for (String listedName : listedNames) {
@@ -101,6 +109,7 @@ public final class LanceIndexMetadataLoader {
                 continue;
             }
             String name = requireExternalString(listedName, "Lance logical index name");
+            // nativeListIndexes returns physical entries, so one logical name can repeat.
             userIndexNames.add(name);
             if (userIndexNames.size() > MAX_LOGICAL_INDEXES) {
                 throw new IllegalArgumentException(
@@ -115,13 +124,23 @@ public final class LanceIndexMetadataLoader {
             if (matching == null) {
                 throw new IllegalArgumentException("Lance index descriptions must not be null");
             }
-            for (IndexDescription description : matching) {
-                descriptions.add(description);
-                if (descriptions.size() > MAX_LOGICAL_INDEXES) {
-                    throw new IllegalArgumentException(
-                            "Lance logical index count exceeds limit " + MAX_LOGICAL_INDEXES);
-                }
+            // A criteria query is an exact lookup; any other cardinality is inconsistent metadata.
+            if (matching.size() != 1) {
+                throw new IllegalArgumentException(
+                        "Lance index criteria must return exactly one description");
             }
+            IndexDescription description = matching.get(0);
+            if (description == null) {
+                throw new IllegalArgumentException(
+                        "Lance logical index description must not be null");
+            }
+            String describedName = requireExternalString(
+                    description.getName(), "Lance logical index name");
+            if (!name.equals(describedName)) {
+                throw new IllegalArgumentException(
+                        "Lance index description name does not match requested name");
+            }
+            descriptions.add(description);
         }
         return descriptions;
     }
@@ -130,21 +149,37 @@ public final class LanceIndexMetadataLoader {
         if (fields == null) {
             throw new IllegalArgumentException("Lance schema fields must not be null");
         }
+        if (fields.size() > MAX_SCHEMA_FIELDS) {
+            throw new IllegalArgumentException(
+                    "Lance schema field count exceeds limit " + MAX_SCHEMA_FIELDS);
+        }
         Map<Integer, String> fieldNames = new HashMap<>();
+        SchemaTraversalState traversalState = new SchemaTraversalState();
         for (LanceField field : fields) {
-            collectFieldNames(field, "", fieldNames);
+            collectFieldNames(field, "", 1, fieldNames, traversalState);
         }
         return fieldNames;
     }
 
-    private static void collectFieldNames(LanceField field, String parentPath,
-            Map<Integer, String> fieldNames) {
+    private static void collectFieldNames(LanceField field, String parentPath, int depth,
+            Map<Integer, String> fieldNames, SchemaTraversalState traversalState) {
+        if (depth > MAX_SCHEMA_DEPTH) {
+            throw new IllegalArgumentException(
+                    "Lance schema depth exceeds limit " + MAX_SCHEMA_DEPTH);
+        }
         if (field == null) {
             throw new IllegalArgumentException("Lance schema field must not be null");
         }
+        ++traversalState.fieldCount;
+        if (traversalState.fieldCount > MAX_SCHEMA_FIELDS) {
+            throw new IllegalArgumentException(
+                    "Lance schema field count exceeds limit " + MAX_SCHEMA_FIELDS);
+        }
         String segment = formatFieldPathSegment(
                 requireExternalString(field.getName(), "Lance schema field name"));
-        String path = parentPath.isEmpty() ? segment : parentPath + "." + segment;
+        String path = requireExternalString(
+                parentPath.isEmpty() ? segment : parentPath + "." + segment,
+                "Lance schema field path");
         if (fieldNames.put(field.getId(), path) != null) {
             throw new IllegalArgumentException("Duplicate Lance schema field id " + field.getId());
         }
@@ -153,7 +188,7 @@ public final class LanceIndexMetadataLoader {
             throw new IllegalArgumentException("Lance schema field children must not be null");
         }
         for (LanceField child : children) {
-            collectFieldNames(child, path, fieldNames);
+            collectFieldNames(child, path, depth + 1, fieldNames, traversalState);
         }
     }
 
@@ -182,6 +217,7 @@ public final class LanceIndexMetadataLoader {
         }
 
         List<IndexedLogicalIndex> normalized = new ArrayList<>(descriptions.size());
+        int aggregateColumnNamesBytes = 0;
         for (int position = 0; position < descriptions.size(); ++position) {
             IndexDescription description = descriptions.get(position);
             if (description == null) {
@@ -204,7 +240,6 @@ public final class LanceIndexMetadataLoader {
 
             List<String> columns = new ArrayList<>(fieldIds.size());
             Set<Integer> uniqueFieldIds = new HashSet<>();
-            int columnNamesBytes = 0;
             for (Integer fieldId : fieldIds) {
                 if (fieldId == null) {
                     throw new IllegalArgumentException(
@@ -220,10 +255,10 @@ public final class LanceIndexMetadataLoader {
                 }
                 String column = requireExternalString(
                         fieldNames.get(fieldId), "Lance logical index column name");
-                columnNamesBytes += utf8Length(column);
-                if (columnNamesBytes > MAX_COLUMN_NAMES_BYTES) {
+                aggregateColumnNamesBytes += utf8Length(column);
+                if (aggregateColumnNamesBytes > MAX_COLUMN_NAMES_BYTES) {
                     throw new IllegalArgumentException(
-                            "Lance logical index column names exceed limit "
+                            "Lance logical index column names exceed aggregate limit "
                                     + MAX_COLUMN_NAMES_BYTES + " UTF-8 bytes");
                 }
                 columns.add(column);
@@ -355,6 +390,10 @@ public final class LanceIndexMetadataLoader {
 
     private static int utf8Length(String value) {
         return value.getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    private static final class SchemaTraversalState {
+        private int fieldCount;
     }
 
     private static final class IndexedLogicalIndex {
