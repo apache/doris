@@ -20,6 +20,7 @@ package org.apache.doris.datasource.lance;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.lance.Dataset;
+import org.lance.index.Index;
 import org.lance.index.IndexCriteria;
 import org.lance.index.IndexDescription;
 import org.lance.schema.LanceField;
@@ -33,6 +34,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class LanceIndexMetadataLoaderTest {
@@ -677,6 +679,145 @@ public class LanceIndexMetadataLoaderTest {
         Assertions.assertFalse(stackTrace.contains(secretKey));
         Assertions.assertFalse(stackTrace.contains(sessionToken));
         Assertions.assertNull(exception.getCause());
+    }
+
+    @Test
+    public void testCollectPhysicalEntriesSortsByNameAndUuid() {
+        Dataset dataset = Mockito.mock(Dataset.class);
+        Index zeta = index("z_idx", "33333333-3333-3333-3333-333333333333", 9);
+        Index alphaHigh = index("a_idx", "22222222-2222-2222-2222-222222222222", 7);
+        Index alphaLow = index("a_idx", "11111111-1111-1111-1111-111111111111", 5);
+        Mockito.when(dataset.getIndexes()).thenReturn(Arrays.asList(zeta, alphaHigh, alphaLow));
+
+        List<LancePhysicalIndexEntry> entries =
+                LanceIndexMetadataLoader.collectPhysicalEntries(dataset);
+
+        Assertions.assertEquals(3, entries.size());
+        Assertions.assertEquals("a_idx", entries.get(0).getName());
+        Assertions.assertEquals("11111111-1111-1111-1111-111111111111", entries.get(0).getUuid());
+        Assertions.assertEquals(5, entries.get(0).getDatasetVersion());
+        Assertions.assertEquals("a_idx", entries.get(1).getName());
+        Assertions.assertEquals("22222222-2222-2222-2222-222222222222", entries.get(1).getUuid());
+        Assertions.assertEquals(7, entries.get(1).getDatasetVersion());
+        Assertions.assertEquals("z_idx", entries.get(2).getName());
+        Assertions.assertEquals("33333333-3333-3333-3333-333333333333", entries.get(2).getUuid());
+        Assertions.assertEquals(9, entries.get(2).getDatasetVersion());
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> entries.add(new LancePhysicalIndexEntry(
+                        "x_idx", "44444444-4444-4444-4444-444444444444", 1)));
+    }
+
+    @Test
+    public void testCollectPhysicalEntriesFiltersSystemEntries() {
+        Dataset dataset = Mockito.mock(Dataset.class);
+        Mockito.when(dataset.getIndexes()).thenReturn(Arrays.asList(
+                index("__lance_frag_reuse", "11111111-1111-1111-1111-111111111111", 9),
+                index("user_idx", "22222222-2222-2222-2222-222222222222", 7),
+                index("__lance_mem_wal", "33333333-3333-3333-3333-333333333333", 9)));
+
+        List<LancePhysicalIndexEntry> entries =
+                LanceIndexMetadataLoader.collectPhysicalEntries(dataset);
+
+        Assertions.assertEquals(1, entries.size());
+        Assertions.assertEquals("user_idx", entries.get(0).getName());
+        Assertions.assertEquals("22222222-2222-2222-2222-222222222222", entries.get(0).getUuid());
+        Assertions.assertEquals(7, entries.get(0).getDatasetVersion());
+    }
+
+    @Test
+    public void testCollectPhysicalEntriesKeepsShortMemWalName() {
+        Dataset dataset = Mockito.mock(Dataset.class);
+        Mockito.when(dataset.getIndexes()).thenReturn(Collections.singletonList(
+                index("__mem_wal", "11111111-1111-1111-1111-111111111111", 5)));
+
+        List<LancePhysicalIndexEntry> entries =
+                LanceIndexMetadataLoader.collectPhysicalEntries(dataset);
+
+        Assertions.assertEquals(1, entries.size());
+        Assertions.assertEquals("__mem_wal", entries.get(0).getName());
+    }
+
+    @Test
+    public void testCollectPhysicalEntriesBoundsRawListBeforeFiltering() {
+        Dataset atLimitDataset = Mockito.mock(Dataset.class);
+        Mockito.when(atLimitDataset.getIndexes()).thenReturn(Collections.nCopies(16384,
+                index("__lance_frag_reuse", "11111111-1111-1111-1111-111111111111", 1)));
+        Assertions.assertTrue(
+                LanceIndexMetadataLoader.collectPhysicalEntries(atLimitDataset).isEmpty());
+
+        // 16384 user entries plus one system entry still exceed the raw cap, even though
+        // filtering would leave exactly 16384 and no pair of them shares a uuid.
+        Dataset overLimitDataset = Mockito.mock(Dataset.class);
+        List<Index> overLimit = new ArrayList<>(16385);
+        for (int i = 0; i < 16384; ++i) {
+            overLimit.add(index("bulk_idx",
+                    String.format("00000000-0000-0000-0000-%012d", i), 1));
+        }
+        overLimit.add(index("__lance_mem_wal", "22222222-2222-2222-2222-222222222222", 1));
+        Mockito.when(overLimitDataset.getIndexes()).thenReturn(overLimit);
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceIndexMetadataLoader.collectPhysicalEntries(overLimitDataset));
+        Assertions.assertTrue(exception.getMessage().contains("16384"));
+    }
+
+    @Test
+    public void testCollectPhysicalEntriesRejectsInvalidEntries() {
+        assertPhysicalEntryFailure(
+                Collections.singletonList(null), "must not be null");
+        assertPhysicalEntryFailure(Collections.singletonList(
+                index(null, "11111111-1111-1111-1111-111111111111", 1)), "name");
+        assertPhysicalEntryFailure(Collections.singletonList(
+                index("", "11111111-1111-1111-1111-111111111111", 1)), "name");
+        assertPhysicalEntryFailure(Collections.singletonList(
+                index("   ", "11111111-1111-1111-1111-111111111111", 1)), "blank");
+        assertPhysicalEntryFailure(Collections.singletonList(
+                index(repeat("x", 1025), "11111111-1111-1111-1111-111111111111", 1)), "1024");
+        assertPhysicalEntryFailure(Collections.singletonList(
+                index("idx", null, 1)), "uuid");
+        assertPhysicalEntryFailure(Collections.singletonList(
+                index("idx", "11111111-1111-1111-1111-111111111111", -1)), "version");
+        assertPhysicalEntryFailure(Arrays.asList(
+                index("first_idx", "11111111-1111-1111-1111-111111111111", 1),
+                index("second_idx", "11111111-1111-1111-1111-111111111111", 2)), "Duplicate");
+    }
+
+    private static void assertPhysicalEntryFailure(List<Index> indexes, String expectedMessage) {
+        Dataset dataset = Mockito.mock(Dataset.class);
+        Mockito.when(dataset.getIndexes()).thenReturn(indexes);
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceIndexMetadataLoader.collectPhysicalEntries(dataset));
+        Assertions.assertTrue(exception.getMessage().contains(expectedMessage),
+                "message <" + exception.getMessage() + "> should contain <" + expectedMessage + ">");
+    }
+
+    @Test
+    public void testCollectPhysicalEntriesNeverReadsBeyondGetIndexes() {
+        Dataset dataset = Mockito.mock(Dataset.class);
+        Mockito.when(dataset.getIndexes()).thenReturn(Arrays.asList(
+                index("a_idx", "11111111-1111-1111-1111-111111111111", 5),
+                index("__lance_frag_reuse", "22222222-2222-2222-2222-222222222222", 5)));
+
+        Assertions.assertEquals(1,
+                LanceIndexMetadataLoader.collectPhysicalEntries(dataset).size());
+
+        Mockito.verify(dataset).getIndexes();
+        Mockito.verify(dataset, Mockito.never()).describeIndices(Mockito.any(IndexCriteria.class));
+        Mockito.verify(dataset, Mockito.never()).describeIndices();
+        Mockito.verify(dataset, Mockito.never()).countRows();
+        Mockito.verify(dataset, Mockito.never()).countRows(Mockito.anyString());
+        Mockito.verify(dataset, Mockito.never()).getIndexStatistics(Mockito.anyString());
+        Mockito.verify(dataset, Mockito.never()).getLanceSchema();
+    }
+
+    private static Index index(String name, String uuid, long datasetVersion) {
+        return Index.builder()
+                .uuid(uuid == null ? null : UUID.fromString(uuid))
+                .name(name)
+                .datasetVersion(datasetVersion)
+                .build();
     }
 
     private static void assertBoundFailure(IndexDescription description,

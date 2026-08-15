@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.common.AnalysisException;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -43,6 +45,23 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class LanceFilesystemCatalogTest {
+
+    @Test
+    public void testLoadTableIndexEntriesRejectsRestCatalogBeforeInit() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceExternalCatalog.LANCE_CATALOG_TYPE, LanceExternalCatalog.LANCE_REST);
+        properties.put(LanceExternalCatalog.REST_URI, "http://127.0.0.1:1/");
+        LanceExternalCatalog catalog = new LanceExternalCatalog(
+                5, "lance_rest_entries", null, properties, "");
+
+        Assert.assertFalse(catalog.isInitialized());
+        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                () -> catalog.loadTableIndexEntries("db", "table"));
+        Assert.assertEquals("Lance index inspection is not supported for Lance REST catalogs",
+                exception.getDetailMessage());
+        Assert.assertFalse(catalog.isInitialized());
+    }
 
     @Test
     public void testMinioStorageOptionMapping() {
@@ -107,6 +126,35 @@ public class LanceFilesystemCatalogTest {
         Assert.assertEquals("\\default", rootCollision);
         Assert.assertEquals(Collections.singletonList("default"),
                 LanceNamespaceName.dorisDatabaseNameToNamespace(rootCollision, ".", "default"));
+    }
+
+    @Test
+    public void testLoadTableIndexEntriesWrapsFailureWithSanitizedMessage() {
+        String accessKey = "sentinel-access-key";
+        String secretKey = "sentinel-secret-key";
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceExternalCatalog.LANCE_CATALOG_TYPE,
+                LanceExternalCatalog.LANCE_FILESYSTEM);
+        properties.put(LanceExternalCatalog.WAREHOUSE, "/nonexistent-lance-warehouse-dir");
+        properties.put("AWS_ACCESS_KEY", accessKey);
+        properties.put("AWS_SECRET_KEY", secretKey);
+        LanceExternalCatalog catalog = new LanceExternalCatalog(
+                6, "lance_filesystem_entries", null, properties, "");
+
+        RuntimeException exception = Assert.assertThrows(RuntimeException.class,
+                () -> catalog.loadTableIndexEntries("db", "table"));
+
+        Assert.assertTrue(exception.getMessage().contains(
+                "Failed to load Lance index metadata for db.table: "));
+        Assert.assertNotNull(exception.getCause());
+        StringWriter stackTrace = new StringWriter();
+        exception.printStackTrace(new PrintWriter(stackTrace));
+        for (String sentinel : Arrays.asList(accessKey, secretKey)) {
+            Assert.assertFalse(exception.getMessage().contains(sentinel));
+            Assert.assertFalse(exception.getCause().getMessage().contains(sentinel));
+            Assert.assertFalse(stackTrace.toString().contains(sentinel));
+        }
     }
 
     @Test
