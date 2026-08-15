@@ -52,6 +52,7 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.trees.plans.commands.AlterCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
@@ -554,6 +555,34 @@ public class MaterializedViewHandler extends AlterHandler {
         // update mv columns
         List<MVColumnItem> mvColumnItemList = createMvCommand.getMVColumnItemList();
         List<Column> newMVColumns = Lists.newArrayList();
+
+        // A synchronous materialized view column that converts a TIMESTAMPTZ value into a time-zone
+        // dependent representation (date_trunc/cast/floor on a timestamptz column, ...) cannot be kept
+        // consistent: BE computes such columns in the write/load session time zone, so data loaded in a
+        // different zone than the one used to build the MV would silently materialize different values.
+        // Reject them at creation instead of allowing silently wrong materialization. The one exception is
+        // CAST of a TIMESTAMPTZ instant into a STRING: the string always embeds the session offset, so it is
+        // self-describing and never silently misrepresents the instant. The separately stored MV WHERE
+        // clause is validated too: it is recorded as whereClauseItem (not in mvColumnItemList) and
+        // later rebuilt by BindSink for writes, so a WHERE that compares date_trunc(ts, 'day') would accept
+        // a boundary row in one load session and reject the same row in another, corrupting index membership.
+        for (MVColumnItem mvColumnItem : mvColumnItemList) {
+            if (SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(mvColumnItem.getDefineExpr())) {
+                throw new DdlException("The materialized view column '" + mvColumnItem.getName()
+                        + "' contains a time-zone sensitive expression on TIMESTAMPTZ, which is not supported "
+                        + "in a synchronous materialized view because it would be evaluated in the write/load "
+                        + "session time zone. Use a time-zone independent expression or an asynchronous "
+                        + "materialized view.");
+            }
+        }
+        MVColumnItem whereClauseItem = createMvCommand.getWhereClauseItem();
+        if (whereClauseItem != null
+                && SessionVarGuardRewriter.isTimeZoneSensitiveStoredExpr(whereClauseItem.getDefineExpr())) {
+            throw new DdlException("The materialized view WHERE clause contains a time-zone sensitive "
+                    + "expression on TIMESTAMPTZ, which is not supported in a synchronous materialized view "
+                    + "because it would be evaluated in the write/load session time zone. Use a time-zone "
+                    + "independent expression or an asynchronous materialized view.");
+        }
 
         if (olapTable.getKeysType().isAggregationFamily()) {
             if (olapTable.getKeysType() == KeysType.AGG_KEYS && createMvCommand.getMVKeysType() != KeysType.AGG_KEYS) {
