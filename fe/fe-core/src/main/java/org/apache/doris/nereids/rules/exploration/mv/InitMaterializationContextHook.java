@@ -286,12 +286,21 @@ public class InitMaterializationContextHook implements PlannerHook {
                                 MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE, meta.getSessionVariables());
                         basicMvContext.setDatabase(meta.getDbName());
 
-                        boolean sessionVarMatch = SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
+                        Map<String, String> currentVars =
                                 ConnectContextUtil.getAffectQueryResultInPlanVariables(
-                                        cascadesContext.getConnectContext()), meta.getSessionVariables());
+                                        cascadesContext.getConnectContext());
+                        // The sync MV rewrite keeps its narrow sql_mode exception: a difference confined to
+                        // the STRICT_TRANS_TABLES / STRICT_ALL_TABLES bits does not change the semantics of
+                        // the rewritten expressions, so it must not force a guard family. Any other
+                        // difference selects the guard families through the same mask as async MVs.
+                        int guardMask = SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
+                                currentVars, meta.getSessionVariables())
+                                        ? SessionVarGuardRewriter.GUARD_NONE
+                                        : SessionVarGuardRewriter.computeGuardMask(
+                                                currentVars, meta.getSessionVariables());
                         MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
                                 basicMvContext, true,
-                                false, cascadesContext.getConnectContext(), !sessionVarMatch);
+                                false, cascadesContext.getConnectContext(), guardMask);
                         if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
                             contexts.add(new SyncMaterializationContext(
                                     mtmvCache.getAllRulesRewrittenPlanAndStructInfo().key(),
