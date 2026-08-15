@@ -20,7 +20,7 @@
 #include <iterator>
 
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/compaction/util/index_compaction_utils.cpp"
+#include "storage/index/inverted/compaction/util/index_compaction_utils.h"
 #include "storage/utils.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
