@@ -27,6 +27,7 @@ import com.google.gson.stream.JsonToken;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.commons.lang3.StringUtils;
 import org.lance.Dataset;
+import org.lance.index.Index;
 import org.lance.index.IndexCriteria;
 import org.lance.index.IndexDescription;
 import org.lance.schema.LanceField;
@@ -45,6 +46,7 @@ import java.util.Map;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.UUID;
 
 /** Loads and normalizes logical index metadata from one latest Lance dataset snapshot. */
 public final class LanceIndexMetadataLoader {
@@ -86,6 +88,65 @@ public final class LanceIndexMetadataLoader {
             Map<Integer, String> fieldNames = buildFieldNamesById(dataset.getLanceSchema().fields());
             return normalize(describeUserIndexes(dataset), fieldNames);
         }
+    }
+
+    /**
+     * Loads physical index entries from one latest dataset snapshot. This path only calls
+     * {@link Dataset#getIndexes()}; it never describes indexes or reads row statistics.
+     */
+    public static List<LancePhysicalIndexEntry> loadPhysicalEntries(String datasetUri,
+            Map<String, String> javaStorageOptions, BufferAllocator allocator) throws Exception {
+        try (Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
+                .readOptions(LanceReadOptions.build(javaStorageOptions, OptionalLong.empty())).build()) {
+            return collectPhysicalEntries(dataset);
+        }
+    }
+
+    /** Converts the snapshot's raw index list into sorted immutable physical entries. */
+    static List<LancePhysicalIndexEntry> collectPhysicalEntries(Dataset dataset) {
+        List<Index> indexes = dataset.getIndexes();
+        if (indexes == null) {
+            throw new IllegalArgumentException("Lance physical index entries must not be null");
+        }
+        // Bound the raw provider response before any filtering so a flood of system
+        // entries still fails closed instead of consuming unbounded memory.
+        if (indexes.size() > MAX_PHYSICAL_INDEX_ENTRIES) {
+            throw new IllegalArgumentException(
+                    "Lance physical index entry count exceeds limit "
+                            + MAX_PHYSICAL_INDEX_ENTRIES);
+        }
+        List<LancePhysicalIndexEntry> entries = new ArrayList<>(indexes.size());
+        Set<String> seenUuids = new HashSet<>();
+        for (Index index : indexes) {
+            if (index == null) {
+                throw new IllegalArgumentException(
+                        "Lance physical index entry must not be null");
+            }
+            String rawName = index.name();
+            if (rawName != null && SYSTEM_INDEX_NAMES.contains(rawName)) {
+                continue;
+            }
+            String name = requireExternalString(rawName, "Lance physical index entry name");
+            UUID uuid = index.uuid();
+            if (uuid == null) {
+                throw new IllegalArgumentException(
+                        "Lance physical index entry uuid must not be null");
+            }
+            long datasetVersion = index.datasetVersion();
+            if (datasetVersion < 0) {
+                throw new IllegalArgumentException(
+                        "Lance physical index entry dataset version must not be negative");
+            }
+            String uuidString = uuid.toString();
+            if (!seenUuids.add(uuidString)) {
+                throw new IllegalArgumentException(
+                        "Duplicate Lance physical index entry uuid '" + uuidString + "'");
+            }
+            entries.add(new LancePhysicalIndexEntry(name, uuidString, datasetVersion));
+        }
+        entries.sort(Comparator.comparing(LancePhysicalIndexEntry::getName)
+                .thenComparing(LancePhysicalIndexEntry::getUuid));
+        return Collections.unmodifiableList(entries);
     }
 
     /**
