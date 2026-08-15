@@ -476,12 +476,27 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         PluginDrivenSchemaCacheValue pinnedSchema =
                 toSchemaCacheValue(metadata, session, dbName, tableName, atSchema);
 
-        // Explicit point-in-time time-travel (snapshot id / tag / timestamp / branch) does NOT list
-        // partitions (EMPTY partition maps) — parity with legacy PaimonPartitionInfo.EMPTY. The empty
-        // maps make isPartitionInvalid() == (0!=0) == false, so getPartitionColumns(snapshot) flows
-        // through super -> the schema-aware getSchemaCacheValue() below -> the pinned schema's partition
-        // columns. Partition pruning is deferred to the connector's predicate pushdown (the generic scan
-        // node's resolveRequiredPartitions treats this empty-universe pin as scan-all).
+        // Explicit point-in-time time-travel (snapshot id / tag / timestamp / branch) lists partitions only
+        // from a connector that can list them AT the pin. A listing at LATEST is the wrong universe in both
+        // directions — it hides a partition dropped since the pin (pruning it away would lose rows) and
+        // invents ones created after it — so a snapshot-blind connector keeps EMPTY maps, parity with legacy
+        // PaimonPartitionInfo.EMPTY: isPartitionInvalid() == (0!=0) == false, getPartitionColumns(snapshot)
+        // flows through super -> the schema-aware getSchemaCacheValue() -> the pinned schema's partition
+        // columns, and pruning is deferred to the connector's predicate pushdown (the generic scan node's
+        // resolveRequiredPartitions treats an empty universe as scan-all).
+        //
+        // The cost of that safe answer is a query that reads every partition and an EXPLAIN that reports
+        // `partition=0/0` for it — indistinguishable from "pruned to nothing". So a connector that DOES
+        // read the pin when listing (listsPartitionsAtSnapshot) gets the real set instead, listed on the
+        // snapshot-applied handle, and pruning and partition=N/M both become truthful.
+        if (metadata.listsPartitionsAtSnapshot(session, pinnedHandle)) {
+            Map<String, PartitionItem> pinnedPartitionItems = Maps.newHashMap();
+            Map<String, Long> pinnedLastModifiedMillis = Maps.newHashMap();
+            listLatestPartitions(metadata, session, pinnedHandle,
+                    pinnedPartitionItems, pinnedLastModifiedMillis);
+            return new PluginDrivenMvccSnapshot(connectorSnapshot, pinnedPartitionItems,
+                    pinnedLastModifiedMillis, pinnedSchema);
+        }
         return new PluginDrivenMvccSnapshot(connectorSnapshot,
                 Collections.emptyMap(), Collections.emptyMap(), pinnedSchema);
     }

@@ -39,6 +39,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -61,6 +62,7 @@ import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -577,6 +579,18 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * byte-identical to today (planScan falls back to {@code timeline.lastInstant()}). Mirrors paimon's
      * empty-properties / invalid-pin no-op.</p>
      */
+    /**
+     * True: {@link #listPartitions} reads the {@code queryInstant} {@link #applySnapshot} put on the handle
+     * and enumerates the partitions that hold data at it, so a {@code FOR TIME/VERSION AS OF} query gets the
+     * partition universe of THAT snapshot rather than an empty one. See
+     * {@code HudiScanPlanProvider.listPartitionPathsAsOf}, which decides membership with the same view call
+     * the scan uses to pick each partition's files.
+     */
+    @Override
+    public boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
+        return true;
+    }
+
     @Override
     public ConnectorTableHandle applySnapshot(ConnectorSession session,
             ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
@@ -686,7 +700,68 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * partition. Unpartitioned &rarr; {@code emptyList()} (legacy never lists partitions for an unpartitioned
      * table). Explicit time-travel (non-latest) partition listing is a later step.
      */
+    /** A hudi instant read as the number {@code instantToEpochMillis} expects, or 0 for a tag/branch name. */
+    private static long parseInstantOrZero(String instant) {
+        try {
+            return Long.parseLong(instant);
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    /**
+     * The partitions of {@code handle}, restricted to those holding data at its pin when it carries one.
+     *
+     * <p>Neither listing source below knows about instants: HMS holds what is hive-synced NOW, and the metadata
+     * table keeps a partition path forever once written, so both answer "ever existed". Reading a table at its
+     * first commit would otherwise report every partition it has today, and pruning against that universe is
+     * wrong in both directions.
+     *
+     * <p>Restricting rather than re-listing is deliberate. The pinned paths come from hudi's metadata table
+     * while the LIST above may come from HMS, and the two spell an escaped partition value differently - a
+     * timestamp partition rendered from the metadata path comes out double-escaped, fails to parse into its
+     * column type, and is dropped, which prunes a live partition away. So the names and values stay exactly the
+     * ones the unpinned listing produces, and the pin only decides which of them survive. The freshness marker
+     * becomes the pin itself: at a pin the partitions are frozen, and reporting "now" would tell the engine a
+     * past snapshot keeps changing.
+     */
     private List<ConnectorPartitionInfo> collectPartitions(HudiTableHandle handle, boolean bypassCache) {
+        List<ConnectorPartitionInfo> partitions = collectPartitionsAtLatest(handle, bypassCache);
+        String queryInstant = handle.getQueryInstant();
+        if (queryInstant == null || partitions.isEmpty()) {
+            return partitions;
+        }
+        List<String> partKeyNames = handle.getPartitionKeyNames();
+        Map.Entry<Long, List<String>> pinned = metaClientExecutor.execute(() -> {
+            HoodieTableMetaClient metaClient =
+                    HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath());
+            // A non-numeric pin (a tag/branch name) carries no time; 0 reads as "no reliable change signal",
+            // which the engine already degrades safely on.
+            long pinMillis = HudiScanPlanProvider.instantToEpochMillis(
+                    parseInstantOrZero(queryInstant), HudiScanPlanProvider.timelineZone(metaClient));
+            return new AbstractMap.SimpleImmutableEntry<>(pinMillis,
+                    HudiScanPlanProvider.listPartitionPathsAsOf(metaClient, queryInstant));
+        });
+        Set<Map<String, String>> pinnedValues = new HashSet<>();
+        for (String rawPath : pinned.getValue()) {
+            pinnedValues.add(HudiScanPlanProvider.parsePartitionValues(rawPath, partKeyNames));
+        }
+        List<ConnectorPartitionInfo> atPin = new ArrayList<>(pinnedValues.size());
+        for (ConnectorPartitionInfo partition : partitions) {
+            if (pinnedValues.contains(partition.getPartitionValues())) {
+                atPin.add(new ConnectorPartitionInfo(partition.getPartitionName(),
+                        partition.getPartitionValues(), partition.getProperties(),
+                        ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN,
+                        pinned.getKey(), ConnectorPartitionInfo.UNKNOWN,
+                        partition.getOrderedPartitionValues(), partition.getPartitionValueNullFlags()));
+            }
+        }
+        LOG.info("Hudi partition listing at instant {}: {}.{} -> {} of {} partitions",
+                queryInstant, handle.getDbName(), handle.getTableName(), atPin.size(), partitions.size());
+        return atPin;
+    }
+
+    private List<ConnectorPartitionInfo> collectPartitionsAtLatest(HudiTableHandle handle, boolean bypassCache) {
         List<String> partKeyNames = handle.getPartitionKeyNames();
         if (partKeyNames == null || partKeyNames.isEmpty()) {
             return Collections.emptyList();
@@ -747,13 +822,27 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             // Ordered values in partKeyNames (render) order; render/parse are exact inverses, so this equals
             // fe-core's legacy parse of `name`. Supplied so fe-core skips the parse.
             List<String> orderedValues = new ArrayList<>(partKeyNames.size());
+            // Which of those values is a genuine SQL NULL. fe-core never string-compares a sentinel - hive,
+            // paimon and hudi all render the same __HIVE_DEFAULT_PARTITION__ and only the connector knows
+            // what it means there - so the flags have to come from here. Without them a null partition
+            // reaches the engine as the literal sentinel: it prunes on
+            // `col = '__HIVE_DEFAULT_PARTITION__'` instead of `col IS NULL`, an MTMV partitioned on that
+            // column builds a partition named after the sentinel instead of p_NULL, and on a non-string
+            // column the value fails to parse and the partition is dropped altogether.
+            //
+            // The sentinel and ONLY the sentinel, same rule as HiveConnectorMetadata: hudi's other
+            // default-partition constant is the literal string "default", and a table with a real partition
+            // value of "default" is far more likely than one relying on the deprecated encoding.
+            List<Boolean> nullFlags = new ArrayList<>(partKeyNames.size());
             for (String col : partKeyNames) {
-                orderedValues.add(values.get(col));
+                String value = values.get(col);
+                orderedValues.add(value);
+                nullFlags.add(ConnectorPartitionValues.NULL_PARTITION_NAME.equals(value));
             }
             result.add(new ConnectorPartitionInfo(name, values, Collections.emptyMap(),
                     ConnectorPartitionInfo.UNKNOWN, ConnectorPartitionInfo.UNKNOWN,
                     lastModifiedMillis, ConnectorPartitionInfo.UNKNOWN,
-                    orderedValues, Collections.emptyList()));
+                    orderedValues, nullFlags));
         }
         return result;
     }
