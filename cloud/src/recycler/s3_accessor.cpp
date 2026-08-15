@@ -555,7 +555,7 @@ int S3Accessor::put_file(const std::string& path, const std::string& content) {
 
 int S3Accessor::list_prefix(const std::string& path_prefix, std::unique_ptr<ListIterator>* res) {
     *res = std::make_unique<S3ListIterator>(
-            list_objects(obj_client_, {.bucket = conf_.bucket, .prefix = get_key(path_prefix)}),
+            obj_client_->list_objects({.bucket = conf_.bucket, .prefix = get_key(path_prefix)}),
             conf_.prefix.empty() ? 0 : conf_.prefix.length() + 1);
     return 0;
 }
@@ -619,7 +619,7 @@ int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expi
     int skip = 0;
     int64_t del_nonexisted = 0;
     int del = 0;
-    auto iter = list_objects(obj_client_, {.bucket = conf_.bucket, .prefix = get_key(path_prefix)});
+    auto iter = obj_client_->list_objects({.bucket = conf_.bucket, .prefix = get_key(path_prefix)});
     for (;;) {
         auto result = iter->next();
         if (!result.object.has_value()) {

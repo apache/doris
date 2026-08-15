@@ -22,7 +22,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <iterator>
 
 namespace doris {
 ObjStorageStatus obj_storage_status_from_http_code(int http_code, std::string message) {
@@ -40,28 +39,24 @@ ObjStorageStatus obj_storage_status_from_http_code(int http_code, std::string me
     }
 }
 
-std::unique_ptr<ObjStorageListIterator> list_objects(std::shared_ptr<ObjStorageClient> client,
-                                                     const ObjStoragePath& opts) {
-    return std::make_unique<ObjStorageListIterator>(std::move(client), opts);
+std::unique_ptr<ObjStorageListIterator> ObjStorageClient::list_objects(const ObjStoragePath& opts) {
+    return std::make_unique<ObjStorageListIterator>(shared_from_this(), opts);
 }
 
 ObjStorageResponse ObjStorageClient::list_objects(const ObjStoragePath& opts,
                                                   std::vector<ObjectMeta>* objects) {
     objects->clear();
-    std::string continuation_token;
-    bool has_more = true;
-    while (has_more) {
-        auto page = list_objects_page(opts, continuation_token);
-        if (!page.resp.ok()) {
-            objects->clear();
-            return page.resp;
+    auto iter = list_objects(opts);
+    for (;;) {
+        auto result = iter->next();
+        if (!result.object.has_value()) {
+            if (!result.resp.ok()) {
+                objects->clear();
+            }
+            return result.resp;
         }
-        objects->insert(objects->end(), std::make_move_iterator(page.objects.begin()),
-                        std::make_move_iterator(page.objects.end()));
-        continuation_token = std::move(page.continuation_token);
-        has_more = page.has_more;
+        objects->emplace_back(std::move(*result.object));
     }
-    return ObjStorageResponse::OK();
 }
 
 ObjStorageResponse ObjStorageListIterator::has_next() {
@@ -192,7 +187,7 @@ ObjStorageResponse delete_objects_recursively(
         return first_error.ok();
     };
 
-    auto iter = list_objects(client, list_path);
+    auto iter = client->list_objects(list_path);
     for (;;) {
         auto result = iter->next();
         if (!result.object.has_value()) {

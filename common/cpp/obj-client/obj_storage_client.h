@@ -172,7 +172,8 @@ class RateLimitedObjStorageClient;
 
 // Provider implementations are in common/cpp/obj-client/s3_obj_storage_client.cpp and
 // common/cpp/obj-client/azure_obj_storage_client.cpp.
-class ObjStorageClient {
+// Clients are shared-owned so a lazy list iterator can keep the complete decorator chain alive.
+class ObjStorageClient : public std::enable_shared_from_this<ObjStorageClient> {
 public:
     ObjStorageClient() = default;
     virtual ~ObjStorageClient() = default;
@@ -204,7 +205,9 @@ public:
     // and starting from the offset, it reads bytes_read bytes into the buffer, with size_return recording the actual number of bytes read
     virtual ObjStorageResponse get_object(const ObjStoragePath& opts, void* buffer, size_t offset,
                                           size_t bytes_read, size_t* size_return) = 0;
-    // Collect all objects one provider page at a time. This preserves the eager BE API.
+    // Return a lazy iterator that fetches one provider page at a time.
+    virtual std::unique_ptr<ObjStorageListIterator> list_objects(const ObjStoragePath& opts);
+    // Collect all objects by consuming the lazy iterator. This preserves the eager BE API.
     // **Notice**: The files returned by this function contain the full key in object storage.
     virtual ObjStorageResponse list_objects(const ObjStoragePath& opts,
                                             std::vector<ObjectMeta>* objects);
@@ -260,11 +263,6 @@ private:
     bool is_valid_ = true;
 };
 
-// Return a lazy iterator that owns the complete client decorator chain and fetches one provider
-// page at a time.
-std::unique_ptr<ObjStorageListIterator> list_objects(std::shared_ptr<ObjStorageClient> client,
-                                                     const ObjStoragePath& opts);
-
 // Provider-independent recursive deletion shared by concrete clients. Passing the complete client
 // decorator chain keeps it alive for asynchronous delete tasks and applies policy per list page and
 // delete batch.
@@ -294,5 +292,4 @@ using ::doris::ObjStorageStatus;
 using ::doris::ObjStorageUploadResult;
 using ::doris::ObjectMeta;
 using ::doris::delete_objects_recursively;
-using ::doris::list_objects;
 } // namespace doris::io
