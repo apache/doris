@@ -764,6 +764,7 @@ enum TMetadataType {
   HUDI = 11,
   PAIMON = 12,
   PARQUET = 13,
+  LANCE_INDEX_ENTRIES = 14,
 }
 
 // deprecated
