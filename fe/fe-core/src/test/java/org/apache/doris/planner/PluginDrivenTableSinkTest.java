@@ -285,7 +285,7 @@ public class PluginDrivenTableSinkTest {
                     "id", ConnectorType.of("INT"), null, true, null);
             PluginDrivenTableSink nonVariantSink = new PluginDrivenTableSink(
                     null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
-                    Collections.singletonList(id), null, WriteOperation.MERGE, false, true, null);
+                    Collections.singletonList(id), null, WriteOperation.MERGE, false, true, null, null);
 
             nonVariantSink.bindDataSink(Optional.empty());
             Assert.assertNotNull(provider.seenHandle);
@@ -295,7 +295,7 @@ public class PluginDrivenTableSinkTest {
                     "payload", ConnectorType.of("VARIANT_COMPUTE_V2"), null, true, null);
             PluginDrivenTableSink variantSink = new PluginDrivenTableSink(
                     null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
-                    Collections.singletonList(payload), null, WriteOperation.MERGE, false, true, null);
+                    Collections.singletonList(payload), null, WriteOperation.MERGE, false, true, null, null);
 
             AnalysisException exception = Assert.assertThrows(AnalysisException.class,
                     () -> variantSink.bindDataSink(Optional.empty()));

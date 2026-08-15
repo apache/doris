@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -47,6 +48,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vin_predicate.h"
 #include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/column_mapper_nested.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/file_reader.h"
@@ -241,6 +243,54 @@ std::string field_debug_string(const Field& field) {
     }
     out << "}";
     return out.str();
+}
+
+void remap_localized_slot_positions(const VExprSPtr& expr,
+                                    const std::map<size_t, size_t>& position_remap,
+                                    std::set<const VExpr*>* visited) {
+    if (expr == nullptr || !visited->insert(expr.get()).second) {
+        return;
+    }
+    if (auto* slot = dynamic_cast<VSlotRef*>(expr.get());
+        slot != nullptr && slot->column_id() >= 0) {
+        const auto remap = position_remap.find(static_cast<size_t>(slot->column_id()));
+        DORIS_CHECK(remap != position_remap.end()) << slot->column_id();
+        slot->set_column_id(static_cast<int>(remap->second));
+    }
+    for (const auto& child : expr->children()) {
+        remap_localized_slot_positions(child, position_remap, visited);
+    }
+    remap_localized_slot_positions(expr->get_impl(), position_remap, visited);
+}
+
+void compact_file_block_positions(FileScanRequest* request) {
+    std::set<size_t> occupied_positions;
+    for (const auto& [_, position] : request->local_positions) {
+        occupied_positions.insert(position.value());
+    }
+    for (const auto& [_, position] : request->non_predicate_positions) {
+        occupied_positions.insert(position.value());
+    }
+
+    std::map<size_t, size_t> position_remap;
+    size_t dense_position = 0;
+    for (size_t old_position : occupied_positions) {
+        position_remap.emplace(old_position, dense_position++);
+    }
+    for (auto& [_, position] : request->local_positions) {
+        position = LocalIndex(position_remap.at(position.value()));
+    }
+    for (auto& [_, position] : request->non_predicate_positions) {
+        position = LocalIndex(position_remap.at(position.value()));
+    }
+
+    std::set<const VExpr*> visited;
+    for (const auto& conjunct : request->conjuncts) {
+        remap_localized_slot_positions(conjunct->root(), position_remap, &visited);
+    }
+    for (const auto& conjunct : request->delete_conjuncts) {
+        remap_localized_slot_positions(conjunct->root(), position_remap, &visited);
+    }
 }
 
 template <typename T, typename Formatter>
@@ -2693,6 +2743,9 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         FileScanRequestBuilder builder(file_request);
         RETURN_IF_ERROR(builder.add_non_predicate_column(std::move(demoted_projection)));
     }
+    // Final readers allocate a dense file block, so every retained slot must follow the same compaction.
+    compact_file_block_positions(file_request);
+    RETURN_IF_ERROR(_build_filter_entries(*file_request));
     return Status::OK();
 }
 

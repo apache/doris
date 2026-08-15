@@ -1107,7 +1107,10 @@ void ColumnVariantV2::insert_many_defaults(size_t length) {
         return;
     }
 
-    if (_typed || _shredded) {
+    if (_shredded) {
+        // A retained leaf projection may serialize the row but cannot reconstruct omitted roots.
+        _ensure_serialized();
+    } else if (_typed) {
         ensure_encoded();
     }
 

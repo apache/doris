@@ -105,6 +105,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -743,6 +744,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // lazily ONCE on the first native split (legacy hasDeterminedTargetFileSplitSize parity).
         long targetSplitSize = -1;
 
+        Set<Long> physicalVariantSchemaIds = hasVariantProjection
+                ? physicalVariantSchemaIds(table, rowType, columns, dataSplits)
+                : Collections.emptySet();
+
         // Process DataSplits
         for (DataSplit dataSplit : dataSplits) {
             if (isCountPushdownSplit(countPushdown, dataSplit)) {
@@ -760,7 +765,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
 
             if (shouldUseNativeReader(paimonHandle.isForceJni(),
-                    isForceJniScannerEnabled(session), hasVariantProjection, optRawFiles)) {
+                    isForceJniScannerEnabled(session), hasVariantProjection,
+                    physicalVariantSchemaIds, optRawFiles)) {
                 if (ignoreNative) {
                     // FIX-L14: ignore_split_type=IGNORE_NATIVE drops native splits (legacy getSplits:443).
                     continue;
@@ -1610,11 +1616,60 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     static boolean shouldUseNativeReader(boolean forceJni, boolean forceJniScanner,
             boolean hasVariantProjection, Optional<List<RawFile>> optRawFiles) {
+        Set<Long> physicalVariantSchemaIds = hasVariantProjection && optRawFiles.isPresent()
+                ? optRawFiles.get().stream().map(RawFile::schemaId).collect(Collectors.toSet())
+                : Collections.emptySet();
+        return shouldUseNativeReader(forceJni, forceJniScanner, hasVariantProjection,
+                physicalVariantSchemaIds, optRawFiles);
+    }
+
+    static boolean shouldUseNativeReader(boolean forceJni, boolean forceJniScanner,
+            boolean hasVariantProjection, Set<Long> physicalVariantSchemaIds,
+            Optional<List<RawFile>> optRawFiles) {
         // Handle-level force marks system-table semantics, while only the session debugging knob may be
-        // overridden for Variant. BE currently installs Paimon Variant schema overrides for Parquet only.
+        // overridden for Variant. An ORC file is safe only when its historical physical schema predates
+        // the projected Variant field; BE never needs to install a Variant schema override for that file.
         return !forceJni && (hasVariantProjection
-                ? supportNativeVariantReader(optRawFiles)
+                ? supportNativeVariantReader(optRawFiles, physicalVariantSchemaIds)
                 : !forceJniScanner && supportNativeReader(optRawFiles));
+    }
+
+    private static Set<Long> physicalVariantSchemaIds(Table table, RowType currentRowType,
+            List<ConnectorColumnHandle> columns, List<DataSplit> dataSplits) {
+        Set<Integer> projectedVariantFieldIds = columns.stream()
+                .filter(PaimonColumnHandle.class::isInstance)
+                .map(PaimonColumnHandle.class::cast)
+                .map(column -> currentRowType.getFields().stream()
+                        .filter(field -> field.name().equalsIgnoreCase(column.getName()))
+                        .findFirst().orElse(null))
+                .filter(Objects::nonNull)
+                .filter(field -> containsVariant(field.type()))
+                .map(DataField::id)
+                .collect(Collectors.toSet());
+        if (projectedVariantFieldIds.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        Set<Long> rawSchemaIds = new HashSet<>();
+        for (DataSplit split : dataSplits) {
+            split.convertToRawFiles()
+                    .ifPresent(files -> files.forEach(file -> rawSchemaIds.add(file.schemaId())));
+        }
+        if (!(table instanceof FileStoreTable)) {
+            return rawSchemaIds;
+        }
+
+        Set<Long> physicalVariantSchemaIds = new HashSet<>();
+        SchemaManager schemaManager = ((FileStoreTable) table).schemaManager();
+        for (long schemaId : rawSchemaIds) {
+            TableSchema physicalSchema = schemaManager.schema(schemaId);
+            if (physicalSchema == null || physicalSchema.fields().stream()
+                    .anyMatch(field -> projectedVariantFieldIds.contains(field.id())
+                            && containsVariant(field.type()))) {
+                physicalVariantSchemaIds.add(schemaId);
+            }
+        }
+        return physicalVariantSchemaIds;
     }
 
     private static boolean containsVariant(DataType type) {
@@ -1658,10 +1713,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return true;
     }
 
-    private static boolean supportNativeVariantReader(Optional<List<RawFile>> optRawFiles) {
+    private static boolean supportNativeVariantReader(Optional<List<RawFile>> optRawFiles,
+            Set<Long> physicalVariantSchemaIds) {
         return optRawFiles.isPresent() && !optRawFiles.get().isEmpty()
                 && optRawFiles.get().stream()
-                        .allMatch(file -> file.path().toLowerCase().endsWith(".parquet"));
+                        .allMatch(file -> file.path().toLowerCase().endsWith(".parquet")
+                                || (file.path().toLowerCase().endsWith(".orc")
+                                && !physicalVariantSchemaIds.contains(file.schemaId())));
     }
 
     private Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValue, String timeZone) {

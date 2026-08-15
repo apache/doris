@@ -356,6 +356,12 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertFalse(PaimonScanPlanProvider.shouldUseNativeReader(
                         false, false, true, orcFiles),
                 "BE installs the Paimon Variant schema override only for Parquet files");
+        Assertions.assertTrue(PaimonScanPlanProvider.shouldUseNativeReader(
+                        false, false, true, Collections.emptySet(), orcFiles),
+                "an ORC file without a physical Variant field needs no schema override");
+        Assertions.assertFalse(PaimonScanPlanProvider.shouldUseNativeReader(
+                        false, false, true, Collections.singleton(0L), orcFiles),
+                "a physical Variant field in ORC remains unsupported");
     }
 
     // ---- FIX-URI-NORMALIZE (B-7DF data file + B-7DV deletion vector) ----
@@ -1481,6 +1487,69 @@ public class PaimonScanPlanProviderTest {
                     .build());
             Assertions.assertTrue(forcedRanges.isEmpty(),
                     "ignored force-JNI Variant scans must bypass the system-table carrier fence");
+        }
+    }
+
+    @Test
+    public void oldOrcFileWithoutPhysicalVariantUsesNativeReaderAfterVariantEvolution(
+            @TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("payload", DataTypes.BIGINT())
+                    .option("bucket", "-1")
+                    .option("file.format", "orc")
+                    .build(), false);
+            FileStoreTable storageTable = (FileStoreTable) catalog.getTable(id);
+            BatchWriteBuilder wb = storageTable.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 100L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RowType variantRowType = RowType.builder()
+                    .field("id", DataTypes.INT())
+                    .field("payload", new org.apache.paimon.types.VariantType())
+                    .build();
+            FileStoreTable planningTable = (FileStoreTable) java.lang.reflect.Proxy.newProxyInstance(
+                    FileStoreTable.class.getClassLoader(), new Class<?>[] {FileStoreTable.class},
+                    (proxy, method, args) -> {
+                        if ("rowType".equals(method.getName())) {
+                            return variantRowType;
+                        }
+                        if ("copy".equals(method.getName())) {
+                            return proxy;
+                        }
+                        try {
+                            return method.invoke(storageTable, args);
+                        } catch (java.lang.reflect.InvocationTargetException e) {
+                            throw e.getCause();
+                        }
+                    });
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = planningTable;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+
+            List<ConnectorScanRange> ranges = provider.planScan(sessionWithProps(Collections.emptyMap()),
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("payload", 1)))
+                    .build());
+
+            Assertions.assertFalse(ranges.isEmpty(),
+                    "an old ORC file without a physical Variant field remains native-readable");
+            Assertions.assertTrue(ranges.stream()
+                            .noneMatch(range -> range.getProperties().containsKey("paimon.split")),
+                    "the historical schema must keep the old ORC file on the native path");
         }
     }
 

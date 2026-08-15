@@ -2570,6 +2570,56 @@ TEST(ColumnMapperScanRequestTest, MapFilterOnlyValueChildMergesWithOutputProject
     EXPECT_EQ(projection_ids(projection.children[0].children), std::vector<int32_t>({0, 1}));
 }
 
+TEST(ColumnMapperScanRequestTest, DemotedRootKeepsRetainedRootFileBlockLayoutDense) {
+    const auto int_type = i32();
+    const auto string_type = str();
+
+    auto table_value_b = name_col("b", string_type);
+    auto table_value = struct_name_col("value", {table_value_b});
+    auto table_map = map_col("m", -1, {table_value}, int_type, table_value.type);
+    auto predicate_value_a = name_col("a", int_type);
+    table_map.has_predicate_access_paths = true;
+    table_map.predicate_children = {struct_name_col("value", {predicate_value_a})};
+    set_name_identifiers(&table_map, 0);
+    auto table_key = name_col("k", int_type);
+
+    auto file_key = name_col("key", int_type, 0);
+    auto file_value_a = name_col("a", int_type, 0);
+    auto file_value_b = name_col("b", string_type, 1);
+    auto file_value = struct_name_col("value", {file_value_a, file_value_b}, 1);
+    auto file_map = map_col("m", -1, {file_key, file_value}, int_type, file_value.type, 0);
+    set_name_identifiers(&file_map, 0);
+    auto file_scalar = name_col("k", int_type, 1);
+
+    auto full_value_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type, string_type}, Strings {"a", "b"});
+    auto full_map_type = std::make_shared<DataTypeMap>(int_type, full_value_type);
+    auto value_expr =
+            struct_element(table_slot(0, 0, full_map_type, "m"), full_value_type, "value");
+    TableFilter rejected_filter {.conjunct = VExprContext::create_shared(
+                                         int_gt(struct_element(value_expr, int_type, "a"), 5)),
+                                 .global_indices = {GlobalIndex(0)}};
+    TableFilter retained_filter {
+            .conjunct = VExprContext::create_shared(int_gt(table_slot(1, 1, int_type, "k"), 5)),
+            .global_indices = {GlobalIndex(1)}};
+
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_map, table_key}, {}, {file_map, file_scalar}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({rejected_filter, retained_filter},
+                                           {table_map, table_key}, &request)
+                        .ok());
+
+    ASSERT_EQ(request.conjuncts.size(), 1);
+    EXPECT_EQ(request.block_column_count(), 2);
+    EXPECT_EQ(request.local_positions.at(LocalColumnId(0)), LocalIndex(0));
+    EXPECT_EQ(request.local_positions.at(LocalColumnId(1)), LocalIndex(1));
+    const auto* localized_slot =
+            assert_cast<const VSlotRef*>(request.conjuncts[0]->root()->children()[0].get());
+    EXPECT_EQ(localized_slot->column_id(), 1);
+}
+
 // Scenario: when projected struct children are an in-order prefix of the file struct, the mapper can
 // read those physical children directly without rebuilding the file-side complex type.
 TEST(ColumnMapperScanRequestTest, MatchingProjectedStructDoesNotNeedComplexRematerialize) {

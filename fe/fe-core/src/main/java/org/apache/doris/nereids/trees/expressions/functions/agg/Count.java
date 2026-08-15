@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -102,7 +103,9 @@ public class Count extends NotNullableAggregateFunction
     }
 
     static void checkLegacyVariantArgument(Expression argument, Expression function) {
-        if (!Config.enable_variant_v2 && argument.getDataType() instanceof VariantType) {
+        // ConnectorComputeVariantType is an engine-only carrier and never uses the legacy Variant path.
+        if (!Config.enable_variant_v2 && argument.getDataType() instanceof VariantType
+                && !(argument.getDataType() instanceof ConnectorComputeVariantType)) {
             throwDistinctArgumentException(function);
         }
     }

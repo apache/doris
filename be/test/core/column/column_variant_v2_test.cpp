@@ -1387,6 +1387,17 @@ TEST(ColumnVariantV2Test, DefaultRowsUseCanonicalEmptyObjectAndReuseMetadata) {
     EXPECT_EQ(metadata_count(*column), 1);
 }
 
+TEST(ColumnVariantV2Test, ProjectedShreddedDefaultsUseSerializedProjection) {
+    auto size_calls = std::make_shared<size_t>(0);
+    auto column = ColumnVariantV2::create_shredded(
+            std::make_shared<CountingShreddedState>(1, size_calls));
+
+    ASSERT_NO_THROW(column->insert_many_defaults(1));
+    ASSERT_EQ(column->size(), 2);
+    EXPECT_EQ(json_at(*column, 0), "{}");
+    EXPECT_EQ(json_at(*column, 1), "{}");
+}
+
 TEST(ColumnVariantV2Test, ConstFiltersMatchColumnStringAndKeepMetadataReadOnly) {
     auto source = ColumnVariantV2::create();
     auto reference = ColumnString::create();
