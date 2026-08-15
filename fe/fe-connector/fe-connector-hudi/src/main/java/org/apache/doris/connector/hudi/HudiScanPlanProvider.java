@@ -806,6 +806,41 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
+     * The partitions holding data AS OF {@code queryInstant} — {@link #listAllPartitionPaths} minus every
+     * partition whose file slices all start after the pin.
+     *
+     * <p>A partition path, once written, stays in the metadata table forever: {@code listAllPartitionPaths}
+     * answers "ever existed", not "existed then". Reading a table at its FIRST commit would otherwise report
+     * every partition the table has today. The membership test is the same view call the scan uses to pick
+     * that partition's files ({@link #collectCowSplits} / {@link #collectMorSplits} both narrow with
+     * {@code BeforeOrOn(queryInstant)}), so what EXPLAIN counts and what the scan reads cannot disagree: a
+     * partition survives here exactly when the scan would find at least one file slice in it.
+     *
+     * <p>{@code getLatestFileSlicesBeforeOrOn} rather than the base-file view because it covers both table
+     * types — a COW slice is its base file, and a MOR partition whose only data at the pin is log files still
+     * holds rows.
+     */
+    static List<String> listPartitionPathsAsOf(HoodieTableMetaClient metaClient, String queryInstant)
+            throws Exception {
+        List<String> allPaths = listAllPartitionPaths(metaClient);
+        HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
+                .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
+                .build();
+        HoodieLocalEngineContext engineCtx = new HoodieLocalEngineContext(metaClient.getStorageConf());
+        try (HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
+                engineCtx, metaClient, metadataConfig)) {
+            List<String> asOf = new ArrayList<>(allPaths.size());
+            for (String partitionPath : allPaths) {
+                if (fsView.getLatestFileSlicesBeforeOrOn(partitionPath, queryInstant, true)
+                        .findAny().isPresent()) {
+                    asOf.add(partitionPath);
+                }
+            }
+            return asOf;
+        }
+    }
+
+    /**
      * Parse a Hudi partition's relative path into a column&rarr;value map, byte-faithful to legacy
      * {@code HudiPartitionUtils.parsePartitionValues}. Handles BOTH hive-style ("year=2024/month=01") and Hudi's
      * DEFAULT non-hive-style POSITIONAL ("2024/01") layouts, and URL-unescapes every value:
