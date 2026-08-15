@@ -39,15 +39,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
-namespace {
-
-struct SniiScoringSegmentStats {
-    uint64_t doc_count = 0;
-    uint64_t token_count = 0;
-    segment_v2::inverted_index::PlainTermKeyVersion plain_term_key_version =
-            segment_v2::inverted_index::PlainTermKeyVersion::kLegacyRaw;
-    std::string base_analyzer_fingerprint;
-};
+namespace collection_statistics_detail {
 
 Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(
         const std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata>& metadata,
@@ -78,7 +70,7 @@ void add_term_doc_frequency(
     (*logical_frequencies)[field][logical_term] += doc_frequency;
 }
 
-} // namespace
+} // namespace collection_statistics_detail
 
 Status CollectionStatistics::collect(RuntimeState* state,
                                      const std::vector<RowSetSplits>& rs_splits,
@@ -287,8 +279,8 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int6
                 const auto logical_term =
                         segment_v2::inverted_index::StringHelper::to_wstring(logical_term_bytes);
                 if (!term_present) {
-                    add_term_doc_frequency(&segment_accumulator.term_doc_freqs, ws_field_name,
-                                           logical_term, 0);
+                    collection_statistics_detail::add_term_doc_frequency(
+                            &segment_accumulator.term_doc_freqs, ws_field_name, logical_term, 0);
                     continue;
                 }
 
@@ -303,8 +295,9 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int6
                             "SNII term document frequency {} exceeds scoring document count {}",
                             entry.df, common_grams_metadata->scoring_doc_count);
                 }
-                add_term_doc_frequency(&segment_accumulator.term_doc_freqs, ws_field_name,
-                                       logical_term, found ? entry.df : 0);
+                collection_statistics_detail::add_term_doc_frequency(
+                        &segment_accumulator.term_doc_freqs, ws_field_name, logical_term,
+                        found ? entry.df : 0);
             }
         }
 
@@ -356,7 +349,8 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int6
                     segment_v2::inverted_index::StringHelper::to_wstring(logical_term_bytes);
             auto iter = TermIterator::create(io_ctx, false, index_reader, ws_field_name,
                                              logical_term_bytes);
-            add_term_doc_frequency(&_term_doc_freqs, ws_field_name, logical_term, iter->doc_freq());
+            collection_statistics_detail::add_term_doc_frequency(&_term_doc_freqs, ws_field_name,
+                                                                 logical_term, iter->doc_freq());
         }
     }
 
@@ -377,9 +371,9 @@ Status CollectionStatistics::admit_snii_scoring_segment(
         SniiScoringSegmentAccumulator* segment_accumulator) {
     DORIS_CHECK(plain_term_key_version != nullptr);
     DORIS_CHECK(segment_accumulator != nullptr);
-    auto segment_stats =
-            resolve_snii_scoring_segment(metadata, index_doc_count, physical_sum_total_term_freq,
-                                         has_scoring_tier, has_positions, has_semantic_norms);
+    auto segment_stats = collection_statistics_detail::resolve_snii_scoring_segment(
+            metadata, index_doc_count, physical_sum_total_term_freq, has_scoring_tier,
+            has_positions, has_semantic_norms);
     if (!segment_stats.has_value()) {
         clear();
         return segment_stats.error();

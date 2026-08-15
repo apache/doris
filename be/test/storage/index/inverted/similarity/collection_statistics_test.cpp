@@ -42,9 +42,10 @@
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
+#include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/common_grams/common_grams_key_codec.h"
 #include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/similarity/collection_statistics.cpp"
+#include "storage/index/inverted/util/string_helper.h"
 #include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 #include "storage/index/snii/stats/snii_stats_provider.h"
@@ -58,6 +59,10 @@
 #include "util/slice.h"
 
 namespace doris {
+
+using collection_statistics_detail::add_term_doc_frequency;
+using collection_statistics_detail::resolve_snii_scoring_segment;
+using collection_statistics_detail::SniiScoringSegmentStats;
 
 namespace collection_statistics {
 

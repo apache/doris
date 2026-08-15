@@ -115,4 +115,29 @@ private:
 };
 using CollectionStatisticsPtr = std::shared_ptr<CollectionStatistics>;
 
+// Implementation details of the SNII scoring-segment admission math, surfaced so
+// collection_statistics_test.cpp can exercise them without compiling the .cpp a
+// second time via #include.
+namespace collection_statistics_detail {
+
+struct SniiScoringSegmentStats {
+    uint64_t doc_count = 0;
+    uint64_t token_count = 0;
+    segment_v2::inverted_index::PlainTermKeyVersion plain_term_key_version =
+            segment_v2::inverted_index::PlainTermKeyVersion::kLegacyRaw;
+    std::string base_analyzer_fingerprint;
+};
+
+Result<SniiScoringSegmentStats> resolve_snii_scoring_segment(
+        const std::optional<segment_v2::inverted_index::CommonGramsSegmentMetadata>& metadata,
+        uint64_t index_doc_count, uint64_t physical_sum_total_term_freq, bool has_scoring_tier,
+        bool has_positions, bool has_semantic_norms);
+
+void add_term_doc_frequency(
+        std::unordered_map<std::wstring, std::unordered_map<std::wstring, uint64_t>>*
+                logical_frequencies,
+        const std::wstring& field, const std::wstring& logical_term, uint64_t doc_frequency);
+
+} // namespace collection_statistics_detail
+
 } // namespace doris
