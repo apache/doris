@@ -25,3 +25,17 @@
 
 -- !after_snapshots --
 4
+
+-- !variant_rows --
+1	{"name":"alpha","score":12.5,"tags":["dts", "paimon"]}
+2	{"active":1,"nested":{"version":"2.0"}}
+3	\N
+4	123
+5	{}
+
+-- !variant_row_tracking --
+1	{"name":"alpha","score":12.5,"tags":["dts", "paimon"]}	0	1
+2	{"active":1,"nested":{"version":"2.0"}}	1	2
+3	\N	2	2
+4	123	3	2
+5	{}	4	2
