@@ -49,6 +49,8 @@ protected:
 
 namespace {
 
+constexpr size_t kNoThrottleBytesPerSecond = 1ULL << 40;
+
 S3ClientConf make_factory_conf(std::string endpoint, bool is_internal_bucket) {
     S3ClientConf conf;
     conf.endpoint = std::move(endpoint);
@@ -226,6 +228,9 @@ TEST_F(S3ClientFactoryTest, SelectsRateLimiterByDeploymentAndBucketType) {
         auto second = client->head_object({.bucket = "bucket", .key = "key"});
         if (expect_limited) {
             EXPECT_EQ(second.resp.status.code, static_cast<int>(ErrorCode::EXCEEDED_LIMIT));
+            EXPECT_EQ(second.resp.http_code, 0);
+            EXPECT_NE(second.resp.status.msg.find("GET request exceeds QPS limit"),
+                      std::string::npos);
         } else {
             EXPECT_TRUE(second.resp.ok());
         }
@@ -234,6 +239,39 @@ TEST_F(S3ClientFactoryTest, SelectsRateLimiterByDeploymentAndBucketType) {
     check_selection(false, false, true, "non-cloud-external-rate-limit.example.com");
     check_selection(true, true, true, "cloud-internal-rate-limit.example.com");
     check_selection(true, false, false, "cloud-external-no-rate-limit.example.com");
+}
+
+TEST_F(S3ClientFactoryTest, RateLimitResponseDistinguishesBytesFromProviderThrottling) {
+    RateLimiterConfigGuard rate_limiter_guard;
+    SyncPointProcessingGuard sync_point_guard;
+    SyncPoint::CallbackGuard create_client_callback;
+    SyncPoint::get_instance()->set_call_back(
+            "s3_client_factory::create",
+            [](auto&& args) {
+                auto result = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageClient>>(args);
+                result->second = true;
+            },
+            &create_client_callback);
+
+    CloudModeConfigGuard cloud_mode_guard(false);
+    config::enable_s3_rate_limiter = true;
+    auto& manager = S3RateLimiterManager::instance();
+    manager.qps_limiter(S3RateLimitType::GET)->reset(0, 0, 0);
+    manager.bytes_limiter(S3RateLimitType::GET)
+            ->reset(kNoThrottleBytesPerSecond, kNoThrottleBytesPerSecond, 1);
+
+    auto result = S3ClientFactory::instance().create(
+            make_factory_conf("be-bytes-rate-limit-response.example.com", false));
+    ASSERT_TRUE(result.has_value()) << result.error();
+    auto client = std::move(result).value();
+    char buffer[2];
+    size_t size_return = 0;
+    auto response = client->get_object({.bucket = "bucket", .key = "key"}, buffer, 0,
+                                       sizeof(buffer), &size_return);
+
+    EXPECT_EQ(response.status.code, static_cast<int>(ErrorCode::EXCEEDED_LIMIT));
+    EXPECT_EQ(response.http_code, 0);
+    EXPECT_NE(response.status.msg.find("GET request exceeds bytes limit"), std::string::npos);
 }
 
 TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {

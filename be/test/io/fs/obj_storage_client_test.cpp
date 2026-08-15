@@ -24,8 +24,6 @@
 #include <utility>
 #include <vector>
 
-#include "cpp/obj-client/rate_limited_obj_storage_client.h"
-
 namespace doris {
 namespace {
 
@@ -124,27 +122,6 @@ public:
     std::vector<std::vector<ObjectMeta>> list_pages;
 };
 
-class RecordingRateLimitPolicy final : public ObjStorageRateLimitPolicy {
-public:
-    struct Request {
-        S3RateLimitType type;
-        size_t estimated_bytes;
-    };
-
-    ObjStorageAdmission acquire(S3RateLimitType type, size_t estimated_bytes) const override {
-        requests.push_back({type, estimated_bytes});
-        if (reject) {
-            return {.resp = ObjStorageResponse::rate_limit(TStatusCode::LIMIT_REACH, 429,
-                                                           "rejected by test policy")};
-        }
-        return {.settle = [this](size_t actual_bytes) { settled_bytes.push_back(actual_bytes); }};
-    }
-
-    bool reject = false;
-    mutable std::vector<Request> requests;
-    mutable std::vector<size_t> settled_bytes;
-};
-
 TEST(ObjStorageClientTest, SupportsLazyAndEagerListing) {
     auto client = std::make_shared<FakeObjStorageClient>();
     client->list_pages = {
@@ -175,65 +152,6 @@ TEST(ObjStorageClientTest, SupportsLazyAndEagerListing) {
     EXPECT_EQ(objects[1].key, "second");
     EXPECT_EQ(objects[2].key, "third");
     EXPECT_EQ(client->list_page_calls, 4);
-}
-
-TEST(RateLimitedObjStorageClientTest, AppliesAdmissionPolicyToEveryClientOperation) {
-    auto inner_client = std::make_shared<FakeObjStorageClient>();
-    auto policy = std::make_shared<RecordingRateLimitPolicy>();
-    auto client = std::make_shared<RateLimitedObjStorageClient>(inner_client, policy);
-    ObjStoragePath opts {.bucket = "bucket", .key = "key"};
-
-    EXPECT_TRUE(client->create_multipart_upload(opts).resp.ok());
-    EXPECT_TRUE(client->put_object(opts, "abc").ok());
-    EXPECT_TRUE(client->upload_part(opts, "upload-id", "part", 1).resp.ok());
-    EXPECT_TRUE(client->complete_multipart_upload(opts, "upload-id", {}).ok());
-    EXPECT_TRUE(client->head_object(opts).resp.ok());
-    char buffer[10];
-    size_t size_return = 0;
-    EXPECT_TRUE(client->get_object(opts, buffer, 0, sizeof(buffer), &size_return).ok());
-    EXPECT_EQ(size_return, 4);
-    std::vector<ObjectMeta> objects;
-    EXPECT_TRUE(client->list_objects(opts, &objects).ok());
-    EXPECT_TRUE(client->delete_objects(opts, {"one", "two", "three"}).ok());
-    EXPECT_TRUE(client->delete_object(opts).ok());
-    int64_t expiration_days = 0;
-    EXPECT_TRUE(client->get_lifecycle("bucket", &expiration_days).ok());
-    EXPECT_TRUE(client->check_versioning("bucket").ok());
-    EXPECT_TRUE(client->abort_multipart_upload(opts, "upload-id").ok());
-    EXPECT_EQ(client->generate_presigned_url(opts, 60), "url");
-
-    const std::vector<RecordingRateLimitPolicy::Request> expected = {
-            {S3RateLimitType::PUT, 0}, {S3RateLimitType::PUT, 3}, {S3RateLimitType::PUT, 4},
-            {S3RateLimitType::PUT, 0}, {S3RateLimitType::GET, 0}, {S3RateLimitType::GET, 10},
-            {S3RateLimitType::GET, 0}, {S3RateLimitType::PUT, 0}, {S3RateLimitType::PUT, 0},
-            {S3RateLimitType::GET, 0}, {S3RateLimitType::GET, 0}, {S3RateLimitType::PUT, 0},
-    };
-    ASSERT_EQ(policy->requests.size(), expected.size());
-    for (size_t i = 0; i < expected.size(); ++i) {
-        EXPECT_EQ(policy->requests[i].type, expected[i].type) << "request index " << i;
-        EXPECT_EQ(policy->requests[i].estimated_bytes, expected[i].estimated_bytes)
-                << "request index " << i;
-    }
-    EXPECT_EQ(policy->settled_bytes, std::vector<size_t>({4}));
-    EXPECT_EQ(inner_client->calls, 12);
-    EXPECT_EQ(inner_client->presigned_url_calls, 1);
-}
-
-TEST(RateLimitedObjStorageClientTest, RejectsBeforeDispatchingToInnerClient) {
-    auto inner_client = std::make_shared<FakeObjStorageClient>();
-    auto policy = std::make_shared<RecordingRateLimitPolicy>();
-    policy->reject = true;
-    RateLimitedObjStorageClient client(inner_client, policy);
-    ObjStoragePath opts {.bucket = "bucket", .key = "key"};
-
-    auto put_response = client.put_object(opts, "abc");
-    EXPECT_EQ(put_response.status.code, static_cast<int>(TStatusCode::LIMIT_REACH));
-    EXPECT_EQ(put_response.http_code, 429);
-    auto head_response = client.head_object(opts);
-    EXPECT_EQ(head_response.resp.status.code, static_cast<int>(TStatusCode::LIMIT_REACH));
-    EXPECT_EQ(head_response.resp.http_code, 429);
-    EXPECT_EQ(inner_client->calls, 0);
-    EXPECT_EQ(policy->requests.size(), 2);
 }
 
 } // namespace
