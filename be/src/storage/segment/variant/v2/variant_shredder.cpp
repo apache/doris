@@ -237,38 +237,43 @@ struct VariantShredder::Impl {
         return index;
     }
 
-    bool residual_contains_canonical_leaf(VariantRef value, std::string_view canonical_path) const {
-        if (value.basic_type() != VariantBasicType::OBJECT) {
-            return false;
-        }
+    // Combine residual publication and dotted-path collision detection in one value walk. The
+    // metadata cache resolves field ids into canonical paths; the current VariantRef remains the
+    // source of truth for which leaves exist in this row.
+    Status collect_residual_leaves(VariantRef value, MetadataPathCache& metadata_cache,
+                                   PathIndex path_index,
+                                   std::span<const size_t> active_path_markers, size_t row_marker,
+                                   DorisVector<std::pair<VariantRef, PathIndex>>& leaves,
+                                   bool& collision) {
+        DORIS_CHECK(value.basic_type() == VariantBasicType::OBJECT);
         const uint32_t children = value.num_elements();
         for (uint32_t index = 0; index < children; ++index) {
             uint32_t field = 0;
             const VariantRef child = value.object_value_at(index, &field);
-            const std::string_view key = value.metadata.key_at(field).to_string_view();
-            if (!canonical_path.starts_with(key)) {
-                continue;
-            }
-            if (key.size() == canonical_path.size()) {
-                if (child.is_null()) {
-                    if (options.check_duplicate_json_path) {
-                        return true;
-                    }
-                } else if (child.basic_type() != VariantBasicType::OBJECT) {
-                    // Arrays are leaves in the storage traversal, just like scalars.
-                    return true;
+            const PathIndex child_path = resolve_child_path(metadata_cache, path_index, field);
+            RETURN_IF_ERROR(validate_doc_path(child_path));
+            if (!child.is_null() && child.basic_type() == VariantBasicType::OBJECT) {
+                RETURN_IF_ERROR(collect_residual_leaves(child, metadata_cache, child_path,
+                                                        active_path_markers, row_marker, leaves,
+                                                        collision));
+                if (collision) {
+                    return Status::OK();
                 }
                 continue;
             }
-            if (canonical_path[key.size()] != '.' ||
-                child.basic_type() != VariantBasicType::OBJECT) {
+            if (child_path < active_path_markers.size() &&
+                active_path_markers[child_path] == row_marker &&
+                paths[child_path].path.get_path().find('.') != std::string::npos &&
+                (!child.is_null() || options.check_duplicate_json_path)) {
+                collision = true;
+                return Status::OK();
+            }
+            if (child.is_null() && !options.check_duplicate_json_path) {
                 continue;
             }
-            if (residual_contains_canonical_leaf(child, canonical_path.substr(key.size() + 1))) {
-                return true;
-            }
+            leaves.emplace_back(child, child_path);
         }
-        return false;
+        return Status::OK();
     }
 
     Status append_shredded_field(const ColumnVariantV2::ReadView& field, size_t input_row,
@@ -718,6 +723,7 @@ struct VariantShredder::Impl {
 #ifdef BE_TEST
     size_t typed_direct_scalar_appends = 0;
     size_t typed_encoded_slow_appends = 0;
+    size_t native_residual_value_walks = 0;
 #endif
 };
 
@@ -791,6 +797,9 @@ Status VariantShredder::append(const ColumnVariantV2::ReadView& view, size_t beg
     }
 }
 
+// Row publication, encoded fallback, and append statistics share one state-machine transaction;
+// splitting them across independent helpers would broaden the mutable lifecycle.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 Status VariantShredder::append_shredded(const ColumnVariantV2& source, size_t begin, size_t length,
                                         std::span<const uint8_t> outer_nulls,
                                         VariantShredderAppendStats* append_stats) {
@@ -828,27 +837,14 @@ Status VariantShredder::append_shredded(const ColumnVariantV2& source, size_t be
         DorisVector<ColumnVariantV2::ReadView> field_views;
         field_views.reserve(field_count);
         DorisVector<std::optional<Impl::PathIndex>> field_path_indices(field_count);
-        DorisVector<size_t> field_canonical_groups(field_count, 0);
-        std::unordered_map<std::string_view, size_t> canonical_field_groups;
-        canonical_field_groups.reserve(field_count);
         for (size_t field_index = 0; field_index < field_count; ++field_index) {
             field_views.emplace_back(view.shredded_field_values(field_index).read_view());
-            const PathInData& field_path = view.shredded_field_path(field_index);
-            const auto [group, inserted] = canonical_field_groups.emplace(
-                    field_path.get_path(), canonical_field_groups.size());
-            static_cast<void>(inserted);
-            field_canonical_groups[field_index] = group->second;
         }
-        DorisVector<std::string_view> canonical_group_paths(canonical_field_groups.size());
-        for (const auto& [path, group] : canonical_field_groups) {
-            canonical_group_paths[group] = path;
-        }
-        DorisVector<size_t> active_group_markers(canonical_field_groups.size(), 0);
+        DorisVector<size_t> active_path_markers(_impl->paths.size(), 0);
 
         DorisVector<size_t> active_fields;
         active_fields.reserve(field_count);
-        DorisVector<size_t> active_groups;
-        active_groups.reserve(canonical_field_groups.size());
+        DorisVector<std::pair<VariantRef, Impl::PathIndex>> residual_leaves;
         DorisVector<char> encoded_slow_scratch;
         for (size_t offset = 0; offset < length; ++offset) {
             if (!outer_nulls.empty() && outer_nulls[offset] != 0) {
@@ -860,21 +856,28 @@ Status VariantShredder::append_shredded(const ColumnVariantV2& source, size_t be
 
             const size_t input_row = begin + offset;
             active_fields.clear();
-            active_groups.clear();
+            residual_leaves.clear();
             bool duplicate_active_path = false;
             const size_t row_marker = offset + 1;
             for (size_t field_index = 0; field_index < field_count; ++field_index) {
                 if (view.shredded_field_presence(field_index).get_data()[input_row] != 0) {
                     active_fields.push_back(field_index);
+                    if (!field_path_indices[field_index].has_value()) {
+                        const Impl::PathIndex path_index =
+                                _impl->resolve_shredded_path(view.shredded_field_path(field_index));
+                        Status status = _impl->validate_doc_path(path_index);
+                        if (!status.ok()) {
+                            return _impl->fail(std::move(status));
+                        }
+                        field_path_indices[field_index] = path_index;
+                        active_path_markers.resize(_impl->paths.size(), 0);
+                    }
                     if (!_impl->shredded_field_participates(field_views[field_index], input_row)) {
                         continue;
                     }
-                    const size_t group = field_canonical_groups[field_index];
-                    duplicate_active_path |= active_group_markers[group] == row_marker;
-                    if (active_group_markers[group] != row_marker) {
-                        active_group_markers[group] = row_marker;
-                        active_groups.push_back(group);
-                    }
+                    const Impl::PathIndex path_index = *field_path_indices[field_index];
+                    duplicate_active_path |= active_path_markers[path_index] == row_marker;
+                    active_path_markers[path_index] = row_marker;
                 }
             }
 
@@ -886,20 +889,19 @@ Status VariantShredder::append_shredded(const ColumnVariantV2& source, size_t be
             }
             const VariantRef residual = view.residual_value_at(input_row);
 
-            // A literal dotted key and a nested path intentionally collide in the legacy storage
-            // namespace. Probe only residual branches that can spell a currently active canonical
-            // path; unrelated dotted keys do not trigger a full residual pre-scan.
             Impl::MetadataPathCache& residual_metadata_cache =
                     residual_metadata_caches[metadata_index];
             bool residual_collision = false;
-            if (!duplicate_active_path) {
-                for (size_t group : active_groups) {
-                    const std::string_view canonical_path = canonical_group_paths[group];
-                    if (canonical_path.find('.') != std::string_view::npos &&
-                        _impl->residual_contains_canonical_leaf(residual, canonical_path)) {
-                        residual_collision = true;
-                        break;
-                    }
+            if (!duplicate_active_path && residual.basic_type() == VariantBasicType::OBJECT &&
+                residual.num_elements() != 0) {
+#ifdef BE_TEST
+                ++_impl->native_residual_value_walks;
+#endif
+                Status status = _impl->collect_residual_leaves(residual, residual_metadata_cache, 0,
+                                                               active_path_markers, row_marker,
+                                                               residual_leaves, residual_collision);
+                if (!status.ok()) {
+                    return _impl->fail(std::move(status));
                 }
             }
             if (duplicate_active_path || residual_collision) {
@@ -923,22 +925,14 @@ Status VariantShredder::append_shredded(const ColumnVariantV2& source, size_t be
             if (!status.ok()) {
                 return _impl->fail(std::move(status));
             }
-            if (residual.basic_type() == VariantBasicType::OBJECT) {
-                status = _impl->visit(residual, residual_metadata_cache, 0, _impl->rows);
+            for (const auto& [value, path_index] : residual_leaves) {
+                status = _impl->append_leaf(value, path_index, _impl->rows);
                 if (!status.ok()) {
                     return _impl->fail(std::move(status));
                 }
             }
             for (size_t field_index : active_fields) {
-                if (!field_path_indices[field_index].has_value()) {
-                    const Impl::PathIndex path_index =
-                            _impl->resolve_shredded_path(view.shredded_field_path(field_index));
-                    status = _impl->validate_doc_path(path_index);
-                    if (!status.ok()) {
-                        return _impl->fail(std::move(status));
-                    }
-                    field_path_indices[field_index] = path_index;
-                }
+                DORIS_CHECK(field_path_indices[field_index].has_value());
                 status = _impl->append_shredded_field(field_views[field_index], input_row,
                                                       *field_path_indices[field_index], _impl->rows,
                                                       &encoded_slow_scratch);
@@ -1006,6 +1000,10 @@ size_t VariantShredder::TestAccess::typed_direct_scalar_appends(const VariantShr
 
 size_t VariantShredder::TestAccess::typed_encoded_slow_appends(const VariantShredder& shredder) {
     return shredder._impl->typed_encoded_slow_appends;
+}
+
+size_t VariantShredder::TestAccess::native_residual_value_walks(const VariantShredder& shredder) {
+    return shredder._impl->native_residual_value_walks;
 }
 #endif
 

@@ -101,6 +101,7 @@ public:
     struct TestAccess {
         static size_t typed_direct_scalar_appends(const VariantShredder& shredder);
         static size_t typed_encoded_slow_appends(const VariantShredder& shredder);
+        static size_t native_residual_value_walks(const VariantShredder& shredder);
     };
 #endif
 

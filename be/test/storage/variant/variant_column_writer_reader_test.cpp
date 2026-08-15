@@ -185,6 +185,24 @@ static Status create_shredded_variant_v2_source(
     return Status::OK();
 }
 
+static Status create_shared_metadata_shredded_variant_v2_source(
+        const std::vector<std::string>& jsons, DorisVector<VariantShreddedLayoutEntry> layout,
+        ColumnVariantV2::MutablePtr* output) {
+    DCHECK(output != nullptr);
+    JsonStringToVariantEncoder encoder({.max_json_key_length = 255,
+                                        .throw_on_invalid_json = true,
+                                        .check_duplicate_json_path = false});
+    for (const std::string& json : jsons) {
+        encoder.add_json({json.data(), json.size()});
+    }
+    VariantBatchBuilder batch = encoder.finish_batch();
+    auto encoded = ColumnVariantV2::create();
+    encoded->insert_encoded_batch(batch);
+    VariantShreddedColumnBuilder builder(std::move(layout));
+    *output = builder.build(*encoded);
+    return Status::OK();
+}
+
 static Status create_shredded_variant_v2_source(const std::vector<std::string>& jsons,
                                                 std::string_view path,
                                                 const DataTypePtr& scalar_type,
@@ -972,6 +990,114 @@ TEST(VariantShredderTest, NativeTypedChildrenEncodeOnlyAfterCrossBatchTypeConfli
     expect_shredded_columns_equal(output, expected);
 }
 
+TEST(VariantShredderTest, NativeShreddedWalksEachNonemptyResidualOnce) {
+    const auto literal_path = [](std::string_view key) {
+        PathInDataBuilder builder;
+        return builder.append(key, false).build();
+    };
+    DorisVector<VariantShreddedLayoutEntry> layout {
+            {.path = literal_path("a.b"), .scalar_type = std::make_shared<DataTypeInt32>()},
+            {.path = literal_path("c.d"), .scalar_type = std::make_shared<DataTypeInt32>()},
+            {.path = literal_path("e.f"), .scalar_type = std::make_shared<DataTypeInt32>()},
+    };
+    ColumnVariantV2::MutablePtr source;
+    ASSERT_TRUE(create_shared_metadata_shredded_variant_v2_source(
+                        {R"({"a.b":1,"c.d":2,"e.f":3})",
+                         R"({"a.b":4,"c.d":5,"e.f":6,"keep":{"x":7}})", R"({"keep":{"x":8}})"},
+                        std::move(layout), &source)
+                        .ok());
+    ASSERT_TRUE(source->is_shredded());
+    ASSERT_EQ(source->read_view().residual_metadata_count(), 1);
+
+    const segment_v2::VariantShredderOptions options {
+            .max_subcolumns_count = 0,
+            .sparse_bucket_count = 1,
+            .check_duplicate_json_path = true,
+    };
+    auto encoded_oracle = source->materialize_encoded_range(0, source->size());
+    segment_v2::VariantShredder oracle(options);
+    ASSERT_TRUE(oracle.append(encoded_oracle->read_view(), 0, encoded_oracle->size()).ok());
+    segment_v2::VariantShreddedColumns expected;
+    ASSERT_TRUE(oracle.finish(&expected).ok());
+
+    segment_v2::VariantShredder native(options);
+    segment_v2::VariantShredderAppendStats append_stats;
+    ASSERT_TRUE(native.append_shredded(*source, 0, source->size(), {}, &append_stats).ok());
+    EXPECT_EQ(append_stats.native_shredded_rows, source->size());
+    EXPECT_EQ(append_stats.encoded_fallback_rows, 0);
+    // Row 0 has an empty residual and starts no walk. Rows 1 and 2 each walk their residual once,
+    // regardless of the three active dotted paths in row 1.
+    EXPECT_EQ(segment_v2::VariantShredder::TestAccess::native_residual_value_walks(native), 2);
+
+    segment_v2::VariantShreddedColumns actual;
+    ASSERT_TRUE(native.finish(&actual).ok());
+    expect_shredded_columns_equal(actual, expected);
+}
+
+TEST(VariantShredderTest, NativeShreddedSingleWalkDetectsResidualDottedCollisions) {
+    PathInDataBuilder literal_path_builder;
+    const PathInData literal_path = literal_path_builder.append("a.b", false).build();
+    const PathInData nested_path("a.b");
+    ASSERT_NE(literal_path.get_parts(), nested_path.get_parts());
+    ASSERT_EQ(literal_path.get_path(), nested_path.get_path());
+
+    struct CollisionCase {
+        PathInData layout_path;
+        std::vector<std::string> jsons;
+        size_t residual_value_walks;
+    };
+    const std::vector<CollisionCase> cases {
+            {.layout_path = nested_path,
+             .jsons = {R"({"a":{"b":1}})", R"({"a.b":2,"a":{"b":3}})",
+                       R"({"a":{"b":4},"keep":{"x":5}})"},
+             .residual_value_walks = 3},
+            {.layout_path = literal_path,
+             .jsons = {R"({"a.b":1})", R"({"a.b":2,"a":{"b":3}})", R"({"a.b":4,"keep":{"x":5}})"},
+             .residual_value_walks = 2},
+    };
+
+    for (const CollisionCase& test_case : cases) {
+        SCOPED_TRACE(test_case.layout_path.get_parts().size() == 1 ? "literal_child"
+                                                                   : "nested_child");
+        DorisVector<VariantShreddedLayoutEntry> layout {
+                {.path = test_case.layout_path, .scalar_type = std::make_shared<DataTypeInt32>()},
+        };
+        ColumnVariantV2::MutablePtr source;
+        ASSERT_TRUE(create_shared_metadata_shredded_variant_v2_source(test_case.jsons,
+                                                                      std::move(layout), &source)
+                            .ok());
+        ASSERT_EQ(source->read_view().residual_metadata_count(), 1);
+
+        const segment_v2::VariantShredderOptions options {
+                .max_subcolumns_count = 0,
+                .sparse_bucket_count = 1,
+                .check_duplicate_json_path = true,
+        };
+        auto encoded_oracle = source->materialize_encoded_range(0, source->size());
+        segment_v2::VariantShredder oracle(options);
+        ASSERT_TRUE(oracle.append(encoded_oracle->read_view(), 0, encoded_oracle->size()).ok());
+        segment_v2::VariantShreddedColumns expected;
+        ASSERT_TRUE(oracle.finish(&expected).ok());
+
+        const size_t materializations_before =
+                ColumnVariantV2::TestAccess::encoded_range_materializations(*source);
+        segment_v2::VariantShredder native(options);
+        segment_v2::VariantShredderAppendStats append_stats;
+        ASSERT_TRUE(native.append_shredded(*source, 0, source->size(), {}, &append_stats).ok());
+        EXPECT_EQ(append_stats.native_shredded_rows, 2);
+        EXPECT_EQ(append_stats.encoded_fallback_rows, 1);
+        EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(*source) -
+                          materializations_before,
+                  1);
+        EXPECT_EQ(segment_v2::VariantShredder::TestAccess::native_residual_value_walks(native),
+                  test_case.residual_value_walks);
+
+        segment_v2::VariantShreddedColumns actual;
+        ASSERT_TRUE(native.finish(&actual).ok());
+        expect_shredded_columns_equal(actual, expected);
+    }
+}
+
 TEST(VariantShredderTest, DottedPathRowsUseEncodedOracleFallback) {
     PathInDataBuilder literal_path_builder;
     const PathInData literal_path = literal_path_builder.append("a.b", false).build();
@@ -1052,6 +1178,62 @@ TEST(VariantShredderTest, DottedNullCollisionMatchesEncodedNullPolicy) {
         segment_v2::VariantShreddedColumns actual;
         ASSERT_TRUE(native.finish(&actual).ok());
         expect_shredded_columns_equal(actual, expected);
+    }
+}
+
+TEST(VariantShredderTest, SingleLayoutDottedNullResidualMatchesEncodedPolicy) {
+    PathInDataBuilder literal_path_builder;
+    const PathInData literal_path = literal_path_builder.append("a.b", false).build();
+    const PathInData nested_path("a.b");
+    ASSERT_NE(literal_path.get_parts(), nested_path.get_parts());
+    ASSERT_EQ(literal_path.get_path(), nested_path.get_path());
+
+    struct NullResidualCase {
+        PathInData layout_path;
+        std::string json;
+    };
+    const std::vector<NullResidualCase> cases {
+            {.layout_path = nested_path, .json = R"({"a.b":null,"a":{"b":9}})"},
+            {.layout_path = literal_path, .json = R"({"a.b":10,"a":{"b":null}})"},
+    };
+
+    for (const NullResidualCase& test_case : cases) {
+        SCOPED_TRACE(test_case.layout_path.get_parts().size() == 1 ? "literal_child"
+                                                                   : "nested_child");
+        DorisVector<VariantShreddedLayoutEntry> layout {
+                {.path = test_case.layout_path, .scalar_type = std::make_shared<DataTypeInt32>()},
+        };
+        ColumnVariantV2::MutablePtr source;
+        ASSERT_TRUE(create_shredded_variant_v2_source({test_case.json}, std::move(layout), &source)
+                            .ok());
+        auto encoded_oracle = source->materialize_encoded_range(0, source->size());
+
+        for (bool check_duplicate_json_path : {false, true}) {
+            SCOPED_TRACE(testing::Message()
+                         << "check_duplicate_json_path=" << check_duplicate_json_path);
+            const segment_v2::VariantShredderOptions options {
+                    .max_subcolumns_count = 1,
+                    .sparse_bucket_count = 1,
+                    .check_duplicate_json_path = check_duplicate_json_path,
+            };
+            segment_v2::VariantShredder oracle(options);
+            ASSERT_TRUE(oracle.append(encoded_oracle->read_view(), 0, encoded_oracle->size()).ok());
+            segment_v2::VariantShreddedColumns expected;
+            ASSERT_TRUE(oracle.finish(&expected).ok());
+
+            segment_v2::VariantShredder native(options);
+            segment_v2::VariantShredderAppendStats append_stats;
+            const Status status =
+                    native.append_shredded(*source, 0, source->size(), {}, &append_stats);
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_EQ(append_stats.native_shredded_rows,
+                      check_duplicate_json_path ? 0 : source->size());
+            EXPECT_EQ(append_stats.encoded_fallback_rows,
+                      check_duplicate_json_path ? source->size() : 0);
+            segment_v2::VariantShreddedColumns actual;
+            ASSERT_TRUE(native.finish(&actual).ok());
+            expect_shredded_columns_equal(actual, expected);
+        }
     }
 }
 
@@ -3204,6 +3386,78 @@ TEST_F(VariantColumnWriterReaderTest,
     std::vector<std::string> actual;
     ASSERT_TRUE(read_extracted_variant_rows(footer, file_path, &actual).ok());
     EXPECT_EQ(actual, jsons);
+}
+
+TEST_F(VariantColumnWriterReaderTest,
+       v2_extracted_subcolumn_writer_all_present_keeps_complete_shredded_values) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v", 2);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(schema_pb);
+    const TabletColumn& parent_column = _tablet_schema->column_by_uid(1);
+    TabletColumn extracted_column;
+    extracted_column.set_name(parent_column.name_lower_case() + ".payload");
+    extracted_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    extracted_column.set_parent_unique_id(parent_column.unique_id());
+    extracted_column.set_path_info(PathInData(parent_column.name_lower_case() + ".payload"));
+    extracted_column.set_is_nullable(true);
+    _tablet_schema->append_column(extracted_column);
+    init_tablet_from_current_schema(11108);
+
+    const std::vector<std::string> jsons {
+            R"({"cold":"one","hot":1})",
+            R"({"cold":"two","hot":2,"keep":{"x":9}})",
+            R"({"cold":"three","hot":3})",
+            R"({"cold":"ignored","hot":4})",
+    };
+    DorisVector<VariantShreddedLayoutEntry> layout {
+            {.path = PathInData("cold"), .scalar_type = std::make_shared<DataTypeString>()},
+            {.path = PathInData("hot"), .scalar_type = std::make_shared<DataTypeInt32>()},
+    };
+    ColumnVariantV2::MutablePtr shredded;
+    ASSERT_TRUE(
+            create_shared_metadata_shredded_variant_v2_source(jsons, std::move(layout), &shredded)
+                    .ok());
+    ASSERT_TRUE(shredded->is_shredded());
+    ASSERT_EQ(shredded->shredded_field_count(), 2);
+    for (size_t field = 0; field < shredded->shredded_field_count(); ++field) {
+        EXPECT_EQ(shredded->shredded_field_presence(field).get_data(),
+                  (ColumnUInt8::Container {1, 1, 1, 1}));
+    }
+    EXPECT_EQ(shredded->read_view().residual_value_at(0).num_elements(), 0);
+    EXPECT_NE(shredded->read_view().residual_value_at(1).num_elements(), 0);
+
+    auto outer_nulls = ColumnUInt8::create();
+    for (UInt8 is_null : {0, 0, 0, 1}) {
+        outer_nulls->insert_value(is_null);
+    }
+    const ColumnVariantV2* shredded_source = shredded.get();
+    ColumnPtr source = ColumnNullable::create(std::move(shredded), std::move(outer_nulls));
+    DataTypePtr source_type = make_nullable(std::make_shared<DataTypeVariantV2>(2, false));
+    const size_t materializations_before =
+            ColumnVariantV2::TestAccess::encoded_range_materializations(*shredded_source);
+
+    SegmentFooterPB footer;
+    std::string file_path;
+    ASSERT_TRUE(write_extracted_variant_segment(source, source_type,
+                                                "v2_shredded_extracted_all_present", &footer,
+                                                &file_path)
+                        .ok());
+    EXPECT_EQ(ColumnVariantV2::TestAccess::encoded_range_materializations(*shredded_source) -
+                      materializations_before,
+              1);
+    ASSERT_EQ(footer.columns_size(), 1);
+    EXPECT_EQ(footer.columns(0).type(), static_cast<int>(FieldType::OLAP_FIELD_TYPE_JSONB));
+
+    std::vector<std::string> actual;
+    ASSERT_TRUE(read_extracted_variant_rows(footer, file_path, &actual).ok());
+    EXPECT_EQ(actual, (std::vector<std::string> {
+                              jsons[0],
+                              jsons[1],
+                              jsons[2],
+                              "NULL",
+                      }));
 }
 
 TEST_F(VariantColumnWriterReaderTest, v2_root_only_preserves_layout_validation) {
