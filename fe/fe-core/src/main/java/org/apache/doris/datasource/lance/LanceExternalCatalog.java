@@ -162,6 +162,17 @@ public class LanceExternalCatalog extends ExternalCatalog {
         return (AbstractLanceProperties) catalogProperty.getMetastoreProperties();
     }
 
+    /**
+     * Returns whether this catalog is configured to use the Lance REST namespace.
+     *
+     * <p>This deliberately reads only the normalized catalog properties and does not initialize
+     * the namespace. Callers can therefore reject unsupported REST operations before resolving a
+     * database or table, both of which may trigger remote metadata requests.
+     */
+    public boolean isRestCatalogConfigured() {
+        return LANCE_REST.equals(getLanceProperties().getLanceCatalogType());
+    }
+
     @Override
     protected List<String> listDatabaseNames() {
         makeSureInitialized();
@@ -323,13 +334,13 @@ public class LanceExternalCatalog extends ExternalCatalog {
 
     public List<LanceLogicalIndex> loadTableIndexMetadata(
             String dbName, String tableName) throws AnalysisException {
+        if (isRestCatalogConfigured()) {
+            throw new AnalysisException("SHOW INDEX is not supported for Lance REST catalogs");
+        }
         try {
             makeSureInitialized();
         } catch (Exception e) {
             throw indexMetadataLoadFailure(dbName, tableName, e, null, javaStorageOptions);
-        }
-        if (!LANCE_FILESYSTEM.equals(catalogType)) {
-            throw new AnalysisException("SHOW INDEX is not supported for Lance REST catalogs");
         }
 
         ResolvedTableAccess tableAccess = null;

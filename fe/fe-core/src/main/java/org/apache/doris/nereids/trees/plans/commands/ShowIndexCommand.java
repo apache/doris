@@ -114,6 +114,10 @@ public class ShowIndexCommand extends ShowCommand {
         List<List<String>> rows = Lists.newArrayList();
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(tableNameInfo.getCtl());
+        if (catalog instanceof LanceExternalCatalog
+                && ((LanceExternalCatalog) catalog).isRestCatalogConfigured()) {
+            throw new AnalysisException("SHOW INDEX is not supported for Lance REST catalogs");
+        }
         DatabaseIf db = catalog.getDbOrAnalysisException(tableNameInfo.getDb());
         if (db instanceof Database) {
             rows = getInternalIndexRows(db);

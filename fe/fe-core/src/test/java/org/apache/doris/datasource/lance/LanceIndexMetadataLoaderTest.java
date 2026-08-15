@@ -19,7 +19,11 @@ package org.apache.doris.datasource.lance;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.lance.Dataset;
+import org.lance.index.IndexCriteria;
 import org.lance.index.IndexDescription;
+import org.lance.schema.LanceField;
+import org.mockito.Mockito;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -49,11 +53,133 @@ public class LanceIndexMetadataLoaderTest {
     }
 
     @Test
+    public void testDescribeUserIndexesSkipsSystemIndexesAndDeduplicatesNames() {
+        Dataset dataset = Mockito.mock(Dataset.class);
+        IndexDescription first = description(
+                "first_idx", Collections.singletonList(1), "BTREE", null);
+        IndexDescription prefixedUserName = description(
+                "__user_idx", Collections.singletonList(2), "BTREE", null);
+        Mockito.when(dataset.listIndexes()).thenReturn(Arrays.asList(
+                "__lance_frag_reuse", "first_idx", "__lance_mem_wal",
+                "first_idx", "__mem_wal", "__user_idx"));
+        Mockito.when(dataset.describeIndices(Mockito.any(IndexCriteria.class)))
+                .thenAnswer(invocation -> {
+                    IndexCriteria criteria = invocation.getArgument(0);
+                    String name = criteria.getHasName().orElseThrow(AssertionError::new);
+                    if ("first_idx".equals(name)) {
+                        return Collections.singletonList(first);
+                    }
+                    if ("__user_idx".equals(name)) {
+                        return Collections.singletonList(prefixedUserName);
+                    }
+                    throw new AssertionError("Unexpected index criteria: " + name);
+                });
+
+        List<IndexDescription> descriptions =
+                LanceIndexMetadataLoader.describeUserIndexes(dataset);
+
+        Assertions.assertEquals(Arrays.asList(first, prefixedUserName), descriptions);
+        Mockito.verify(dataset, Mockito.times(2))
+                .describeIndices(Mockito.any(IndexCriteria.class));
+        Mockito.verify(dataset, Mockito.never()).describeIndices();
+    }
+
+    @Test
+    public void testDescribeUserIndexesReturnsEmptyForOnlySystemIndexes() {
+        Dataset dataset = Mockito.mock(Dataset.class);
+        Mockito.when(dataset.listIndexes()).thenReturn(Arrays.asList(
+                "__lance_frag_reuse", "__lance_mem_wal", "__mem_wal",
+                "__lance_frag_reuse"));
+
+        Assertions.assertTrue(
+                LanceIndexMetadataLoader.describeUserIndexes(dataset).isEmpty());
+
+        Mockito.verify(dataset, Mockito.never())
+                .describeIndices(Mockito.any(IndexCriteria.class));
+        Mockito.verify(dataset, Mockito.never()).describeIndices();
+    }
+
+    @Test
+    public void testDescribeUserIndexesEnforcesUniqueUserIndexLimitBeforeDescribe() {
+        Dataset atLimitDataset = Mockito.mock(Dataset.class);
+        List<String> atLimitNames = new ArrayList<>();
+        for (int index = 0; index < 256; ++index) {
+            atLimitNames.add("idx_" + index);
+        }
+        atLimitNames.add("idx_0");
+        Mockito.when(atLimitDataset.listIndexes()).thenReturn(atLimitNames);
+        Mockito.when(atLimitDataset.describeIndices(Mockito.any(IndexCriteria.class)))
+                .thenAnswer(invocation -> {
+                    IndexCriteria criteria = invocation.getArgument(0);
+                    String name = criteria.getHasName().orElseThrow(AssertionError::new);
+                    return Collections.singletonList(description(
+                            name, Collections.singletonList(1), "BTREE", null));
+                });
+
+        Assertions.assertEquals(256,
+                LanceIndexMetadataLoader.describeUserIndexes(atLimitDataset).size());
+        Mockito.verify(atLimitDataset, Mockito.times(256))
+                .describeIndices(Mockito.any(IndexCriteria.class));
+
+        Dataset overLimitDataset = Mockito.mock(Dataset.class);
+        List<String> overLimitNames = new ArrayList<>(atLimitNames.subList(0, 256));
+        overLimitNames.add("idx_256");
+        Mockito.when(overLimitDataset.listIndexes()).thenReturn(overLimitNames);
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> LanceIndexMetadataLoader.describeUserIndexes(overLimitDataset));
+        Assertions.assertTrue(exception.getMessage().contains("256"));
+        Mockito.verify(overLimitDataset, Mockito.never())
+                .describeIndices(Mockito.any(IndexCriteria.class));
+    }
+
+    @Test
+    public void testDescribeUserIndexesRejectsInvalidProviderResults() {
+        Dataset nullNamesDataset = Mockito.mock(Dataset.class);
+        Mockito.when(nullNamesDataset.listIndexes()).thenReturn(null);
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexMetadataLoader.describeUserIndexes(nullNamesDataset));
+
+        for (String invalidName : Arrays.asList(null, "")) {
+            Dataset invalidNameDataset = Mockito.mock(Dataset.class);
+            Mockito.when(invalidNameDataset.listIndexes())
+                    .thenReturn(Collections.singletonList(invalidName));
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> LanceIndexMetadataLoader.describeUserIndexes(invalidNameDataset));
+            Mockito.verify(invalidNameDataset, Mockito.never())
+                    .describeIndices(Mockito.any(IndexCriteria.class));
+        }
+
+        Dataset nullDescriptionsDataset = Mockito.mock(Dataset.class);
+        Mockito.when(nullDescriptionsDataset.listIndexes())
+                .thenReturn(Collections.singletonList("user_idx"));
+        Mockito.when(nullDescriptionsDataset.describeIndices(Mockito.any(IndexCriteria.class)))
+                .thenReturn(null);
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexMetadataLoader.describeUserIndexes(nullDescriptionsDataset));
+
+        Dataset failingDataset = Mockito.mock(Dataset.class);
+        RuntimeException sdkFailure = new RuntimeException("SDK failure");
+        Mockito.when(failingDataset.listIndexes())
+                .thenReturn(Collections.singletonList("user_idx"));
+        Mockito.when(failingDataset.describeIndices(Mockito.any(IndexCriteria.class)))
+                .thenThrow(sdkFailure);
+        Assertions.assertSame(sdkFailure, Assertions.assertThrows(RuntimeException.class,
+                () -> LanceIndexMetadataLoader.describeUserIndexes(failingDataset)));
+    }
+
+    @Test
     public void testNormalizesIvfPqDescriptionAndDefensivelyCopiesColumns() {
         IndexDescription description = description("embedding_idx",
                 Collections.singletonList(7), "IVF_PQ",
                 "{\"target_partition_size\":256,\"unknown\":\"secret\","
-                        + "\"metric_type\":\"cosine\",\"num_sub_vectors\":16,\"num_bits\":8}");
+                        + "\"runtime_hints\":{\"secret\":\"opaque\"},"
+                        + "\"compression\":{\"type\":\"pq\",\"num_sub_vectors\":16,"
+                        + "\"unknown\":\"opaque\",\"num_bits\":8},"
+                        + "\"metric_type\":\"cosine\","
+                        + "\"hnsw\":{\"max_level\":3,\"max_connections\":32,"
+                        + "\"construction_ef\":200}}");
 
         List<LanceLogicalIndex> indexes = LanceIndexMetadataLoader.normalize(
                 Collections.singletonList(description),
@@ -65,9 +191,13 @@ public class LanceIndexMetadataLoaderTest {
         Assertions.assertEquals(Collections.singletonList("embedding"), index.getColumns());
         Assertions.assertEquals("IVF_PQ", index.getIndexType());
         Assertions.assertEquals(
-                "{\"metric_type\":\"cosine\",\"num_bits\":8,\"num_sub_vectors\":16,"
+                "{\"compression\":{\"num_bits\":8,\"num_sub_vectors\":16,\"type\":\"pq\"},"
+                        + "\"hnsw\":{\"construction_ef\":200,\"max_connections\":32,"
+                        + "\"max_level\":3},\"metric_type\":\"cosine\","
                         + "\"target_partition_size\":256}",
                 index.getProperties());
+        Assertions.assertFalse(index.getProperties().contains("runtime_hints"));
+        Assertions.assertFalse(index.getProperties().contains("opaque"));
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> index.getColumns().add("another"));
 
@@ -77,6 +207,22 @@ public class LanceIndexMetadataLoaderTest {
         mutableColumns.add("second");
         Assertions.assertEquals(Collections.singletonList("first"),
                 directlyConstructed.getColumns());
+    }
+
+    @Test
+    public void testNormalizesRqCompressionRotationType() {
+        LanceLogicalIndex index = LanceIndexMetadataLoader.normalize(
+                Collections.singletonList(description(
+                        "rq_idx", Collections.singletonList(1), "IVF_RQ",
+                        "{\"compression\":{\"rotation_type\":\"matrix\","
+                                + "\"type\":\"rq\",\"num_bits\":4},"
+                                + "\"metric_type\":\"L2\"}")),
+                fieldNames("embedding")).get(0);
+
+        Assertions.assertEquals(
+                "{\"compression\":{\"num_bits\":4,\"rotation_type\":\"matrix\","
+                        + "\"type\":\"rq\"},\"metric_type\":\"L2\"}",
+                index.getProperties());
     }
 
     @Test
@@ -116,7 +262,36 @@ public class LanceIndexMetadataLoaderTest {
     }
 
     @Test
-    public void testRejectsUnknownNestedDuplicateNullAndEmptyFieldIds() {
+    public void testBuildsCanonicalEscapedPathsForNestedFieldIds() {
+        LanceField parent = field(1, "parent");
+        LanceField childWithDot = field(2, "child.with.dot");
+        LanceField grandchildWithBacktick = field(3, "tick`name");
+        LanceField unicodeChild = field(4, "字段");
+        Mockito.when(parent.getChildren()).thenReturn(Arrays.asList(childWithDot, unicodeChild));
+        Mockito.when(childWithDot.getChildren())
+                .thenReturn(Collections.singletonList(grandchildWithBacktick));
+
+        Map<Integer, String> fieldNames = LanceIndexMetadataLoader.buildFieldNamesById(
+                Collections.singletonList(parent));
+
+        Assertions.assertEquals("parent", fieldNames.get(1));
+        Assertions.assertEquals("parent.`child.with.dot`", fieldNames.get(2));
+        Assertions.assertEquals(
+                "parent.`child.with.dot`.`tick``name`", fieldNames.get(3));
+        Assertions.assertEquals("parent.字段", fieldNames.get(4));
+
+        LanceLogicalIndex index = LanceIndexMetadataLoader.normalize(
+                Collections.singletonList(description(
+                        "nested", Arrays.asList(2, 3, 4), "BTREE", null)),
+                fieldNames).get(0);
+        Assertions.assertEquals(Arrays.asList(
+                "parent.`child.with.dot`",
+                "parent.`child.with.dot`.`tick``name`",
+                "parent.字段"), index.getColumns());
+    }
+
+    @Test
+    public void testRejectsUnknownDuplicateNullAndEmptyFieldIds() {
         IllegalArgumentException unknown = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> LanceIndexMetadataLoader.normalize(
@@ -124,16 +299,7 @@ public class LanceIndexMetadataLoaderTest {
                                 "unknown", Collections.singletonList(99), "BTREE", null)),
                         fieldNames("alpha")));
         Assertions.assertTrue(unknown.getMessage().contains(
-                "Lance index metadata references unknown or nested field id 99"));
-
-        IllegalArgumentException nested = Assertions.assertThrows(
-                IllegalArgumentException.class,
-                () -> LanceIndexMetadataLoader.normalize(
-                        Collections.singletonList(description(
-                                "nested", Collections.singletonList(2), "BTREE", null)),
-                        Collections.singletonMap(1, "parent")));
-        Assertions.assertTrue(nested.getMessage().contains(
-                "Lance index metadata references unknown or nested field id 2"));
+                "Lance index metadata references unknown field id 99"));
 
         IllegalArgumentException duplicate = Assertions.assertThrows(
                 IllegalArgumentException.class,
@@ -282,11 +448,14 @@ public class LanceIndexMetadataLoaderTest {
     }
 
     @Test
-    public void testFiltersUnknownPropertiesAndSortsAllowlistedScalars() {
+    public void testFiltersUnknownPropertiesAndSortsAllowlistedNestedScalars() {
         String details = "{\"target_partition_size\":256,\"num_sub_vectors\":16,"
                 + "\"unknown\":\"opaque-raw-details\",\"metric_type\":\"cosine\","
-                + "\"hnsw_max_connections\":32,\"compression_type\":\"zstd\","
-                + "\"hnsw_construction_ef\":200,\"hnsw_max_level\":true,\"num_bits\":8}";
+                + "\"runtime_hints\":{\"secret\":\"credential\"},"
+                + "\"compression\":{\"type\":\"pq\",\"num_sub_vectors\":16,"
+                + "\"unknown\":\"nested-opaque\",\"num_bits\":8},"
+                + "\"hnsw\":{\"max_connections\":32,\"construction_ef\":200,"
+                + "\"max_level\":7,\"unknown\":false}}";
 
         LanceLogicalIndex index = LanceIndexMetadataLoader.normalize(
                 Collections.singletonList(description(
@@ -294,12 +463,14 @@ public class LanceIndexMetadataLoaderTest {
                 fieldNames("embedding")).get(0);
 
         Assertions.assertEquals(
-                "{\"compression_type\":\"zstd\",\"hnsw_construction_ef\":200,"
-                        + "\"hnsw_max_connections\":32,\"hnsw_max_level\":true,"
-                        + "\"metric_type\":\"cosine\",\"num_bits\":8,"
-                        + "\"num_sub_vectors\":16,\"target_partition_size\":256}",
+                "{\"compression\":{\"num_bits\":8,\"num_sub_vectors\":16,\"type\":\"pq\"},"
+                        + "\"hnsw\":{\"construction_ef\":200,\"max_connections\":32,"
+                        + "\"max_level\":7},\"metric_type\":\"cosine\","
+                        + "\"target_partition_size\":256}",
                 index.getProperties());
         Assertions.assertFalse(index.getProperties().contains("opaque-raw-details"));
+        Assertions.assertFalse(index.getProperties().contains("nested-opaque"));
+        Assertions.assertFalse(index.getProperties().contains("credential"));
         Assertions.assertFalse(index.getProperties().contains("num_partitions"));
 
         LanceLogicalIndex nullProperty = LanceIndexMetadataLoader.normalize(
@@ -314,7 +485,9 @@ public class LanceIndexMetadataLoaderTest {
     public void testRejectsAllowlistedObjectAndArrayValues() {
         for (String details : Arrays.asList(
                 "{\"metric_type\":{\"name\":\"cosine\"}}",
-                "{\"num_bits\":[8]}")) {
+                "{\"compression\":{\"num_bits\":[8]}}",
+                "{\"compression\":\"pq\"}",
+                "{\"hnsw\":[32]}")) {
             IllegalArgumentException exception = Assertions.assertThrows(
                     IllegalArgumentException.class,
                     () -> LanceIndexMetadataLoader.normalize(
@@ -328,7 +501,8 @@ public class LanceIndexMetadataLoaderTest {
 
     @Test
     public void testRejectsPropertiesOverFinalJsonLimit() {
-        String details = "{\"compression_type\":\"" + repeat("x", 390) + "\"}";
+        String details = "{\"compression\":{\"type\":\""
+                + repeat("x", 390) + "\"}}";
         Assertions.assertTrue(details.length() < 1024);
 
         IllegalArgumentException exception = Assertions.assertThrows(
@@ -377,6 +551,14 @@ public class LanceIndexMetadataLoaderTest {
             String indexType, String detailsJson) {
         return new IndexDescription(name, fieldIds, "type.googleapis.com/lance.index",
                 indexType, 0, Collections.emptyList(), detailsJson);
+    }
+
+    private static LanceField field(int id, String name) {
+        LanceField field = Mockito.mock(LanceField.class);
+        Mockito.when(field.getId()).thenReturn(id);
+        Mockito.when(field.getName()).thenReturn(name);
+        Mockito.when(field.getChildren()).thenReturn(Collections.emptyList());
+        return field;
     }
 
     private static Map<Integer, String> fieldNames(String... names) {

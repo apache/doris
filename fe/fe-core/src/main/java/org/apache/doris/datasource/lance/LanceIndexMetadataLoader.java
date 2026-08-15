@@ -27,6 +27,7 @@ import com.google.gson.stream.JsonToken;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.commons.lang3.StringUtils;
 import org.lance.Dataset;
+import org.lance.index.IndexCriteria;
 import org.lance.index.IndexDescription;
 import org.lance.schema.LanceField;
 
@@ -38,6 +39,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
@@ -52,15 +54,23 @@ public final class LanceIndexMetadataLoader {
     private static final int MAX_EXTERNAL_STRING_BYTES = 1024;
     private static final int MAX_PROPERTIES_BYTES = 400;
 
-    private static final Set<String> PROPERTY_ALLOWLIST = ImmutableSet.of(
+    // Accept both MemWAL spellings exposed by Lance producers/SDK paths.
+    private static final Set<String> SYSTEM_INDEX_NAMES = ImmutableSet.of(
+            "__lance_frag_reuse",
+            "__lance_mem_wal",
+            "__mem_wal");
+    private static final Set<String> TOP_LEVEL_PROPERTY_ALLOWLIST = ImmutableSet.of(
             "metric_type",
-            "target_partition_size",
-            "compression_type",
+            "target_partition_size");
+    private static final Set<String> HNSW_PROPERTY_ALLOWLIST = ImmutableSet.of(
+            "construction_ef",
+            "max_connections",
+            "max_level");
+    private static final Set<String> COMPRESSION_PROPERTY_ALLOWLIST = ImmutableSet.of(
+            "type",
             "num_bits",
             "num_sub_vectors",
-            "hnsw_max_connections",
-            "hnsw_construction_ef",
-            "hnsw_max_level");
+            "rotation_type");
 
     private LanceIndexMetadataLoader() {
     }
@@ -70,17 +80,96 @@ public final class LanceIndexMetadataLoader {
             Map<String, String> javaStorageOptions, BufferAllocator allocator) throws Exception {
         try (Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
                 .readOptions(LanceReadOptions.build(javaStorageOptions, OptionalLong.empty())).build()) {
-            Map<Integer, String> topLevelFieldNames = new HashMap<>();
-            for (LanceField field : dataset.getLanceSchema().fields()) {
-                topLevelFieldNames.put(field.getId(), field.getName());
-            }
-            return normalize(dataset.describeIndices(), topLevelFieldNames);
+            Map<Integer, String> fieldNames = buildFieldNamesById(dataset.getLanceSchema().fields());
+            return normalize(describeUserIndexes(dataset), fieldNames);
         }
+    }
+
+    /**
+     * Describes only user-created indexes. The Lance JNI bulk describe path also tries to
+     * materialize details for internal indexes, whose details are not supported by the SDK.
+     */
+    static List<IndexDescription> describeUserIndexes(Dataset dataset) {
+        List<String> listedNames = dataset.listIndexes();
+        if (listedNames == null) {
+            throw new IllegalArgumentException("Lance index names must not be null");
+        }
+
+        Set<String> userIndexNames = new LinkedHashSet<>();
+        for (String listedName : listedNames) {
+            if (SYSTEM_INDEX_NAMES.contains(listedName)) {
+                continue;
+            }
+            String name = requireExternalString(listedName, "Lance logical index name");
+            userIndexNames.add(name);
+            if (userIndexNames.size() > MAX_LOGICAL_INDEXES) {
+                throw new IllegalArgumentException(
+                        "Lance logical index count exceeds limit " + MAX_LOGICAL_INDEXES);
+            }
+        }
+
+        List<IndexDescription> descriptions = new ArrayList<>(userIndexNames.size());
+        for (String name : userIndexNames) {
+            IndexCriteria criteria = new IndexCriteria.Builder().hasName(name).build();
+            List<IndexDescription> matching = dataset.describeIndices(criteria);
+            if (matching == null) {
+                throw new IllegalArgumentException("Lance index descriptions must not be null");
+            }
+            for (IndexDescription description : matching) {
+                descriptions.add(description);
+                if (descriptions.size() > MAX_LOGICAL_INDEXES) {
+                    throw new IllegalArgumentException(
+                            "Lance logical index count exceeds limit " + MAX_LOGICAL_INDEXES);
+                }
+            }
+        }
+        return descriptions;
+    }
+
+    static Map<Integer, String> buildFieldNamesById(List<LanceField> fields) {
+        if (fields == null) {
+            throw new IllegalArgumentException("Lance schema fields must not be null");
+        }
+        Map<Integer, String> fieldNames = new HashMap<>();
+        for (LanceField field : fields) {
+            collectFieldNames(field, "", fieldNames);
+        }
+        return fieldNames;
+    }
+
+    private static void collectFieldNames(LanceField field, String parentPath,
+            Map<Integer, String> fieldNames) {
+        if (field == null) {
+            throw new IllegalArgumentException("Lance schema field must not be null");
+        }
+        String segment = formatFieldPathSegment(
+                requireExternalString(field.getName(), "Lance schema field name"));
+        String path = parentPath.isEmpty() ? segment : parentPath + "." + segment;
+        if (fieldNames.put(field.getId(), path) != null) {
+            throw new IllegalArgumentException("Duplicate Lance schema field id " + field.getId());
+        }
+        List<LanceField> children = field.getChildren();
+        if (children == null) {
+            throw new IllegalArgumentException("Lance schema field children must not be null");
+        }
+        for (LanceField child : children) {
+            collectFieldNames(child, path, fieldNames);
+        }
+    }
+
+    private static String formatFieldPathSegment(String segment) {
+        boolean requiresQuoting = segment.codePoints()
+                .anyMatch(codePoint -> !Character.isLetterOrDigit(codePoint)
+                        && codePoint != '_');
+        if (requiresQuoting) {
+            return "`" + segment.replace("`", "``") + "`";
+        }
+        return segment;
     }
 
     /** Converts SDK descriptions into bounded immutable Java-only metadata. */
     static List<LanceLogicalIndex> normalize(List<IndexDescription> descriptions,
-            Map<Integer, String> topLevelFieldNames) {
+            Map<Integer, String> fieldNames) {
         if (descriptions == null) {
             throw new IllegalArgumentException("Lance index descriptions must not be null");
         }
@@ -88,8 +177,8 @@ public final class LanceIndexMetadataLoader {
             throw new IllegalArgumentException(
                     "Lance logical index count exceeds limit " + MAX_LOGICAL_INDEXES);
         }
-        if (topLevelFieldNames == null) {
-            throw new IllegalArgumentException("Lance top-level field names must not be null");
+        if (fieldNames == null) {
+            throw new IllegalArgumentException("Lance field names must not be null");
         }
 
         List<IndexedLogicalIndex> normalized = new ArrayList<>(descriptions.size());
@@ -125,12 +214,12 @@ public final class LanceIndexMetadataLoader {
                     throw new IllegalArgumentException(
                             "Duplicate field id " + fieldId + " in Lance logical index metadata");
                 }
-                if (!topLevelFieldNames.containsKey(fieldId)) {
+                if (!fieldNames.containsKey(fieldId)) {
                     throw new IllegalArgumentException(
-                            "Lance index metadata references unknown or nested field id " + fieldId);
+                            "Lance index metadata references unknown field id " + fieldId);
                 }
                 String column = requireExternalString(
-                        topLevelFieldNames.get(fieldId), "Lance logical index column name");
+                        fieldNames.get(fieldId), "Lance logical index column name");
                 columnNamesBytes += utf8Length(column);
                 if (columnNamesBytes > MAX_COLUMN_NAMES_BYTES) {
                     throw new IllegalArgumentException(
@@ -192,8 +281,49 @@ public final class LanceIndexMetadataLoader {
 
         TreeMap<String, JsonElement> allowedProperties = new TreeMap<>();
         JsonObject object = parsed.getAsJsonObject();
-        for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
-            if (!PROPERTY_ALLOWLIST.contains(entry.getKey())) {
+        copyPrimitiveProperties(
+                object, TOP_LEVEL_PROPERTY_ALLOWLIST, allowedProperties, indexName);
+        copyNestedProperties(
+                object, "compression", COMPRESSION_PROPERTY_ALLOWLIST,
+                allowedProperties, indexName);
+        copyNestedProperties(
+                object, "hnsw", HNSW_PROPERTY_ALLOWLIST, allowedProperties, indexName);
+
+        String properties = GsonUtils.GSON.toJson(allowedProperties);
+        if (utf8Length(properties) > MAX_PROPERTIES_BYTES) {
+            throw new IllegalArgumentException(
+                    "Lance index properties exceed limit "
+                            + MAX_PROPERTIES_BYTES + " UTF-8 bytes");
+        }
+        return properties;
+    }
+
+    private static void copyNestedProperties(JsonObject source, String propertyName,
+            Set<String> allowlist, Map<String, JsonElement> target, String indexName) {
+        JsonElement nested = source.get(propertyName);
+        if (nested == null || nested.isJsonNull()) {
+            return;
+        }
+        if (!nested.isJsonObject()) {
+            throw invalidDetailsJson(indexName);
+        }
+
+        TreeMap<String, JsonElement> allowedNested = new TreeMap<>();
+        copyPrimitiveProperties(nested.getAsJsonObject(), allowlist, allowedNested, indexName);
+        if (allowedNested.isEmpty()) {
+            return;
+        }
+        JsonObject normalizedNested = new JsonObject();
+        for (Map.Entry<String, JsonElement> entry : allowedNested.entrySet()) {
+            normalizedNested.add(entry.getKey(), entry.getValue());
+        }
+        target.put(propertyName, normalizedNested);
+    }
+
+    private static void copyPrimitiveProperties(JsonObject source, Set<String> allowlist,
+            Map<String, JsonElement> target, String indexName) {
+        for (Map.Entry<String, JsonElement> entry : source.entrySet()) {
+            if (!allowlist.contains(entry.getKey())) {
                 continue;
             }
             JsonElement value = entry.getValue();
@@ -203,16 +333,8 @@ public final class LanceIndexMetadataLoader {
             if (!value.isJsonPrimitive()) {
                 throw invalidDetailsJson(indexName);
             }
-            allowedProperties.put(entry.getKey(), value);
+            target.put(entry.getKey(), value);
         }
-
-        String properties = GsonUtils.GSON.toJson(allowedProperties);
-        if (utf8Length(properties) > MAX_PROPERTIES_BYTES) {
-            throw new IllegalArgumentException(
-                    "Lance index properties exceed limit "
-                            + MAX_PROPERTIES_BYTES + " UTF-8 bytes");
-        }
-        return properties;
     }
 
     private static IllegalArgumentException invalidDetailsJson(String indexName) {
