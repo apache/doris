@@ -18,6 +18,7 @@
 #include "core/data_type_serde/data_type_variant_serde.h"
 
 #include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_nested.h>
 
 #include <cstdint>
 #include <string>
@@ -35,6 +36,7 @@
 #include "core/types.h"
 #include "core/value/jsonb_value.h"
 #include "exec/common/variant_util.h"
+#include "exprs/function/parse/variant_jsonb_parse.h"
 #include "util/json/json_parser.h"
 #include "util/jsonb_writer.h"
 
@@ -59,6 +61,77 @@ Status write_variant_column_to_arrow_impl(const IColumn& column, const ColumnVar
                 cast_set<typename BuilderType::offset_type>(serialized_value.size());
         RETURN_IF_ERROR(checkArrowStatus(builder.Append(serialized_value.data(), serialized_size),
                                          column, builder));
+    }
+    return Status::OK();
+}
+
+Status write_variant_column_to_arrow_struct(const IColumn& column, const ColumnVariant& var,
+                                            const NullMap* null_map, arrow::StructBuilder& builder,
+                                            int64_t start, int64_t end,
+                                            const cctz::time_zone& ctz) {
+    const auto struct_type = std::dynamic_pointer_cast<arrow::StructType>(builder.type());
+    if (struct_type == nullptr || builder.num_fields() != 2 ||
+        struct_type->field(0)->name() != "value" || struct_type->field(1)->name() != "metadata") {
+        return Status::InvalidArgument(
+                "Variant Arrow output requires "
+                "struct<value: binary, metadata: binary>");
+    }
+    auto* value_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(0));
+    auto* metadata_builder = dynamic_cast<arrow::BinaryBuilder*>(builder.field_builder(1));
+    if (value_builder == nullptr || metadata_builder == nullptr) {
+        return Status::InvalidArgument(
+                "Variant Arrow output requires binary value and metadata children");
+    }
+
+    const auto* root = var.get_subcolumn(PathInData());
+    const bool string_root =
+            root != nullptr && is_string_type(root->get_least_common_base_type_id());
+    JsonbToVariantEncoder encoder(
+            VariantBatchBuilder::ReserveHint {.rows = cast_set<size_t>(end - start)});
+    DataTypeSerDe::FormatOptions options;
+    options.timezone = &ctz;
+    for (int64_t row = start; row < end; ++row) {
+        if (null_map != nullptr && (*null_map)[cast_set<size_t>(row)]) {
+            encoder.add_null();
+            continue;
+        }
+
+        std::string serialized_value;
+        var.serialize_one_row_to_string(row, &serialized_value, options);
+        if (string_root && !root->is_null_at(cast_set<size_t>(row))) {
+            JsonbWriter writer;
+            if (!writer.writeStartString() ||
+                (serialized_value.size() != 0 &&
+                 !writer.writeString(serialized_value.data(), serialized_value.size())) ||
+                !writer.writeEndString()) {
+                return Status::InternalError("Failed to encode legacy Variant string as JSONB");
+            }
+            encoder.add_jsonb({writer.getOutput()->getBuffer(),
+                               static_cast<size_t>(writer.getOutput()->getSize())});
+            continue;
+        }
+
+        JsonBinaryValue jsonb;
+        RETURN_IF_ERROR(jsonb.from_json_string(serialized_value));
+        encoder.add_jsonb({jsonb.value(), jsonb.size()});
+    }
+
+    VariantBatchBuilder batch = encoder.finish_batch();
+    for (size_t row = 0; row < batch.num_rows(); ++row) {
+        const size_t source_row = cast_set<size_t>(start) + row;
+        if (null_map != nullptr && (*null_map)[source_row]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+            continue;
+        }
+        const VariantRef value = batch.value_at(row);
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column, builder));
+        RETURN_IF_ERROR(checkArrowStatus(
+                value_builder->Append(value.value.data, cast_set<int32_t>(value.value.size)),
+                column, *value_builder));
+        RETURN_IF_ERROR(
+                checkArrowStatus(metadata_builder->Append(value.metadata.data,
+                                                          cast_set<int32_t>(value.metadata.size)),
+                                 column, *metadata_builder));
     }
     return Status::OK();
 }
@@ -161,6 +234,10 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
     } else if (array_builder->type()->id() == arrow::Type::STRING) {
         auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         return write_variant_column_to_arrow_impl(column, *var, null_map, builder, start, end, ctz);
+    } else if (array_builder->type()->id() == arrow::Type::STRUCT) {
+        auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
+        RETURN_IF_CATCH_EXCEPTION(return write_variant_column_to_arrow_struct(
+                column, *var, null_map, builder, start, end, ctz));
     } else {
         return Status::InvalidArgument("Unsupported arrow type for variant column: {}",
                                        array_builder->type()->name());
@@ -208,7 +285,8 @@ Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, co
         size_t len = serialized_value.length();
         if (offset + len > total_size) {
             return Status::InternalError(
-                    "Buffer overflow when writing column data to ORC file. offset {} with len {} "
+                    "Buffer overflow when writing column data "
+                    "to ORC file. offset {} with len {} "
                     "exceed total_size {} . ",
                     offset, len, total_size);
         }

@@ -41,25 +41,26 @@ suite("test_paimon_write_boundary",
     """
 
     try {
-        spark_paimon_multi """
-            create database if not exists paimon.${dbName};
-            drop table if exists paimon.${dbName}.write_boundary;
-            create table paimon.${dbName}.write_boundary (
-                id int,
+        sql """switch ${catalogName}"""
+        sql """create database if not exists ${dbName}"""
+        sql """use ${dbName}"""
+        sql """drop table if exists write_boundary"""
+        sql """
+            create table write_boundary (
+                id int not null,
                 score int,
                 note string
-            ) using paimon tblproperties (
+            ) engine=paimon properties (
                 'primary-key'='id',
                 'bucket'='1',
                 'file.format'='parquet'
-            );
-            insert into paimon.${dbName}.write_boundary values
-                (1, 10, 'base-1'),
-                (2, 20, 'base-2');
+            )
         """
-
-        sql """switch ${catalogName}"""
-        sql """use ${dbName}"""
+        sql """
+            insert into write_boundary values
+                (1, 10, 'base-1'),
+                (2, 20, 'base-2')
+        """
 
         qt_before_rows """select id, score, note from write_boundary order by id"""
         qt_before_snapshots """select count(*) from write_boundary\$snapshots"""
@@ -98,6 +99,59 @@ suite("test_paimon_write_boundary",
         sql """refresh table write_boundary"""
         qt_after_rows """select id, score, note from write_boundary order by id"""
         qt_after_snapshots """select count(*) from write_boundary\$snapshots"""
+
+        sql """drop table if exists variant_row_tracking"""
+        sql """
+            create table variant_row_tracking (
+                id int,
+                doc variant
+            ) engine=paimon properties (
+                'bucket'='-1',
+                'file.format'='parquet',
+                'row-tracking.enabled'='true',
+                'data-evolution.enabled'='true'
+            )
+        """
+        sql """
+            insert into variant_row_tracking values
+                (1, parse_to_variant('{"name":"alpha","score":12.5,"tags":["dts","paimon"]}'))
+        """
+        // Legacy VARIANT V1 materializes a root JSON null as an empty object.
+        sql """
+            insert into variant_row_tracking values
+                (2, parse_to_variant('{"active":true,"nested":{"version":"2.0"}}')),
+                (3, null),
+                (4, parse_to_variant('"123"')),
+                (5, parse_to_variant('null'))
+        """
+
+        sql """set force_jni_scanner=false"""
+        sql """set enable_paimon_cpp_reader=true"""
+        String variantExplain = sql("""
+            explain verbose select id, doc from variant_row_tracking
+        """).collect { row -> row[0].toString() }.join("\n")
+        def variantSplits = (variantExplain =~ /paimonNativeReadSplits=(\d+)\/(\d+)/)
+        assertTrue(variantSplits.find(), "Expected Paimon split counts for VARIANT projection")
+        assertTrue(Long.parseLong(variantSplits.group(2)) > 0
+                        && Long.parseLong(variantSplits.group(1)) == 0,
+                "VARIANT projection must use JNI-only splits: ${variantExplain}")
+
+        String scalarExplain = sql("""
+            explain verbose select id from variant_row_tracking
+        """).collect { row -> row[0].toString() }.join("\n")
+        def scalarSplits = (scalarExplain =~ /paimonNativeReadSplits=(\d+)\/(\d+)/)
+        assertTrue(scalarSplits.find(), "Expected Paimon split counts for scalar projection")
+        assertTrue(Long.parseLong(scalarSplits.group(2)) > 0
+                        && scalarSplits.group(1) == scalarSplits.group(2),
+                "Scalar-only projection must retain native splits: ${scalarExplain}")
+
+        order_qt_variant_rows """select id, doc from variant_row_tracking order by id"""
+        order_qt_variant_row_tracking """
+            select id, doc, _ROW_ID, _SEQUENCE_NUMBER
+            from variant_row_tracking\$row_tracking
+            order by _SEQUENCE_NUMBER, _ROW_ID
+        """
+
     } finally {
         sql """drop catalog if exists ${catalogName}"""
     }

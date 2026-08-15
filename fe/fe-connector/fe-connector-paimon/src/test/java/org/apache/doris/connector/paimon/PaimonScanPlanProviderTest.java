@@ -50,10 +50,12 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.format.FileFormat;
 import org.apache.paimon.fs.FileStatus;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataInputViewStreamWrapper;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.privilege.AllGrantedPrivilegeChecker;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
@@ -762,6 +764,12 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertFalse(PaimonScanPlanProvider.shouldUseNativeReader(
                         false, false, true, Collections.singleton(0L), orcFiles),
                 "a physical Variant field in ORC remains unsupported");
+    }
+
+    @Test
+    public void vortexFormatFactoryIsAvailable() {
+        FileFormat format = FileFormat.fromIdentifier("vortex", new Options());
+        Assertions.assertEquals("vortex", format.getFormatIdentifier());
     }
 
     // ---- FIX-URI-NORMALIZE (B-7DF data file + B-7DV deletion vector) ----

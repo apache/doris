@@ -22,6 +22,7 @@
 #include <sstream>
 #include <variant>
 
+#include "common/config.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
 #include "core/column/column_map.h"
@@ -29,6 +30,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_varbinary.h"
+#include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -40,6 +42,8 @@
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/variant/variant_batch_builder.h"
+#include "exec/common/variant_util.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "util/string_util.h"
 #include "util/url_coding.h"
 
@@ -211,7 +215,32 @@ Status JniDataBridge::_fill_variant_column(TableMetaAddress& address,
             row.finish();
         }
         VariantBatchBuilder batch = builder.finish_batch();
-        assert_cast<ColumnVariantV2&>(*doris_column).insert_encoded_batch(batch);
+        if (auto* variant_v2 = check_and_get_column<ColumnVariantV2>(doris_column.get())) {
+            variant_v2->insert_encoded_batch(batch);
+        } else {
+            auto* variant = check_and_get_column<ColumnVariant>(doris_column.get());
+            if (variant == nullptr) {
+                throw Exception(
+                        ErrorCode::INVALID_ARGUMENT,
+                        "JNI Variant destination requires ColumnVariant or ColumnVariantV2, got "
+                        "{}",
+                        doris_column->get_name());
+            }
+            struct StringWriter {
+                void write(const char* data, size_t size) { value.append(data, size); }
+                std::string value;
+            };
+            ParseConfig parse_config;
+            parse_config.check_duplicate_json_path =
+                    config::variant_enable_duplicate_json_path_check;
+            for (size_t row_index = 0; row_index < num_rows; ++row_index) {
+                StringWriter writer;
+                to_json(batch.value_at(row_index), writer);
+                variant_util::parse_json_to_variant(*variant,
+                                                    {writer.value.data(), writer.value.size()},
+                                                    nullptr, parse_config);
+            }
+        }
     });
     return Status::OK();
 }

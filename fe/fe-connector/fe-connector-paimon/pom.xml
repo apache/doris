@@ -295,6 +295,14 @@ under the License.
             <artifactId>paimon-format</artifactId>
         </dependency>
 
+        <!-- Paimon 2.0 keeps the Vortex FileFormatFactory and its JNI runtime in a separate
+             module. Bundle it in the child-first connector classloader so Vortex tables can be
+             planned and their format factory is visible to Paimon's ServiceLoader. -->
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-vortex-format</artifactId>
+        </dependency>
+
         <!-- TEST ONLY: the buildRealDataSplit-based tests (count-pushdown / native sub-split /
              cpp-reader serde) write a REAL local-filesystem paimon table to produce a real DataSplit;
              paimon's writer/commit path references org.apache.hadoop.mapreduce.lib.input.FileInputFormat

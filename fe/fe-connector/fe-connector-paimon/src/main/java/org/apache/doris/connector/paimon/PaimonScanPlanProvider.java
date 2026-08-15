@@ -662,7 +662,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             // and hand BE the wrong column. Fail loud instead.
             throw new DorisConnectorException("Paimon scan schema does not contain all bound Doris columns.");
         }
-
         // Call Paimon SDK
         ReadBuilder readBuilder = table.newReadBuilder();
         if (!predicates.isEmpty()) {
