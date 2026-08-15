@@ -101,7 +101,7 @@ Status write_variant_column_to_arrow_struct(const IColumn& column, const ColumnV
         if (string_root && !root->is_null_at(cast_set<size_t>(row))) {
             JsonbWriter writer;
             if (!writer.writeStartString() ||
-                (serialized_value.size() != 0 &&
+                (!serialized_value.empty() &&
                  !writer.writeString(serialized_value.data(), serialized_value.size())) ||
                 !writer.writeEndString()) {
                 return Status::InternalError("Failed to encode legacy Variant string as JSONB");
