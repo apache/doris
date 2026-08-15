@@ -336,9 +336,16 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_C_STANDARD 17)
 
-add_compile_options(-g
-                    -gdwarf-5
-                    -Wall
+if (OS_MACOSX)
+    # Keep symbolized stack traces without emitting full debug information for
+    # every object. The monolithic ASAN UT target otherwise exhausts the
+    # hosted macOS runner disk before it can be linked.
+    add_compile_options(-gline-tables-only)
+else()
+    add_compile_options(-g -gdwarf-5)
+endif()
+
+add_compile_options(-Wall
                     -Wextra
                     -Werror
                     -Wundef
