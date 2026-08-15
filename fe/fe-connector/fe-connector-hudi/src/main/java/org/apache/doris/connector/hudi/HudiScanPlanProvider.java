@@ -993,6 +993,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 conf.set(key, entry.getValue());
             }
         }
+        HudiConnector.enableFileSystemCache(conf);
         return conf;
     }
 
