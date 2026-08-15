@@ -99,6 +99,27 @@ public interface ConnectorMetadata extends
     }
 
     /**
+     * Whether {@link #listPartitions} reads the pin carried by a snapshot-applied handle, so that a
+     * {@code FOR TIME/VERSION AS OF} query can be told which partitions existed AT that pin.
+     *
+     * <p>Point-in-time time travel otherwise pins with EMPTY partition maps, because a partition set
+     * listed at LATEST is the wrong universe for a past snapshot in both directions: it hides a
+     * partition that has since been dropped (pruning it away loses rows) and invents ones created
+     * after the pin. Empty is the safe answer — the generic scan node reads it as scan-all and lets
+     * the connector's own predicate pushdown do the pruning — but it costs the query its partition
+     * pruning and makes EXPLAIN report {@code partition=0/0} for a scan that reads everything.</p>
+     *
+     * <p>A connector that answers true promises that {@code listPartitions} on the handle returned by
+     * {@link #applySnapshot} enumerates exactly the partitions with data at that pin. The generic
+     * model then pins the real partition set and both pruning and {@code partition=N/M} become
+     * truthful. The default is false: a connector whose listing is snapshot-blind keeps the empty pin,
+     * which is correct, just coarse.</p>
+     */
+    default boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
+        return false;
+    }
+
+    /**
      * Whole-table MTMV freshness for a connector whose table-level change signal is a last-modified
      * TIMESTAMP rather than a snapshot id (e.g. hive: {@code transient_lastDdlTime} / the max partition
      * modify time). The generic model wraps the result in an {@code MTMVMaxTimestampSnapshot} table snapshot.
