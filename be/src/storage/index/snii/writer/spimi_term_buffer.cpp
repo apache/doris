@@ -41,10 +41,6 @@
 #include "storage/index/snii/writer/spill_run_codec.h"
 #include "storage/index/snii/writer/temp_dir.h"
 
-#if defined(__GLIBC__)
-#include <malloc.h>
-#endif
-
 namespace doris::snii::writer {
 
 namespace {
@@ -280,16 +276,6 @@ void SpimiTermBuffer::set_owned_term_hash_mask_for_test(size_t mask) {
 #endif
 
 namespace {
-
-// Returns freed heap arenas to the OS (glibc only). The spill encode churns many
-// small allocations whose freed chunks glibc retains in its arenas; trimming
-// before the peak-RSS-defining merge phase recovers that retention. No-op (and
-// harmless) on non-glibc libcs.
-void trim_malloc() {
-#if defined(__GLIBC__)
-    ::malloc_trim(0);
-#endif
-}
 
 // Process-unique temp path for a spill run under `dir` (pid + monotonic counter so
 // parallel builds / multiple buffers never collide).
@@ -1894,7 +1880,6 @@ Status SpimiTermBuffer::drain_sorted_streamed(const StreamedTermConsumer& fn) {
     common_gram_pair_cache_bytes_ = 0;
     common_gram_plain_term_cache_.reset();
     common_gram_plain_term_cache_bytes_ = 0;
-    trim_malloc();
     report_arena_delta();
     return callback_status;
 }
@@ -2011,7 +1996,6 @@ Status SpimiTermBuffer::prepare_run_merge(TermKeyMaterializer* materializer) {
     common_gram_plain_term_cache_bytes_ = 0;
     common_gram_pair_intern_ = decltype(common_gram_pair_intern_)();
     std::vector<CommonWordClassification>().swap(common_word_classification_);
-    trim_malloc();
     report_arena_delta();
 
     ensure_string_rank();
@@ -2030,7 +2014,6 @@ void SpimiTermBuffer::finish_run_merge() {
     owned_vocab_heap_bytes_ = 0;
     std::vector<uint32_t>().swap(string_rank_);
     report_arena_delta();
-    trim_malloc();
 }
 
 Status SpimiTermBuffer::merge_runs_streamed(const StreamedTermConsumer& fn) {
