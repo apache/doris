@@ -28,6 +28,8 @@
 #include <service/internal_service.h>
 #include <unistd.h>
 
+#include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 
@@ -343,7 +345,24 @@ public:
             return 0;
         }
         void on_idle_timeout(StreamId id) override { std::cerr << "on_idle_timeout" << std::endl; }
-        void on_closed(StreamId id) override { std::cerr << "on_closed" << std::endl; }
+        void on_closed(StreamId id) override {
+            std::cerr << "on_closed" << std::endl;
+            {
+                std::lock_guard lock(_closed_lock);
+                _closed = true;
+            }
+            _closed_cv.notify_all();
+        }
+
+        void wait_for_closed() {
+            std::unique_lock lock(_closed_lock);
+            CHECK(_closed_cv.wait_for(lock, std::chrono::seconds(5), [this] { return _closed; }));
+        }
+
+    private:
+        std::mutex _closed_lock;
+        std::condition_variable _closed_cv;
+        bool _closed = false;
     };
 
     class StreamService : public PBackendService {
@@ -471,6 +490,7 @@ public:
         void disconnect() const {
             std::cerr << "disconnect" << std::endl;
             CHECK_EQ(0, brpc::StreamClose(_stream));
+            _handler.wait_for_closed();
         }
 
         Status send(butil::IOBuf* buf) {
@@ -489,7 +509,7 @@ public:
         brpc::StreamId _stream;
         brpc::Controller _cntl;
         brpc::StreamOptions _stream_options;
-        Handler _handler;
+        mutable Handler _handler;
     };
 
     LoadStreamMgrTest()
