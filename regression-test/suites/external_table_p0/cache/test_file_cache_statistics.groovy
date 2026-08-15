@@ -86,6 +86,13 @@ suite("test_file_cache_statistics", "p0,external,nonConcurrent") {
         'hadoop.username' = 'hive'
     );"""
 
+    def fileCache2qlruColdBlocksPromotionMsResult = sql """show backend config like 'file_cache_2qlru_cold_blocks_promotion_ms';"""
+    logger.info("file_cache_2qlru_cold_blocks_promotion_ms configuration: " + fileCache2qlruColdBlocksPromotionMsResult)
+    assertFalse(fileCache2qlruColdBlocksPromotionMsResult.size() == 0 || fileCache2qlruColdBlocksPromotionMsResult[0][3] == null ||
+            fileCache2qlruColdBlocksPromotionMsResult[0][3].trim().isEmpty(), "file_cache_2qlru_cold_blocks_promotion_ms is empty or not set to true")
+
+    def fileCache2qlruColdBlocksPromotionMs = Double.valueOf(fileCache2qlruColdBlocksPromotionMsResult[0][3]) as Integer
+
     sql """switch ${catalog_name}"""
 
     // Pin the query to one partition file instead of racing all six file scan ranges under LIMIT 1.
@@ -95,6 +102,9 @@ suite("test_file_cache_statistics", "p0,external,nonConcurrent") {
 
     // load the table into file cache
     sql querySql
+
+    Thread.sleep(fileCache2qlruColdBlocksPromotionMs)
+    logger.info("Waited for ${fileCache2qlruColdBlocksPromotionMs} milliseconds")
     // do it twice to make sure the table block could hit the cache
     order_qt_1 querySql
 

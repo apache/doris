@@ -143,7 +143,7 @@ void do_write_to_file_cache(const std::string& small_file_path, const std::strin
 
     // Allocate cache blocks
     CacheContext ctx;
-    ctx.cache_type = expiration_time > 0 ? FileCacheType::TTL : FileCacheType::NORMAL;
+    ctx.cache_type = expiration_time > 0 ? FileCacheType::TTL : normal_cache_type_for_admission();
     ctx.expiration_time = expiration_time;
     ctx.tablet_id = tablet_id;
     ReadStatistics stats;

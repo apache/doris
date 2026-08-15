@@ -711,6 +711,7 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
 
     io::CacheContext ctx {};
     io::ReadStatistics local_stats;
+    ctx.cache_type = io::normal_cache_type_for_admission();
     ctx.stats = &local_stats;
     const size_t file_size =
             request->has_file_size()

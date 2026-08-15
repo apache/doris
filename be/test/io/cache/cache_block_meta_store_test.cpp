@@ -803,6 +803,23 @@ TEST_F(CacheBlockMetaStoreTest, ErrorHandling) {
     EXPECT_EQ(valid_meta_result->type, NORMAL);
     EXPECT_EQ(valid_meta_result->size, 2048);
     EXPECT_EQ(valid_meta_result->ttl, 3600);
+
+    BlockMeta cold_normal_meta(COLD_NORMAL, 4096, 0);
+    std::string cold_normal_meta_str = serialize_value(cold_normal_meta);
+    auto cold_normal_result = deserialize_value(cold_normal_meta_str, &status);
+    ASSERT_TRUE(cold_normal_result.has_value());
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(cold_normal_result->type, COLD_NORMAL);
+    EXPECT_EQ(cold_normal_result->size, 4096);
+    EXPECT_EQ(cold_normal_result->ttl, 0);
+
+    auto cold_normal_view_result =
+            deserialize_value(std::string_view(cold_normal_meta_str), &status);
+    ASSERT_TRUE(cold_normal_view_result.has_value());
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(cold_normal_view_result->type, COLD_NORMAL);
+    EXPECT_EQ(cold_normal_view_result->size, 4096);
+    EXPECT_EQ(cold_normal_view_result->ttl, 0);
 }
 
 TEST_F(CacheBlockMetaStoreTest, IteratorErrorHandling) {

@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #pragma once
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -42,7 +43,22 @@ enum FileCacheType {
     NORMAL = 1,
     DISPOSABLE = 0,
     TTL = 3,
+    COLD_NORMAL = 4,
 };
+
+// Newly admitted ordinary data starts in the cold queue when 2Q LRU is enabled.
+// Restore paths choose their cache type separately and must not use this helper.
+inline FileCacheType normal_cache_type_for_admission() {
+    return config::enable_file_cache_normal_queue_2qlru ? FileCacheType::COLD_NORMAL
+                                                        : FileCacheType::NORMAL;
+}
+
+inline static constexpr size_t FILE_CACHE_TYPE_COUNT =
+        static_cast<size_t>(FileCacheType::COLD_NORMAL) + 1;
+inline static constexpr std::array<FileCacheType, FILE_CACHE_TYPE_COUNT> FILE_CACHE_TYPES = {
+        FileCacheType::DISPOSABLE, FileCacheType::NORMAL, FileCacheType::INDEX, FileCacheType::TTL,
+        FileCacheType::COLD_NORMAL};
+
 std::string cache_type_to_surfix(FileCacheType type);
 FileCacheType surfix_to_cache_type(const std::string& str);
 
@@ -133,6 +149,8 @@ struct FileCacheSettings {
     size_t index_queue_elements {0};
     size_t query_queue_size {0};
     size_t query_queue_elements {0};
+    size_t cold_query_queue_size {0};
+    size_t cold_query_queue_elements {0};
     size_t ttl_queue_size {0};
     size_t ttl_queue_elements {0};
     size_t max_file_block_size {0};
@@ -160,7 +178,7 @@ struct CacheContext {
         } else if (io_context->is_disposable) {
             cache_type = FileCacheType::DISPOSABLE;
         } else {
-            cache_type = FileCacheType::NORMAL;
+            cache_type = normal_cache_type_for_admission();
         }
         query_id = io_context->query_id ? *io_context->query_id : TUniqueId();
         is_warmup = io_context->is_warmup;

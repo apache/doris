@@ -444,6 +444,112 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
     }
 }
 
+TEST_F(BlockFileCacheTest, cold_normal_meta_store_restart) {
+    const auto old_enable_2qlru = config::enable_file_cache_normal_queue_2qlru;
+    const auto old_promotion_ms = config::file_cache_2qlru_cold_blocks_promotion_ms;
+    const auto old_dump_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_async_touch = config::enable_file_cache_async_touch_on_get_or_set;
+    const auto old_query_limit = config::enable_file_cache_query_limit;
+    Defer defer {[old_enable_2qlru, old_promotion_ms, old_dump_tail_record_num, old_async_touch,
+                  old_query_limit] {
+        config::enable_file_cache_normal_queue_2qlru = old_enable_2qlru;
+        config::file_cache_2qlru_cold_blocks_promotion_ms = old_promotion_ms;
+        config::file_cache_background_lru_dump_tail_record_num = old_dump_tail_record_num;
+        config::enable_file_cache_async_touch_on_get_or_set = old_async_touch;
+        config::enable_file_cache_query_limit = old_query_limit;
+    }};
+
+    config::enable_file_cache_normal_queue_2qlru = true;
+    config::file_cache_2qlru_cold_blocks_promotion_ms = 0;
+    config::file_cache_background_lru_dump_tail_record_num = 0;
+    config::enable_file_cache_async_touch_on_get_or_set = false;
+    config::enable_file_cache_query_limit = false;
+
+    std::string cache_path = caches_dir / "cold_normal_meta_store_restart" / "";
+    if (fs::exists(cache_path)) {
+        fs::remove_all(cache_path);
+    }
+    fs::create_directories(cache_path);
+
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 1_mb;
+    settings.query_queue_elements = 16;
+    settings.cold_query_queue_size = 1_mb;
+    settings.cold_query_queue_elements = 16;
+    settings.capacity = 2_mb;
+    settings.max_file_block_size = 100_kb;
+    settings.max_query_cache_size = settings.capacity;
+
+    constexpr size_t block_size = 100_kb;
+    constexpr int64_t tablet_id = 7001;
+    auto key = io::BlockFileCache::hash("cold_normal_meta_store_restart_key");
+
+    {
+        io::BlockFileCache cache(cache_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        wait_until_cache_ready(cache);
+
+        io::CacheContext context;
+        ReadStatistics rstats;
+        context.stats = &rstats;
+        context.cache_type = io::FileCacheType::COLD_NORMAL;
+        context.tablet_id = tablet_id;
+
+        for (size_t offset : {size_t {0}, block_size}) {
+            auto holder = cache.get_or_set(key, offset, block_size, context);
+            auto blocks = fromHolder(holder);
+            ASSERT_EQ(blocks.size(), 1);
+            ASSERT_EQ(blocks[0]->get_or_set_downloader(), io::FileBlock::get_caller_id());
+            std::string data(block_size, '0');
+            ASSERT_TRUE(blocks[0]->append(Slice(data.data(), data.size())).ok());
+            ASSERT_TRUE(blocks[0]->finalize().ok());
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        {
+            auto holder = cache.get_or_set(key, 0, block_size, context);
+            auto blocks = fromHolder(holder);
+            ASSERT_EQ(blocks.size(), 1);
+            EXPECT_EQ(blocks[0]->cache_type(), io::FileCacheType::NORMAL);
+        }
+
+        EXPECT_EQ(cache.get_file_blocks_num(io::FileCacheType::NORMAL), 1);
+        EXPECT_EQ(cache.get_file_blocks_num(io::FileCacheType::COLD_NORMAL), 1);
+
+        auto* storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
+        ASSERT_NE(storage, nullptr);
+        for (size_t offset : {size_t {0}, block_size}) {
+            BlockMetaKey meta_key(tablet_id, key, offset);
+            std::optional<BlockMeta> meta;
+            for (int i = 0; i < 100 && !meta.has_value(); ++i) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                meta = storage->_meta_store->get(meta_key);
+            }
+            ASSERT_TRUE(meta.has_value());
+            EXPECT_EQ(meta->type, io::FileCacheType::COLD_NORMAL);
+        }
+    }
+
+    {
+        io::BlockFileCache cache(cache_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        wait_until_cache_ready(cache);
+        EXPECT_EQ(cache.get_file_blocks_num(io::FileCacheType::NORMAL), 0);
+        EXPECT_EQ(cache.get_file_blocks_num(io::FileCacheType::COLD_NORMAL), 2);
+    }
+
+    config::enable_file_cache_normal_queue_2qlru = false;
+    {
+        io::BlockFileCache cache(cache_path, settings);
+        ASSERT_TRUE(cache.initialize());
+        wait_until_cache_ready(cache);
+        EXPECT_EQ(cache.get_file_blocks_num(io::FileCacheType::NORMAL), 2);
+        EXPECT_EQ(cache.get_file_blocks_num(io::FileCacheType::COLD_NORMAL), 0);
+    }
+
+    fs::remove_all(cache_path);
+}
+
 TEST_F(BlockFileCacheTest, sharded_writer_map_tracks_multiple_inflight_writers) {
     std::string cache_path =
             caches_dir / "sharded_writer_map_tracks_multiple_inflight_writers" / "";

@@ -76,6 +76,18 @@ void FSFileCacheStorage::set_inode_estimation_test_hooks(
 }
 #endif
 
+namespace {
+
+FileCacheType cache_type_for_restore(FileCacheType type) {
+    if (type == FileCacheType::NORMAL || type == FileCacheType::COLD_NORMAL) {
+        return config::enable_file_cache_normal_queue_2qlru ? FileCacheType::COLD_NORMAL
+                                                            : FileCacheType::NORMAL;
+    }
+    return type;
+}
+
+} // namespace
+
 struct BatchLoadArgs {
     UInt128Wrapper hash;
     CacheContext ctx;
@@ -748,8 +760,11 @@ Status FSFileCacheStorage::parse_filename_suffix_to_cache_type(
     // ones will be ignored.
     if (expiration_time > 0) {
         *cache_type = FileCacheType::TTL;
-    } else if (*cache_type == FileCacheType::TTL && expiration_time == 0) {
-        *cache_type = FileCacheType::NORMAL;
+    } else {
+        if (*cache_type == FileCacheType::TTL) {
+            *cache_type = FileCacheType::NORMAL;
+        }
+        *cache_type = cache_type_for_restore(*cache_type);
     }
 
     if (!parsed) {
@@ -1043,7 +1058,7 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr
         args.is_tmp = false;
 
         CacheContext ctx;
-        ctx.cache_type = meta_value.type;
+        ctx.cache_type = cache_type_for_restore(meta_value.type);
         ctx.expiration_time = meta_value.ttl;
         ctx.tablet_id =
                 meta_key.tablet_id; //TODO(zhengyu): zero if loaded from v2, we can use this to decide whether the block is loaded from v2 or v3
@@ -1169,7 +1184,7 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
     CacheContext context_original;
     context_original.query_id = TUniqueId();
     context_original.expiration_time = block_meta->ttl;
-    context_original.cache_type = block_meta->type;
+    context_original.cache_type = cache_type_for_restore(block_meta->type);
     context_original.tablet_id = key.meta.tablet_id;
 
     if (handle_already_loaded_block(mgr, key.hash, key.offset, block_meta->size, key.meta.tablet_id,

@@ -27,7 +27,9 @@ namespace doris::io {
 namespace {
 
 size_t file_cache_type_index(FileCacheType type) {
-    return static_cast<size_t>(type);
+    size_t index = static_cast<size_t>(type);
+    DCHECK_LT(index, FILE_CACHE_TYPE_COUNT);
+    return index;
 }
 
 } // namespace
@@ -145,6 +147,8 @@ LRUQueue& LRUQueueRecorder::get_shadow_queue(FileCacheType type) {
         return _shadow_normal_queue;
     case FileCacheType::TTL:
         return _shadow_ttl_queue;
+    case FileCacheType::COLD_NORMAL:
+        return _shadow_cold_normal_queue;
     default:
         LOG(WARNING) << "invalid shadow queue type";
         DCHECK(false);
@@ -162,6 +166,8 @@ CacheLRULogQueue& LRUQueueRecorder::get_lru_log_queue(FileCacheType type) {
         return _normal_lru_log_queue;
     case FileCacheType::TTL:
         return _ttl_lru_log_queue;
+    case FileCacheType::COLD_NORMAL:
+        return _cold_normal_lru_log_queue;
     default:
         LOG(WARNING) << "invalid lru log queue type";
         DCHECK(false);
@@ -204,8 +210,7 @@ void LRUQueueRecorder::limit_shadow_queue_size(LRUQueue& shadow_queue,
 
 void LRUQueueRecorder::update_shadow_queue_element_count_metrics_unlocked(
         std::lock_guard<std::mutex>& lru_log_lock) {
-    for (FileCacheType type : {FileCacheType::DISPOSABLE, FileCacheType::NORMAL,
-                               FileCacheType::INDEX, FileCacheType::TTL}) {
+    for (FileCacheType type : FILE_CACHE_TYPES) {
         size_t idx = file_cache_type_index(type);
         _mgr->_lru_recorder_shadow_queue_element_count_metrics[idx]->set_value(
                 get_shadow_queue(type).get_elements_num(lru_log_lock));
