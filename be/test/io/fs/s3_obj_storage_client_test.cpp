@@ -68,12 +68,18 @@ protected:
 std::shared_ptr<ObjStorageClient> S3ObjStorageClientTest::obj_storage_client = nullptr;
 std::string S3ObjStorageClientTest::bucket;
 
-TEST(S3ObjStorageClientErrorTest, ForbiddenPreservesPermissionDenied) {
+TEST(S3ObjStorageClientErrorTest, MapsProviderResponseCodes) {
     Aws::S3::S3Error error;
     error.SetResponseCode(Aws::Http::HttpResponseCode::FORBIDDEN);
 
     EXPECT_EQ(s3fs_error(error, "access denied").code, ErrorCode::PERMISSION_DENIED);
     static_assert(ObjStorageStatus::PERMISSION_DENIED == ErrorCode::PERMISSION_DENIED);
+
+    error.SetResponseCode(Aws::Http::HttpResponseCode::REQUEST_NOT_MADE);
+    EXPECT_EQ(s3fs_error(error, "network failure").code, ObjStorageStatus::NETWORK_ERROR);
+
+    error.SetResponseCode(Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS);
+    EXPECT_EQ(s3fs_error(error, "throttled").code, ObjStorageStatus::LIMIT_REACH);
 }
 
 TEST_F(S3ObjStorageClientTest, put_list_delete_object) {

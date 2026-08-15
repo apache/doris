@@ -25,6 +25,21 @@
 #include <iterator>
 
 namespace doris {
+ObjStorageStatus obj_storage_status_from_http_code(int http_code, std::string message) {
+    switch (http_code) {
+    case 401:
+    case 403:
+        return {ObjStorageStatus::PERMISSION_DENIED, std::move(message)};
+    case 404:
+        return {ObjStorageStatus::NOT_FOUND, std::move(message)};
+    case 429:
+        return {ObjStorageStatus::LIMIT_REACH, std::move(message)};
+    default:
+        return {http_code <= 0 ? ObjStorageStatus::NETWORK_ERROR : ObjStorageStatus::INTERNAL_ERROR,
+                std::move(message)};
+    }
+}
+
 std::unique_ptr<ObjStorageListIterator> list_objects(std::shared_ptr<ObjStorageClient> client,
                                                      const ObjStoragePath& opts) {
     return std::make_unique<ObjStorageListIterator>(std::move(client), opts);
@@ -52,14 +67,14 @@ ObjStorageResponse ObjStorageClient::list_objects(const ObjStoragePath& opts,
 ObjStorageResponse ObjStorageListIterator::has_next() {
     if (!is_valid_) {
         return {
-                .status = {TStatusCode::INTERNAL_ERROR, "Iterator is invalid"},
+                .status = {ObjStorageStatus::INTERNAL_ERROR, "Iterator is invalid"},
                 .http_code = 0,
         };
     }
     while (next_index_ == objects_.size()) {
         if (!has_more_) {
             return {
-                    .status = {TStatusCode::END_OF_FILE, "No more results"},
+                    .status = {ObjStorageStatus::END_OF_FILE, "No more results"},
                     .http_code = 200,
             };
         }

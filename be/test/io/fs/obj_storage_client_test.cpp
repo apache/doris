@@ -27,6 +27,22 @@
 namespace doris {
 namespace {
 
+TEST(ObjStorageStatusTest, MapsProviderHttpErrors) {
+    auto expect_status = [](int http_code, ObjStorageStatus::Code expected) {
+        auto status = obj_storage_status_from_http_code(http_code, "provider error");
+        EXPECT_EQ(status.code, expected);
+        EXPECT_EQ(status.msg, "provider error");
+    };
+
+    expect_status(-1, ObjStorageStatus::NETWORK_ERROR);
+    expect_status(0, ObjStorageStatus::NETWORK_ERROR);
+    expect_status(401, ObjStorageStatus::PERMISSION_DENIED);
+    expect_status(403, ObjStorageStatus::PERMISSION_DENIED);
+    expect_status(404, ObjStorageStatus::NOT_FOUND);
+    expect_status(429, ObjStorageStatus::LIMIT_REACH);
+    expect_status(500, ObjStorageStatus::INTERNAL_ERROR);
+}
+
 class FakeObjStorageClient final : public ObjStorageClient {
 public:
     ObjStorageUploadResult create_multipart_upload(const ObjStoragePath&) override {

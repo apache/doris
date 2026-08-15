@@ -103,7 +103,7 @@ static ObjStorageResponse make_azure_std_exception_response(const std::exception
                            wrap_object_storage_path_msg(opts),
                            build_azure_tls_debug_suffix(e.what(), tls_debug_context));
     LOG(WARNING) << msg;
-    return {.status = ObjStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
+    return {.status = ObjStorageStatus {ObjStorageStatus::INTERNAL_ERROR, std::move(msg)},
             .http_code = 0,
             .request_id = ""};
 }
@@ -122,7 +122,8 @@ ObjStorageResponse do_azure_client_call(Func f, const ObjStoragePath& opts,
                 build_azure_tls_debug_suffix(fmt::format("{} {}", e.what(), e.Message),
                                              tls_debug_context));
         LOG(WARNING) << msg;
-        return {.status = ObjStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
+        return {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
+                                                            std::move(msg)),
                 .http_code = static_cast<int>(e.StatusCode),
                 .request_id = std::move(e.RequestId)};
     } catch (const std::exception& e) {
@@ -154,7 +155,7 @@ struct AzureBatchDeleter {
                     _client->SubmitBatch(_batch);
                 },
                 _opts, _tls_debug_context);
-        if (resp.status.code != TStatusCode::OK) {
+        if (resp.status.code != ObjStorageStatus::OK) {
             return resp;
         }
 
@@ -164,8 +165,8 @@ struct AzureBatchDeleter {
                 if (!r.Value.Deleted) {
                     auto msg = build_azure_batch_delete_failure_message(_opts, deferred.key);
                     LOG(WARNING) << msg;
-                    return {.status =
-                                    ObjStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
+                    return {.status = ObjStorageStatus {ObjStorageStatus::INTERNAL_ERROR,
+                                                        std::move(msg)},
                             .http_code = 0,
                             .request_id = ""};
                 }
@@ -183,7 +184,8 @@ struct AzureBatchDeleter {
                         build_azure_tls_debug_suffix(fmt::format("{} {}", e.what(), e.Message),
                                                      _tls_debug_context));
                 LOG(WARNING) << msg;
-                return {.status = ObjStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
+                return {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
+                                                                    std::move(msg)),
                         .http_code = static_cast<int>(e.StatusCode),
                         .request_id = std::move(e.RequestId)};
             }
@@ -210,7 +212,7 @@ ObjStorageUploadResult AzureObjStorageClient::create_multipart_upload(const ObjS
     // staged block IDs and is carried through the same interface as an S3 upload ID.
     auto upload_id = butil::GenerateGUID();
     if (upload_id.empty()) {
-        return {.resp = {.status = {TStatusCode::INTERNAL_ERROR,
+        return {.resp = {.status = {ObjStorageStatus::INTERNAL_ERROR,
                                     "failed to generate Azure multipart upload ID"}}};
     }
     return ObjStorageUploadResult {
@@ -254,7 +256,8 @@ ObjStorageUploadResult AzureObjStorageClient::upload_part(const ObjStoragePath& 
         // clang-format off
         return {
             .resp = {
-                .status = ObjStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
+                .status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
+                                                            std::move(msg)),
                 .http_code = static_cast<int>(e.StatusCode),
                 .request_id = std::move(e.RequestId),
             },
@@ -295,7 +298,8 @@ ObjStorageHeadResult AzureObjStorageClient::head_object(const ObjStoragePath& op
     } catch (Azure::Core::RequestFailedException& e) {
         if (e.StatusCode == Azure::Core::Http::HttpStatusCode::NotFound) {
             return ObjStorageHeadResult {
-                    .resp = {.status = ObjStorageStatus {TStatusCode::NOT_FOUND, ""},
+                    .resp = {.status = obj_storage_status_from_http_code(
+                                     static_cast<int>(e.StatusCode), ""),
                              .http_code = static_cast<int>(e.StatusCode),
                              .request_id = std::move(e.RequestId)},
             };
@@ -309,7 +313,8 @@ ObjStorageHeadResult AzureObjStorageClient::head_object(const ObjStoragePath& op
                 wrap_object_storage_path_msg(opts), tls_debug_suffix);
         LOG(WARNING) << msg << ", request_id=" << e.RequestId;
         return ObjStorageHeadResult {
-                .resp = {.status = ObjStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
+                .resp = {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
+                                                                     std::move(msg)),
                          .http_code = static_cast<int>(e.StatusCode),
                          .request_id = std::move(e.RequestId)},
         };
@@ -338,7 +343,7 @@ ObjStorageResponse AzureObjStorageClient::get_object(const ObjStoragePath& opts,
         return response;
     }
     return {
-            .status = {TStatusCode::INTERNAL_ERROR,
+            .status = {ObjStorageStatus::INTERNAL_ERROR,
                        fmt::format("incomplete read from {}, expect {}, got {}",
                                    wrap_object_storage_path_msg(opts), bytes_read, *size_return)},
             .http_code = response.http_code,
@@ -366,7 +371,7 @@ ObjStorageListPageResult AzureObjStorageClient::list_objects_page(
         auto next_token = has_more ? response.NextPageToken.Value() : std::string {};
         if (has_more && next_token.empty()) {
             return {
-                    .resp = {.status = {TStatusCode::INTERNAL_ERROR,
+                    .resp = {.status = {ObjStorageStatus::INTERNAL_ERROR,
                                         "Azure list response has an empty continuation token"},
                              .http_code = 0},
             };
@@ -396,10 +401,8 @@ ObjStorageListPageResult AzureObjStorageClient::list_objects_page(
                                     e.what(), _client->GetUrl(), request.Prefix.Value(),
                                     tls_debug_suffix);
         return {
-                .resp = {.status = {e.StatusCode == Azure::Core::Http::HttpStatusCode::NotFound
-                                            ? TStatusCode::NOT_FOUND
-                                            : TStatusCode::INTERNAL_ERROR,
-                                    e.Message + tls_debug_suffix},
+                .resp = {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
+                                                                     e.Message + tls_debug_suffix),
                          .http_code = static_cast<int>(e.StatusCode),
                          .request_id = std::move(e.RequestId)},
         };
@@ -407,7 +410,7 @@ ObjStorageListPageResult AzureObjStorageClient::list_objects_page(
         LOG(WARNING) << fmt::format("Azure request failed because {}, url: {}, prefix: {}",
                                     e.what(), _client->GetUrl(), request.Prefix.Value());
         return {
-                .resp = {.status = {TStatusCode::INTERNAL_ERROR, e.what()},
+                .resp = {.status = {ObjStorageStatus::INTERNAL_ERROR, e.what()},
                          .http_code = 0,
                          .request_id = ""},
         };
@@ -437,7 +440,7 @@ ObjStorageResponse AzureObjStorageClient::delete_objects(const ObjStoragePath& o
         std::ranges::for_each(std::ranges::subrange(begin, chunk_end),
                               [&](const std::string& obj) { deleter.delete_blob(obj); });
         begin = chunk_end;
-        if (auto resp = deleter.execute(); resp.status.code != TStatusCode::OK) {
+        if (auto resp = deleter.execute(); resp.status.code != ObjStorageStatus::OK) {
             return resp;
         }
     }
@@ -452,7 +455,8 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
         }();
         if (!resp.Value.Deleted) {
             return {
-                    .status = ObjStorageStatus {TStatusCode::IO_ERROR, "Delete azure blob failed"},
+                    .status = ObjStorageStatus {ObjStorageStatus::IO_ERROR,
+                                                "Delete azure blob failed"},
                     .http_code = 0,
                     .request_id = "",
             };
@@ -472,7 +476,8 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
                 wrap_object_storage_path_msg(opts), tls_debug_suffix);
         LOG(WARNING) << msg;
         return {
-                .status = ObjStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
+                .status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
+                                                            std::move(msg)),
                 .http_code = static_cast<int>(e.StatusCode),
                 .request_id = std::move(e.RequestId),
         };
@@ -482,7 +487,7 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
                                build_azure_tls_debug_suffix(e.what(), _config.tls_debug_context));
         LOG(WARNING) << msg;
         return {
-                .status = ObjStorageStatus {TStatusCode::INTERNAL_ERROR, std::move(msg)},
+                .status = ObjStorageStatus {ObjStorageStatus::INTERNAL_ERROR, std::move(msg)},
                 .http_code = 0,
                 .request_id = "",
         };

@@ -75,10 +75,13 @@ struct ObjStorageCompletedPart {
 
 struct ObjStorageStatus {
     enum Code : int {
-        UNDEFINED = -1,
         OK = TStatusCode::OK,
+        INTERNAL_ERROR = TStatusCode::INTERNAL_ERROR,
+        LIMIT_REACH = TStatusCode::LIMIT_REACH,
         NOT_FOUND = TStatusCode::NOT_FOUND,
         END_OF_FILE = TStatusCode::END_OF_FILE,
+        IO_ERROR = TStatusCode::IO_ERROR,
+        NETWORK_ERROR = TStatusCode::NETWORK_ERROR,
         // Keep the legacy BE error code for access-denied object storage responses.
         PERMISSION_DENIED = -256,
     };
@@ -92,13 +95,13 @@ struct ObjStorageStatus {
 
 // We only store error code along with err_msg instead of Status to unify BE and recycler's error handle logic
 struct ObjStorageResponse {
-    ObjStorageStatus status {0, ""};
+    ObjStorageStatus status {ObjStorageStatus::OK, ""};
     int http_code {200};
     std::string request_id {};
     static ObjStorageResponse OK() {
         // clang-format off
         return {
-                .status = ObjStorageStatus{0, ""},
+                .status = ObjStorageStatus{ObjStorageStatus::OK, ""},
                 .http_code = 200,
                 .request_id = ""
         };
@@ -114,6 +117,10 @@ struct ObjStorageResponse {
 
     bool ok() const { return status.code == ObjStorageStatus::OK; }
 };
+
+// Convert a provider HTTP response code into the object-storage status domain. A non-positive
+// response code means that no HTTP response was received.
+ObjStorageStatus obj_storage_status_from_http_code(int http_code, std::string message);
 
 struct ObjStorageUploadResult {
     ObjStorageResponse resp = ObjStorageResponse::OK();

@@ -67,18 +67,8 @@ std::string s3_error_message(const Aws::S3::S3Error& error, std::string_view mes
 } // namespace
 
 ObjStorageStatus s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
-    using namespace Aws::Http;
-    switch (err.GetResponseCode()) {
-    case HttpResponseCode::NOT_FOUND:
-        return {TStatusCode::NOT_FOUND, s3_error_message(err, msg)};
-    case HttpResponseCode::FORBIDDEN:
-        // TODO: no permission and other 4xx errors should be handled separately
-        return {ObjStorageStatus::PERMISSION_DENIED, s3_error_message(err, msg)};
-    case HttpResponseCode::REQUEST_NOT_MADE:
-        return {-1, s3_error_message(err, msg)};
-    default:
-        return {TStatusCode::INTERNAL_ERROR, s3_error_message(err, msg)};
-    }
+    return obj_storage_status_from_http_code(static_cast<int>(err.GetResponseCode()),
+                                             s3_error_message(err, msg));
 }
 
 ObjStorageUploadResult S3ObjStorageClient::create_multipart_upload(const ObjStoragePath& opts) {
@@ -279,7 +269,7 @@ ObjStorageHeadResult S3ObjStorageClient::head_object(const ObjStoragePath& opts)
         return {.resp = ObjStorageResponse::OK(),
                 .file_size = outcome.GetResult().GetContentLength()};
     } else if (outcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::NOT_FOUND) {
-        return {.resp = {.status = TStatusCode::NOT_FOUND}, .file_size = 0};
+        return {.resp = {.status = ObjStorageStatus::NOT_FOUND}, .file_size = 0};
     } else {
         record_s3_request_failed(outcome.GetError());
         LOG(WARNING) << "failed to head object"
@@ -321,7 +311,7 @@ ObjStorageResponse S3ObjStorageClient::get_object(const ObjStoragePath& opts, vo
     if (*size_return != bytes_read) {
         const auto& request_id = outcome.GetResult().GetRequestId();
         return ObjStorageResponse {
-                .status = {TStatusCode::INTERNAL_ERROR,
+                .status = {ObjStorageStatus::INTERNAL_ERROR,
                            fmt::format("incomplete read from {}, expect {}, got {}, request_id={}",
                                        object_identity(opts), bytes_read, *size_return,
                                        request_id)},
@@ -383,7 +373,7 @@ ObjStorageListPageResult S3ObjStorageClient::list_objects_page(
                 "bucket: {}, prefix: {}, request_id: {}",
                 _config.endpoint, request.GetBucket(), request.GetPrefix(), request_id);
         return {
-                .resp = {.status = {TStatusCode::INTERNAL_ERROR,
+                .resp = {.status = {ObjStorageStatus::INTERNAL_ERROR,
                                     fmt::format("failed to list objects: {}, prefix: {}",
                                                 request.GetBucket(), request.GetPrefix())},
                          .http_code = 0,
@@ -459,7 +449,7 @@ ObjStorageResponse S3ObjStorageClient::delete_objects(const ObjStoragePath& opts
                     _config.endpoint, opts.bucket, error.GetKey(), error.GetCode(),
                     error.GetMessage(), delete_outcome.GetResult().GetRequestId());
             return ObjStorageResponse {
-                    .status = {TStatusCode::INTERNAL_ERROR,
+                    .status = {ObjStorageStatus::INTERNAL_ERROR,
                                fmt::format("failed to delete object {}: {}, request_id={}",
                                            error.GetKey(), error.GetMessage(),
                                            delete_outcome.GetResult().GetRequestId())},
@@ -519,7 +509,7 @@ ObjStorageResponse S3ObjStorageClient::check_versioning(const std::string& bucke
             LOG(WARNING) << "Err for check interval: bucket doesn't enable bucket versioning"
                          << " endpoint=" << _config.endpoint << " bucket=" << bucket;
             return ObjStorageResponse {
-                    .status = {TStatusCode::INTERNAL_ERROR,
+                    .status = {ObjStorageStatus::INTERNAL_ERROR,
                                fmt::format("bucket versioning is not enabled: {}", bucket)}};
         }
     } else {
@@ -530,7 +520,8 @@ ObjStorageResponse S3ObjStorageClient::check_versioning(const std::string& bucke
                      << " error=" << outcome.GetError().GetMessage()
                      << " request_id=" << outcome.GetError().GetRequestId();
         return ObjStorageResponse {
-                .status = {-1},
+                .status = s3fs_error(outcome.GetError(),
+                                     fmt::format("failed to get bucket versioning: {}", bucket)),
                 .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
                 .request_id = outcome.GetError().GetRequestId()};
     }
@@ -555,9 +546,10 @@ ObjStorageResponse S3ObjStorageClient::abort_multipart_upload(const ObjStoragePa
         }
         record_s3_request_failed(outcome.GetError());
         return ObjStorageResponse {
-                .status = {TStatusCode::INTERNAL_ERROR,
-                           fmt::format("failed to abort multipart upload: {}, upload_id={}",
-                                       opts.path.native(), upload_id)},
+                .status =
+                        s3fs_error(outcome.GetError(),
+                                   fmt::format("failed to abort multipart upload: {}, upload_id={}",
+                                               opts.path.native(), upload_id)),
                 .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
                 .request_id = outcome.GetError().GetRequestId(),
         };
@@ -597,7 +589,9 @@ ObjStorageResponse S3ObjStorageClient::get_lifecycle(const std::string& bucket,
     if (!has_lifecycle) {
         LOG(WARNING) << "Err for check interval: bucket doesn't have lifecycle configuration"
                      << " endpoint=" << _config.endpoint << " bucket=" << bucket;
-        return ObjStorageResponse {.status = {-1}};
+        return ObjStorageResponse {
+                .status = {ObjStorageStatus::NOT_FOUND,
+                           fmt::format("bucket has no lifecycle configuration: {}", bucket)}};
     }
     return ObjStorageResponse::OK();
 }
