@@ -214,6 +214,11 @@ struct ParquetProfile {
     RuntimeProfile::Counter* open_file_num = nullptr;
     RuntimeProfile::Counter* file_footer_read_calls = nullptr;
     RuntimeProfile::Counter* file_footer_hit_cache = nullptr;
+    RuntimeProfile::Counter* file_context_registry_requests = nullptr;
+    RuntimeProfile::Counter* file_context_registry_loads = nullptr;
+    RuntimeProfile::Counter* file_context_registry_hits = nullptr;
+    RuntimeProfile::Counter* file_context_registry_waits = nullptr;
+    RuntimeProfile::Counter* file_context_registry_bypasses = nullptr;
 
     RuntimeProfile::Counter* row_group_filter_time = nullptr;
     RuntimeProfile::Counter* page_index_read_calls = nullptr;

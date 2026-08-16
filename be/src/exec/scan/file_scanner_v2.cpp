@@ -650,7 +650,7 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             RETURN_IF_ERROR(_complete_current_split());
             continue;
         }
-        if (_current_split.is_source_split && _can_refine_source_split(_current_range)) {
+        if (_current_split.is_source_split && can_refine_source_split(_current_range)) {
             std::vector<FileScanSplit> generated_splits;
             bool was_split = false;
             const auto split_status = _table_reader->build_physical_splits(
@@ -806,7 +806,8 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
             .current_split_format = current_split_format,
             .file_context = _current_split.file_context,
             .format_split_id = _current_split.format_split_id,
-            .global_rowid_context = _create_global_rowid_context(range),
+            .global_rowid_context =
+                    _create_global_rowid_context(_current_split.source_identity_range()),
     }));
     return Status::OK();
 }
@@ -834,7 +835,7 @@ FileScannerV2::IgnoredSplitStatus FileScannerV2::_classify_ignored_split_status(
     return IgnoredSplitStatus::NONE;
 }
 
-bool FileScannerV2::_can_refine_source_split(const TFileRangeDesc& range) {
+bool FileScannerV2::can_refine_source_split(const TFileRangeDesc& range) {
     if (!range.__isset.table_format_params || !range.table_format_params.__isset.iceberg_params) {
         return true;
     }

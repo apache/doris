@@ -56,6 +56,7 @@
 #include "exprs/vslot_ref.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/file_scan_context.h"
+#include "storage/id_manager.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
@@ -730,6 +731,33 @@ TEST(FileScannerV2Test, GeneratedChildrenCompleteSourceProgressOnlyOnce) {
     EXPECT_TRUE(second.source_progress->complete_one());
 }
 
+TEST(FileScannerV2Test, GeneratedChildrenKeepOneGlobalRowIdSourceMapping) {
+    auto source_range = std::make_shared<TFileRangeDesc>();
+    source_range->__set_path("shared.parquet");
+    source_range->__set_start_offset(64);
+    source_range->__set_size(1024);
+
+    FileScanSplit first;
+    first.source_range = source_range;
+    first.start_offset = 128;
+    first.size = 256;
+    FileScanSplit second;
+    second.source_range = source_range;
+    second.start_offset = 512;
+    second.size = 256;
+
+    EXPECT_NE(first.materialize_range().start_offset, second.materialize_range().start_offset);
+    EXPECT_EQ(first.source_identity_range().start_offset, source_range->start_offset);
+    EXPECT_EQ(second.source_identity_range().start_offset, source_range->start_offset);
+
+    IdFileMap id_file_map(0);
+    const auto first_id = id_file_map.get_file_mapping_id(
+            std::make_shared<FileMapping>(7, first.source_identity_range(), false));
+    const auto second_id = id_file_map.get_file_mapping_id(
+            std::make_shared<FileMapping>(7, second.source_identity_range(), false));
+    EXPECT_EQ(first_id, second_id);
+}
+
 class TestFileContext final : public FileContext {};
 
 TEST(FileScannerV2Test, FileContextRegistryLoadsEachFileOnceConcurrently) {
@@ -817,6 +845,31 @@ TEST(FileScannerV2Test, JniCompatibilityShapesUseV2Scanner) {
     query_options.__set_enable_paimon_cpp_reader(false);
     EXPECT_TRUE(FileScanLocalState::TEST_should_use_file_scanner_v2(query_options, false, params));
     EXPECT_TRUE(FileScannerV2::is_supported(params, legacy_paimon_jni_range_without_reader_type()));
+}
+
+TEST(FileScannerV2Test, IcebergDeleteSplitKeepsInitialScannerCountCap) {
+    TQueryOptions query_options;
+    query_options.__set_enable_file_scanner_v2(true);
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    TFileRangeDesc range;
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    TTableFormatFileDesc table_format;
+    table_format.__set_table_format_type("iceberg");
+    TIcebergFileDesc iceberg;
+    TIcebergDeleteFileDesc delete_file;
+    iceberg.__set_delete_files({delete_file});
+    table_format.__set_iceberg_params(iceberg);
+    range.__set_table_format_params(table_format);
+
+    EXPECT_FALSE(FileScanLocalState::TEST_can_generate_physical_splits(query_options, false, params,
+                                                                       range));
+    EXPECT_EQ(FileScanLocalState::TEST_adjust_scanner_count(16, 1, false), 1);
+
+    range.table_format_params.iceberg_params.__set_delete_files({});
+    EXPECT_TRUE(FileScanLocalState::TEST_can_generate_physical_splits(query_options, false, params,
+                                                                      range));
+    EXPECT_EQ(FileScanLocalState::TEST_adjust_scanner_count(16, 1, true), 16);
 }
 
 TEST(FileScannerV2Test, FailedTableReaderCloseCanBeRetriedThroughScanner) {

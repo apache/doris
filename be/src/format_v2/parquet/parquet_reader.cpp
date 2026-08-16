@@ -527,19 +527,33 @@ Status ParquetReader::init(RuntimeState* state) {
     _state->scheduler.set_batch_size(_batch_size);
     // Opening the file parses the footer before any row group can be scheduled. Keep this timer
     // around the whole operation so footer/cache latency cannot disappear from a slow profile.
+    Status file_context_status;
     {
         SCOPED_TIMER(_parquet_profile.parse_footer_time);
-        RETURN_IF_ERROR(_state->file_context.open(
+        file_context_status = _state->file_context.open(
                 _tracing_file_reader, _io_ctx.get(), _state->enable_page_cache, *_file_description,
                 _enable_mapping_timestamp_tz, _enable_mapping_varbinary, _file_context_registry,
-                _file_context));
+                _file_context);
     }
+    // Publish registry and physical-footer outcomes even when opening the file fails; otherwise a
+    // contended or failing footer path disappears from the profile that must diagnose it.
     if (_profile != nullptr) {
         COUNTER_UPDATE(_parquet_profile.file_footer_read_calls,
                        _state->file_context.native_footer_read_calls);
         COUNTER_UPDATE(_parquet_profile.file_footer_hit_cache,
                        _state->file_context.native_footer_cache_hits);
+        COUNTER_UPDATE(_parquet_profile.file_context_registry_requests,
+                       _state->file_context.file_context_registry_requests);
+        COUNTER_UPDATE(_parquet_profile.file_context_registry_loads,
+                       _state->file_context.file_context_registry_loads);
+        COUNTER_UPDATE(_parquet_profile.file_context_registry_hits,
+                       _state->file_context.file_context_registry_hits);
+        COUNTER_UPDATE(_parquet_profile.file_context_registry_waits,
+                       _state->file_context.file_context_registry_waits);
+        COUNTER_UPDATE(_parquet_profile.file_context_registry_bypasses,
+                       _state->file_context.file_context_registry_bypasses);
     }
+    RETURN_IF_ERROR(file_context_status);
     // Build file schema from parquet metadata.
     // A file reader may expose raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier
     {
@@ -576,6 +590,9 @@ Status ParquetReader::build_physical_splits(const FileScanSplit& source_split,
         // reader instead of publishing children whose shared footer could become stale.
         return Status::OK();
     }
+    if (!_state->file_context.can_refine_physical_splits()) {
+        return Status::OK();
+    }
 
     ParquetScanRange scan_range {
             .start_offset =
@@ -596,6 +613,11 @@ Status ParquetReader::build_physical_splits(const FileScanSplit& source_split,
     splits->reserve(selected_row_groups.size());
     for (const int row_group_id : selected_row_groups) {
         const auto& row_group = metadata.row_groups[row_group_id];
+        if (row_group.num_rows == 0) {
+            // Empty row groups are valid and the ordinary scan planner ignores them. Refinement
+            // must preserve that behavior before inspecting their potentially empty chunks.
+            continue;
+        }
         size_t group_start = std::numeric_limits<size_t>::max();
         size_t group_end = 0;
         for (size_t column_id = 0; column_id < row_group.columns.size(); ++column_id) {

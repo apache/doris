@@ -151,6 +151,11 @@ struct ParquetFileContext {
     std::shared_ptr<const ParquetSharedFileContext> shared_file_context;
     int64_t native_footer_read_calls = 0;
     int64_t native_footer_cache_hits = 0;
+    int64_t file_context_registry_requests = 0;
+    int64_t file_context_registry_loads = 0;
+    int64_t file_context_registry_hits = 0;
+    int64_t file_context_registry_waits = 0;
+    int64_t file_context_registry_bypasses = 0;
     bool native_page_cache_enabled = false;
     std::string native_page_cache_file_key;
     // Set once after the logical file schema is built. Per-request planning uses this guard so
@@ -162,6 +167,7 @@ struct ParquetFileContext {
                 bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
                 FileContextRegistry* file_context_registry = nullptr,
                 std::shared_ptr<const FileContext> file_context = nullptr);
+    bool can_refine_physical_splits() const;
     Status load_native_offset_indexes(
             int row_group_id, const std::unordered_set<int>& leaf_column_ids,
             std::unordered_map<int, tparquet::OffsetIndex>* offset_indexes) const;

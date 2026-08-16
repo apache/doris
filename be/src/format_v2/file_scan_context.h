@@ -43,8 +43,15 @@ class FileContextRegistry {
 public:
     using Loader = std::function<Status(std::shared_ptr<const FileContext>*)>;
 
+    struct LookupResult {
+        bool loaded = false;
+        bool waited = false;
+        bool hit = false;
+    };
+
     Status get_or_create(const std::string& key, const Loader& loader,
-                         std::shared_ptr<const FileContext>* context);
+                         std::shared_ptr<const FileContext>* context,
+                         LookupResult* lookup_result = nullptr);
 
 private:
     struct Entry {
@@ -92,6 +99,12 @@ struct FileScanSplit {
     bool is_source_split = false;
     uint64_t source_split_id = 0;
     std::shared_ptr<SourceSplitProgress> source_progress;
+
+    // GLOBAL_ROWID second-phase reads batch by the FE source mapping, while start_offset/size above
+    // identify only this first-phase physical child.
+    const TFileRangeDesc& source_identity_range() const {
+        return source_range == nullptr ? range : *source_range;
+    }
 
     TFileRangeDesc materialize_range() const {
         auto materialized = source_range == nullptr ? range : *source_range;

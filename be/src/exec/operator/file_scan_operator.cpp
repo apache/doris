@@ -152,6 +152,34 @@ bool FileScanLocalState::_should_use_file_scanner_v2(const TQueryOptions& query_
            !is_transactional_hive;
 }
 
+bool FileScanLocalState::_can_generate_physical_splits(const TQueryOptions& query_options,
+                                                       bool is_load,
+                                                       const TFileScanRangeParams& scan_params,
+                                                       const TFileRangeDesc& range) {
+    if (!_should_use_file_scanner_v2(query_options, is_load, scan_params)) {
+        return false;
+    }
+    const auto format = range.__isset.format_type ? range.format_type : scan_params.format_type;
+    if (format == TFileFormatType::FORMAT_PARQUET) {
+        // Keep scanner creation aligned with the downstream refinement guard. Otherwise an
+        // Iceberg delete split creates idle scanners even though it can never publish children.
+        return FileScannerV2::can_refine_source_split(range);
+    }
+    if (format != TFileFormatType::FORMAT_JNI || !range.__isset.table_format_params ||
+        range.table_format_params.table_format_type != "paimon" ||
+        !range.table_format_params.__isset.paimon_params) {
+        return false;
+    }
+    const auto& paimon = range.table_format_params.paimon_params;
+    return paimon.__isset.file_format && paimon.file_format == "parquet" &&
+           !paimon.__isset.paimon_split;
+}
+
+int FileScanLocalState::_adjust_scanner_count(int requested, int initial_ranges,
+                                              bool can_generate_physical_splits) {
+    return can_generate_physical_splits ? requested : std::min(requested, initial_ranges);
+}
+
 Status FileScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     if (_split_source->num_scan_ranges() == 0) {
         _eos = true;
@@ -277,25 +305,10 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
             }
             const bool is_load =
                     state->desc_tbl().get_tuple_descriptor(params->src_tuple_id) != nullptr;
-            if (!_should_use_file_scanner_v2(state->query_options(), is_load, *params)) {
-                continue;
-            }
             can_generate_parquet_splits =
                     std::ranges::any_of(file_scan_range.ranges, [&](const auto& range) {
-                        const auto format =
-                                range.__isset.format_type ? range.format_type : params->format_type;
-                        if (format == TFileFormatType::FORMAT_PARQUET) {
-                            return true;
-                        }
-                        if (format != TFileFormatType::FORMAT_JNI ||
-                            !range.__isset.table_format_params ||
-                            range.table_format_params.table_format_type != "paimon" ||
-                            !range.table_format_params.__isset.paimon_params) {
-                            return false;
-                        }
-                        const auto& paimon = range.table_format_params.paimon_params;
-                        return paimon.__isset.file_format && paimon.file_format == "parquet" &&
-                               !paimon.__isset.paimon_split;
+                        return _can_generate_physical_splits(state->query_options(), is_load,
+                                                             *params, range);
                     });
             if (can_generate_parquet_splits) {
                 break;
@@ -303,9 +316,8 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
         }
         // Currently the total number of remote splits cannot be accurately obtained, so batch
         // mode already skips this cap.
-        if (!can_generate_parquet_splits) {
-            _max_scanners = std::min(_max_scanners, _split_source->num_scan_ranges());
-        }
+        _max_scanners = _adjust_scanner_count(_max_scanners, _split_source->num_scan_ranges(),
+                                              can_generate_parquet_splits);
     }
 
     if (!scan_ranges.empty() &&

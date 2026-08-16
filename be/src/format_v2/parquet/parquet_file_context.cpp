@@ -279,6 +279,13 @@ std::string build_page_cache_file_key(const io::FileReader& file_reader,
 
 } // namespace
 
+bool ParquetFileContext::can_refine_physical_splits() const {
+    // InMemoryFileReader lazily owns one whole-file buffer per reader. Publishing children would
+    // reload and copy that complete HTTP object once per child, so keep its initialized reader.
+    return native_file != nullptr &&
+           typeid_cast<io::InMemoryFileReader*>(native_file.get()) == nullptr;
+}
+
 Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx,
                                 bool enable_page_cache, const io::FileDescription& file_description,
                                 bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
@@ -354,11 +361,22 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
     };
 
     std::shared_ptr<const FileContext> resolved_context = std::move(file_context);
-    if (resolved_context == nullptr) {
+    if (resolved_context != nullptr) {
+        ++file_context_registry_bypasses;
+    } else {
         if (file_context_registry != nullptr && has_stable_meta_cache_identity) {
-            RETURN_IF_ERROR(file_context_registry->get_or_create(registry_key, load_context,
-                                                                 &resolved_context));
+            ++file_context_registry_requests;
+            FileContextRegistry::LookupResult lookup_result;
+            const auto registry_status = file_context_registry->get_or_create(
+                    registry_key, load_context, &resolved_context, &lookup_result);
+            file_context_registry_loads += lookup_result.loaded;
+            file_context_registry_hits += lookup_result.hit;
+            file_context_registry_waits += lookup_result.waited;
+            RETURN_IF_ERROR(registry_status);
         } else {
+            // Keep uncacheable identities and scans without a registry visible separately from
+            // both physical footer reads and process-wide metadata-cache outcomes.
+            ++file_context_registry_bypasses;
             RETURN_IF_ERROR(load_context(&resolved_context));
         }
     }

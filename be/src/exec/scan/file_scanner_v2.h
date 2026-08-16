@@ -72,6 +72,7 @@ public:
     enum class UncachedReaderBytesStorage { LOCAL, REMOTE, NONE };
 
     static bool is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range);
+    static bool can_refine_source_split(const TFileRangeDesc& range);
 #ifdef BE_TEST
     FileScannerV2(RuntimeState* state, RuntimeProfile* profile,
                   std::unique_ptr<format::TableReader> table_reader);
@@ -110,7 +111,7 @@ public:
         return _classify_ignored_split_status(status, ignore_not_found, stopped);
     }
     static bool TEST_can_refine_source_split(const TFileRangeDesc& range) {
-        return _can_refine_source_split(range);
+        return can_refine_source_split(range);
     }
     static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool TEST_should_skip_empty(const Status& status, bool stopped);
@@ -164,7 +165,6 @@ private:
     static bool _should_skip_empty(const Status& status, bool stopped);
     static IgnoredSplitStatus _classify_ignored_split_status(const Status& status,
                                                              bool ignore_not_found, bool stopped);
-    static bool _can_refine_source_split(const TFileRangeDesc& range);
     static Status _contextualize_output_filter_status(Status status,
                                                       TFileFormatType::type format_type);
     static int64_t _cumulative_profile_delta(int64_t current, int64_t* reported);

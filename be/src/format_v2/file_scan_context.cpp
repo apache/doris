@@ -23,9 +23,13 @@
 namespace doris {
 
 Status FileContextRegistry::get_or_create(const std::string& key, const Loader& loader,
-                                          std::shared_ptr<const FileContext>* context) {
+                                          std::shared_ptr<const FileContext>* context,
+                                          LookupResult* lookup_result) {
     DORIS_CHECK(context != nullptr);
     context->reset();
+    if (lookup_result != nullptr) {
+        *lookup_result = {};
+    }
     while (true) {
         std::shared_ptr<Entry> entry;
         bool load = false;
@@ -51,6 +55,9 @@ Status FileContextRegistry::get_or_create(const std::string& key, const Loader& 
         }
 
         if (load) {
+            if (lookup_result != nullptr) {
+                lookup_result->loaded = true;
+            }
             std::shared_ptr<const FileContext> loaded_context;
             Status status;
             try {
@@ -77,12 +84,20 @@ Status FileContextRegistry::get_or_create(const std::string& key, const Loader& 
         }
 
         std::unique_lock lock(entry->lock);
-        entry->ready.wait(lock, [&]() { return !entry->loading; });
+        if (entry->loading) {
+            if (lookup_result != nullptr) {
+                lookup_result->waited = true;
+            }
+            entry->ready.wait(lock, [&]() { return !entry->loading; });
+        }
         if (!entry->status.ok()) {
             return entry->status;
         }
         *context = entry->context.lock();
         if (*context != nullptr) {
+            if (lookup_result != nullptr) {
+                lookup_result->hit = true;
+            }
             return Status::OK();
         }
         // The loading caller may already have released its result. Retry so this caller installs
