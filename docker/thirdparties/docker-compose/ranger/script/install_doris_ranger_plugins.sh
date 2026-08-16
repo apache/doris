@@ -12,13 +12,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 #!/bin/bash
 set -ex
 
-if [ ! -d "${RANGER_HOME}/ews/webapp/WEB-INF/classes/ranger-plugins/doris" ]; then
-    mkdir -p "${RANGER_HOME}/ews/webapp/WEB-INF/classes/ranger-plugins/doris"
-fi
-cd "${RANGER_HOME}/ews/webapp/WEB-INF/classes/ranger-plugins/doris"
-curl -O https://s3BucketName.s3Endpoint/regression/docker/ranger-plugins/mysql-connector-java-8.0.25.jar
-curl -O https://s3BucketName.s3Endpoint/regression/docker/ranger-plugins/ranger-doris-plugin-3.0.0-SNAPSHOT.jar
+# The jars are fetched on the host into docker-compose/ranger/cache and bind
+# mounted here, so this container never needs to reach the network.
+ARTIFACTS=/opt/doris-ranger-artifacts
+PLUGIN_DIR="${RANGER_HOME}/ews/webapp/WEB-INF/classes/ranger-plugins/doris"
+
+mkdir -p "${PLUGIN_DIR}"
+cp "${ARTIFACTS}/mysql-connector-java-8.0.25.jar" "${PLUGIN_DIR}/"
+cp "${ARTIFACTS}/ranger-doris-plugin-3.0.0-SNAPSHOT.jar" "${PLUGIN_DIR}/"
