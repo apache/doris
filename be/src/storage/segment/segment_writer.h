@@ -60,9 +60,6 @@ class FileWriter;
 
 namespace segment_v2 {
 
-extern const char* k_segment_magic;
-extern const uint32_t k_segment_magic_length;
-
 class VariantStatsCaculator;
 
 struct SegmentWriterOptions {

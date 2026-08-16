@@ -97,7 +97,7 @@ set(EXPRS_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/math_functions.cpp
     ${GENSRC_DIR}/geo/wkt_lex.l.cpp
     ${GENSRC_DIR}/geo/wkt_yacc.y.cpp)
-set_source_files_properties(${EXPRS_UNITY_SKIP} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+doris_skip_unity_inclusion(${EXPRS_UNITY_SKIP})
 set_target_properties(Exprs PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
                                        UNITY_BUILD_BATCH_SIZE 8)
 

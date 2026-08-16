@@ -131,8 +131,10 @@ protected:
             BlockMetaKey mkey(0, hash, offset);
             BlockMeta meta(FileCacheType::NORMAL, 16, 0);
             storage._meta_store->put(mkey, meta);
-            // Wait for async write to complete for test stability
-            for (int i = 0; i < 100 && storage._meta_store->get_write_queue_size() > 0; ++i) {
+            // The async worker dequeues an operation before it lands in rocksdb,
+            // so an empty write queue does not mean the entry is readable yet.
+            // Poll the store itself: leak-scan decisions count rocksdb contents.
+            for (int i = 0; i < 100 && !storage._meta_store->get(mkey).has_value(); ++i) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
         }

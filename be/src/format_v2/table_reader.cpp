@@ -50,6 +50,7 @@
 #include "format_v2/native/native_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
+#include "format_v2/table/schema_history_util.h" // get_field_ptr
 #include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
@@ -138,13 +139,6 @@ std::string partition_values_debug_string(const std::map<std::string, Field>& pa
     }
     out << "}";
     return out.str();
-}
-
-const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr& field_ptr) {
-    if (!field_ptr.__isset.field_ptr || field_ptr.field_ptr == nullptr) {
-        return nullptr;
-    }
-    return field_ptr.field_ptr.get();
 }
 
 const schema::external::TField* find_external_field_by_id(

@@ -42,6 +42,7 @@
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/reader/native/block_split_bloom_filter.h"
 #include "format_v2/parquet/reader/native_column_reader.h"
+#include "format_v2/parquet/selection_vector.h" // count_range_rows
 #include "format_v2/timestamp_statistics.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
@@ -987,14 +988,6 @@ std::vector<RowRange> intersect_ranges(const std::vector<RowRange>& left,
         }
     }
     return result;
-}
-
-int64_t count_range_rows(const std::vector<RowRange>& ranges) {
-    int64_t rows = 0;
-    for (const auto& range : ranges) {
-        rows += range.length;
-    }
-    return rows;
 }
 
 void append_row_range(const RowRange& range, std::vector<RowRange>* ranges) {
