@@ -795,6 +795,7 @@ else()
         "-framework CoreGraphics"
         "-framework CoreText"
         "-framework Foundation"
+        "-framework IOKit"
         "-framework SystemConfiguration"
         "-framework Security"
     )
