@@ -500,8 +500,15 @@ public class NereidsCoordinator extends Coordinator {
     private void setForInsert(long jobId) {
         JobProcessor jobProc = new LoadProcessor(this.coordinatorContext, jobId);
         this.coordinatorContext.setJobProcessor(jobProc);
-        // Set this field to true to avoid data entering the normal cache LRU queue
-        this.coordinatorContext.queryOptions.setDisableFileCache(true);
+        // Set this field to true to avoid data entering the normal cache LRU queue.
+        // enable_file_cache_for_insert_source opts OUT of that protection: recurring
+        // INSERT ... SELECT / CTAS whose source working set is shared with interactive
+        // queries (and re-read every cycle) benefits from normal-queue retention.
+        boolean keepInsertSourceInCache = this.coordinatorContext.connectContext != null
+                && this.coordinatorContext.connectContext.getSessionVariable().enableFileCacheForInsertSource;
+        if (!keepInsertSourceInCache) {
+            this.coordinatorContext.queryOptions.setDisableFileCache(true);
+        }
         this.coordinatorContext.queryOptions.setNewVersionUnixTimestamp(true);
         this.coordinatorContext.queryOptions.setNewVersionPercentile(true);
         this.coordinatorContext.queryOptions.setNewVersionBitmapOpCount(true);
