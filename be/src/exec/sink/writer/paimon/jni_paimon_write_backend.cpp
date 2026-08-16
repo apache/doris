@@ -189,12 +189,15 @@ Status JniPaimonWriteBackend::close() {
 
     Status close_status = Status::OK();
     if (_jni_writer_obj != nullptr) {
-        _refresh_memory_profile();
+        _refresh_memory_profile(env);
         if (_close_id == nullptr) {
             close_status = Status::InternalError("PaimonJniWriter.close method is unavailable");
         } else {
             env->CallVoidMethod(_jni_writer_obj, _close_id);
             close_status = _check_jni_exception(env, "close PaimonJniWriter");
+            if (close_status.ok()) {
+                _refresh_memory_profile(env);
+            }
         }
         env->DeleteGlobalRef(_jni_writer_obj);
         _jni_writer_obj = nullptr;
@@ -293,8 +296,12 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 
     RETURN_IF_ERROR(PaimonJniMemoryManager::create(state, &_memory_manager));
     RuntimeProfile* jni_profile = profile->create_child("JniPaimonWriteBackend", true, true);
+    _writer_memory_limit = ADD_COUNTER(jni_profile, "WriterMemoryLimit", TUnit::BYTES);
     _native_page_memory_limit = ADD_COUNTER(jni_profile, "NativePageMemoryLimit", TUnit::BYTES);
     _native_page_memory_peak = ADD_COUNTER(jni_profile, "NativePageMemoryPeak", TUnit::BYTES);
+    _arrow_memory_limit = ADD_COUNTER(jni_profile, "ArrowMemoryLimit", TUnit::BYTES);
+    _arrow_memory_current = ADD_COUNTER(jni_profile, "ArrowMemoryCurrent", TUnit::BYTES);
+    _arrow_memory_peak = ADD_COUNTER(jni_profile, "ArrowMemoryPeak", TUnit::BYTES);
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
@@ -313,6 +320,13 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     _prepare_commit_id = env->GetMethodID(_jni_writer_cls, "prepareCommit", "()[[B");
     _abort_id = env->GetMethodID(_jni_writer_cls, "abort", "()V");
     _close_id = env->GetMethodID(_jni_writer_cls, "close", "()V");
+    _get_arrow_memory_current_id =
+            env->GetMethodID(_jni_writer_cls, "getArrowMemoryCurrentBytes", "()J");
+    _get_arrow_memory_peak_id = env->GetMethodID(_jni_writer_cls, "getArrowMemoryPeakBytes", "()J");
+    _get_arrow_memory_limit_id =
+            env->GetMethodID(_jni_writer_cls, "getArrowMemoryLimitBytes", "()J");
+    _get_paimon_page_memory_limit_id =
+            env->GetMethodID(_jni_writer_cls, "getPaimonPageMemoryLimitBytes", "()J");
     RETURN_IF_ERROR(_check_jni_exception(env, "GetMethodID"));
 
     // Step 3: Create the Java PaimonJniWriter instance.
@@ -364,7 +378,7 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 
     if (st.ok()) {
         _opened = true;
-        _refresh_memory_profile();
+        _refresh_memory_profile(env);
         LOG(INFO) << "Paimon JNI writer memory limit: "
                   << PrettyPrinter::print_bytes(_memory_manager->memory_limit())
                   << ", local_sink_count=" << std::max(1, state->num_local_sink());
@@ -530,12 +544,31 @@ Status JniPaimonWriter::abort() {
     return Jni::Env::GetJniExceptionMsg(env, true, "JNI exception in abort: ");
 }
 
-void JniPaimonWriteBackend::_refresh_memory_profile() {
+void JniPaimonWriteBackend::_refresh_memory_profile(JNIEnv* env) {
     if (_memory_manager == nullptr) {
         return;
     }
-    COUNTER_SET(_native_page_memory_limit, _memory_manager->memory_limit());
+    COUNTER_SET(_writer_memory_limit, _memory_manager->memory_limit());
     COUNTER_SET(_native_page_memory_peak, _memory_manager->native_peak_allocated_bytes());
+    if (_jni_writer_obj == nullptr || env == nullptr) {
+        return;
+    }
+
+    jlong page_memory_limit =
+            env->CallLongMethod(_jni_writer_obj, _get_paimon_page_memory_limit_id);
+    jlong arrow_memory_limit = env->CallLongMethod(_jni_writer_obj, _get_arrow_memory_limit_id);
+    jlong arrow_memory_current = env->CallLongMethod(_jni_writer_obj, _get_arrow_memory_current_id);
+    jlong arrow_memory_peak = env->CallLongMethod(_jni_writer_obj, _get_arrow_memory_peak_id);
+    Status profile_status = _check_jni_exception(env, "read PaimonJniWriter memory profile");
+    if (!profile_status.ok()) {
+        LOG(WARNING) << "Failed to refresh Paimon JNI memory profile: "
+                     << profile_status.to_string();
+        return;
+    }
+    COUNTER_SET(_native_page_memory_limit, page_memory_limit);
+    COUNTER_SET(_arrow_memory_limit, arrow_memory_limit);
+    COUNTER_SET(_arrow_memory_current, arrow_memory_current);
+    COUNTER_SET(_arrow_memory_peak, arrow_memory_peak);
 }
 
 } // namespace doris

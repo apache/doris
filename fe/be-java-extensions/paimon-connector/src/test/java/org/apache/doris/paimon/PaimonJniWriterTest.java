@@ -28,6 +28,40 @@ import java.util.Collections;
 public class PaimonJniWriterTest {
 
     @Test
+    public void testWriterMemoryBudgetIncludesArrowAndPaimonPages() {
+        int pageSize = 64 * 1024;
+        PaimonJniWriter.WriterMemoryBudget budget = PaimonJniWriter.splitWriterMemoryBudget(
+                512L * 1024 * 1024, 512L * 1024 * 1024, pageSize);
+
+        Assertions.assertEquals(128L * 1024 * 1024, budget.arrowHeadroomBytes);
+        Assertions.assertEquals(384L * 1024 * 1024, budget.paimonPageBudgetBytes);
+        Assertions.assertEquals(
+                512L * 1024 * 1024,
+                budget.arrowHeadroomBytes + budget.paimonPageBudgetBytes);
+    }
+
+    @Test
+    public void testWriterMemoryBudgetKeepsConfiguredWriteBufferCap() {
+        int pageSize = 64 * 1024;
+        PaimonJniWriter.WriterMemoryBudget budget = PaimonJniWriter.splitWriterMemoryBudget(
+                512L * 1024 * 1024, 64L * 1024 * 1024, pageSize);
+
+        Assertions.assertEquals(128L * 1024 * 1024, budget.arrowHeadroomBytes);
+        Assertions.assertEquals(64L * 1024 * 1024, budget.paimonPageBudgetBytes);
+    }
+
+    @Test
+    public void testWriterMemoryBudgetRejectsMissingArrowHeadroom() {
+        int pageSize = 64 * 1024;
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> PaimonJniWriter.splitWriterMemoryBudget(
+                        16L * 1024 * 1024, 16L * 1024 * 1024, pageSize));
+
+        Assertions.assertTrue(exception.getMessage().contains("Arrow headroom and one page"));
+    }
+
+    @Test
     public void testManagedMemoryPoolRequiresAtLeastOnePage() {
         IllegalArgumentException exception = Assertions.assertThrows(
                 IllegalArgumentException.class,

@@ -64,7 +64,7 @@ public:
 private:
     Status _check_jni_exception(JNIEnv* env, const std::string& method_name);
     Status _load_writer_class(JNIEnv* env, jclass* writer_class);
-    void _refresh_memory_profile();
+    void _refresh_memory_profile(JNIEnv* env);
 
     // JNI global references — live for the duration of this backend.
     jclass _jni_writer_cls = nullptr;
@@ -75,11 +75,19 @@ private:
     jmethodID _prepare_commit_id = nullptr;
     jmethodID _abort_id = nullptr;
     jmethodID _close_id = nullptr;
+    jmethodID _get_arrow_memory_current_id = nullptr;
+    jmethodID _get_arrow_memory_peak_id = nullptr;
+    jmethodID _get_arrow_memory_limit_id = nullptr;
+    jmethodID _get_paimon_page_memory_limit_id = nullptr;
 
     TPaimonTableSink _sink;
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
+    RuntimeProfile::Counter* _writer_memory_limit = nullptr;
     RuntimeProfile::Counter* _native_page_memory_limit = nullptr;
     RuntimeProfile::Counter* _native_page_memory_peak = nullptr;
+    RuntimeProfile::Counter* _arrow_memory_limit = nullptr;
+    RuntimeProfile::Counter* _arrow_memory_current = nullptr;
+    RuntimeProfile::Counter* _arrow_memory_peak = nullptr;
     bool _opened = false;
 };
 
