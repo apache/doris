@@ -674,7 +674,7 @@ jobs:
           codex exec --goal "$GOAL_PROMPT" \
             --cd "$GITHUB_WORKSPACE" \
             --model "gpt-5.6-sol" \
-            --config "model_reasoning_effort=xhigh" \
+            --config "model_reasoning_effort=high" \
             --sandbox danger-full-access \
             --color never \
             --json \
@@ -911,7 +911,7 @@ jobs:
             --head-sha "$HEAD_SHA" \
             --base-sha "$BASE_SHA" \
             --model "gpt-5.6-sol" \
-            --reasoning-effort "xhigh" \
+            --reasoning-effort "high" \
             --environment "github-actions" \
             --max-payload-bytes 4000000 \
             --min-observations 4 \
