@@ -27,7 +27,6 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
-#include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/primitive_type.h"
@@ -56,11 +55,7 @@ Result<ColumnFloat32::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr)
                                                    st.to_string()));
     }
 
-    // Unwrap ColumnConst without copy to get the underlying single-row column
-    IColumn::Ptr col_ptr = column_wrapper->column_ptr;
-    if (const auto* const_col = check_and_get_column<ColumnConst>(*col_ptr)) {
-        col_ptr = const_col->get_data_column_ptr();
-    }
+    IColumn::Ptr col_ptr = column_wrapper->column_ptr();
 
     // The expected runtime column layout for the literal is:
     // Nullable(ColumnArray(Nullable(ColumnFloat32))) with exactly 1 row (one array literal)

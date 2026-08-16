@@ -411,7 +411,7 @@ public:
             return Status::InvalidArgument(
                     "character argument to convert function must be constant.");
         }
-        const auto& character_data = context->get_constant_col(1)->column_ptr->get_data_at(0);
+        const auto& character_data = context->get_constant_col(1)->column().get_data_at(0);
         if (!iequal(character_data.to_string(), "gbk")) {
             return Status::RuntimeError(
                     "Illegal second argument column of function convert. now only support "
@@ -1535,7 +1535,7 @@ public:
         }
 
         auto* const_col = context->get_constant_col(1);
-        auto mode_ref = const_col->column_ptr->get_data_at(0);
+        auto mode_ref = const_col->column().get_data_at(0);
         std::string lower_mode = doris::to_lower(std::string(doris::trim(mode_ref.to_string())));
 
         UErrorCode status = U_ZERO_ERROR;

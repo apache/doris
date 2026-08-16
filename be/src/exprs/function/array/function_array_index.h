@@ -120,7 +120,7 @@ public:
         std::shared_ptr<ParamValue> state = std::make_shared<ParamValue>();
         Field field;
         if (context->get_constant_col(1)) {
-            context->get_constant_col(1)->column_ptr->get(0, field);
+            context->get_constant_col(1)->column().get(0, field);
             state->value = field;
             state->type = context->get_arg_type(1)->get_primitive_type();
             context->set_function_state(scope, state);

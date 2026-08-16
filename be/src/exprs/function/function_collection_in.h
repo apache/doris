@@ -112,7 +112,7 @@ public:
             const auto& const_column_ptr = context->get_constant_col(i);
             // Types like struct, array, and map only support constant expressions.
             DCHECK(const_column_ptr != nullptr);
-            const auto& [col, _] = unpack_if_const(const_column_ptr->column_ptr);
+            const auto& col = const_column_ptr->column_ptr();
             if (const auto* null_col = check_and_get_column<ColumnNullable>(col.get())) {
                 if (null_col->has_null()) {
                     state->null_in_set = true;

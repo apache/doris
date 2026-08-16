@@ -651,41 +651,11 @@ Status ScanLocalStateBase::_eval_const_conjuncts(VExprContext* expr_ctx, PushDow
     if (vexpr->is_constant()) {
         std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
-        if (const auto* const_column =
-                    check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr.get())) {
-            constant_val = const_column->get_data_at(0).data;
-            if (constant_val == nullptr || !*reinterpret_cast<const bool*>(constant_val)) {
-                *pdt = PushDownType::ACCEPTABLE;
-                _eos = true;
-                _scan_dependency->set_ready();
-            }
-        } else if (const auto* bool_column =
-                           check_and_get_column<ColumnUInt8>(const_col_wrapper->column_ptr.get())) {
-            // TODO: If `vexpr->is_constant()` is true, a const column is expected here.
-            //  But now we still don't cover all predicates for const expression.
-            //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
-            //  predicate `like` will return a ColumnVector<UInt8> which contains a single value.
-            LOG(WARNING) << "VExpr[" << vexpr->debug_string()
-                         << "] should return a const column but actually is "
-                         << const_col_wrapper->column_ptr->get_name();
-            DCHECK_EQ(bool_column->size(), 1);
-            /// TODO: There is a DCHECK here, but an additional check is still needed. It should return an error code.
-            if (bool_column->size() == 1) {
-                constant_val = bool_column->get_data_at(0).data;
-                if (constant_val == nullptr || !*reinterpret_cast<const bool*>(constant_val)) {
-                    *pdt = PushDownType::ACCEPTABLE;
-                    _eos = true;
-                    _scan_dependency->set_ready();
-                }
-            } else {
-                LOG(WARNING) << "Constant predicate in scan node should return a bool column with "
-                                "`size == 1` but actually is "
-                             << bool_column->size();
-            }
-        } else {
-            LOG(WARNING) << "VExpr[" << vexpr->debug_string()
-                         << "] should return a const column but actually is "
-                         << const_col_wrapper->column_ptr->get_name();
+        constant_val = const_col_wrapper->column().get_data_at(0).data;
+        if (constant_val == nullptr || !*reinterpret_cast<const bool*>(constant_val)) {
+            *pdt = PushDownType::ACCEPTABLE;
+            _eos = true;
+            _scan_dependency->set_ready();
         }
     }
     return Status::OK();

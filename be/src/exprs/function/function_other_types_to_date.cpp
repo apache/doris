@@ -484,7 +484,7 @@ struct DateTrunc {
                     "date_trunc function of time unit argument must be constant.");
         }
         const auto& data_str =
-                context->get_constant_col(DateArgIsFirst ? 1 : 0)->column_ptr->get_data_at(0);
+                context->get_constant_col(DateArgIsFirst ? 1 : 0)->column().get_data_at(0);
         std::string lower_str(data_str.data, data_str.size);
         std::transform(lower_str.begin(), lower_str.end(), lower_str.begin(),
                        [](unsigned char c) { return std::tolower(c); });

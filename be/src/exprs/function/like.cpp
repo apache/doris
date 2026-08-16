@@ -978,8 +978,8 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
     state->scalar_function = like_fn_scalar;
     if (context->is_col_constant(2)) {
         state->has_custom_escape = true;
-        const auto escape_col = context->get_constant_col(2)->column_ptr;
-        const auto& escape = escape_col->get_data_at(0);
+        const auto& escape_col = context->get_constant_col(2)->column();
+        const auto& escape = escape_col.get_data_at(0);
         if (escape.size != 1) {
             return Status::InternalError("Escape character must be a single character, got: {}",
                                          escape.to_string());
@@ -987,8 +987,8 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
         state->escape_char = escape.data[0];
     }
     if (context->is_col_constant(1)) {
-        const auto pattern_col = context->get_constant_col(1)->column_ptr;
-        const auto& pattern = pattern_col->get_data_at(0);
+        const auto& pattern_col = context->get_constant_col(1)->column();
+        const auto& pattern = pattern_col.get_data_at(0);
         RETURN_IF_ERROR(construct_like_const_state(context, pattern, state));
     }
     context->set_function_state(scope, state);
@@ -1007,8 +1007,8 @@ Status FunctionRegexpLike::open(FunctionContext* context,
     state->function = regexp_fn;
     state->scalar_function = regexp_fn_scalar;
     if (context->is_col_constant(1)) {
-        const auto pattern_col = context->get_constant_col(1)->column_ptr;
-        const auto& pattern = pattern_col->get_data_at(0);
+        const auto& pattern_col = context->get_constant_col(1)->column();
+        const auto& pattern = pattern_col.get_data_at(0);
 
         std::string pattern_str = pattern.to_string();
         std::string search_string;

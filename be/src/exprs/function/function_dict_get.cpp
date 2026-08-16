@@ -71,7 +71,7 @@ public:
                                                                 dict_fn->version_id);
         if (!dict) {
             std::string dict_name =
-                    context->get_constant_col(0)->column_ptr->get_data_at(0).to_string();
+                    context->get_constant_col(0)->column().get_data_at(0).to_string();
             throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
                                    "can not find dict name : {} , dict_id : {} , version_id : {}  ",
                                    dict_name, dict_fn->dictionary_id, dict_fn->version_id);

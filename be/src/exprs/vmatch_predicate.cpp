@@ -131,9 +131,6 @@ Status VMatchPredicate::open(RuntimeState* state, VExprContext* context,
     if (scope == FunctionContext::THREAD_LOCAL || scope == FunctionContext::FRAGMENT_LOCAL) {
         context->fn_context(_fn_context_index)->set_function_state(scope, _analyzer_ctx);
     }
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
-        RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
-    }
     _open_finished = true;
     return Status::OK();
 }
