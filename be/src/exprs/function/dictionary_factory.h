@@ -19,11 +19,13 @@
 
 #include <gen_cpp/BackendService_types.h>
 
+#include <algorithm>
 #include <mutex>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "exprs/function/dictionary.h"
+#include "util/debug_points.h"
 
 namespace doris {
 class MemTrackerLimiter;
@@ -37,13 +39,13 @@ public:
 
     // Returns nullptr if failed
     std::shared_ptr<const IDictionary> get(int64_t dict_id, int64_t version_id) {
-        std::unique_lock lc(_mutex);
-        // dict_id and version_id must match
-        if (_dict_id_to_dict_map.contains(dict_id) &&
-            _dict_id_to_version_id_map[dict_id] == version_id) {
-            return _dict_id_to_dict_map[dict_id];
+        std::shared_lock lc(_mutex);
+        auto it = _dict_id_to_versioned_map.find(dict_id);
+        if (it == _dict_id_to_versioned_map.end()) {
+            return nullptr;
         }
-        return nullptr;
+        auto vit = it->second.find(version_id);
+        return vit == it->second.end() ? nullptr : vit->second;
     }
 
     Status refresh_dict(int64_t dict_id, int64_t version_id, DictionaryPtr dict) {
@@ -76,6 +78,16 @@ public:
     }
 
     Status commit_refresh_dict(int64_t dict_id, int64_t version_id) {
+        // sleep before commit to widen FE/BE version mismatch window
+        DBUG_EXECUTE_IF("dict_commit_delay", {
+            int sleep_sec = dp->param<int>("sleep_sec", 30);
+            LOG(INFO) << "debug point dict_commit_delay: sleeping " << sleep_sec
+                      << "s before commit"
+                      << " dict_id=" << dict_id << " version_id=" << version_id;
+            sleep(sleep_sec);
+            LOG(INFO) << "debug point dict_commit_delay: wake up, continue commit"
+                      << " dict_id=" << dict_id << " version_id=" << version_id;
+        });
         VLOG_DEBUG << "DictionaryFactory commit refresh dictionary"
                    << " dict_id: " << dict_id << " version_id: " << version_id;
         std::unique_lock lc(_mutex);
@@ -88,48 +100,51 @@ public:
                     "Version ID is not equal to the refreshing version ID. {} : {}", version_id,
                     refresh_version_id);
         }
-        {
-            // commit the dictionary
-            if (_dict_id_to_version_id_map.contains(dict_id)) {
-                // check version_id
-                if (version_id <= _dict_id_to_version_id_map[dict_id]) {
-                    LOG_WARNING(
-                            "DictionaryFactory Failed to commit dictionary because version ID "
-                            "is not greater than the existing version ID")
-                            .tag("dict_id", dict_id)
-                            .tag("version_id", version_id)
-                            .tag("dict name", dict->dict_name())
-                            .tag("existing version ID", _dict_id_to_version_id_map[dict_id]);
-                    return Status::InvalidArgument(
-                            "Version ID is not greater than the existing version ID for the "
-                            "dictionary. {} : {}",
-                            version_id, _dict_id_to_version_id_map[dict_id]);
-                }
+        auto& versioned_map = _dict_id_to_versioned_map[dict_id];
+        if (!versioned_map.empty()) {
+            int64_t latest = versioned_map.rbegin()->first;
+            if (version_id <= latest) {
+                LOG_WARNING(
+                        "DictionaryFactory Failed to commit dictionary because version ID "
+                        "is not greater than the existing version ID")
+                        .tag("dict_id", dict_id)
+                        .tag("version_id", version_id)
+                        .tag("dict name", dict->dict_name())
+                        .tag("existing version ID", latest);
+                return Status::InvalidArgument(
+                        "Version ID is not greater than the existing version ID for the "
+                        "dictionary. {} : {}",
+                        version_id, latest);
             }
-            LOG_INFO("DictionaryFactory Successfully commit dictionary")
-                    .tag("dict_id", dict_id)
-                    .tag("version_id", version_id)
-                    .tag("dict name", dict->dict_name());
-            _dict_id_to_dict_map[dict_id] = dict;
-            _dict_id_to_version_id_map[dict_id] = version_id;
-            _refreshing_dict_map.erase(dict_id);
         }
+        LOG_INFO("DictionaryFactory Successfully commit dictionary")
+                .tag("dict_id", dict_id)
+                .tag("version_id", version_id)
+                .tag("dict name", dict->dict_name());
+        versioned_map[version_id] = dict;
+        _gc_versions_no_lock(dict_id, versioned_map);
+        _refreshing_dict_map.erase(dict_id);
         return Status::OK();
     }
 
     Status delete_dict(int64_t dict_id) {
         VLOG_DEBUG << "DictionaryFactory delete dictionary, dict_id: " << dict_id;
         std::unique_lock lc(_mutex);
-        if (!_dict_id_to_dict_map.contains(dict_id)) {
-            LOG_WARNING("DictionaryFactory Failed to delete dictionary").tag("dict_id", dict_id);
+        auto it = _dict_id_to_versioned_map.find(dict_id);
+        if (it == _dict_id_to_versioned_map.end()) {
             return Status::OK();
         }
-        auto dict = _dict_id_to_dict_map[dict_id];
-        LOG_INFO("DictionaryFactory Successfully delete dictionary")
-                .tag("dict_id", dict_id)
-                .tag("dict name", dict->dict_name());
-        _dict_id_to_dict_map.erase(dict_id);
-        _dict_id_to_version_id_map.erase(dict_id);
+        if (it->second.empty()) {
+            LOG_WARNING("DictionaryFactory delete dictionary with empty version map")
+                    .tag("dict_id", dict_id);
+        } else {
+            auto latest_it = it->second.rbegin();
+            LOG_INFO("DictionaryFactory Successfully delete dictionary")
+                    .tag("dict_id", dict_id)
+                    .tag("dict name", latest_it->second->dict_name())
+                    .tag("latest version_id", latest_it->first);
+        }
+        _dict_id_to_versioned_map.erase(it);
         return Status::OK();
     }
 
@@ -139,8 +154,21 @@ public:
                                std::vector<int64_t> dict_ids);
 
 private:
-    std::map<int64_t, DictionaryPtr> _dict_id_to_dict_map;
-    std::map<int64_t, int64_t> _dict_id_to_version_id_map;
+    // 0 or negative falls back to 1 (no multi-version retention)
+    void _gc_versions_no_lock(int64_t dict_id, std::map<int64_t, DictionaryPtr>& versioned_map) {
+        int32_t max_versions = std::max(1, config::dictionary_max_versions);
+        while (versioned_map.size() > max_versions) {
+            auto it = versioned_map.begin();
+            LOG_INFO("DictionaryFactory GC old version")
+                    .tag("dict_id", dict_id)
+                    .tag("version_id", it->first)
+                    .tag("dict name", it->second->dict_name());
+            versioned_map.erase(it);
+        }
+    }
+
+    // dict_id -> (version_id -> dict)
+    std::map<int64_t, std::map<int64_t, DictionaryPtr>> _dict_id_to_versioned_map;
 
     std::map<int64_t, std::pair<int64_t, DictionaryPtr>>
             _refreshing_dict_map; // dict_id -> (version_id, dict)
