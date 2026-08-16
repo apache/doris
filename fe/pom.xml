@@ -394,6 +394,8 @@ under the License.
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
         <ranger-plugins-common.version>2.8.0</ranger-plugins-common.version>
+        <!-- Matches the jersey-core the FE already carries; only the Ranger plugins ask for it. -->
+        <jersey.version>1.19.4</jersey.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
@@ -1207,6 +1209,18 @@ under the License.
                         <artifactId>jersey-bundle</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
+            <!--
+              Ranger's admin REST client is Jersey 1.x. The jersey-bundle exclusion above keeps that
+              fat jar's JSR-311 copy off the FE's own classpath (#37575), which also leaves nothing
+              behind for RangerAdminRESTClient to use. Inside fe-core that never showed, because
+              nothing there constructed one; the Ranger authorization sources do. Version managed
+              here for both the FE itself and the plugins that bundle it as a fallback.
+            -->
+            <dependency>
+                <groupId>com.sun.jersey</groupId>
+                <artifactId>jersey-client</artifactId>
+                <version>${jersey.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.objenesis</groupId>
