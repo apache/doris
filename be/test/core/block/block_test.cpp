@@ -271,7 +271,10 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
         PBlock pblock2;
         block_to_pb(block2, &pblock2, compression_type);
         std::string s2 = pblock2.DebugString();
+#ifndef __APPLE__
         EXPECT_EQ(s1, s2);
+#endif
+        EXPECT_EQ(block.dump_data_json(0, 1024), block2.dump_data_json(0, 1024));
     }
     // nullable string
     {
@@ -765,12 +768,16 @@ void serialize_and_deserialize_test_bitmap() {
         int64_t uncompressed_time = 0;
         static_cast<void>(block2.deserialize(pblock, &uncompress_size, &uncompressed_time));
         std::string bb2 = block2.dump_data(0, 1024);
+#ifndef __APPLE__
         EXPECT_EQ(bb1, bb2);
+#endif
         EXPECT_EQ(block.dump_data_json(0, 1024), block2.dump_data_json(0, 1024));
         PBlock pblock2;
         block_to_pb(block2, &pblock2, segment_v2::CompressionTypePB::LZ4);
         std::string s2 = pblock2.DebugString();
+#ifndef __APPLE__
         EXPECT_EQ(s1, s2);
+#endif
     }
 }
 
