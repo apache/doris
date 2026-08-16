@@ -310,17 +310,22 @@ ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOpti
     if (!outcome.IsSuccess()) {
         record_s3_request_failed(outcome.GetError());
         return {convert_to_obj_response(s3fs_error(
-                        outcome.GetError(), fmt::format("failed to read from {}", opts.key))),
+                        outcome.GetError(),
+                        fmt::format("failed to read from bucket={} key={} offset={} size={}",
+                                    opts.bucket, opts.key, offset, bytes_read))),
                 static_cast<int>(outcome.GetError().GetResponseCode()),
                 outcome.GetError().GetRequestId()};
     }
     *size_return = outcome.GetResult().GetContentLength();
-    // case for incomplete read
+    // case for incomplete read, and the case of a server or a proxy answering a ranged read
+    // with the whole object, which no longer fits into the buffer of the caller
     SYNC_POINT_CALLBACK("s3_obj_storage_client::get_object", size_return);
     if (*size_return != bytes_read) {
         return {convert_to_obj_response(Status::InternalError(
-                "failed to read from {}(bytes read: {}, bytes req: {}), request_id: {}", opts.key,
-                *size_return, bytes_read, outcome.GetResult().GetRequestId()))};
+                "failed to read from bucket={} key={} offset={}(bytes read: {}, bytes req: {}), "
+                "request_id: {}",
+                opts.bucket, opts.key, offset, *size_return, bytes_read,
+                outcome.GetResult().GetRequestId()))};
     }
     return ObjectStorageResponse::OK();
 }
