@@ -349,6 +349,20 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     if (query_type() != TQueryType::LOAD) {
         return Status::OK();
     }
+
+    const auto error_limit_status = [this]() -> Status {
+        if (_load_zero_tolerance) {
+            return Status::DataQualityError(
+                    "Encountered unqualified data, stop processing. Please check if the source "
+                    "data matches the schema, and consider disabling strict mode or increasing "
+                    "max_filter_ratio.");
+        }
+        return Status::OK();
+    };
+    if (_num_print_error_rows.load(std::memory_order_relaxed) > MAX_ERROR_NUM) {
+        return error_limit_status();
+    }
+
     std::lock_guard<std::mutex> l(_load_error_log_lock);
     // If file haven't been opened, open it here
     if (_error_log_file == nullptr) {
@@ -366,14 +380,7 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     }
     // If num of printed error row exceeds the limit, don't add error messages to error log file any more
     if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM) {
-        // if _load_zero_tolerance, return Error to stop the load process immediately.
-        if (_load_zero_tolerance) {
-            return Status::DataQualityError(
-                    "Encountered unqualified data, stop processing. Please check if the source "
-                    "data matches the schema, and consider disabling strict mode or increasing "
-                    "max_filter_ratio.");
-        }
-        return Status::OK();
+        return error_limit_status();
     }
 
     fmt::memory_buffer out;
