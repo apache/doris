@@ -71,8 +71,10 @@ suite("test_lance_vector_search", "p0,external") {
      * IVF_PQ is lossy: raw PQ distances are approximations, so every indexed query here uses
      * refine_factor to rerank candidates with exact distances. The agreement between indexed and
      * flat results below is an observed property of this frozen fixture and the pinned Lance
-     * version, not an IVF_PQ algorithm guarantee. The remaining algorithms (IVF_FLAT, IVF_SQ,
-     * IVF_HNSW_*) and the other vector element types are follow-up work for #66495.
+     * version, not an IVF_PQ algorithm guarantee. IVF_FLAT is covered by
+     * test_lance_vector_search_ivf_flat and the remaining algorithms by
+     * test_lance_vector_search_index_types; the other vector element types and distance metrics
+     * are follow-up work for #66495.
      */
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
