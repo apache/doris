@@ -19,11 +19,11 @@
 
 #include <stdint.h>
 
-#include <mutex>
 #include <string>
 #include <unordered_map>
 
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 
 namespace doris {
 
@@ -59,14 +59,15 @@ private:
 
     Status _check_file(const CacheEntry& entry, const std::string& md5);
 
-    Status _download_file(int64_t file_id, const std::string& md5, std::string* file_path);
+    Status _download_file(int64_t file_id, const std::string& md5, std::string* file_path)
+            REQUIRES(_lock);
 
 private:
-    std::mutex _lock;
+    AnnotatedMutex _lock;
     ExecEnv* _exec_env = nullptr;
     std::string _local_path;
     // file id -> small file
-    std::unordered_map<int64_t, CacheEntry> _file_cache;
+    std::unordered_map<int64_t, CacheEntry> _file_cache GUARDED_BY(_lock);
 };
 
 } // end namespace doris
