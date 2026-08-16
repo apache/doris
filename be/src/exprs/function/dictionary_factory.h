@@ -41,13 +41,31 @@ public:
 
     // Returns nullptr if failed
     std::shared_ptr<const IDictionary> get(int64_t dict_id, int64_t version_id) {
+        // simulate slow query holding old version_id
+        DBUG_EXECUTE_IF("dict_get_delay", {
+            int sleep_sec = dp->param<int>("sleep_sec", 10);
+            LOG(INFO) << "debug point dict_get_delay: sleeping " << sleep_sec
+                      << "s before get dict_id=" << dict_id << " version_id=" << version_id;
+            sleep(sleep_sec);
+        });
         std::shared_lock lc(_mutex);
         auto it = _dict_id_to_versioned_map.find(dict_id);
-        if (it == _dict_id_to_versioned_map.end()) {
-            return nullptr;
+        if (it != _dict_id_to_versioned_map.end()) {
+            auto vit = it->second.find(version_id);
+            if (vit != it->second.end()) {
+                return vit->second;
+            }
         }
-        auto vit = it->second.find(version_id);
-        return vit == it->second.end() ? nullptr : vit->second;
+        // fallback to staging: version may have been increased by FE but not yet committed
+        auto rit = _refreshing_dict_map.find(dict_id);
+        if (rit != _refreshing_dict_map.end() && rit->second.first == version_id) {
+            LOG_WARNING(
+                    "DictionaryFactory version not found in committed map, falling back to staging")
+                    .tag("dict_id", dict_id)
+                    .tag("version_id", version_id);
+            return rit->second.second;
+        }
+        return nullptr;
     }
 
     Status refresh_dict(int64_t dict_id, int64_t version_id, DictionaryPtr dict) {
@@ -80,16 +98,6 @@ public:
     }
 
     Status commit_refresh_dict(int64_t dict_id, int64_t version_id) {
-        // sleep before commit to widen FE/BE version mismatch window
-        DBUG_EXECUTE_IF("dict_commit_delay", {
-            int sleep_sec = dp->param<int>("sleep_sec", 30);
-            LOG(INFO) << "debug point dict_commit_delay: sleeping " << sleep_sec
-                      << "s before commit"
-                      << " dict_id=" << dict_id << " version_id=" << version_id;
-            sleep(sleep_sec);
-            LOG(INFO) << "debug point dict_commit_delay: wake up, continue commit"
-                      << " dict_id=" << dict_id << " version_id=" << version_id;
-        });
         VLOG_DEBUG << "DictionaryFactory commit refresh dictionary"
                    << " dict_id: " << dict_id << " version_id: " << version_id;
         std::unique_lock lc(_mutex);

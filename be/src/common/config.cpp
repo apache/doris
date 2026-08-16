@@ -1400,9 +1400,9 @@ DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
 DEFINE_mBool(inverted_index_compaction_enable, "true");
 // max historical versions retained per dictionary on BE; <=1 disables multi-version retention
-DEFINE_mInt32(dictionary_max_versions, "1");
+DEFINE_mInt32(dictionary_max_versions, "2");
 // TTL in seconds for non-latest dict versions; 0 disables time-based GC
-DEFINE_mInt32(dictionary_version_ttl_seconds, "0");
+DEFINE_mInt32(dictionary_version_ttl_seconds, "86400");
 // min interval between time-based GC passes triggered by commit
 DEFINE_mInt32(dictionary_gc_interval_seconds, "60");
 // Only for debug, do not use in production

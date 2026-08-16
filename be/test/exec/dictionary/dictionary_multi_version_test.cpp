@@ -84,7 +84,7 @@ TEST(DictionaryMultiVersionTest, GCByCount) {
     config::dictionary_max_versions = old_max;
 }
 
-TEST(DictionaryMultiVersionTest, GCByCountDefaultOne) {
+TEST(DictionaryMultiVersionTest, GCByCountOne) {
     auto old_max = config::dictionary_max_versions;
     config::dictionary_max_versions = 1;
     DictionaryFactory f;
@@ -312,6 +312,59 @@ TEST(DictionaryMultiVersionTest, GetStatusEmptyAfterDelete) {
     std::vector<TDictionaryStatus> result;
     f.get_dictionary_status(result, {});
     EXPECT_EQ(0, result.size());
+}
+
+// ============ staging fallback ============
+
+TEST(DictionaryMultiVersionTest, GetFromStagingFallback) {
+    DictionaryFactory f;
+    // commit v=1 to committed map
+    commit_version(f, 1, 1);
+    // refresh v=2 to staging (not committed yet)
+    auto dict2 = make_dict("dict_1");
+    EXPECT_TRUE(f.refresh_dict(1, 2, dict2));
+    // get(v=2): not in committed map, should fallback to staging
+    EXPECT_NE(nullptr, f.get(1, 2));
+}
+
+TEST(DictionaryMultiVersionTest, GetStagingVersionMismatch) {
+    DictionaryFactory f;
+    commit_version(f, 1, 1);
+    // staging has v=3
+    auto dict3 = make_dict("dict_1");
+    EXPECT_TRUE(f.refresh_dict(1, 3, dict3));
+    // get(v=2): not in committed map, staging has v=3 (mismatch) -> nullptr
+    EXPECT_EQ(nullptr, f.get(1, 2));
+}
+
+TEST(DictionaryMultiVersionTest, GetAfterCommitRemovesStaging) {
+    DictionaryFactory f;
+    commit_version(f, 1, 1);
+    // staging v=2
+    auto dict2 = make_dict("dict_1");
+    EXPECT_TRUE(f.refresh_dict(1, 2, dict2));
+    EXPECT_NE(nullptr, f.get(1, 2)); // staging fallback
+    // commit v=2: staging -> committed map
+    EXPECT_TRUE(f.commit_refresh_dict(1, 2));
+    // staging should be empty now
+    EXPECT_TRUE(!f._refreshing_dict_map.contains(1));
+    // get(v=2) should hit committed map
+    EXPECT_NE(nullptr, f.get(1, 2));
+}
+
+TEST(DictionaryMultiVersionTest, GetAfterAbortRemovesStaging) {
+    DictionaryFactory f;
+    commit_version(f, 1, 1);
+    // staging v=2
+    auto dict2 = make_dict("dict_1");
+    EXPECT_TRUE(f.refresh_dict(1, 2, dict2));
+    EXPECT_NE(nullptr, f.get(1, 2)); // staging fallback
+    // abort v=2: staging removed
+    EXPECT_TRUE(f.abort_refresh_dict(1, 2));
+    // get(v=2): not in committed map, staging gone -> nullptr
+    EXPECT_EQ(nullptr, f.get(1, 2));
+    // get(v=1): still in committed map
+    EXPECT_NE(nullptr, f.get(1, 1));
 }
 
 } // namespace doris
