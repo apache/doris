@@ -1736,11 +1736,36 @@ start_polaris() {
     fi
 }
 
+# The Doris plugin jars and service definition used to be curl'ed from inside
+# ranger-admin, with the bucket patched into the tracked scripts by `sed -i`.
+# That both broke on BSD sed and left the working tree dirty, and one flaky
+# download killed the container's `set -e` entrypoint. Fetch them here instead,
+# into the gitignored cache/ dir that the container bind mounts read-only.
+download_ranger_artifacts() {
+    local dest="${ROOT}/docker-compose/ranger/cache"
+    local url_prefix="https://${s3BucketName}.${s3Endpoint}/regression/docker/ranger-plugins"
+    local name
+
+    mkdir -p "${dest}"
+    for name in ranger-servicedef-doris.json \
+        mysql-connector-java-8.0.25.jar \
+        ranger-doris-plugin-3.0.0-SNAPSHOT.jar; do
+        if [[ -s "${dest}/${name}" ]]; then
+            echo "ranger artifact cached: ${name}"
+            continue
+        fi
+        echo "downloading ${url_prefix}/${name}"
+        curl -fsSL --retry 10 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 30 --speed-limit 1024 --speed-time 120 \
+            -o "${dest}/${name}.part" "${url_prefix}/${name}"
+        mv "${dest}/${name}.part" "${dest}/${name}"
+    done
+}
+
 start_ranger() {
     echo "RUN_RANGER"
     export CONTAINER_UID=${CONTAINER_UID}
-    find "${ROOT}/docker-compose/ranger/script" -type f -exec sed -i "s/s3Endpoint/${s3Endpoint}/g" {} \;
-    find "${ROOT}/docker-compose/ranger/script" -type f -exec sed -i "s/s3BucketName/${s3BucketName}/g" {} \;
+    download_ranger_artifacts
     . "${ROOT}/docker-compose/ranger/ranger_settings.env"
     envsubst <"${ROOT}"/docker-compose/ranger/ranger.yaml.tpl >"${ROOT}"/docker-compose/ranger/ranger.yaml
     register_stack_metadata "ranger" "${ROOT}/docker-compose/ranger/ranger.yaml" "${ROOT}/docker-compose/ranger/ranger_settings.env"

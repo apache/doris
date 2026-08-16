@@ -15,13 +15,51 @@
 #!/bin/bash
 set -ex
 
-curl -O https://s3BucketName.s3Endpoint/regression/docker/ranger-plugins/ranger-servicedef-doris.json
-until curl -f http://localhost:6080; do
+ADMIN=http://localhost:6080
+AUTH=admin:Ranger1234
+# Bind mounted from docker-compose/ranger/cache, fetched on the host.
+SERVICE_DEF=/opt/doris-ranger-artifacts/ranger-servicedef-doris.json
+# Only used by the admin UI's resource lookup, never by policy evaluation, so a
+# Doris that is not up yet (the usual case here) costs nothing.
+DORIS_JDBC_URL="${DORIS_JDBC_URL:-jdbc:mysql://host.docker.internal:9030}"
+DORIS_JDBC_USER="${DORIS_JDBC_USER:-root}"
+
+until curl -f "${ADMIN}"; do
     echo "Waiting for service to be healthy..."
     sleep 30
 done
-curl -u admin:Ranger1234 -X POST \
-    -H "Accept: application/json" \
-    -H "Content-Type: application/json" \
-    http://localhost:6080/service/plugins/definitions \
-    -d@ranger-servicedef-doris.json
+
+# Both steps are idempotent: this script reruns on every container restart, and
+# a 400 "duplicate" out of `set -e` would take the whole stack down.
+if curl -sf -u "${AUTH}" "${ADMIN}/service/plugins/definitions/name/doris" >/dev/null; then
+    echo "Doris service definition already registered"
+else
+    curl -sS -u "${AUTH}" -X POST \
+        -H "Accept: application/json" \
+        -H "Content-Type: application/json" \
+        "${ADMIN}/service/plugins/definitions" \
+        -d@"${SERVICE_DEF}"
+fi
+
+# The regression suites create policies under a service *instance* named
+# `doris` -- that is the name RangerDorisAccessControllerFactory asks for.
+if curl -sf -u "${AUTH}" "${ADMIN}/service/plugins/services/name/doris" >/dev/null; then
+    echo "Doris service instance already exists"
+else
+    curl -sS -u "${AUTH}" -X POST \
+        -H "Accept: application/json" \
+        -H "Content-Type: application/json" \
+        "${ADMIN}/service/plugins/services" \
+        -d "{
+              \"name\": \"doris\",
+              \"type\": \"doris\",
+              \"description\": \"Doris regression test service\",
+              \"isEnabled\": true,
+              \"configs\": {
+                \"username\": \"${DORIS_JDBC_USER}\",
+                \"password\": \"\",
+                \"jdbc.driver_class\": \"com.mysql.cj.jdbc.Driver\",
+                \"jdbc.url\": \"${DORIS_JDBC_URL}\"
+              }
+            }"
+fi
