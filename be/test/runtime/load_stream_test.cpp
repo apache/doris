@@ -28,6 +28,8 @@
 #include <service/internal_service.h>
 #include <unistd.h>
 
+#include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 
@@ -55,7 +57,8 @@ namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
-static const std::string zTestDir = "./data_test/data/load_stream_mgr_test";
+static const std::string zTestDir =
+        "./data_test_" + std::to_string(::getpid()) + "/data/load_stream_mgr_test";
 
 const int64_t NORMAL_TABLET_ID = 10000;
 const int64_t ABNORMAL_TABLET_ID = 40000;
@@ -342,7 +345,24 @@ public:
             return 0;
         }
         void on_idle_timeout(StreamId id) override { std::cerr << "on_idle_timeout" << std::endl; }
-        void on_closed(StreamId id) override { std::cerr << "on_closed" << std::endl; }
+        void on_closed(StreamId id) override {
+            std::cerr << "on_closed" << std::endl;
+            {
+                std::lock_guard lock(_closed_lock);
+                _closed = true;
+            }
+            _closed_cv.notify_all();
+        }
+
+        void wait_for_closed() {
+            std::unique_lock lock(_closed_lock);
+            CHECK(_closed_cv.wait_for(lock, std::chrono::seconds(5), [this] { return _closed; }));
+        }
+
+    private:
+        std::mutex _closed_lock;
+        std::condition_variable _closed_cv;
+        bool _closed = false;
     };
 
     class StreamService : public PBackendService {
@@ -470,6 +490,7 @@ public:
         void disconnect() const {
             std::cerr << "disconnect" << std::endl;
             CHECK_EQ(0, brpc::StreamClose(_stream));
+            _handler.wait_for_closed();
         }
 
         Status send(butil::IOBuf* buf) {
@@ -488,7 +509,7 @@ public:
         brpc::StreamId _stream;
         brpc::Controller _cntl;
         brpc::StreamOptions _stream_options;
-        Handler _handler;
+        mutable Handler _handler;
     };
 
     LoadStreamMgrTest()
@@ -581,7 +602,8 @@ public:
         srand(time(nullptr));
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
-        config::storage_root_path = std::string(buffer) + "/data_test";
+        config::storage_root_path =
+                std::string(buffer) + "/data_test_" + std::to_string(::getpid());
 
         auto st = io::global_local_filesystem()->delete_directory(config::storage_root_path);
         ASSERT_TRUE(st.ok()) << st;
@@ -625,6 +647,7 @@ public:
         _server->Stop(0);
         CHECK_EQ(0, _server->Join());
         SAFE_DELETE(_server);
+        _load_stream_mgr.reset();
         engine_ref = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }

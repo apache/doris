@@ -503,6 +503,7 @@ void HttpService::stop() {
     if (stopped) {
         return;
     }
+    _rate_limit_group.reset();
     _ev_http_server->stop();
     _pool.clear();
     stopped = true;

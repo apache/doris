@@ -24,7 +24,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
+
 #include <boost/algorithm/string/predicate.hpp>
+#include <cstring>
 #include <filesystem>
 
 #include "gtest/gtest_pred_impl.h"
@@ -41,6 +46,21 @@
 #include "util/md5.h"
 
 namespace doris {
+
+static std::string current_executable_path() {
+#ifdef __APPLE__
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string path(size, '\0');
+    if (_NSGetExecutablePath(path.data(), &size) == 0) {
+        path.resize(std::strlen(path.c_str()));
+        return path;
+    }
+    return {};
+#else
+    return "/proc/self/exe";
+#endif
+}
 
 class HttpClientTestSimpleGetHandler : public HttpHandler {
 public:
@@ -99,7 +119,7 @@ public:
 class HttpDownloadFileHandler : public HttpHandler {
 public:
     void handle(HttpRequest* req) override {
-        do_file_response("/proc/self/exe", req, nullptr, true);
+        do_file_response(current_executable_path(), req, nullptr, true);
     }
 };
 
@@ -313,7 +333,7 @@ TEST_F(HttpClientTest, download_file_md5) {
     st = client.get_content_md5(&md5_value);
     EXPECT_TRUE(st.ok());
 
-    int fd = open("/proc/self/exe", O_RDONLY);
+    int fd = open(current_executable_path().c_str(), O_RDONLY);
     ASSERT_TRUE(fd >= 0);
     struct stat stat;
     ASSERT_TRUE(fstat(fd, &stat) >= 0);
@@ -372,6 +392,7 @@ TEST_F(HttpClientTest, escape_url) {
 }
 
 TEST_F(HttpClientTest, enable_http_auth) {
+    constexpr int auth_request_timeout_ms = 2000;
     std::string origin_hostname = hostname;
     Defer defer {[&origin_hostname]() {
         hostname = origin_hostname;
@@ -433,7 +454,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(st.ok());
         client.set_method(GET);
         client.set_basic_auth("root", "errorpasswd");
-        client.set_timeout_ms(200);
+        client.set_timeout_ms(auth_request_timeout_ms);
         std::string response;
         st = client.execute(&response);
         EXPECT_TRUE(!st.ok());
@@ -494,7 +515,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(st.ok());
         client.set_method(GET);
         client.set_basic_auth("root", "errorpasswd");
-        client.set_timeout_ms(200);
+        client.set_timeout_ms(auth_request_timeout_ms);
         std::string response;
         st = client.execute(&response);
         EXPECT_TRUE(!st.ok());
@@ -512,7 +533,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(st.ok());
         client.set_method(GET);
         client.set_auth_token("valid_token");
-        client.set_timeout_ms(200);
+        client.set_timeout_ms(auth_request_timeout_ms);
         std::string response;
         st = client.execute(&response);
         EXPECT_TRUE(st.ok()) << st;
@@ -527,7 +548,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(st.ok());
         client.set_method(GET);
         client.set_auth_token("invalid_token");
-        client.set_timeout_ms(200);
+        client.set_timeout_ms(auth_request_timeout_ms);
         std::string response;
         st = client.execute(&response);
         EXPECT_TRUE(!st.ok()) << st;
@@ -541,7 +562,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         EXPECT_TRUE(st.ok());
         client.set_method(POST);
         client.set_basic_auth("rootss", "");
-        client.set_timeout_ms(200);
+        client.set_timeout_ms(auth_request_timeout_ms);
         std::string response;
         st = client.execute_post_request("level=1&module=xxx", &response);
         EXPECT_TRUE(!st.ok());
@@ -586,7 +607,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
             EXPECT_TRUE(st.ok());
             client.set_method(GET);
             client.set_basic_auth("roxot", "errorpasswd");
-            client.set_timeout_ms(200);
+            client.set_timeout_ms(auth_request_timeout_ms);
             std::string response;
             st = client.execute(&response);
             EXPECT_TRUE(!st.ok());

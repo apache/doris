@@ -312,6 +312,7 @@ public:
                       });
         sp->disable_processing();
         ExecEnv::GetInstance()->_s3_file_upload_thread_pool.reset();
+        s3_fs.reset();
     }
 };
 
@@ -1102,6 +1103,7 @@ public:
 
     ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) override {
+        std::lock_guard lock(_mutex);
         create_multipart_count++;
         create_multipart_params.push_back(opts);
         last_opts = opts;
@@ -1110,6 +1112,7 @@ public:
 
     ObjectStorageResponse put_object(const ObjectStoragePathOptions& opts,
                                      std::string_view stream) override {
+        std::lock_guard lock(_mutex);
         put_object_count++;
         put_object_params.emplace_back(opts, std::string(stream));
         last_opts = opts;
@@ -1121,6 +1124,7 @@ public:
 
     ObjectStorageUploadResponse upload_part(const ObjectStoragePathOptions& opts,
                                             std::string_view stream, int part_num) override {
+        std::lock_guard lock(_mutex);
         upload_part_count++;
         // upload_part_params.push_back({opts, std::string(stream), part_num});
         last_opts = opts;
@@ -1136,6 +1140,7 @@ public:
     ObjectStorageResponse complete_multipart_upload(
             const ObjectStoragePathOptions& opts,
             const std::vector<ObjectCompleteMultiPart>& completed_parts) override {
+        std::lock_guard lock(_mutex);
         complete_multipart_count++;
         complete_multipart_params.push_back({opts, completed_parts});
         last_opts = opts;
@@ -1151,6 +1156,7 @@ public:
     }
 
     ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) override {
+        std::lock_guard lock(_mutex);
         return {.resp = ObjectStorageResponse::OK(),
                 .file_size = static_cast<int64_t>(objects[opts.path.native()].size())};
     }
@@ -1158,6 +1164,7 @@ public:
     ObjectStorageResponse get_object(const ObjectStoragePathOptions& opts, void* buffer,
                                      size_t offset, size_t bytes_read,
                                      size_t* size_return) override {
+        std::lock_guard lock(_mutex);
         last_opts = opts;
         last_offset = offset;
         last_bytes_read = bytes_read;
@@ -1169,6 +1176,7 @@ public:
 
     ObjectStorageResponse list_objects(const ObjectStoragePathOptions& opts,
                                        std::vector<FileInfo>* files) override {
+        std::lock_guard lock(_mutex);
         last_opts = opts;
         if (files) {
             *files = default_file_list;
@@ -1178,24 +1186,28 @@ public:
 
     ObjectStorageResponse delete_objects(const ObjectStoragePathOptions& opts,
                                          std::vector<std::string> objs) override {
+        std::lock_guard lock(_mutex);
         last_opts = opts;
         last_deleted_objects = std::move(objs);
         return default_response;
     }
 
     ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override {
+        std::lock_guard lock(_mutex);
         last_opts = opts;
         return default_response;
     }
 
     ObjectStorageResponse delete_objects_recursively(
             const ObjectStoragePathOptions& opts) override {
+        std::lock_guard lock(_mutex);
         last_opts = opts;
         return default_response;
     }
 
     std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
                                        int64_t expiration_secs, const S3ClientConf& conf) override {
+        std::lock_guard lock(_mutex);
         last_opts = opts;
         last_expiration_secs = expiration_secs;
         return default_presigned_url;
@@ -1241,6 +1253,7 @@ public:
     int64_t uploaded_bytes = 0;
 
     void reset() {
+        std::lock_guard lock(_mutex);
         last_opts = ObjectStoragePathOptions {};
         last_stream.clear();
         last_part_num = 0;
@@ -1262,7 +1275,11 @@ public:
         objects.clear();
         complete.clear();
         parts.clear();
+        uploaded_bytes = 0;
     }
+
+private:
+    std::mutex _mutex;
 };
 
 } // namespace io

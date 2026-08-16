@@ -1273,7 +1273,7 @@ struct FromIso8601DateV2 {
         for (size_t i = 0; i < input_rows_count; ++i) {
             int year, month, day, week, day_of_year;
             int weekday = 1; // YYYYWww  YYYY-Www  default D = 1
-            auto src_string = src_column_ptr->get_data_at(i).to_string_view();
+            auto src_string = src_column_ptr->get_data_at(i).to_string();
 
             int iso_string_format_value = 0;
 

@@ -168,8 +168,6 @@ void load_data_from_csv(const vectorized::DataTypeSerDeSPtrs serders,
             << "serder size: " << serders.size() << " column size: " << columns.size();
     ASSERT_EQ(serders.size(), idxes.size())
             << "serder size: " << serders.size() << " idxes size: " << idxes.size();
-    ASSERT_EQ(serders.size(), *idxes.end())
-            << "serder size: " << serders.size() << " idxes size: " << *idxes.end();
     std::ifstream file(file_path);
     if (!file) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT, "can not open the file: {} ",

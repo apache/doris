@@ -27,7 +27,6 @@
 #include <boost/multiprecision/cpp_dec_float.hpp>
 #include <climits>
 #include <cmath>
-#include <codecvt>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -456,8 +455,7 @@ public:
 
 private:
     std::u16string _string_to_u16string(const std::string& str) const {
-        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> convert;
-        return convert.from_bytes(str);
+        return boost::locale::conv::utf_to_utf<char16_t>(str);
     }
 
     std::string _string_to_unicode(const std::u16string& s) const {

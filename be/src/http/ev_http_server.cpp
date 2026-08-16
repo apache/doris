@@ -25,6 +25,7 @@
 #include <event2/event.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>
+#include <event2/listener.h>
 #include <event2/thread.h>
 #include <netinet/in.h>
 #include <string.h>
@@ -117,6 +118,39 @@ void EvHttpServer::start() {
                               .set_min_threads(_num_workers)
                               .set_max_threads(_num_workers)
                               .build(&_workers));
+
+    // Pre-create all evhttp objects and store them as class members
+    // to ensure proper lifecycle management during shutdown
+    {
+        std::lock_guard lock(_event_bases_lock);
+        _evhttp_servers.resize(_num_workers);
+        for (int i = 0; i < _num_workers; ++i) {
+            std::shared_ptr<evhttp> http(evhttp_new(_event_bases[i].get()),
+                                         [](evhttp* http) { evhttp_free(http); });
+            CHECK(http != nullptr) << "Couldn't create an evhttp.";
+
+            // All workers accept on the shared _server_fd. Do NOT use
+            // evhttp_accept_socket() here: it wraps the fd in an evconnlistener
+            // created with LEV_OPT_CLOSE_ON_FREE, so every worker's evhttp_free()
+            // would close() the same fd number again. A stale close may hit an
+            // unrelated fd that recycled the number (e.g. the ASAN/UBSAN runtime's
+            // internal pipes at shutdown). The fd is owned by EvHttpServer and is
+            // closed exactly once in stop().
+            struct evconnlistener* listener =
+                    evconnlistener_new(_event_bases[i].get(), nullptr, nullptr,
+                                       LEV_OPT_REUSEABLE | LEV_OPT_CLOSE_ON_EXEC,
+                                       0 /* fd is already listening */, _server_fd);
+            CHECK(listener != nullptr) << "Couldn't create evconnlistener.";
+            CHECK(evhttp_bind_listener(http.get(), listener) != nullptr)
+                    << "evhttp bind listener failed.";
+
+            evhttp_set_newreqcb(http.get(), on_connection, this);
+            evhttp_set_gencb(http.get(), on_request, this);
+
+            _evhttp_servers[i] = http;
+        }
+    }
+
     for (int i = 0; i < _num_workers; ++i) {
         auto status = _workers->submit_func([this, i]() {
             std::shared_ptr<event_base> base;
@@ -124,18 +158,6 @@ void EvHttpServer::start() {
                 std::lock_guard lock(_event_bases_lock);
                 base = _event_bases[i];
             }
-
-            /* Create a new evhttp object to handle requests. */
-            std::shared_ptr<evhttp> http(evhttp_new(base.get()),
-                                         [](evhttp* http) { evhttp_free(http); });
-            CHECK(http != nullptr) << "Couldn't create an evhttp.";
-
-            auto res = evhttp_accept_socket(http.get(), _server_fd);
-            CHECK(res >= 0) << "evhttp accept socket failed, res=" << res;
-
-            evhttp_set_newreqcb(http.get(), on_connection, this);
-            evhttp_set_gencb(http.get(), on_request, this);
-
             event_base_dispatch(base.get());
         });
         CHECK(status.ok());
@@ -143,15 +165,31 @@ void EvHttpServer::start() {
 }
 
 void EvHttpServer::stop() {
+    // 1. Close server fd first to reject new connections
+    close(_server_fd);
+    _server_fd = -1;
+
+    // 2. Break all event loops to make dispatch return
     {
         std::lock_guard<std::mutex> lock(_event_bases_lock);
         for (int i = 0; i < _num_workers; ++i) {
-            event_base_loopbreak(_event_bases[i].get());
+            if (_event_bases[i]) {
+                event_base_loopbreak(_event_bases[i].get());
+            }
         }
     }
+
+    // 3. Wait for all worker threads to finish event_base_dispatch
     _workers->shutdown();
-    _event_bases.clear();
-    close(_server_fd);
+
+    // 4. Now it's safe to cleanup - all worker threads have exited
+    // Clear evhttp after the worker threads exit. Keep the event bases alive until the server is
+    // destroyed so other libevent objects owned by HttpService can be released first.
+    {
+        std::lock_guard<std::mutex> lock(_event_bases_lock);
+        _evhttp_servers.clear();
+    }
+
     _started = false;
 }
 

@@ -1410,7 +1410,7 @@ DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/connectors");
 // ca cert default path is different from different OS
 DEFINE_mString(ca_cert_file_paths,
                "/etc/pki/tls/certs/ca-bundle.crt;/etc/ssl/certs/ca-certificates.crt;"
-               "/etc/ssl/ca-bundle.pem");
+               "/etc/ssl/ca-bundle.pem;/etc/ssl/cert.pem");
 
 /** Table sink configurations(currently contains only external table types) **/
 // Minimum data processed to scale writers in exchange when non partition writing

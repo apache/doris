@@ -206,12 +206,12 @@ void KerberosTicketCache::start_periodic_refresh() {
         auto refresh_interval = std::chrono::milliseconds(
                 static_cast<int>(_config.get_refresh_interval_second() * 1000));
         auto sleep_duration = _refresh_thread_sleep_time;
-        std::chrono::milliseconds accumulated_time(0);
+        auto last_refresh = std::chrono::steady_clock::now();
         while (!_should_stop_refresh) {
             std::this_thread::sleep_for(sleep_duration);
-            accumulated_time += sleep_duration;
-            if (accumulated_time >= refresh_interval) {
-                accumulated_time = std::chrono::milliseconds(0); // Reset accumulated time
+            auto now = std::chrono::steady_clock::now();
+            if (now - last_refresh >= refresh_interval) {
+                last_refresh = now;
                 Status st = refresh_tickets();
                 if (!st.ok()) {
                     // ignore and continue

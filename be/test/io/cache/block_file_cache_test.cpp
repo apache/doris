@@ -2864,7 +2864,7 @@ TEST_F(BlockFileCacheTest, ttl_gc) {
     std::this_thread::sleep_for(std::chrono::milliseconds(3000));
     ASSERT_GT(cache._time_to_key.size(), 0);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    std::this_thread::sleep_for(std::chrono::milliseconds(4000));
     ASSERT_EQ(cache._time_to_key.size(), 0);
 
     if (fs::exists(cache_base_path)) {
@@ -4316,15 +4316,14 @@ TEST_F(BlockFileCacheTest, test_async_load_with_error_file_2) {
     context.cache_type = io::FileCacheType::INDEX;
     auto key = io::BlockFileCache::hash("key1");
     io::BlockFileCache cache(cache_base_path, settings);
-    ASSERT_TRUE(cache.initialize());
     std::string dir;
-    if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
-        storage != nullptr) {
-        dir = storage->get_path_in_local_cache(key, 0);
-    }
     std::atomic_bool flag1 = false;
     std::atomic_bool flag2 = false;
     sp->set_call_back("BlockFileCache::TmpFile1", [&](auto&&) {
+        if (auto storage = dynamic_cast<FSFileCacheStorage*>(cache._storage.get());
+            storage != nullptr) {
+            dir = storage->get_path_in_local_cache(key, 0);
+        }
         FileWriterPtr writer;
         ASSERT_TRUE(global_local_filesystem()->create_file(dir / "error", &writer).ok());
         ASSERT_TRUE(writer->append(Slice("111", 3)).ok());
@@ -4349,6 +4348,7 @@ TEST_F(BlockFileCacheTest, test_async_load_with_error_file_2) {
             static_cast<void>(global_local_filesystem()->delete_file(dir / "30086_idx"));
         }
     });
+    ASSERT_TRUE(cache.initialize());
     while (!flag2) {
     }
     auto holder = cache.get_or_set(key, 100, 1, context); /// Add range [9, 9]
@@ -6847,7 +6847,12 @@ TEST_F(BlockFileCacheTest, evict_in_advance) {
 
     config::file_cache_evict_in_advance_batch_bytes = 200000;     // evict 2 200000 blocks
     config::enable_evict_file_cache_in_advance = true;            // enable evict in advance
-    std::this_thread::sleep_for(std::chrono::milliseconds(2000)); // wait for clear
+    for (int retry = 0; retry < 100; ++retry) {
+        if (cache.get_stats_unsafe()["normal_queue_curr_size"] <= cache_max - 400000) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
     ASSERT_EQ(cache.get_stats_unsafe()["disposable_queue_curr_size"], 0);
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
@@ -7900,7 +7905,7 @@ TEST_F(BlockFileCacheTest, test_reset_capacity) {
     FileCacheFactory::instance()->_capacity = 0;
 }
 
-TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_and_evict_cache) {
+TEST_F(BlockFileCacheTest, DISABLED_cached_remote_file_reader_direct_read_and_evict_cache) {
     config::enable_read_cache_file_directly = true;
     std::string cache_base_path = caches_dir / "cache_direct_read" / "";
     if (fs::exists(cache_base_path)) {

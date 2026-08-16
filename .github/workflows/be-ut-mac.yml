@@ -29,10 +29,10 @@ concurrency:
 jobs:
   run-ut:
     name: BE UT (macOS)
-    runs-on: macos-13
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
           submodules: recursive
@@ -44,6 +44,7 @@ jobs:
         with:
           filters: |
             be_changes:
+              - '.github/workflows/be-ut-mac.yml'
               - 'be/**'
               - 'gensrc/proto/**'
               - 'gensrc/thrift/**'
@@ -80,7 +81,8 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
-            'llvm@16'
+            'llvm@20'
+            'bash'
           )
           brew install "${cellars[@]}" || true
 
@@ -90,5 +92,22 @@ jobs:
           tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
           popd
 
+          # The branch-3.1 x86_64 archive predates libevent's OpenSSL library,
+          # which is required by the current BE test link. Rebuild only this
+          # dependency when the archived file is absent.
+          if [[ ! -f thirdparty/installed/lib/libevent_openssl.a ]]; then
+            homebrew_bash="$(brew --prefix bash)/bin"
+            export PATH="${homebrew_bash}:${PATH}"
+            bash ./thirdparty/build-thirdparty.sh -j "$(nproc)" libevent
+          fi
+
           export JAVA_HOME="${JAVA_HOME_17_X64%\/}"
+
+          LLVM_PREFIX="$(brew --prefix llvm@20)"
+          export PATH="${LLVM_PREFIX}/bin:${PATH}"
+          export DORIS_CLANG_HOME="${LLVM_PREFIX}"
+          export CC="${LLVM_PREFIX}/bin/clang"
+          export CXX="${LLVM_PREFIX}/bin/clang++"
+          export EXTRA_CXX_FLAGS="-Wno-invalid-specialization -Wno-nontrivial-memcall ${EXTRA_CXX_FLAGS:-}"
+
           ./run-be-ut.sh --run -j "$(nproc)" --clean

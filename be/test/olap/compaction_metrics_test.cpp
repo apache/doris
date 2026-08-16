@@ -108,7 +108,11 @@ TEST_F(CompactionMetricsTest, TestCompactionTaskNumWithDiffStatus) {
         bool* pred = try_any_cast<bool*>(values.back());
         *pred = true;
     });
-    Defer defer {[&]() { sp->clear_call_back("olap_server::execute_compaction"); }};
+    Defer defer {[&]() {
+        _storage_engine->_cumu_compaction_thread_pool->shutdown();
+        _storage_engine->_base_compaction_thread_pool->shutdown();
+        sp->clear_call_back("olap_server::execute_compaction");
+    }};
 
     for (int tablet_cnt = 0; tablet_cnt < 10; ++tablet_cnt) {
         TabletMetaSharedPtr tablet_meta;
@@ -129,15 +133,25 @@ TEST_F(CompactionMetricsTest, TestCompactionTaskNumWithDiffStatus) {
         st = _storage_engine->_submit_compaction_task(tablet, CompactionType::CUMULATIVE_COMPACTION,
                                                       false);
         EXPECT_TRUE(st.ok());
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
-        EXPECT_EQ(_storage_engine->_cumu_compaction_thread_pool->num_active_threads(),
-                  DorisMetrics::instance()->cumulative_compaction_task_running_total->value());
-        EXPECT_EQ(_storage_engine->_cumu_compaction_thread_pool->get_queue_size(),
-                  DorisMetrics::instance()->cumulative_compaction_task_pending_total->value());
-        EXPECT_EQ(_storage_engine->_base_compaction_thread_pool->num_active_threads(),
-                  DorisMetrics::instance()->base_compaction_task_running_total->value());
-        EXPECT_EQ(_storage_engine->_base_compaction_thread_pool->get_queue_size(),
-                  DorisMetrics::instance()->base_compaction_task_pending_total->value());
+        bool metrics_are_consistent = false;
+        for (int retry = 0; retry < 500; ++retry) {
+            metrics_are_consistent =
+                    _storage_engine->_cumu_compaction_thread_pool->num_active_threads() ==
+                            DorisMetrics::instance()
+                                    ->cumulative_compaction_task_running_total->value() &&
+                    _storage_engine->_cumu_compaction_thread_pool->get_queue_size() ==
+                            DorisMetrics::instance()
+                                    ->cumulative_compaction_task_pending_total->value() &&
+                    _storage_engine->_base_compaction_thread_pool->num_active_threads() ==
+                            DorisMetrics::instance()->base_compaction_task_running_total->value() &&
+                    _storage_engine->_base_compaction_thread_pool->get_queue_size() ==
+                            DorisMetrics::instance()->base_compaction_task_pending_total->value();
+            if (metrics_are_consistent) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        EXPECT_TRUE(metrics_are_consistent);
     }
 }
 

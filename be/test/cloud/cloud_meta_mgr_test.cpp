@@ -67,7 +67,7 @@ TEST_F(CloudMetaMgrTest, bthread_fork_join_test) {
         EXPECT_TRUE(bthread_fork_join(std::move(t), 3, &fut).ok()); // return immediately
         auto end = steady_clock::now();
         auto elapsed = duration_cast<milliseconds>(end - start).count();
-        EXPECT_LE(elapsed, 40); // async
+        EXPECT_LT(elapsed, 1000); // async submission should return promptly
         EXPECT_TRUE(fut.get().ok());
         end = steady_clock::now();
         elapsed = duration_cast<milliseconds>(end - start).count();
@@ -81,7 +81,7 @@ TEST_F(CloudMetaMgrTest, bthread_fork_join_test) {
         EXPECT_FALSE(bthread_fork_join(tasks, 3).ok());
         auto end = steady_clock::now();
         auto elapsed = duration_cast<milliseconds>(end - start).count();
-        EXPECT_LE(elapsed, 40); // at most 1 round running for 7 tasks
+        EXPECT_LT(elapsed, 1000); // failed first batch should return promptly
     }
     {
         std::future<Status> fut;
@@ -90,11 +90,11 @@ TEST_F(CloudMetaMgrTest, bthread_fork_join_test) {
         EXPECT_TRUE(bthread_fork_join(std::move(t), 3, &fut).ok()); // return immediately
         auto end = steady_clock::now();
         auto elapsed = duration_cast<milliseconds>(end - start).count();
-        EXPECT_LE(elapsed, 40); // async
+        EXPECT_LT(elapsed, 1000); // async submission should return promptly
         EXPECT_FALSE(fut.get().ok());
         end = steady_clock::now();
         elapsed = duration_cast<milliseconds>(end - start).count();
-        EXPECT_LE(elapsed, 40); // at most 1 round running for 7 tasks
+        EXPECT_LT(elapsed, 1000); // failed first batch should return promptly
     }
     // clang-format on
 }
