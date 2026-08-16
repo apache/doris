@@ -379,12 +379,9 @@ VExpr::VExpr(const TExprNode& node)
 VExpr::VExpr(const VExpr& vexpr) = default;
 
 VExpr::VExpr(DataTypePtr type, bool is_slotref)
-        : _opcode(TExprOpcode::INVALID_OPCODE),
-          _data_type(get_data_type_with_default_argument(type)) {
-    if (is_slotref) {
-        _node_type = TExprNodeType::SLOT_REF;
-    }
-}
+        : _node_type(is_slotref ? TExprNodeType::SLOT_REF : TExprNodeType::BOOL_LITERAL),
+          _opcode(TExprOpcode::INVALID_OPCODE),
+          _data_type(get_data_type_with_default_argument(type)) {}
 
 TExprNode VExpr::clone_texpr_node() const {
     TExprNode node;

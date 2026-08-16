@@ -39,6 +39,7 @@ class VExprContext;
 class MockLiteral final : public VLiteral {
 public:
     MockLiteral(ColumnWithTypeAndName data) {
+        _node_type = TExprNodeType::BOOL_LITERAL;
         _data_type = data.type;
         _column_ptr = data.column;
         _expr_name = data.name;

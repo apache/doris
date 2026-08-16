@@ -66,6 +66,7 @@ private:
 
 class MockExpr : public VExpr {
 public:
+    MockExpr() { _node_type = TExprNodeType::BOOL_LITERAL; }
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                    VExprContext* context) override {
         return Status::OK();

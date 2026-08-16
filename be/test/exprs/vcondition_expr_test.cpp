@@ -67,7 +67,9 @@ static TExprNode make_coalesce_node(TPrimitiveType::type ptype, bool is_nullable
 class MockChildVExpr : public VExpr {
 public:
     MockChildVExpr(ColumnPtr column, DataTypePtr type)
-            : _column(std::move(column)), _type(std::move(type)) {}
+            : _column(std::move(column)), _type(std::move(type)) {
+        _node_type = TExprNodeType::BOOL_LITERAL;
+    }
 
     MOCK_CONST_METHOD0(clone, VExprSPtr());
 

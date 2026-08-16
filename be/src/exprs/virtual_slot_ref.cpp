@@ -45,7 +45,9 @@ VirtualSlotRef::VirtualSlotRef(const doris::TExprNode& node)
           _column_label(node.label) {}
 
 VirtualSlotRef::VirtualSlotRef(const SlotDescriptor* desc)
-        : VExpr(desc->type(), false), _column_id(-1), _slot_id(desc->id()), _column_name(nullptr) {}
+        : VExpr(desc->type(), false), _column_id(-1), _slot_id(desc->id()), _column_name(nullptr) {
+    _node_type = TExprNodeType::VIRTUAL_SLOT_REF;
+}
 
 Status VirtualSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
                                VExprContext* context) {

@@ -166,7 +166,9 @@ TEST_F(VirtualSlotRefTest, EqualsFunction_WithDifferentTypes) {
     // Create a different type of expression (mock)
     class MockVExpr : public VExpr {
     public:
-        MockVExpr() : VExpr(std::make_shared<DataTypeString>(), false) {}
+        MockVExpr() : VExpr(std::make_shared<DataTypeString>(), false) {
+            _node_type = TExprNodeType::BOOL_LITERAL;
+        }
         Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
             return Status::OK();
         }

@@ -126,7 +126,7 @@ struct TryCastTestRowExecReturnErrorImpl {
 
 class MockVExprForTryCast : public VExpr {
 public:
-    MockVExprForTryCast() = default;
+    MockVExprForTryCast() { _node_type = TExprNodeType::BOOL_LITERAL; }
     MOCK_CONST_METHOD0(clone, VExprSPtr());
     const std::string& expr_name() const override { return _expr_name; }
 

@@ -46,6 +46,7 @@ namespace collection_statistics {
 class MockVExpr : public VExpr {
 public:
     MockVExpr(TExprNodeType::type node_type) : _mock_node_type(node_type) {
+        _node_type = node_type;
         if (node_type == TExprNodeType::MATCH_PRED) {
             _opcode = TExprOpcode::MATCH_PHRASE;
         }
@@ -103,7 +104,9 @@ private:
 
 class MockVLiteral : public VLiteral {
 public:
-    MockVLiteral(const std::string& value) : _value(value) {}
+    MockVLiteral(const std::string& value) : _value(value) {
+        _node_type = TExprNodeType::STRING_LITERAL;
+    }
 
     std::string value() const override { return _value; }
     std::string value(const DataTypeSerDe::FormatOptions& options) const override { return _value; }
