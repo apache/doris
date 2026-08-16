@@ -168,6 +168,35 @@ class PhysicalPaimonTableSinkTest {
                         "different_name", IntegerType.INSTANCE))));
     }
 
+    @Test
+    void testDefaultedFixedBucketRouteFieldsFallBack() {
+        FileStoreTable defaultedBucketKey = fixedBucketTable(
+                Collections.singletonList(
+                        new DataField(0, "id", new IntType(), null, "1")),
+                Collections.emptyList(), Collections.emptyMap());
+        Assertions.assertNull(PhysicalPaimonTableSink.buildFixedBucketDistributionSpec(
+                defaultedBucketKey,
+                Collections.singletonList(new Column("id", PrimitiveType.INT)),
+                Collections.singletonList(new SlotReference("id", IntegerType.INSTANCE))));
+        Assertions.assertTrue(PhysicalPaimonTableSink.requiresSingleWriter(defaultedBucketKey));
+
+        FileStoreTable defaultedPartitionKey = fixedBucketTable(
+                ImmutableList.of(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "part", new VarCharType(VarCharType.MAX_LENGTH),
+                                null, "default-partition")),
+                Collections.singletonList("part"), Collections.emptyMap());
+        Assertions.assertNull(PhysicalPaimonTableSink.buildFixedBucketDistributionSpec(
+                defaultedPartitionKey,
+                ImmutableList.of(
+                        new Column("id", PrimitiveType.INT),
+                        new Column("part", PrimitiveType.STRING)),
+                ImmutableList.of(
+                        new SlotReference("id", IntegerType.INSTANCE),
+                        new SlotReference("part", StringType.INSTANCE))));
+        Assertions.assertTrue(PhysicalPaimonTableSink.requiresSingleWriter(defaultedPartitionKey));
+    }
+
     private static FileStoreTable table(
             BucketMode bucketMode, List<String> primaryKeys, Map<String, String> options) {
         FileStoreTable table = Mockito.mock(FileStoreTable.class);

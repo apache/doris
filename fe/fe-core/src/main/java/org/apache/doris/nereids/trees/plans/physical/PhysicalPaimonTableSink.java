@@ -251,6 +251,9 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan>
             Slot slot = outputByName.get(fieldName);
             DataField field = fieldsByName.get(fieldName);
             if (slot == null || field == null
+                    // TableWriteImpl applies schema defaults before extracting the final route,
+                    // while the native Exchange sees the original value, including explicit NULL.
+                    || field.defaultValue() != null
                     || !supportsNativeRouting(field.type().getTypeRoot(), slot.getDataType())) {
                 return null;
             }
