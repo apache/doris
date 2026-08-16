@@ -252,4 +252,33 @@ public class TimeUtilsTest {
         ExceptionChecker.expectThrows(DateTimeParseException.class,
                 () -> TimeUtils.convertStringToDateTimeV2("2024-10-10 11:11:11", 6));
     }
+
+    @Test
+    public void testLongToTimeStringWithTimeZoneAndOffset() {
+        // null/zero/negative → null_string
+        Assert.assertEquals(FeConstants.null_string,
+                TimeUtils.longToTimeStringWithTimeZoneAndOffset(null, "UTC"));
+        Assert.assertEquals(FeConstants.null_string,
+                TimeUtils.longToTimeStringWithTimeZoneAndOffset(0L, "UTC"));
+        Assert.assertEquals(FeConstants.null_string,
+                TimeUtils.longToTimeStringWithTimeZoneAndOffset(-1L, "Asia/Shanghai"));
+
+        long ts = org.apache.doris.catalog.DataProperty.MAX_COOLDOWN_TIME_MS;
+
+        // UTC → "9999-12-31 15:59:59Z"
+        String utcResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "UTC");
+        Assert.assertEquals("9999-12-31 15:59:59Z", utcResult);
+
+        // Asia/Shanghai (+08:00) → "9999-12-31 23:59:59+08:00"
+        String shanghaiResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "Asia/Shanghai");
+        Assert.assertEquals("9999-12-31 23:59:59+08:00", shanghaiResult);
+
+        // America/New_York (-05:00) → "9999-12-31 10:59:59-05:00"
+        String nyResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "America/New_York");
+        Assert.assertEquals("9999-12-31 10:59:59-05:00", nyResult);
+
+        // America/Chicago (-06:00) → "9999-12-31 09:59:59-06:00"
+        String chicagoResult = TimeUtils.longToTimeStringWithTimeZoneAndOffset(ts, "America/Chicago");
+        Assert.assertEquals("9999-12-31 09:59:59-06:00", chicagoResult);
+    }
 }
