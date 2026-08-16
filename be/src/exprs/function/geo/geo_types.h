@@ -141,6 +141,7 @@ public:
 
     double x() const;
     double y() const;
+    BoundingBox bounding_box() const override;
 
     int num_geometries() const override { return 1; }
     int num_points() const override { return 1; }
@@ -180,6 +181,7 @@ public:
 
     int numPoint() const;
     const S2Point* getPoint(int i) const;
+    BoundingBox bounding_box() const override;
 
     int num_geometries() const override { return 1; }
     int num_points() const override { return numPoint(); }
@@ -220,6 +222,7 @@ public:
     double getArea() const;
     double Length() const override;
     double Distance(const GeoShape* rhs) const override;
+    BoundingBox bounding_box() const override;
     S2Loop* getLoop(int i) const;
 
     int num_geometries() const override { return 1; }
@@ -257,6 +260,7 @@ public:
     double getArea() const;
     double Length() const override;
     double Distance(const GeoShape* rhs) const override;
+    BoundingBox bounding_box() const override;
 
     int num_geometries() const override { return static_cast<int>(_polygons.size()); }
     int num_points() const override;
@@ -292,6 +296,7 @@ public:
     double getArea() const;
     double Length() const override;
     double Distance(const GeoShape* rhs) const override;
+    BoundingBox bounding_box() const override;
 
 protected:
     void encode(std::string* buf) override;
