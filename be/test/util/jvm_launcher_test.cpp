@@ -20,11 +20,13 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <csignal>
 #include <cstdlib>
 #include <string>
 #include <vector>
 
 #include "common/config.h"
+#include "util/defer_op.h"
 
 namespace doris::Jni {
 
@@ -135,6 +137,55 @@ TEST_F(JvmLauncherOptionsTest, PluginDirectoryReachesTheJvmFromBeConfig) {
     EXPECT_EQ(1, count_prefixed(options(), "-Ddoris.jni.plugin.dir="));
 
     config::jni_plugin_dir = saved;
+}
+
+namespace {
+
+// Stands in for the BE's own shutdown handler: what matters is only whether it is still
+// the installed one after the JVM has started.
+void mark_shutdown_requested(int /*signo*/) {}
+
+bool handles(int signo, void (*handler)(int)) {
+    struct sigaction current = {};
+    EXPECT_EQ(0, sigaction(signo, nullptr, &current));
+    return current.sa_handler == handler;
+}
+
+} // namespace
+
+// A starting JVM installs its own SIGINT and SIGTERM handlers, and its handler answers a
+// shutdown signal with a Java Shutdown.exit() - an ::exit() from a JVM thread, which runs
+// the C++ global destructors while the BE's threads are still working and skips the
+// orderly shutdown main() does. _bootstrap() has to hand both signals back.
+//
+// Only the first ensure_jvm() of the process starts a VM, so this can only be checked by
+// the test that gets there first; it skips rather than pass for free once some other test
+// has bootstrapped, and running it on its own always exercises the real path.
+TEST(JvmLauncherSignalTest, TheJvmDoesNotKeepTheShutdownSignals) {
+    if (JvmLauncher::vm() != nullptr) {
+        GTEST_SKIP() << "another test started the JVM first, so this one would prove nothing; "
+                        "run it alone to exercise the bootstrap";
+    }
+
+    struct sigaction ours = {};
+    ours.sa_handler = &mark_shutdown_requested;
+    sigemptyset(&ours.sa_mask);
+
+    struct sigaction saved_int = {};
+    struct sigaction saved_term = {};
+    ASSERT_EQ(0, sigaction(SIGINT, &ours, &saved_int));
+    ASSERT_EQ(0, sigaction(SIGTERM, &ours, &saved_term));
+    Defer restore {[&]() {
+        sigaction(SIGINT, &saved_int, nullptr);
+        sigaction(SIGTERM, &saved_term, nullptr);
+    }};
+
+    if (Status status = JvmLauncher::ensure_jvm(); !status.ok()) {
+        GTEST_SKIP() << "no JVM available in this environment: " << status;
+    }
+
+    EXPECT_TRUE(handles(SIGINT, &mark_shutdown_requested)) << "the JVM took SIGINT over";
+    EXPECT_TRUE(handles(SIGTERM, &mark_shutdown_requested)) << "the JVM took SIGTERM over";
 }
 
 } // namespace doris::Jni

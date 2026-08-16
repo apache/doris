@@ -581,8 +581,13 @@ int main(int argc, char** argv) {
         LOG(INFO) << doris::PythonVersionManager::instance().to_string();
     }
 
-    // Doris own signal handler must be register after jvm is init.
-    // Or our own sig-handler for SIGINT & SIGTERM will not be chained ...
+    // SIGINT and SIGTERM are how the BE is asked to shut down, and the handler installed
+    // here does nothing but raise the flag the loop at the end of main() waits on, so the
+    // shutdown stays orderly. A JVM would rather turn both signals into a Java
+    // Shutdown.exit(), and it installs handlers of its own when it starts. The JVM used to
+    // be created a few lines above this call, which is what left these handlers on top;
+    // now that it is created on demand, Jni::JvmLauncher::_bootstrap() is what puts them
+    // back once the JVM has had its way with them.
     // https://www.oracle.com/java/technologies/javase/signals.html
     doris::init_signals();
     // ATTN: MUST init before `ExecEnv`, `StorageEngine` and other daemon services
