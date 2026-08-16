@@ -18,6 +18,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifdef __APPLE__
+#include <execinfo.h>
+#include <unistd.h>
+#endif
+
+#include <exception>
 #include <memory>
 #include <string>
 
@@ -49,6 +55,15 @@
 #include "util/thrift_server.h"
 
 int main(int argc, char** argv) {
+#ifdef __APPLE__
+    std::set_terminate([]() noexcept {
+        void* frames[128];
+        const int frame_count = backtrace(frames, sizeof(frames) / sizeof(frames[0]));
+        backtrace_symbols_fd(frames, frame_count, STDERR_FILENO);
+        _Exit(134);
+    });
+#endif
+
     doris::ThreadLocalHandle::create_thread_local_if_not_exits();
     doris::ExecEnv::GetInstance()->init_mem_tracker();
     // Used for unit test
