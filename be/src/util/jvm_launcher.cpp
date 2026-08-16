@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include <csignal>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -93,6 +94,60 @@ std::string scan_class_path() {
     }
     return class_path;
 }
+
+// The two signals that ask the BE to shut down. Its handler for them does nothing but
+// raise the flag main() waits on, so the shutdown stays orderly: running queries are
+// drained and the process leaves through _exit(), which is what keeps the global
+// destructors from running underneath threads that are still working.
+//
+// A starting JVM installs handlers of its own for both, and its handler turns a shutdown
+// signal into a Java Shutdown.exit() - an ::exit() call made from a JVM thread. That runs
+// the global destructors while the BE is still serving, and BE singletons have been seen
+// freed out from under a live compaction thread this way. So save both handlers across the
+// bootstrap and put them back afterwards. The BE has always kept these two for itself; it
+// used to do so by creating the JVM before init_signals(), which no longer holds now that
+// the JVM is created on demand.
+//
+// Only these two. The JVM needs SIGSEGV, SIGBUS, SIGILL and SIGFPE for its implicit null
+// checks and safepoint polls, and SIGQUIT for its thread dump; taking those back would
+// break it. SIGHUP is left to the JVM as well, which is what the eager-JVM order did too.
+constexpr int SHUTDOWN_SIGNALS[] = {SIGINT, SIGTERM};
+constexpr size_t SHUTDOWN_SIGNAL_COUNT = std::size(SHUTDOWN_SIGNALS);
+
+class ShutdownSignalGuard {
+public:
+    ShutdownSignalGuard() {
+        for (size_t i = 0; i < SHUTDOWN_SIGNAL_COUNT; ++i) {
+            _saved_valid[i] = sigaction(SHUTDOWN_SIGNALS[i], nullptr, &_saved[i]) == 0;
+            if (!_saved_valid[i]) {
+                LOG(WARNING) << "failed to read the handler of signal " << SHUTDOWN_SIGNALS[i]
+                             << " before starting the JVM, errno=" << errno
+                             << "; the JVM is about to take this signal over";
+            }
+        }
+    }
+
+    ~ShutdownSignalGuard() {
+        for (size_t i = 0; i < SHUTDOWN_SIGNAL_COUNT; ++i) {
+            if (!_saved_valid[i]) {
+                continue;
+            }
+            if (sigaction(SHUTDOWN_SIGNALS[i], &_saved[i], nullptr) != 0) {
+                LOG(WARNING) << "failed to restore the handler of signal " << SHUTDOWN_SIGNALS[i]
+                             << " after starting the JVM, errno=" << errno
+                             << "; the JVM now owns this signal and shutting the BE down with "
+                                "it will not be graceful";
+            }
+        }
+    }
+
+    ShutdownSignalGuard(const ShutdownSignalGuard&) = delete;
+    ShutdownSignalGuard& operator=(const ShutdownSignalGuard&) = delete;
+
+private:
+    struct sigaction _saved[SHUTDOWN_SIGNAL_COUNT] = {};
+    bool _saved_valid[SHUTDOWN_SIGNAL_COUNT] = {};
+};
 
 } // namespace
 
@@ -239,6 +294,9 @@ Status JvmLauncher::_create_jvm() {
 }
 
 Status JvmLauncher::_bootstrap() {
+    // Covers everything that can start a JVM below, ours and libhdfs' alike. See the guard.
+    ShutdownSignalGuard shutdown_signals;
+
     RETURN_IF_ERROR(_create_jvm());
 
 #ifdef USE_HADOOP_HDFS
