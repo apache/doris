@@ -72,12 +72,21 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
      * Shared CSE projection logic for both PhysicalHashAggregate and
      * PhysicalBucketedHashAggregate. Extracts common sub-expressions from
      * aggregate function arguments into a project node beneath the aggregate.
+     *
+     * <p>For one-phase aggregates whose child is a PhysicalDistribute
+     * (aggregate -> distribute -> scan), the CSE project is inserted below the
+     * distribute so that the distribution-key slots stay intact and the exchange
+     * only carries the (already pruned) aggregate input. The translator's bucketed
+     * fusion (fusing one-phase aggregate + distribute into BucketedAggregationNode)
+     * builds directly on the distribute's child, so the fused plan naturally
+     * becomes BucketedAgg(sum(x), max(x)) -> Project(a+b AS x) -> scan and the
+     * common aggregate argument is evaluated once per row instead of once per
+     * aggregate function.</p>
      */
     private <T extends AbstractPhysicalPlan & Aggregate<? extends Plan>>
             Plan projectAggregateCse(T aggregate) {
         // For multi-phase aggregates, only process the 1st phase.
-        // Bucketed agg is always single-phase, but keep the same guard for safety.
-        if (aggregate.child() instanceof PhysicalDistribute || aggregate.child() instanceof Aggregate) {
+        if (aggregate.child() instanceof Aggregate) {
             return aggregate;
         }
 
@@ -169,6 +178,43 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
             project = project.withPhysicalPropertiesAndStats(projectPhysicalProperties, project.getStats());
             return (Plan) aggregate.withAggOutput(aggOutputReplaced)
                     .withChildren(project);
+        } else if (aggregate.child() instanceof PhysicalDistribute) {
+            // One-phase aggregate over a distribute (aggregate -> distribute -> scan):
+            // insert the CSE project between the distribute and its child, instead of
+            // between the aggregate and the distribute. This keeps the aggregate's
+            // child as a distribute (so bucketed fusion and the property machinery
+            // still see the same shape), and the project lands inside the scan
+            // fragment, so the common aggregate argument is computed once per row
+            // before the exchange. After bucketed fusion bypasses the distribute,
+            // the executed plan is BucketedAgg(sum(x), max(x)) -> Project(a+b AS x)
+            // -> scan.
+            PhysicalDistribute<?> distribute = (PhysicalDistribute<?>) aggregate.child();
+            List<NamedExpression> projections = new ArrayList<>();
+            projections.addAll(inputSlots);
+            projections.addAll(cseCandidates.values());
+            List<Slot> projectOutput = new ImmutableList.Builder<Slot>()
+                    .addAll(inputSlots)
+                    .addAll(slotMap.values())
+                    .build();
+            LogicalProperties projectLogicalProperties = new LogicalProperties(
+                    () -> projectOutput,
+                    () -> DataTrait.EMPTY_TRAIT
+            );
+            AbstractPhysicalPlan distributeChild = ((AbstractPhysicalPlan) distribute.child());
+            PhysicalProperties projectPhysicalProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
+                    projections, distributeChild.getPhysicalProperties());
+            PhysicalProject<? extends Plan> project = new PhysicalProject<>(projections, Optional.empty(),
+                    projectLogicalProperties,
+                    projectPhysicalProperties,
+                    distributeChild.getStats(),
+                    distribute.child());
+            // withChildren keeps the distribution spec and physical properties of the
+            // distribute unchanged; its output now comes from the CSE project, which
+            // still carries every distribution-key slot (the group-by slots are part
+            // of inputSlots above).
+            PhysicalDistribute<Plan> newDistribute = distribute.withChildren(ImmutableList.of(project));
+            return (Plan) aggregate.withAggOutput(aggOutputReplaced)
+                    .withChildren(newDistribute);
         } else {
             List<NamedExpression> projections = new ArrayList<>();
             projections.addAll(inputSlots);
