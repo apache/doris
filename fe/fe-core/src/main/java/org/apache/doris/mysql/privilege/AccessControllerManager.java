@@ -197,6 +197,13 @@ public class AccessControllerManager {
      * <p>A source written against the current contract is built with the context it may put questions to the
      * engine through. It cannot be handed that context any earlier than this - the context has to name the
      * source it belongs to, and the source does not exist until its factory has run.
+     *
+     * <p>The factory runs under its own plugin's classloader as the thread context one. A plugin that bundles
+     * a library which resolves class names through the context classloader - Hadoop's Configuration is the
+     * one both Ranger sources drag in - would otherwise load the name from the engine's copy of that library
+     * and get back a class the plugin's own copy does not recognise as implementing its interface. The
+     * refresher threads such a library starts inherit this classloader too, which is what keeps them working
+     * after the swap is undone.
      */
     private AuthorizationPlugin create(String name, Map<String, String> properties) {
         AuthorizationPluginFactory factory = authorizationPluginFactories.get(name);
@@ -204,8 +211,15 @@ public class AccessControllerManager {
             return adapt(name, accessControllerFactoriesCache.get(name).createAccessController(properties));
         }
         EngineAuthorizationContext context = new EngineAuthorizationContext(this, auth);
-        AuthorizationPlugin plugin = factory.create(
-                properties == null ? Collections.emptyMap() : properties, context);
+        Thread current = Thread.currentThread();
+        ClassLoader callerLoader = current.getContextClassLoader();
+        AuthorizationPlugin plugin;
+        try {
+            current.setContextClassLoader(factory.getClass().getClassLoader());
+            plugin = factory.create(properties == null ? Collections.emptyMap() : properties, context);
+        } finally {
+            current.setContextClassLoader(callerLoader);
+        }
         context.servedBy(plugin);
         return plugin;
     }
