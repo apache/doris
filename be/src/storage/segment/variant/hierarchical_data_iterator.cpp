@@ -17,10 +17,13 @@
 
 #include "storage/segment/variant/hierarchical_data_iterator.h"
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <span>
+#include <string_view>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -29,6 +32,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_variant.h"
 #include "core/column/variant_column_utils.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nothing.h"
@@ -60,7 +64,8 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
     // None leave node need merge with root
     std::unique_ptr<HierarchicalDataIterator> stream_iter(
             new HierarchicalDataIterator(path, read_type));
-    if (node != nullptr && read_type == ReadType::SUBCOLUMNS_AND_SPARSE) {
+    const bool add_materialized_streams = read_type == ReadType::SUBCOLUMNS_AND_SPARSE;
+    if (node != nullptr && add_materialized_streams) {
         std::vector<const SubcolumnColumnMetaInfo::Node*> leaves;
         PathsInData leaves_paths;
         SubcolumnColumnMetaInfo::get_leaves_of_node(node, leaves, leaves_paths);
@@ -183,12 +188,6 @@ Status HierarchicalDataIterator::read_by_rowids(const rowid_t* rowids, const siz
 Status HierarchicalDataIterator::_assemble_variant_v2(MutableColumnPtr& dst, size_t nrows,
                                                       bool* has_null) {
     DORIS_CHECK(_variant_v2_assembler != nullptr);
-    DorisVector<const IColumn*> materialized;
-    materialized.reserve(_substream_reader.size());
-    for (const auto& entry : _substream_reader) {
-        materialized.push_back(entry->data.column.get());
-    }
-
     const ColumnMap* storage_map = nullptr;
     if (_binary_column_reader) {
         storage_map = check_and_get_column<ColumnMap>(_binary_column_reader->column.get());
@@ -197,13 +196,51 @@ Status HierarchicalDataIterator::_assemble_variant_v2(MutableColumnPtr& dst, siz
         }
     }
 
-    variant_v2::VariantAssemblerBatchView batch;
+    const bool transfer_first_batch = dst->empty();
+    DorisVector<MutableColumnPtr> materialized_owners;
+    DorisVector<const IColumn*> materialized_borrowed;
+    if (transfer_first_batch) {
+        materialized_owners.reserve(_substream_reader.size());
+        for (auto& entry : _substream_reader) {
+            MutableColumnPtr replacement = entry->data.column->clone_empty();
+            materialized_owners.push_back(std::move(entry->data.column));
+            entry->data.column = std::move(replacement);
+        }
+    } else {
+        materialized_borrowed.reserve(_substream_reader.size());
+        for (const auto& entry : _substream_reader) {
+            materialized_borrowed.push_back(entry->data.column.get());
+        }
+    }
+
+    variant_v2::VariantAssemblerBatch batch;
     batch.num_rows = nrows;
     batch.root_jsonb = _root_reader ? _root_reader->column.get() : nullptr;
-    batch.materialized_columns = materialized;
+    if (transfer_first_batch) {
+        batch.owned_materialized_columns = materialized_owners;
+    } else {
+        batch.materialized_columns = materialized_borrowed;
+    }
     batch.storage_map = storage_map;
     ColumnNullable::MutablePtr assembled;
-    RETURN_IF_ERROR(_variant_v2_assembler->assemble(batch, &assembled));
+    const Status assemble_status = _variant_v2_assembler->assemble(batch, &assembled);
+    if (transfer_first_batch) {
+        size_t owner_index = 0;
+        for (auto& entry : _substream_reader) {
+            DORIS_CHECK_LT(owner_index, materialized_owners.size());
+            if (materialized_owners[owner_index]) {
+                entry->data.column = std::move(materialized_owners[owner_index]);
+            }
+            ++owner_index;
+        }
+        DORIS_CHECK_EQ(owner_index, materialized_owners.size());
+    }
+    RETURN_IF_ERROR(assemble_status);
+    const auto& assembled_values =
+            assert_cast<const ColumnVariantV2&>(assembled->get_nested_column());
+    if (assembled_values.is_shredded()) {
+        _stats->variant_v2_shredded_output_rows += cast_set<int64_t>(assembled->size());
+    }
     if (has_null != nullptr) {
         *has_null = assembled->has_null();
     }

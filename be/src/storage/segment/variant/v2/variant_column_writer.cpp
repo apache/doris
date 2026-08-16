@@ -40,7 +40,8 @@ namespace {
 
 Status build_root_only_batch(const VariantColumnData& column, size_t num_rows,
                              std::span<const uint8_t> outer_nulls,
-                             ColumnString::MutablePtr* root_jsonb) {
+                             ColumnString::MutablePtr* root_jsonb,
+                             VariantShredderAppendStats* append_stats) {
     DORIS_CHECK(column.column_data != nullptr);
     DORIS_CHECK(root_jsonb != nullptr);
     const auto* source = check_and_get_column<ColumnVariantV2>(*column.column_data);
@@ -56,7 +57,7 @@ Status build_root_only_batch(const VariantColumnData& column, size_t num_rows,
 
     const auto build_from_encoded = [&](const ColumnVariantV2::ReadView& view,
                                         size_t begin) -> Status {
-        DORIS_CHECK(!view.is_typed());
+        DORIS_CHECK(view.is_encoded());
         auto result = ColumnString::create();
         JsonbWriter writer;
         try {
@@ -83,15 +84,64 @@ Status build_root_only_batch(const VariantColumnData& column, size_t num_rows,
         return Status::OK();
     };
 
-    const auto view = source->read_view();
-    if (!view.is_typed()) {
-        return build_from_encoded(view, column.row_pos);
+    if (source->is_encoded()) {
+        const Status status = build_from_encoded(source->read_view(), column.row_pos);
+        if (status.ok() && append_stats != nullptr) {
+            *append_stats = {};
+        }
+        return status;
     }
 
-    auto encoded_batch = ColumnVariantV2::create();
+    if (source->is_shredded()) {
+        auto result = ColumnString::create();
+        JsonbWriter writer;
+        const ColumnVariantV2::ReadView view = source->read_view();
+        try {
+            for (size_t offset = 0; offset < num_rows; ++offset) {
+                if (!outer_nulls.empty() && outer_nulls[offset] != 0) {
+                    result->insert_default();
+                    continue;
+                }
+                const size_t input_row = column.row_pos + offset;
+                bool has_active_field = false;
+                for (size_t field = 0; field < view.shredded_field_count(); ++field) {
+                    if (view.shredded_field_presence(field).get_data()[input_row] != 0) {
+                        has_active_field = true;
+                        break;
+                    }
+                }
+                if (has_active_field) {
+                    // Any active non-root path makes the reconstructed whole value an object.
+                    result->insert_default();
+                    continue;
+                }
+                const VariantRef residual = view.residual_value_at(input_row);
+                if (residual.is_null() || residual.basic_type() == VariantBasicType::OBJECT) {
+                    result->insert_default();
+                    continue;
+                }
+                variant_to_jsonb(residual, writer);
+                result->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+            }
+        } catch (const Exception& exception) {
+            return exception.to_status();
+        }
+        *root_jsonb = std::move(result);
+        if (append_stats != nullptr) {
+            *append_stats = {.native_shredded_rows = num_rows};
+        }
+        return Status::OK();
+    }
+
+    ColumnVariantV2::MutablePtr encoded_batch;
     RETURN_IF_CATCH_EXCEPTION(
-            { encoded_batch->insert_range_from(*source, column.row_pos, num_rows); });
-    return build_from_encoded(encoded_batch->read_view(), 0);
+            { encoded_batch = source->materialize_encoded_range(column.row_pos, num_rows); });
+    DORIS_CHECK(encoded_batch->is_encoded());
+    const Status status = build_from_encoded(encoded_batch->read_view(), 0);
+    if (status.ok() && append_stats != nullptr) {
+        *append_stats = {};
+    }
+    return status;
 }
 
 } // namespace
@@ -126,19 +176,21 @@ Status VariantV2ColumnWriter::append(const VariantColumnData& column, size_t num
     if (_is_finalized) {
         return Status::InternalError("Cannot append ColumnVariantV2 after writer finalization");
     }
+    VariantShredderAppendStats append_stats;
     if (_root_only) {
         DORIS_CHECK(_root_jsonb);
         if (num_rows > std::numeric_limits<size_t>::max() - _num_rows) {
             return Status::InvalidArgument("Variant writer row count overflows size_t");
         }
         ColumnString::MutablePtr batch_root_jsonb;
-        RETURN_IF_ERROR(build_root_only_batch(column, num_rows, outer_nulls, &batch_root_jsonb));
+        RETURN_IF_ERROR(build_root_only_batch(column, num_rows, outer_nulls, &batch_root_jsonb,
+                                              &append_stats));
         DORIS_CHECK_EQ(batch_root_jsonb->size(), num_rows);
         RETURN_IF_CATCH_EXCEPTION(
                 { _root_jsonb->insert_range_from(*batch_root_jsonb, 0, num_rows); });
     } else {
         RETURN_IF_ERROR(variant_writer_helpers::append_variant_v2_to_shredder(
-                _shredder.get(), column, num_rows, outer_nulls));
+                _shredder.get(), column, num_rows, outer_nulls, &append_stats));
     }
     if (outer_nulls.empty()) {
         _outer_nulls->insert_many_defaults(num_rows);
@@ -147,6 +199,7 @@ Status VariantV2ColumnWriter::append(const VariantColumnData& column, size_t num
                                            num_rows);
     }
     _num_rows += num_rows;
+    variant_writer_helpers::record_variant_v2_shredded_writer_stats(append_stats);
     return Status::OK();
 }
 

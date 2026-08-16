@@ -421,7 +421,7 @@ void ensure_typed_fields_match_direct_encoding(ColumnVariantV2& column) {
         ASSERT_EQ(fields[row].get_type(), TYPE_VARIANT) << row;
     }
 
-    column.ensure_encoded();
+    ColumnVariantV2::TestAccess::ensure_encoded(column);
     for (size_t row = 0; row < column.size(); ++row) {
         const VariantField& field = fields[row].get<TYPE_VARIANT>();
         const VariantMetadataRef metadata = field.metadata();
@@ -451,7 +451,7 @@ void expect_int32_rows(const ColumnVariantV2& column, std::span<const int32_t> e
     MutableColumnPtr materialized_base = column.clone();
     auto& materialized = assert_cast<ColumnVariantV2&>(*materialized_base);
     if (materialized.is_typed()) {
-        materialized.ensure_encoded();
+        ColumnVariantV2::TestAccess::ensure_encoded(materialized);
     }
     validate_encoded_column(materialized);
     ASSERT_EQ(materialized.size(), expected_values.size());
@@ -2132,7 +2132,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     EXPECT_EQ(booleans->get_value_ref(0).primitive_id(), VariantPrimitiveId::FALSE_VALUE);
     EXPECT_EQ(booleans->get_value_ref(1).primitive_id(), VariantPrimitiveId::TRUE_VALUE);
     validate_encoded_column(*booleans);
-    booleans->ensure_encoded();
+    ColumnVariantV2::TestAccess::ensure_encoded(*booleans);
     validate_encoded_column(*booleans);
 
     expect_single_typed_encoding(nullable_fixed<ColumnInt8, Int8>({-7}, {0}),
@@ -2296,11 +2296,11 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
     constexpr std::array<int32_t, 0> NO_VALUES {};
     constexpr std::array<uint8_t, 0> NO_NULLS {};
     auto empty = typed_int32(NO_VALUES, NO_NULLS);
-    empty->ensure_encoded();
+    ColumnVariantV2::TestAccess::ensure_encoded(*empty);
     EXPECT_FALSE(empty->is_typed());
     EXPECT_EQ(empty->size(), 0);
     EXPECT_EQ(metadata_count(*empty), 0);
-    empty->ensure_encoded();
+    ColumnVariantV2::TestAccess::ensure_encoded(*empty);
 
     auto zero_date_nested = ColumnDateV2::create();
     const ColumnDateV2::value_type valid_date =
@@ -2315,7 +2315,7 @@ TEST(ColumnVariantV2Test, TypedEnsureEncodedAllScalarMappings) {
             ColumnNullable::create(std::move(zero_date_nested), std::move(zero_date_nulls)),
             std::make_shared<DataTypeDateV2>());
     const IColumn* zero_date_storage = &zero_date->typed_column();
-    EXPECT_THROW(zero_date->ensure_encoded(), Exception);
+    EXPECT_THROW(ColumnVariantV2::TestAccess::ensure_encoded(*zero_date), Exception);
     EXPECT_TRUE(zero_date->is_typed());
     EXPECT_EQ(zero_date->size(), 2);
     EXPECT_EQ(&zero_date->typed_column(), zero_date_storage);

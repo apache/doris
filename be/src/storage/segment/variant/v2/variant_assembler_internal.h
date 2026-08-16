@@ -37,6 +37,8 @@ struct PreparedMaterializedColumn {
     uint8_t scale = 0;
     const ColumnArray* array = nullptr;
     std::unique_ptr<PreparedMaterializedColumn> nested;
+    // Optional top-level batch owner. Only a fully clean mapped scalar lane receives one.
+    MutableColumnPtr owner;
 
     bool is_null_at(size_t row) const noexcept { return nulls != nullptr && nulls[row] != 0; }
 };

@@ -122,17 +122,8 @@ bool timestamp_fits_doris_range(int64_t micros) {
 
 // Keep the exhaustive primitive-id mapping in one switch so newly added ids cannot bypass the
 // explicit storage fallback. This descriptor is stack-only; it never owns decoded values.
-ValueKind value_kind(VariantRef value) {
-    switch (value.basic_type()) {
-    case VariantBasicType::SHORT_STRING:
-        return ValueKind::STRING;
-    case VariantBasicType::OBJECT:
-        return ValueKind::JSONB_REF;
-    case VariantBasicType::ARRAY:
-        return ValueKind::ARRAY;
-    case VariantBasicType::PRIMITIVE:
-        break;
-    }
+template <typename Value>
+ValueKind primitive_value_kind(const Value& value) {
     switch (value.primitive_id()) {
     case VariantPrimitiveId::NULL_VALUE:
         return ValueKind::NULL_VALUE;
@@ -175,6 +166,24 @@ ValueKind value_kind(VariantRef value) {
     throw Exception(ErrorCode::CORRUPTION, "Unknown Variant primitive id");
 }
 
+ValueKind value_kind(VariantRef value) {
+    switch (value.basic_type()) {
+    case VariantBasicType::SHORT_STRING:
+        return ValueKind::STRING;
+    case VariantBasicType::OBJECT:
+        return ValueKind::JSONB_REF;
+    case VariantBasicType::ARRAY:
+        return ValueKind::ARRAY;
+    case VariantBasicType::PRIMITIVE:
+        return primitive_value_kind(value);
+    }
+    throw Exception(ErrorCode::CORRUPTION, "Unknown Variant basic type");
+}
+
+ValueKind value_kind(const VariantScalarRef& value) {
+    return primitive_value_kind(value);
+}
+
 const DataTypePtr& cached_decimal_type(uint32_t scale) {
     static const std::array<DataTypePtr, 39> types = [] {
         std::array<DataTypePtr, 39> result;
@@ -187,8 +196,8 @@ const DataTypePtr& cached_decimal_type(uint32_t scale) {
     return types[scale];
 }
 
-DataTypePtr infer_type(VariantRef value, const DataTypePtr& reusable_type = nullptr) {
-    const ValueKind kind = value_kind(value);
+template <typename Value>
+DataTypePtr infer_scalar_type(const Value& value, ValueKind kind) {
     switch (kind) {
     case ValueKind::NULL_VALUE:
         return nothing_type();
@@ -271,7 +280,23 @@ DataTypePtr infer_type(VariantRef value, const DataTypePtr& reusable_type = null
     case ValueKind::JSONB_REF:
         return jsonb_type();
     case ValueKind::ARRAY:
-        break;
+        throw Exception(ErrorCode::INTERNAL_ERROR, "ARRAY requires recursive Variant inference");
+    }
+    __builtin_unreachable();
+}
+
+DataTypePtr infer_type(const VariantScalarRef& value) {
+    return infer_scalar_type(value, value_kind(value));
+}
+
+DataTypePtr infer_type(const VariantScalarRef& value, const DataTypePtr&) {
+    return infer_type(value);
+}
+
+DataTypePtr infer_type(VariantRef value, const DataTypePtr& reusable_type = nullptr) {
+    const ValueKind kind = value_kind(value);
+    if (kind != ValueKind::ARRAY) {
+        return infer_scalar_type(value, kind);
     }
 
     DataTypePtr element_type;
@@ -399,7 +424,9 @@ bool rescale_decimal(__int128 source, uint32_t source_scale, uint32_t target_sca
     return true;
 }
 
-bool try_rescale_decimal_value(VariantRef value, const DataTypePtr& target_type, __int128* result) {
+template <typename Value>
+bool try_rescale_decimal_value(const Value& value, const DataTypePtr& target_type,
+                               __int128* result) {
     const ValueKind kind = value_kind(value);
     if (kind != ValueKind::DECIMAL && kind != ValueKind::INT64) {
         return false;
@@ -475,6 +502,10 @@ bool value_is_representable(VariantRef value, const DataTypePtr& target_type) {
     default:
         return false;
     }
+}
+
+bool value_is_representable(const VariantScalarRef&, const DataTypePtr&) {
+    return true;
 }
 
 void require_jsonb_write(bool ok, std::string_view description) {
@@ -559,7 +590,8 @@ void append_jsonb(VariantRef value, ColumnString* column) {
     column->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
 }
 
-void append_integer(VariantRef value, PrimitiveType target_type, IColumn* target) {
+template <typename Value>
+void append_integer(const Value& value, PrimitiveType target_type, IColumn* target) {
     if (value_kind(value) != ValueKind::INT64) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Cannot append Variant value to integer path builder");
@@ -583,7 +615,8 @@ void append_integer(VariantRef value, PrimitiveType target_type, IColumn* target
     }
 }
 
-void append_largeint(VariantRef value, IColumn* target) {
+template <typename Value>
+void append_largeint(const Value& value, IColumn* target) {
     __int128 converted = 0;
     const ValueKind kind = value_kind(value);
     if (kind == ValueKind::LARGEINT) {
@@ -597,7 +630,8 @@ void append_largeint(VariantRef value, IColumn* target) {
     assert_cast<ColumnInt128&>(*target).insert_value(converted);
 }
 
-void append_floating(VariantRef value, PrimitiveType target_type, IColumn* target) {
+template <typename Value>
+void append_floating(const Value& value, PrimitiveType target_type, IColumn* target) {
     const ValueKind kind = value_kind(value);
     if (target_type == TYPE_FLOAT) {
         if (kind != ValueKind::FLOAT) {
@@ -621,7 +655,8 @@ void append_floating(VariantRef value, PrimitiveType target_type, IColumn* targe
     assert_cast<ColumnFloat64&>(*target).insert_value(converted);
 }
 
-void append_decimal(VariantRef value, const DataTypePtr& target_type, IColumn* target) {
+template <typename Value>
+void append_decimal(const Value& value, const DataTypePtr& target_type, IColumn* target) {
     const ValueKind kind = value_kind(value);
     if (kind != ValueKind::DECIMAL && kind != ValueKind::INT64) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -636,7 +671,8 @@ void append_decimal(VariantRef value, const DataTypePtr& target_type, IColumn* t
     assert_cast<ColumnDecimal128V3&>(*target).insert_value(Decimal128V3 {converted});
 }
 
-void append_date(VariantRef value, IColumn* target) {
+template <typename Value>
+void append_date(const Value& value, IColumn* target) {
     if (value_kind(value) != ValueKind::DATE) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Cannot append Variant value to DATEV2 path builder");
@@ -653,7 +689,8 @@ void append_date(VariantRef value, IColumn* target) {
     assert_cast<ColumnDateV2&>(*target).insert_value(converted);
 }
 
-void append_timestamp(VariantRef value, PrimitiveType target_type, IColumn* target) {
+template <typename Value>
+void append_timestamp(const Value& value, PrimitiveType target_type, IColumn* target) {
     const ValueKind kind = value_kind(value);
     if (kind != ValueKind::TIMESTAMP_NTZ && kind != ValueKind::TIMESTAMP_TZ) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
@@ -776,6 +813,68 @@ void append_value(VariantRef value, const DataTypePtr& target_type, IColumn* tar
         }
         assert_cast<ColumnNothing&>(*target).insert_default();
         return;
+    default:
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant path builder does not support target type {}",
+                        target_type->get_name());
+    }
+}
+
+void append_value(const VariantScalarRef& value, const DataTypePtr& target_type, IColumn* target) {
+    const ValueKind kind = value_kind(value);
+    switch (target_type->get_primitive_type()) {
+    case TYPE_BOOLEAN:
+        if (kind != ValueKind::BOOL) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Cannot append Variant scalar to BOOLEAN path builder");
+        }
+        assert_cast<ColumnUInt8&>(*target).insert_value(value.get_bool());
+        return;
+    case TYPE_TINYINT:
+    case TYPE_SMALLINT:
+    case TYPE_INT:
+    case TYPE_BIGINT:
+        append_integer(value, target_type->get_primitive_type(), target);
+        return;
+    case TYPE_LARGEINT:
+        append_largeint(value, target);
+        return;
+    case TYPE_FLOAT:
+    case TYPE_DOUBLE:
+        append_floating(value, target_type->get_primitive_type(), target);
+        return;
+    case TYPE_DECIMAL128I:
+        append_decimal(value, target_type, target);
+        return;
+    case TYPE_DATEV2:
+        append_date(value, target);
+        return;
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMPTZ:
+        append_timestamp(value, target_type->get_primitive_type(), target);
+        return;
+    case TYPE_STRING: {
+        if (kind != ValueKind::STRING) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Cannot append Variant scalar to STRING path builder");
+        }
+        const StringRef string = value.get_string();
+        assert_cast<ColumnString&>(*target).insert_data(string.data, string.size);
+        return;
+    }
+    case TYPE_JSONB:
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "Variant scalar JSONB append requires encoded slow path");
+    case INVALID_TYPE:
+        if (kind != ValueKind::NULL_VALUE) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Cannot append non-null Variant scalar to Nothing path builder");
+        }
+        assert_cast<ColumnNothing&>(*target).insert_default();
+        return;
+    case TYPE_ARRAY:
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Cannot append Variant scalar to ARRAY path builder");
     default:
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Variant path builder does not support target type {}",
@@ -993,6 +1092,91 @@ struct VariantPathBuilder::Impl {
         return Status::OK();
     }
 
+    void append_to_column(VariantRef value, ColumnNullable* nullable, DorisVector<char>*,
+                          bool* used_encoded_scratch) {
+        if (used_encoded_scratch != nullptr) {
+            *used_encoded_scratch = false;
+        }
+        append_value(value, type, &nullable->get_nested_column());
+    }
+
+    void append_to_column(const VariantScalarRef& value, ColumnNullable* nullable,
+                          DorisVector<char>* encoded_slow_scratch, bool* used_encoded_scratch) {
+        if (type->get_primitive_type() != TYPE_JSONB) {
+            if (used_encoded_scratch != nullptr) {
+                *used_encoded_scratch = false;
+            }
+            append_value(value, type, &nullable->get_nested_column());
+            return;
+        }
+        DORIS_CHECK(encoded_slow_scratch != nullptr);
+        encoded_slow_scratch->resize(value.encoded_size());
+        value.write_physical(encoded_slow_scratch->data(), encoded_slow_scratch->size());
+        if (used_encoded_scratch != nullptr) {
+            *used_encoded_scratch = true;
+        }
+        append_value(
+                VariantRef {.metadata = {.data = VARIANT_EMPTY_METADATA.data(),
+                                         .size = VARIANT_EMPTY_METADATA.size()},
+                            .value = {encoded_slow_scratch->data(), encoded_slow_scratch->size()}},
+                type, &nullable->get_nested_column());
+    }
+
+    template <typename Value>
+    Status append(const Value& value, size_t row, DorisVector<char>* encoded_slow_scratch = nullptr,
+                  bool* used_encoded_scratch = nullptr) {
+        try {
+            if (used_encoded_scratch != nullptr) {
+                *used_encoded_scratch = false;
+            }
+            if (value.is_null()) {
+                return Status::InvalidArgument("Variant path builder {} must not append JSON null",
+                                               path.get_path());
+            }
+            if (row < logical_rows) {
+                return Status::InvalidArgument("Variant path builder {} already has row {}",
+                                               path.get_path(), row);
+            }
+            if (row > std::numeric_limits<uint32_t>::max()) {
+                return Status::InvalidArgument(
+                        "Variant path builder {} row {} exceeds uint32 limit", path.get_path(),
+                        row);
+            }
+            logical_rows = row;
+
+            if (!column) {
+                RETURN_IF_ERROR(initialize(infer_type(value)));
+            } else if (type->get_primitive_type() != TYPE_JSONB) {
+                DataTypePtr inferred_type = infer_type(value, type);
+                DataTypePtr common_type = path_least_common_type(type, inferred_type);
+                RETURN_IF_ERROR(promote(common_type, false));
+            }
+            const bool is_array = value_kind(value) == ValueKind::ARRAY;
+            if (is_array && !value_is_representable(value, type)) {
+                RETURN_IF_ERROR(promote(jsonb_type(), false));
+            }
+
+            try {
+                auto& nullable = assert_cast<ColumnNullable&>(*column);
+                append_to_column(value, &nullable, encoded_slow_scratch, used_encoded_scratch);
+                nullable.get_null_map_data().push_back(0);
+            } catch (const Exception&) {
+                if (is_array || type->get_primitive_type() == TYPE_JSONB) {
+                    throw;
+                }
+                RETURN_IF_ERROR(promote(jsonb_type(), false));
+                auto& nullable = assert_cast<ColumnNullable&>(*column);
+                append_to_column(value, &nullable, encoded_slow_scratch, used_encoded_scratch);
+                nullable.get_null_map_data().push_back(0);
+            }
+            rowids.push_back(static_cast<uint32_t>(row));
+            logical_rows = row + 1;
+            return Status::OK();
+        } catch (const Exception& exception) {
+            return exception.to_status();
+        }
+    }
+
     PathInData path;
     DataTypePtr type;
     DataTypePtr nullable_type;
@@ -1011,52 +1195,13 @@ VariantPathBuilder::VariantPathBuilder(VariantPathBuilder&&) noexcept = default;
 VariantPathBuilder& VariantPathBuilder::operator=(VariantPathBuilder&&) noexcept = default;
 
 Status VariantPathBuilder::append(VariantRef value, size_t row) {
-    try {
-        if (value.is_null()) {
-            return Status::InvalidArgument("Variant path builder {} must not append JSON null",
-                                           _impl->path.get_path());
-        }
-        if (row < _impl->logical_rows) {
-            return Status::InvalidArgument("Variant path builder {} already has row {}",
-                                           _impl->path.get_path(), row);
-        }
-        if (row > std::numeric_limits<uint32_t>::max()) {
-            return Status::InvalidArgument("Variant path builder {} row {} exceeds uint32 limit",
-                                           _impl->path.get_path(), row);
-        }
-        RETURN_IF_ERROR(complete_rows(row));
+    return _impl->append(value, row);
+}
 
-        if (!_impl->column) {
-            RETURN_IF_ERROR(_impl->initialize(infer_type(value)));
-        } else if (_impl->type->get_primitive_type() != TYPE_JSONB) {
-            DataTypePtr inferred_type = infer_type(value, _impl->type);
-            DataTypePtr common_type = path_least_common_type(_impl->type, inferred_type);
-            RETURN_IF_ERROR(_impl->promote(common_type, false));
-        }
-        const bool is_array = value.basic_type() == VariantBasicType::ARRAY;
-        if (is_array && !value_is_representable(value, _impl->type)) {
-            RETURN_IF_ERROR(_impl->promote(jsonb_type(), false));
-        }
-
-        try {
-            auto& nullable = assert_cast<ColumnNullable&>(*_impl->column);
-            append_value(value, _impl->type, &nullable.get_nested_column());
-            nullable.get_null_map_data().push_back(0);
-        } catch (const Exception&) {
-            if (is_array || _impl->type->get_primitive_type() == TYPE_JSONB) {
-                throw;
-            }
-            RETURN_IF_ERROR(_impl->promote(jsonb_type(), false));
-            auto& nullable = assert_cast<ColumnNullable&>(*_impl->column);
-            append_value(value, _impl->type, &nullable.get_nested_column());
-            nullable.get_null_map_data().push_back(0);
-        }
-        _impl->rowids.push_back(static_cast<uint32_t>(row));
-        _impl->logical_rows = row + 1;
-        return Status::OK();
-    } catch (const Exception& exception) {
-        return exception.to_status();
-    }
+Status VariantPathBuilder::append_scalar(const VariantScalarRef& value, size_t row,
+                                         DorisVector<char>& encoded_slow_scratch,
+                                         bool* used_encoded_scratch) {
+    return _impl->append(value, row, &encoded_slow_scratch, used_encoded_scratch);
 }
 
 Status VariantPathBuilder::complete_rows(size_t rows) {

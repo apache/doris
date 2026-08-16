@@ -1482,6 +1482,10 @@ DECLARE_mBool(variant_enable_duplicate_json_path_check);
 // Controls storage-layer parse target for plain non-doc VARIANT columns:
 // 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
 DECLARE_mInt32(variant_storage_parse_mode);
+// Maximum number of footer/materialized scalar paths admitted to an initial Block-local shredded
+// layout. A later cross-layout append may expand that path set once by at most its current size,
+// then seals it, so the final layout remains bounded by twice this value.
+DECLARE_mInt32(variant_max_shredded_execution_initial_layout_paths);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 DECLARE_mBool(enable_variant_doc_sparse_write_subcolumns);

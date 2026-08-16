@@ -15,64 +15,70 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("regression_test_variant_logdata", "p2"){
-    def load_json_data = {table_name, file_name ->
-        // load the json data
-        streamLoad {
-            table "${table_name}"
+suite("regression_test_variant_logdata", "nonConcurrent,p2"){
+    setFeConfigTemporary([enable_variant_v2: true]) {
+        assertTrue(getFeConfig("enable_variant_v2").toBoolean())
+        sql "set default_variant_enable_doc_mode = false"
+        sql "set default_variant_max_subcolumns_count = 2048"
 
-            // set http request header params
-            set 'read_json_by_line', 'true' 
-            set 'format', 'json' 
-            set 'max_filter_ratio', '0.1'
-            set 'memtable_on_sink_node', 'true'
-            file file_name // import json file
-            time 10000 // limit inflight 10s
+        def load_json_data = {table_name, file_name ->
+            // load the json data
+            streamLoad {
+                table "${table_name}"
 
-            // if declared a check callback, the default check condition will ignore.
-            // So you must check all condition
+                // set http request header params
+                set 'read_json_by_line', 'true'
+                set 'format', 'json'
+                set 'max_filter_ratio', '0.1'
+                set 'memtable_on_sink_node', 'true'
+                file file_name // import json file
+                time 10000 // limit inflight 10s
 
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
+                // if declared a check callback, the default check condition will ignore.
+                // So you must check all condition
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
                         throw exception
+                    }
+                    logger.info("Stream load ${file_name} result: ${result}".toString())
+                    def json = parseJson(result)
+                    assertEquals("success", json.Status.toLowerCase())
+                    // assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
+                    assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
                 }
-                logger.info("Stream load ${file_name} result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                // assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
+
+        def create_table = { table_name, key_type="DUPLICATE", buckets=(new Random().nextInt(15) + 1).toString()  ->
+            sql "DROP TABLE IF EXISTS ${table_name}"
+            sql """
+                CREATE TABLE IF NOT EXISTS ${table_name} (
+                    k bigint,
+                    v variant
+                )
+                ${key_type} KEY(`k`)
+                DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
+                properties("replication_num" = "1", "disable_auto_compaction" = "false");
+            """
+        }
+        // 12. streamload remote file
+        def table_name = "logdata"
+        create_table.call(table_name, "DUPLICATE", "4")
+        load_json_data.call(table_name, """${getS3Url() + '/regression/load/logdata.json'}""")
+        qt_sql_32 """select to_json(cast(v['json']['parseFailed'] as string)) from logdata where cast(v['json']['parseFailed'] as string) != 'null' order by k limit 1;"""
+        qt_sql_32_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
+        sql "truncate table ${table_name}"
+
+        load_json_data.call(table_name, """${getS3Url() + '/regression/load/logdata.json'}""")
+        qt_sql_33 """select to_json(cast(v['json']['parseFailed'] as string)) from logdata where cast(v['json']['parseFailed'] as string) != 'null' order by k limit 1;"""
+        qt_sql_33_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
+        sql "truncate table ${table_name}"
+
+        load_json_data.call(table_name, """${getS3Url() + '/regression/load/logdata.json'}""")
+        qt_sql_34 """select to_json(cast(v['json']['parseFailed'] as string)) from logdata where cast(v['json']['parseFailed'] as string) != 'null' order by k limit 1;"""
+        sql "truncate table ${table_name}"
+        qt_sql_35 """select to_json(cast(v['json']['parseFailed'] as string)) from logdata where k = 162 and cast(v['json']['parseFailed'] as string) != 'null';"""
+        qt_sql_35_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
     }
-
-    def create_table = { table_name, key_type="DUPLICATE", buckets=(new Random().nextInt(15) + 1).toString()  ->
-        sql "DROP TABLE IF EXISTS ${table_name}"
-        sql """
-            CREATE TABLE IF NOT EXISTS ${table_name} (
-                k bigint,
-                v variant
-            )
-            ${key_type} KEY(`k`)
-            DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
-            properties("replication_num" = "1", "disable_auto_compaction" = "false");
-        """
-    }
-    // 12. streamload remote file
-    def table_name = "logdata"
-    create_table.call(table_name, "DUPLICATE", "4")
-    load_json_data.call(table_name, """${getS3Url() + '/regression/load/logdata.json'}""")
-    qt_sql_32 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract_string(v, "\$.json.parseFailed") != 'null' order by k limit 1;"""
-    qt_sql_32_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
-    sql "truncate table ${table_name}"
-
-    load_json_data.call(table_name, """${getS3Url() + '/regression/load/logdata.json'}""")
-    qt_sql_33 """ select json_extract(v,"\$.json.parseFailed") from logdata where  json_extract_string(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
-    qt_sql_33_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
-    sql "truncate table ${table_name}"
-
-    load_json_data.call(table_name, """${getS3Url() + '/regression/load/logdata.json'}""")
-    qt_sql_34 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract_string(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
-    sql "truncate table ${table_name}"
-    qt_sql_35 """select json_extract(v,"\$.json.parseFailed")  from logdata where k = 162 and  json_extract_string(v,"\$.json.parseFailed") != 'null';"""
-    qt_sql_35_1 """select cast(v['json']['parseFailed'] as string) from  logdata where cast(v['json']['parseFailed'] as string) is not null and k = 162 limit 1;"""
 }
