@@ -1159,6 +1159,21 @@ TEST(FileScannerV2Test, IcebergDeleteFilesDisablePhysicalSplitRefinement) {
     EXPECT_FALSE(FileScannerV2::TEST_can_refine_source_split(range));
 }
 
+TEST(FileScannerV2Test, PhysicalSplitRefinementRequiresMultipleConstructedScanners) {
+    TFileRangeDesc range;
+    EXPECT_FALSE(FileScannerV2::TEST_should_refine_source_split(range, 1));
+    EXPECT_TRUE(FileScannerV2::TEST_should_refine_source_split(range, 2));
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_path("delete.parquet");
+    TIcebergFileDesc iceberg;
+    iceberg.__set_delete_files({delete_file});
+    TTableFormatFileDesc table_format;
+    table_format.__set_iceberg_params(iceberg);
+    range.__set_table_format_params(table_format);
+    EXPECT_FALSE(FileScannerV2::TEST_should_refine_source_split(range, 2));
+}
+
 TEST(FileScannerV2Test, RealtimeCounterDeltasUseFileCacheDeltasWhenAvailable) {
     io::FileReaderStats file_reader_stats;
     io::FileCacheStatistics file_cache_statistics;

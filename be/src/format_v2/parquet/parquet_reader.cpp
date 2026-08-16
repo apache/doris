@@ -618,6 +618,13 @@ Status ParquetReader::build_physical_splits(const FileScanSplit& source_split,
             // must preserve that behavior before inspecting their potentially empty chunks.
             continue;
         }
+        if (row_group.columns.empty()) {
+            // A root-only schema can still carry rows for metadata COUNT(*), but it has no byte
+            // envelope that can identify a child. Keep the initialized source reader so those
+            // rows are not turned into a corruption error or discarded after tentative children.
+            splits->clear();
+            return Status::OK();
+        }
         size_t group_start = std::numeric_limits<size_t>::max();
         size_t group_end = 0;
         for (size_t column_id = 0; column_id < row_group.columns.size(); ++column_id) {

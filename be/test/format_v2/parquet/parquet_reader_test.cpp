@@ -136,6 +136,53 @@ void annotate_variant_schema(const std::string& file_path) {
     DORIS_CHECK(output.good());
 }
 
+void rewrite_as_root_only_parquet_file(const std::string& file_path) {
+    std::ifstream input(file_path, std::ios::binary | std::ios::ate);
+    DORIS_CHECK(input.good());
+    const auto input_size = static_cast<std::streamoff>(input.tellg());
+    DORIS_CHECK(input_size >= static_cast<std::streamoff>(8));
+    std::vector<uint8_t> file_bytes(cast_set<size_t>(input_size));
+    input.seekg(0);
+    input.read(reinterpret_cast<char*>(file_bytes.data()), cast_set<std::streamsize>(input_size));
+    DORIS_CHECK(input.good());
+    DORIS_CHECK(memcmp(file_bytes.data() + file_bytes.size() - 4, "PAR1", 4) == 0);
+
+    const uint32_t footer_size = decode_fixed32_le(file_bytes.data() + file_bytes.size() - 8);
+    DORIS_CHECK(footer_size <= file_bytes.size() - 8);
+    const size_t footer_offset = file_bytes.size() - 8 - footer_size;
+    uint32_t thrift_size = footer_size;
+    tparquet::FileMetaData metadata;
+    DORIS_CHECK(
+            deserialize_thrift_msg(file_bytes.data() + footer_offset, &thrift_size, true, &metadata)
+                    .ok());
+    input.close();
+
+    tparquet::SchemaElement root;
+    root.__set_name("schema");
+    root.__set_num_children(0);
+    root.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
+    metadata.__set_schema({root});
+    for (auto& row_group : metadata.row_groups) {
+        row_group.columns.clear();
+    }
+
+    file_bytes.resize(footer_offset);
+    std::vector<uint8_t> footer;
+    ThriftSerializer serializer(/*compact=*/true, 1024);
+    DORIS_CHECK(serializer.serialize(&metadata, &footer).ok());
+    file_bytes.insert(file_bytes.end(), footer.begin(), footer.end());
+    std::array<uint8_t, sizeof(uint32_t)> encoded_footer_size {};
+    encode_fixed32_le(encoded_footer_size.data(), cast_set<uint32_t>(footer.size()));
+    file_bytes.insert(file_bytes.end(), encoded_footer_size.begin(), encoded_footer_size.end());
+    file_bytes.insert(file_bytes.end(), {'P', 'A', 'R', '1'});
+
+    std::ofstream output(file_path, std::ios::binary | std::ios::trunc);
+    output.write(reinterpret_cast<const char*>(file_bytes.data()),
+                 cast_set<std::streamsize>(file_bytes.size()));
+    output.close();
+    DORIS_CHECK(output.good());
+}
+
 format::LocalColumnIndex field_projection(int32_t column_id) {
     return format::LocalColumnIndex {.index = column_id};
 }
@@ -1985,6 +2032,41 @@ TEST_F(NewParquetReaderTest, PhysicalSplitsCompleteAnAllEmptyFileWithoutChildren
     ASSERT_TRUE(reader->build_physical_splits(source, &children, &was_split).ok());
     EXPECT_TRUE(was_split);
     EXPECT_TRUE(children.empty());
+}
+
+TEST_F(NewParquetReaderTest, PositiveRowRootOnlyFileKeepsInitializedReaderForCount) {
+    write_parquet_file(_file_path, 2);
+    rewrite_as_root_only_parquet_file(_file_path);
+    constexpr int64_t TEST_MTIME = 717171;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {},
+                                TEST_MTIME);
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    FileScanSplit source;
+    source.range.__set_path(_file_path);
+    source.range.__set_start_offset(0);
+    source.range.__set_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
+    source.range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
+    source.range.__set_modification_time(TEST_MTIME);
+    source.is_source_split = true;
+    std::vector<FileScanSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(reader->build_physical_splits(source, &children, &was_split).ok());
+    EXPECT_FALSE(was_split);
+    EXPECT_TRUE(children.empty());
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    ASSERT_TRUE(reader->open(request).ok());
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        Block block;
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+    EXPECT_EQ(total_rows, ROW_COUNT);
 }
 
 TEST_F(NewParquetReaderTest, InMemoryStagedFilesDeclinePhysicalSplitRefinement) {

@@ -113,6 +113,10 @@ public:
     static bool TEST_can_refine_source_split(const TFileRangeDesc& range) {
         return can_refine_source_split(range);
     }
+    static bool TEST_should_refine_source_split(const TFileRangeDesc& range,
+                                                int constructed_scanners) {
+        return _should_refine_source_split(range, constructed_scanners);
+    }
     static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool TEST_should_skip_empty(const Status& status, bool stopped);
     static Status TEST_contextualize_output_filter_status(Status status,
@@ -171,6 +175,7 @@ private:
                                                              bool ignore_not_found, bool stopped);
     static Status _contextualize_output_filter_status(Status status,
                                                       TFileFormatType::type format_type);
+    static bool _should_refine_source_split(const TFileRangeDesc& range, int constructed_scanners);
     static int64_t _cumulative_profile_delta(int64_t current, int64_t* reported);
     static void _update_file_counter(RuntimeProfile::Counter* counter, const FileScanSplit& split);
     static FileReaderProfileDeltas _collect_file_reader_profile_deltas(
@@ -241,6 +246,7 @@ private:
     std::shared_ptr<io::IOContext> _io_ctx;
     ShardedKVCache* _kv_cache = nullptr;
     FileContextRegistry* _file_context_registry = nullptr;
+    int _constructed_scanners = 1;
 
     RuntimeProfile::Counter* _scanner_total_timer = nullptr;
     RuntimeProfile::Counter* _init_timer = nullptr;

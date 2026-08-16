@@ -402,7 +402,8 @@ FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_stat
         : Scanner(state, local_state, limit, profile),
           _split_source(std::move(split_source)),
           _kv_cache(kv_cache),
-          _file_context_registry(&local_state->_file_context_registry) {
+          _file_context_registry(&local_state->_file_context_registry),
+          _constructed_scanners(local_state->_max_scanners) {
     (void)colname_to_slot_id;
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.count(local_state->parent_id()) > 0) {
@@ -652,7 +653,8 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             continue;
         }
         _update_file_counter(_file_counter, _current_split);
-        if (_current_split.is_source_split && can_refine_source_split(_current_range)) {
+        if (_current_split.is_source_split &&
+            _should_refine_source_split(_current_range, _constructed_scanners)) {
             std::vector<FileScanSplit> generated_splits;
             bool was_split = false;
             const auto split_status = _table_reader->build_physical_splits(
@@ -844,6 +846,13 @@ bool FileScannerV2::can_refine_source_split(const TFileRangeDesc& range) {
     // Iceberg delete readers build split-local delete state. Refining the data file would rebuild
     // that state for every row-group child, so keep the already prepared source reader instead.
     return !iceberg.__isset.delete_files || iceberg.delete_files.empty();
+}
+
+bool FileScannerV2::_should_refine_source_split(const TFileRangeDesc& range,
+                                                int constructed_scanners) {
+    // Row-group children only reduce wall time when another scanner can consume them. Keeping the
+    // source reader avoids repeated reader setup in serial and explicitly single-scanner scans.
+    return constructed_scanners >= 2 && can_refine_source_split(range);
 }
 
 void FileScannerV2::_update_file_counter(RuntimeProfile::Counter* counter,
