@@ -20,6 +20,8 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <jni.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -28,6 +30,10 @@
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 #include "format/parquet/arrow_memory_pool.h"
 #include "runtime/runtime_profile.h"
+
+namespace arrow {
+class Schema;
+}
 
 namespace doris {
 
@@ -88,6 +94,8 @@ private:
     RuntimeProfile::Counter* _arrow_memory_limit = nullptr;
     RuntimeProfile::Counter* _arrow_memory_current = nullptr;
     RuntimeProfile::Counter* _arrow_memory_peak = nullptr;
+    RuntimeProfile* _jni_profile = nullptr;
+    int64_t _arrow_memory_limit_bytes = 0;
     bool _opened = false;
 };
 
@@ -100,7 +108,8 @@ class JniPaimonWriter final : public IPaimonWriter {
 public:
     JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id, jmethodID prepare_commit_id,
                     jmethodID abort_id, std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
-                    TPaimonTableSink sink);
+                    TPaimonTableSink sink, int64_t arrow_memory_limit_bytes,
+                    RuntimeProfile* profile);
 
     Status write(RuntimeState* state, Block& block) override;
     Status prepare_commit(std::vector<TPaimonCommitMessage>& messages) override;
@@ -109,6 +118,9 @@ public:
 private:
     /// Convert Block → Arrow RecordBatch → IPC Stream, then pass to Java via JNI direct buffer.
     Status _write_projected_block(RuntimeState* state, Block& block);
+    Status _write_row_range(RuntimeState* state, const Block& block,
+                            const std::shared_ptr<arrow::Schema>& arrow_schema, size_t start_row,
+                            size_t end_row, size_t estimated_ipc_bytes);
 
     // Shared JNI state (owned by JniPaimonWriteBackend, not this adapter).
     jobject _jni_writer_obj;
@@ -119,6 +131,12 @@ private:
     // Arrow resources owned by this writer adapter.
     std::unique_ptr<ArrowMemoryPool<>> _arrow_pool;
     TPaimonTableSink _sink;
+    int64_t _arrow_memory_limit_bytes;
+    RuntimeProfile::Counter* _cpp_arrow_memory_peak = nullptr;
+    RuntimeProfile::Counter* _arrow_ipc_batch_count = nullptr;
+    RuntimeProfile::Counter* _arrow_ipc_bytes = nullptr;
+    RuntimeProfile::Counter* _arrow_ipc_batch_bytes_peak = nullptr;
+    RuntimeProfile::Counter* _arrow_batch_rows_peak = nullptr;
 };
 
 } // namespace doris

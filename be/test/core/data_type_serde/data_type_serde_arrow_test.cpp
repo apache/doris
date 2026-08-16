@@ -811,6 +811,25 @@ TEST(DataTypeSerDeArrowTest, NestedIcebergVariantExtensionsAndParquetSchema) {
     EXPECT_EQ(52, struct_variant->field_id());
 }
 
+TEST(DataTypeSerDeArrowTest, ConvertBlockRowRange) {
+    auto block = create_test_block({TYPE_INT}, 10, false);
+    std::shared_ptr<arrow::Schema> schema;
+    Status status = get_arrow_schema_from_block(*block, &schema, TimezoneUtils::default_time_zone);
+    ASSERT_TRUE(status.ok()) << status;
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(), &record_batch,
+                                    default_timezone, 3, 7);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(4, record_batch->num_rows());
+
+    auto values = std::static_pointer_cast<arrow::Int32Array>(record_batch->column(0));
+    for (int64_t row = 0; row < record_batch->num_rows(); ++row) {
+        EXPECT_EQ(row + 3, values->Value(row));
+    }
+}
+
 TEST(DataTypeSerDeArrowTest, NestedIcebergUuidStringToFixedSizeBinary) {
     auto block = std::make_shared<Block>();
     DataTypePtr data_type = std::make_shared<DataTypeStruct>(
