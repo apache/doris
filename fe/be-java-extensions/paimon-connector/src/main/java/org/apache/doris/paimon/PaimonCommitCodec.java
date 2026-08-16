@@ -75,6 +75,14 @@ final class PaimonCommitCodec {
      * @return byte[][] where each element is a complete DPCM-framed chunk
      */
     byte[][] encode(List<CommitMessage> messages) throws Exception {
+        return encode(messages, Long.MAX_VALUE);
+    }
+
+    byte[][] encode(List<CommitMessage> messages, long maxTotalPayloadBytes) throws Exception {
+        if (maxTotalPayloadBytes <= 0) {
+            throw new IllegalArgumentException(
+                    "Paimon commit payload memory limit must be positive");
+        }
         if (messages.isEmpty()) {
             return new byte[0][];
         }
@@ -83,6 +91,7 @@ final class PaimonCommitCodec {
         // therefore stops before allocating beyond one chunk's budget.
         int chunkSize = defaultChunkSize;
         List<byte[]> payloads = new ArrayList<>();
+        long totalPayloadBytes = 0;
         int offset = 0;
         while (offset < messages.size()) {
             int end = Math.min(offset + chunkSize, messages.size());
@@ -94,10 +103,19 @@ final class PaimonCommitCodec {
                     chunkSize = Math.max(1, chunkSize / 2);
                     continue;
                 }
-                throw new IOException("A single Paimon commit message exceeds the "
-                        + maxPayloadBytes + " byte framed payload limit", e);
+                throw new CommitPayloadMemoryException(
+                        "A single Paimon commit message exceeds the "
+                                + maxPayloadBytes + " byte framed payload limit",
+                        e);
+            }
+            if (payload.length > maxTotalPayloadBytes - totalPayloadBytes) {
+                throw new CommitPayloadMemoryException(
+                        "Paimon commit payloads exceed their total memory limit: limit="
+                                + maxTotalPayloadBytes + ", completed=" + totalPayloadBytes
+                                + ", nextChunk=" + payload.length);
             }
             payloads.add(payload);
+            totalPayloadBytes += payload.length;
             offset = end;
         }
         return payloads.toArray(new byte[0][]);
@@ -146,6 +164,16 @@ final class PaimonCommitCodec {
     private static final class PayloadTooLargeException extends IOException {
         private PayloadTooLargeException(int limit) {
             super("Paimon commit serialization exceeds " + limit + " bytes");
+        }
+    }
+
+    static final class CommitPayloadMemoryException extends IOException {
+        private CommitPayloadMemoryException(String message) {
+            super(message);
+        }
+
+        private CommitPayloadMemoryException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 

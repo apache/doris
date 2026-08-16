@@ -17,6 +17,7 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.arrow.memory.OutOfMemoryException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -26,6 +27,25 @@ import java.nio.ByteBuffer;
 import java.util.Collections;
 
 public class PaimonJniWriterTest {
+
+    @Test
+    public void testClassifyWriterMemoryErrors() {
+        Assertions.assertEquals(
+                PaimonJniWriter.MEMORY_ERROR_ARROW,
+                PaimonJniWriter.classifyMemoryError(
+                        new RuntimeException(new OutOfMemoryException("Arrow limit"))));
+        Assertions.assertEquals(
+                PaimonJniWriter.MEMORY_ERROR_PAIMON_PAGE,
+                PaimonJniWriter.classifyMemoryError(
+                        new OutOfMemoryError(
+                                "Paimon JNI native page allocation failed: query limit")));
+        Assertions.assertEquals(
+                PaimonJniWriter.MEMORY_ERROR_JVM_HEAP,
+                PaimonJniWriter.classifyMemoryError(new OutOfMemoryError("Java heap space")));
+        Assertions.assertEquals(
+                PaimonJniWriter.MEMORY_ERROR_NONE,
+                PaimonJniWriter.classifyMemoryError(new IllegalArgumentException("not memory")));
+    }
 
     @Test
     public void testWriterMemoryBudgetIncludesArrowAndPaimonPages() {

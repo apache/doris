@@ -81,6 +81,22 @@ public class PaimonCommitCodecTest {
         Assertions.assertTrue(payloads[1].length <= 1024);
     }
 
+    @Test
+    public void testRejectTotalPayloadMemoryLimit() throws Exception {
+        PaimonCommitCodec codec = new PaimonCommitCodec(1024, 1);
+        List<CommitMessage> messages = new ArrayList<>();
+        messages.add(commitMessage("x".repeat(400)));
+        messages.add(commitMessage("y".repeat(400)));
+        byte[][] encoded = codec.encode(messages);
+        long totalBytes = encoded[0].length + encoded[1].length;
+
+        Exception exception = Assertions.assertThrows(
+                PaimonCommitCodec.CommitPayloadMemoryException.class,
+                () -> codec.encode(messages, totalBytes - 1));
+
+        Assertions.assertTrue(exception.getMessage().contains("total memory limit"));
+    }
+
     private static CommitMessage commitMessage(String fileName) {
         DataFileMeta dataFile = DataFileMeta.forAppend(
                 fileName,

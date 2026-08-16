@@ -18,6 +18,7 @@
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -221,7 +222,11 @@ jobject allocate_paimon_memory_page(JNIEnv* env, jclass, jlong manager_handle, j
         return manager->allocate_page(env, bytes);
     } catch (const std::exception& e) {
         jclass exception_class = env->FindClass("java/lang/OutOfMemoryError");
-        env->ThrowNew(exception_class, e.what());
+        // Avoid heap allocation while reporting an allocation failure.
+        char message[1024];
+        std::snprintf(message, sizeof(message), "Paimon JNI native page allocation failed: %.900s",
+                      e.what());
+        env->ThrowNew(exception_class, message);
         env->DeleteLocalRef(exception_class);
         return nullptr;
     }

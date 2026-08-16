@@ -70,6 +70,7 @@ public:
 private:
     Status _check_jni_exception(JNIEnv* env, const std::string& method_name);
     Status _load_writer_class(JNIEnv* env, jclass* writer_class);
+    Status _load_writer_memory_limits(JNIEnv* env);
     void _refresh_memory_profile(JNIEnv* env);
 
     // JNI global references — live for the duration of this backend.
@@ -85,6 +86,7 @@ private:
     jmethodID _get_arrow_memory_peak_id = nullptr;
     jmethodID _get_arrow_memory_limit_id = nullptr;
     jmethodID _get_paimon_page_memory_limit_id = nullptr;
+    jmethodID _consume_last_memory_error_id = nullptr;
 
     TPaimonTableSink _sink;
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
@@ -94,6 +96,10 @@ private:
     RuntimeProfile::Counter* _arrow_memory_limit = nullptr;
     RuntimeProfile::Counter* _arrow_memory_current = nullptr;
     RuntimeProfile::Counter* _arrow_memory_peak = nullptr;
+    RuntimeProfile::Counter* _arrow_memory_exceeded = nullptr;
+    RuntimeProfile::Counter* _paimon_page_memory_exceeded = nullptr;
+    RuntimeProfile::Counter* _jvm_heap_memory_exceeded = nullptr;
+    RuntimeProfile::Counter* _commit_payload_memory_exceeded = nullptr;
     RuntimeProfile* _jni_profile = nullptr;
     int64_t _arrow_memory_limit_bytes = 0;
     bool _opened = false;
@@ -107,9 +113,9 @@ private:
 class JniPaimonWriter final : public IPaimonWriter {
 public:
     JniPaimonWriter(jobject jni_writer_obj, jmethodID write_id, jmethodID prepare_commit_id,
-                    jmethodID abort_id, std::unique_ptr<ArrowMemoryPool<>> arrow_pool,
-                    TPaimonTableSink sink, int64_t arrow_memory_limit_bytes,
-                    RuntimeProfile* profile);
+                    jmethodID abort_id, jmethodID consume_last_memory_error_id,
+                    std::unique_ptr<ArrowMemoryPool<>> arrow_pool, TPaimonTableSink sink,
+                    int64_t arrow_memory_limit_bytes, RuntimeProfile* profile);
 
     Status write(RuntimeState* state, Block& block) override;
     Status prepare_commit(std::vector<TPaimonCommitMessage>& messages) override;
@@ -121,12 +127,14 @@ private:
     Status _write_row_range(RuntimeState* state, const Block& block,
                             const std::shared_ptr<arrow::Schema>& arrow_schema, size_t start_row,
                             size_t end_row, size_t estimated_ipc_bytes);
+    Status _get_jni_call_status(JNIEnv* env, Status status);
 
     // Shared JNI state (owned by JniPaimonWriteBackend, not this adapter).
     jobject _jni_writer_obj;
     jmethodID _write_id;
     jmethodID _prepare_commit_id;
     jmethodID _abort_id;
+    jmethodID _consume_last_memory_error_id;
 
     // Arrow resources owned by this writer adapter.
     std::unique_ptr<ArrowMemoryPool<>> _arrow_pool;
@@ -137,6 +145,11 @@ private:
     RuntimeProfile::Counter* _arrow_ipc_bytes = nullptr;
     RuntimeProfile::Counter* _arrow_ipc_batch_bytes_peak = nullptr;
     RuntimeProfile::Counter* _arrow_batch_rows_peak = nullptr;
+    RuntimeProfile::Counter* _cpp_arrow_memory_error = nullptr;
+    RuntimeProfile::Counter* _arrow_memory_exceeded = nullptr;
+    RuntimeProfile::Counter* _paimon_page_memory_exceeded = nullptr;
+    RuntimeProfile::Counter* _jvm_heap_memory_exceeded = nullptr;
+    RuntimeProfile::Counter* _commit_payload_memory_exceeded = nullptr;
 };
 
 } // namespace doris
