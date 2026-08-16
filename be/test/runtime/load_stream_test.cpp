@@ -647,6 +647,7 @@ public:
         _server->Stop(0);
         CHECK_EQ(0, _server->Join());
         SAFE_DELETE(_server);
+        _load_stream_mgr.reset();
         engine_ref = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
