@@ -153,6 +153,22 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <!--
+          Completes the Jersey 1.x stack on the FE's own classpath. jersey-core arrives here
+          transitively already, and both com.sun. and javax. are mandatory parent-first for every
+          plugin classloader (ChildFirstClassLoader.DEFAULT_PARENT_FIRST_PACKAGES), so a plugin that
+          bundles Jersey still links against this copy of com.sun.jersey.core - and that copy needs
+          the javax.ws.rs types and the client half to be reachable from here too, or it fails with
+          NoClassDefFoundError the moment a plugin builds a client. The Ranger authorization sources
+          are the ones that do, through RangerAdminRESTClient. Same shape as
+          FileSystemPluginManager.FS_PARENT_FIRST_PREFIXES making hadoop the host's: one copy of a
+          shared library, the plugin's bundled one only a fallback.
+          Brings javax.ws.rs:jsr311-api with it.
+        -->
+        <dependency>
+            <groupId>com.sun.jersey</groupId>
+            <artifactId>jersey-client</artifactId>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-foundation</artifactId>

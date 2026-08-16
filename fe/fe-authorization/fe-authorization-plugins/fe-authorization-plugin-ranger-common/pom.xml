@@ -56,6 +56,19 @@ under the License.
             <groupId>org.apache.ranger</groupId>
             <artifactId>ranger-plugins-common</artifactId>
         </dependency>
+        <!--
+          RangerBasePlugin.init() builds a RangerAdminRESTClient, which is Jersey 1.x, and fe/pom.xml
+          excludes the jersey-bundle Ranger would have got it from. Declared here rather than in each
+          plugin because both of them start a policy refresher; brings jersey-core and jsr311-api
+          (javax.ws.rs) with it. On a host that ships Jersey this bundled copy is only a findClass
+          fallback - com.sun. and javax. are parent-first for every plugin classloader - which is why
+          fe-core declares it too. Neither side alone is enough: with only this one, the host's
+          jersey-core still wins for com.sun.jersey.core and then cannot see javax.ws.rs.
+        -->
+        <dependency>
+            <groupId>com.sun.jersey</groupId>
+            <artifactId>jersey-client</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
