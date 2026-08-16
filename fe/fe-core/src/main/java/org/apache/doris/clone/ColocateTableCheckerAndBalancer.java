@@ -31,7 +31,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletChecker.CheckerCounter;
-import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -79,30 +78,6 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             }
         }
         return INSTANCE;
-    }
-
-    static final class TabletHealthDecision {
-        final boolean countAsUnhealthy;
-        final boolean scheduleRepair;
-        final boolean markGroupUnstable;
-        final Priority repairPriority;
-
-        TabletHealthDecision(boolean countAsUnhealthy, boolean scheduleRepair,
-                boolean markGroupUnstable, Priority repairPriority) {
-            this.countAsUnhealthy = countAsUnhealthy;
-            this.scheduleRepair = scheduleRepair;
-            this.markGroupUnstable = markGroupUnstable;
-            this.repairPriority = repairPriority;
-        }
-    }
-
-    static TabletHealthDecision evaluateTabletHealth(MaterializedIndex index, TabletHealth tabletHealth) {
-        boolean unhealthy = tabletHealth.status != TabletStatus.HEALTHY;
-        return new TabletHealthDecision(
-                unhealthy,
-                unhealthy && tabletHealth.status != TabletStatus.UNRECOVERABLE,
-                unhealthy && !index.isRowBinlog(),
-                tabletHealth.priority);
     }
 
     public static class BucketStatistic {
@@ -567,10 +542,9 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                 } else {
                                     tabletHealth = tablet.getColocateHealth(visibleVersion, replicaAlloc, bucketsSeq);
                                 }
-                                TabletHealthDecision healthDecision = evaluateTabletHealth(index, tabletHealth);
-                                if (healthDecision.countAsUnhealthy) {
+                                if (tabletHealth.status != TabletStatus.HEALTHY) {
                                     counter.unhealthyTabletNum++;
-                                    if (healthDecision.markGroupUnstable) {
+                                    if (!index.isRowBinlog()) {
                                         unstableReason = String.format("get unhealthy tablet %d in colocate table."
                                                 + " status: %s", tablet.getId(), tabletHealth.status);
                                         if (LOG.isDebugEnabled()) {
@@ -578,11 +552,11 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                         }
                                     }
 
-                                    if (!healthDecision.scheduleRepair) {
+                                    if (tabletHealth.status == TabletStatus.UNRECOVERABLE) {
                                         continue;
                                     }
 
-                                    if (!tablet.readyToBeRepaired(infoService, healthDecision.repairPriority)) {
+                                    if (!tablet.readyToBeRepaired(infoService, tabletHealth.priority)) {
                                         counter.tabletNotReady++;
                                         continue;
                                     }

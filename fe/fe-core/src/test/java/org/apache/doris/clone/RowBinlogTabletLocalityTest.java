@@ -29,6 +29,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -96,6 +97,7 @@ public class RowBinlogTabletLocalityTest {
         RowBinlogTabletLocality.RowBinlogHealthResult result = getHealth(pair);
 
         Assertions.assertEquals(TabletStatus.COLOCATE_MISMATCH, result.getTabletHealth().status);
+        Assertions.assertEquals(Priority.HIGH, result.getTabletHealth().priority);
         Assertions.assertEquals(40L, result.getRequiredDestPathHashByBackend().get(4L));
         Assertions.assertEquals(Sets.newHashSet(1L, 2L, 3L, 4L), result.getRequiredBackends());
     }
@@ -134,13 +136,17 @@ public class RowBinlogTabletLocalityTest {
                 replicas(1, 2, 3),
                 replicas(replicaSpec(1, 10), replicaSpec(2, 20, VISIBLE_VERSION - 1, -1), replicaSpec(3, 30)));
 
-        Assertions.assertEquals(TabletStatus.VERSION_INCOMPLETE, getHealth(incompletePair).getTabletHealth().status);
+        TabletHealth incompleteHealth = getHealth(incompletePair).getTabletHealth();
+        Assertions.assertEquals(TabletStatus.VERSION_INCOMPLETE, incompleteHealth.status);
+        Assertions.assertEquals(Priority.VERY_HIGH, incompleteHealth.priority);
 
         TabletPair wrongPathPair = createTabletPair(
                 replicas(1, 2, 3),
                 replicas(replicaSpec(1, 10), replicaSpec(2, 200, VISIBLE_VERSION - 1, -1), replicaSpec(3, 30)));
 
-        Assertions.assertEquals(TabletStatus.VERSION_INCOMPLETE, getHealth(wrongPathPair).getTabletHealth().status);
+        TabletHealth wrongPathHealth = getHealth(wrongPathPair).getTabletHealth();
+        Assertions.assertEquals(TabletStatus.VERSION_INCOMPLETE, wrongPathHealth.status);
+        Assertions.assertEquals(Priority.VERY_HIGH, wrongPathHealth.priority);
     }
 
     @Test
