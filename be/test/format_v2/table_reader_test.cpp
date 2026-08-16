@@ -1200,6 +1200,8 @@ struct FakeFileReaderState {
     bool stop_during_aggregate = false;
     bool stop_during_read = false;
     bool not_found_during_init = false;
+    int physical_split_count = -1;
+    int build_physical_splits_count = 0;
     std::shared_ptr<FileScanRequest> last_request;
     std::shared_ptr<FileScanRequest> pending_request;
     std::optional<FileAggregateRequest> last_aggregate_request;
@@ -1350,6 +1352,27 @@ public:
     }
 
     int64_t get_total_rows() const override { return _state->total_rows; }
+
+    Status build_physical_splits(const FileScanSplit& source_split,
+                                 std::vector<FileScanSplit>* splits,
+                                 bool* was_split) const override {
+        if (_state->physical_split_count < 0) {
+            return FileReader::build_physical_splits(source_split, splits, was_split);
+        }
+        ++_state->build_physical_splits_count;
+        splits->clear();
+        auto source_range = std::make_shared<TFileRangeDesc>(source_split.range);
+        for (int index = 0; index < _state->physical_split_count; ++index) {
+            FileScanSplit child;
+            child.source_range = source_range;
+            child.start_offset = index * 100;
+            child.size = 100;
+            child.format_split_id = index;
+            splits->push_back(std::move(child));
+        }
+        *was_split = true;
+        return Status::OK();
+    }
 
     Status close() override {
         ++_state->close_count;
@@ -1733,6 +1756,51 @@ TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_TRUE(eos);
+}
+
+TEST(TableReaderTest, SinglePhysicalSplitReusesPlanningReader) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->physical_split_count = 1;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    FileScanSplit source_split;
+    source_split.range = split_options.current_range;
+    source_split.is_source_split = true;
+    std::vector<FileScanSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(reader.build_physical_splits(source_split, &children, &was_split).ok());
+
+    EXPECT_FALSE(was_split);
+    EXPECT_TRUE(children.empty());
+    EXPECT_EQ(fake_state->init_count, 1);
+    EXPECT_EQ(fake_state->close_count, 0);
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(fake_state->init_count, 1);
+    EXPECT_EQ(fake_state->open_count, 1);
+    ASSERT_TRUE(reader.close().ok());
 }
 
 TEST(TableReaderTest, PrepareSplitReplacesInitialConjunctSnapshot) {

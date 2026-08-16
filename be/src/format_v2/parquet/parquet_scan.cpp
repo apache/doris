@@ -636,11 +636,41 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
                                               std::vector<int64_t>* row_group_first_rows,
                                               std::vector<int>* selected_row_groups) {
     DORIS_CHECK(row_group_first_rows != nullptr && selected_row_groups != nullptr);
-    if (scan_range.start_offset < 0 || scan_range.size < -1 ||
+    row_group_first_rows->assign(metadata.row_groups.size(), 0);
+    int64_t next_first_row = 0;
+    for (size_t row_group_idx = 0; row_group_idx < metadata.row_groups.size(); ++row_group_idx) {
+        (*row_group_first_rows)[row_group_idx] = next_first_row;
+        const auto row_group_rows = metadata.row_groups[row_group_idx].num_rows;
+        if (row_group_rows < 0) {
+            return Status::Corruption("Invalid negative row count in parquet row group {}",
+                                      row_group_idx);
+        }
+        if (row_group_rows > std::numeric_limits<int64_t>::max() - next_first_row) {
+            return Status::Corruption("Parquet row counts overflow at row group {}", row_group_idx);
+        }
+        next_first_row += row_group_rows;
+    }
+    return select_native_row_groups_by_scan_range(metadata, scan_range, *row_group_first_rows,
+                                                  selected_row_groups);
+}
+
+Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& metadata,
+                                              const ParquetScanRange& scan_range,
+                                              const std::vector<int64_t>& row_group_first_rows,
+                                              std::vector<int>* selected_row_groups) {
+    DORIS_CHECK(selected_row_groups != nullptr);
+    DORIS_CHECK(row_group_first_rows.size() == metadata.row_groups.size());
+    if (scan_range.start_offset < 0 || scan_range.size < -1 || scan_range.row_group_id < -1 ||
+        scan_range.row_group_id >= cast_set<int64_t>(metadata.row_groups.size()) ||
         (scan_range.size >= 0 &&
          scan_range.start_offset > std::numeric_limits<int64_t>::max() - scan_range.size)) {
         return Status::Corruption("Invalid Parquet scan range [{}, {})", scan_range.start_offset,
                                   scan_range.size);
+    }
+    selected_row_groups->clear();
+    if (scan_range.row_group_id >= 0) {
+        selected_row_groups->push_back(cast_set<int>(scan_range.row_group_id));
+        return Status::OK();
     }
     const uint64_t range_start = static_cast<uint64_t>(scan_range.start_offset);
     const uint64_t range_end = scan_range.size < 0
@@ -653,21 +683,9 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
                                     range_end >= static_cast<uint64_t>(scan_range.file_size));
     const auto compat = native::parquet_reader_compat(
             metadata.__isset.created_by ? metadata.created_by : std::string {});
-    row_group_first_rows->assign(metadata.row_groups.size(), 0);
-    selected_row_groups->clear();
     selected_row_groups->reserve(metadata.row_groups.size());
-    int64_t next_first_row = 0;
     for (size_t row_group_idx = 0; row_group_idx < metadata.row_groups.size(); ++row_group_idx) {
-        (*row_group_first_rows)[row_group_idx] = next_first_row;
         const auto& row_group = metadata.row_groups[row_group_idx];
-        if (row_group.num_rows < 0) {
-            return Status::Corruption("Invalid negative row count in parquet row group {}",
-                                      row_group_idx);
-        }
-        if (row_group.num_rows > std::numeric_limits<int64_t>::max() - next_first_row) {
-            return Status::Corruption("Parquet row counts overflow at row group {}", row_group_idx);
-        }
-        next_first_row += row_group.num_rows;
         bool selected = full_file_range;
         if (!full_file_range) {
             if (row_group.columns.empty()) {
@@ -825,10 +843,10 @@ Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
     plan->pruning_stats = {};
     plan->requested_leaf_column_ids = request_leaf_column_ids(file_schema, request);
     plan->enable_bloom_filter = enable_bloom_filter;
-    std::vector<int64_t> row_group_first_rows;
+    const auto& row_group_first_rows = metadata.row_group_first_rows();
     std::vector<int> scan_range_selected;
     RETURN_IF_ERROR(detail::select_native_row_groups_by_scan_range(
-            metadata.to_thrift(), scan_range, &row_group_first_rows, &scan_range_selected));
+            metadata.to_thrift(), scan_range, row_group_first_rows, &scan_range_selected));
     RETURN_IF_ERROR(build_native_row_group_read_plans(metadata, file_schema, request,
                                                       scan_range_selected, row_group_first_rows,
                                                       plan, timezone, runtime_state, file_context));

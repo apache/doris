@@ -279,6 +279,13 @@ Status PaimonHybridReader::prepare_split(const format::SplitReadOptions& options
     return _current_split_reader->prepare_split(options);
 }
 
+Status PaimonHybridReader::build_physical_splits(const FileScanSplit& source_split,
+                                                 std::vector<FileScanSplit>* splits,
+                                                 bool* was_split) {
+    DORIS_CHECK(_current_split_reader != nullptr);
+    return _current_split_reader->build_physical_splits(source_split, splits, was_split);
+}
+
 Status PaimonHybridReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
     RETURN_IF_ERROR(format::TableReader::refresh_conjuncts(std::move(conjuncts)));
     if (_current_split_reader == nullptr) {
@@ -401,6 +408,7 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
             .push_down_agg_type = _push_down_agg_type,
             .push_down_count_columns = _push_down_count_columns,
             .condition_cache_digest = _condition_cache_digest,
+            .file_context_registry = _file_context_registry,
     }));
     // Zero means no adaptive prediction has been produced yet. Preserve the child's normal
     // runtime default until FileScannerV2 supplies the first positive prediction.

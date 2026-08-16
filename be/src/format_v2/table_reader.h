@@ -60,6 +60,7 @@
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/file_scan_context.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -89,6 +90,8 @@ struct ScanTask {
     virtual ~ScanTask() = default;
 
     std::unique_ptr<io::FileDescription> data_file;
+    std::shared_ptr<const FileContext> file_context;
+    int64_t format_split_id = -1;
 };
 
 struct ProjectedColumnBuildContext {
@@ -158,6 +161,7 @@ struct TableReadOptions {
     // with SplitReadOptions::condition_cache_digest after collecting late-arrival runtime filters.
     // A zero digest disables condition cache.
     uint64_t condition_cache_digest = 0;
+    FileContextRegistry* file_context_registry = nullptr;
 };
 
 struct SplitReadOptions {
@@ -182,6 +186,8 @@ struct SplitReadOptions {
     ShardedKVCache* cache = nullptr;
     TFileRangeDesc current_range;
     FileFormat current_split_format = FileFormat::PARQUET;
+    std::shared_ptr<const FileContext> file_context;
+    int64_t format_split_id = -1;
     std::optional<GlobalRowIdContext> global_rowid_context;
 };
 
@@ -235,6 +241,11 @@ public:
     virtual bool current_split_uses_metadata_count() const {
         return _current_split_uses_metadata_count;
     }
+
+    // Refine a prepared source split into format-specific physical children. The default
+    // implementation currently handles native Parquet; wrappers dispatch to their active child.
+    virtual Status build_physical_splits(const FileScanSplit& source_split,
+                                         std::vector<FileScanSplit>* splits, bool* was_split);
 
     // Discard the active split after the caller decides an error is ignorable, for example a
     // stale external-table file listing that returns NOT_FOUND. The next prepare_split() must start
@@ -1924,6 +1935,7 @@ protected:
     RuntimeProfile* _scanner_profile;
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
+    FileContextRegistry* _file_context_registry = nullptr;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
     std::optional<std::vector<GlobalIndex>> _push_down_count_columns;
     size_t _batch_size = 0;

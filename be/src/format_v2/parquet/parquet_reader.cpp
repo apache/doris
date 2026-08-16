@@ -18,6 +18,7 @@
 #include "format_v2/parquet/parquet_reader.h"
 
 #include <algorithm>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -41,6 +42,7 @@
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/count_column_reader.h"
+#include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
 
@@ -478,11 +480,17 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              std::unique_ptr<io::FileDescription>& file_description,
                              std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                              std::optional<format::GlobalRowIdContext> global_rowid_context,
-                             bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary)
+                             bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
+                             FileContextRegistry* file_context_registry,
+                             std::shared_ptr<const FileContext> file_context,
+                             int64_t format_split_id)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(global_rowid_context),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
-          _enable_mapping_varbinary(enable_mapping_varbinary) {}
+          _enable_mapping_varbinary(enable_mapping_varbinary),
+          _file_context_registry(file_context_registry),
+          _file_context(std::move(file_context)),
+          _format_split_id(format_split_id) {}
 
 ParquetReader::~ParquetReader() = default;
 
@@ -523,7 +531,8 @@ Status ParquetReader::init(RuntimeState* state) {
         SCOPED_TIMER(_parquet_profile.parse_footer_time);
         RETURN_IF_ERROR(_state->file_context.open(
                 _tracing_file_reader, _io_ctx.get(), _state->enable_page_cache, *_file_description,
-                _enable_mapping_timestamp_tz, _enable_mapping_varbinary));
+                _enable_mapping_timestamp_tz, _enable_mapping_varbinary, _file_context_registry,
+                _file_context));
     }
     if (_profile != nullptr) {
         COUNTER_UPDATE(_parquet_profile.file_footer_read_calls,
@@ -548,6 +557,75 @@ Status ParquetReader::init(RuntimeState* state) {
             }
         }
     }
+    return Status::OK();
+}
+
+Status ParquetReader::build_physical_splits(const FileScanSplit& source_split,
+                                            std::vector<FileScanSplit>* splits,
+                                            bool* was_split) const {
+    DORIS_CHECK(splits != nullptr);
+    DORIS_CHECK(was_split != nullptr);
+    splits->clear();
+    *was_split = false;
+    if (_state == nullptr || _state->file_context.native_metadata == nullptr ||
+        _state->file_context.shared_file_context == nullptr) {
+        return Status::Uninitialized("ParquetReader is not open");
+    }
+    if (!_state->file_context.shared_file_context->has_stable_identity) {
+        // A path and size do not identify a mutable remote object. Keep the initialized parent
+        // reader instead of publishing children whose shared footer could become stale.
+        return Status::OK();
+    }
+
+    ParquetScanRange scan_range {
+            .start_offset =
+                    source_split.range.__isset.start_offset ? source_split.range.start_offset : 0,
+            .size = source_split.range.__isset.size ? source_split.range.size : -1,
+            .file_size = source_split.range.__isset.file_size ? source_split.range.file_size
+                                                              : _file_description->file_size,
+    };
+    std::vector<int> selected_row_groups;
+    RETURN_IF_ERROR(detail::select_native_row_groups_by_scan_range(
+            _state->file_context.native_metadata->to_thrift(), scan_range,
+            _state->file_context.native_metadata->row_group_first_rows(), &selected_row_groups));
+    const auto& metadata = _state->file_context.native_metadata->to_thrift();
+    const auto compat = native::parquet_reader_compat(
+            metadata.__isset.created_by ? metadata.created_by : std::string {});
+    const size_t file_size = _state->file_context.native_file->size();
+    auto shared_source_range = std::make_shared<TFileRangeDesc>(source_split.range);
+    splits->reserve(selected_row_groups.size());
+    for (const int row_group_id : selected_row_groups) {
+        const auto& row_group = metadata.row_groups[row_group_id];
+        size_t group_start = std::numeric_limits<size_t>::max();
+        size_t group_end = 0;
+        for (size_t column_id = 0; column_id < row_group.columns.size(); ++column_id) {
+            const auto& chunk = row_group.columns[column_id];
+            if (!chunk.__isset.meta_data) {
+                return Status::Corruption("Parquet row group {} column {} has no metadata",
+                                          row_group_id, column_id);
+            }
+            native::ColumnChunkRange chunk_range;
+            RETURN_IF_ERROR(native::compute_column_chunk_range(
+                    chunk.meta_data, file_size, compat.parquet_816_padding, &chunk_range));
+            group_start = std::min(group_start, chunk_range.offset);
+            group_end = std::max(group_end, chunk_range.offset + chunk_range.length);
+        }
+        if (group_end <= group_start) {
+            return Status::Corruption("Parquet row group {} has an empty physical byte range",
+                                      row_group_id);
+        }
+        FileScanSplit child;
+        child.source_range = shared_source_range;
+        child.start_offset = cast_set<int64_t>(group_start);
+        child.size = cast_set<int64_t>(group_end - group_start);
+        // A source-level count is not valid for one generated row group. Child readers can still
+        // derive an exact count from the shared footer when aggregate pushdown is eligible.
+        child.clear_table_level_row_count = true;
+        child.file_context = _state->file_context.shared_file_context;
+        child.format_split_id = row_group_id;
+        splits->push_back(std::move(child));
+    }
+    *was_split = true;
     return Status::OK();
 }
 
@@ -668,6 +746,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     scan_range.start_offset = _file_description->range_start_offset;
     scan_range.size = _file_description->range_size;
     scan_range.file_size = _file_description->file_size;
+    scan_range.row_group_id = _format_split_id;
     // Get selected ranges in row groups according to metadata (Row-Group level index and Page Index including Zonemap, Dictionary, Bloom Filter).
     RETURN_IF_ERROR(plan_parquet_row_groups(
             *_state->file_context.native_metadata, _state->file_schema, *request_snapshot,

@@ -68,6 +68,7 @@
 #include "format_v2/column_mapper.h"
 #include "format_v2/expr/delete_predicate.h"
 #include "format_v2/file_reader.h"
+#include "format_v2/file_scan_context.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/reader/column_reader.h"
@@ -1775,7 +1776,10 @@ protected:
             std::shared_ptr<io::IOContext> io_ctx = nullptr,
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
             bool is_immutable = false, bool enable_mapping_varbinary = false,
-            std::string fs_name = {}, int64_t mtime = 0) const {
+            std::string fs_name = {}, int64_t mtime = 0,
+            FileContextRegistry* file_context_registry = nullptr,
+            std::shared_ptr<const FileContext> file_context = nullptr,
+            int64_t format_split_id = -1) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1788,12 +1792,85 @@ protected:
         file_description->mtime = mtime;
         return std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, std::move(io_ctx), profile,
-                global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
+                global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
+                file_context_registry, std::move(file_context), format_split_id);
     }
 
     std::filesystem::path _test_dir;
     std::string _file_path;
 };
+
+TEST_F(NewParquetReaderTest, RowGroupSplitsShareOneRegistryFooterContext) {
+    write_parquet_file(_file_path, 2);
+    constexpr int64_t TEST_MTIME = 424242;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    FileContextRegistry registry;
+    RuntimeProfile parent_profile("row_group_split_parent");
+    auto parent = create_reader(0, -1, &parent_profile, false, nullptr, std::nullopt, false, false,
+                                {}, TEST_MTIME, &registry);
+    ASSERT_TRUE(parent->init(&state).ok());
+
+    FileScanSplit source;
+    source.range.__set_path(_file_path);
+    source.range.__set_start_offset(0);
+    source.range.__set_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
+    source.range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
+    source.range.__set_modification_time(TEST_MTIME);
+    TTableFormatFileDesc table_format;
+    table_format.__set_table_level_row_count(5);
+    source.range.__set_table_format_params(table_format);
+    source.is_source_split = true;
+    std::vector<FileScanSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(parent->build_physical_splits(source, &children, &was_split).ok());
+    ASSERT_TRUE(was_split);
+    ASSERT_EQ(children.size(), 3);
+    ASSERT_NE(children[0].file_context, nullptr);
+    for (size_t index = 0; index < children.size(); ++index) {
+        EXPECT_EQ(children[index].file_context, children[0].file_context);
+        EXPECT_EQ(children[index].format_split_id, cast_set<int64_t>(index));
+        EXPECT_GT(children[index].size, 0);
+        EXPECT_FALSE(children[index].is_source_split);
+        EXPECT_FALSE(children[index]
+                             .materialize_range()
+                             .table_format_params.__isset.table_level_row_count);
+    }
+    EXPECT_EQ(parent_profile.get_counter("FileFooterReadCalls")->value(), 1);
+
+    RuntimeProfile sibling_profile("same_file_source_split");
+    auto sibling = create_reader(0, -1, &sibling_profile, false, nullptr, std::nullopt, false,
+                                 false, {}, TEST_MTIME, &registry);
+    ASSERT_TRUE(sibling->init(&state).ok());
+    EXPECT_EQ(sibling_profile.get_counter("FileFooterReadCalls")->value(), 0);
+    EXPECT_EQ(sibling_profile.get_counter("FileFooterHitCache")->value(), 0);
+
+    RuntimeProfile child_profile("row_group_split_child");
+    auto child_range = children[0].materialize_range();
+    auto child = create_reader(child_range.start_offset, child_range.size, &child_profile, false,
+                               nullptr, std::nullopt, false, false, {}, TEST_MTIME, &registry,
+                               children[0].file_context, children[0].format_split_id);
+    ASSERT_TRUE(child->init(&state).ok());
+    EXPECT_EQ(child_profile.get_counter("FileFooterReadCalls")->value(), 0);
+    EXPECT_EQ(child_profile.get_counter("FileFooterHitCache")->value(), 0);
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(child->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    for (size_t index = 0; index < schema.size(); ++index) {
+        request->non_predicate_columns.push_back(field_projection(cast_set<int32_t>(index)));
+    }
+    use_schema_order_positions(request.get(), schema);
+    ASSERT_TRUE(child->open(request).ok());
+    size_t total_rows = 0;
+    bool eof = false;
+    while (!eof) {
+        auto block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(child->get_block(&block, &rows, &eof).ok());
+        total_rows += rows;
+    }
+    EXPECT_EQ(total_rows, 2);
+}
 
 TEST_F(NewParquetReaderTest, GetSchemaReturnsFileLocalColumns) {
     auto reader = create_reader();
@@ -3410,19 +3487,43 @@ TEST_F(NewParquetReaderTest, NativeFooterCacheDoesNotReuseMutableUnknownVersion)
     _file_path = (_test_dir / "mutable_footer_cache.parquet").string();
     write_parquet_file(_file_path);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    FileContextRegistry registry;
 
     RuntimeProfile first_profile("native_footer_cache_mutable_first");
-    auto first = create_reader(0, -1, &first_profile);
+    auto first = create_reader(0, -1, &first_profile, false, nullptr, std::nullopt, false, false,
+                               {}, 0, &registry);
     ASSERT_TRUE(first->init(&state).ok());
     EXPECT_EQ(first_profile.get_counter("FileFooterReadCalls")->value(), 1);
     EXPECT_EQ(first_profile.get_counter("FileFooterHitCache")->value(), 0);
 
     write_parquet_file(_file_path);
     RuntimeProfile second_profile("native_footer_cache_mutable_second");
-    auto second = create_reader(0, -1, &second_profile);
+    auto second = create_reader(0, -1, &second_profile, false, nullptr, std::nullopt, false, false,
+                                {}, 0, &registry);
     ASSERT_TRUE(second->init(&state).ok());
     EXPECT_EQ(second_profile.get_counter("FileFooterReadCalls")->value(), 1);
     EXPECT_EQ(second_profile.get_counter("FileFooterHitCache")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, MutableUnknownVersionDeclinesPhysicalSplitRefinement) {
+    write_parquet_file(_file_path, 2);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    FileContextRegistry registry;
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {}, 0,
+                                &registry);
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    FileScanSplit source;
+    source.range.__set_path(_file_path);
+    source.range.__set_start_offset(0);
+    source.range.__set_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
+    source.range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
+    source.is_source_split = true;
+    std::vector<FileScanSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(reader->build_physical_splits(source, &children, &was_split).ok());
+    EXPECT_FALSE(was_split);
+    EXPECT_TRUE(children.empty());
 }
 
 TEST_F(NewParquetReaderTest, NativeFooterSizeIsBoundedBeforeMetadataAllocation) {

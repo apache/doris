@@ -233,6 +233,8 @@ TEST(JniTableReaderTest, AdaptiveProbeSetBeforePrepareControlsFirstJniOpen) {
                                              .cache = nullptr,
                                              .current_range = {},
                                              .current_split_format = FileFormat::JNI,
+                                             .file_context = nullptr,
+                                             .format_split_id = -1,
                                              .global_rowid_context = std::nullopt,
                                      })
                         .ok());
@@ -253,6 +255,8 @@ TEST(JniTableReaderTest, RefreshedConjunctIsReadyBeforeFilteringOpenScanner) {
                                              .cache = nullptr,
                                              .current_range = {},
                                              .current_split_format = FileFormat::JNI,
+                                             .file_context = nullptr,
+                                             .format_split_id = -1,
                                              .global_rowid_context = std::nullopt,
                                      })
                         .ok());
@@ -283,6 +287,8 @@ TEST(JniTableReaderTest, CommonLifecycleTimersContainJniLifecycleWork) {
                                              .cache = nullptr,
                                              .current_range = {},
                                              .current_split_format = FileFormat::JNI,
+                                             .file_context = nullptr,
+                                             .format_split_id = -1,
                                              .global_rowid_context = std::nullopt,
                                      })
                         .ok());

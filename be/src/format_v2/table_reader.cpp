@@ -766,6 +766,7 @@ Status TableReader::init(TableReadOptions&& options) {
     _push_down_count_columns = options.push_down_count_columns;
     _initial_condition_cache_digest = options.condition_cache_digest;
     _condition_cache_digest = _initial_condition_cache_digest;
+    _file_context_registry = options.file_context_registry;
     _projected_columns = std::move(options.projected_columns);
     if (supports_iceberg_scan_semantics_v1(_scan_params)) {
         for (auto& projected_column : _projected_columns) {
@@ -1108,7 +1109,9 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         // match the table type.
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
+                _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
+                _file_context_registry, _current_task->file_context,
+                _current_task->format_split_id);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
@@ -1225,6 +1228,8 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     }
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);
+    _current_task->file_context = options.file_context;
+    _current_task->format_split_id = options.format_split_id;
     _current_file_description = *_current_task->data_file;
     // A table-level row count is only equivalent to scanning the split when no row predicate is
     // active and no predicate can arrive later. The metadata path can return several batches for
@@ -1247,6 +1252,40 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
         return Status::OK();
     }
     return _parse_delete_predicates(options);
+}
+
+Status TableReader::build_physical_splits(const FileScanSplit& source_split,
+                                          std::vector<FileScanSplit>* splits, bool* was_split) {
+    DORIS_CHECK(splits != nullptr);
+    DORIS_CHECK(was_split != nullptr);
+    splits->clear();
+    *was_split = false;
+    if (_format != FileFormat::PARQUET || _current_split_pruned ||
+        _current_split_uses_metadata_count || _current_task == nullptr) {
+        return Status::OK();
+    }
+
+    std::unique_ptr<FileReader> reader;
+    RETURN_IF_ERROR(create_file_reader(&reader));
+    DORIS_CHECK(reader != nullptr);
+    RETURN_IF_ERROR(reader->init(_runtime_state));
+    const auto status = reader->build_physical_splits(source_split, splits, was_split);
+    if (!status.ok()) {
+        static_cast<void>(reader->close());
+        return status;
+    }
+    if (!*was_split || splits->size() == 1) {
+        // Reuse the planning reader when refinement is unnecessary. This avoids parsing the same
+        // footer again for an unsplit file or for the common single-row-group case.
+        splits->clear();
+        *was_split = false;
+        _data_reader.reader = std::move(reader);
+        if (_batch_size > 0) {
+            _data_reader.reader->set_batch_size(_batch_size);
+        }
+        return open_reader();
+    }
+    return reader->close();
 }
 
 Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,

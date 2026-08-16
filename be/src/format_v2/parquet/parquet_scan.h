@@ -106,6 +106,10 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
                                               std::vector<int64_t>* row_group_first_rows,
                                               std::vector<int>* selected_row_groups);
 bool types_equal_ignoring_nested_nullability(const DataTypePtr& left, const DataTypePtr& right);
+Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& metadata,
+                                              const ParquetScanRange& scan_range,
+                                              const std::vector<int64_t>& row_group_first_rows,
+                                              std::vector<int>* selected_row_groups);
 #ifdef BE_TEST
 void reset_physical_leaf_set_build_count();
 size_t physical_leaf_set_build_count();
@@ -117,8 +121,9 @@ size_t physical_leaf_set_build_count();
 
 struct ParquetScanRange {
     int64_t start_offset = 0;
-    int64_t size = -1;      // -1 means read the whole file
-    int64_t file_size = -1; // -1 means unknown
+    int64_t size = -1;         // -1 means read the whole file
+    int64_t file_size = -1;    // -1 means unknown
+    int64_t row_group_id = -1; // BE-generated splits select one row group without Thrift changes
 };
 
 struct RowGroupReadPlan {

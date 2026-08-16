@@ -94,6 +94,7 @@ private:
     // 2. parquet file meta
     // KVCache<std::string> _kv_cache;
     std::unique_ptr<ShardedKVCache> _kv_cache;
+    FileContextRegistry _file_context_registry;
     TupleId _output_tuple_id = -1;
     RuntimeProfile::Counter* _condition_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;

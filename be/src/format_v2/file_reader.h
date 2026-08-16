@@ -31,6 +31,7 @@
 #include "core/field.h"
 #include "exprs/vexpr_fwd.h"
 #include "format_v2/column_data.h"
+#include "format_v2/file_scan_context.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -346,6 +347,19 @@ public:
 
     // Initialize file reader and parse file metadata.
     virtual Status init(RuntimeState* state);
+
+    // Optionally refine one scheduler split into format-specific physical children after metadata
+    // initialization. The default keeps non-columnar formats on their original split.
+    virtual Status build_physical_splits(const FileScanSplit& source_split,
+                                         std::vector<FileScanSplit>* splits,
+                                         bool* was_split) const {
+        (void)source_split;
+        DORIS_CHECK(splits != nullptr);
+        DORIS_CHECK(was_split != nullptr);
+        splits->clear();
+        *was_split = false;
+        return Status::OK();
+    }
 
     // Set the maximum row count for the next physical read batch. Readers that do not batch by
     // rows may ignore it.

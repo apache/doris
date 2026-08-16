@@ -185,6 +185,26 @@ TEST(ParquetScanMetadataSafetyTest, CheckedChunkRangesDrivePrefetchAndSplitAssig
                          .ok());
 }
 
+TEST(ParquetScanMetadataSafetyTest, ExactRowGroupUsesPrecomputedFirstRows) {
+    tparquet::FileMetaData metadata;
+    tparquet::RowGroup unrelated_before;
+    unrelated_before.__set_num_rows(-1);
+    tparquet::RowGroup selected_group;
+    selected_group.__set_num_rows(7);
+    tparquet::RowGroup unrelated_after;
+    unrelated_after.__set_num_rows(-1);
+    metadata.__set_row_groups({unrelated_before, selected_group, unrelated_after});
+
+    const std::vector<int64_t> first_rows {0, 10, 17};
+    const format::parquet::ParquetScanRange exact_group {
+            .start_offset = 0, .size = -1, .file_size = 1, .row_group_id = 1};
+    std::vector<int> selected;
+    ASSERT_TRUE(format::parquet::detail::select_native_row_groups_by_scan_range(
+                        metadata, exact_group, first_rows, &selected)
+                        .ok());
+    EXPECT_EQ(selected, std::vector<int>({1}));
+}
+
 class Int32ZoneMapExpr final : public VExpr {
 public:
     enum class Op { GE, GT, LT };

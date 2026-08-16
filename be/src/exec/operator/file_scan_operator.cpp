@@ -258,9 +258,54 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
         if (_split_source == nullptr) {
             _split_source = std::make_shared<LocalSplitSourceConnector>(scan_ranges, _max_scanners);
         }
-        // currently the total number of splits in the bach split mode cannot be accurately obtained,
-        // so we don't do it in the batch split mode.
-        _max_scanners = std::min(_max_scanners, _split_source->num_scan_ranges());
+        // A single FE Parquet split can publish many row-group children after its footer is read.
+        // Keep the requested scanner concurrency in that case; capping it to the initial range
+        // count would leave the generated children serial even though they share one footer.
+        bool can_generate_parquet_splits = false;
+        const TFileScanRangeParams* common_params = nullptr;
+        if (state->get_query_ctx() != nullptr &&
+            state->get_query_ctx()->file_scan_range_params_map.contains(parent_id())) {
+            common_params = &state->get_query_ctx()->file_scan_range_params_map[parent_id()];
+        }
+        for (const auto& scan_range_params : scan_ranges) {
+            const auto& file_scan_range =
+                    scan_range_params.scan_range.ext_scan_range.file_scan_range;
+            const auto* params =
+                    file_scan_range.__isset.params ? &file_scan_range.params : common_params;
+            if (params == nullptr) {
+                continue;
+            }
+            const bool is_load =
+                    state->desc_tbl().get_tuple_descriptor(params->src_tuple_id) != nullptr;
+            if (!_should_use_file_scanner_v2(state->query_options(), is_load, *params)) {
+                continue;
+            }
+            can_generate_parquet_splits =
+                    std::ranges::any_of(file_scan_range.ranges, [&](const auto& range) {
+                        const auto format =
+                                range.__isset.format_type ? range.format_type : params->format_type;
+                        if (format == TFileFormatType::FORMAT_PARQUET) {
+                            return true;
+                        }
+                        if (format != TFileFormatType::FORMAT_JNI ||
+                            !range.__isset.table_format_params ||
+                            range.table_format_params.table_format_type != "paimon" ||
+                            !range.table_format_params.__isset.paimon_params) {
+                            return false;
+                        }
+                        const auto& paimon = range.table_format_params.paimon_params;
+                        return paimon.__isset.file_format && paimon.file_format == "parquet" &&
+                               !paimon.__isset.paimon_split;
+                    });
+            if (can_generate_parquet_splits) {
+                break;
+            }
+        }
+        // Currently the total number of remote splits cannot be accurately obtained, so batch
+        // mode already skips this cap.
+        if (!can_generate_parquet_splits) {
+            _max_scanners = std::min(_max_scanners, _split_source->num_scan_ranges());
+        }
     }
 
     if (!scan_ranges.empty() &&
