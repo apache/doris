@@ -41,7 +41,6 @@ import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -271,7 +270,7 @@ public class StreamLoadHandler {
         }
         try {
             NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(
-                    request, VariableMgr.getDefaultSessionVariable().enableHyperscanFallback);
+                    request, ConnectContext.get().getSessionVariable().enableHyperscanFallback);
             if (isMultiTableRequest) {
                 buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
             }
