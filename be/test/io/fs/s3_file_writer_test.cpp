@@ -312,6 +312,7 @@ public:
                       });
         sp->disable_processing();
         ExecEnv::GetInstance()->_s3_file_upload_thread_pool.reset();
+        s3_fs.reset();
     }
 };
 
