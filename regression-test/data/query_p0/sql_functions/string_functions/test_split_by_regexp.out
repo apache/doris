@@ -94,6 +94,12 @@ a	["a"]
 ,	[","]
 ,	[","]
 
+-- !select16 --
+["aa", "bbb", "cccc"]
+
+-- !select17 --
+["aa", "bbb", "cccc"]
+
 -- !select_alias1 --
 ["a", "b", "c", "d", "e"]
 
