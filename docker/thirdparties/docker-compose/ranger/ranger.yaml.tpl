@@ -38,11 +38,17 @@ services:
       interval: 30s
       timeout: 10s
       retries: 10
+      # setup.sh rebuilds the whole admin install on every boot; on a cold
+      # machine that runs well past 10 * 30s.
+      start_period: 600s
     volumes:
       - ./ranger-admin/ranger-entrypoint.sh:/opt/ranger-entrypoint.sh
       - ./script/install_doris_ranger_plugins.sh:/opt/install_doris_ranger_plugins.sh
       - ./script/install_doris_service_def.sh:/opt/install_doris_service_def.sh
-      
+      # Doris plugin jars + service definition, fetched on the host so that a
+      # flaky download cannot kill the container's `set -e` entrypoint.
+      - ./cache:/opt/doris-ranger-artifacts:ro
+
     entrypoint : ["bash", "-c", "bash /opt/ranger-entrypoint.sh"]
 
   ranger-mysql:
