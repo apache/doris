@@ -6,8 +6,12 @@ mysql
 
 -- !rest_tables --
 all_types
+all_types_unprefixed
 
 -- !rest_scan --
+12	12	1	12	78
+
+-- !rest_scan_unprefixed_credentials --
 12	12	1	12	78
 
 -- !rest_predicate_pushdown --

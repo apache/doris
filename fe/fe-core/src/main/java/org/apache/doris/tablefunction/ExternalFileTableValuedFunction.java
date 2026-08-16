@@ -45,6 +45,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.lance.LanceStorageOptions;
 import org.apache.doris.datasource.lance.LanceTableMetadata;
 import org.apache.doris.datasource.lance.LanceTypeConverter;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
@@ -526,6 +527,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Map<String, String> beProperties = new HashMap<>();
         beProperties.putAll(backendConnectProperties);
         fileScanRangeParams.setProperties(beProperties);
+        if (fileFormatProperties.getFileFormatType() == TFileFormatType.FORMAT_LANCE) {
+            // lance-c opens the dataset itself and needs the options in Lance's own vocabulary.
+            fileScanRangeParams.setLanceStorageOptions(
+                    LanceStorageOptions.toLanceOptions(backendConnectProperties));
+        }
         fileScanRangeParams.setFileAttributes(getFileAttributes());
         ConnectContext ctx = ConnectContext.get();
         fileScanRangeParams.setLoadId(ctx.queryId());

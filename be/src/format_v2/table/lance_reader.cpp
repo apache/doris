@@ -894,36 +894,22 @@ Status LanceTableReader::_fill_block_from_arrow(LanceBatch* batch, Block* block,
     return Status::OK();
 }
 
+// The FE sends these already in Lance's own vocabulary, merged from the catalog properties and
+// from whatever the namespace vended. Re-encoding them here would drop every option this list did
+// not anticipate, so they are handed to lance-c as they arrive.
 std::vector<std::string> LanceTableReader::_storage_options(
         const TFileScanRangeParams* scan_params) {
-    if (scan_params == nullptr || !scan_params->__isset.properties) {
+    if (scan_params == nullptr || !scan_params->__isset.lance_storage_options) {
         return {};
     }
-    static constexpr std::array<std::pair<std::string_view, std::string_view>, 5> kStorageKeys = {
-            {{"AWS_ACCESS_KEY", "aws_access_key_id"},
-             {"AWS_SECRET_KEY", "aws_secret_access_key"},
-             {"AWS_TOKEN", "aws_session_token"},
-             {"AWS_ENDPOINT", "aws_endpoint"},
-             {"AWS_REGION", "aws_region"}}};
     std::vector<std::string> options;
-    options.reserve(kStorageKeys.size() * 2);
-    for (const auto& [doris_key, lance_key] : kStorageKeys) {
-        const auto it = scan_params->properties.find(std::string(doris_key));
-        if (it != scan_params->properties.end() && !it->second.empty()) {
-            options.emplace_back(lance_key);
-            options.emplace_back(it->second);
+    options.reserve(scan_params->lance_storage_options.size() * 2);
+    for (const auto& [key, value] : scan_params->lance_storage_options) {
+        if (value.empty()) {
+            continue;
         }
-    }
-    const auto endpoint = scan_params->properties.find("AWS_ENDPOINT");
-    if (endpoint != scan_params->properties.end() && endpoint->second.rfind("http://", 0) == 0) {
-        options.emplace_back("allow_http");
-        options.emplace_back("true");
-    }
-    const auto path_style = scan_params->properties.find("use_path_style");
-    if (path_style != scan_params->properties.end() && !path_style->second.empty()) {
-        const bool use_path_style = path_style->second == "true" || path_style->second == "1";
-        options.emplace_back("aws_virtual_hosted_style_request");
-        options.emplace_back(use_path_style ? "false" : "true");
+        options.emplace_back(key);
+        options.emplace_back(value);
     }
     return options;
 }

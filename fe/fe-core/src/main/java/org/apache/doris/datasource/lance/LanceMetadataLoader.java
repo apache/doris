@@ -41,11 +41,10 @@ public final class LanceMetadataLoader {
      * Lance dataset through an S3 TVF.
      */
     public static LanceTableMetadata loadLatestForTvf(
-            String datasetUri, Map<String, String> backendStorageOptions)
+            String datasetUri, Map<String, String> backendProperties)
             throws Exception {
         try (BufferAllocator allocator = new RootAllocator(ALLOCATOR_LIMIT)) {
-            return loadLatest(datasetUri, LanceStorageOptions.forJavaSdk(backendStorageOptions),
-                    backendStorageOptions, allocator);
+            return loadLatest(datasetUri, LanceStorageOptions.toLanceOptions(backendProperties), allocator);
         }
     }
 
@@ -57,10 +56,9 @@ public final class LanceMetadataLoader {
      * time-travel version is requested. Schema, version, and fragments are read from the same
      * opened dataset snapshot.
      */
-    public static LanceTableMetadata loadLatest(String datasetUri, Map<String, String> javaStorageOptions,
-            Map<String, String> backendStorageOptions, BufferAllocator allocator) throws Exception {
-        return loadInternal(
-                datasetUri, javaStorageOptions, backendStorageOptions, OptionalLong.empty(), allocator);
+    public static LanceTableMetadata loadLatest(String datasetUri, Map<String, String> lanceStorageOptions,
+            BufferAllocator allocator) throws Exception {
+        return loadInternal(datasetUri, lanceStorageOptions, OptionalLong.empty(), allocator);
     }
 
     /**
@@ -70,18 +68,16 @@ public final class LanceMetadataLoader {
      * {@link LanceExternalCatalog#loadTableMetadata(String, String, java.util.Optional)} for both
      * {@code FOR VERSION AS OF} and the version resolved from {@code FOR TIME AS OF}.
      */
-    public static LanceTableMetadata loadVersion(String datasetUri, Map<String, String> javaStorageOptions,
-            Map<String, String> backendStorageOptions, long version, BufferAllocator allocator) throws Exception {
-        return loadInternal(
-                datasetUri, javaStorageOptions, backendStorageOptions, OptionalLong.of(version), allocator);
+    public static LanceTableMetadata loadVersion(String datasetUri, Map<String, String> lanceStorageOptions,
+            long version, BufferAllocator allocator) throws Exception {
+        return loadInternal(datasetUri, lanceStorageOptions, OptionalLong.of(version), allocator);
     }
 
     /** Shared implementation for the latest-version and explicit-version public entry points. */
-    private static LanceTableMetadata loadInternal(String datasetUri, Map<String, String> javaStorageOptions,
-            Map<String, String> backendStorageOptions, OptionalLong version,
-            BufferAllocator allocator) throws Exception {
+    private static LanceTableMetadata loadInternal(String datasetUri, Map<String, String> lanceStorageOptions,
+            OptionalLong version, BufferAllocator allocator) throws Exception {
         try (Dataset dataset = Dataset.open().allocator(allocator).uri(datasetUri)
-                .readOptions(LanceReadOptions.build(javaStorageOptions, version)).build()) {
+                .readOptions(LanceReadOptions.build(lanceStorageOptions, version)).build()) {
             long resolvedVersion = dataset.version();
             List<LanceTableMetadata.LanceFragmentInfo> fragments = new ArrayList<>();
             for (Fragment fragment : dataset.getFragments()) {
@@ -90,7 +86,7 @@ public final class LanceMetadataLoader {
                         fragment.metadata().getPhysicalRows()));
             }
             return new LanceTableMetadata(datasetUri, resolvedVersion, dataset.getSchema(), fragments,
-                    backendStorageOptions);
+                    lanceStorageOptions);
         }
     }
 }

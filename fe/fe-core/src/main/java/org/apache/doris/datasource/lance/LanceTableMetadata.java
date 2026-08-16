@@ -30,15 +30,15 @@ public class LanceTableMetadata {
     private final long version;
     private final Schema schema;
     private final List<LanceFragmentInfo> fragments;
-    private final Map<String, String> backendStorageOptions;
+    private final Map<String, String> lanceStorageOptions;
 
     public LanceTableMetadata(String datasetUri, long version, Schema schema,
-            List<LanceFragmentInfo> fragments, Map<String, String> backendStorageOptions) {
+            List<LanceFragmentInfo> fragments, Map<String, String> lanceStorageOptions) {
         this.datasetUri = datasetUri;
         this.version = version;
         this.schema = schema;
         this.fragments = Collections.unmodifiableList(fragments);
-        this.backendStorageOptions = Collections.unmodifiableMap(new HashMap<>(backendStorageOptions));
+        this.lanceStorageOptions = Collections.unmodifiableMap(new HashMap<>(lanceStorageOptions));
     }
 
     public String getDatasetUri() {
@@ -57,8 +57,9 @@ public class LanceTableMetadata {
         return fragments;
     }
 
-    public Map<String, String> getBackendStorageOptions() {
-        return backendStorageOptions;
+    /** Lance object-store options for this dataset, understood as-is by both the FE SDK and lance-c. */
+    public Map<String, String> getLanceStorageOptions() {
+        return lanceStorageOptions;
     }
 
     public long getRowCount() {

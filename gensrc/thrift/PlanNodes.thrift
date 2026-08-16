@@ -635,6 +635,12 @@ struct TFileScanRangeParams {
     // Provider-independent search request. Set at ScanNode level so all ranges use the same logical
     // query. The first implementation uses one whole-dataset range for Lance vector search.
     37: optional TExternalSearchRequest external_search_request
+    // Lance-native storage options, handed to lance-c untranslated. The namespace protocol treats
+    // storage_options as opaque configuration passed directly to Lance, so any key vocabulary the
+    // BE imposed here would drop options it does not happen to know - including credentials a
+    // namespace spelled with a different accepted alias, and every non-S3 provider's keys.
+    // Set at ScanNode level so credentials are not serialized once per fragment split.
+    38: optional map<string, string> lance_storage_options
 }
 
 struct TFileRangeDesc {

@@ -148,6 +148,11 @@ public class LanceScanNode extends FileQueryScanNode {
         if (lanceSubstraitFilter.length > 0) {
             params.setLanceSubstraitFilter(ByteBuffer.wrap(lanceSubstraitFilter));
         }
+        // Set at ScanNode level so credentials are not serialized once per fragment split.
+        Map<String, String> lanceStorageOptions = plannedMetadata.getLanceStorageOptions();
+        if (!lanceStorageOptions.isEmpty()) {
+            params.setLanceStorageOptions(lanceStorageOptions);
+        }
     }
 
     @Override
@@ -249,7 +254,9 @@ public class LanceScanNode extends FileQueryScanNode {
 
     @Override
     protected Map<String, String> getLocationProperties() {
-        return plannedMetadata.getBackendStorageOptions();
+        // lance-c reads the dataset itself and takes its configuration from lance_storage_options,
+        // so these serve only the shared file system layer and the file cache key.
+        return lanceTable.getCatalog().getCatalogProperty().getBackendStorageProperties();
     }
 
     @Override
