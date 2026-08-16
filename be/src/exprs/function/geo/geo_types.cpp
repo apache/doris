@@ -641,7 +641,7 @@ double GeoPoint::y() const {
 
 BoundingBox GeoPoint::bounding_box() const {
     // A point degenerates to a box with zero width and height.
-    return {x(), x(), y(), y()};
+    return {.x_max = x(), .x_min = x(), .y_max = y(), .y_min = y()};
 }
 
 std::string GeoPoint::as_wkt() const {
@@ -1834,7 +1834,7 @@ BoundingBox GeoCircle::bounding_box() const {
     const S2Point& center = _cap->center();
     const double lon = S2LatLng::Longitude(center).degrees();
     const double lat = S2LatLng::Latitude(center).degrees();
-    return {lon, lon, lat, lat};
+    return {.x_max = lon, .x_min = lon, .y_max = lat, .y_min = lat};
 }
 
 double GeoPoint::Distance(const GeoShape* rhs) const {
