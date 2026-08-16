@@ -884,10 +884,17 @@ bool same_physical_scan_layout(const FileScanRequest& lhs, const FileScanRequest
 
 } // namespace
 
-Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
+Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
+                                      std::optional<uint64_t> condition_cache_digest) {
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.refresh_conjuncts_timer);
     _conjuncts = std::move(conjuncts);
+    if (condition_cache_digest.has_value()) {
+        // A runtime filter can arrive after a physical child is prepared but before its reader is
+        // created. Keep that child's cache key tied to the same refreshed predicate snapshot.
+        _condition_cache_digest = *condition_cache_digest;
+        _condition_cache_digest_covers_current_split = true;
+    }
     if (_data_reader.reader == nullptr) {
         // The split is prepared but its physical reader has not opened yet. open_reader() will use
         // this newest snapshot directly, so no pending request is needed.
@@ -1256,6 +1263,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
 
 Status TableReader::build_physical_splits(const FileScanSplit& source_split,
                                           std::vector<FileScanSplit>* splits, bool* was_split) {
+    SCOPED_TIMER(_profile.total_timer);
     DORIS_CHECK(splits != nullptr);
     DORIS_CHECK(was_split != nullptr);
     splits->clear();
@@ -1264,14 +1272,35 @@ Status TableReader::build_physical_splits(const FileScanSplit& source_split,
         _current_split_uses_metadata_count || _current_task == nullptr) {
         return Status::OK();
     }
+    SCOPED_TIMER(_profile.create_reader_timer);
 
     std::unique_ptr<FileReader> reader;
     RETURN_IF_ERROR(create_file_reader(&reader));
     DORIS_CHECK(reader != nullptr);
-    RETURN_IF_ERROR(reader->init(_runtime_state));
-    const auto status = reader->build_physical_splits(source_split, splits, was_split);
+    auto close_planning_reader = [&]() {
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        SCOPED_TIMER(_profile.file_reader_close_timer);
+        return reader->close();
+    };
+    Status init_status;
+    {
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        SCOPED_TIMER(_profile.file_reader_init_timer);
+        init_status = reader->init(_runtime_state);
+    }
+    if (!init_status.ok()) {
+        // A failed init may still own partially opened resources. Close it through the same
+        // lifecycle path while preserving the initialization error returned to the scanner.
+        static_cast<void>(close_planning_reader());
+        return init_status;
+    }
+    Status status;
+    {
+        SCOPED_TIMER(_profile.file_reader_total_timer);
+        status = reader->build_physical_splits(source_split, splits, was_split);
+    }
     if (!status.ok()) {
-        static_cast<void>(reader->close());
+        static_cast<void>(close_planning_reader());
         return status;
     }
     if (!*was_split || splits->size() == 1) {
@@ -1285,7 +1314,7 @@ Status TableReader::build_physical_splits(const FileScanSplit& source_split,
         }
         return open_reader();
     }
-    return reader->close();
+    return close_planning_reader();
 }
 
 Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,

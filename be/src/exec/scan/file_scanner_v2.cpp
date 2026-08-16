@@ -534,7 +534,8 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
             if (_table_reader_rf_num != _applied_rf_num) {
                 VExprContextSPtrs refreshed_conjuncts;
                 RETURN_IF_ERROR(_build_table_conjuncts(&refreshed_conjuncts));
-                RETURN_IF_ERROR(_table_reader->refresh_conjuncts(std::move(refreshed_conjuncts)));
+                RETURN_IF_ERROR(_table_reader->refresh_conjuncts(
+                        std::move(refreshed_conjuncts), _current_condition_cache_digest()));
                 _table_reader_rf_num = _applied_rf_num;
             }
             if (_should_run_adaptive_batch_size()) {
@@ -650,6 +651,7 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             RETURN_IF_ERROR(_complete_current_split());
             continue;
         }
+        _update_file_counter(_file_counter, _current_split);
         if (_current_split.is_source_split && can_refine_source_split(_current_range)) {
             std::vector<FileScanSplit> generated_splits;
             bool was_split = false;
@@ -687,7 +689,6 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
             // so waiters never depend on a later get_block() turn to observe completion.
             RETURN_IF_ERROR(_retire_current_source_split());
         }
-        COUNTER_UPDATE(_file_counter, 1);
         _has_prepared_split = true;
         _table_reader_rf_num = _applied_rf_num;
         *eos = false;
@@ -843,6 +844,14 @@ bool FileScannerV2::can_refine_source_split(const TFileRangeDesc& range) {
     // Iceberg delete readers build split-local delete state. Refining the data file would rebuild
     // that state for every row-group child, so keep the already prepared source reader instead.
     return !iceberg.__isset.delete_files || iceberg.delete_files.empty();
+}
+
+void FileScannerV2::_update_file_counter(RuntimeProfile::Counter* counter,
+                                         const FileScanSplit& split) {
+    if (split.is_source_split) {
+        // FileNumber describes FE source ranges, so BE-local row-group children must not change it.
+        COUNTER_UPDATE(counter, 1);
+    }
 }
 
 bool FileScannerV2::_should_enable_file_meta_cache() const {

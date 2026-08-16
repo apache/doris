@@ -731,6 +731,21 @@ TEST(FileScannerV2Test, GeneratedChildrenCompleteSourceProgressOnlyOnce) {
     EXPECT_TRUE(second.source_progress->complete_one());
 }
 
+TEST(FileScannerV2Test, PhysicalChildrenDoNotChangeFileNumber) {
+    RuntimeProfile profile("source_file_counter");
+    auto* file_counter = ADD_COUNTER(&profile, "FileNumber", TUnit::UNIT);
+    FileScanSplit source;
+    source.is_source_split = true;
+    FileScannerV2::TEST_update_file_counter(file_counter, source);
+
+    FileScanSplit child;
+    child.is_source_split = false;
+    FileScannerV2::TEST_update_file_counter(file_counter, child);
+    FileScannerV2::TEST_update_file_counter(file_counter, child);
+
+    EXPECT_EQ(file_counter->value(), 1);
+}
+
 TEST(FileScannerV2Test, GeneratedChildrenKeepOneGlobalRowIdSourceMapping) {
     auto source_range = std::make_shared<TFileRangeDesc>();
     source_range->__set_path("shared.parquet");

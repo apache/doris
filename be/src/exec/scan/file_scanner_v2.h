@@ -124,6 +124,10 @@ public:
         return _should_run_adaptive_batch_size(predictor_initialized,
                                                current_split_uses_metadata_count);
     }
+    static void TEST_update_file_counter(RuntimeProfile::Counter* counter,
+                                         const FileScanSplit& split) {
+        _update_file_counter(counter, split);
+    }
 #endif
 
     FileScannerV2(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
@@ -168,6 +172,7 @@ private:
     static Status _contextualize_output_filter_status(Status status,
                                                       TFileFormatType::type format_type);
     static int64_t _cumulative_profile_delta(int64_t current, int64_t* reported);
+    static void _update_file_counter(RuntimeProfile::Counter* counter, const FileScanSplit& split);
     static FileReaderProfileDeltas _collect_file_reader_profile_deltas(
             const io::FileReaderStats& stats, int64_t* reported_bytes, int64_t* reported_calls,
             int64_t* reported_time);

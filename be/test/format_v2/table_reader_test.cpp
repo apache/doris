@@ -24,11 +24,13 @@
 #include <parquet/arrow/writer.h>
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <typeinfo>
 #include <vector>
 
@@ -1200,8 +1202,10 @@ struct FakeFileReaderState {
     bool stop_during_aggregate = false;
     bool stop_during_read = false;
     bool not_found_during_init = false;
+    bool physical_split_error = false;
     int physical_split_count = -1;
     int build_physical_splits_count = 0;
+    std::chrono::milliseconds lifecycle_delay {0};
     std::shared_ptr<FileScanRequest> last_request;
     std::shared_ptr<FileScanRequest> pending_request;
     std::optional<FileAggregateRequest> last_aggregate_request;
@@ -1220,6 +1224,9 @@ public:
 
     Status init(RuntimeState* state) override {
         (void)state;
+        if (_state->lifecycle_delay.count() > 0) {
+            std::this_thread::sleep_for(_state->lifecycle_delay);
+        }
         ++_state->init_count;
         if (_state->not_found_during_init) {
             return Status::NotFound("fake table reader input is missing");
@@ -1238,6 +1245,9 @@ public:
     }
 
     Status open(std::shared_ptr<FileScanRequest> request) override {
+        if (_state->lifecycle_delay.count() > 0) {
+            std::this_thread::sleep_for(_state->lifecycle_delay);
+        }
         RETURN_IF_ERROR(FileReader::open(std::move(request)));
         _state->last_request = _request;
         ++_state->open_count;
@@ -1359,7 +1369,13 @@ public:
         if (_state->physical_split_count < 0) {
             return FileReader::build_physical_splits(source_split, splits, was_split);
         }
+        if (_state->lifecycle_delay.count() > 0) {
+            std::this_thread::sleep_for(_state->lifecycle_delay);
+        }
         ++_state->build_physical_splits_count;
+        if (_state->physical_split_error) {
+            return Status::InternalError("injected physical split planning failure");
+        }
         splits->clear();
         auto source_range = std::make_shared<TFileRangeDesc>(source_split.range);
         for (int index = 0; index < _state->physical_split_count; ++index) {
@@ -1375,6 +1391,9 @@ public:
     }
 
     Status close() override {
+        if (_state->lifecycle_delay.count() > 0) {
+            std::this_thread::sleep_for(_state->lifecycle_delay);
+        }
         ++_state->close_count;
         _request.reset();
         _eof = true;
@@ -1766,8 +1785,10 @@ TEST(TableReaderTest, SinglePhysicalSplitReusesPlanningReader) {
     set_name_identifiers(&projected_columns);
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("single_physical_split");
     auto fake_state = std::make_shared<FakeFileReaderState>();
     fake_state->physical_split_count = 1;
+    fake_state->lifecycle_delay = std::chrono::milliseconds(2);
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
@@ -1776,7 +1797,7 @@ TEST(TableReaderTest, SinglePhysicalSplitReusesPlanningReader) {
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
                                     .runtime_state = &state,
-                                    .scanner_profile = nullptr,
+                                    .scanner_profile = &profile,
                             })
                         .ok());
 
@@ -1794,6 +1815,13 @@ TEST(TableReaderTest, SinglePhysicalSplitReusesPlanningReader) {
     EXPECT_TRUE(children.empty());
     EXPECT_EQ(fake_state->init_count, 1);
     EXPECT_EQ(fake_state->close_count, 0);
+    for (const auto* counter_name :
+         {"TableReader", "CreateReaderTime", "FileReader", "FileReaderInitTime", "OpenReaderTime",
+          "FileReaderOpenTime"}) {
+        const auto* counter = profile.get_counter(counter_name);
+        ASSERT_NE(counter, nullptr) << counter_name;
+        EXPECT_GT(counter->value(), 0) << counter_name;
+    }
 
     Block block = build_table_block(projected_columns);
     bool eos = false;
@@ -1801,6 +1829,100 @@ TEST(TableReaderTest, SinglePhysicalSplitReusesPlanningReader) {
     EXPECT_EQ(fake_state->init_count, 1);
     EXPECT_EQ(fake_state->open_count, 1);
     ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, PhysicalSplitPlanningProfilesZeroAndManyChildren) {
+    for (const int child_count : {0, 2}) {
+        SCOPED_TRACE(child_count);
+        std::vector<ColumnDefinition> file_schema;
+        file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+        std::vector<ColumnDefinition> projected_columns;
+        projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+        set_name_identifiers(&projected_columns);
+
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        RuntimeProfile profile("temporary_physical_split_reader");
+        auto fake_state = std::make_shared<FakeFileReaderState>();
+        fake_state->physical_split_count = child_count;
+        fake_state->lifecycle_delay = std::chrono::milliseconds(2);
+        FakeTableReader reader(file_schema, fake_state);
+        ASSERT_TRUE(reader.init({
+                                        .projected_columns = projected_columns,
+                                        .conjuncts = {},
+                                        .format = FileFormat::PARQUET,
+                                        .scan_params = nullptr,
+                                        .io_ctx = nullptr,
+                                        .runtime_state = &state,
+                                        .scanner_profile = &profile,
+                                })
+                            .ok());
+
+        SplitReadOptions split_options;
+        split_options.current_range.__set_path("fake-table-reader-input");
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+        FileScanSplit source_split;
+        source_split.range = split_options.current_range;
+        source_split.is_source_split = true;
+        std::vector<FileScanSplit> children;
+        bool was_split = false;
+        ASSERT_TRUE(reader.build_physical_splits(source_split, &children, &was_split).ok());
+        EXPECT_TRUE(was_split);
+        EXPECT_EQ(children.size(), child_count);
+        EXPECT_EQ(fake_state->close_count, 1);
+        for (const auto* counter_name : {"TableReader", "CreateReaderTime", "FileReader",
+                                         "FileReaderInitTime", "FileReaderCloseTime"}) {
+            const auto* counter = profile.get_counter(counter_name);
+            ASSERT_NE(counter, nullptr) << counter_name;
+            EXPECT_GT(counter->value(), 0) << counter_name;
+        }
+    }
+}
+
+TEST(TableReaderTest, PhysicalSplitPlanningProfilesAndClosesFailedReaders) {
+    for (const bool fail_during_init : {true, false}) {
+        SCOPED_TRACE(fail_during_init ? "init" : "build");
+        std::vector<ColumnDefinition> file_schema;
+        file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+        std::vector<ColumnDefinition> projected_columns;
+        projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+        set_name_identifiers(&projected_columns);
+
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        RuntimeProfile profile("failed_physical_split_reader");
+        auto fake_state = std::make_shared<FakeFileReaderState>();
+        fake_state->physical_split_count = 2;
+        fake_state->not_found_during_init = fail_during_init;
+        fake_state->physical_split_error = !fail_during_init;
+        fake_state->lifecycle_delay = std::chrono::milliseconds(2);
+        FakeTableReader reader(file_schema, fake_state);
+        ASSERT_TRUE(reader.init({
+                                        .projected_columns = projected_columns,
+                                        .conjuncts = {},
+                                        .format = FileFormat::PARQUET,
+                                        .scan_params = nullptr,
+                                        .io_ctx = nullptr,
+                                        .runtime_state = &state,
+                                        .scanner_profile = &profile,
+                                })
+                            .ok());
+
+        SplitReadOptions split_options;
+        split_options.current_range.__set_path("fake-table-reader-input");
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
+        FileScanSplit source_split;
+        source_split.range = split_options.current_range;
+        source_split.is_source_split = true;
+        std::vector<FileScanSplit> children;
+        bool was_split = false;
+        EXPECT_FALSE(reader.build_physical_splits(source_split, &children, &was_split).ok());
+        EXPECT_EQ(fake_state->close_count, 1);
+        for (const auto* counter_name : {"TableReader", "CreateReaderTime", "FileReader",
+                                         "FileReaderInitTime", "FileReaderCloseTime"}) {
+            const auto* counter = profile.get_counter(counter_name);
+            ASSERT_NE(counter, nullptr) << counter_name;
+            EXPECT_GT(counter->value(), 0) << counter_name;
+        }
+    }
 }
 
 TEST(TableReaderTest, PrepareSplitReplacesInitialConjunctSnapshot) {
@@ -3768,6 +3890,90 @@ TEST(TableReaderTest, ConditionCacheAllowsRuntimeFilterCoveredBySplitDigest) {
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
     EXPECT_TRUE(cache.get()->lookup(split_digest_key, &handle));
     ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, ConditionCacheLateRefreshBeforeOpenUsesRefreshedDigest) {
+    ScopedConditionCacheForTest cache;
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->total_rows = ConditionCacheContext::GRANULE_SIZE;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(0, 0, 0))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .condition_cache_digest = 7,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("late-runtime-filter-input");
+    split_options.condition_cache_digest = 11;
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    VExprContextSPtrs refreshed {
+            prepared_conjunct(&state, table_int32_greater_than_expr(0, 0, 0)),
+            prepared_conjunct(&state,
+                              runtime_filter_wrapper_expr(table_int32_greater_than_expr(0, 0, 1)))};
+    ASSERT_TRUE(reader.refresh_conjuncts(std::move(refreshed), 19).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    segment_v2::ConditionCacheHandle handle;
+    segment_v2::ConditionCache::ExternalCacheKey stale_key(
+            "late-runtime-filter-input", 0, -1, 11, 0, -1,
+            segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
+    EXPECT_FALSE(cache.get()->lookup(stale_key, &handle));
+    segment_v2::ConditionCache::ExternalCacheKey refreshed_key(
+            "late-runtime-filter-input", 0, -1, 19, 0, -1,
+            segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
+    EXPECT_TRUE(cache.get()->lookup(refreshed_key, &handle));
+    ASSERT_TRUE(reader.close().ok());
+
+    auto hit_state = std::make_shared<FakeFileReaderState>();
+    hit_state->total_rows = ConditionCacheContext::GRANULE_SIZE;
+    FakeTableReader hit_reader(file_schema, hit_state);
+    ASSERT_TRUE(
+            hit_reader
+                    .init({
+                            .projected_columns = projected_columns,
+                            .conjuncts =
+                                    {
+                                            prepared_conjunct(
+                                                    &state, table_int32_greater_than_expr(0, 0, 0)),
+                                            prepared_conjunct(&state,
+                                                              runtime_filter_wrapper_expr(
+                                                                      table_int32_greater_than_expr(
+                                                                              0, 0, 1))),
+                                    },
+                            .format = FileFormat::PARQUET,
+                            .scan_params = nullptr,
+                            .io_ctx = nullptr,
+                            .runtime_state = &state,
+                            .scanner_profile = nullptr,
+                            .condition_cache_digest = 7,
+                    })
+                    .ok());
+    split_options.condition_cache_digest = 19;
+    ASSERT_TRUE(hit_reader.prepare_split(split_options).ok());
+    block = build_table_block(projected_columns);
+    eos = false;
+    ASSERT_TRUE(hit_reader.get_block(&block, &eos).ok());
+    ASSERT_NE(hit_state->condition_cache_ctx, nullptr);
+    EXPECT_TRUE(hit_state->condition_cache_ctx->is_hit);
+    EXPECT_EQ(hit_reader.condition_cache_hit_count(), 1);
+    ASSERT_TRUE(hit_reader.close().ok());
 }
 
 // Scenario: table-format delete files/deletion vectors are outside the data-file cache key. When
