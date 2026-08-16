@@ -19,6 +19,7 @@
 
 #include <stddef.h>
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -39,6 +40,15 @@ using Vector3_d = Vector3<double>;
 using S2Point = Vector3_d;
 
 namespace doris {
+
+// Bounding box of a geometry, backing the Trino compatible functions
+// ST_XMax / ST_XMin / ST_YMax / ST_YMin. Values are NaN when not available.
+struct BoundingBox {
+    double x_max = std::numeric_limits<double>::quiet_NaN();
+    double x_min = std::numeric_limits<double>::quiet_NaN();
+    double y_max = std::numeric_limits<double>::quiet_NaN();
+    double y_min = std::numeric_limits<double>::quiet_NaN();
+};
 
 class GeoShape {
 public:
@@ -83,6 +93,10 @@ public:
 
     virtual int num_geometries() const { return 1; }
     virtual int num_points() const { return -1; }
+
+    // Bounding box of the shape. Returns an all-NaN box for shape types that do
+    // not support the accessor.
+    virtual BoundingBox bounding_box() const { return {}; }
 
 protected:
     virtual void encode(std::string* buf) = 0;

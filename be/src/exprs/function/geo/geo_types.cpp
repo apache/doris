@@ -37,6 +37,7 @@
 
 #include "core/assert_cast.h"
 // IWYU pragma: no_include <bits/std_abs.h>
+#include <algorithm>
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -52,6 +53,31 @@ namespace doris {
 #include "common/compile_check_avoid_begin.h"
 
 constexpr double TOLERANCE = 1e-6;
+
+namespace {
+
+// NaN-safe min/max, used to merge bounding boxes of multiple geometries.
+double nan_min(double a, double b) {
+    if (std::isnan(a)) {
+        return b;
+    }
+    if (std::isnan(b)) {
+        return a;
+    }
+    return std::min(a, b);
+}
+
+double nan_max(double a, double b) {
+    if (std::isnan(a)) {
+        return b;
+    }
+    if (std::isnan(b)) {
+        return a;
+    }
+    return std::max(a, b);
+}
+
+} // namespace
 
 GeoPoint::GeoPoint() : _point(new S2Point()) {}
 GeoPoint::~GeoPoint() = default;
@@ -613,6 +639,11 @@ double GeoPoint::y() const {
     return std::stod(absl::StrFormat("%.13f", S2LatLng::Latitude(*_point).degrees()));
 }
 
+BoundingBox GeoPoint::bounding_box() const {
+    // A point degenerates to a box with zero width and height.
+    return {x(), x(), y(), y()};
+}
+
 std::string GeoPoint::as_wkt() const {
     std::stringstream ss;
     ss << "POINT (";
@@ -785,6 +816,20 @@ int GeoLine::numPoint() const {
 
 const S2Point* GeoLine::getPoint(int i) const {
     return &(_polyline->vertex(i));
+}
+
+BoundingBox GeoLine::bounding_box() const {
+    BoundingBox box;
+    for (int i = 0; i < numPoint(); ++i) {
+        const S2Point& p = *getPoint(i);
+        const double lon = S2LatLng::Longitude(p).degrees();
+        const double lat = S2LatLng::Latitude(p).degrees();
+        box.x_max = nan_max(box.x_max, lon);
+        box.x_min = nan_min(box.x_min, lon);
+        box.y_max = nan_max(box.y_max, lat);
+        box.y_min = nan_min(box.y_min, lat);
+    }
+    return box;
 }
 
 GeoParseStatus GeoPolygon::from_coords(const GeoCoordinateListList& list) {
@@ -1107,6 +1152,23 @@ int GeoPolygon::numLoops() const {
 
 S2Loop* GeoPolygon::getLoop(int i) const {
     return _polygon->loop(i);
+}
+
+BoundingBox GeoPolygon::bounding_box() const {
+    BoundingBox box;
+    for (int loop_idx = 0; loop_idx < numLoops(); ++loop_idx) {
+        S2Loop* loop = getLoop(loop_idx);
+        for (int i = 0; i < loop->num_vertices(); ++i) {
+            const S2Point& p = loop->vertex(i);
+            const double lon = S2LatLng::Longitude(p).degrees();
+            const double lat = S2LatLng::Latitude(p).degrees();
+            box.x_max = nan_max(box.x_max, lon);
+            box.x_min = nan_min(box.x_min, lon);
+            box.y_max = nan_max(box.y_max, lat);
+            box.y_min = nan_min(box.y_min, lat);
+        }
+    }
+    return box;
 }
 
 GeoParseStatus GeoMultiPolygon::from_coords(const std::vector<GeoCoordinateListList>& list) {
@@ -1745,6 +1807,18 @@ double GeoMultiPolygon::Length() const {
     return total_length;
 }
 
+BoundingBox GeoMultiPolygon::bounding_box() const {
+    BoundingBox box;
+    for (const auto& polygon : _polygons) {
+        BoundingBox sub_box = polygon->bounding_box();
+        box.x_max = nan_max(box.x_max, sub_box.x_max);
+        box.x_min = nan_min(box.x_min, sub_box.x_min);
+        box.y_max = nan_max(box.y_max, sub_box.y_max);
+        box.y_min = nan_min(box.y_min, sub_box.y_min);
+    }
+    return box;
+}
+
 double GeoCircle::Length() const {
     // GeoCircle is always valid (guaranteed by constructor)
     // Get the radius in meters
@@ -1752,6 +1826,15 @@ double GeoCircle::Length() const {
 
     // Calculate circumference: 2 * pi * r
     return 2.0 * M_PI * radius_meters;
+}
+
+BoundingBox GeoCircle::bounding_box() const {
+    // Treat the circle as its center point (radius is in meters, so the exact
+    // bounding box depends on the projection; keep it simple like a point).
+    const S2Point& center = _cap->center();
+    const double lon = S2LatLng::Longitude(center).degrees();
+    const double lat = S2LatLng::Latitude(center).degrees();
+    return {lon, lon, lat, lat};
 }
 
 double GeoPoint::Distance(const GeoShape* rhs) const {
