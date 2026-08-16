@@ -500,7 +500,11 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygon;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StPolygonfromtext;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StTouches;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StX;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StXMax;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StXMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StY;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StYMax;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StYMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StartsWith;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.StrToMap;
@@ -1090,7 +1094,11 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(StPolygon.class, "st_polygon"),
             scalar(StPolygonfromtext.class, "st_polygonfromtext"),
             scalar(StX.class, "st_x"),
+            scalar(StXMax.class, "st_xmax"),
+            scalar(StXMin.class, "st_xmin"),
             scalar(StY.class, "st_y"),
+            scalar(StYMax.class, "st_ymax"),
+            scalar(StYMin.class, "st_ymin"),
             scalar(StartsWith.class, "starts_with"),
             scalar(Strcmp.class, "strcmp"),
             scalar(StripNullValue.class, "strip_null_value"),
