@@ -37,6 +37,15 @@ jobs:
           # ([String]). Only allow these licenses (optional)
           # Possible values: Any SPDX-compliant license identifiers or expressions from https://spdx.org/licenses/
           allow-licenses:  BSD-2-Clause, BSD-3-Clause, MIT, Apache-2.0, EPL-2.0, MPL-2.0, CC0-1.0
+          # ([String]). Packages exempted from the license check above, as PURLs (optional)
+          # com.sun.jersey:jersey-client (CDDL-1.1 OR GPL-2.0 WITH Classpath-exception-2.0):
+          # CDDL-1.1 is ASF Category B, usable in binary form as long as the distribution records
+          # it, and dist/LICENSE-dist.txt already lists com.sun.jersey:jersey-client under
+          # "CDDL + GPLv2 with classpath exception". The FE also already ships jersey-core under
+          # that same dual license; only the client half is missing, because #37575 excluded the
+          # jersey-bundle Ranger declares against. Ranger's RangerAdminRESTClient is Jersey 1.x,
+          # so the Ranger authorization plugins need it to reach a Ranger admin at all.
+          allow-dependencies-licenses: pkg:maven/com.sun.jersey/jersey-client
           # ([String]). Acknowledged advisories that must not fail the review (optional)
           # org.codehaus.jackson:jackson-mapper-asl (GHSA-c27h-mcmw-48hv, GHSA-r6j9-8759-g62w):
           # legacy Jackson 1.x is EOL and neither advisory has a fixed version. Hive's metastore
