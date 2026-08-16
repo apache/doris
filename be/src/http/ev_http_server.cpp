@@ -183,11 +183,11 @@ void EvHttpServer::stop() {
     _workers->shutdown();
 
     // 4. Now it's safe to cleanup - all worker threads have exited
-    // Clear evhttp before event_base since evhttp depends on event_base
+    // Clear evhttp after the worker threads exit. Keep the event bases alive until the server is
+    // destroyed so other libevent objects owned by HttpService can be released first.
     {
         std::lock_guard<std::mutex> lock(_event_bases_lock);
         _evhttp_servers.clear();
-        _event_bases.clear();
     }
 
     _started = false;
