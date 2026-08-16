@@ -29,6 +29,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -156,16 +157,11 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
     }
 
     private DistributionSpecIcebergTableSinkHashPartitioned buildPartitionDistributionSpec() {
-        List<org.apache.doris.nereids.trees.expressions.Slot> outputSlots = child().getOutput();
-        if (cols.size() != outputSlots.size()) {
-            return null;
-        }
-
-        Map<String, ExprId> columnExprIds = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        Map<String, Column> columnsByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        for (int i = 0; i < cols.size(); i++) {
-            columnExprIds.put(cols.get(i).getName(), outputSlots.get(i).getExprId());
-            columnsByName.put(cols.get(i).getName(), cols.get(i));
+        Map<String, Slot> outputSlotsByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (Slot outputSlot : child().getOutput()) {
+            if (outputSlotsByName.put(outputSlot.getName(), outputSlot) != null) {
+                return null;
+            }
         }
 
         List<ExprId> sourceExprIds = new ArrayList<>();
@@ -175,14 +171,13 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
             if (sourceField == null) {
                 return null;
             }
-            ExprId sourceExprId = columnExprIds.get(sourceField.name());
-            Column sourceColumn = columnsByName.get(sourceField.name());
+            Slot sourceSlot = outputSlotsByName.get(sourceField.name());
             String transform = field.transform().toString();
-            if (sourceExprId == null || sourceColumn == null
-                    || !supportsPartitionTransform(transform, sourceColumn.getDataType())) {
+            if (sourceSlot == null || !supportsPartitionTransform(
+                    transform, sourceSlot.getDataType().toCatalogDataType().getPrimitiveType())) {
                 return null;
             }
-            sourceExprIds.add(sourceExprId);
+            sourceExprIds.add(sourceSlot.getExprId());
             transforms.add(transform);
         }
         if (sourceExprIds.isEmpty()) {

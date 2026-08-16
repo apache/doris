@@ -66,6 +66,7 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
@@ -187,6 +188,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Mockito.doReturn(mockedSpec).when(mockedIcebergTable).spec();
         Mockito.doReturn(ImmutableMap.<Integer, PartitionSpec>of()).when(mockedIcebergTable).specs();
         Mockito.doReturn(icebergSchema).when(mockedIcebergTable).schema();
+        Mockito.doReturn(SortOrder.unsorted()).when(mockedIcebergTable).sortOrder();
         IcebergSnapshotCacheValue snapshotCacheValue = new IcebergSnapshotCacheValue(
                 IcebergPartitionInfo.empty(), new IcebergSnapshot(0L, 0L), Optional.empty(), mockedIcebergTable);
         Mockito.doReturn(new IcebergMvccSnapshot(snapshotCacheValue)).when(spyTable)
@@ -370,6 +372,35 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
             Set<PhysicalDistribute> distributes = physicalPlan.collect(PhysicalDistribute.class::isInstance);
             Assertions.assertTrue(distributes.stream().anyMatch(distribute -> distribute.getDistributionSpec()
                     instanceof DistributionSpecIcebergTableSinkHashPartitioned));
+        } finally {
+            Mockito.doReturn(basePartitionSpec).when(mockedIcebergTable).spec();
+        }
+    }
+
+    @Test
+    public void testIcebergInsertWithReorderedColumnsUsesTransformSourceColumn() throws Exception {
+        useIceberg();
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(baseIcebergSchema).bucket("id", 16).build();
+        Mockito.doReturn(partitionSpec).when(mockedIcebergTable).spec();
+        try {
+            String sql = "insert into " + tableName
+                    + " (name, id, age, score, amount) values ('name', 1, 2, 3, 4.00)";
+            LogicalPlan command = parseStmt(sql);
+            Assertions.assertTrue(command instanceof InsertIntoTableCommand);
+            Plan explainPlan = ((InsertIntoTableCommand) command).getExplainPlan(connectContext);
+            PhysicalPlan physicalPlan = planPhysicalPlan(
+                    (LogicalPlan) explainPlan, PhysicalProperties.ANY, sql);
+
+            PhysicalIcebergTableSink<?> sink =
+                    getSinglePhysicalSink(physicalPlan, PhysicalIcebergTableSink.class);
+            DistributionSpecIcebergTableSinkHashPartitioned distributionSpec =
+                    (DistributionSpecIcebergTableSinkHashPartitioned) sink
+                            .getRequirePhysicalProperties().getDistributionSpec();
+            ExprId idExprId = findExprIdByName(sink.child().getOutput(), "id");
+            Assertions.assertEquals(ImmutableList.of(idExprId),
+                    distributionSpec.getOutputColumnExprIds());
+            Assertions.assertEquals(ImmutableList.of("bucket[16]"),
+                    distributionSpec.getPartitionTransforms());
         } finally {
             Mockito.doReturn(basePartitionSpec).when(mockedIcebergTable).spec();
         }
