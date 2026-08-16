@@ -26,6 +26,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.datasource.connector.converter.ConnectorComputeVariantType;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -35,7 +36,10 @@ import org.apache.doris.system.Backend;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** Tests the mixed-version safety gate for plugin-driven Variant scans. */
@@ -117,5 +121,44 @@ public class PluginDrivenScanNodeCompatibilityTest {
                 provider, session, latest));
         Assert.assertFalse(PluginDrivenScanNode.canServeMetadataOnlyCount(
                 provider, session, pinned));
+    }
+
+    @Test
+    public void oldBackendAllowsOnlyFullyPrecomputedVariantCountPlans() throws UserException {
+        ConnectorScanRange countRange = new ConnectorScanRange() {
+            @Override
+            public Map<String, String> getProperties() {
+                return Collections.emptyMap();
+            }
+
+            @Override
+            public long getPushDownRowCount() {
+                return 42L;
+            }
+        };
+        ConnectorScanRange dataRange = new ConnectorScanRange() {
+            @Override
+            public Map<String, String> getProperties() {
+                return Collections.emptyMap();
+            }
+        };
+        List<Backend> backends = Collections.singletonList(
+                new Backend(9L, "127.0.0.1", 9050));
+        int original = Config.be_exec_version;
+        try {
+            Config.be_exec_version = VARIANT_EXEC_VERSION - 1;
+            PluginDrivenScanNode.checkVariantBackendCompatibility(
+                    PluginDrivenScanNode.plannedScanDecodesVariant(
+                            true, true, Collections.singletonList(countRange)),
+                    backends);
+
+            Assert.assertThrows(UserException.class,
+                    () -> PluginDrivenScanNode.checkVariantBackendCompatibility(
+                            PluginDrivenScanNode.plannedScanDecodesVariant(
+                                    true, true, Arrays.asList(countRange, dataRange)),
+                            backends));
+        } finally {
+            Config.be_exec_version = original;
+        }
     }
 }

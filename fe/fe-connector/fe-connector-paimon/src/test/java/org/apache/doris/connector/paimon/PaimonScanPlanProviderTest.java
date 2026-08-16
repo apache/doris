@@ -1554,6 +1554,70 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void readOptimizedOldOrcFileUsesPinnedBaseSchemaAfterVariantEvolution(
+            @TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("bucket", "-1")
+                    .option("file.format", "orc")
+                    .build(), false);
+            FileStoreTable storageTable = (FileStoreTable) catalog.getTable(id);
+            BatchWriteBuilder wb = storageTable.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            // Simulate the pinned current generation after adding a nullable Variant field while
+            // retaining the real schema dictionary and ORC file from the previous generation.
+            RowType variantRowType = RowType.builder()
+                    .field("id", DataTypes.INT())
+                    .field("payload", new org.apache.paimon.types.VariantType())
+                    .build();
+            FileStoreTable pinnedBase = (FileStoreTable) java.lang.reflect.Proxy.newProxyInstance(
+                    FileStoreTable.class.getClassLoader(), new Class<?>[] {FileStoreTable.class},
+                    (proxy, method, args) -> {
+                        if ("rowType".equals(method.getName())) {
+                            return variantRowType;
+                        }
+                        if ("copy".equals(method.getName())) {
+                            return proxy;
+                        }
+                        try {
+                            return method.invoke(storageTable, args);
+                        } catch (java.lang.reflect.InvocationTargetException e) {
+                            throw e.getCause();
+                        }
+                    });
+            ReadOptimizedTable roTable = new ReadOptimizedTable(pinnedBase);
+            PaimonTableHandle handle = PaimonTableHandle.forSystemTable("db", "t", "ro", false);
+            handle.setPaimonTable(roTable);
+            handle.setSysBaseTable(pinnedBase);
+
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()),
+                    new RecordingPaimonCatalogOps());
+            List<ConnectorScanRange> ranges = provider.planScan(
+                    sessionWithProps(Collections.emptyMap()),
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("payload", 1)))
+                            .build());
+
+            Assertions.assertFalse(ranges.isEmpty());
+            Assertions.assertTrue(ranges.stream()
+                            .noneMatch(range -> range.getProperties().containsKey("paimon.split")),
+                    "$ro historical ORC files without physical Variant must remain native-readable");
+        }
+    }
+
+    @Test
     public void ignoreNativeDropsNativeSplit(@TempDir Path warehouse) throws Exception {
         // FIX-L14: an append-only table's DataSplit is native-eligible; ignore_split_type=IGNORE_NATIVE must
         // drop it (legacy PaimonScanNode.getSplits:443). MUTATION: not honoring IGNORE_NATIVE -> the native

@@ -191,6 +191,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // Volatile mirrors resolvedScanProvider — keeps an off-path metadata() read race-free.
     private volatile ConnectorMetadata cachedMetadata;
 
+    // COUNT(*) providers such as Paimon can prove metadata-only execution only after planning the
+    // pinned splits. Such plans are kept synchronous and fenced once their final ranges are known.
+    private boolean variantCompatibilityDeferred;
+
     public PluginDrivenScanNode(PlanNodeId id, TupleDescriptor desc,
             boolean needCheckColumnPriv, SessionVariable sv,
             ScanContext scanContext, Connector connector,
@@ -212,14 +216,22 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     void checkVariantBackendCompatibilityForCurrentScan(Iterable<Backend> backends)
             throws UserException {
+        boolean projectsVariant = projectsComputeVariant(desc);
         boolean metadataCountProven = false;
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (isTableLevelCountStarPushdown() && conjuncts.isEmpty() && scanProvider != null) {
             metadataCountProven = onPluginClassLoader(scanProvider,
                     () -> canServeMetadataOnlyCount(scanProvider, connectorSession, currentHandle));
         }
+        if (projectsVariant && isTableLevelCountStarPushdown()
+                && conjuncts.isEmpty() && !metadataCountProven) {
+            // A partial Paimon count plan mixes CountReader and data ranges; only planScan can
+            // distinguish it from a fully precomputed count that never decodes the Variant slot.
+            variantCompatibilityDeferred = true;
+            return;
+        }
         checkVariantBackendCompatibility(
-                !metadataCountProven && projectsComputeVariant(desc), backends);
+                !metadataCountProven && projectsVariant, backends);
     }
 
     static boolean canServeMetadataOnlyCount(ConnectorScanPlanProvider scanProvider,
@@ -1567,6 +1579,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
                 () -> scanProvider.planScan(connectorSession, request));
 
+        if (variantCompatibilityDeferred) {
+            checkVariantBackendCompatibility(
+                    plannedScanDecodesVariant(projectsComputeVariant(desc), countPushdown, ranges),
+                    backendPolicy.getBackends());
+        }
+
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {
             splits.add(new PluginDrivenSplit(range));
@@ -1702,6 +1720,20 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return -1;
     }
 
+    /** Whether the finalized scan ranges still require BE to decode a projected Variant value. */
+    static boolean plannedScanDecodesVariant(boolean projectsVariant, boolean countPushdown,
+            List<ConnectorScanRange> ranges) {
+        if (!projectsVariant) {
+            return false;
+        }
+        if (!countPushdown) {
+            return true;
+        }
+        // Every range must carry a precomputed count. One fallback range means BE reads data and
+        // therefore still needs the mixed-version Variant execution fence.
+        return ranges.stream().anyMatch(range -> range.getPushDownRowCount() < 0);
+    }
+
     /**
      * Source-side LIMIT to pass to {@code planScan}: the real limit normally, but {@code -1}
      * (no source limit) when non-pushable conjuncts were stripped from the filter. A source LIMIT
@@ -1741,6 +1773,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // whole split set anyway, so batch generation offers no benefit here. Gated on supportsTableSample
         // so a non-sampling connector's TABLESAMPLE no-op does not lose its batch path.
         if (tableSample != null && onPluginClassLoader(scanProvider, scanProvider::supportsTableSample)) {
+            return false;
+        }
+        if (variantCompatibilityDeferred) {
+            // The deferred fence needs the complete range set to prove every split is CountReader-only.
             return false;
         }
         boolean hasSlots = !desc.getSlots().isEmpty();

@@ -745,7 +745,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         long targetSplitSize = -1;
 
         Set<Long> physicalVariantSchemaIds = hasVariantProjection
-                ? physicalVariantSchemaIds(table, rowType, columns, dataSplits)
+                ? physicalVariantSchemaIds(table, paimonHandle, rowType, columns, dataSplits)
                 : Collections.emptySet();
 
         // Process DataSplits
@@ -1634,8 +1634,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 : !forceJniScanner && supportNativeReader(optRawFiles));
     }
 
-    private static Set<Long> physicalVariantSchemaIds(Table table, RowType currentRowType,
-            List<ConnectorColumnHandle> columns, List<DataSplit> dataSplits) {
+    private Set<Long> physicalVariantSchemaIds(Table table, PaimonTableHandle handle,
+            RowType currentRowType, List<ConnectorColumnHandle> columns, List<DataSplit> dataSplits) {
         Set<Integer> projectedVariantFieldIds = columns.stream()
                 .filter(PaimonColumnHandle.class::isInstance)
                 .map(PaimonColumnHandle.class::cast)
@@ -1655,12 +1655,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             split.convertToRawFiles()
                     .ifPresent(files -> files.forEach(file -> rawSchemaIds.add(file.schemaId())));
         }
-        if (!(table instanceof FileStoreTable)) {
+        // $ro wraps the pinned base FileStoreTable but reads that base table's schema ids. Using the
+        // wrapper here would conservatively label every historical ORC schema as physical Variant.
+        Table physicalSchemaTable = resolveSchemaDictTable(table, handle);
+        if (!(physicalSchemaTable instanceof FileStoreTable)) {
             return rawSchemaIds;
         }
 
         Set<Long> physicalVariantSchemaIds = new HashSet<>();
-        SchemaManager schemaManager = ((FileStoreTable) table).schemaManager();
+        SchemaManager schemaManager = ((FileStoreTable) physicalSchemaTable).schemaManager();
         for (long schemaId : rawSchemaIds) {
             TableSchema physicalSchema = schemaManager.schema(schemaId);
             if (physicalSchema == null || physicalSchema.fields().stream()

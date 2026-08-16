@@ -213,7 +213,8 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateProducesDeleteAndInsert) {
 
 TEST_F(VIcebergMergeSinkTest, TestDeleteOnlySkipsVariantDataWriter) {
     ObjectPool pool;
-    MockRuntimeState state;
+    // Opening the retained delete writer still requires the coordinator ownership handshake.
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),
@@ -236,7 +237,8 @@ TEST_F(VIcebergMergeSinkTest, TestDeleteOnlySkipsVariantDataWriter) {
     ASSERT_TRUE(sink->init_properties(&pool, row_desc).ok());
     EXPECT_EQ(nullptr, sink->_table_writer);
     RuntimeProfile profile("iceberg_merge_sink");
-    ASSERT_TRUE(sink->open(&state, &profile).ok());
+    const Status open_status = sink->open(&state, &profile);
+    ASSERT_TRUE(open_status.ok()) << open_status;
 
     // Delete-only plans must never use the insert opcode, which intentionally requires a data writer.
     Block block = build_block_with_ops({kDeleteOperation});
@@ -485,7 +487,8 @@ TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeSkipsCardinalityState) {
 
 TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeWriterOmissionFenceIsVariantOnly) {
     ObjectPool pool;
-    MockRuntimeState state;
+    // The rolling-version assertion must run after the ordinary writer handshake succeeds.
+    IcebergWriteMockRuntimeState state;
     state.set_be_exec_version(SUPPORT_ICEBERG_VARIANT_VERSION - 1);
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
@@ -502,7 +505,8 @@ TEST_F(VIcebergMergeSinkTest, TestRollingUpgradeWriterOmissionFenceIsVariantOnly
 
     ASSERT_TRUE(non_variant_sink->init_properties(&pool, row_desc).ok());
     RuntimeProfile profile("rolling_upgrade_delete_only_iceberg_merge_sink");
-    EXPECT_TRUE(non_variant_sink->open(&state, &profile).ok());
+    const Status non_variant_status = non_variant_sink->open(&state, &profile);
+    EXPECT_TRUE(non_variant_status.ok()) << non_variant_status;
 
     t_sink.iceberg_merge_sink.__set_has_variant_schema(true);
     auto variant_sink = std::make_shared<VIcebergMergeSink>(t_sink, output_exprs, nullptr, nullptr);

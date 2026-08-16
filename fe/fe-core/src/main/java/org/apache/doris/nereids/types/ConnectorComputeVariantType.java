@@ -30,7 +30,9 @@ public final class ConnectorComputeVariantType extends VariantType {
 
     @Override
     public DataType conversion() {
-        return INSTANCE;
+        // Conversion is the durable-schema boundary used by CTAS and MTMV; the execution marker
+        // must not enter catalog metadata because persistence only registers the ordinary Variant type.
+        return super.conversion();
     }
 
     @Override
