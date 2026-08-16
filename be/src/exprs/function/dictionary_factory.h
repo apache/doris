@@ -20,12 +20,14 @@
 #include <gen_cpp/BackendService_types.h>
 
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "exprs/function/dictionary.h"
 #include "util/debug_points.h"
+#include "util/time.h"
 
 namespace doris {
 class MemTrackerLimiter;
@@ -121,9 +123,11 @@ public:
                 .tag("dict_id", dict_id)
                 .tag("version_id", version_id)
                 .tag("dict name", dict->dict_name());
+        dict->set_commit_time_ms(UnixMillis());
         versioned_map[version_id] = dict;
-        _gc_versions_no_lock(dict_id, versioned_map);
         _refreshing_dict_map.erase(dict_id);
+        lc.unlock();
+        gc_if_needed();
         return Status::OK();
     }
 
@@ -150,20 +154,56 @@ public:
 
     std::shared_ptr<MemTrackerLimiter> mem_tracker() const { return _mem_tracker; }
 
+    // unified GC entry: count-based + ttl-based, with interval protection
+    void gc_if_needed() {
+        int64_t gc_interval_ms = std::max(1, config::dictionary_gc_interval_seconds) * 1000LL;
+        int64_t now = UnixMillis();
+        if (now - _last_gc_time_ms.load(std::memory_order_relaxed) < gc_interval_ms) {
+            return;
+        }
+        std::unique_lock<std::shared_mutex> lc(_mutex);
+        // re-check under lock to avoid duplicate GC
+        if (now - _last_gc_time_ms.load(std::memory_order_relaxed) < gc_interval_ms) {
+            return;
+        }
+        _last_gc_time_ms.store(now, std::memory_order_relaxed);
+        _gc_all_no_lock(now);
+    }
+
     void get_dictionary_status(std::vector<TDictionaryStatus>& result,
                                std::vector<int64_t> dict_ids);
 
 private:
-    // 0 or negative falls back to 1 (no multi-version retention)
-    void _gc_versions_no_lock(int64_t dict_id, std::map<int64_t, DictionaryPtr>& versioned_map) {
+    // GC all dicts: first count-based, then ttl-based. Always keeps the latest version.
+    void _gc_all_no_lock(int64_t now) {
         int32_t max_versions = std::max(1, config::dictionary_max_versions);
-        while (versioned_map.size() > max_versions) {
-            auto it = versioned_map.begin();
-            LOG_INFO("DictionaryFactory GC old version")
-                    .tag("dict_id", dict_id)
-                    .tag("version_id", it->first)
-                    .tag("dict name", it->second->dict_name());
-            versioned_map.erase(it);
+        int64_t ttl_ms = static_cast<int64_t>(config::dictionary_version_ttl_seconds) * 1000;
+        int64_t threshold_ms = ttl_ms > 0 ? now - ttl_ms : 0;
+        for (auto& [dict_id, versioned_map] : _dict_id_to_versioned_map) {
+            if (versioned_map.size() <= 1) {
+                continue;
+            }
+            // count-based: drop oldest while exceeding max_versions
+            while (versioned_map.size() > static_cast<size_t>(max_versions)) {
+                auto it = versioned_map.begin();
+                LOG_INFO("DictionaryFactory GC old version by count")
+                        .tag("dict_id", dict_id)
+                        .tag("version_id", it->first)
+                        .tag("dict name", it->second->dict_name());
+                versioned_map.erase(it);
+            }
+            // ttl-based: drop non-latest versions older than ttl
+            while (ttl_ms > 0 && versioned_map.size() > 1) {
+                auto it = versioned_map.begin();
+                if (it->second->commit_time_ms() >= threshold_ms) {
+                    break;
+                }
+                LOG_INFO("DictionaryFactory GC old version by ttl")
+                        .tag("dict_id", dict_id)
+                        .tag("version_id", it->first)
+                        .tag("age_sec", (now - it->second->commit_time_ms()) / 1000);
+                versioned_map.erase(it);
+            }
         }
     }
 
@@ -174,6 +214,8 @@ private:
             _refreshing_dict_map; // dict_id -> (version_id, dict)
 
     std::shared_mutex _mutex;
+
+    std::atomic<int64_t> _last_gc_time_ms {0};
 
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 };

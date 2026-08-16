@@ -112,8 +112,8 @@ TEST(DictionaryVersionTest, commit_dict) {
         auto status = dict_factory->commit_refresh_dict(3, 5);
         EXPECT_TRUE(status.ok());
         EXPECT_TRUE(!dict_factory->_refreshing_dict_map.contains(3));
-        EXPECT_TRUE(dict_factory->_dict_id_to_dict_map.contains(3));
-        EXPECT_EQ(dict_factory->_dict_id_to_version_id_map[3], 5);
+        EXPECT_TRUE(dict_factory->_dict_id_to_versioned_map.contains(3));
+        EXPECT_EQ(dict_factory->_dict_id_to_versioned_map[3].rbegin()->first, 5);
     }
 
     auto dict2 = create_complex_hash_map_dict_from_column(
@@ -136,8 +136,8 @@ TEST(DictionaryVersionTest, commit_dict) {
         auto status = dict_factory->commit_refresh_dict(3, 6);
         EXPECT_TRUE(status.ok());
         EXPECT_TRUE(!dict_factory->_refreshing_dict_map.contains(3));
-        EXPECT_TRUE(dict_factory->_dict_id_to_dict_map.contains(3));
-        EXPECT_EQ(dict_factory->_dict_id_to_version_id_map[3], 6);
+        EXPECT_TRUE(dict_factory->_dict_id_to_versioned_map.contains(3));
+        EXPECT_EQ(dict_factory->_dict_id_to_versioned_map[3].rbegin()->first, 6);
     }
 
     auto dict3 = create_complex_hash_map_dict_from_column(

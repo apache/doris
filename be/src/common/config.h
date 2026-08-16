@@ -1457,6 +1457,8 @@ DECLARE_mBool(debug_inverted_index_compaction);
 // index by RAM directory
 DECLARE_mBool(inverted_index_ram_dir_enable);
 DECLARE_mInt32(dictionary_max_versions);
+DECLARE_mInt32(dictionary_version_ttl_seconds);
+DECLARE_mInt32(dictionary_gc_interval_seconds);
 // wheather index by RAM directory when base compaction
 DECLARE_mBool(inverted_index_ram_dir_enable_when_base_compaction);
 // use num_broadcast_buffer blocks as buffer to do broadcast

@@ -121,6 +121,9 @@ public:
 
     virtual size_t allocated_bytes() const;
 
+    void set_commit_time_ms(int64_t ts) { _commit_time_ms = ts; }
+    int64_t commit_time_ms() const { return _commit_time_ms; }
+
 protected:
     friend class DictionaryFactory;
 
@@ -204,6 +207,9 @@ protected:
 
     // mem_tracker comes from DictionaryFactory. If _mem_tracker is nullptr, it means it is in UT.
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+
+    // set by DictionaryFactory at commit time, used for TTL-based GC
+    int64_t _commit_time_ms = 0;
 };
 
 using DictionaryPtr = std::shared_ptr<IDictionary>;
