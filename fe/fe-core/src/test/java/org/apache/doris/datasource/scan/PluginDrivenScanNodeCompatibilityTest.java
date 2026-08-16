@@ -41,20 +41,14 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.CALLS_REAL_METHODS;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /** Tests the mixed-version safety gate for plugin-driven Variant scans. */
 public class PluginDrivenScanNodeCompatibilityTest {
@@ -66,35 +60,40 @@ public class PluginDrivenScanNodeCompatibilityTest {
         ConnectContext context = new ConnectContext();
         context.setThreadLocalInfo();
         try {
-            PluginDrivenScanNode node = mock(PluginDrivenScanNode.class, CALLS_REAL_METHODS);
-            TupleDescriptor tuple = mock(TupleDescriptor.class);
+            // Keep Mockito calls qualified because FE Checkstyle forbids static member imports.
+            PluginDrivenScanNode node = Mockito.mock(
+                    PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+            TupleDescriptor tuple = Mockito.mock(TupleDescriptor.class);
             java.util.ArrayList<org.apache.doris.analysis.SlotDescriptor> initSlots =
                     new java.util.ArrayList<>();
-            initSlots.add(mock(org.apache.doris.analysis.SlotDescriptor.class));
-            when(tuple.getSlots()).thenReturn(initSlots);
-            when(tuple.getTable()).thenReturn(mock(TableIf.class));
+            initSlots.add(Mockito.mock(org.apache.doris.analysis.SlotDescriptor.class));
+            Mockito.when(tuple.getSlots()).thenReturn(initSlots);
+            Mockito.when(tuple.getTable()).thenReturn(Mockito.mock(TableIf.class));
             Deencapsulation.setField(node, "desc", tuple);
             Deencapsulation.setField(node, "sessionVariable", new SessionVariable());
             Deencapsulation.setField(node, "params", new TFileScanRangeParams());
-            Deencapsulation.setField(node, "cachedMetadata", mock(ConnectorMetadata.class));
-            Deencapsulation.setField(node, "connector", mock(Connector.class));
-            Deencapsulation.setField(node, "connectorSession", mock(ConnectorSession.class));
-            Deencapsulation.setField(node, "backendPolicy", mock(FederationBackendPolicy.class));
-            doNothing().when(node).initBackendPolicy();
-            doNothing().when(node).initSchemaParams();
-            doNothing().when(node).checkVariantBackendCompatibilityForCurrentScan(any());
-            doNothing().when(node).convertPredicate();
-            doNothing().when(node).createScanRangeLocations();
-            when(node.getPathPartitionKeys()).thenReturn(Collections.emptyList());
+            Deencapsulation.setField(node, "cachedMetadata", Mockito.mock(ConnectorMetadata.class));
+            Deencapsulation.setField(node, "connector", Mockito.mock(Connector.class));
+            Deencapsulation.setField(node, "connectorSession", Mockito.mock(ConnectorSession.class));
+            Deencapsulation.setField(node, "backendPolicy", Mockito.mock(FederationBackendPolicy.class));
+            Mockito.doNothing().when(node).initBackendPolicy();
+            Mockito.doNothing().when(node).initSchemaParams();
+            Mockito.doNothing().when(node).checkVariantBackendCompatibilityForCurrentScan(
+                    ArgumentMatchers.any());
+            Mockito.doNothing().when(node).convertPredicate();
+            Mockito.doNothing().when(node).createScanRangeLocations();
+            Mockito.when(node.getPathPartitionKeys()).thenReturn(Collections.emptyList());
 
             node.doInitialize();
-            verify(node, never()).checkVariantBackendCompatibilityForCurrentScan(any());
+            Mockito.verify(node, Mockito.never()).checkVariantBackendCompatibilityForCurrentScan(
+                    ArgumentMatchers.any());
 
             // Nereids prunes the scan tuple between init and finalize. The compatibility fence must
             // observe this finalized payload rather than the table-wide tuple used during init.
             initSlots.clear();
             node.doFinalize();
-            verify(node).checkVariantBackendCompatibilityForCurrentScan(any());
+            Mockito.verify(node).checkVariantBackendCompatibilityForCurrentScan(
+                    ArgumentMatchers.any());
         } finally {
             ConnectContext.remove();
         }
