@@ -116,8 +116,6 @@ public abstract class RoutineLoadJob
         extends AbstractTxnStateChangeCallback
         implements Writable, LoadTaskInfo, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadJob.class);
-    private static final int CURRENT_ROUTINE_LOAD_PERSISTENCE_VERSION = 1;
-
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
     public static final double DEFAULT_MAX_FILTER_RATIO = 1.0;
 
@@ -180,9 +178,6 @@ public abstract class RoutineLoadJob
     protected long dbId;
     @SerializedName("tbid")
     protected long tableId;
-    // An absent version identifies a legacy record whose CREATE statement still needs to be migrated.
-    @SerializedName("rlpv")
-    private int routineLoadPersistenceVersion;
     // this code is used to verify be task request
     protected long authCode;
     //    protected RoutineLoadDesc routineLoadDesc; // optional
@@ -283,7 +278,7 @@ public abstract class RoutineLoadJob
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     @SerializedName("mt")
-    protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
+    protected LoadTask.MergeType mergeType;
     @SerializedName("dc")
     protected Expr deleteCondition;
     // TODO(ml): error sample
@@ -330,7 +325,7 @@ public abstract class RoutineLoadJob
         this.tableId = tableId;
         this.authCode = 0;
         this.userIdentity = userIdentity;
-        this.routineLoadPersistenceVersion = CURRENT_ROUTINE_LOAD_PERSISTENCE_VERSION;
+        this.mergeType = LoadTask.MergeType.APPEND;
 
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
@@ -360,7 +355,7 @@ public abstract class RoutineLoadJob
         this.authCode = 0;
         this.userIdentity = userIdentity;
         this.isMultiTable = true;
-        this.routineLoadPersistenceVersion = CURRENT_ROUTINE_LOAD_PERSISTENCE_VERSION;
+        this.mergeType = LoadTask.MergeType.APPEND;
 
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
@@ -1983,16 +1978,19 @@ public abstract class RoutineLoadJob
         if (tableId == 0) {
             isMultiTable = true;
         }
-        if (routineLoadPersistenceVersion == 0) {
+        // Legacy images did not persist mergeType. New images always contain it, including jobs
+        // without any load clause, so its absence is sufficient to identify the one-time fallback.
+        boolean isOldImage = mergeType == null;
+        if (isOldImage) {
+            mergeType = LoadTask.MergeType.APPEND;
             // Legacy images did not persist this create-time session option. Preserve their historical
             // post-restart behavior instead of inheriting the image-loading thread's ConnectContext.
             memtableOnSinkNode = false;
         }
         try {
             hydrateJobProperties();
-            if (routineLoadPersistenceVersion == 0) {
+            if (isOldImage) {
                 restoreLegacyDefinition();
-                routineLoadPersistenceVersion = CURRENT_ROUTINE_LOAD_PERSISTENCE_VERSION;
             }
         } catch (Exception e) {
             this.state = JobState.CANCELLED;

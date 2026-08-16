@@ -114,7 +114,8 @@ public class RoutineLoadJobPersistenceTest {
         job.jobProperties = jobProperties;
 
         JsonObject json = imageJson(job);
-        Assert.assertEquals(1, json.get("rlpv").getAsInt());
+        Assert.assertTrue(json.has("ostmt"));
+        Assert.assertEquals(LoadTask.MergeType.MERGE.name(), json.get("mt").getAsString());
         for (String key : Lists.newArrayList(
                 "pni", "cds", "pf", "we", "cs", "lidel", "sc", "mt", "dc", "eml", "mosn")) {
             Assert.assertTrue("missing direct-state key " + key, json.has(key));
@@ -187,7 +188,8 @@ public class RoutineLoadJobPersistenceTest {
         job.origStmt = new OriginStatement("also not valid SQL", 0);
 
         JsonObject json = imageJson(job);
-        Assert.assertEquals(1, json.get("rlpv").getAsInt());
+        Assert.assertTrue(json.has("ostmt"));
+        Assert.assertEquals(LoadTask.MergeType.APPEND.name(), json.get("mt").getAsString());
         for (String key : Lists.newArrayList("pni", "cds", "pf", "we", "cs", "lidel", "sc", "dc")) {
             Assert.assertFalse("unexpected nullable direct-state key " + key, json.has(key));
         }
@@ -230,11 +232,16 @@ public class RoutineLoadJobPersistenceTest {
         Mockito.when(table.getType()).thenReturn(Table.TableType.OLAP);
         Mockito.when(table.getEnableUniqueKeyMergeOnWrite()).thenReturn(true);
 
+        byte[] legacyImage = loadBase64Fixture(LEGACY_IMAGE);
+        JsonObject legacyJson = imageJson(legacyImage);
+        Assert.assertFalse(legacyJson.has("mt"));
+        Assert.assertTrue(legacyJson.has("ostmt"));
+
         RoutineLoadJob migrated;
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             envStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
-            migrated = readImage(loadBase64Fixture(LEGACY_IMAGE));
+            migrated = readImage(legacyImage);
         }
 
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, migrated.getState());
@@ -254,7 +261,8 @@ public class RoutineLoadJobPersistenceTest {
         Assert.assertFalse(migrated.isMemtableOnSinkNode());
 
         JsonObject migratedJson = imageJson(migrated);
-        Assert.assertEquals(1, migratedJson.get("rlpv").getAsInt());
+        Assert.assertTrue(migratedJson.has("ostmt"));
+        Assert.assertEquals(LoadTask.MergeType.APPEND.name(), migratedJson.get("mt").getAsString());
         Assert.assertTrue(migratedJson.has("cs"));
         Assert.assertTrue(migratedJson.has("eml"));
         Assert.assertTrue(migratedJson.has("mosn"));
@@ -384,7 +392,10 @@ public class RoutineLoadJobPersistenceTest {
     }
 
     private static JsonObject imageJson(RoutineLoadJob job) throws IOException {
-        byte[] image = writeImage(job);
+        return imageJson(writeImage(job));
+    }
+
+    private static JsonObject imageJson(byte[] image) throws IOException {
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(image))) {
             return JsonParser.parseString(Text.readString(in)).getAsJsonObject();
         }
