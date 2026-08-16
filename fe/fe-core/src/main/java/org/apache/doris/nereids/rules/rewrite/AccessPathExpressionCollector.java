@@ -124,17 +124,17 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             if (slotReference.hasSubColPath()) {
                 path.addAll(slotReference.getSubPath());
             }
-            // Strip NULL suffix for variant sub-column access — null-flag-only optimization
-            // does not apply to variant sub-column data layout.
             List<String> builderPath = context.accessPathBuilder.getPathList();
-            if (builderPath.size() > 1
-                    && AccessPathInfo.ACCESS_NULL.equals(builderPath.get(builderPath.size() - 1))) {
+            ColumnAccessPathType pathType = context.type;
+            if (pathType == ColumnAccessPathType.META) {
+                // Variant readers do not support metadata-only access paths. Drop the synthetic
+                // NULL/OFFSET component and read the referenced variant path as ordinary data.
                 builderPath = new ArrayList<>(builderPath.subList(0, builderPath.size() - 1));
+                pathType = ColumnAccessPathType.DATA;
             }
             path.addAll(builderPath);
             int slotId = slotReference.getExprId().asInt();
-            slotToAccessPaths.put(slotId, new CollectAccessPathResult(
-                    path, context.bottomFilter, ColumnAccessPathType.DATA));
+            slotToAccessPaths.put(slotId, new CollectAccessPathResult(path, context.bottomFilter, pathType));
             return null;
         }
         if (dataType instanceof NestedColumnPrunable) {
@@ -151,7 +151,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 context.accessPathBuilder.addPrefix(slotReference.getName());
                 ImmutableList<String> path = ImmutableList.copyOf(context.accessPathBuilder.accessPath);
                 slotToAccessPaths.put(slotId,
-                        new CollectAccessPathResult(path, context.bottomFilter, ColumnAccessPathType.DATA));
+                        new CollectAccessPathResult(path, context.bottomFilter, context.type));
             } else {
                 // Direct access to the string column → record a DATA path so that any
                 // concurrent offset-only path for the same slot is suppressed.
@@ -170,7 +170,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             ImmutableList<String> path = ImmutableList.copyOf(context.accessPathBuilder.accessPath);
             int slotId = slotReference.getExprId().asInt();
             slotToAccessPaths.put(slotId,
-                    new CollectAccessPathResult(path, context.bottomFilter, ColumnAccessPathType.DATA));
+                    new CollectAccessPathResult(path, context.bottomFilter, context.type));
         }
         // For any other nullable column type accessed directly (not via IS NULL / length / etc.):
         // record a [col_name] full-access path so that when the column is also used via IS NULL,
@@ -214,6 +214,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
             offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_OFFSET);
+            offsetContext.setType(ColumnAccessPathType.META);
             return arg.accept(this, offsetContext);
         }
         // fall through to default (recurse into children with fresh contexts)
@@ -232,6 +233,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
             offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_OFFSET);
+            offsetContext.setType(ColumnAccessPathType.META);
             return arg.accept(this, offsetContext);
         }
         return visit(mapSize, context);
@@ -251,6 +253,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             CollectorContext offsetContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
             offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_OFFSET);
+            offsetContext.setType(ColumnAccessPathType.META);
             // cardinality(map_keys(m)) == cardinality(m) == cardinality(map_values(m)):
             // all three count map entries, so emit the same [map_col, OFFSET] path.
             Expression effectiveArg = (arg instanceof MapKeys || arg instanceof MapValues)
@@ -292,9 +295,10 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                     cast.child().getDataType(), ColumnAccessPathType.DATA);
 
             List<String> replacePath = new ArrayList<>(context.accessPathBuilder.getPathList());
-            if (originTree.replacePathByAnotherTree(castTree, replacePath, 0)) {
+            if (originTree.replacePathByAnotherTree(castTree, replacePath, 0, context.type)) {
                 CollectorContext castContext = new CollectorContext(context.statementContext, context.bottomFilter);
                 castContext.accessPathBuilder.accessPath.addAll(replacePath);
+                castContext.setType(context.type);
                 return continueCollectAccessPath(cast.child(), castContext);
             }
         }
@@ -334,6 +338,23 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             Expression fieldName = arguments.get(1);
             DataType fieldType = fieldName.getDataType();
             if (fieldName.isLiteral() && (fieldType.isIntegerLikeType() || fieldType.isStringLikeType())) {
+                // element_at(s, 'field') IS NULL has two-layer null semantics:
+                //   s IS NULL OR s.field IS NULL
+                // Always emit META [s, NULL] for the struct-level null map.
+                // Only emit META [s, field, NULL] when the selected field itself is nullable.
+                if (context.type == ColumnAccessPathType.META
+                        && isUnderIsNull(context.accessPathBuilder.getPathList())) {
+                    StructField field = resolveStructField(
+                            (StructType) first.getDataType(), fieldName);
+                    // Path 1: struct-level null check — bypass field prefix
+                    continueCollectAccessPath(first, copyContext(context));
+                    if (field != null && !field.isNullable()) {
+                        // Non-nullable leaf: struct-level NULL is sufficient
+                        return null;
+                    }
+                    // Nullable leaf: fall through to add field prefix → META [s, field, NULL]
+                }
+
                 if (fieldType.isIntegerLikeType()) {
                     int fieldIndex = ((Number) ((Literal) fieldName).getValue()).intValue();
                     List<StructField> fields = ((StructType) first.getDataType()).getFields();
@@ -365,6 +386,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                     = new CollectorContext(context.statementContext, context.bottomFilter);
             removeStarContext.accessPathBuilder.accessPath.addAll(suffixPath.subList(1, suffixPath.size()));
             removeStarContext.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_KEYS);
+            removeStarContext.setType(context.type);
             return continueCollectAccessPath(mapKeys.getArgument(0), removeStarContext);
         }
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_KEYS);
@@ -384,6 +406,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                     = new CollectorContext(context.statementContext, context.bottomFilter);
             removeStarContext.accessPathBuilder.accessPath.addAll(suffixPath.subList(1, suffixPath.size()));
             removeStarContext.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_VALUES);
+            removeStarContext.setType(context.type);
             return continueCollectAccessPath(mapValues.getArgument(0), removeStarContext);
         }
         context.accessPathBuilder.addPrefix(AccessPathInfo.ACCESS_MAP_VALUES);
@@ -642,9 +665,34 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             CollectorContext nullContext =
                     new CollectorContext(context.statementContext, context.bottomFilter);
             nullContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_NULL);
+            nullContext.setType(ColumnAccessPathType.META);
             return continueCollectAccessPath(arg, nullContext);
         }
         return visit(isNull, context);
+    }
+
+    /**
+     * Resolve the StructField selected by a constant int/string literal.
+     * Returns null when the selector is not a recognized literal or index is out of bounds.
+     */
+    // VisibleForTesting
+    static StructField resolveStructField(StructType structType, Expression fieldExpr) {
+        if (!fieldExpr.isLiteral()) {
+            return null;
+        }
+        if (fieldExpr.getDataType().isIntegerLikeType()) {
+            int index = ((Number) ((Literal) fieldExpr).getValue()).intValue();
+            List<StructField> fields = structType.getFields();
+            if (index >= 1 && index <= fields.size()) {
+                return fields.get(index - 1);
+            }
+            return null;
+        }
+        if (fieldExpr.getDataType().isStringLikeType()) {
+            String name = ((Literal) fieldExpr).getStringValue().toLowerCase();
+            return structType.getField(name);
+        }
+        return null;
     }
 
     @Override
@@ -839,12 +887,14 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 return false;
             }
             CollectAccessPathResult that = (CollectAccessPathResult) o;
-            return isPredicate == that.isPredicate && Objects.equals(path, that.path);
+            return isPredicate == that.isPredicate
+                    && type == that.type
+                    && Objects.equals(path, that.path);
         }
 
         @Override
         public int hashCode() {
-            return path.hashCode();
+            return Objects.hash(path, isPredicate, type);
         }
     }
 

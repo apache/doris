@@ -15,8 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/Descriptors_constants.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/descriptors.pb.h>
 #include <gtest/gtest.h>
 
 #include "common/exception.h"
@@ -194,6 +196,61 @@ TEST_F(SlotDescriptorTest, DebugString) {
     std::string debug_str2 = slot_desc2.debug_string();
     EXPECT_TRUE(debug_str2.find("virtual_col") != std::string::npos);
     EXPECT_TRUE(debug_str2.find("is_virtual=true") != std::string::npos);
+}
+
+TEST_F(SlotDescriptorTest, AccessPathsPreservedThroughProtobuf) {
+    TColumnAccessPath data_path;
+    data_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    data_path.__set_type(TAccessPathType::DATA);
+    TDataAccessPath data_payload;
+    data_payload.__set_path({"s", "field"});
+    data_path.__set_data_access_path(data_payload);
+
+    TColumnAccessPath meta_path;
+    meta_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    meta_path.__set_type(TAccessPathType::META);
+    TMetaAccessPath meta_payload;
+    meta_payload.__set_path({"s", "field", "NULL"});
+    meta_path.__set_meta_access_path(meta_payload);
+
+    TColumnAccessPath legacy_path;
+    legacy_path.__set_type(TAccessPathType::DATA);
+    data_payload.__set_path({"s", "legacy", "NULL"});
+    legacy_path.__set_data_access_path(data_payload);
+
+    TColumnAccessPath explicit_legacy_path;
+    explicit_legacy_path.__set_version(g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+    explicit_legacy_path.__set_type(TAccessPathType::DATA);
+    data_payload.__set_path({"s", "legacy", "VALUES"});
+    explicit_legacy_path.__set_data_access_path(data_payload);
+
+    TSlotDescriptor thrift_descriptor = create_basic_slot_descriptor();
+    thrift_descriptor.__set_all_access_paths(
+            {data_path, meta_path, legacy_path, explicit_legacy_path});
+    thrift_descriptor.__set_predicate_access_paths({meta_path});
+
+    SlotDescriptor original(thrift_descriptor);
+    PSlotDescriptor protobuf_descriptor;
+    original.to_protobuf(&protobuf_descriptor);
+    ASSERT_EQ(protobuf_descriptor.all_access_paths_size(), 4);
+    EXPECT_TRUE(protobuf_descriptor.all_access_paths(0).has_version());
+    EXPECT_EQ(protobuf_descriptor.all_access_paths(0).version(),
+              g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
+    EXPECT_TRUE(protobuf_descriptor.all_access_paths(1).has_version());
+    EXPECT_FALSE(protobuf_descriptor.all_access_paths(2).has_version());
+    EXPECT_TRUE(protobuf_descriptor.all_access_paths(3).has_version());
+    EXPECT_EQ(protobuf_descriptor.all_access_paths(3).version(),
+              g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
+    SlotDescriptor round_trip(protobuf_descriptor);
+
+    EXPECT_EQ(round_trip.all_access_paths(), thrift_descriptor.all_access_paths);
+    EXPECT_EQ(round_trip.predicate_access_paths(), thrift_descriptor.predicate_access_paths);
+    EXPECT_FALSE(round_trip.all_access_paths()[1].__isset.data_access_path);
+    EXPECT_FALSE(round_trip.predicate_access_paths()[0].__isset.data_access_path);
+    EXPECT_FALSE(round_trip.all_access_paths()[2].__isset.version);
+    EXPECT_TRUE(round_trip.all_access_paths()[3].__isset.version);
+    EXPECT_EQ(round_trip.all_access_paths()[3].version,
+              g_Descriptors_constants.TCOLUMN_ACCESS_PATH_VERSION_LEGACY);
 }
 
 } // namespace doris

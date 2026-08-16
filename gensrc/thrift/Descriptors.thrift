@@ -64,10 +64,17 @@ struct TMetaAccessPath {
   1: required list<string> path
 }
 
+const i32 TCOLUMN_ACCESS_PATH_VERSION_LEGACY = 0
+const i32 TCOLUMN_ACCESS_PATH_VERSION_TYPED = 1
+
 struct TColumnAccessPath {
   1: required TAccessPathType type
   2: optional TDataAccessPath data_access_path
   3: optional TMetaAccessPath meta_access_path
+  // The version is absent for legacy senders. Legacy paths all have DATA type and encode
+  // KEYS/VALUES/* selectors plus NULL/OFFSET metadata in data_access_path. Starting from the
+  // typed version, type selects the authoritative payload and META may use meta_access_path.
+  4: optional i32 version
 }
 
 struct TColumn {
