@@ -377,6 +377,24 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
     EXPECT_FALSE(FileScannerV2::is_supported(params, hudi_range_with_delta_logs()));
 }
 
+TEST(FileScannerV2Test, ArrowRejectsVariantBeforeReaderMaterialization) {
+    EXPECT_TRUE(
+            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, false)
+                    .ok());
+    EXPECT_TRUE(
+            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_PARQUET, true)
+                    .ok());
+
+    const auto status =
+            FileScannerV2::TEST_validate_variant_projection(TFileFormatType::FORMAT_ARROW, true);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find(
+                      "External Variant is supported only for Parquet files in FileScannerV2; "
+                      "file format ARROW is not supported"),
+              std::string::npos)
+            << status;
+}
+
 // Scenario: Iceberg position-delete system table splits use FileScannerV2 for both native delete
 // formats and V3 deletion vectors. Avro remains unsupported and is rejected by FE before routing.
 TEST(FileScannerV2Test, IcebergPositionDeletesSupportNativeFormats) {

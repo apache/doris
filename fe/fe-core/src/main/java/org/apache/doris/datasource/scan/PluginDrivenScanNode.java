@@ -208,10 +208,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     @Override
     protected void doInitialize() throws UserException {
         super.doInitialize();
-        // Compatibility must inspect the snapshot-specific handle: latest metadata may answer
-        // COUNT(*) while an older time-travel snapshot still requires a Variant data scan.
+        // Pin before projection pruning so every later connector decision uses this scan's snapshot.
+        // The Variant compatibility fence itself runs in finalize, after Nereids prunes scan slots.
         pinMvccSnapshot();
-        checkVariantBackendCompatibilityForCurrentScan(backendPolicy.getBackends());
     }
 
     void checkVariantBackendCompatibilityForCurrentScan(Iterable<Backend> backends)
@@ -1025,6 +1024,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     protected void doFinalize() throws UserException {
         scanNodeProperties = null;
         cachedPropertiesResult = null;
+        // Nereids prunes scan slots between init and finalize; fencing the init-time table-wide
+        // tuple would reject old backends even when the executable scan no longer carries Variant.
+        checkVariantBackendCompatibilityForCurrentScan(backendPolicy.getBackends());
         super.doFinalize();
     }
 

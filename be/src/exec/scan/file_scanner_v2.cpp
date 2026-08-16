@@ -349,6 +349,18 @@ Status FileScannerV2::_validate_scan_range(const TFileScanRangeParams& params,
     return Status::OK();
 }
 
+Status FileScannerV2::_validate_variant_projection(TFileFormatType::type format_type,
+                                                   bool has_variant_projection) {
+    if (!has_variant_projection || format_type != TFileFormatType::FORMAT_ARROW) {
+        return Status::OK();
+    }
+    // Arrow readers have no external Variant carrier contract; reject before a stream is opened so
+    // every Arrow-backed table gets the same deterministic capability error instead of SerDe leakage.
+    return Status::NotSupported(
+            "External Variant is supported only for Parquet files in FileScannerV2; "
+            "file format ARROW is not supported");
+}
+
 FileScannerV2::FileScannerV2(RuntimeState* state, FileScanLocalState* local_state, int64_t limit,
                              std::shared_ptr<SplitSourceConnector> split_source,
                              RuntimeProfile* profile, ShardedKVCache* kv_cache,
@@ -838,6 +850,8 @@ Status FileScannerV2::_build_projected_columns(const format::TableReader& table_
         _projected_columns.push_back(std::move(column));
     }
     RETURN_IF_ERROR(table_reader.validate_projected_columns(build_context));
+    RETURN_IF_ERROR(_validate_variant_projection(get_range_format_type(*_params, _current_range),
+                                                 _has_variant_projection));
     return Status::OK();
 }
 

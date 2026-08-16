@@ -143,10 +143,13 @@ Status IcebergTableReader::validate_variant_file_mappings(
 }
 
 Status IcebergTableReader::validate_file_mapping(const format::TableColumnMapper& mapper) const {
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
-        _push_down_count_columns->empty()) {
-        // COUNT(*) may retain an arbitrary minimum-width slot, but that carrier is never a
-        // semantic physical read and must not trigger the Variant file-format capability gate.
+    const bool metadata_only_count = _push_down_agg_type == TPushAggOp::type::COUNT &&
+                                     _push_down_count_columns.has_value() &&
+                                     _push_down_count_columns->empty() &&
+                                     _supports_aggregate_pushdown(TPushAggOp::type::COUNT);
+    if (metadata_only_count) {
+        // COUNT(*) may retain a physical carrier only when aggregate pushdown will bypass decoding;
+        // delete/filter fallbacks must still validate that carrier against the selected file reader.
         return Status::OK();
     }
     return validate_variant_file_mappings(_format, mapper.mappings());

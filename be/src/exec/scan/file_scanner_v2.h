@@ -88,6 +88,10 @@ public:
             RuntimeProfile* profile, const io::FileCacheStatistics& file_cache_statistics);
     static bool TEST_should_skip_not_found(const Status& status, bool ignore_not_found);
     static bool TEST_should_skip_empty(const Status& status, bool stopped);
+    static Status TEST_validate_variant_projection(TFileFormatType::type format_type,
+                                                   bool has_variant_projection) {
+        return _validate_variant_projection(format_type, has_variant_projection);
+    }
     static Status TEST_contextualize_output_filter_status(Status status,
                                                           TFileFormatType::type format_type) {
         return _contextualize_output_filter_status(std::move(status), format_type);
@@ -122,6 +126,8 @@ protected:
 private:
     static Status _validate_scan_range(const TFileScanRangeParams& params,
                                        const TFileRangeDesc& range);
+    static Status _validate_variant_projection(TFileFormatType::type format_type,
+                                               bool has_variant_projection);
     Status _get_next_scan_range(bool* has_next);
     TFileFormatType::type _get_current_format_type() const;
     Status _init_io_ctx();

@@ -23,6 +23,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
@@ -31,7 +34,10 @@ import org.apache.doris.datasource.connector.converter.ConnectorComputeVariantTy
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -42,10 +48,57 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 /** Tests the mixed-version safety gate for plugin-driven Variant scans. */
 public class PluginDrivenScanNodeCompatibilityTest {
 
     private static final int VARIANT_EXEC_VERSION = 12;
+
+    @Test
+    public void compatibilityCheckRunsOnlyAfterScanSlotsAreFinalized() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            PluginDrivenScanNode node = mock(PluginDrivenScanNode.class, CALLS_REAL_METHODS);
+            TupleDescriptor tuple = mock(TupleDescriptor.class);
+            java.util.ArrayList<org.apache.doris.analysis.SlotDescriptor> initSlots =
+                    new java.util.ArrayList<>();
+            initSlots.add(mock(org.apache.doris.analysis.SlotDescriptor.class));
+            when(tuple.getSlots()).thenReturn(initSlots);
+            when(tuple.getTable()).thenReturn(mock(TableIf.class));
+            Deencapsulation.setField(node, "desc", tuple);
+            Deencapsulation.setField(node, "sessionVariable", new SessionVariable());
+            Deencapsulation.setField(node, "params", new TFileScanRangeParams());
+            Deencapsulation.setField(node, "cachedMetadata", mock(ConnectorMetadata.class));
+            Deencapsulation.setField(node, "connector", mock(Connector.class));
+            Deencapsulation.setField(node, "connectorSession", mock(ConnectorSession.class));
+            Deencapsulation.setField(node, "backendPolicy", mock(FederationBackendPolicy.class));
+            doNothing().when(node).initBackendPolicy();
+            doNothing().when(node).initSchemaParams();
+            doNothing().when(node).checkVariantBackendCompatibilityForCurrentScan(any());
+            doNothing().when(node).convertPredicate();
+            doNothing().when(node).createScanRangeLocations();
+            when(node.getPathPartitionKeys()).thenReturn(Collections.emptyList());
+
+            node.doInitialize();
+            verify(node, never()).checkVariantBackendCompatibilityForCurrentScan(any());
+
+            // Nereids prunes the scan tuple between init and finalize. The compatibility fence must
+            // observe this finalized payload rather than the table-wide tuple used during init.
+            initSlots.clear();
+            node.doFinalize();
+            verify(node).checkVariantBackendCompatibilityForCurrentScan(any());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
 
     @Test
     public void computeVariantRejectsSmoothUpgradeSourceBackend() {
