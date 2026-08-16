@@ -556,7 +556,6 @@ TEST_F(FunctionSearchTest, TestBasicProperties) {
     EXPECT_TRUE(function_search->is_variadic());
     EXPECT_EQ(0, function_search->get_number_of_arguments());
     EXPECT_FALSE(function_search->use_default_implementation_for_nulls());
-    EXPECT_FALSE(function_search->is_use_default_implementation_for_constants());
     EXPECT_FALSE(function_search->use_default_implementation_for_constants());
     EXPECT_TRUE(function_search->can_push_down_to_index());
 

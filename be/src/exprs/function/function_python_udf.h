@@ -95,7 +95,7 @@ public:
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
-    bool is_use_default_implementation_for_constants() const override { return true; }
+    bool use_default_implementation_for_constants() const override { return true; }
 
     bool is_udf_function() const override { return true; }
 
