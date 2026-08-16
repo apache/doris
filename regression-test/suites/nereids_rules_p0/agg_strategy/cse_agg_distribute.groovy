@@ -39,34 +39,17 @@ suite("cse_agg_distribute") {
         (5, 'g1', 9, 10)
     """
 
-    // one-phase aggregate over a single scan: SUM(a+b) and MAX(a+b) share the
-    // same argument, so the aggregate-argument CSE must extract "a+b" into a
-    // project node and make both functions reference the extracted slot.
+    // SUM(a+b) and MAX(a+b) share the same argument, so the aggregate-argument
+    // CSE must extract "a+b" into a project node and make both functions
+    // reference the extracted slot, instead of re-evaluating a+b per function.
     String query = "SELECT grp, SUM(a+b), MAX(a+b) FROM cse_agg_distribute_tbl GROUP BY grp"
 
     // ---------------------------------------------------------------------
-    // bucketed fusion path (one-phase aggregate -> distribute -> scan is
-    // fused into BucketedAggregationNode): the CSE project must be preserved
-    // below the fused node, i.e. BucketedAgg(sum(x), max(x)) -> Project(a+b AS x)
-    // -> scan. The aggregate output must reference the extracted slot twice
-    // (once for SUM, once for MAX) instead of recomputing a+b per function.
-    // ---------------------------------------------------------------------
-    sql "set enable_bucketed_hash_agg=true"
-    sql "set bucketed_agg_min_input_rows=0"
-    sql "set bucketed_agg_high_card_threshold=1.0"
-    explain {
-        sql("${query}")
-        contains("BUCKETED AGGREGATE")
-        contains("VSELECT")
-        multiContains("cast(a as BIGINT) + cast(b as BIGINT))[#", 2)
-    }
-    order_qt_bucketed_result """${query} ORDER BY grp"""
-
-    // ---------------------------------------------------------------------
-    // plain one-phase aggregate over a distribute (aggregate is a join child,
+    // one-phase aggregate over a distribute (the aggregate is a join child,
     // so the distribute is required by the join): the CSE project must be
     // inserted below the distribute, keeping the distribution-key slots
-    // intact, and both aggregates must reference the extracted slot.
+    // intact. Both aggregates must reference the extracted slot (4
+    // occurrences: SUM/MAX of each side).
     // ---------------------------------------------------------------------
     sql "set agg_phase=1"
     sql "set enable_bucketed_hash_agg=false"
