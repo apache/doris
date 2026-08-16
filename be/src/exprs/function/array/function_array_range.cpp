@@ -37,13 +37,13 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/pod_array_fwd.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
-#include "exprs/function/function_date_or_datetime_computation.h"
 #include "exprs/function/simple_function_factory.h"
 
 namespace doris {
@@ -188,19 +188,21 @@ private:
                     dest_offsets.push_back(dest_offsets.back());
                     continue;
                 } else {
-                    if (idx < end_row && step_row > 0 &&
-                        ((static_cast<__int128_t>(end_row) - static_cast<__int128_t>(idx) - 1) /
-                                 static_cast<__int128_t>(step_row) +
-                         1) > max_array_size_as_field) {
-                        return Status::InvalidArgument("Array size exceeds the limit {}",
-                                                       max_array_size_as_field);
+                    const Int64 start_value = idx;
+                    const Int64 end_value = end_row;
+                    const Int64 step_value = step_row;
+                    if (start_value < end_value) {
+                        const Int64 range_size = (end_value - start_value - 1) / step_value + 1;
+                        if (range_size > static_cast<Int64>(max_array_size_as_field)) {
+                            return Status::InvalidArgument("Array size exceeds the limit {}",
+                                                           max_array_size_as_field);
+                        }
                     }
                     size_t offset = dest_offsets.back();
-                    while (idx < end[row]) {
-                        nested_column.push_back(idx);
+                    for (Int64 current = start_value; current < end_value; current += step_value) {
+                        nested_column.push_back(static_cast<Int32>(current));
                         dest_nested_null_map.push_back(0);
                         offset++;
-                        idx = idx + step_row;
                     }
                     dest_offsets.push_back(offset);
                 }
@@ -222,7 +224,7 @@ private:
                     int move = 0;
                     while (doris::datetime_diff<UNIT::value, DateTimeV2ValueType,
                                                 DateTimeV2ValueType>(idx, end_row) > 0) {
-                        if (move > max_array_size_as_field) {
+                        if (move >= max_array_size_as_field) {
                             return Status::InvalidArgument("Array size exceeds the limit {}",
                                                            max_array_size_as_field);
                         }
@@ -230,8 +232,15 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        idx = doris::date_time_add<UNIT::value, TYPE_DATETIMEV2, Int32>(idx,
-                                                                                        step_row);
+                        auto next = idx;
+                        TimeInterval interval(UNIT::value, step_row, false);
+                        // The current value can be the last element even if advancing it exceeds
+                        // the DateTimeV2 range.
+                        if (!next.template date_add_interval<UNIT::value>(interval)) {
+                            break;
+                        }
+                        DCHECK_NE(next, idx);
+                        idx = next;
                     }
                     dest_offsets.push_back(offset);
                 }
