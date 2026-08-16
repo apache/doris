@@ -1285,6 +1285,60 @@ TEST(VariantColumnReaderTest, PreservesPrimitiveWidthsAcrossProjectedFiles) {
     EXPECT_EQ(values.get_value_ref(1).primitive_id(), VariantPrimitiveId::INT32);
 }
 
+TEST(VariantColumnReaderTest, PreservesNarrowDecimalWidthsAcrossProjectedSerialization) {
+    auto verify = [](int precision, uint8_t expected_width, VariantPrimitiveId expected_id) {
+        auto schema = shredded_object_schema();
+        auto* leaf = schema.children[2]->children[0]->children[0].get();
+        leaf->type = make_nullable(std::make_shared<DataTypeDecimal128>(precision, 2));
+        leaf->type_descriptor.decimal_precision = precision;
+        leaf->type_descriptor.decimal_scale = 2;
+        schema.local_id = 0;
+        schema.children[2]->local_id = 2;
+        schema.children[2]->children[0]->local_id = 0;
+        leaf->local_id = 0;
+
+        auto projection = format::LocalColumnIndex::partial_local(0);
+        projection.children.push_back(format::LocalColumnIndex::partial_local(2));
+        projection.children.back().children.push_back(format::LocalColumnIndex::partial_local(0));
+        projection.children.back().children.back().children.push_back(
+                format::LocalColumnIndex::local(0));
+        VariantMaterializationNode plan;
+        plan.schema = &schema;
+        plan.contains_variant = true;
+        plan.variant_projection = std::move(projection);
+        plan.variant_state_schema = create_variant_state_schema(schema, &*plan.variant_projection);
+
+        auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+        ASSERT_TRUE(materialize_variant_columns(
+                            plan, projected_shredded_decimal_object_physical(12345, 2), output)
+                            .ok());
+        const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+        const auto& variants = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+        const std::array path_segments {VariantElementV2PathSegment::object_key(StringRef("a"))};
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        ASSERT_TRUE(resolve_variant_element_v2_path(path_segments, &path).ok());
+        ColumnPtr extracted;
+        ASSERT_TRUE(extract_variant_element_v2(variants, *path, nullable.get_null_map_data(),
+                                               &extracted)
+                            .ok());
+        const auto& extracted_values = assert_cast<const ColumnVariantV2&>(
+                assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
+        ASSERT_FALSE(extracted_values.is_typed());
+        EXPECT_EQ(extracted_values.get_value_ref(0).primitive_id(), expected_id);
+        EXPECT_EQ(extracted_values.get_value_ref(0).get_decimal(),
+                  (VariantDecimal {12345, 2, expected_width}));
+
+        MutableColumnPtr restored = binary_round_trip(extracted_values);
+        const auto& restored_values = assert_cast<const ColumnVariantV2&>(*restored);
+        EXPECT_EQ(restored_values.get_value_ref(0).primitive_id(), expected_id);
+        EXPECT_EQ(restored_values.get_value_ref(0).get_decimal(),
+                  (VariantDecimal {12345, 2, expected_width}));
+    };
+
+    verify(9, 4, VariantPrimitiveId::DECIMAL4);
+    verify(18, 8, VariantPrimitiveId::DECIMAL8);
+}
+
 TEST(VariantColumnReaderTest, PreservesWidthsAcrossMaterializedPathFallback) {
     auto projected_int_schema = shredded_object_schema();
     auto projected_decimal_schema = shredded_object_schema();

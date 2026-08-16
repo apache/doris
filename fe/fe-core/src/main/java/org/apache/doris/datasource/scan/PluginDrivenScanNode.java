@@ -191,8 +191,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // Volatile mirrors resolvedScanProvider — keeps an off-path metadata() read race-free.
     private volatile ConnectorMetadata cachedMetadata;
 
-    // COUNT(*) providers such as Paimon can prove metadata-only execution only after planning the
-    // pinned splits. Such plans are kept synchronous and fenced once their final ranges are known.
+    // COUNT(*) providers can promise metadata-only execution before planning, but TABLESAMPLE and
+    // routing decisions may invalidate that promise. Keep these plans synchronous and fence their
+    // actual ranges before any old backend can receive a Variant payload.
     private boolean variantCompatibilityDeferred;
 
     public PluginDrivenScanNode(PlanNodeId id, TupleDescriptor desc,
@@ -216,26 +217,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     void checkVariantBackendCompatibilityForCurrentScan(Iterable<Backend> backends)
             throws UserException {
         boolean projectsVariant = projectsComputeVariant(desc);
-        boolean metadataCountProven = false;
-        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
-        if (isTableLevelCountStarPushdown() && conjuncts.isEmpty() && scanProvider != null) {
-            metadataCountProven = onPluginClassLoader(scanProvider,
-                    () -> canServeMetadataOnlyCount(scanProvider, connectorSession, currentHandle));
-        }
         if (projectsVariant && isTableLevelCountStarPushdown()
-                && conjuncts.isEmpty() && !metadataCountProven) {
-            // A partial Paimon count plan mixes CountReader and data ranges; only planScan can
-            // distinguish it from a fully precomputed count that never decodes the Variant slot.
+                && conjuncts.isEmpty()) {
+            // Only the finalized ranges prove that sampling and batch routing did not turn a
+            // metadata-count promise into a scan that decodes the projected Variant slot.
             variantCompatibilityDeferred = true;
             return;
         }
-        checkVariantBackendCompatibility(
-                !metadataCountProven && projectsVariant, backends);
-    }
-
-    static boolean canServeMetadataOnlyCount(ConnectorScanPlanProvider scanProvider,
-            ConnectorSession session, ConnectorTableHandle handle) {
-        return scanProvider.canServeMetadataOnlyCount(session, handle, Optional.empty());
+        checkVariantBackendCompatibility(projectsVariant, backends);
     }
 
     static boolean projectsComputeVariant(TupleDescriptor tuple) {

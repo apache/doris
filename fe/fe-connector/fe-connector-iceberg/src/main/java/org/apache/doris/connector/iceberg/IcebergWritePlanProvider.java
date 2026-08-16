@@ -394,9 +394,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
     private static void validateNestedPartitionWriteCompatibility(
             ConnectorWriteHandle handle, IcebergWriteSchemaContext schemaContext) {
         WriteOperation operation = handle.getWriteOperation();
+        // Only DELETE avoids the old data-writer path; old MERGE initializes it even when the
+        // finalized plan reports that no data files will be produced.
         boolean writesDataFiles = operation != WriteOperation.DELETE
-                && ((operation != WriteOperation.UPDATE && operation != WriteOperation.MERGE)
-                        || handle.isWritesDataFiles());
+                && (operation != WriteOperation.UPDATE || handle.isWritesDataFiles());
         if (!writesDataFiles || schemaContext == null
                 || handle.getBeExecVersion() >= SUPPORT_NESTED_PARTITION_WRITE_EXEC_VERSION) {
             return;

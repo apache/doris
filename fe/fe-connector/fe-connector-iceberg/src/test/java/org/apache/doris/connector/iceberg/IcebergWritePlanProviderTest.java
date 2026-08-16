@@ -1408,8 +1408,14 @@ public class IcebergWritePlanProviderTest {
 
         WriteHandle deleteOnlyMerge = new WriteHandle(new IcebergTableHandle("db1", "nested_partition"))
                 .writeOperation(WriteOperation.MERGE).writesDataFiles(false).beExecVersion(11);
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> providerFor(table, contextWithStorage()).planWrite(
+                        sessionFor(table, contextWithStorage()), deleteOnlyMerge));
+
+        WriteHandle delete = new WriteHandle(new IcebergTableHandle("db1", "nested_partition"))
+                .writeOperation(WriteOperation.DELETE).writesDataFiles(false).beExecVersion(11);
         Assertions.assertDoesNotThrow(() -> providerFor(table, contextWithStorage()).planWrite(
-                sessionFor(table, contextWithStorage()), deleteOnlyMerge));
+                sessionFor(table, contextWithStorage()), delete));
     }
 
     // ───────────────────── getSyntheticWriteColumns (connector declares the row-id STRUCT, ③ C3b-core) ─────────────────────

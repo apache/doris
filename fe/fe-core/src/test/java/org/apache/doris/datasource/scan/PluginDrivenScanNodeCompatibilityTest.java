@@ -17,9 +17,12 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -34,21 +37,24 @@ import org.apache.doris.datasource.connector.converter.ConnectorComputeVariantTy
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TPushAggOp;
 
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /** Tests the mixed-version safety gate for plugin-driven Variant scans. */
 public class PluginDrivenScanNodeCompatibilityTest {
@@ -158,24 +164,6 @@ public class PluginDrivenScanNodeCompatibilityTest {
     }
 
     @Test
-    public void metadataCountCapabilityUsesPinnedHandle() {
-        ConnectorSession session = org.mockito.Mockito.mock(ConnectorSession.class);
-        ConnectorTableHandle latest = new ConnectorTableHandle() { };
-        ConnectorTableHandle pinned = new ConnectorTableHandle() { };
-        ConnectorScanPlanProvider provider =
-                org.mockito.Mockito.mock(ConnectorScanPlanProvider.class);
-        org.mockito.Mockito.doAnswer(invocation -> invocation.getArgument(1) == latest)
-                .when(provider).canServeMetadataOnlyCount(org.mockito.Mockito.same(session),
-                        org.mockito.Mockito.any(ConnectorTableHandle.class),
-                        org.mockito.Mockito.eq(Optional.empty()));
-
-        Assert.assertTrue(PluginDrivenScanNode.canServeMetadataOnlyCount(
-                provider, session, latest));
-        Assert.assertFalse(PluginDrivenScanNode.canServeMetadataOnlyCount(
-                provider, session, pinned));
-    }
-
-    @Test
     public void oldBackendAllowsOnlyFullyPrecomputedVariantCountPlans() throws UserException {
         ConnectorScanRange countRange = new ConnectorScanRange() {
             @Override
@@ -212,5 +200,69 @@ public class PluginDrivenScanNodeCompatibilityTest {
         } finally {
             Config.be_exec_version = original;
         }
+    }
+
+    @Test
+    public void sampledMetadataCountDefersVariantFenceToPlannedRanges() throws UserException {
+        ConnectorScanPlanProvider provider = metadataCountProvider();
+        Mockito.when(provider.supportsTableSample()).thenReturn(true);
+        PluginDrivenScanNode node = metadataCountVariantNode(provider);
+        node.setTableSample(new TableSample(true, 10L, 7L));
+
+        node.checkVariantBackendCompatibilityForCurrentScan(Collections.singletonList(oldBackend()));
+
+        Assert.assertTrue((Boolean) Deencapsulation.getField(node, "variantCompatibilityDeferred"));
+    }
+
+    @Test
+    public void metadataCountProviderCannotEnterPartitionBatchBeforeRangeProof() throws UserException {
+        ConnectorScanPlanProvider provider = metadataCountProvider();
+        Mockito.when(provider.streamingSplitEstimate(Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyBoolean())).thenReturn(-1L);
+        Mockito.when(provider.supportsBatchScan(Mockito.any(), Mockito.any())).thenReturn(true);
+        PluginDrivenScanNode node = metadataCountVariantNode(provider);
+        Map<String, PartitionItem> partitions = new LinkedHashMap<>();
+        partitions.put("pt=1", Mockito.mock(PartitionItem.class));
+        Deencapsulation.setField(node, "selectedPartitions",
+                new SelectedPartitions(1, partitions, true));
+        SessionVariable sessionVariable = Mockito.mock(SessionVariable.class);
+        Mockito.when(sessionVariable.getNumPartitionsInBatchMode()).thenReturn(1);
+        Deencapsulation.setField(node, "sessionVariable", sessionVariable);
+
+        node.checkVariantBackendCompatibilityForCurrentScan(Collections.singletonList(oldBackend()));
+
+        Assert.assertFalse(node.isBatchMode());
+    }
+
+    private static ConnectorScanPlanProvider metadataCountProvider() {
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(provider.canServeMetadataOnlyCount(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(true);
+        return provider;
+    }
+
+    private static PluginDrivenScanNode metadataCountVariantNode(ConnectorScanPlanProvider provider) {
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getScanPlanProvider(Mockito.any())).thenReturn(provider);
+        Deencapsulation.setField(node, "connector", connector);
+        Deencapsulation.setField(node, "connectorSession", Mockito.mock(ConnectorSession.class));
+        Deencapsulation.setField(node, "currentHandle", new ConnectorTableHandle() { });
+        Deencapsulation.setField(node, "conjuncts", new ArrayList<>());
+        Deencapsulation.setField(node, "pushDownAggNoGroupingOp", TPushAggOp.COUNT);
+        Deencapsulation.setField(node, "pushDownCountSlotIds", Collections.emptyList());
+
+        SlotDescriptor slot = Mockito.mock(SlotDescriptor.class);
+        Mockito.when(slot.getType()).thenReturn(new ConnectorComputeVariantType());
+        TupleDescriptor tuple = Mockito.mock(TupleDescriptor.class);
+        ArrayList<SlotDescriptor> slots = new ArrayList<>();
+        slots.add(slot);
+        Mockito.when(tuple.getSlots()).thenReturn(slots);
+        Deencapsulation.setField(node, "desc", tuple);
+        return node;
+    }
+
+    private static Backend oldBackend() {
+        return new Backend(10L, "127.0.0.1", 9050);
     }
 }

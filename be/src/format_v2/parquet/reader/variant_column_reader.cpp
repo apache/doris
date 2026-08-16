@@ -556,9 +556,12 @@ bool supports_direct_typed_variant_state(const ParquetColumnSchema& schema) {
     case TYPE_BIGINT:
     case TYPE_FLOAT:
     case TYPE_DOUBLE:
-    case TYPE_DECIMAL128I:
     case TYPE_DATEV2:
         return true;
+    case TYPE_DECIMAL128I:
+        // Doris stores every Parquet decimal in Decimal128, so narrow logical widths must be
+        // canonicalized before the Variant typed state discards their precision.
+        return schema.type_descriptor.decimal_precision > 18;
     default:
         return false;
     }
