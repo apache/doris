@@ -645,7 +645,7 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
         sql """
             MERGE INTO t_dml t
             USING internal.${dbName}.t_merge_source s ON t.id = s.id
-            WHEN MATCHED AND s.id = 1 THEN UPDATE SET
+            WHEN MATCHED AND s.id <=> 1 THEN UPDATE SET
                 name = s.name,
                 score = IF(assert_true(s.id = 1, 'inactive assignment evaluated'), s.score, s.score)
             WHEN MATCHED AND assert_true(s.id < 0, 'later predicate evaluated') THEN DELETE
