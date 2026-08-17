@@ -19,6 +19,7 @@
 
 #include <fmt/format.h>
 
+#include "format/table/iceberg/iceberg_arrow_write_converter.h"
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/types.h"
 #include "format/transformer/vorc_transformer.h"
@@ -106,7 +107,7 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
                                               TParquetVersion::PARQUET_1_0, false, false};
         _file_format_transformer.reset(new VParquetTransformer(
                 state, _file_writer.get(), output_exprs, column_names, false, parquet_options,
-                nullptr, _position_delete_schema.get()));
+                nullptr, _position_delete_schema.get(), iceberg::iceberg_arrow_write_converter()));
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
