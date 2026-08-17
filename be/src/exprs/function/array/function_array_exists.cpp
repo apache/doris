@@ -30,6 +30,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_array_view.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
@@ -67,19 +68,18 @@ public:
         // 1. get first array column
         const auto first_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto array_view = ColumnArrayView<TYPE_BOOLEAN>::create(first_column);
         const ColumnArray& first_col_array = assert_cast<const ColumnArray&>(*first_column);
         const auto& nested_nullable_column =
                 assert_cast<const ColumnNullable&>(*first_col_array.get_data_ptr());
-        const auto nested_column = nested_nullable_column.get_nested_column_ptr();
-        const size_t nested_column_size = nested_column->size();
+        const size_t nested_column_size = array_view.element_data.size();
         ColumnPtr result_null_map = nested_nullable_column.get_null_map_column_ptr();
 
         // 2. compute result
         auto result_column = ColumnUInt8::create(nested_column_size, 0);
         auto* __restrict result_column_data = result_column->get_data().data();
         ColumnPtr result_offset_column = first_col_array.get_offsets_ptr();
-        const auto* __restrict nested_column_data =
-                assert_cast<const ColumnUInt8&>(*nested_column).get_data().data();
+        const auto* __restrict nested_column_data = array_view.get_data();
 
         for (size_t row = 0; row < nested_column_size; ++row) {
             result_column_data[row] = nested_column_data[row] != 0;

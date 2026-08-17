@@ -23,6 +23,7 @@
 #include "core/call_on_type_index.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_array_view.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
@@ -125,21 +126,10 @@ public:
                                 block.get_by_position(arguments[0]).type->get_name()));
         }
 
-        const auto& src_offsets = src_column_array->get_offsets();
-        const auto* src_nested_column = &src_column_array->get_data();
-        DCHECK(src_nested_column != nullptr);
-
-        // get src nested column
         auto src_nested_type = assert_cast<const DataTypeArray&>(*src_arg.type).get_nested_type();
 
-        // get null map
-        const auto* src_nested_nullable_col = assert_cast<const ColumnNullable*>(src_nested_column);
-        src_nested_column = src_nested_nullable_col->get_nested_column_ptr().get();
-        const NullMapType& src_null_map = src_nested_nullable_col->get_null_map_column().get_data();
-
         ColumnPtr res_nested_ptr;
-        auto res_val = _execute_by_type(src_nested_type, *src_nested_column, src_offsets,
-                                        src_null_map, res_nested_ptr);
+        auto res_val = _execute_by_type(src_nested_type, src_column, res_nested_ptr);
         if (!res_val) {
             return Status::InvalidArgument(
                     "execute failed or unsupported types for function {}({})", get_name(),
@@ -154,62 +144,61 @@ public:
     }
 
 private:
-    bool _execute_by_type(DataTypePtr src_nested_type, const IColumn& src_column,
-                          const ColumnArray::Offsets64& src_offsets,
-                          const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
+    bool _execute_by_type(DataTypePtr src_nested_type, const ColumnPtr& src_column,
+                          ColumnPtr& res_nested_ptr) const {
         bool res = false;
         switch (src_nested_type->get_primitive_type()) {
         case TYPE_BOOLEAN:
-            res = _execute_number<TYPE_BOOLEAN, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
-                                                             res_nested_ptr);
+            res = _execute_number<TYPE_BOOLEAN, TYPE_BIGINT>(
+                    ColumnArrayView<TYPE_BOOLEAN>::create(src_column), res_nested_ptr);
             break;
         case TYPE_TINYINT:
-            res = _execute_number<TYPE_TINYINT, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
-                                                             res_nested_ptr);
+            res = _execute_number<TYPE_TINYINT, TYPE_BIGINT>(
+                    ColumnArrayView<TYPE_TINYINT>::create(src_column), res_nested_ptr);
             break;
         case TYPE_SMALLINT:
-            res = _execute_number<TYPE_SMALLINT, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
-                                                              res_nested_ptr);
+            res = _execute_number<TYPE_SMALLINT, TYPE_BIGINT>(
+                    ColumnArrayView<TYPE_SMALLINT>::create(src_column), res_nested_ptr);
             break;
         case TYPE_INT:
-            res = _execute_number<TYPE_INT, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
-                                                         res_nested_ptr);
+            res = _execute_number<TYPE_INT, TYPE_BIGINT>(
+                    ColumnArrayView<TYPE_INT>::create(src_column), res_nested_ptr);
             break;
         case TYPE_BIGINT:
-            res = _execute_number<TYPE_BIGINT, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
-                                                            res_nested_ptr);
+            res = _execute_number<TYPE_BIGINT, TYPE_BIGINT>(
+                    ColumnArrayView<TYPE_BIGINT>::create(src_column), res_nested_ptr);
             break;
         case TYPE_LARGEINT:
-            res = _execute_number<TYPE_LARGEINT, TYPE_LARGEINT>(src_column, src_offsets,
-                                                                src_null_map, res_nested_ptr);
+            res = _execute_number<TYPE_LARGEINT, TYPE_LARGEINT>(
+                    ColumnArrayView<TYPE_LARGEINT>::create(src_column), res_nested_ptr);
             break;
         case TYPE_FLOAT:
-            res = _execute_number<TYPE_FLOAT, TYPE_DOUBLE>(src_column, src_offsets, src_null_map,
-                                                           res_nested_ptr);
+            res = _execute_number<TYPE_FLOAT, TYPE_DOUBLE>(
+                    ColumnArrayView<TYPE_FLOAT>::create(src_column), res_nested_ptr);
             break;
         case TYPE_DOUBLE:
-            res = _execute_number<TYPE_DOUBLE, TYPE_DOUBLE>(src_column, src_offsets, src_null_map,
-                                                            res_nested_ptr);
+            res = _execute_number<TYPE_DOUBLE, TYPE_DOUBLE>(
+                    ColumnArrayView<TYPE_DOUBLE>::create(src_column), res_nested_ptr);
             break;
         case TYPE_DECIMAL32:
-            res = _execute_number<TYPE_DECIMAL32, PType>(src_column, src_offsets, src_null_map,
-                                                         res_nested_ptr);
+            res = _execute_number<TYPE_DECIMAL32, PType>(
+                    ColumnArrayView<TYPE_DECIMAL32>::create(src_column), res_nested_ptr);
             break;
         case TYPE_DECIMAL64:
-            res = _execute_number<TYPE_DECIMAL64, PType>(src_column, src_offsets, src_null_map,
-                                                         res_nested_ptr);
+            res = _execute_number<TYPE_DECIMAL64, PType>(
+                    ColumnArrayView<TYPE_DECIMAL64>::create(src_column), res_nested_ptr);
             break;
         case TYPE_DECIMAL128I:
-            res = _execute_number<TYPE_DECIMAL128I, PType>(src_column, src_offsets, src_null_map,
-                                                           res_nested_ptr);
+            res = _execute_number<TYPE_DECIMAL128I, PType>(
+                    ColumnArrayView<TYPE_DECIMAL128I>::create(src_column), res_nested_ptr);
             break;
         case TYPE_DECIMAL256:
-            res = _execute_number<TYPE_DECIMAL256, PType>(src_column, src_offsets, src_null_map,
-                                                          res_nested_ptr);
+            res = _execute_number<TYPE_DECIMAL256, PType>(
+                    ColumnArrayView<TYPE_DECIMAL256>::create(src_column), res_nested_ptr);
             break;
         case TYPE_DECIMALV2:
-            res = _execute_number<TYPE_DECIMALV2, TYPE_DECIMALV2>(src_column, src_offsets,
-                                                                  src_null_map, res_nested_ptr);
+            res = _execute_number<TYPE_DECIMALV2, TYPE_DECIMALV2>(
+                    ColumnArrayView<TYPE_DECIMALV2>::create(src_column), res_nested_ptr);
             break;
         default:
             break;
@@ -218,42 +207,36 @@ private:
     }
 
     template <PrimitiveType Element, PrimitiveType Result>
-    bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                         const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
+    bool _execute_number(const ColumnArrayView<Element>& array_view,
+                         ColumnPtr& res_nested_ptr) const {
         if constexpr (is_decimalv3(Element) &&
                       (TYPE_DECIMAL128I != Result && TYPE_DECIMAL256 != Result)) {
             return false;
         } else {
-            using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
             using ColVecResult = typename PrimitiveTypeTraits<Result>::ColumnType;
-
-            // 1. get pod array from src
-            auto src_column_concrete = assert_cast<const ColVecType*>(&src_column);
-            if (!src_column_concrete) {
-                return false;
-            }
 
             // 2. construct result data
             typename ColVecResult::MutablePtr res_nested_mut_ptr = nullptr;
             if constexpr (is_decimal(Result)) {
-                res_nested_mut_ptr = ColVecResult::create(0, src_column_concrete->get_scale());
+                res_nested_mut_ptr =
+                        ColVecResult::create(0, array_view.element_data.data.get_scale());
             } else {
                 res_nested_mut_ptr = ColVecResult::create();
             }
 
             // get result data pod array
-            auto size = src_column.size();
+            auto size = array_view.element_data.size();
             auto& res_datas = res_nested_mut_ptr->get_data();
             res_datas.resize(size);
 
             // 3. compute cum sum and null map
-            _compute_cum_sum<Result>(src_column_concrete->get_data(), src_offsets, src_null_map,
-                                     res_datas);
+            _compute_cum_sum<Result>(array_view.element_data.data, array_view.offsets,
+                                     array_view.nested_null_map, res_datas);
 
             // handle null value in res_datas for first null value
             auto res_null_map_col = ColumnUInt8::create(size, 0);
             size_t first_not_null_pos =
-                    VectorizedUtils::find_first_valid_simd(src_null_map, 0, size);
+                    VectorizedUtils::find_first_valid_simd(array_view.nested_null_map, 0, size);
             VLOG_DEBUG << "first_not_null_pos: " << std::to_string(first_not_null_pos);
             VectorizedUtils::range_set_nullmap_to_true_simd(res_null_map_col->get_data(), 0,
                                                             first_not_null_pos);

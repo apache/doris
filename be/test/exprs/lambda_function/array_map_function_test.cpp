@@ -360,6 +360,38 @@ static ColumnPtr make_int_array_column(const std::vector<std::vector<int32_t>>& 
     return ColumnArray::create(std::move(nullable_int_column), std::move(offsets));
 }
 
+template <typename ColumnType, typename ValueType>
+static ColumnPtr make_nullable_array_column(const std::vector<ValueType>& values,
+                                            const std::vector<uint8_t>& nested_null_map,
+                                            const std::vector<int64_t>& offsets,
+                                            const std::vector<uint8_t>& outer_null_map) {
+    auto data_column = ColumnType::create();
+    for (auto value : values) {
+        data_column->insert_value(value);
+    }
+    auto nested_null_column = ColumnUInt8::create();
+    for (auto value : nested_null_map) {
+        nested_null_column->insert_value(value);
+    }
+    auto nested_column =
+            ColumnNullable::create(std::move(data_column), std::move(nested_null_column));
+    auto offsets_column = ColumnArray::ColumnOffsets::create();
+    for (auto offset : offsets) {
+        offsets_column->insert_value(offset);
+    }
+    ColumnPtr array_column =
+            ColumnArray::create(std::move(nested_column), std::move(offsets_column));
+    if (!outer_null_map.empty()) {
+        auto outer_null_column = ColumnUInt8::create();
+        for (auto value : outer_null_map) {
+            outer_null_column->insert_value(value);
+        }
+        array_column =
+                ColumnNullable::create(std::move(array_column), std::move(outer_null_column));
+    }
+    return array_column;
+}
+
 static ColumnPtr make_nested_int_array_column() {
     // Two input rows:
     //   row 0: [[1, 2], [3]]
@@ -423,6 +455,79 @@ static void open_expr(const VExprSPtr& expr, VExprContext* context) {
     RowDescriptor row_desc;
     ASSERT_TRUE(expr->prepare(&state, row_desc, context).ok());
     ASSERT_TRUE(expr->open(&state, context, FunctionContext::THREAD_LOCAL).ok());
+}
+
+TEST(ArrayMapFunctionTest, ArrayFilterHandlesNullableArrayView) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto boolean_type = std::make_shared<DataTypeUInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto array_boolean_type = std::make_shared<DataTypeArray>(boolean_type);
+    auto nullable_array_int_type = make_nullable(array_int_type);
+    auto nullable_array_boolean_type = make_nullable(array_boolean_type);
+
+    auto source = make_nullable_array_column<ColumnInt32, int32_t>(
+            {1, 2, 3, 4, 5, 6, 7, 8}, {0, 0, 0, 0, 0, 0, 0, 0}, {3, 5, 6, 8}, {0, 0, 1, 0});
+    auto filter = make_nullable_array_column<ColumnUInt8, uint8_t>(
+            {1, 0, 1, 1, 0, 1, 0, 1}, {0, 0, 0, 0, 1, 0, 0, 0}, {3, 5, 6, 8}, {0, 0, 0, 1});
+
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(nullable_array_int_type, 2, "array_filter"));
+    root->add_child(std::make_shared<MockColumnExpr>(source, nullable_array_int_type, "source"));
+    root->add_child(
+            std::make_shared<MockColumnExpr>(filter, nullable_array_boolean_type, "filter"));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, nullptr, nullptr, 4, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
+    const auto& result_null_map = nullable_result.get_null_map_data();
+    EXPECT_EQ(std::vector<uint8_t>(result_null_map.begin(), result_null_map.end()),
+              std::vector<uint8_t>({0, 0, 1, 0}));
+    const auto& result_array = assert_cast<const ColumnArray&>(nullable_result.get_nested_column());
+    const auto& result_offsets = result_array.get_offsets();
+    EXPECT_EQ(std::vector<int64_t>(result_offsets.begin(), result_offsets.end()),
+              std::vector<int64_t>({2, 3, 3, 3}));
+    const auto& result_values =
+            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column();
+    const auto& int_values = assert_cast<const ColumnInt32&>(result_values);
+    const auto& result_data = int_values.get_data();
+    EXPECT_EQ(std::vector<int32_t>(result_data.begin(), result_data.end()),
+              std::vector<int32_t>({1, 3, 4}));
+}
+
+TEST(ArrayMapFunctionTest, ArrayFilterHandlesNonNullableResult) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto boolean_type = std::make_shared<DataTypeUInt8>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto array_boolean_type = std::make_shared<DataTypeArray>(boolean_type);
+    auto source = make_nullable_array_column<ColumnInt32, int32_t>({1, 2, 3}, {0, 0, 0}, {3}, {});
+    auto filter = make_nullable_array_column<ColumnUInt8, uint8_t>({1, 0, 1}, {0, 0, 0}, {3}, {});
+
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(array_int_type, 2, "array_filter"));
+    root->add_child(std::make_shared<MockColumnExpr>(source, array_int_type, "source"));
+    root->add_child(std::make_shared<MockColumnExpr>(filter, array_boolean_type, "filter"));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, nullptr, nullptr, 1, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result_array = assert_cast<const ColumnArray&>(*result);
+    const auto& result_offsets = result_array.get_offsets();
+    EXPECT_EQ(std::vector<int64_t>(result_offsets.begin(), result_offsets.end()),
+              std::vector<int64_t>({2}));
+    const auto& result_values =
+            assert_cast<const ColumnNullable&>(result_array.get_data()).get_nested_column();
+    const auto& int_values = assert_cast<const ColumnInt32&>(result_values);
+    const auto& result_data = int_values.get_data();
+    EXPECT_EQ(std::vector<int32_t>(result_data.begin(), result_data.end()),
+              std::vector<int32_t>({1, 3}));
 }
 
 TEST(ArrayMapFunctionTest, NestedLambdaWithSameArgumentNameUsesInnerScope) {

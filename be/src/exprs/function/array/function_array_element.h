@@ -469,16 +469,10 @@ private:
         const auto& array_column = assert_cast<const ColumnArray&>(*arguments[0].column);
         const auto& offsets = array_column.get_offsets();
         DCHECK(is_const_array ? offsets.size() == 1 : offsets.size() == input_rows_count);
-        const UInt8* nested_null_map = nullptr;
-        ColumnPtr nested_column = nullptr;
-        if (is_column_nullable(array_column.get_data())) {
-            const auto& nested_null_column =
-                    reinterpret_cast<const ColumnNullable&>(array_column.get_data());
-            nested_null_map = nested_null_column.get_null_map_column().get_data().data();
-            nested_column = nested_null_column.get_nested_column_ptr();
-        } else {
-            nested_column = array_column.get_data_ptr();
-        }
+        const auto& nested_null_column =
+                assert_cast<const ColumnNullable&>(array_column.get_data());
+        const UInt8* nested_null_map = nested_null_column.get_null_map_data().data();
+        ColumnPtr nested_column = nested_null_column.get_nested_column_ptr();
 
         ColumnPtr res = nullptr;
         auto left_element_type = remove_nullable(

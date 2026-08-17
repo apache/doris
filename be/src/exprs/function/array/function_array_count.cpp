@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "core/column/column_array.h"
-#include "core/column/column_nullable.h"
-#include "core/data_type/data_type_array.h"
+#include "core/column/column_array_view.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
@@ -48,52 +46,25 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const auto& [src_column, src_const] =
-                unpack_if_const(block.get_by_position(arguments[0]).column);
-        const ColumnArray* array_column = nullptr;
-        const UInt8* array_null_map = nullptr;
-        if (const auto* nullable_array = check_and_get_column<ColumnNullable>(src_column.get())) {
-            array_column = assert_cast<const ColumnArray*>(&nullable_array->get_nested_column());
-            array_null_map = nullable_array->get_null_map_column().get_data().data();
-        } else {
-            array_column = assert_cast<const ColumnArray*>(src_column.get());
-        }
-
-        if (!array_column) {
-            return Status::RuntimeError("unsupported types for function {}({})", get_name(),
-                                        block.get_by_position(arguments[0]).type->get_name());
-        }
-
-        const auto& offsets = array_column->get_offsets();
-        ColumnPtr nested_column = nullptr;
-        const UInt8* nested_null_map = nullptr;
-        if (is_column_nullable(array_column->get_data())) {
-            const auto& nested_null_column =
-                    assert_cast<const ColumnNullable&>(array_column->get_data());
-            nested_null_map = nested_null_column.get_null_map_column().get_data().data();
-            nested_column = nested_null_column.get_nested_column_ptr();
-        } else {
-            nested_column = array_column->get_data_ptr();
-        }
-
-        const auto& nested_data = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
-
-        auto dst_column = ColumnInt64::create(offsets.size());
+        auto array_view =
+                ColumnArrayView<TYPE_BOOLEAN>::create(block.get_by_position(arguments[0]).column);
+        auto dst_column = ColumnInt64::create(array_view.size());
         auto& dst_data = dst_column->get_data();
 
-        for (size_t row = 0; row < offsets.size(); ++row) {
+        for (size_t row = 0; row < array_view.size(); ++row) {
             Int64 res = 0;
-            if (array_null_map && array_null_map[row]) {
+            if (array_view.is_null_at(row)) {
                 dst_data[row] = res;
                 continue;
             }
-            size_t off = offsets[row - 1];
-            size_t len = offsets[row] - off;
-            for (size_t pos = 0; pos < len; ++pos) {
-                if (nested_null_map && nested_null_map[pos + off]) {
+            auto array_data = array_view[row];
+            const auto* data = array_data.get_data();
+            const auto* null_map = array_data.get_null_map_data();
+            for (size_t pos = 0; pos < array_data.size(); ++pos) {
+                if (null_map[pos]) {
                     continue;
                 }
-                if (nested_data[pos + off] != 0) {
+                if (data[pos] != 0) {
                     ++res;
                 }
             }
