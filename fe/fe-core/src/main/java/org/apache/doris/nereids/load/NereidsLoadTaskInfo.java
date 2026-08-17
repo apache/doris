@@ -139,6 +139,10 @@ public interface NereidsLoadTaskInfo {
         return 0;
     }
 
+    default Boolean getEnableTextValidateUtf8() {
+        return true;
+    }
+
     default boolean getEnableProfile() {
         return false;
     }
