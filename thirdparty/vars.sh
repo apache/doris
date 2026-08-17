@@ -128,7 +128,7 @@ BZIP_SOURCE=bzip2-1.0.8
 BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
 
 # lzo2
-LZO2_DOWNLOAD="https://fossies.org/linux/misc/lzo-2.10.tar.gz"
+LZO2_DOWNLOAD="https://www.oberhumer.com/opensource/lzo/download/lzo-2.10.tar.gz"
 LZO2_NAME=lzo-2.10.tar.gz
 LZO2_SOURCE=lzo-2.10
 LZO2_MD5SUM="39d3f3f9c55c87b1e5d6888e1420f4b5"
@@ -499,7 +499,7 @@ JSONCPP_SOURCE="jsoncpp-1.9.5"
 JSONCPP_MD5SUM="d6c8c609f2162eff373db62b90a051c7"
 
 # libuuid
-LIBUUID_DOWNLOAD="https://nchc.dl.sourceforge.net/project/libuuid/libuuid-1.0.3.tar.gz"
+LIBUUID_DOWNLOAD="https://downloads.sourceforge.net/project/libuuid/libuuid-1.0.3.tar.gz"
 LIBUUID_NAME="libuuid-1.0.3.tar.gz"
 LIBUUID_SOURCE="libuuid-1.0.3"
 LIBUUID_MD5SUM="d44d866d06286c08ba0846aba1086d68"
