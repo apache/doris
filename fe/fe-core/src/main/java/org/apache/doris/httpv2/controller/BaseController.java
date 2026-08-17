@@ -167,7 +167,12 @@ public class BaseController {
             return null;
         }
 
-        if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(sessionValue.currentUser,
+        // Built before the check, not after it: the check reaches the authorization source, and a source that
+        // looks at the circumstances of a request would otherwise be handed whatever the previous request on
+        // this pooled thread left behind - another client's address rather than none.
+        ConnectContext ctx = buildConnectContext(request, sessionValue);
+
+        if (checkAuth && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx,
                 PrivPredicate.ADMIN_OR_NODE)) {
             // need to check auth and check auth failed
             return null;
@@ -182,7 +187,7 @@ public class BaseController {
 
         updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME, response);
 
-        setConnectContext(request, sessionValue);
+        setConnectContext(ctx, sessionValue);
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
         authInfo.remoteIp = request.getRemoteHost();
@@ -191,11 +196,19 @@ public class BaseController {
         return authInfo;
     }
 
-    private void setConnectContext(HttpServletRequest request, SessionValue sessionValue) {
+    private ConnectContext buildConnectContext(HttpServletRequest request, SessionValue sessionValue) {
         ConnectContext ctx = new ConnectContext();
         ctx.setRemoteIP(request.getRemoteHost());
         ctx.setCurrentUserIdentity(sessionValue.currentUser);
         ctx.setEnv(Env.getCurrentEnv());
+        return ctx;
+    }
+
+    private void setConnectContext(HttpServletRequest request, SessionValue sessionValue) {
+        setConnectContext(buildConnectContext(request, sessionValue), sessionValue);
+    }
+
+    private void setConnectContext(ConnectContext ctx, SessionValue sessionValue) {
         ctx.setThreadLocalInfo();
         if (LOG.isDebugEnabled()) {
             LOG.debug("check cookie success for user: {}, thread: {}",

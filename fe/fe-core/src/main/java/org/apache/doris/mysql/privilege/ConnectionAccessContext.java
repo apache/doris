@@ -46,7 +46,19 @@ class ConnectionAccessContext implements AccessContext {
      * comes from somewhere other than a client statement - a background job, or replaying an edit log.
      */
     static AccessContext current() {
-        ConnectContext connection = ConnectContext.get();
+        return of(ConnectContext.get());
+    }
+
+    /**
+     * The circumstances of the statement running on {@code connection}, or {@link AccessContext#NONE} when
+     * there is none.
+     *
+     * <p>Preferred over {@link #current()} wherever the caller holds the connection: a check can run before
+     * its connection is installed on the thread - {@code BaseController.checkCookie} authorizes fourteen
+     * lines before it builds one - and a thread out of a pool carries whatever the request before it left
+     * behind, so reading the thread there yields not "no circumstances" but another client's.
+     */
+    static AccessContext of(ConnectContext connection) {
         return connection == null ? AccessContext.NONE : new ConnectionAccessContext(connection);
     }
 
