@@ -20,6 +20,9 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <atomic>
+#include <thread>
+#include <barrier>
 
 #include <memory>
 #include <string>
@@ -318,6 +321,23 @@ protected:
         splits.push_back(split);
 
         return splits;
+    }
+
+    void seed_statistics(CollectionStatistics* statistics, const std::wstring& field_name,
+                         const std::wstring& term, uint64_t doc_count, uint64_t token_count,
+                         uint64_t doc_freq) {
+        statistics->_total_num_docs = doc_count;
+        statistics->_total_num_tokens[field_name] = token_count;
+        statistics->_term_doc_freqs[field_name][term] = doc_freq;
+    }
+
+    void set_cached_avg_dl(CollectionStatistics* statistics, const std::wstring& field_name,
+                           float avg_dl) {
+        statistics->_avg_dl_by_col[field_name] = avg_dl;
+    }
+
+    const void* shared_base_identity(const CollectionStatistics* statistics) {
+        return statistics->_shared_base.get();
     }
 
     std::unique_ptr<CollectionStatistics> stats_;
@@ -1305,6 +1325,122 @@ TEST(TermInfoComparerTest, OrdersByTermAndDedups) {
 
     EXPECT_EQ(terms.size(), 3u);
     EXPECT_THAT(ordered, ::testing::ElementsAre("apple", "banana", "cherry"));
+}
+
+TEST_F(CollectionStatisticsTest, BuildStateBuildsFullCollectionOnceAcrossConcurrentScanners) {
+    constexpr size_t kScannerCount = 8;
+    auto build_state =
+            std::make_shared<CollectionStatisticsBuildState>(std::vector<RowsetSharedPtr> {});
+    std::atomic<size_t> build_count = 0;
+    std::barrier start_barrier(kScannerCount);
+    std::vector<Status> statuses(kScannerCount);
+    std::vector<CollectionStatisticsPtr> scanner_statistics(kScannerCount);
+    std::vector<std::thread> scanners;
+    scanners.reserve(kScannerCount);
+
+    for (size_t scanner_index = 0; scanner_index < kScannerCount; ++scanner_index) {
+        scanners.emplace_back([&, scanner_index] {
+            start_barrier.arrive_and_wait();
+            statuses[scanner_index] = build_state->get_or_build(
+                    [&](CollectionStatistics* statistics,
+                        const std::vector<RowsetSharedPtr>& rowsets) {
+                        EXPECT_TRUE(rowsets.empty());
+                        ++build_count;
+                        seed_statistics(statistics, L"1", L"term", 10, 20, 3);
+                        return Status::OK();
+                    },
+                    &scanner_statistics[scanner_index]);
+        });
+    }
+    for (auto& scanner : scanners) {
+        scanner.join();
+    }
+
+    EXPECT_EQ(build_count.load(), 1u);
+    for (size_t scanner_index = 0; scanner_index < kScannerCount; ++scanner_index) {
+        ASSERT_TRUE(statuses[scanner_index].ok()) << statuses[scanner_index].to_string();
+        ASSERT_NE(scanner_statistics[scanner_index], nullptr);
+        EXPECT_FLOAT_EQ(scanner_statistics[scanner_index]->get_or_calculate_avg_dl(L"1"), 2.0F);
+    }
+}
+
+TEST_F(CollectionStatisticsTest, BuildStateBroadcastsOneFailureToConcurrentScanners) {
+    constexpr size_t kScannerCount = 8;
+    auto build_state =
+            std::make_shared<CollectionStatisticsBuildState>(std::vector<RowsetSharedPtr> {});
+    std::atomic<size_t> build_count = 0;
+    std::atomic<size_t> calls_started = 0;
+    std::promise<void> builder_started;
+    auto builder_started_future = builder_started.get_future();
+    std::promise<void> release_builder;
+    auto release_builder_future = release_builder.get_future().share();
+    std::barrier start_barrier(kScannerCount);
+    std::vector<Status> statuses(kScannerCount);
+    std::vector<CollectionStatisticsPtr> scanner_statistics(kScannerCount);
+    std::vector<std::thread> scanners;
+    scanners.reserve(kScannerCount);
+
+    for (size_t scanner_index = 0; scanner_index < kScannerCount; ++scanner_index) {
+        scanners.emplace_back([&, scanner_index] {
+            start_barrier.arrive_and_wait();
+            ++calls_started;
+            statuses[scanner_index] = build_state->get_or_build(
+                    [&](CollectionStatistics*, const std::vector<RowsetSharedPtr>&) {
+                        if (++build_count == 1) {
+                            builder_started.set_value();
+                        }
+                        release_builder_future.wait();
+                        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                                "incompatible scoring segment");
+                    },
+                    &scanner_statistics[scanner_index]);
+        });
+    }
+
+    builder_started_future.wait();
+    while (calls_started.load() != kScannerCount) {
+        std::this_thread::yield();
+    }
+    release_builder.set_value();
+    for (auto& scanner : scanners) {
+        scanner.join();
+    }
+
+    EXPECT_EQ(build_count.load(), 1u);
+    for (size_t scanner_index = 0; scanner_index < kScannerCount; ++scanner_index) {
+        EXPECT_EQ(statuses[scanner_index].code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED);
+        EXPECT_THAT(statuses[scanner_index].msg(),
+                    ::testing::HasSubstr("incompatible scoring segment"));
+        EXPECT_EQ(scanner_statistics[scanner_index], nullptr);
+    }
+}
+
+TEST_F(CollectionStatisticsTest, BuildStateReturnsScannerLocalLazyCacheClones) {
+    auto build_state =
+            std::make_shared<CollectionStatisticsBuildState>(std::vector<RowsetSharedPtr> {});
+    size_t build_count = 0;
+    auto builder = [&](CollectionStatistics* statistics, const std::vector<RowsetSharedPtr>&) {
+        ++build_count;
+        seed_statistics(statistics, L"1", L"term", 10, 20, 3);
+        return Status::OK();
+    };
+
+    CollectionStatisticsPtr first;
+    ASSERT_TRUE(build_state->get_or_build(builder, &first).ok());
+    set_cached_avg_dl(first.get(), L"1", 5.0F);
+    EXPECT_FLOAT_EQ(first->get_or_calculate_avg_dl(L"1"), 5.0F);
+
+    CollectionStatisticsPtr second;
+    ASSERT_TRUE(build_state->get_or_build(builder, &second).ok());
+
+    EXPECT_EQ(build_count, 1u);
+    ASSERT_NE(first, nullptr);
+    ASSERT_NE(second, nullptr);
+    EXPECT_NE(first.get(), second.get());
+    EXPECT_NE(shared_base_identity(first.get()), nullptr);
+    EXPECT_EQ(shared_base_identity(first.get()), shared_base_identity(second.get()));
+    EXPECT_FLOAT_EQ(second->get_or_calculate_avg_dl(L"1"), 2.0F);
+    EXPECT_FLOAT_EQ(first->get_or_calculate_avg_dl(L"1"), 5.0F);
 }
 
 } // namespace doris

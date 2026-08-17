@@ -108,6 +108,7 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .end_tso = std::nullopt}),
           _start_tso(params.start_tso),
           _end_tso(params.end_tso),
+          _collection_statistics_build_state(std::move(params.collection_statistics_build_state)),
           _initial_file_cache_stats(std::move(params.initial_file_cache_stats)) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
@@ -289,15 +290,23 @@ Status OlapScanner::_prepare_impl() {
 
     if (_tablet_reader_params.score_runtime) {
         SCOPED_TIMER(local_state->_statistics_collect_timer);
-        _tablet_reader_params.collection_statistics = std::make_shared<CollectionStatistics>();
+        DCHECK(_collection_statistics_build_state != nullptr);
 
         auto io_ctx = build_score_runtime_collection_io_context(
                 _state, _tablet_reader_params.reader_type, tablet->ttl_seconds(),
                 &_tablet_reader->mutable_stats()->file_cache_stats);
 
-        RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
-                _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
-                _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx));
+        // Collect over the tablet's whole read source, shared with the other scanners of this
+        // tablet. Collecting from _tablet_reader_params.rs_splits instead would give each parallel
+        // scanner a different idf, so score() would depend on how the read source was split.
+        RETURN_IF_ERROR(_collection_statistics_build_state->get_or_build(
+                [&](CollectionStatistics* statistics,
+                    const std::vector<RowsetSharedPtr>& full_collection_rowsets) {
+                    return statistics->collect_full_collection(
+                            _state, full_collection_rowsets, _tablet_reader_params.tablet_schema,
+                            _tablet_reader_params.common_expr_ctxs_push_down, &io_ctx);
+                },
+                &_tablet_reader_params.collection_statistics));
     }
 
     _has_prepared = true;

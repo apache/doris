@@ -46,6 +46,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
+#include "storage/compaction/collection_statistics.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
@@ -53,6 +54,22 @@
 #include "util/to_string.h"
 
 namespace doris {
+namespace {
+std::shared_ptr<CollectionStatisticsBuildState> create_collection_statistics_build_state(
+        const TabletReadSource& read_source) {
+    // Capture the tablet read-source scope before parallel scanners slice it into segments/rows:
+    // BM25 idf must be computed over the whole collection, not over one scanner's share of it.
+    std::vector<RowsetSharedPtr> rowsets;
+    rowsets.reserve(read_source.rs_splits.size());
+    for (const auto& split : read_source.rs_splits) {
+        DCHECK(split.rs_reader != nullptr);
+        auto rowset = split.rs_reader->rowset();
+        DCHECK(rowset != nullptr);
+        rowsets.emplace_back(std::move(rowset));
+    }
+    return std::make_shared<CollectionStatisticsBuildState>(std::move(rowsets));
+}
+} // namespace
 
 Status OlapScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     const TOlapScanNode& olap_scan_node = _parent->cast<OlapScanOperatorX>()._olap_scan_node;
@@ -706,6 +723,18 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             p._olap_scan_node.__isset.read_row_binlog && p._olap_scan_node.read_row_binlog;
     bool has_tso_predicate = _scan_ranges[0]->__isset.start_tso || _scan_ranges[0]->__isset.end_tso;
 
+    CollectionStatisticsBuildStateMap collection_statistics_build_states;
+    if (_score_runtime) {
+        DCHECK_EQ(_tablets.size(), _read_sources.size());
+        collection_statistics_build_states.reserve(_read_sources.size());
+        for (size_t i = 0; i < _read_sources.size(); ++i) {
+            const auto insert_result = collection_statistics_build_states.emplace(
+                    _tablets[i].tablet->tablet_id(),
+                    create_collection_statistics_build_state(_read_sources[i]));
+            DCHECK(insert_result.second);
+        }
+    }
+
     // The flag of preagg's meaning is whether return pre agg data(or partial agg data)
     // PreAgg ON: The storage layer returns partially aggregated data without additional processing. (Fast data reading)
     // for example, if a table is select userid,count(*) from base table.
@@ -738,7 +767,8 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
 
         ParallelScannerBuilder scanner_builder(this, _tablets, _read_sources, _scanner_profile,
                                                key_ranges, state(), p._limit, true,
-                                               p._olap_scan_node.is_preaggregation);
+                                               p._olap_scan_node.is_preaggregation,
+                                               collection_statistics_build_states);
 
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 
@@ -833,6 +863,9 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                   palo_scan_range.__isset.end_tso
                                           ? std::make_optional(palo_scan_range.end_tso)
                                           : std::nullopt,
+                                  _score_runtime ? collection_statistics_build_states.at(
+                                                           _tablets[scan_range_idx].tablet->tablet_id())
+                                                 : nullptr,
                           });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
