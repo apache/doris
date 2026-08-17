@@ -41,6 +41,7 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
@@ -302,7 +303,7 @@ public class NereidsStreamLoadPlanner {
         params.setLoadStreamPerNode(taskInfo.getStreamPerNode());
         params.setTotalLoadStreams(taskInfo.getStreamPerNode());
         params.setNumLocalSink(1);
-        TQueryOptions queryOptions = new TQueryOptions();
+        TQueryOptions queryOptions = getQueryOptions(taskInfo);
         queryOptions.setQueryType(TQueryType.LOAD);
         int timeout = taskInfo.getTimeout();
         queryOptions.setQueryTimeout(timeout);
@@ -313,7 +314,6 @@ public class NereidsStreamLoadPlanner {
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
-        queryOptions.setEnableHyperscanFallback(taskInfo.getEnableHyperscanFallback());
         // load
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setIsReportSuccess(taskInfo.getEnableProfile() || Config.enable_stream_load_profile);
@@ -342,5 +342,12 @@ public class NereidsStreamLoadPlanner {
         params.setIsMowTable(destTable.getEnableUniqueKeyMergeOnWrite());
         params.setEnableTso(destTable.enableTso());
         return params;
+    }
+
+    static TQueryOptions getQueryOptions(NereidsLoadTaskInfo taskInfo) {
+        try (AutoCloseSessionVariable ignored = new AutoCloseSessionVariable(
+                ConnectContext.get(), taskInfo.getSessionVariables())) {
+            return ConnectContext.get().getSessionVariable().toThrift();
+        }
     }
 }

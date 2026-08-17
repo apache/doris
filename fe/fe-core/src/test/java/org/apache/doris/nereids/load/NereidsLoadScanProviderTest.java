@@ -28,10 +28,13 @@ import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.NativeFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
@@ -60,7 +63,7 @@ public class NereidsLoadScanProviderTest {
         request.setCompressType(TFileCompressType.UNKNOWN);
         request.setColumns("time,securityid,EV");
 
-        NereidsStreamLoadTask task = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request, true);
+        NereidsStreamLoadTask task = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request);
         NereidsDataDescription dataDescription = new NereidsDataDescription("t_upper", task);
 
         Assertions.assertEquals(Lists.newArrayList("time", "securityid", "EV"),
@@ -68,7 +71,7 @@ public class NereidsLoadScanProviderTest {
     }
 
     @Test
-    public void testStreamLoadPreservesHyperscanFallbackOption() throws Exception {
+    public void testStreamLoadUsesSessionVariableSnapshot() throws Exception {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setLoadId(new TUniqueId(1, 2));
         request.setTxnId(3);
@@ -76,8 +79,39 @@ public class NereidsLoadScanProviderTest {
         request.setFormatType(TFileFormatType.FORMAT_CSV_PLAIN);
         request.setCompressType(TFileCompressType.PLAIN);
 
-        NereidsStreamLoadTask task = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request, false);
-        Assertions.assertFalse(task.getEnableHyperscanFallback());
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableHyperscanFallback = false;
+        ConnectContext context = new ConnectContext();
+        context.setSessionVariable(sessionVariable);
+        context.setThreadLocalInfo();
+        try {
+            NereidsStreamLoadTask task = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request);
+            Assertions.assertFalse(NereidsStreamLoadPlanner.getQueryOptions(task).isEnableHyperscanFallback());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testRoutineLoadUsesPersistedSessionVariableSnapshot() {
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableHyperscanFallback = true;
+        ConnectContext context = new ConnectContext();
+        context.setSessionVariable(sessionVariable);
+        context.setThreadLocalInfo();
+        try {
+            NereidsRoutineLoadTaskInfo task = new NereidsRoutineLoadTaskInfo(
+                    1024L, Collections.emptyMap(), 10L, null, LoadTask.MergeType.APPEND,
+                    null, null, 0.0, null, null, null, null, null, (byte) 0, (byte) 0,
+                    1, false, TUniqueKeyUpdateMode.UPSERT, TPartialUpdateNewRowPolicy.APPEND, false);
+            task.setSessionVariables(Collections.singletonMap(
+                    SessionVariable.ENABLE_HYPERSCAN_FALLBACK, Boolean.toString(false)));
+
+            Assertions.assertFalse(NereidsStreamLoadPlanner.getQueryOptions(task).isEnableHyperscanFallback());
+            Assertions.assertTrue(context.getSessionVariable().enableHyperscanFallback);
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test

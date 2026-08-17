@@ -160,7 +160,7 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
         NereidsRoutineLoadTaskInfo task = new NereidsRoutineLoadTaskInfo(1024L, new HashMap<>(), 10L,
                 null, LoadTask.MergeType.APPEND, null, null, 0.0, columnDescs(shape), null, null,
                 null, null, (byte) 0, (byte) 0, 1, false, TUniqueKeyUpdateMode.UPSERT,
-                TPartialUpdateNewRowPolicy.APPEND, false, true);
+                TPartialUpdateNewRowPolicy.APPEND, false);
         return createStreamFamilyFixture("routine/" + shape, task, new TUniqueId(4L, 5L));
     }
 

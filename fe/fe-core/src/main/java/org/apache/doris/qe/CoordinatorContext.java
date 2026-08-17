@@ -302,12 +302,10 @@ public class CoordinatorContext {
             List<PipelineDistributedPlan> distributedPlans,
             List<ScanNode> scanNodes,
             DescriptorTable descTable,
-            String timezone, boolean loadZeroTolerance,
-            boolean enableProfile, boolean enableHyperscanFallback) {
-        TQueryOptions queryOptions = new TQueryOptions();
+            String timezone, boolean loadZeroTolerance, boolean enableProfile) {
+        TQueryOptions queryOptions = ConnectContext.get().getSessionVariable().toThrift();
         queryOptions.setEnableProfile(enableProfile);
         queryOptions.setProfileLevel(2);
-        queryOptions.setEnableHyperscanFallback(enableHyperscanFallback);
         queryOptions.setBeExecVersion(Config.be_exec_version);
         queryOptions.setNewVersionUnixTimestamp(true);
         queryOptions.setNewVersionPercentile(true);

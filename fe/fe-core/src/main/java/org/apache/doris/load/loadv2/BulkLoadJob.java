@@ -91,6 +91,10 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
     @SerializedName(value = "svs")
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
+
     public BulkLoadJob(EtlJobType jobType) {
         super(jobType);
     }

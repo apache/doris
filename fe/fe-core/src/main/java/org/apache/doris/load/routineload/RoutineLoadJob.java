@@ -337,9 +337,8 @@ public abstract class RoutineLoadJob
     }
 
     @Override
-    public boolean getEnableHyperscanFallback() {
-        return Boolean.parseBoolean(sessionVariables.getOrDefault(
-                SessionVariable.ENABLE_HYPERSCAN_FALLBACK, Boolean.toString(true)));
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
     }
 
     /**

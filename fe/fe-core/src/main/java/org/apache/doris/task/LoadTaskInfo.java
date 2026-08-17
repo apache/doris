@@ -31,7 +31,9 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public interface LoadTaskInfo {
     boolean getNegative();
@@ -144,8 +146,8 @@ public interface LoadTaskInfo {
         return 2;
     }
 
-    default boolean getEnableHyperscanFallback() {
-        return true;
+    default Map<String, String> getSessionVariables() {
+        return Collections.emptyMap();
     }
 
     class ImportColumnDescs {

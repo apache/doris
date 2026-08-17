@@ -42,7 +42,10 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import com.google.common.base.Strings;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -99,7 +102,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     private String groupCommit;
 
     private boolean emptyFieldAsNull = false;
-    private boolean enableHyperscanFallback = true;
+    private Map<String, String> sessionVariables = Collections.emptyMap();
 
     /**
      * NereidsStreamLoadTask
@@ -353,14 +356,12 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     /**
      * fromTStreamLoadPutRequest
      */
-    public static NereidsStreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request,
-            boolean enableHyperscanFallback) throws UserException {
+    public static NereidsStreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         NereidsStreamLoadTask streamLoadTask = new NereidsStreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
                 request.getCompressType());
         streamLoadTask.setOptionalFromTSLPutRequest(request);
         streamLoadTask.setGroupCommit(request.getGroupCommitMode());
-        streamLoadTask.enableHyperscanFallback = enableHyperscanFallback;
         if (request.isSetFileSize()) {
             streamLoadTask.fileSize = request.getFileSize();
         }
@@ -368,8 +369,8 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     }
 
     @Override
-    public boolean getEnableHyperscanFallback() {
-        return enableHyperscanFallback;
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
     }
 
     /**
@@ -393,7 +394,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         this.jsonRoot = task.getJsonRoot();
         this.sendBatchParallelism = task.getSendBatchParallelism();
         this.loadToSingleTablet = task.isLoadToSingleTablet();
-        this.enableHyperscanFallback = task.getEnableHyperscanFallback();
+        this.sessionVariables = new HashMap<>(task.getSessionVariables());
     }
 
     private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {

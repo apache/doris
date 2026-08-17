@@ -269,8 +269,7 @@ public class StreamLoadHandler {
                     "get table read lock timeout, database=" + request.getDb() + ",table=" + table.getName());
         }
         try {
-            NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(
-                    request, ConnectContext.get().getSessionVariable().enableHyperscanFallback);
+            NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request);
             if (isMultiTableRequest) {
                 buildMultiTableStreamLoadTask(streamLoadTask, request.getTxnId());
             }

@@ -51,11 +51,10 @@ public class CloudLoadLoadingTask extends LoadLoadingTask {
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
             Priority priority, boolean enableMemTableOnSinkNode, int batchSize,
-            String clusterId, boolean enableHyperscanFallback) {
+            String clusterId) {
         super(userinfo, db, table, brokerDesc, fileGroups, jobDeadlineMs, execMemLimit, strictMode, isPartialUpdate,
                 partialUpdateNewKeyPolicy, txnId, callback, timezone, timeoutS, loadParallelism, sendBatchParallelism,
-                loadZeroTolerance, jobProfile, singleTabletLoadPerSink, priority, enableMemTableOnSinkNode, batchSize,
-                enableHyperscanFallback);
+                loadZeroTolerance, jobProfile, singleTabletLoadPerSink, priority, enableMemTableOnSinkNode, batchSize);
         this.cloudClusterId = clusterId;
     }
 

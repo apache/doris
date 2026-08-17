@@ -388,17 +388,15 @@ public class Coordinator implements CoordInterface {
     // Used for broker load task/export task/update coordinator
     // Constructor of Coordinator is too complicated.
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
-            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, boolean enableProfile,
-            boolean enableHyperscanFallback) {
+            List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, boolean enableProfile) {
         this.jobId = jobId;
         this.queryId = queryId;
         this.descTable = DescriptorToThriftConverter.toThrift(descTable);
         this.fragments = fragments;
         this.scanNodes = scanNodes;
-        this.queryOptions = new TQueryOptions();
+        this.queryOptions = ConnectContext.get().getSessionVariable().toThrift();
         this.queryOptions.setEnableProfile(enableProfile);
         this.queryOptions.setProfileLevel(2);
-        this.queryOptions.setEnableHyperscanFallback(enableHyperscanFallback);
         this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);

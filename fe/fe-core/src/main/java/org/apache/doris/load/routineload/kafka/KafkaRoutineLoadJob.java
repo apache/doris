@@ -57,7 +57,6 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileCompressType;
@@ -1118,11 +1117,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 importColumnDescs.descs.add(new NereidsImportColumnDesc(desc.getColumnName(), expression));
             }
         }
-        return new NereidsRoutineLoadTaskInfo(execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS,
+        NereidsRoutineLoadTaskInfo taskInfo = new NereidsRoutineLoadTaskInfo(
+                execMemLimit, new HashMap<>(jobProperties), maxBatchIntervalS,
                 partitionNamesInfo, mergeType, deleteCondition, sequenceCol, maxFilterRatio, importColumnDescs,
                 precedingFilter, whereExpr, columnSeparator, lineDelimiter, enclose, escape, sendBatchParallelism,
-                loadToSingleTablet, uniqueKeyUpdateMode, partialUpdateNewKeyPolicy, memtableOnSinkNode,
-                Boolean.parseBoolean(sessionVariables.getOrDefault(
-                        SessionVariable.ENABLE_HYPERSCAN_FALLBACK, Boolean.toString(true))));
+                loadToSingleTablet, uniqueKeyUpdateMode, partialUpdateNewKeyPolicy, memtableOnSinkNode);
+        taskInfo.setSessionVariables(sessionVariables);
+        return taskInfo;
     }
 }

@@ -35,6 +35,8 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
+import org.apache.doris.qe.AutoCloseSessionVariable;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -89,8 +91,6 @@ public class LoadLoadingTask extends LoadTask {
     private long beginTime;
 
     private List<TPipelineWorkloadGroup> tWorkloadGroups = null;
-    private final boolean enableHyperscanFallback;
-
     protected UserIdentity userInfo;
 
     public LoadLoadingTask(UserIdentity userInfo, Database db, OlapTable table,
@@ -100,8 +100,7 @@ public class LoadLoadingTask extends LoadTask {
             long txnId, LoadTaskCallback callback, String timezone,
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
-            Priority priority, boolean enableMemTableOnSinkNode, int batchSize,
-            boolean enableHyperscanFallback) {
+            Priority priority, boolean enableMemTableOnSinkNode, int batchSize) {
         super(callback, TaskType.LOADING, priority);
         this.userInfo = userInfo;
         this.db = db;
@@ -125,7 +124,6 @@ public class LoadLoadingTask extends LoadTask {
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
         this.enableMemTableOnSinkNode = enableMemTableOnSinkNode;
         this.batchSize = batchSize;
-        this.enableHyperscanFallback = enableHyperscanFallback;
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList,
@@ -137,9 +135,10 @@ public class LoadLoadingTask extends LoadTask {
         }
         planner = new NereidsLoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc,
                 brokerFileGroups, strictMode, isPartialUpdate, partialUpdateNewKeyPolicy, timezone, timeoutS,
-                loadParallelism, sendBatchParallelism, userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode,
-                enableHyperscanFallback);
-        planner.plan(loadId, fileStatusList, fileNum);
+                loadParallelism, sendBatchParallelism, userInfo, singleTabletLoadPerSink, enableMemTableOnSinkNode);
+        try (AutoCloseSessionVariable ignored = withJobSessionVariables()) {
+            planner.plan(loadId, fileStatusList, fileNum);
+        }
     }
 
     public TUniqueId getLoadId() {
@@ -163,10 +162,13 @@ public class LoadLoadingTask extends LoadTask {
     protected void executeOnce() throws Exception {
         final boolean enableProfile = this.jobProfile != null;
         // New one query id,
-        Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
-                loadId, planner.getDescTable(),
-                planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
-                enableProfile, enableHyperscanFallback);
+        Coordinator curCoordinator;
+        try (AutoCloseSessionVariable ignored = withJobSessionVariables()) {
+            curCoordinator = EnvFactory.getInstance().createCoordinator(callback.getCallbackId(),
+                    loadId, planner.getDescTable(),
+                    planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance,
+                    enableProfile);
+        }
         if (enableProfile) {
             this.jobProfile.addExecutionProfile(curCoordinator.getExecutionProfile());
         }
@@ -246,6 +248,11 @@ public class LoadLoadingTask extends LoadTask {
 
     public void settWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
         this.tWorkloadGroups = tWorkloadGroups;
+    }
+
+    private AutoCloseSessionVariable withJobSessionVariables() {
+        return new AutoCloseSessionVariable(
+                ConnectContext.get(), ((BulkLoadJob) callback).getSessionVariables());
     }
 
 }

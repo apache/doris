@@ -29,7 +29,9 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Abstract class for all load tasks in Nereids.
@@ -151,7 +153,9 @@ public interface NereidsLoadTaskInfo {
         return 2;
     }
 
-    boolean getEnableHyperscanFallback();
+    default Map<String, String> getSessionVariables() {
+        return Collections.emptyMap();
+    }
 
     /**
      * NereidsImportColumnDescs

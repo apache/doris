@@ -174,8 +174,7 @@ public class EnvFactory {
     // Used for broker load task/export task/update coordinator
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
-                                         String timezone, boolean loadZeroTolerance, boolean enableProfile,
-                                         boolean enableHyperscanFallback) {
+                                         String timezone, boolean loadZeroTolerance, boolean enableProfile) {
         if (SessionVariable.canUseNereidsDistributePlanner()) {
             if (queryId == null) {
                 UUID taskId = UUID.randomUUID();
@@ -201,12 +200,11 @@ public class EnvFactory {
 
             return new NereidsCoordinator(
                     jobId, queryId, descTable, fragments, distributedPlans.valueList(),
-                    scanNodes, timezone, loadZeroTolerance, enableProfile, enableHyperscanFallback
+                    scanNodes, timezone, loadZeroTolerance, enableProfile
             );
         }
         return new Coordinator(
-                jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile,
-                enableHyperscanFallback
+                jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile
         );
     }
 

@@ -65,10 +65,13 @@ public class RoutineLoadJobTest {
         KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
         Map<String, String> sessionVariables = Maps.newHashMap();
         Deencapsulation.setField(job, "sessionVariables", sessionVariables);
-        Assert.assertTrue(job.getEnableHyperscanFallback());
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setForwardedSessionVariables(job.getSessionVariables());
+        Assert.assertTrue(sessionVariable.enableHyperscanFallback);
 
         sessionVariables.put(SessionVariable.ENABLE_HYPERSCAN_FALLBACK, Boolean.toString(false));
-        Assert.assertFalse(job.getEnableHyperscanFallback());
+        sessionVariable.setForwardedSessionVariables(job.getSessionVariables());
+        Assert.assertFalse(sessionVariable.enableHyperscanFallback);
     }
 
     @Test

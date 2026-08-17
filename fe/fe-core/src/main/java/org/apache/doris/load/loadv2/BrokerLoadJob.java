@@ -308,9 +308,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                getPriority(), isEnableMemtableOnSinkNode, batchSize,
-                Boolean.parseBoolean(sessionVariables.getOrDefault(
-                        SessionVariable.ENABLE_HYPERSCAN_FALLBACK, Boolean.toString(true))));
+                getPriority(), isEnableMemtableOnSinkNode, batchSize);
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());

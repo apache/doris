@@ -19,7 +19,6 @@ package org.apache.doris.load;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
@@ -27,9 +26,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
@@ -42,7 +39,6 @@ import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 public class StreamLoadHandlerTest {
     @Test
@@ -146,38 +142,6 @@ public class StreamLoadHandlerTest {
         } finally {
             ConnectContext.remove();
             Config.cloud_unique_id = originalCloudUniqueId;
-        }
-    }
-
-    @Test
-    public void testGeneratePlanUsesSessionVariableSnapshot() throws Exception {
-        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
-        OlapTable table = Mockito.mock(OlapTable.class);
-        Mockito.when(table.tryReadLock(Mockito.anyLong(), Mockito.any(TimeUnit.class))).thenReturn(true);
-
-        SessionVariable sessionVariable = new SessionVariable();
-        sessionVariable.enableHyperscanFallback = false;
-        ConnectContext context = new ConnectContext();
-        context.setSessionVariable(sessionVariable);
-        context.setThreadLocalInfo();
-
-        try (MockedStatic<NereidsStreamLoadTask> mockedTask = Mockito.mockStatic(NereidsStreamLoadTask.class)) {
-            mockedTask.when(() -> NereidsStreamLoadTask.fromTStreamLoadPutRequest(request, false))
-                    .thenThrow(new DdlException("stop after checking session variable"));
-
-            StreamLoadHandler handler = new StreamLoadHandler(
-                    request, null, new TStreamLoadPutResult(), "127.0.0.1");
-            try {
-                handler.generatePlan(table);
-                Assert.fail("generatePlan should use the session variable snapshot");
-            } catch (DdlException e) {
-                Assert.assertTrue(e.getMessage().contains("stop after checking session variable"));
-            }
-
-            mockedTask.verify(() -> NereidsStreamLoadTask.fromTStreamLoadPutRequest(request, false));
-            Mockito.verify(table).readUnlock();
-        } finally {
-            ConnectContext.remove();
         }
     }
 

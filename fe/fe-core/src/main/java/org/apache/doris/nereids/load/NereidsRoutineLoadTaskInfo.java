@@ -33,6 +33,8 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Strings;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -69,7 +71,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     protected TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
     protected TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
     protected boolean memtableOnSinkNode;
-    protected boolean enableHyperscanFallback;
+    protected Map<String, String> sessionVariables = Collections.emptyMap();
     protected int timeoutSec;
 
     /**
@@ -81,8 +83,7 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
             Expression precedingFilter, Expression whereExpr, Separator columnSeparator,
             Separator lineDelimiter, byte enclose, byte escape, int sendBatchParallelism,
             boolean loadToSingleTablet, TUniqueKeyUpdateMode uniqueKeyUpdateMode,
-            TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy, boolean memtableOnSinkNode,
-            boolean enableHyperscanFallback) {
+            TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy, boolean memtableOnSinkNode) {
         this.execMemLimit = execMemLimit;
         this.jobProperties = jobProperties;
         this.maxBatchIntervalS = maxBatchIntervalS;
@@ -103,13 +104,16 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
         this.uniquekeyUpdateMode = uniqueKeyUpdateMode;
         this.partialUpdateNewKeyPolicy = partialUpdateNewKeyPolicy;
         this.memtableOnSinkNode = memtableOnSinkNode;
-        this.enableHyperscanFallback = enableHyperscanFallback;
         this.timeoutSec = calTimeoutSec();
     }
 
     @Override
-    public boolean getEnableHyperscanFallback() {
-        return enableHyperscanFallback;
+    public Map<String, String> getSessionVariables() {
+        return sessionVariables;
+    }
+
+    public void setSessionVariables(Map<String, String> sessionVariables) {
+        this.sessionVariables = new HashMap<>(sessionVariables);
     }
 
     @Override
