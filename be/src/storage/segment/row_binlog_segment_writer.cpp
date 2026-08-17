@@ -139,13 +139,13 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
                               : std::vector<uint32_t>();
     std::vector<uint32_t> row_binlog_partial_cids = partial_cids;
     if (is_partial_update) {
-        if (block->columns() <= source_schema->num_key_columns() ||
+        if (block->columns() < source_schema->num_key_columns() ||
             block->columns() >= source_schema->num_columns()) {
-            return Status::InternalError(fmt::format(
+            return Status::InvalidArgument(fmt::format(
                     "illegal partial update block columns: {}, num key columns: {}, total "
                     "schema columns: {}",
-                    block->columns(), _tablet_schema->num_key_columns(),
-                    _tablet_schema->num_columns()));
+                    block->columns(), source_schema->num_key_columns(),
+                    source_schema->num_columns()));
         }
 
         // Partial update lists source cids. Row-binlog writes visible columns and hidden key

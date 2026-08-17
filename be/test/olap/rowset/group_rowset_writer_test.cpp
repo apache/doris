@@ -21,11 +21,13 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <array>
 #include <chrono>
 #include <memory>
 #include <set>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -90,6 +92,7 @@ protected:
         _request.tablet_schema.columns[2].__set_visible(false);
         _request.tablet_schema.columns[5].__set_visible(false);
         _request.tablet_schema.columns[2].__set_is_allow_null(true);
+        _request.tablet_schema.columns[3].__set_default_value("7");
         _request.tablet_schema.columns[4].__set_is_allow_null(true);
         _request.__set_enable_unique_key_merge_on_write(true);
         testutil::enable_row_binlog(&_request);
@@ -152,6 +155,70 @@ protected:
         columns[2]->insert(Field::create_field<PrimitiveType::TYPE_INT>(200));
         columns[3]->insert(Field::create_field<PrimitiveType::TYPE_INT>(20));
         return block;
+    }
+
+    std::shared_ptr<MowContext> create_mow_context() const {
+        return std::make_shared<MowContext>(1, 1, std::make_shared<RowsetIdUnorderedSet>(),
+                                            std::vector<RowsetSharedPtr> {}, nullptr);
+    }
+
+    Result<std::unique_ptr<RowsetWriter>> create_partial_update_row_binlog_writer(
+            const std::shared_ptr<PartialUpdateInfo>& partial_update_info, size_t num_rows,
+            const std::shared_ptr<MowContext>& mow_context) {
+        RowsetWriterContext row_binlog_context;
+        row_binlog_context.tablet = _row_binlog_tablet;
+        row_binlog_context.tablet_schema = _row_binlog_tablet->tablet_schema();
+        row_binlog_context.rowset_state = PREPARED;
+        row_binlog_context.segments_overlap = NONOVERLAPPING;
+        row_binlog_context.max_rows_per_segment = 1024;
+        row_binlog_context.write_type = DataWriteType::TYPE_DIRECT;
+        row_binlog_context.partial_update_info = partial_update_info;
+        row_binlog_context.mow_context = mow_context;
+        row_binlog_context.write_binlog_opt().enable = true;
+        auto& binlog_options = row_binlog_context.write_binlog_opt().write_binlog_config();
+        binlog_options.source.base_tablet = _tablet;
+        binlog_options.source.tablet_schema = _tablet->tablet_schema();
+        binlog_options.source.partial_update_info = partial_update_info;
+        binlog_options.source.mow_context = mow_context;
+        binlog_options.source.source_write_type = DataWriteType::TYPE_DIRECT;
+
+        auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
+        lsn_buffer->append_range_for_test(1000, num_rows);
+        auto lsn_ids = std::make_shared<std::vector<int64_t>>();
+        RETURN_IF_ERROR(allocate_binlog_lsn(lsn_buffer, num_rows, *lsn_ids));
+        binlog_options.insert_seg_lsn(0, lsn_ids);
+        return _row_binlog_tablet->create_rowset_writer(row_binlog_context, false);
+    }
+
+    Result<std::unique_ptr<GroupRowsetWriter>> create_partial_update_group_writer(
+            const std::shared_ptr<PartialUpdateInfo>& partial_update_info, size_t num_rows) {
+        auto mow_context = create_mow_context();
+        RowsetWriterContext data_context;
+        data_context.tablet = _tablet;
+        data_context.tablet_schema = _tablet->tablet_schema();
+        data_context.rowset_state = PREPARED;
+        data_context.segments_overlap = OVERLAPPING;
+        data_context.max_rows_per_segment = 1024;
+        data_context.write_type = DataWriteType::TYPE_DIRECT;
+        data_context.partial_update_info = partial_update_info;
+        data_context.mow_context = mow_context;
+        auto data_writer_result = _tablet->create_rowset_writer(data_context, false);
+        if (!data_writer_result.has_value()) {
+            return unexpected(data_writer_result.error());
+        }
+
+        auto row_binlog_writer_result =
+                create_partial_update_row_binlog_writer(partial_update_info, num_rows, mow_context);
+        if (!row_binlog_writer_result.has_value()) {
+            return unexpected(row_binlog_writer_result.error());
+        }
+
+        auto group_writer = std::make_unique<GroupRowsetWriter>();
+        group_writer->set_data_writer(
+                std::shared_ptr<RowsetWriter>(std::move(data_writer_result.value())));
+        group_writer->set_row_binlog_writer(
+                std::shared_ptr<RowsetWriter>(std::move(row_binlog_writer_result.value())));
+        return group_writer;
     }
 
     Status create_group_rowset_writer(std::unique_ptr<GroupRowsetWriter>* group_writer,
@@ -305,32 +372,8 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     EXPECT_EQ((std::vector<uint32_t> {0, 1, 2, 3}), partial_update_info->update_cids);
     EXPECT_EQ((std::vector<uint32_t> {4, 5}), partial_update_info->missing_cids);
 
-    RowsetWriterContext row_binlog_context;
-    row_binlog_context.tablet = _row_binlog_tablet;
-    row_binlog_context.tablet_schema = _row_binlog_tablet->tablet_schema();
-    row_binlog_context.rowset_state = PREPARED;
-    row_binlog_context.segments_overlap = NONOVERLAPPING;
-    row_binlog_context.max_rows_per_segment = 1024;
-    row_binlog_context.write_type = DataWriteType::TYPE_DIRECT;
-    row_binlog_context.partial_update_info = partial_update_info;
-    row_binlog_context.mow_context =
-            std::make_shared<MowContext>(1, 1, std::make_shared<RowsetIdUnorderedSet>(),
-                                         std::vector<RowsetSharedPtr> {}, nullptr);
-    row_binlog_context.write_binlog_opt().enable = true;
-    auto& binlog_options = row_binlog_context.write_binlog_opt().write_binlog_config();
-    binlog_options.source.tablet_schema = _tablet->tablet_schema();
-    binlog_options.source.partial_update_info = partial_update_info;
-    binlog_options.source.mow_context = row_binlog_context.mow_context;
-    binlog_options.source.source_write_type = DataWriteType::TYPE_DIRECT;
-
-    auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
-    lsn_buffer->append_range_for_test(1000, 1);
-    auto lsn_ids = std::make_shared<std::vector<int64_t>>();
-    ASSERT_TRUE(allocate_binlog_lsn(lsn_buffer, 1, *lsn_ids).ok());
-    binlog_options.insert_seg_lsn(0, lsn_ids);
-
     auto row_binlog_writer_res =
-            _row_binlog_tablet->create_rowset_writer(row_binlog_context, false);
+            create_partial_update_row_binlog_writer(partial_update_info, 1, create_mow_context());
     ASSERT_TRUE(row_binlog_writer_res.has_value());
     auto row_binlog_writer = std::move(row_binlog_writer_res.value());
 
@@ -370,6 +413,108 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     Block eof_block = row_binlog_schema->create_block();
     status = rowset_reader->next_batch(&eof_block);
     EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
+}
+
+TEST_F(GroupRowsetWriterTest, keyOnlyFixedPartialUpdatePreservesNarrowBlock) {
+    auto partial_update_info = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(partial_update_info
+                        ->init(_tablet->tablet_id(), 1, *_tablet->tablet_schema(),
+                               UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                               PartialUpdateNewRowPolicyPB::APPEND,
+                               {"k1", "__DORIS_TEST_HIDDEN_KEY__"}, false, 0, 0, "", "")
+                        .ok());
+    EXPECT_EQ((std::vector<uint32_t> {0, 1}), partial_update_info->update_cids);
+    ASSERT_EQ(_tablet->tablet_schema()->num_key_columns(), partial_update_info->update_cids.size());
+
+    auto group_writer_result = create_partial_update_group_writer(partial_update_info, 2);
+    ASSERT_TRUE(group_writer_result.has_value()) << group_writer_result.error();
+    auto group_writer = std::move(group_writer_result.value());
+
+    Block block = _tablet->tablet_schema()->create_block_by_cids(partial_update_info->update_cids);
+    {
+        auto columns_guard = block.mutate_columns_scoped();
+        auto& columns = columns_guard.mutable_columns();
+        for (const auto& [key, hidden_key] :
+             std::array<std::pair<int32_t, int64_t>, 2> {{{1, 1001}, {4, 1004}}}) {
+            columns[0]->insert(Field::create_field<PrimitiveType::TYPE_INT>(key));
+            columns[1]->insert(Field::create_field<PrimitiveType::TYPE_BIGINT>(hidden_key));
+        }
+    }
+    ASSERT_EQ(block.columns(), _tablet->tablet_schema()->num_key_columns());
+    auto status = group_writer->flush_single_block(&block);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(block.columns(), _tablet->tablet_schema()->num_key_columns());
+
+    std::vector<RowsetSharedPtr> rowsets;
+    status = group_writer->build_rowsets(rowsets);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(2, rowsets.size());
+
+    const auto& row_binlog_schema = _row_binlog_tablet->tablet_schema();
+    std::vector<uint32_t> return_columns {0, 1, 2, 3, 4, 5, 6};
+    RowsetReaderContext reader_context;
+    reader_context.tablet_schema = row_binlog_schema;
+    reader_context.need_ordered_result = false;
+    reader_context.return_columns = &return_columns;
+
+    RowsetReaderSharedPtr rowset_reader;
+    ASSERT_TRUE(rowsets[1]->create_reader(&rowset_reader).ok());
+    ASSERT_TRUE(rowset_reader->init(&reader_context).ok());
+
+    Block output_block = row_binlog_schema->create_block();
+    status = rowset_reader->next_batch(&output_block);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(2, output_block.rows());
+    for (size_t row = 0; row < output_block.rows(); ++row) {
+        const int32_t expected_key = row == 0 ? 1 : 4;
+        const int64_t expected_hidden_key = row == 0 ? 1001 : 1004;
+        EXPECT_EQ(expected_key, (*output_block.get_by_position(0).column)[row].get<TYPE_INT>());
+        EXPECT_EQ(expected_hidden_key,
+                  (*output_block.get_by_position(1).column)[row].get<TYPE_BIGINT>());
+        EXPECT_EQ(7, (*output_block.get_by_position(2).column)[row].get<TYPE_INT>());
+        EXPECT_TRUE(output_block.get_by_position(3).column->is_null_at(row));
+        EXPECT_EQ(1000 + row, (*output_block.get_by_position(5).column)[row].get<TYPE_BIGINT>());
+        EXPECT_EQ(ROW_BINLOG_APPEND,
+                  (*output_block.get_by_position(6).column)[row].get<TYPE_BIGINT>());
+    }
+
+    Block eof_block = row_binlog_schema->create_block();
+    status = rowset_reader->next_batch(&eof_block);
+    EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
+}
+
+TEST_F(GroupRowsetWriterTest, keyOnlyFixedPartialUpdateRejectsInvalidWidths) {
+    auto partial_update_info = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(partial_update_info
+                        ->init(_tablet->tablet_id(), 1, *_tablet->tablet_schema(),
+                               UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                               PartialUpdateNewRowPolicyPB::APPEND,
+                               {"k1", "__DORIS_TEST_HIDDEN_KEY__"}, false, 0, 0, "", "")
+                        .ok());
+
+    auto too_narrow_writer_result =
+            create_partial_update_row_binlog_writer(partial_update_info, 1, create_mow_context());
+    ASSERT_TRUE(too_narrow_writer_result.has_value()) << too_narrow_writer_result.error();
+    auto too_narrow_writer = std::move(too_narrow_writer_result.value());
+    Block too_narrow = _tablet->tablet_schema()->create_block_by_cids({0});
+    too_narrow.get_by_position(0).column->assert_mutable()->insert(
+            Field::create_field<PrimitiveType::TYPE_INT>(1));
+    auto status = too_narrow_writer->flush_single_block(&too_narrow);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    EXPECT_NE(std::string::npos,
+              status.to_string().find("illegal partial update block columns: 1"));
+    EXPECT_NE(std::string::npos, status.to_string().find("total schema columns: 6"));
+
+    auto full_width_writer_result =
+            create_partial_update_row_binlog_writer(partial_update_info, 1, create_mow_context());
+    ASSERT_TRUE(full_width_writer_result.has_value()) << full_width_writer_result.error();
+    auto full_width_writer = std::move(full_width_writer_result.value());
+    Block full_width = create_block(10, 1);
+    status = full_width_writer->flush_single_block(&full_width);
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    EXPECT_NE(std::string::npos,
+              status.to_string().find("illegal partial update block columns: 6"));
+    EXPECT_NE(std::string::npos, status.to_string().find("total schema columns: 6"));
 }
 
 } // namespace doris
