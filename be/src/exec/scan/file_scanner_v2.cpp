@@ -465,6 +465,9 @@ Status FileScannerV2::_open_impl(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(Scanner::_open_impl(state));
+    // The first split may open its physical reader eagerly while refining row groups. Synchronize
+    // ready filters first so COUNT(*) never treats a future RF carrier as a disposable placeholder.
+    RETURN_IF_ERROR(try_append_late_arrival_runtime_filter());
     RETURN_IF_ERROR(_get_next_scan_range(&_first_scan_range));
     if (_first_scan_range) {
         RETURN_IF_ERROR(_create_table_reader_for_format(_current_range, &_table_reader));
@@ -489,7 +492,8 @@ Status FileScannerV2::_get_next_scan_range(bool* has_next) {
         RETURN_IF_ERROR(_validate_scan_range(*_params, _current_range));
     } else {
         _current_split = {};
-        _current_range = {};
+        // Final counter publication happens after EOS. Keep the last materialized range so its
+        // range-only file type still controls storage and load accounting during that publication.
     }
     return Status::OK();
 }
@@ -535,8 +539,9 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
             if (_table_reader_rf_num != _applied_rf_num) {
                 VExprContextSPtrs refreshed_conjuncts;
                 RETURN_IF_ERROR(_build_table_conjuncts(&refreshed_conjuncts));
-                RETURN_IF_ERROR(_table_reader->refresh_conjuncts(
-                        std::move(refreshed_conjuncts), _current_condition_cache_digest()));
+                RETURN_IF_ERROR(_table_reader->refresh_conjuncts(std::move(refreshed_conjuncts),
+                                                                 _current_condition_cache_digest(),
+                                                                 _applied_rf_num == _total_rf_num));
                 _table_reader_rf_num = _applied_rf_num;
             }
             if (_should_run_adaptive_batch_size()) {

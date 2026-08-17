@@ -88,9 +88,10 @@ Status HudiHybridReader::build_physical_splits(const FileScanSplit& source_split
 }
 
 Status HudiHybridReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
-                                           std::optional<uint64_t> condition_cache_digest) {
-    RETURN_IF_ERROR(
-            format::TableReader::refresh_conjuncts(std::move(conjuncts), condition_cache_digest));
+                                           std::optional<uint64_t> condition_cache_digest,
+                                           bool all_runtime_filters_applied) {
+    RETURN_IF_ERROR(format::TableReader::refresh_conjuncts(
+            std::move(conjuncts), condition_cache_digest, all_runtime_filters_applied));
     if (_current_split_reader == nullptr) {
         return Status::OK();
     }
@@ -98,8 +99,8 @@ Status HudiHybridReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
     RETURN_IF_ERROR(_clone_conjuncts(&child_conjuncts));
     // The hybrid wrapper owns no physical reader; forward a clone so the active child, rather than
     // only the wrapper snapshot, observes late predicates for the remainder of this split.
-    return _current_split_reader->refresh_conjuncts(std::move(child_conjuncts),
-                                                    condition_cache_digest);
+    return _current_split_reader->refresh_conjuncts(
+            std::move(child_conjuncts), condition_cache_digest, all_runtime_filters_applied);
 }
 
 Status HudiHybridReader::get_block(Block* block, bool* eos) {

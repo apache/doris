@@ -885,10 +885,16 @@ bool same_physical_scan_layout(const FileScanRequest& lhs, const FileScanRequest
 } // namespace
 
 Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
-                                      std::optional<uint64_t> condition_cache_digest) {
+                                      std::optional<uint64_t> condition_cache_digest,
+                                      bool all_runtime_filters_applied) {
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.refresh_conjuncts_timer);
     _conjuncts = std::move(conjuncts);
+    if (all_runtime_filters_applied) {
+        // A refresh can prove the last pending RF has arrived, but a later partial refresh must
+        // never make the same split incomplete again.
+        _all_runtime_filters_applied_for_split = true;
+    }
     if (condition_cache_digest.has_value()) {
         // A runtime filter can arrive after a physical child is prepared but before its reader is
         // created. Keep that child's cache key tied to the same refreshed predicate snapshot.

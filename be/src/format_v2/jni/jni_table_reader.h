@@ -48,9 +48,9 @@ public:
 
     Status init(TableReadOptions&& options) override;
     Status prepare_split(const SplitReadOptions& options) override;
-    Status refresh_conjuncts(
-            VExprContextSPtrs conjuncts,
-            std::optional<uint64_t> condition_cache_digest = std::nullopt) override;
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts,
+                             std::optional<uint64_t> condition_cache_digest = std::nullopt,
+                             bool all_runtime_filters_applied = false) override;
     Status get_block(Block* block, bool* eos) override;
     Status abort_split() override;
     Status close() override;

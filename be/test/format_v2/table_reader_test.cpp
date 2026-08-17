@@ -1204,6 +1204,7 @@ struct FakeFileReaderState {
     bool not_found_during_init = false;
     bool physical_split_error = false;
     int physical_split_count = -1;
+    std::optional<LocalColumnId> unsupported_projection;
     int build_physical_splits_count = 0;
     std::chrono::milliseconds lifecycle_delay {0};
     std::shared_ptr<FileScanRequest> last_request;
@@ -1250,6 +1251,10 @@ public:
         }
         RETURN_IF_ERROR(FileReader::open(std::move(request)));
         _state->last_request = _request;
+        if (_state->unsupported_projection.has_value() &&
+            !_request->is_count_star_placeholder(*_state->unsupported_projection)) {
+            return Status::NotSupported("fake unsupported projection requires a placeholder");
+        }
         ++_state->open_count;
         _returned_batch = false;
         return Status::OK();
@@ -2198,6 +2203,103 @@ TEST(TableReaderTest, CountStarFallbackKeepsLateRuntimeFilterCarrierValues) {
         remaining_ids.insert(remaining_ids.end(), ids.get_data().begin(), ids.get_data().end());
     }
     EXPECT_EQ(remaining_ids, std::vector<int32_t>({5, 6}));
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, FinalRuntimeFilterRefreshRestoresCountStarPlaceholder) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(
+            make_file_column(0, "planner_carrier", std::make_shared<DataTypeInt32>()));
+    file_schema.push_back(make_file_column(1, "rf_key", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(
+            make_table_column(0, "planner_carrier", std::make_shared<DataTypeInt32>()));
+    projected_columns.push_back(make_table_column(1, "rf_key", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->unsupported_projection = LocalColumnId(0);
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    .push_down_count_columns = std::vector<GlobalIndex> {},
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    split_options.all_runtime_filters_applied = false;
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    VExprContextSPtrs refreshed {VExprContext::create_shared(
+            runtime_filter_wrapper_expr(table_int32_greater_than_expr(1, 1, 1)))};
+    ASSERT_TRUE(reader.refresh_conjuncts(std::move(refreshed), std::nullopt,
+                                         /*all_runtime_filters_applied=*/true)
+                        .ok());
+
+    ASSERT_TRUE(reader.open_reader().ok());
+    ASSERT_NE(fake_state->last_request, nullptr);
+    EXPECT_TRUE(fake_state->last_request->is_count_star_placeholder(LocalColumnId(0)));
+    EXPECT_FALSE(fake_state->last_request->is_count_star_placeholder(LocalColumnId(1)));
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, SinglePhysicalSplitUsesFinalRuntimeFilterPlaceholderSnapshot) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(
+            make_file_column(0, "planner_carrier", std::make_shared<DataTypeInt32>()));
+    file_schema.push_back(make_file_column(1, "rf_key", std::make_shared<DataTypeInt32>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(
+            make_table_column(0, "planner_carrier", std::make_shared<DataTypeInt32>()));
+    projected_columns.push_back(make_table_column(1, "rf_key", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->physical_split_count = 1;
+    fake_state->unsupported_projection = LocalColumnId(0);
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    .push_down_count_columns = std::vector<GlobalIndex> {},
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    split_options.conjuncts = VExprContextSPtrs {VExprContext::create_shared(
+            runtime_filter_wrapper_expr(table_int32_greater_than_expr(1, 1, 1)))};
+    split_options.all_runtime_filters_applied = true;
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    FileScanSplit source_split;
+    source_split.range = split_options.current_range;
+    source_split.is_source_split = true;
+    std::vector<FileScanSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(reader.build_physical_splits(source_split, &children, &was_split).ok());
+    EXPECT_FALSE(was_split);
+    ASSERT_NE(fake_state->last_request, nullptr);
+    EXPECT_TRUE(fake_state->last_request->is_count_star_placeholder(LocalColumnId(0)));
+    EXPECT_FALSE(fake_state->last_request->is_count_star_placeholder(LocalColumnId(1)));
     ASSERT_TRUE(reader.close().ok());
 }
 

@@ -235,9 +235,11 @@ public:
 
     // Refresh row-level predicates for an already prepared split. Physical readers that support
     // this operation decide the safe boundary at which the new immutable request becomes active.
-    // A supplied digest describes this exact conjunct snapshot for condition-cache isolation.
+    // A supplied digest describes this exact conjunct snapshot for condition-cache isolation. RF
+    // completeness is monotonic within one split and enables safe COUNT(*) placeholder elision.
     virtual Status refresh_conjuncts(VExprContextSPtrs conjuncts,
-                                     std::optional<uint64_t> condition_cache_digest = std::nullopt);
+                                     std::optional<uint64_t> condition_cache_digest = std::nullopt,
+                                     bool all_runtime_filters_applied = false);
 
     virtual bool current_split_pruned() const { return _current_split_pruned; }
     virtual bool current_split_uses_metadata_count() const {

@@ -78,7 +78,8 @@ Status JniTableReader::prepare_split(const SplitReadOptions& options) {
 }
 
 Status JniTableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
-                                         std::optional<uint64_t> condition_cache_digest) {
+                                         std::optional<uint64_t> condition_cache_digest,
+                                         bool all_runtime_filters_applied) {
     if (_scanner_opened) {
         SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.refresh_conjuncts_timer);
@@ -92,7 +93,8 @@ Status JniTableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
             RETURN_IF_ERROR(conjunct->open(_runtime_state));
         }
     }
-    return TableReader::refresh_conjuncts(std::move(conjuncts), condition_cache_digest);
+    return TableReader::refresh_conjuncts(std::move(conjuncts), condition_cache_digest,
+                                          all_runtime_filters_applied);
 }
 
 Status JniTableReader::get_block(Block* output_block, bool* eos) {

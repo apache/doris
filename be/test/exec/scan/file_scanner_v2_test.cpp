@@ -703,6 +703,42 @@ TEST(FileScannerV2Test, RawSourceClearsGeneratedChildEnvelope) {
     ASSERT_TRUE(connector.finish_source_split(reused, {}).ok());
 }
 
+TEST(FileScannerV2Test, EosKeepsLastRangeIdentityForFinalAccounting) {
+    TFileRangeDesc range;
+    range.__set_path("remote.parquet");
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    range.__set_file_type(TFileType::FILE_S3);
+    auto split_source =
+            std::make_shared<RemoteStyleSplitSourceConnector>(std::vector<TFileRangeDesc> {range});
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    MockRuntimeState state;
+    RuntimeProfile profile("last_range_accounting");
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner._split_source = std::move(split_source);
+    scanner._params = &params;
+
+    bool has_next = false;
+    ASSERT_TRUE(scanner._get_next_scan_range(&has_next).ok());
+    ASSERT_TRUE(has_next);
+    ASSERT_TRUE(scanner._get_next_scan_range(&has_next).ok());
+    EXPECT_FALSE(has_next);
+    EXPECT_TRUE(scanner._current_range.__isset.file_type);
+    EXPECT_EQ(scanner._current_range.file_type, TFileType::FILE_S3);
+    EXPECT_EQ(scanner._uncached_reader_bytes_storage(scanner._current_range.file_type),
+              FileScannerV2::UncachedReaderBytesStorage::REMOTE);
+
+    range.__set_file_type(TFileType::FILE_STREAM);
+    scanner._split_source =
+            std::make_shared<RemoteStyleSplitSourceConnector>(std::vector<TFileRangeDesc> {range});
+    ASSERT_TRUE(scanner._get_next_scan_range(&has_next).ok());
+    ASSERT_TRUE(has_next);
+    ASSERT_TRUE(scanner._get_next_scan_range(&has_next).ok());
+    EXPECT_FALSE(has_next);
+    EXPECT_TRUE(scanner._should_update_load_counters());
+}
+
 TEST(FileScannerV2Test, GeneratedChildrenCompleteSourceProgressOnlyOnce) {
     LocalSplitSourceConnector connector({scan_range_with_path("two-groups.parquet")}, 1);
     FileScanSplit source;
