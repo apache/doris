@@ -20,6 +20,8 @@ package org.apache.doris.jni.bootstrap;
 import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Objects;
@@ -37,6 +39,11 @@ import java.util.Objects;
  *       exchange.</li>
  *   <li><b>Plugin</b> - everything else comes from the plugin's own directory.</li>
  * </ol>
+ *
+ * <p>Classes are split exactly that way. <em>Resources</em> have one addition: the hadoop conf drop
+ * point is searched after the plugin's own jars, because (1) also puts every {@code .xml} on BE's
+ * classpath out of reach and a hadoop {@code Configuration} inside a plugin has to find its site
+ * files somewhere. See the constructor.
  *
  * <p>The point of (1) is that isolation is structural rather than a matter of search order. A
  * child-first loader that falls back to its parent still lets a class the plugin failed to package
@@ -63,17 +70,30 @@ public class DorisPluginClassLoader extends URLClassLoader {
 
     private final String pluginName;
     private final ClassLoader spiClassLoader;
+    private final ClassLoader hadoopConfResources;
+
+    public DorisPluginClassLoader(String pluginName, List<URL> urls, ClassLoader spiClassLoader) {
+        this(pluginName, urls, spiClassLoader, null);
+    }
 
     /**
-     * @param pluginName     the plugin's directory name, used in diagnostics
-     * @param urls           the jars in that directory
-     * @param spiClassLoader BE's own classloader, the only place SPI classes may come from
+     * @param pluginName          the plugin's directory name, used in diagnostics
+     * @param urls                the jars in that directory
+     * @param spiClassLoader      BE's own classloader, the only place SPI classes may come from
+     * @param hadoopConfResources loader over the hadoop conf drop point, consulted for resources
+     *                            only, or null. Because (1) above cuts a plugin off from BE's
+     *                            classpath, it also cuts it off from every {@code .xml} on it -
+     *                            and a hadoop {@code Configuration} built inside a plugin looks
+     *                            {@code core-site.xml} up as a resource through this loader. So
+     *                            resources, and only resources, have one more place to come from.
      */
-    public DorisPluginClassLoader(String pluginName, List<URL> urls, ClassLoader spiClassLoader) {
+    public DorisPluginClassLoader(String pluginName, List<URL> urls, ClassLoader spiClassLoader,
+            ClassLoader hadoopConfResources) {
         // Plugins must not see the system (application) classloader.
         super(urls.toArray(new URL[0]), getPlatformClassLoader());
         this.pluginName = Objects.requireNonNull(pluginName, "pluginName");
         this.spiClassLoader = Objects.requireNonNull(spiClassLoader, "spiClassLoader");
+        this.hadoopConfResources = hadoopConfResources;
     }
 
     public String getPluginName() {
@@ -127,7 +147,13 @@ public class DorisPluginClassLoader extends URLClassLoader {
         if (isSpiResource(name)) {
             return spiClassLoader.getResource(name);
         }
-        return super.getResource(name);
+        URL fromPlugin = super.getResource(name);
+        if (fromPlugin != null || hadoopConfResources == null) {
+            return fromPlugin;
+        }
+        // The plugin's own jars win: hadoop ships core-default.xml inside hadoop-common, and the
+        // conf drop point is for the site files an operator adds next to it.
+        return hadoopConfResources.getResource(name);
     }
 
     @Override
@@ -137,7 +163,21 @@ public class DorisPluginClassLoader extends URLClassLoader {
         }
         // Service descriptors are resources, so a plugin's META-INF/services entries are found
         // here, locally, exactly as intended.
-        return super.getResources(name);
+        Enumeration<URL> fromPlugin = super.getResources(name);
+        if (hadoopConfResources == null) {
+            return fromPlugin;
+        }
+        // Hadoop reads every core-site.xml it is handed, in order, so both sources are offered
+        // with the plugin's own first.
+        List<URL> all = new ArrayList<>();
+        while (fromPlugin.hasMoreElements()) {
+            all.add(fromPlugin.nextElement());
+        }
+        Enumeration<URL> fromConf = hadoopConfResources.getResources(name);
+        while (fromConf.hasMoreElements()) {
+            all.add(fromConf.nextElement());
+        }
+        return Collections.enumeration(all);
     }
 
     @Override

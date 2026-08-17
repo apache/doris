@@ -225,6 +225,11 @@ fi
 # with it is also what lets every block below append unconditionally: an empty element in a class
 # path means the current directory, not nothing, so a list that starts out empty puts the working
 # directory on the class path the first time something appends to it.
+#
+# This classpath serves BE itself and libhdfs, and nothing else: a Java plugin's classloader
+# cannot reach it by design, so conf/*.xml here says nothing to the plugins. The hadoop
+# configuration files they read live in the directory named by the BE config
+# jni_plugin_hadoop_conf_dir (plugins/hadoop_conf by default).
 DORIS_CLASSPATH="${DORIS_HOME}/conf/"
 
 # The shared layer: the plugin SPI and the loader that reads plugins/jni. These are the only
@@ -280,6 +285,7 @@ unset fs_libs fs_dir
 # loads what is in them behind its own contract classloader, so a user function no longer sees
 # whatever BE happens to ship. Adding them back here would give user code the hadoop drop above.
 
+# Also for libhdfs alone, for the same reason as conf/ above.
 if [[ -n "${HADOOP_CONF_DIR}" ]]; then
     DORIS_CLASSPATH="${DORIS_CLASSPATH}:${HADOOP_CONF_DIR}"
 fi
@@ -407,10 +413,6 @@ set_tcmalloc_heap_limit() {
 
 # set_tcmalloc_heap_limit || exit 1
 
-## set hdfs3 conf
-if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
-    export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
-fi
 
 # check java version and choose correct JAVA_OPTS
 java_version="$(

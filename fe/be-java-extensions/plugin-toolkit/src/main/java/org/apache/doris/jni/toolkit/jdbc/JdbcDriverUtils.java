@@ -52,6 +52,9 @@ public final class JdbcDriverUtils {
     private static final ConcurrentHashMap<DriverKey, ClassLoader> DRIVER_CLASS_LOADERS =
             new ConcurrentHashMap<>();
 
+    /** One lock per driver jar, so that loading two different drivers does not serialize. */
+    private static final ConcurrentHashMap<DriverKey, Object> LOAD_LOCKS = new ConcurrentHashMap<>();
+
     private JdbcDriverUtils() {
     }
 
@@ -78,15 +81,27 @@ public final class JdbcDriverUtils {
     public static ClassLoader driverClassLoader(String driverUrl, ClassLoader parent,
             DriverJarVerifier verifier) {
         DriverKey key = new DriverKey(toUrl(driverUrl), parent);
-        // computeIfAbsent, not get-then-put: the verifier must run once and exactly one classloader
-        // per jar may ever be published, or the problem described above comes back through the
-        // race instead of through the retry.
-        return DRIVER_CLASS_LOADERS.computeIfAbsent(key, entry -> {
-            if (verifier != null) {
-                verifier.verify(entry.driverUrl);
+        ClassLoader cached = DRIVER_CLASS_LOADERS.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        // Per-key lock plus a second look, rather than computeIfAbsent: verifying a driver jar
+        // reads and checksums it and creating the loader opens it, and neither may run while a
+        // ConcurrentHashMap bin lock is held - two catalogs whose keys share a bin would then
+        // serialize on each other's jar download, and a nested load would be a recursive update.
+        // What computeIfAbsent bought is kept: exactly one classloader per jar is ever published,
+        // and the verifier runs exactly once for it.
+        synchronized (LOAD_LOCKS.computeIfAbsent(key, entry -> new Object())) {
+            ClassLoader loaded = DRIVER_CLASS_LOADERS.get(key);
+            if (loaded == null) {
+                if (verifier != null) {
+                    verifier.verify(key.driverUrl);
+                }
+                loaded = URLClassLoader.newInstance(new URL[] {key.driverUrl}, key.parent);
+                DRIVER_CLASS_LOADERS.put(key, loaded);
             }
-            return URLClassLoader.newInstance(new URL[] {entry.driverUrl}, entry.parent);
-        });
+            return loaded;
+        }
     }
 
     /**

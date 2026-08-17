@@ -110,6 +110,9 @@ public class JdbcConnectionTester extends JniScanner {
     protected void openInternal() throws IOException {
         ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
         try {
+            // Same as JdbcJniScanner: set before the driver classes load, since this is a
+            // connection through the same driver and pool.
+            typeHandler.setSystemProperties();
             this.classLoader = JdbcDriverUtils.driverClassLoader(jdbcDriverUrl, getClass().getClassLoader());
             Thread.currentThread().setContextClassLoader(classLoader);
 

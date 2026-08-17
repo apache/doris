@@ -37,12 +37,21 @@ import java.util.Map;
  */
 public final class PluginRegistry {
 
-    /** Set by start_be.sh from the {@code jni_plugin_dir} BE config. */
+    /** Set by {@code JvmLauncher::_build_options()} from the {@code jni_plugin_dir} BE config. */
     private static final String PLUGIN_DIR_PROPERTY = "doris.jni.plugin.dir";
 
-    // Keep in sync with the BE config jni_plugin_dir. This is the value a BE started without the
-    // property above gets, and PluginRegistryDefaultDirTest is what keeps the two from drifting.
+    /**
+     * Set the same way, from the {@code jni_plugin_hadoop_conf_dir} BE config. The hadoop
+     * configuration files every plugin can read; see the DorisPluginClassLoader constructor for
+     * why a plugin needs a directory of its own for them.
+     */
+    private static final String HADOOP_CONF_DIR_PROPERTY = "doris.jni.hadoop.conf.dir";
+
+    // Keep in sync with the BE configs jni_plugin_dir and jni_plugin_hadoop_conf_dir. These are the
+    // values a BE started without the properties above gets, and PluginRegistryDefaultDirTest is
+    // what keeps them from drifting.
     private static final String DEFAULT_PLUGIN_SUBDIR = "plugins/jni";
+    private static final String DEFAULT_HADOOP_CONF_SUBDIR = "plugins/hadoop_conf";
 
     private static volatile PluginRuntime runtime;
 
@@ -97,7 +106,8 @@ public final class PluginRegistry {
         synchronized (PluginRegistry.class) {
             if (runtime == null) {
                 JniLogging.configure();
-                runtime = new PluginRuntime(pluginDir(), PluginRegistry.class.getClassLoader());
+                runtime = new PluginRuntime(pluginDir(), PluginRegistry.class.getClassLoader(),
+                        hadoopConfDir());
             }
             return runtime;
         }
@@ -105,14 +115,22 @@ public final class PluginRegistry {
 
     // Package-private rather than private so PluginRegistryDefaultDirTest can pin the default.
     static Path pluginDir() {
-        String configured = System.getProperty(PLUGIN_DIR_PROPERTY);
+        return directory(PLUGIN_DIR_PROPERTY, DEFAULT_PLUGIN_SUBDIR);
+    }
+
+    static Path hadoopConfDir() {
+        return directory(HADOOP_CONF_DIR_PROPERTY, DEFAULT_HADOOP_CONF_SUBDIR);
+    }
+
+    private static Path directory(String property, String defaultSubdir) {
+        String configured = System.getProperty(property);
         if (configured != null && !configured.trim().isEmpty()) {
             return Paths.get(configured.trim());
         }
         String dorisHome = System.getenv("DORIS_HOME");
         if (dorisHome != null && !dorisHome.trim().isEmpty()) {
-            return Paths.get(dorisHome.trim(), DEFAULT_PLUGIN_SUBDIR);
+            return Paths.get(dorisHome.trim(), defaultSubdir);
         }
-        return Paths.get(new File("").getAbsolutePath(), DEFAULT_PLUGIN_SUBDIR);
+        return Paths.get(new File("").getAbsolutePath(), defaultSubdir);
     }
 }

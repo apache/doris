@@ -95,7 +95,9 @@ public interface JdbcTypeHandler {
 
     /**
      * Set JVM-level system properties needed by specific JDBC drivers.
-     * Called once during scanner initialization.
+     *
+     * <p>Called before the driver class is loaded - that is when a driver reads these - which means
+     * once per scanner open rather than once per process. Setting the same value again is free.
      */
     default void setSystemProperties() {
         System.setProperty("com.zaxxer.hikari.useWeakReferences", "true");

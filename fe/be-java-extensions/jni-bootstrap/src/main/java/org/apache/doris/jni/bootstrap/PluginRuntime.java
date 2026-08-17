@@ -27,6 +27,7 @@ import org.apache.doris.jni.spi.utils.JniUtil;
 
 import java.io.IOException;
 import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.ServiceLoader;
@@ -61,12 +63,49 @@ final class PluginRuntime {
 
     private final Path pluginDir;
     private final ClassLoader spiClassLoader;
+    private final ClassLoader hadoopConfResources;
     private final ConcurrentHashMap<String, PluginHandle> plugins = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Object> loadLocks = new ConcurrentHashMap<>();
 
     PluginRuntime(Path pluginDir, ClassLoader spiClassLoader) {
+        this(pluginDir, spiClassLoader, null);
+    }
+
+    /**
+     * @param hadoopConfDir directory whose files every plugin can read as classpath resources, so
+     *                      that a hadoop {@code Configuration} built inside a plugin finds
+     *                      {@code core-site.xml} and friends. Null when there is none.
+     */
+    PluginRuntime(Path pluginDir, ClassLoader spiClassLoader, Path hadoopConfDir) {
         this.pluginDir = Objects.requireNonNull(pluginDir, "pluginDir");
         this.spiClassLoader = Objects.requireNonNull(spiClassLoader, "spiClassLoader");
+        this.hadoopConfResources = hadoopConfLoader(hadoopConfDir);
+    }
+
+    /**
+     * A loader over the hadoop conf directory alone, used for resources and never for classes.
+     *
+     * <p>Its parent is null on purpose: it exists to answer {@code getResource("core-site.xml")}
+     * and must not become a second route from a plugin to BE's own classpath. A missing directory
+     * is the ordinary case and yields no loader at all.
+     */
+    private static ClassLoader hadoopConfLoader(Path hadoopConfDir) {
+        if (hadoopConfDir == null || !Files.isDirectory(hadoopConfDir)) {
+            return null;
+        }
+        try {
+            // The trailing separator is what makes a URLClassLoader treat this as a directory to
+            // search rather than as a jar file to open.
+            URL url = hadoopConfDir.toUri().toURL();
+            if (!url.toString().endsWith("/")) {
+                url = new URL(url + "/");
+            }
+            LOG.info("Java plugins read hadoop configuration files from " + hadoopConfDir);
+            return new URLClassLoader(new URL[] {url}, null);
+        } catch (IOException e) {
+            LOG.log(Level.WARNING, "Cannot expose " + hadoopConfDir + " to Java plugins: " + e);
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------
@@ -139,15 +178,35 @@ final class PluginRuntime {
         }
     }
 
-    /** Everything the registry knows, for BE to expose. Only reports plugins already touched. */
+    /**
+     * Everything the registry knows, for BE to expose.
+     *
+     * <p>The per-plugin list only holds plugins something has touched, since a plugin loads on
+     * first use; {@code deployed} is read from disk, so the difference between the two is exactly
+     * "deployed but not loaded yet".
+     */
     String statusJson() {
+        Map<String, PluginHandle> touched = new TreeMap<>(plugins);
+        int loaded = 0;
+        int failed = 0;
+        for (PluginHandle handle : touched.values()) {
+            if (handle.state() == PluginHandle.State.READY) {
+                loaded++;
+            } else if (handle.state() == PluginHandle.State.FAILED) {
+                failed++;
+            }
+        }
+
         StringBuilder json = new StringBuilder(256).append("{\"pluginDir\":");
         appendJsonString(json, pluginDir.toString());
         json.append(",\"apiVersion\":");
         appendJsonString(json, SpiVersion.version());
+        json.append(",\"loadedCount\":").append(loaded);
+        json.append(",\"failedCount\":").append(failed);
+        appendJsonNames(json, "deployed", deployedPluginNames());
         json.append(",\"plugins\":[");
         boolean first = true;
-        for (PluginHandle handle : new TreeMap<>(plugins).values()) {
+        for (PluginHandle handle : touched.values()) {
             if (!first) {
                 json.append(',');
             }
@@ -191,6 +250,15 @@ final class PluginRuntime {
         if (cached != null) {
             return cached;
         }
+        requirePluginName(name);
+        if (!Files.isDirectory(pluginDir.resolve(name))) {
+            // Answered without touching either map. A plugin name can be user text - the
+            // writer_class property carries one - and a statement per made-up name would
+            // otherwise add an entry to both maps, and a line to the status JSON, for the life
+            // of the process. Re-deciding this costs one stat.
+            LOG.fine(() -> "Java plugin '" + name + "' is not deployed at " + pluginDir.resolve(name));
+            return PluginHandle.notDeployed(name);
+        }
         // Per-plugin lock: loading takes seconds, and one slow plugin must not delay the first
         // query against an unrelated one. Loading outside computeIfAbsent on purpose - it does I/O
         // and classloading, which must not run while a ConcurrentHashMap bin lock is held.
@@ -215,6 +283,22 @@ final class PluginRuntime {
             case FAILED:
             default:
                 throw new IllegalStateException("Java plugin '" + name + "' failed to load: " + handle.failure());
+        }
+    }
+
+    /**
+     * A plugin name is one directory name, never a path.
+     *
+     * <p>Checked because the name reaches here from SQL: {@code writer_class} is
+     * {@code <plugin>:<factory>} and both halves are passed through untranslated. A name holding a
+     * separator would resolve against {@code pluginDir} to somewhere else on the host, and loading
+     * jars from an arbitrary directory is not what "the plugin is not deployed" should mean.
+     */
+    private void requirePluginName(String name) {
+        if (name == null || name.isEmpty() || name.equals(".") || name.equals("..")
+                || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("'" + name + "' is not a Java plugin name. A plugin is"
+                    + " one directory under " + pluginDir + ", so its name is a single path segment.");
         }
     }
 
@@ -243,7 +327,8 @@ final class PluginRuntime {
             throw new IllegalStateException("no jars in " + dir);
         }
 
-        DorisPluginClassLoader classLoader = new DorisPluginClassLoader(name, jars, spiClassLoader);
+        DorisPluginClassLoader classLoader =
+                new DorisPluginClassLoader(name, jars, spiClassLoader, hadoopConfResources);
         if (classLoader.packagesSpiClasses()) {
             throw new IllegalStateException("the plugin packages the SPI itself. jni-spi must be declared"
                     + " with <scope>provided</scope>; a bundled copy produces classes BE cannot exchange"
@@ -430,7 +515,10 @@ final class PluginRuntime {
                     break;
                 default:
                     if (c < 0x20) {
-                        json.append(String.format("\\u%04x", (int) c));
+                        // Locale.ROOT: the default locale decides what digits %x renders with, and
+                        // a locale asking for non-ASCII digits would produce an escape no JSON
+                        // parser accepts.
+                        json.append(String.format(Locale.ROOT, "\\u%04x", (int) c));
                     } else {
                         json.append(c);
                     }
