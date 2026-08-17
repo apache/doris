@@ -89,10 +89,10 @@ final class RuntimeFilterPruneClassifier {
         if (table == null || scan.getSelectedPartitionIds().isEmpty()) {
             return BucketClassification.unsupported("target scan has no selected partitions");
         }
-        if (scan.getSelectedIndexId() != table.getBaseIndexId()
-                && targetColumn.getDefineExpr() == null) {
+        Column targetBaseColumn = directTargetBaseColumn(scan, targetColumn);
+        if (targetBaseColumn == null) {
             return BucketClassification.unsupported(
-                    "non-base-index target has no direct base-column definition");
+                    "target has no direct base-column definition");
         }
 
         Column distributionColumn = null;
@@ -159,11 +159,16 @@ final class RuntimeFilterPruneClassifier {
                     "target expression contains non-movable function");
         }
         Column targetColumn = targetColumn(filter.getTargetSlot());
-        if (!isPartitionColumn(targetColumn, partitionInfo.getPartitionColumns())) {
+        Column targetBaseColumn = directTargetBaseColumn(scan, targetColumn);
+        if (targetBaseColumn == null) {
+            return PartitionClassification.unsupported(
+                    "target column has no direct base-column definition");
+        }
+        if (!isPartitionColumn(targetColumn, targetBaseColumn, partitionInfo.getPartitionColumns())) {
             return PartitionClassification.unsupported(
                     "target expression is not rooted on one partition column");
         }
-        if (!hasSerializedBoundary(targetColumn, partitionInfo, partitionType)) {
+        if (!hasSerializedBoundary(targetColumn, targetBaseColumn, partitionInfo, partitionType)) {
             return PartitionClassification.unsupported(
                     "target expression has no serialized partition boundary");
         }
@@ -216,6 +221,17 @@ final class RuntimeFilterPruneClassifier {
         return ((SlotReference) slot).getOriginalColumn().orElse(null);
     }
 
+    private static Column directTargetBaseColumn(PhysicalOlapScan scan, Column targetColumn) {
+        if (targetColumn == null) {
+            return null;
+        }
+        if (scan.getSelectedIndexId() != scan.getTable().getBaseIndexId()
+                && targetColumn.getDefineExpr() == null) {
+            return null;
+        }
+        return directBaseColumn(targetColumn);
+    }
+
     private static boolean sameBucketColumn(Column targetColumn, Column distributionColumn) {
         Column targetBaseColumn = directBaseColumn(targetColumn);
         Column distributionBaseColumn = directBaseColumn(distributionColumn);
@@ -266,38 +282,32 @@ final class RuntimeFilterPruneClassifier {
     }
 
     private static boolean hasSerializedBoundary(
-            Column targetColumn, PartitionInfo partitionInfo, PartitionType partitionType) {
+            Column targetColumn, Column targetBaseColumn,
+            PartitionInfo partitionInfo, PartitionType partitionType) {
         if (partitionType != PartitionType.RANGE) {
             return true;
         }
         List<Column> partitionColumns = partitionInfo.getPartitionColumns();
-        return !partitionColumns.isEmpty() && samePartitionColumn(targetColumn, partitionColumns.get(0));
+        return !partitionColumns.isEmpty()
+                && samePartitionColumn(targetColumn, targetBaseColumn, partitionColumns.get(0));
     }
 
-    private static boolean isPartitionColumn(Column targetColumn, List<Column> partitionColumns) {
-        if (targetColumn == null) {
-            return false;
-        }
+    private static boolean isPartitionColumn(
+            Column targetColumn, Column targetBaseColumn, List<Column> partitionColumns) {
         for (Column partitionColumn : partitionColumns) {
-            if (samePartitionColumn(targetColumn, partitionColumn)) {
+            if (samePartitionColumn(targetColumn, targetBaseColumn, partitionColumn)) {
                 return true;
             }
         }
         return false;
     }
 
-    private static boolean samePartitionColumn(Column targetColumn, Column partitionColumn) {
-        if (targetColumn == partitionColumn) {
-            return true;
-        }
-        int targetUniqueId = targetColumn.getUniqueId();
-        int partitionUniqueId = partitionColumn.getUniqueId();
-        if (targetUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE
-                && partitionUniqueId != Column.COLUMN_UNIQUE_ID_INIT_VALUE
-                && targetUniqueId == partitionUniqueId) {
-            return true;
-        }
-        return targetColumn.equals(partitionColumn);
+    private static boolean samePartitionColumn(
+            Column targetColumn, Column targetBaseColumn, Column partitionColumn) {
+        return targetColumn.getName().equalsIgnoreCase(partitionColumn.getName())
+                && targetColumn.getType().equals(partitionColumn.getType())
+                && targetBaseColumn.getName().equalsIgnoreCase(partitionColumn.getName())
+                && targetBaseColumn.getType().equals(partitionColumn.getType());
     }
 
     private static Map<Long, TTargetExprMonotonicity> classifyLocalMonotonicity(
