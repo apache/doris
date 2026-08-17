@@ -173,35 +173,56 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset, int3
         lucene::search::IndexSearcher* index_searcher = nullptr;
         lucene::index::IndexReader* index_reader = nullptr;
 
+        // Variant sub-column BM25 collection can land on a per-segment entry whose on-disk
+        // index is BKD / numeric (written via inherit_index() with parser/analyzer stripped
+        // when the segment-level subcolumn is non-string, e.g. {"c": false}), while the
+        // cloned index_meta still describes a fulltext index. In that case IndexReader::open
+        // throws "No segments* file found in DorisCompoundReader@..." and the exception used
+        // to escape this scope, abort the BE. Guard the open path so the bad segment is
+        // skipped instead of crashing; missing tokens contribute 0 to the stats, which is the
+        // intended semantics for "no fulltext data for this subcolumn in this segment".
+        try {
 #ifdef BE_TEST
-        auto compound_reader = DORIS_TRY(idx_file_reader->open(collect_info.index_meta, io_ctx));
-        auto* reader = lucene::index::IndexReader::open(compound_reader.get());
-        auto searcher_ptr = std::make_shared<lucene::search::IndexSearcher>(reader, true);
-        index_searcher = searcher_ptr.get();
-        index_reader = index_searcher->getReader();
-#else
-        InvertedIndexCacheHandle inverted_index_cache_handle;
-        auto index_file_key = idx_file_reader->get_index_file_cache_key(collect_info.index_meta);
-        InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
-
-        if (!InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
-                                                            &inverted_index_cache_handle)) {
             auto compound_reader =
                     DORIS_TRY(idx_file_reader->open(collect_info.index_meta, io_ctx));
             auto* reader = lucene::index::IndexReader::open(compound_reader.get());
-            size_t reader_size = reader->getTermInfosRAMUsed();
             auto searcher_ptr = std::make_shared<lucene::search::IndexSearcher>(reader, true);
-            auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
-                    std::move(searcher_ptr), reader_size, UnixMillis());
-            InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
-                                                           &inverted_index_cache_handle);
+            index_searcher = searcher_ptr.get();
+            index_reader = index_searcher->getReader();
+#else
+            InvertedIndexCacheHandle inverted_index_cache_handle;
+            auto index_file_key =
+                    idx_file_reader->get_index_file_cache_key(collect_info.index_meta);
+            InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
+
+            if (!InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
+                                                                &inverted_index_cache_handle)) {
+                auto compound_reader =
+                        DORIS_TRY(idx_file_reader->open(collect_info.index_meta, io_ctx));
+                auto* reader = lucene::index::IndexReader::open(compound_reader.get());
+                size_t reader_size = reader->getTermInfosRAMUsed();
+                auto searcher_ptr =
+                        std::make_shared<lucene::search::IndexSearcher>(reader, true);
+                auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
+                        std::move(searcher_ptr), reader_size, UnixMillis());
+                InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
+                                                               &inverted_index_cache_handle);
+            }
+
+            auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
+            auto index_searcher_ptr = std::get<FulltextIndexSearcherPtr>(searcher_variant);
+            index_searcher = index_searcher_ptr.get();
+            index_reader = index_searcher->getReader();
+#endif
+        } catch (CLuceneError& e) {
+            LOG(WARNING) << "Index statistics collection: skip field "
+                         << StringHelper::to_string(ws_field_name) << " in tablet="
+                         << rowset->rowset_meta()->tablet_id() << " seg=" << seg_id
+                         << " because the on-disk index is not a fulltext segment, msg="
+                         << e.what();
+            continue;
         }
 
-        auto searcher_variant = inverted_index_cache_handle.get_index_searcher();
-        auto index_searcher_ptr = std::get<FulltextIndexSearcherPtr>(searcher_variant);
-        index_searcher = index_searcher_ptr.get();
-        index_reader = index_searcher->getReader();
-#endif
         total_seg_num_docs = std::max(total_seg_num_docs, index_reader->maxDoc());
 
         _total_num_tokens[ws_field_name] +=
