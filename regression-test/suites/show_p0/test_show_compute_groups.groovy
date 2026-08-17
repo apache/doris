@@ -36,14 +36,15 @@ suite("test_show_compute_groups") {
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
     try {
         def boundGroup = groups[0]
+        def noDbJdbcUrl = context.config.jdbcUrl.replaceFirst(/(jdbc:mysql:\/\/[^\/]+\/)[^?]*/, '$1')
         sql """SET PROPERTY FOR '${user}' 'resource_tags.location' = '${boundGroup[0]}'"""
-        connect(user, "${pwd}", context.config.jdbcUrl) {
+        connect(user, "${pwd}", noDbJdbcUrl) {
             assertEquals([boundGroup], sql("SHOW COMPUTE GROUPS"))
         }
 
         // no such resource group, the user sees nothing instead of an error
         sql """SET PROPERTY FOR '${user}' 'resource_tags.location' = 'no_such_resource_group'"""
-        connect(user, "${pwd}", context.config.jdbcUrl) {
+        connect(user, "${pwd}", noDbJdbcUrl) {
             assertTrue(sql("SHOW COMPUTE GROUPS").isEmpty())
         }
     } finally {
