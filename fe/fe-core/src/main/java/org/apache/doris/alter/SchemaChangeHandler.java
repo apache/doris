@@ -173,6 +173,23 @@ public class SchemaChangeHandler extends AlterHandler {
         super("schema change", Config.default_schema_change_scheduler_interval_millisecond);
     }
 
+    private void validateColumnCompressionSchemaChange(List<AlterOp> alterOps) throws DdlException {
+        for (AlterOp alterOp : alterOps) {
+            if (alterOp instanceof AddColumnOp
+                    && ((AddColumnOp) alterOp).getColumn().hasCompressionOverride()) {
+                throw new DdlException("Per-column compression is not supported for ADD COLUMN");
+            }
+            if (alterOp instanceof AddColumnsOp
+                    && ((AddColumnsOp) alterOp).getColumns().stream().anyMatch(Column::hasCompressionOverride)) {
+                throw new DdlException("Per-column compression is not supported for ADD COLUMN");
+            }
+            if (alterOp instanceof ModifyColumnOp
+                    && ((ModifyColumnOp) alterOp).getColumn().hasCompressionOverride()) {
+                throw new DdlException("Per-column compression is not supported for MODIFY COLUMN");
+            }
+        }
+    }
+
     /**
      * @param addColumnOp
      * @param olapTable
@@ -186,6 +203,9 @@ public class SchemaChangeHandler extends AlterHandler {
                                      Map<Long, IntSupplier> colUniqueIdSupplierMap)
             throws DdlException {
         Column column = addColumnOp.getColumn();
+        if (column.hasCompressionOverride()) {
+            throw new DdlException("Per-column compression is not supported for ADD COLUMN");
+        }
         ColumnPosition columnPos = addColumnOp.getColPos();
         String targetIndexName = addColumnOp.getRollupName();
         checkIndexExists(olapTable, targetIndexName);
@@ -264,6 +284,9 @@ public class SchemaChangeHandler extends AlterHandler {
                                      Map<Long, LinkedList<Column>> indexSchemaMap, boolean ignoreSameColumn,
                                      Map<Long, IntSupplier> colUniqueIdSupplierMap) throws DdlException {
         List<Column> columns = addColumnsOp.getColumns();
+        if (columns.stream().anyMatch(Column::hasCompressionOverride)) {
+            throw new DdlException("Per-column compression is not supported for ADD COLUMN");
+        }
         String targetIndexName = addColumnsOp.getRollupName();
         checkIndexExists(olapTable, targetIndexName);
 
@@ -1021,6 +1044,10 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARIANT
                             && modColumn.getDataType() == PrimitiveType.VARIANT) {
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                    }
+                    if (col.hasCompressionOverride() || modColumn.hasCompressionOverride()) {
+                        throw new DdlException(
+                                "Per-column compression is not supported for MODIFY COLUMN");
                     }
                     if (col.isClusterKey()) {
                         throw new DdlException("Can not modify cluster key column: " + col.getName());
@@ -2318,6 +2345,7 @@ public class SchemaChangeHandler extends AlterHandler {
         olapTable.writeLockOrDdlException();
         try {
             olapTable.checkNormalStateForAlter();
+            validateColumnCompressionSchemaChange(alterOps);
             //alterClauses can or cannot light schema change
             boolean lightSchemaChange = true;
             boolean lightIndexChange = false;

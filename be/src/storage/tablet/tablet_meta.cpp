@@ -380,6 +380,34 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
     if (tcolumn.__isset.variant_enable_nested_group) {
         column->set_variant_enable_nested_group(tcolumn.variant_enable_nested_group);
     }
+    if (tcolumn.__isset.compression_type) {
+        // The raw cast below is only valid while TCompressionType (thrift) and
+        // CompressionTypePB (proto) stay numerically identical. Guard every value
+        // at compile time so a future reorder of either enum fails to build
+        // instead of silently writing a wrong compression tag into segments.
+        static_assert(static_cast<int>(TCompressionType::UNKNOWN_COMPRESSION) ==
+                      static_cast<int>(segment_v2::UNKNOWN_COMPRESSION));
+        static_assert(static_cast<int>(TCompressionType::DEFAULT_COMPRESSION) ==
+                      static_cast<int>(segment_v2::DEFAULT_COMPRESSION));
+        static_assert(static_cast<int>(TCompressionType::NO_COMPRESSION) ==
+                      static_cast<int>(segment_v2::NO_COMPRESSION));
+        static_assert(static_cast<int>(TCompressionType::SNAPPY) ==
+                      static_cast<int>(segment_v2::SNAPPY));
+        static_assert(static_cast<int>(TCompressionType::LZ4) == static_cast<int>(segment_v2::LZ4));
+        static_assert(static_cast<int>(TCompressionType::LZ4F) ==
+                      static_cast<int>(segment_v2::LZ4F));
+        static_assert(static_cast<int>(TCompressionType::ZLIB) ==
+                      static_cast<int>(segment_v2::ZLIB));
+        static_assert(static_cast<int>(TCompressionType::ZSTD) ==
+                      static_cast<int>(segment_v2::ZSTD));
+        static_assert(static_cast<int>(TCompressionType::LZ4HC) ==
+                      static_cast<int>(segment_v2::LZ4HC));
+        column->set_compression_type(
+                static_cast<segment_v2::CompressionTypePB>(tcolumn.compression_type));
+        if (tcolumn.__isset.compression_level && tcolumn.compression_level > 0) {
+            column->set_compression_level(tcolumn.compression_level);
+        }
+    }
 }
 
 void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,

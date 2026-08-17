@@ -213,6 +213,7 @@ private:
 
 private:
     friend class ::doris::BlockAggregator;
+    friend class TestVerticalSegmentWriter;
     uint32_t _segment_id;
     TabletSchemaSPtr _tablet_schema;
     BaseTabletSPtr _tablet;

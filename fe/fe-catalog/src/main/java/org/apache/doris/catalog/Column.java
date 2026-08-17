@@ -24,6 +24,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.thrift.TCompressionType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -186,6 +187,11 @@ public class Column implements GsonPostProcessable {
 
     @SerializedName(value = "clusterKeyId")
     private int clusterKeyId = -1;
+
+    @SerializedName(value = "compressionType")
+    private TCompressionType compressionType = null;
+    @SerializedName(value = "compressionLevel")
+    private int compressionLevel = -1;
 
     private boolean isCompoundKey = false;
 
@@ -403,6 +409,8 @@ public class Column implements GsonPostProcessable {
         this.clusterKeyId = column.getClusterKeyId();
         this.generatedColumnInfo = column.generatedColumnInfo;
         this.sessionVariables = column.sessionVariables;
+        this.compressionType = column.compressionType;
+        this.compressionLevel = column.compressionLevel;
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -853,6 +861,23 @@ public class Column implements GsonPostProcessable {
         return clusterKeyId;
     }
 
+    public void setCompression(TCompressionType compressionType, int compressionLevel) {
+        this.compressionType = compressionType;
+        this.compressionLevel = compressionLevel;
+    }
+
+    public TCompressionType getCompressionType() {
+        return compressionType;
+    }
+
+    public int getCompressionLevel() {
+        return compressionLevel;
+    }
+
+    public boolean hasCompressionOverride() {
+        return compressionType != null;
+    }
+
     public String toSql() {
         return toSql(false, false);
     }
@@ -902,6 +927,12 @@ public class Column implements GsonPostProcessable {
         if (hasOnUpdateDefaultValue) {
             sb.append(" ON UPDATE ").append(defaultValue).append("");
         }
+        if (compressionType != null) {
+            sb.append(" COMPRESSION ").append(compressionType.name());
+            if (compressionLevel > 0) {
+                sb.append("(").append(compressionLevel).append(")");
+            }
+        }
         if (StringUtils.isNotBlank(comment)) {
             sb.append(" COMMENT \"").append(getComment(true)).append("\"");
         }
@@ -917,7 +948,7 @@ public class Column implements GsonPostProcessable {
     public int hashCode() {
         return Objects.hash(name, getDataType(), getStrLen(), getPrecision(), getScale(), aggregationType,
                 isAggregationTypeImplicit, isKey, isAllowNull, isAutoInc, defaultValue, getComment(), children, visible,
-                realDefaultValue, clusterKeyId);
+                realDefaultValue, clusterKeyId, compressionType, compressionLevel);
     }
 
     @Override
@@ -943,7 +974,9 @@ public class Column implements GsonPostProcessable {
                 && visible == other.visible
                 && Objects.equals(children, other.children)
                 && Objects.equals(realDefaultValue, other.realDefaultValue)
-                && clusterKeyId == other.clusterKeyId;
+                && clusterKeyId == other.clusterKeyId
+                && Objects.equals(compressionType, other.compressionType)
+                && compressionLevel == other.compressionLevel;
     }
 
     // distribution column compare only care about attrs which affect data,

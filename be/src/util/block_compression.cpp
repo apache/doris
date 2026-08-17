@@ -47,12 +47,14 @@
 #include <mutex>
 #include <orc/Exceptions.hh>
 #include <ostream>
+#include <unordered_map>
 
 #include "absl/strings/substitute.h"
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "exec/common/endian.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 #include "util/decompressor.h"
 #include "util/defer_op.h"
 #include "util/faststring.h"
@@ -71,6 +73,61 @@ uint64_t lzoDecompress(const char* inputAddress, const char* inputLimit, char* o
 } // namespace orc
 
 namespace doris {
+
+namespace {
+constexpr size_t MAX_LEVELED_COMPRESSION_IDLE_CONTEXTS = 16;
+constexpr size_t MAX_LEVELED_COMPRESSION_RETAINED_BUFFER_SIZE = 1024 * 1024;
+
+class LeveledCompressionContextPoolBudget {
+public:
+    static LeveledCompressionContextPoolBudget& instance() {
+        static auto* budget = new LeveledCompressionContextPoolBudget;
+        return *budget;
+    }
+
+    bool try_reserve(size_t retained_buffer_bytes) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (_idle_contexts == MAX_LEVELED_COMPRESSION_IDLE_CONTEXTS) {
+            return false;
+        }
+        ++_idle_contexts;
+        _retained_buffer_bytes += retained_buffer_bytes;
+        return true;
+    }
+
+    void release(size_t context_count, size_t retained_buffer_bytes) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        DCHECK_GE(_idle_contexts, context_count);
+        DCHECK_GE(_retained_buffer_bytes, retained_buffer_bytes);
+        _idle_contexts -= context_count;
+        _retained_buffer_bytes -= retained_buffer_bytes;
+    }
+
+    size_t idle_contexts() const {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _idle_contexts;
+    }
+
+    size_t retained_buffer_bytes() const {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _retained_buffer_bytes;
+    }
+
+private:
+    mutable std::mutex _mutex;
+    size_t _idle_contexts = 0;
+    size_t _retained_buffer_bytes = 0;
+};
+
+void trim_leveled_compression_buffer(faststring* buffer) {
+    buffer->clear();
+    if (buffer->capacity() > MAX_LEVELED_COMPRESSION_RETAINED_BUFFER_SIZE) {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                ExecEnv::GetInstance()->block_compression_mem_tracker());
+        buffer->shrink_to_fit();
+    }
+}
+} // namespace
 
 // exception safe
 Status BlockCompressionCodec::compress(const std::vector<Slice>& inputs, size_t uncompressed_size,
@@ -580,15 +637,27 @@ public:
         static Lz4HCBlockCompression s_instance;
         return &s_instance;
     }
+    Lz4HCBlockCompression() = default;
+    explicit Lz4HCBlockCompression(int level) : _compression_level(level), _is_leveled(true) {}
     ~Lz4HCBlockCompression() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 ExecEnv::GetInstance()->block_compression_mem_tracker());
+        if (_is_leveled) {
+            size_t retained_buffer_bytes = 0;
+            for (const auto& context : _ctx_pool) {
+                retained_buffer_bytes += context->buffer->capacity();
+            }
+            LeveledCompressionContextPoolBudget::instance().release(_ctx_pool.size(),
+                                                                    retained_buffer_bytes);
+        }
         _ctx_pool.clear();
     }
 
     Status compress(const Slice& input, faststring* output) override {
         std::unique_ptr<Context> context;
         RETURN_IF_ERROR(_acquire_compression_ctx(context));
+        DBUG_EXECUTE_IF("BlockCompressionCodec.compress.after_acquire_context",
+                        DBUG_RUN_CALLBACK());
         bool compress_failed = false;
         Defer defer {[&] {
             if (!compress_failed) {
@@ -653,32 +722,59 @@ public:
 
 private:
     Status _acquire_compression_ctx(std::unique_ptr<Context>& out) {
-        std::lock_guard<std::mutex> l(_ctx_mutex);
-        if (_ctx_pool.empty()) {
+        {
+            std::lock_guard<std::mutex> l(_ctx_mutex);
+            if (!_ctx_pool.empty()) {
+                out = std::move(_ctx_pool.back());
+                _ctx_pool.pop_back();
+            }
+        }
+        if (out) {
+            if (_is_leveled) {
+                LeveledCompressionContextPoolBudget::instance().release(1, out->buffer->capacity());
+            }
+            return Status::OK();
+        }
+        {
             std::unique_ptr<Context> localCtx = Context::create_unique();
             if (localCtx.get() == nullptr) {
                 return Status::InvalidArgument("new LZ4HC context error");
             }
-            localCtx->ctx = LZ4_createStreamHC();
+            // Allocate the native stream under the compression tracker so its
+            // creation and the destructor's LZ4_freeStreamHC() hit the same tracker.
+            {
+                SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                        ExecEnv::GetInstance()->block_compression_mem_tracker());
+                localCtx->ctx = LZ4_createStreamHC();
+            }
             if (localCtx->ctx == nullptr) {
                 return Status::InvalidArgument("LZ4_createStreamHC error");
             }
+            // A newly created stream defaults to the library's default level, so
+            // apply the requested level here; otherwise the first page compressed
+            // by this context would ignore the configured level.
+            LZ4_resetStreamHC_fast(localCtx->ctx, static_cast<int>(_compression_level));
             out = std::move(localCtx);
             return Status::OK();
         }
-        out = std::move(_ctx_pool.back());
-        _ctx_pool.pop_back();
-        return Status::OK();
     }
     void _release_compression_ctx(std::unique_ptr<Context> context) {
         DCHECK(context);
         LZ4_resetStreamHC_fast(context->ctx, static_cast<int>(_compression_level));
+        if (_is_leveled) {
+            trim_leveled_compression_buffer(context->buffer.get());
+            if (!LeveledCompressionContextPoolBudget::instance().try_reserve(
+                        context->buffer->capacity())) {
+                return;
+            }
+        }
         std::lock_guard<std::mutex> l(_ctx_mutex);
         _ctx_pool.push_back(std::move(context));
     }
 
 private:
     int64_t _compression_level = config::LZ4_HC_compression_level;
+    bool _is_leveled = false;
     mutable std::mutex _ctx_mutex;
     mutable std::vector<std::unique_ptr<Context>> _ctx_pool;
 };
@@ -1077,9 +1173,19 @@ public:
         static ZstdBlockCompression s_instance;
         return &s_instance;
     }
+    ZstdBlockCompression() = default;
+    explicit ZstdBlockCompression(int level) : _compression_level(level), _is_leveled(true) {}
     ~ZstdBlockCompression() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 ExecEnv::GetInstance()->block_compression_mem_tracker());
+        if (_is_leveled) {
+            size_t retained_buffer_bytes = 0;
+            for (const auto& context : _ctx_c_pool) {
+                retained_buffer_bytes += context->buffer->capacity();
+            }
+            LeveledCompressionContextPoolBudget::instance().release(
+                    _ctx_c_pool.size() + _ctx_d_pool.size(), retained_buffer_bytes);
+        }
         _ctx_c_pool.clear();
         _ctx_d_pool.clear();
     }
@@ -1097,6 +1203,8 @@ public:
                     faststring* output) override {
         std::unique_ptr<CContext> context;
         RETURN_IF_ERROR(_acquire_compression_ctx(context));
+        DBUG_EXECUTE_IF("BlockCompressionCodec.compress.after_acquire_context",
+                        DBUG_RUN_CALLBACK());
         bool compress_failed = false;
         Defer defer {[&] {
             if (!compress_failed) {
@@ -1123,47 +1231,51 @@ public:
                 compressed_buf.size = max_len;
             }
 
-            // set compression level to default 3
-            auto ret = ZSTD_CCtx_setParameter(context->ctx, ZSTD_c_compressionLevel,
-                                              ZSTD_CLEVEL_DEFAULT);
-            if (ZSTD_isError(ret)) {
-                return Status::InvalidArgument("ZSTD_CCtx_setParameter compression level error: {}",
-                                               ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
-            }
-            // set checksum flag to 1
-            ret = ZSTD_CCtx_setParameter(context->ctx, ZSTD_c_checksumFlag, 1);
-            if (ZSTD_isError(ret)) {
-                return Status::InvalidArgument("ZSTD_CCtx_setParameter checksumFlag error: {}",
-                                               ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
-            }
-
             ZSTD_outBuffer out_buf = {compressed_buf.data, compressed_buf.size, 0};
+            {
+                SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                        ExecEnv::GetInstance()->block_compression_mem_tracker());
+                auto ret = ZSTD_CCtx_setParameter(context->ctx, ZSTD_c_compressionLevel,
+                                                  _compression_level);
+                if (ZSTD_isError(ret)) {
+                    return Status::InvalidArgument(
+                            "ZSTD_CCtx_setParameter compression level error: {}",
+                            ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+                }
+                // set checksum flag to 1
+                ret = ZSTD_CCtx_setParameter(context->ctx, ZSTD_c_checksumFlag, 1);
+                if (ZSTD_isError(ret)) {
+                    return Status::InvalidArgument("ZSTD_CCtx_setParameter checksumFlag error: {}",
+                                                   ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+                }
 
-            for (size_t i = 0; i < inputs.size(); i++) {
-                ZSTD_inBuffer in_buf = {inputs[i].data, inputs[i].size, 0};
+                for (size_t i = 0; i < inputs.size(); i++) {
+                    ZSTD_inBuffer in_buf = {inputs[i].data, inputs[i].size, 0};
 
-                bool last_input = (i == inputs.size() - 1);
-                auto mode = last_input ? ZSTD_e_end : ZSTD_e_continue;
+                    bool last_input = (i == inputs.size() - 1);
+                    auto mode = last_input ? ZSTD_e_end : ZSTD_e_continue;
 
-                bool finished = false;
-                do {
-                    // do compress
-                    ret = ZSTD_compressStream2(context->ctx, &out_buf, &in_buf, mode);
+                    bool finished = false;
+                    do {
+                        // do compress
+                        ret = ZSTD_compressStream2(context->ctx, &out_buf, &in_buf, mode);
 
-                    if (ZSTD_isError(ret)) {
-                        compress_failed = true;
-                        return Status::InternalError("ZSTD_compressStream2 error: {}",
-                                                     ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
-                    }
+                        if (ZSTD_isError(ret)) {
+                            compress_failed = true;
+                            return Status::InternalError(
+                                    "ZSTD_compressStream2 error: {}",
+                                    ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+                        }
 
-                    // ret is ZSTD hint for needed output buffer size
-                    if (ret > 0 && out_buf.pos == out_buf.size) {
-                        compress_failed = true;
-                        return Status::InternalError("ZSTD_compressStream2 output buffer full");
-                    }
+                        // ret is ZSTD hint for needed output buffer size
+                        if (ret > 0 && out_buf.pos == out_buf.size) {
+                            compress_failed = true;
+                            return Status::InternalError("ZSTD_compressStream2 output buffer full");
+                        }
 
-                    finished = last_input ? (ret == 0) : (in_buf.pos == inputs[i].size);
-                } while (!finished);
+                        finished = last_input ? (ret == 0) : (in_buf.pos == inputs[i].size);
+                    } while (!finished);
+                }
             }
 
             // set compressed size for caller
@@ -1208,35 +1320,69 @@ public:
 
 private:
     Status _acquire_compression_ctx(std::unique_ptr<CContext>& out) {
-        std::lock_guard<std::mutex> l(_ctx_c_mutex);
-        if (_ctx_c_pool.empty()) {
+        {
+            std::lock_guard<std::mutex> l(_ctx_c_mutex);
+            if (!_ctx_c_pool.empty()) {
+                out = std::move(_ctx_c_pool.back());
+                _ctx_c_pool.pop_back();
+            }
+        }
+        if (out) {
+            if (_is_leveled) {
+                LeveledCompressionContextPoolBudget::instance().release(1, out->buffer->capacity());
+            }
+            return Status::OK();
+        }
+        {
             std::unique_ptr<CContext> localCtx = CContext::create_unique();
             if (localCtx.get() == nullptr) {
                 return Status::InvalidArgument("failed to new ZSTD CContext");
             }
             //typedef LZ4F_cctx* LZ4F_compressionContext_t;
-            localCtx->ctx = ZSTD_createCCtx();
+            // Allocate the native context under the compression tracker so its
+            // creation and the destructor's ZSTD_freeCCtx() hit the same tracker.
+            {
+                SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+                        ExecEnv::GetInstance()->block_compression_mem_tracker());
+                localCtx->ctx = ZSTD_createCCtx();
+            }
             if (localCtx->ctx == nullptr) {
                 return Status::InvalidArgument("Failed to create ZSTD compress ctx");
             }
             out = std::move(localCtx);
             return Status::OK();
         }
-        out = std::move(_ctx_c_pool.back());
-        _ctx_c_pool.pop_back();
-        return Status::OK();
     }
     void _release_compression_ctx(std::unique_ptr<CContext> context) {
         DCHECK(context);
         auto ret = ZSTD_CCtx_reset(context->ctx, ZSTD_reset_session_only);
         DCHECK(!ZSTD_isError(ret));
+        if (_is_leveled) {
+            trim_leveled_compression_buffer(context->buffer.get());
+            if (!LeveledCompressionContextPoolBudget::instance().try_reserve(
+                        context->buffer->capacity())) {
+                return;
+            }
+        }
         std::lock_guard<std::mutex> l(_ctx_c_mutex);
         _ctx_c_pool.push_back(std::move(context));
     }
 
     Status _acquire_decompression_ctx(std::unique_ptr<DContext>& out) {
-        std::lock_guard<std::mutex> l(_ctx_d_mutex);
-        if (_ctx_d_pool.empty()) {
+        {
+            std::lock_guard<std::mutex> l(_ctx_d_mutex);
+            if (!_ctx_d_pool.empty()) {
+                out = std::move(_ctx_d_pool.back());
+                _ctx_d_pool.pop_back();
+            }
+        }
+        if (out) {
+            if (_is_leveled) {
+                LeveledCompressionContextPoolBudget::instance().release(1, 0);
+            }
+            return Status::OK();
+        }
+        {
             std::unique_ptr<DContext> localCtx = DContext::create_unique();
             if (localCtx.get() == nullptr) {
                 return Status::InvalidArgument("failed to new ZSTD DContext");
@@ -1248,20 +1394,22 @@ private:
             out = std::move(localCtx);
             return Status::OK();
         }
-        out = std::move(_ctx_d_pool.back());
-        _ctx_d_pool.pop_back();
-        return Status::OK();
     }
     void _release_decompression_ctx(std::unique_ptr<DContext> context) {
         DCHECK(context);
         // reset ctx to start a new decompress session
         auto ret = ZSTD_DCtx_reset(context->ctx, ZSTD_reset_session_only);
         DCHECK(!ZSTD_isError(ret));
+        if (_is_leveled && !LeveledCompressionContextPoolBudget::instance().try_reserve(0)) {
+            return;
+        }
         std::lock_guard<std::mutex> l(_ctx_d_mutex);
         _ctx_d_pool.push_back(std::move(context));
     }
 
 private:
+    int _compression_level = ZSTD_CLEVEL_DEFAULT;
+    bool _is_leveled = false;
     mutable std::mutex _ctx_c_mutex;
     mutable std::vector<std::unique_ptr<CContext>> _ctx_c_pool;
 
@@ -1613,6 +1761,96 @@ Status get_block_compression_codec(segment_v2::CompressionTypePB type,
     }
 
     return Status::OK();
+}
+
+// Process-wide registry of level-aware codecs, keyed by (type, level). All
+// column writers that request the same codec+level share one instance, so its
+// internal context pool is reused according to actual write concurrency rather
+// than allocated once per column. Instances live for the process lifetime (like
+// the type-only singletons above), so their native contexts are never torn down
+// per segment.
+namespace {
+class LeveledCompressionCodecPool {
+public:
+    static LeveledCompressionCodecPool& instance() {
+        static LeveledCompressionCodecPool s_instance;
+        return s_instance;
+    }
+
+    Status get(segment_v2::CompressionTypePB type, int level, BlockCompressionCodec** codec) {
+        const int64_t key = (static_cast<int64_t>(type) << 32) | static_cast<uint32_t>(level);
+        {
+            std::lock_guard<std::mutex> l(_mutex);
+            auto it = _codecs.find(key);
+            if (it != _codecs.end()) {
+                *codec = it->second.get();
+                return Status::OK();
+            }
+        }
+
+        // Build the instance outside the lock; init() may allocate native state.
+        std::unique_ptr<BlockCompressionCodec> instance;
+        switch (type) {
+        case segment_v2::CompressionTypePB::ZSTD:
+            instance = std::make_unique<ZstdBlockCompression>(level);
+            break;
+        case segment_v2::CompressionTypePB::LZ4HC:
+            instance = std::make_unique<Lz4HCBlockCompression>(level);
+            break;
+        default:
+            return Status::InternalError("compression type({}) is not level-aware", type);
+        }
+        RETURN_IF_ERROR(instance->init());
+
+        std::lock_guard<std::mutex> l(_mutex);
+        // Another thread may have inserted the same key while we were building.
+        auto it = _codecs.try_emplace(key, std::move(instance)).first;
+        *codec = it->second.get();
+        return Status::OK();
+    }
+
+    // Test hook: drop all pooled instances so a fresh test observes a clean pool.
+    void clear() {
+        std::lock_guard<std::mutex> l(_mutex);
+        _codecs.clear();
+    }
+
+private:
+    std::mutex _mutex;
+    std::unordered_map<int64_t, std::unique_ptr<BlockCompressionCodec>> _codecs;
+};
+} // namespace
+
+Status get_block_compression_codec(segment_v2::CompressionTypePB type, int level,
+                                   BlockCompressionCodec** codec) {
+    // level <= 0 means "use codec default" -> fall back to the stateless singleton path.
+    if (level <= 0) {
+        return get_block_compression_codec(type, codec);
+    }
+    switch (type) {
+    case segment_v2::CompressionTypePB::ZSTD:
+    case segment_v2::CompressionTypePB::LZ4HC:
+        return LeveledCompressionCodecPool::instance().get(type, level, codec);
+    default:
+        // types without a tunable level ignore it and use the singleton
+        return get_block_compression_codec(type, codec);
+    }
+}
+
+void clear_leveled_compression_codec_pool_for_test() {
+    LeveledCompressionCodecPool::instance().clear();
+}
+
+size_t leveled_compression_idle_context_count_for_test() {
+    return LeveledCompressionContextPoolBudget::instance().idle_contexts();
+}
+
+size_t leveled_compression_retained_buffer_bytes_for_test() {
+    return LeveledCompressionContextPoolBudget::instance().retained_buffer_bytes();
+}
+
+size_t leveled_compression_idle_context_limit_for_test() {
+    return MAX_LEVELED_COMPRESSION_IDLE_CONTEXTS;
 }
 
 // this can only be used in hive text write

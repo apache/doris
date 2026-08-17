@@ -84,6 +84,21 @@ public:
 Status get_block_compression_codec(segment_v2::CompressionTypePB type,
                                    BlockCompressionCodec** codec);
 
+// Level-aware variant. If `level` > 0 and `type` is a level-aware codec (ZSTD, LZ4HC),
+// returns a process-wide instance shared by all callers that request the same
+// (type, level) pair (do not delete). Otherwise `*codec` points to the type-only
+// singleton. In both cases the returned codec is owned by the process, not the caller.
+Status get_block_compression_codec(segment_v2::CompressionTypePB type, int level,
+                                   BlockCompressionCodec** codec);
+
+// Test-only: drops all pooled level-aware codec instances.
+void clear_leveled_compression_codec_pool_for_test();
+
+// Test-only: returns the aggregate idle context state across level-aware codecs.
+size_t leveled_compression_idle_context_count_for_test();
+size_t leveled_compression_retained_buffer_bytes_for_test();
+size_t leveled_compression_idle_context_limit_for_test();
+
 Status get_block_compression_codec(tparquet::CompressionCodec::type parquet_codec,
                                    BlockCompressionCodec** codec);
 

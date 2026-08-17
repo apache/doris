@@ -1548,9 +1548,11 @@ columnDef
         ((GENERATED ALWAYS)? AS LEFT_PAREN generatedExpr=expression RIGHT_PAREN)?
         ((NOT)? nullable=NULL)?
         (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
-        (DEFAULT (nullValue=NULL | SUBTRACT? INTEGER_VALUE | SUBTRACT? DECIMAL_VALUE | PI | E | BITMAP_EMPTY | stringValue=STRING_LITERAL
+        (DEFAULT (nullValue=NULL | SUBTRACT? defaultInteger=INTEGER_VALUE | SUBTRACT? DECIMAL_VALUE | PI | E | BITMAP_EMPTY | stringValue=STRING_LITERAL
            | CURRENT_DATE | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
+        (COMPRESSION compressionType=(NO_COMPRESSION | LZ4 | LZ4F | LZ4HC | ZLIB | ZSTD | SNAPPY)
+            (LEFT_PAREN compressionLevel=INTEGER_VALUE RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
 
@@ -2065,6 +2067,7 @@ nonReserved
     | COMMITTED
     | COMPACT
     | COMPLETE
+    | COMPRESSION
     | COMPRESS_TYPE
     | COMPUTE
     | CONDITIONS
@@ -2203,6 +2206,9 @@ nonReserved
     | LOCATION
     | LOCK
     | LOGICAL
+    | LZ4
+    | LZ4F
+    | LZ4HC
     | MANUAL
     | MAP
     | MAPPING
@@ -2239,6 +2245,7 @@ nonReserved
     | NGRAM_BF
     | NO
     | NONE
+    | NO_COMPRESSION
     | NON_NULLABLE
     | NORMALIZER
     | NULLS
@@ -2334,6 +2341,7 @@ nonReserved
     | SKEW
     | SNAPSHOT
     | SNAPSHOTS
+    | SNAPPY
     | SONAME
     | SPLIT
     | SQL
@@ -2396,5 +2404,7 @@ nonReserved
     | WORK
     | YEAR
     | YEAR_MONTH
+    | ZLIB
+    | ZSTD
 //--DEFAULT-NON-RESERVED-END
     ;

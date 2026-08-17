@@ -171,6 +171,52 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testRejectAddColumnWithCompression() {
+        expectException("ALTER TABLE test.sc_dup ADD COLUMN compression_v1 INT COMPRESSION ZSTD(9)",
+                "Per-column compression is not supported for ADD COLUMN");
+    }
+
+    @Test
+    public void testRejectAddColumnsWithCompression() {
+        expectException("ALTER TABLE test.sc_dup ADD COLUMN "
+                        + "(compression_v1 INT, compression_v2 INT COMPRESSION ZSTD(9))",
+                "Per-column compression is not supported for ADD COLUMN");
+    }
+
+    @Test
+    public void testRejectModifyColumnWithCompression() {
+        expectException("ALTER TABLE test.sc_dup MODIFY COLUMN error_msg VARCHAR(1024) COMPRESSION ZSTD(9)",
+                "Per-column compression is not supported for MODIFY COLUMN");
+    }
+
+    @Test
+    public void testRejectColumnCompressionBeforeCompoundAlterMutation() throws Exception {
+        createTable("CREATE TABLE test.sc_compression_atomicity ("
+                + "k INT, bf_col INT) "
+                + "DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'bloom_filter_columns' = 'bf_col')");
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(
+                "sc_compression_atomicity", Table.TableType.OLAP);
+        int alterJobCount = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2().size();
+
+        Assertions.assertNotNull(table.getColumn("bf_col"));
+        Assertions.assertTrue(table.getCopiedBfColumns().contains("bf_col"));
+
+        expectException("ALTER TABLE test.sc_compression_atomicity "
+                        + "DROP COLUMN bf_col, ADD COLUMN x INT COMPRESSION ZSTD(9)",
+                "Per-column compression is not supported for ADD COLUMN");
+
+        Assertions.assertNotNull(table.getColumn("bf_col"));
+        Assertions.assertNull(table.getColumn("x"));
+        Assertions.assertTrue(table.getCopiedBfColumns().contains("bf_col"));
+        Assertions.assertEquals(alterJobCount,
+                Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2().size());
+    }
+
+    @Test
     public void testWithRowBinlogSchemaChangeNoHistoricalValue() throws Exception {
         String tableName = "binlog_no_hist";
         String create = "CREATE TABLE IF NOT EXISTS test." + tableName + " (\n"

@@ -422,6 +422,9 @@ message ColumnPB {
     // Number of buckets used to store doc map in variant doc mode.
     optional int32 variant_doc_hash_shard_count = 33 [default = 64];
     optional bool variant_enable_nested_group = 34 [default = false];
+    // per-column generic compression override; UNKNOWN_COMPRESSION => inherit table-level compression
+    optional segment_v2.CompressionTypePB compression_type = 35 [default = UNKNOWN_COMPRESSION];
+    optional int32 compression_level = 36;
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size

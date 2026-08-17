@@ -22,9 +22,17 @@
 #include <gtest/gtest-test-part.h>
 #include <stdlib.h>
 
+#include <barrier>
 #include <string>
+#include <thread>
+#include <vector>
 
+#include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
+#include "runtime/exec_env.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/faststring.h"
 
 namespace doris {
@@ -146,6 +154,220 @@ TEST_F(BlockCompressionTest, multi) {
     test_multi_slices(segment_v2::CompressionTypePB::LZ4F);
     test_multi_slices(segment_v2::CompressionTypePB::LZ4HC);
     test_multi_slices(segment_v2::CompressionTypePB::ZSTD);
+}
+
+TEST_F(BlockCompressionTest, GetCodecWithLevelDefaultReturnsSingleton) {
+    for (auto type : {segment_v2::ZSTD, segment_v2::LZ4HC}) {
+        BlockCompressionCodec* codec = nullptr;
+        ASSERT_TRUE(get_block_compression_codec(type, 0, &codec).ok());
+        ASSERT_NE(codec, nullptr);
+        BlockCompressionCodec* singleton = nullptr;
+        ASSERT_TRUE(get_block_compression_codec(type, &singleton).ok());
+        ASSERT_EQ(codec, singleton);
+    }
+}
+
+TEST_F(BlockCompressionTest, GetCodecWithZstdLevelReturnsSharedInstance) {
+    BlockCompressionCodec* codec = nullptr;
+    ASSERT_TRUE(get_block_compression_codec(segment_v2::ZSTD, 9, &codec).ok());
+    ASSERT_NE(codec, nullptr);
+    BlockCompressionCodec* singleton = nullptr;
+    ASSERT_TRUE(get_block_compression_codec(segment_v2::ZSTD, &singleton).ok());
+    ASSERT_NE(codec, singleton); // leveled instance, not the type-only singleton
+    // round-trip compress/decompress works at this level
+    std::string in(4096, 'x');
+    for (size_t i = 0; i < in.size(); ++i) in[i] = static_cast<char>(i % 251);
+    faststring compressed;
+    ASSERT_TRUE(codec->compress(Slice(in), &compressed).ok());
+    std::string out(in.size(), '\0');
+    Slice out_slice(out);
+    ASSERT_TRUE(codec->decompress(Slice(compressed.data(), compressed.size()), &out_slice).ok());
+    ASSERT_EQ(std::string(out_slice.data, out_slice.size), in);
+}
+
+// The observable effect of compression level is the compressed byte stream: two
+// distinct levels of the same codec must produce DIFFERENT output on data that
+// is neither trivially nor maximally compressible. If the writer/codec dropped
+// the requested level, every level would collapse to the codec default and the
+// outputs would be byte-identical. This is the real guard for the level fix in
+// block_compression.cpp (ZSTD_c_compressionLevel / LZ4_resetStreamHC_fast); a
+// lossless round-trip cannot detect a dropped level because decompression is
+// level-independent. (Note: higher level does NOT guarantee smaller output --
+// ZSTD level is search effort, not a monotonic size bound -- so we assert
+// difference + valid round-trip, not an ordering.)
+static std::string compress_at_level(segment_v2::CompressionTypePB type, int level,
+                                     const std::string& in) {
+    BlockCompressionCodec* codec = nullptr;
+    EXPECT_TRUE(get_block_compression_codec(type, level, &codec).ok());
+    EXPECT_NE(codec, nullptr);
+    faststring compressed;
+    EXPECT_TRUE(codec->compress(Slice(in), &compressed).ok());
+    // every level must still decompress losslessly
+    std::string out(in.size(), '\0');
+    Slice out_slice(out);
+    EXPECT_TRUE(codec->decompress(Slice(compressed.data(), compressed.size()), &out_slice).ok());
+    EXPECT_EQ(std::string(out_slice.data, out_slice.size), in);
+    return std::string(reinterpret_cast<const char*>(compressed.data()), compressed.size());
+}
+
+TEST_F(BlockCompressionTest, DowngradeLegacyCodecReadsLeveledData) {
+    std::string in;
+    in.reserve(64 * 1024);
+    for (int i = 0; in.size() < 64 * 1024; ++i) {
+        in += "apache doris column compression ";
+        in += std::to_string(i % 1024);
+    }
+
+    struct Case {
+        segment_v2::CompressionTypePB type;
+        int level;
+    };
+    for (auto c : {Case {segment_v2::ZSTD, 9}, Case {segment_v2::LZ4HC, 9}}) {
+        std::string compressed = compress_at_level(c.type, c.level, in);
+
+        BlockCompressionCodec* legacy_codec = nullptr;
+        ASSERT_TRUE(get_block_compression_codec(c.type, &legacy_codec).ok());
+        ASSERT_NE(legacy_codec, nullptr);
+        std::string out(in.size(), '\0');
+        Slice out_slice(out);
+        ASSERT_TRUE(legacy_codec->decompress(Slice(compressed), &out_slice).ok());
+        EXPECT_EQ(std::string(out_slice.data, out_slice.size), in);
+    }
+}
+
+TEST_F(BlockCompressionTest, DifferentLevelsProduceDifferentOutput) {
+    // Moderately compressible data: enough redundancy that the level changes the
+    // encoder's choices, but not so uniform that every level saturates to the
+    // same output.
+    std::string in;
+    in.reserve(256 * 1024);
+    const char* words[] = {"apache", "doris",      "compression", "column",  "segment",
+                           "rowset", "vectorized", "pipeline",    "storage", "codec"};
+    for (int i = 0; in.size() < 256 * 1024; ++i) {
+        in += words[(i * 7) % 10];
+        in += words[(i * 13) % 10];
+        in += std::to_string(i % 512);
+        in.push_back(' ');
+    }
+
+    // ZSTD: a low level and the max level must yield different byte streams.
+    std::string zstd_low = compress_at_level(segment_v2::ZSTD, 1, in);
+    std::string zstd_high = compress_at_level(segment_v2::ZSTD, 22, in);
+    EXPECT_NE(zstd_low, zstd_high)
+            << "ZSTD level 1 and level 22 produced identical output (level likely ignored)";
+
+    // LZ4HC: likewise across its level range.
+    std::string lz4hc_low = compress_at_level(segment_v2::LZ4HC, 1, in);
+    std::string lz4hc_high = compress_at_level(segment_v2::LZ4HC, 12, in);
+    EXPECT_NE(lz4hc_low, lz4hc_high)
+            << "LZ4HC level 1 and level 12 produced identical output (level likely ignored)";
+}
+
+// A wide schema opens many column writers at the same codec+level. They must all
+// share a single pooled codec instance (rather than one heavyweight context pool
+// per column), and repeatedly acquiring them must not accumulate memory on the
+// block-compression tracker once the shared context pool is warm.
+TEST_F(BlockCompressionTest, WideSchemaSharesLeveledInstanceAndTrackerIsBalanced) {
+    clear_leveled_compression_codec_pool_for_test();
+
+    constexpr int kColumns = 128;
+    auto tracker = ExecEnv::GetInstance()->block_compression_mem_tracker();
+
+    struct Case {
+        segment_v2::CompressionTypePB type;
+        int level;
+    };
+    for (auto c : {Case {segment_v2::ZSTD, 9}, Case {segment_v2::LZ4HC, 9}}) {
+        // Every column asking for the same (type, level) gets the same instance.
+        BlockCompressionCodec* first = nullptr;
+        ASSERT_TRUE(get_block_compression_codec(c.type, c.level, &first).ok());
+        ASSERT_NE(first, nullptr);
+        for (int i = 0; i < kColumns; ++i) {
+            BlockCompressionCodec* codec = nullptr;
+            ASSERT_TRUE(get_block_compression_codec(c.type, c.level, &codec).ok());
+            ASSERT_EQ(codec, first) << "wide schema must share one leveled codec instance";
+        }
+
+        // A different level yields a distinct instance (keyed by codec+level).
+        BlockCompressionCodec* other_level = nullptr;
+        ASSERT_TRUE(get_block_compression_codec(c.type, c.level + 1, &other_level).ok());
+        ASSERT_NE(other_level, first);
+
+        // Drive many serial compressions across the shared instance; after the
+        // pool is warm the tracker must not keep growing (contexts are reused,
+        // and reusable buffers are released back, not retained per column).
+        std::string in(64 * 1024, '\0');
+        for (size_t i = 0; i < in.size(); ++i) in[i] = static_cast<char>((i * 7) % 251);
+
+        auto compress_once = [&]() {
+            faststring compressed;
+            ASSERT_TRUE(first->compress(Slice(in), &compressed).ok());
+        };
+        compress_once(); // warm up: lazily allocates the single shared context
+        int64_t warm = tracker->consumption();
+        for (int i = 0; i < kColumns; ++i) {
+            compress_once();
+        }
+        int64_t after = tracker->consumption();
+        EXPECT_EQ(after, warm) << "shared pool must not grow per column on the compression tracker";
+    }
+}
+
+TEST_F(BlockCompressionTest, LeveledIdleContextsAreBoundedAcrossLevels) {
+    clear_leveled_compression_codec_pool_for_test();
+    ASSERT_EQ(leveled_compression_idle_context_count_for_test(), 0);
+    ASSERT_EQ(leveled_compression_retained_buffer_bytes_for_test(), 0);
+
+    constexpr int kThreadsPerLevel = 4;
+    constexpr int kLevelCount = 6;
+    constexpr int kThreadCount = kThreadsPerLevel * kLevelCount;
+    const std::vector<std::pair<segment_v2::CompressionTypePB, int>> levels = {
+            {segment_v2::ZSTD, 1},  {segment_v2::ZSTD, 3},  {segment_v2::ZSTD, 5},
+            {segment_v2::LZ4HC, 1}, {segment_v2::LZ4HC, 6}, {segment_v2::LZ4HC, 12}};
+    std::vector<BlockCompressionCodec*> codecs(kLevelCount);
+    for (int level_index = 0; level_index < kLevelCount; ++level_index) {
+        ASSERT_TRUE(get_block_compression_codec(levels[level_index].first,
+                                                levels[level_index].second, &codecs[level_index])
+                            .ok());
+    }
+
+    const bool original_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    Defer cleanup {[&]() {
+        DebugPoints::instance()->remove("BlockCompressionCodec.compress.after_acquire_context");
+        config::enable_debug_points = original_enable_debug_points;
+        clear_leveled_compression_codec_pool_for_test();
+    }};
+
+    std::barrier acquired_contexts(kThreadCount);
+    DebugPoints::instance()->add_with_callback(
+            "BlockCompressionCodec.compress.after_acquire_context",
+            std::function<void()>([&]() { acquired_contexts.arrive_and_wait(); }));
+
+    std::string input(2 * 1024 * 1024, 'a');
+    std::vector<Status> statuses(kThreadCount);
+    std::vector<std::thread> threads;
+    threads.reserve(kThreadCount);
+    for (int level_index = 0; level_index < kLevelCount; ++level_index) {
+        for (int thread_index = 0; thread_index < kThreadsPerLevel; ++thread_index) {
+            const int result_index = level_index * kThreadsPerLevel + thread_index;
+            threads.emplace_back([&, level_index, result_index]() {
+                faststring compressed;
+                statuses[result_index] = codecs[level_index]->compress(Slice(input), &compressed);
+            });
+        }
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    for (const auto& status : statuses) {
+        ASSERT_TRUE(status.ok()) << status;
+    }
+
+    const size_t idle_context_limit = leveled_compression_idle_context_limit_for_test();
+    EXPECT_EQ(leveled_compression_idle_context_count_for_test(), idle_context_limit);
+    EXPECT_LE(leveled_compression_retained_buffer_bytes_for_test(),
+              idle_context_limit * faststring::kInitialCapacity);
 }
 
 } // namespace doris

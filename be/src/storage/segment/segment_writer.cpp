@@ -113,7 +113,14 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     meta->set_type(int(column.type()));
     meta->set_length(column.length());
     meta->set_encoding(EncodingInfo::resolve_default_encoding(opts.storage_format, column));
-    meta->set_compression(_opts.compression_type);
+    if (column.has_compression()) {
+        meta->set_compression(column.compression());
+        if (column.compression_level() > 0) {
+            meta->set_compression_level(column.compression_level());
+        }
+    } else {
+        meta->set_compression(_opts.compression_type);
+    }
     meta->set_is_nullable(column.is_nullable());
     meta->set_default_value(column.default_value());
     meta->set_precision(column.precision());

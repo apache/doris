@@ -43,6 +43,7 @@ import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TCompressionType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -77,6 +78,9 @@ public class ColumnDefinition {
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
     // if add hidden column, must set enableAddHiddenColumn true
     private boolean enableAddHiddenColumn = false;
+    // per-column generic compression override; null / -1 means "inherit codec default"
+    private TCompressionType compressionType = null;
+    private int compressionLevel = -1;
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<DefaultValue> defaultValue, String comment) {
@@ -169,6 +173,39 @@ public class ColumnDefinition {
 
     public ColumnDefinition(String name, DataType type, boolean isNullable, String comment) {
         this(name, type, false, null, isNullable, Optional.empty(), comment);
+    }
+
+    /** Set and validate the per-column compression algorithm and optional level. */
+    public void setCompression(TCompressionType type, int level) throws org.apache.doris.common.AnalysisException {
+        if (level != -1) {
+            switch (type) {
+                case ZSTD:
+                    if (level < 1 || level > 22) {
+                        throw new org.apache.doris.common.AnalysisException(
+                                "ZSTD compression level must be in [1, 22], got " + level);
+                    }
+                    break;
+                case LZ4HC:
+                    if (level < 1 || level > 12) {
+                        throw new org.apache.doris.common.AnalysisException(
+                                "LZ4HC compression level must be in [1, 12], got " + level);
+                    }
+                    break;
+                default:
+                    throw new org.apache.doris.common.AnalysisException(
+                            "compression level is only supported for ZSTD and LZ4HC, not " + type);
+            }
+        }
+        this.compressionType = type;
+        this.compressionLevel = level;
+    }
+
+    public TCompressionType getCompressionType() {
+        return compressionType;
+    }
+
+    public int getCompressionLevel() {
+        return compressionLevel;
     }
 
     public String getName() {
@@ -283,7 +320,7 @@ public class ColumnDefinition {
             sb.append("AUTO_INCREMENT ");
             sb.append("(");
             sb.append(autoIncInitValue);
-            sb.append(")");
+            sb.append(") ");
         }
 
         if (defaultValue.isPresent()) {
@@ -303,6 +340,13 @@ public class ColumnDefinition {
             } else {
                 sb.append("DEFAULT ").append("NULL").append(" ");
             }
+        }
+        if (compressionType != null) {
+            sb.append("COMPRESSION ").append(compressionType.name());
+            if (compressionLevel > 0) {
+                sb.append("(").append(compressionLevel).append(")");
+            }
+            sb.append(" ");
         }
         if (includeComment) {
             sb.append("COMMENT ").append(SqlLiteralUtils.quoteStringLiteral(getComment()));
@@ -392,6 +436,28 @@ public class ColumnDefinition {
             FeNameFormat.checkColumnCommentLength(comment);
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
+        }
+        if (compressionType != null && !isOlap) {
+            throw new AnalysisException(
+                    "COMPRESSION is only supported for OLAP table columns, column: " + name);
+        }
+        // A per-column codec only stamps the top-level column meta. For ARRAY/MAP/STRUCT/VARIANT
+        // the bulk of the bytes live in child/sub-columns that never receive the override, so the
+        // requested codec would be silently dropped for that data. Reject it instead.
+        if (compressionType != null
+                && (type.isArrayType() || type.isMapType() || type.isStructType()
+                        || type.isVariantType())) {
+            throw new AnalysisException(
+                    "COMPRESSION is not supported for complex type columns (ARRAY/MAP/STRUCT/VARIANT),"
+                            + " column: " + name);
+        }
+        // AGG_STATE serializes to a function-dependent physical layout; some functions (e.g.
+        // ARRAY_AGG/MAP_AGG) dispatch to ARRAY/MAP segment writers whose child/auxiliary metas
+        // never receive the override codec+level, so the state would be stored with an
+        // inconsistent policy. Reject it like the other complex types above.
+        if (compressionType != null && type.isAggStateType()) {
+            throw new AnalysisException(
+                    "COMPRESSION is not supported for AGG_STATE columns, column: " + name);
         }
         type.validateDataType();
         type = updateCharacterTypeLength(type);
@@ -617,6 +683,9 @@ public class ColumnDefinition {
                         .orElse(null)
                 );
         column.setAggregationTypeImplicit(aggTypeImplicit);
+        if (compressionType != null) {
+            column.setCompression(compressionType, compressionLevel);
+        }
         return column;
     }
 
@@ -637,6 +706,9 @@ public class ColumnDefinition {
         column.setNullableSpecified(nullableSpecified);
         column.setCommentSpecified(commentSpecified);
         column.setAggregationTypeImplicit(aggTypeImplicit);
+        if (compressionType != null) {
+            column.setCompression(compressionType, compressionLevel);
+        }
         return column;
     }
 

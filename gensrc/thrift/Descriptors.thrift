@@ -100,6 +100,11 @@ struct TColumn {
   27: optional i64 variant_doc_materialization_min_rows
   28: optional i32 variant_doc_hash_shard_count
   29: optional bool variant_enable_nested_group
+  // per-column generic compression override; i32 holds TCompressionType enum value
+  // (cannot reference TCompressionType directly: it lives in AgentService.thrift which
+  //  already includes Descriptors.thrift, so a direct reference would create an include cycle)
+  30: optional i32 compression_type
+  31: optional i32 compression_level
 }
 
 struct TSlotDescriptor {
