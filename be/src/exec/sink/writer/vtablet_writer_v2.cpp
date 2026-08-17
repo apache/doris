@@ -943,6 +943,23 @@ bool VTabletWriterV2::_quorum_success(
             return false;
         }
     }
+    const auto& table_sink = _t_sink.olap_table_sink;
+    if (table_sink.__isset.cross_az_succ_quorum) {
+        for (int64_t tablet_id : need_finish_tablets) {
+            const auto* tablet = _location->find_tablet(tablet_id);
+            if (tablet == nullptr) {
+                continue;
+            }
+            const auto gap_it = _tablet_version_gap_backends.find(tablet_id);
+            const auto* version_gap_node_ids =
+                    gap_it == _tablet_version_gap_backends.end() ? nullptr : &gap_it->second;
+            if (!_nodes_info->is_cross_az_quorum_success(table_sink.cross_az_succ_quorum,
+                                                         tablet->node_ids, finished_dst_ids,
+                                                         version_gap_node_ids)) {
+                return false;
+            }
+        }
+    }
     return true;
 }
 

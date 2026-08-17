@@ -490,6 +490,32 @@ bool IndexChannel::_quorum_success(const std::unordered_set<int64_t>& unfinished
         }
     }
 
+    const auto& table_sink = _parent->_t_sink.olap_table_sink;
+    if (table_sink.__isset.cross_az_succ_quorum) {
+        std::unordered_set<int64_t> finished_node_ids;
+        for (const auto& [node_id, node_channel] : _node_channels) {
+            if (!unfinished_node_channel_ids.contains(node_id) &&
+                node_channel->check_status().ok()) {
+                finished_node_ids.insert(node_id);
+            }
+        }
+        for (int64_t tablet_id : need_finish_tablets) {
+            const auto* tablet = _parent->_location->find_tablet(tablet_id);
+            if (tablet == nullptr) {
+                continue;
+            }
+            const auto gap_it = _parent->_tablet_version_gap_backends.find(tablet_id);
+            const auto* version_gap_node_ids = gap_it == _parent->_tablet_version_gap_backends.end()
+                                                       ? nullptr
+                                                       : &gap_it->second;
+            if (!_parent->_nodes_info->is_cross_az_quorum_success(
+                        table_sink.cross_az_succ_quorum, tablet->node_ids, finished_node_ids,
+                        version_gap_node_ids)) {
+                return false;
+            }
+        }
+    }
+
     return true;
 }
 
