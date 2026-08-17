@@ -32,6 +32,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 public class SqlModeHelper {
     private static final Logger LOG = LogManager.getLogger(SqlModeHelper.class);
@@ -207,6 +208,48 @@ public class SqlModeHelper {
 
     public static Map<String, Long> getCombineMode() {
         return combineModeSet;
+    }
+
+    /**
+     * The SQL mode text that is not the caller's own is parsed under.
+     *
+     * <p>A security policy's predicate - a row filter or a column mask, whether an administrator wrote it in
+     * {@code CREATE ROW POLICY} or an authorization source handed it over - is parsed while planning the
+     * query it applies to, on the thread of the very user it restricts. {@code sql_mode} is a session
+     * variable any user may set with no privilege at all, and two of its bits change what SQL text means:
+     * {@code NO_BACKSLASH_ESCAPES} changes how a string literal decodes and {@code PIPES_AS_CONCAT} turns
+     * {@code ||} from OR into concatenation. Reading the mode off the caller would therefore let the
+     * restricted user decide what their own restriction says. So policy text is parsed under a fixed mode
+     * instead - the one a fresh session has, which is what the mode was when nothing said otherwise.
+     */
+    public static final long MODE_FOR_POLICY_TEXT = MODE_DEFAULT;
+
+    /**
+     * Runs {@code parse} with this session's {@code sql_mode} temporarily replaced, and restores it after.
+     *
+     * <p>An override rather than a parameter because the mode is not threaded through the parser: the lexer
+     * reads it when it is built and the plan builder reads it again when it reaches a {@code ||}, both from
+     * the session variable. A statement is planned on one thread, so nothing else reads the variable while it
+     * is swapped.
+     */
+    public static <T> T withSqlMode(long sqlMode, Supplier<T> parse) {
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            // Nothing to override: both readers fall back to a fresh session variable when there is no
+            // connection, which already holds the default mode.
+            return parse.get();
+        }
+        SessionVariable sessionVariable = context.getSessionVariable();
+        long callerMode = sessionVariable.getSqlMode();
+        if (callerMode == sqlMode) {
+            return parse.get();
+        }
+        sessionVariable.setSqlMode(sqlMode);
+        try {
+            return parse.get();
+        } finally {
+            sessionVariable.setSqlMode(callerMode);
+        }
     }
 
     public static boolean hasNoBackSlashEscapes() {
