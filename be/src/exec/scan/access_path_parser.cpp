@@ -94,6 +94,10 @@ void inherit_schema_metadata(format::ColumnDefinition* column,
     // access-path pruning must retain them just like it retains rename metadata.
     column->initial_default_value = schema_column->initial_default_value;
     column->initial_default_value_is_base64 = schema_column->initial_default_value_is_base64;
+    // Access-path pruning rebuilds children, so carry the prepared typed literal and requiredness
+    // that make a missing Iceberg child semantically identical to the complete projection.
+    column->is_optional = schema_column->is_optional;
+    column->default_expr = schema_column->default_expr;
 }
 
 const format::ColumnDefinition* find_schema_child_by_path(

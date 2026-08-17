@@ -107,6 +107,22 @@ Status S3FileWriter::_create_multi_upload_request() {
     return {resp.resp.status.code, std::move(resp.resp.status.msg)};
 }
 
+std::function<void()> S3FileWriter::rejected_report_cleanup() const {
+    auto client_holder = _obj_client;
+    auto path_opts = _obj_storage_path_opts;
+    return [client_holder = std::move(client_holder), path_opts = std::move(path_opts)]() {
+        auto client = client_holder->get();
+        if (client == nullptr || !path_opts.upload_id.has_value()) {
+            return;
+        }
+        auto response = client->abort_multipart_upload(path_opts);
+        if (response.status.code != ErrorCode::OK) {
+            LOG(WARNING) << "Failed to abort rejected multipart upload " << path_opts.path.native()
+                         << ": " << response.status.msg;
+        }
+    };
+}
+
 void S3FileWriter::_wait_until_finish(std::string_view task_name) {
     auto timeout_duration = config::s3_file_writer_log_interval_second;
     auto msg = fmt::format(

@@ -123,10 +123,22 @@ Status IcebergInsertPartitionFunction::open(RuntimeState* state) {
         RETURN_IF_ERROR(VExpr::open(field_ctxs, state));
         for (auto& field : _partition_fields) {
             try {
+                DataTypePtr source_type = field.expr_ctx->root()->data_type();
+                for (int32_t child_index : field.source_field_path) {
+                    const auto* struct_type = check_and_get_data_type<DataTypeStruct>(
+                            remove_nullable(source_type).get());
+                    if (child_index < 0 || struct_type == nullptr ||
+                        static_cast<size_t>(child_index) >= struct_type->get_elements().size()) {
+                        throw Exception(ErrorCode::INTERNAL_ERROR,
+                                        "Iceberg nested merge partition source does not match "
+                                        "expression type");
+                    }
+                    // Transform validation must use the leaf type that get_partitions() extracts.
+                    source_type = struct_type->get_element(static_cast<size_t>(child_index));
+                }
                 doris::iceberg::PartitionField partition_field(field.source_id, 0, field.name,
                                                                field.transform);
-                field.transformer = PartitionColumnTransforms::create(
-                        partition_field, field.expr_ctx->root()->data_type());
+                field.transformer = PartitionColumnTransforms::create(partition_field, source_type);
             } catch (const doris::Exception& e) {
                 return Status::NotSupported("Unsupported Iceberg partition transform: {}",
                                             e.what());

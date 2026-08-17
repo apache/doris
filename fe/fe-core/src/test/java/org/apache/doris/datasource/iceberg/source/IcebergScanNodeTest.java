@@ -287,6 +287,8 @@ public class IcebergScanNodeTest {
         node.addSlot(1, projectedColumn);
         setIcebergSource(node, source);
         Mockito.doReturn(Collections.emptyMap()).when(node).getBase64EncodedInitialDefaultsForScan();
+        Mockito.doReturn(Collections.emptySet()).when(node).getBinaryLikeFieldIdsForScan();
+        Mockito.doReturn(Collections.emptyMap()).when(node).getFieldOptionalityForScan();
 
         TFileScanRangeParams scanParams = node.initializeAndGetIcebergSchemaInfo();
 

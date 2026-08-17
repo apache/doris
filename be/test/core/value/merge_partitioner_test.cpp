@@ -369,7 +369,7 @@ TEST_F(MergePartitionerTest, TestNestedInsertPartitionFieldPreservesParentNulls)
 
     TMergePartitionInfo merge_info = _make_base_merge_info(false);
     TIcebergPartitionField field;
-    field.__set_transform("identity");
+    field.__set_transform("bucket[8]");
     field.__set_source_expr(_make_nested_source_expr());
     field.__set_name("payload_part");
     field.__set_source_id(3);

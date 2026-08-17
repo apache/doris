@@ -2201,6 +2201,9 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
         try {
             (*coord)->reportExecStatus(res, params);
         } catch ([[maybe_unused]] apache::thrift::transport::TTransportException& e) {
+            // The coordinator may have durably accepted the first call before its response was
+            // lost. Once that happens, a retry rejection must never make BE delete staged files.
+            report_outcome_ambiguous = true;
 #ifndef ADDRESS_SANITIZER
             LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
                          << ", instance id: " << print_id(req.fragment_instance_id) << " to "
@@ -2209,6 +2212,10 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
             rpc_status = coord->reopen();
 
             if (!rpc_status.ok()) {
+                if (req.done) {
+                    req.runtime_state->finalize_external_file_report_cleanup(
+                            ExternalFileReportOutcome::AMBIGUOUS);
+                }
                 req.cancel_fn(rpc_status);
                 return;
             }
@@ -2222,8 +2229,8 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
                                            PrintThriftNetworkAddress(req.coord_addr), e.what());
     }
 
-    // Only Iceberg keeps BE rollback callbacks after close; the other vectors remain compatible
-    // with coordinators that acknowledge acceptance through the RPC status alone.
+    // Iceberg requires the explicit new-protocol ACK. Legacy Hive/Paimon coordinators transfer
+    // ownership through RPC success, which remains valid during a rolling FE upgrade.
     const bool requires_external_file_ack = params.__isset.iceberg_commit_datas;
     if (rpc_status.ok() && requires_external_file_ack &&
         (!res.__isset.external_file_commit_data_accepted ||

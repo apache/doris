@@ -77,6 +77,7 @@ private:
 private:
     THivePartitionUpdate _build_partition_update();
     bool _build_s3_mpu_pending_upload(TS3MPUPendingUpload* pending_upload);
+    void _register_rejected_report_cleanup();
     void _add_s3_mpu_pending_upload_for_rollback();
 
     std::string _get_file_extension(TFileFormatType::type file_format_type,
@@ -102,6 +103,7 @@ private:
     const THiveSerDeProperties* _hive_serde_properties;
     const std::map<std::string, std::string>& _hadoop_conf;
     bool _supports_deferred_azure_multipart = false;
+    bool _rejected_report_cleanup_registered = false;
 
     std::shared_ptr<io::FileSystem> _fs = nullptr;
 

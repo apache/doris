@@ -29,6 +29,7 @@ import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.util.PathUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Backend;
 
 import mockit.Mock;
 import mockit.MockUp;
@@ -38,8 +39,10 @@ import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -51,6 +54,21 @@ import java.util.stream.Collectors;
 
 
 public class HiveTableSinkTest {
+
+    @Test
+    public void testRejectDeferredAzureWriteWhenOldBackendIsEligible() {
+        Backend oldBackend = Mockito.mock(Backend.class);
+        Mockito.when(oldBackend.isQueryAvailable()).thenReturn(true);
+        Mockito.when(oldBackend.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(oldBackend.getId()).thenReturn(10006L);
+
+        org.apache.doris.common.AnalysisException exception = Assert.assertThrows(
+                org.apache.doris.common.AnalysisException.class,
+                () -> HiveTableSink.validateDeferredAzureMultipartBackendCompatibility(
+                        true, Collections.singletonList(oldBackend)));
+
+        Assert.assertTrue(exception.getMessage().contains("backend 10006"));
+    }
 
     @Test
     public void testBindDataSink() throws UserException {
