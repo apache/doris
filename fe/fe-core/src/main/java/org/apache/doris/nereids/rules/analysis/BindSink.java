@@ -72,7 +72,6 @@ import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
@@ -97,7 +96,6 @@ import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
-import org.apache.doris.nereids.util.TimestampNsDefaultValueUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
@@ -484,19 +482,12 @@ public class BindSink implements AnalysisRuleFactory {
                     replaceMap.put(output.toSlot(), output.child());
                 } else {
                     try {
-                        Optional<TimeStampNsLiteral> timestampNsDefault
-                                = TimestampNsDefaultValueUtils.currentTimestampLiteral(column);
-                        Expression defaultValueExpression;
-                        if (timestampNsDefault.isPresent()) {
-                            defaultValueExpression = timestampNsDefault.get();
-                        } else {
-                            Expression unboundDefaultValue = new NereidsParser().parseExpression(
-                                    column.getDefaultValueSql());
-                            defaultValueExpression = ExpressionAnalyzer.analyzeFunction(
-                                    boundSink, ctx.cascadesContext, unboundDefaultValue);
-                            if (defaultValueExpression instanceof Alias) {
-                                defaultValueExpression = ((Alias) defaultValueExpression).child();
-                            }
+                        Expression unboundDefaultValue = new NereidsParser().parseExpression(
+                                column.getDefaultValueSql());
+                        Expression defaultValueExpression = ExpressionAnalyzer.analyzeFunction(
+                                boundSink, ctx.cascadesContext, unboundDefaultValue);
+                        if (defaultValueExpression instanceof Alias) {
+                            defaultValueExpression = ((Alias) defaultValueExpression).child();
                         }
                         Alias output = new Alias((TypeCoercionUtils.castIfNotSameType(
                                 defaultValueExpression, DataType.fromCatalogType(column.getType()))),

@@ -837,9 +837,9 @@ public class DateTimeExtractAndTransform {
 
     private static String getTimestamp(LocalDateTime dateTime, int scale) {
         LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
-        dateTime = dateTime.atZone(DateUtils.getTimeZone())
-                        .toOffsetDateTime().atZoneSameInstant(ZoneId.of("UTC+0"))
-                        .toLocalDateTime();
+        Instant instant = DateTimeLiteral.convertLocalToInstantPreservingFraction(
+                dateTime, DateUtils.getTimeZone());
+        dateTime = LocalDateTime.ofInstant(instant, ZoneId.of("UTC+0"));
         if (dateTime.isBefore(specialLowerBound)) {
             return "0";
         }

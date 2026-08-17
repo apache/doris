@@ -31,8 +31,10 @@ import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 
 import java.math.BigInteger;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.TemporalQueries;
@@ -304,8 +306,12 @@ public final class TimeStampNsLiteral extends DateLiteral {
         if (targetType.isTimeStampTzType()) {
             int scale = ((TimeStampTzType) targetType).getScale();
             LocalDateTime rounded = roundToScale(scale);
-            DateTimeV2Literal local = DateTimeV2Literal.fromJavaDateType(rounded, scale);
-            return local.checkedCastTo(targetType);
+            Instant instant = DateTimeLiteral.convertLocalToInstantPreservingFraction(
+                    rounded, DateUtils.getTimeZone());
+            LocalDateTime utc = LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
+            return new TimestampTzLiteral((TimeStampTzType) targetType,
+                    utc.getYear(), utc.getMonthValue(), utc.getDayOfMonth(), utc.getHour(),
+                    utc.getMinute(), utc.getSecond(), utc.getNano() / 1000);
         }
         if (targetType.isFloatType()) {
             return new FloatLiteral(getValue());

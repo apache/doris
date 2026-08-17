@@ -45,6 +45,8 @@
 
 -- !sql_quarter_TimestampNs --
 \N
+3
+4
 1
 1
 1
@@ -54,9 +56,7 @@
 1
 1
 1
-1
-1
-1
+2
 
 -- !sql_quarter_DateTimeV2_notnull --
 1
@@ -73,6 +73,8 @@
 1
 
 -- !sql_quarter_TimestampNs_notnull --
+3
+4
 1
 1
 1
@@ -82,9 +84,7 @@
 1
 1
 1
-1
-1
-1
+2
 
 -- !sql_quarter_DateV2 --
 \N

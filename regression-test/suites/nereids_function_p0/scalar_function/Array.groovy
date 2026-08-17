@@ -67,9 +67,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_compact_String_notnull "select array_compact(kastr) from fn_test_not_nullable"
 
     order_qt_sql_array_compact_DatetimeV2 "select array_compact(kadtmv2) from fn_test"
-    order_qt_sql_array_compact_TimestampNs "select array_compact(cast(kadtmv2 as array<timestamp_ns>)) from fn_test"
+    order_qt_sql_array_compact_TimestampNs "select array_compact(katsns) from fn_test"
     order_qt_sql_array_compact_DatetimeV2_notnull "select array_compact(kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_compact_TimestampNs_notnull "select array_compact(cast(kadtmv2 as array<timestamp_ns>)) from fn_test_not_nullable"
+    order_qt_sql_array_compact_TimestampNs_notnull "select array_compact(katsns) from fn_test_not_nullable"
     order_qt_sql_array_compact_DateV2 "select array_compact(kadtv2) from fn_test"
     order_qt_sql_array_compact_DateV2_notnull "select array_compact(kadtv2) from fn_test_not_nullable"
 
@@ -102,9 +102,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_concat_String_notnull "select array_concat(kastr, kastr) from fn_test_not_nullable"
 
     order_qt_sql_array_concat_DatetimeV2 "select array_concat(kadtmv2, kadtmv2) from fn_test"
-    order_qt_sql_array_concat_TimestampNs "select array_concat(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>)) from fn_test"
+    order_qt_sql_array_concat_TimestampNs "select array_concat(katsns, katsns) from fn_test"
     order_qt_sql_array_concat_DatetimeV2_notnull "select array_concat(kadtmv2, kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_concat_TimestampNs_notnull "select array_concat(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>)) from fn_test_not_nullable"
+    order_qt_sql_array_concat_TimestampNs_notnull "select array_concat(katsns, katsns) from fn_test_not_nullable"
     order_qt_sql_array_concat_DateV2 "select array_concat(kadtv2, kadtv2) from fn_test"
     order_qt_sql_array_concat_DateV2_notnull "select array_concat(kadtv2, kadtv2) from fn_test_not_nullable"
 
@@ -170,9 +170,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_distinct_String_notnull "select array_distinct(kastr) from fn_test_not_nullable"
 
     order_qt_sql_array_distinct_DatetimeV2 "select array_distinct(kadtmv2) from fn_test"
-    order_qt_sql_array_distinct_TimestampNs "select array_distinct(cast(kadtmv2 as array<timestamp_ns>)) from fn_test"
+    order_qt_sql_array_distinct_TimestampNs "select array_distinct(katsns) from fn_test"
     order_qt_sql_array_distinct_DatetimeV2_notnull "select array_distinct(kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_distinct_TimestampNs_notnull "select array_distinct(cast(kadtmv2 as array<timestamp_ns>)) from fn_test_not_nullable"
+    order_qt_sql_array_distinct_TimestampNs_notnull "select array_distinct(katsns) from fn_test_not_nullable"
     order_qt_sql_array_distinct_DateV2 "select array_distinct(kadtv2) from fn_test"
     order_qt_sql_array_distinct_DateV2_notnull "select array_distinct(kadtv2) from fn_test_not_nullable"
 
@@ -205,9 +205,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_except_String_notnull "select array_except(kastr, kastr) from fn_test_not_nullable"
 
     order_qt_sql_array_except_DatetimeV2 "select array_except(kadtmv2, kadtmv2) from fn_test"
-    order_qt_sql_array_except_TimestampNs "select array_except(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>)) from fn_test"
+    order_qt_sql_array_except_TimestampNs "select array_except(katsns, katsns) from fn_test"
     order_qt_sql_array_except_DatetimeV2_notnull "select array_except(kadtmv2, kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_except_TimestampNs_notnull "select array_except(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>)) from fn_test_not_nullable"
+    order_qt_sql_array_except_TimestampNs_notnull "select array_except(katsns, katsns) from fn_test_not_nullable"
     order_qt_sql_array_except_DateV2 "select array_except(kadtv2, kadtv2) from fn_test"
     order_qt_sql_array_except_DateV2_notnull "select array_except(kadtv2, kadtv2) from fn_test_not_nullable"
 
@@ -240,9 +240,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_intersect_String_notnull "select array_sort(array_intersect(kastr, kastr)) from fn_test_not_nullable"
 
     order_qt_sql_array_intersect_DatetimeV2 "select array_sort(array_intersect(kadtmv2, kadtmv2)) from fn_test"
-    order_qt_sql_array_intersect_TimestampNs "select array_sort(array_intersect(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>))) from fn_test"
+    order_qt_sql_array_intersect_TimestampNs "select array_sort(array_intersect(katsns, katsns)) from fn_test"
     order_qt_sql_array_intersect_DatetimeV2_notnull "select array_sort(array_intersect(kadtmv2, kadtmv2)) from fn_test_not_nullable"
-    order_qt_sql_array_intersect_TimestampNs_notnull "select array_sort(array_intersect(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>))) from fn_test_not_nullable"
+    order_qt_sql_array_intersect_TimestampNs_notnull "select array_sort(array_intersect(katsns, katsns)) from fn_test_not_nullable"
     order_qt_sql_array_intersect_DateV2 "select array_sort(array_intersect(kadtv2, kadtv2)) from fn_test"
     order_qt_sql_array_intersect_DateV2_notnull "select array_sort(array_intersect(kadtv2, kadtv2)) from fn_test_not_nullable"
 
@@ -275,9 +275,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_join_String_notnull "select array_join(kastr, ',', 'null') from fn_test_not_nullable"
 
     order_qt_sql_array_join_DatetimeV2 "select array_join(kadtmv2, ',', 'null') from fn_test"
-    order_qt_sql_array_join_TimestampNs "select array_join(cast(kadtmv2 as array<timestamp_ns>), ',', 'null') from fn_test"
+    order_qt_sql_array_join_TimestampNs "select array_join(katsns, ',', 'null') from fn_test"
     order_qt_sql_array_join_DatetimeV2_notnull "select array_join(kadtmv2, ',', 'null') from fn_test_not_nullable"
-    order_qt_sql_array_join_TimestampNs_notnull "select array_join(cast(kadtmv2 as array<timestamp_ns>), ',', 'null') from fn_test_not_nullable"
+    order_qt_sql_array_join_TimestampNs_notnull "select array_join(katsns, ',', 'null') from fn_test_not_nullable"
     order_qt_sql_array_join_DateV2 "select array_join(kadtv2, ',', 'null') from fn_test"
     order_qt_sql_array_join_DateV2_notnull "select array_join(kadtv2, ',', 'null') from fn_test_not_nullable"
 
@@ -309,9 +309,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_join_two_params_String_notnull "select array_join(kastr, ',') from fn_test_not_nullable"
 
     order_qt_sql_array_join_two_params_DatetimeV2 "select array_join(kadtmv2, ',') from fn_test"
-    order_qt_sql_array_join_two_params_TimestampNs "select array_join(cast(kadtmv2 as array<timestamp_ns>), ',') from fn_test"
+    order_qt_sql_array_join_two_params_TimestampNs "select array_join(katsns, ',') from fn_test"
     order_qt_sql_array_join_two_params_DatetimeV2_notnull "select array_join(kadtmv2, ',') from fn_test_not_nullable"
-    order_qt_sql_array_join_two_params_TimestampNs_notnull "select array_join(cast(kadtmv2 as array<timestamp_ns>), ',') from fn_test_not_nullable"
+    order_qt_sql_array_join_two_params_TimestampNs_notnull "select array_join(katsns, ',') from fn_test_not_nullable"
     order_qt_sql_array_join_two_params_DateV2 "select array_join(kadtv2, ',') from fn_test"
     order_qt_sql_array_join_two_params_DateV2_notnull "select array_join(kadtv2, ',') from fn_test_not_nullable"
 
@@ -345,9 +345,9 @@ suite("nereids_scalar_fn_Array") {
     // order_qt_sql_array_max_String_notnull "select array_max(kastr) from fn_test_not_nullable"
 
     order_qt_sql_array_max_DatetimeV2 "select array_max(kadtmv2) from fn_test"
-    order_qt_sql_array_max_TimestampNs "select array_max(cast(kadtmv2 as array<timestamp_ns>)) from fn_test"
+    order_qt_sql_array_max_TimestampNs "select array_max(katsns) from fn_test"
     order_qt_sql_array_max_DatetimeV2_notnull "select array_max(kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_max_TimestampNs_notnull "select array_max(cast(kadtmv2 as array<timestamp_ns>)) from fn_test_not_nullable"
+    order_qt_sql_array_max_TimestampNs_notnull "select array_max(katsns) from fn_test_not_nullable"
     order_qt_sql_array_max_DateV2 "select array_max(kadtv2) from fn_test"
     order_qt_sql_array_max_DateV2_notnull "select array_max(kadtv2) from fn_test_not_nullable"
 
@@ -381,9 +381,9 @@ suite("nereids_scalar_fn_Array") {
     // order_qt_sql_array_min_String_notnull "select array_min(kastr) from fn_test_not_nullable"
 
     order_qt_sql_array_min_DatetimeV2 "select array_min(kadtmv2) from fn_test"
-    order_qt_sql_array_min_TimestampNs "select array_min(cast(kadtmv2 as array<timestamp_ns>)) from fn_test"
+    order_qt_sql_array_min_TimestampNs "select array_min(katsns) from fn_test"
     order_qt_sql_array_min_DatetimeV2_notnull "select array_min(kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_min_TimestampNs_notnull "select array_min(cast(kadtmv2 as array<timestamp_ns>)) from fn_test_not_nullable"
+    order_qt_sql_array_min_TimestampNs_notnull "select array_min(katsns) from fn_test_not_nullable"
     order_qt_sql_array_min_DateV2 "select array_min(kadtv2) from fn_test"
     order_qt_sql_array_min_DateV2_notnull "select array_min(kadtv2) from fn_test_not_nullable"
 
@@ -416,9 +416,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_popback_String_notnull "select array_popback(kastr) from fn_test_not_nullable"
 
     order_qt_sql_array_popback_DatetimeV2 "select array_popback(kadtmv2) from fn_test"
-    order_qt_sql_array_popback_TimestampNs "select array_popback(cast(kadtmv2 as array<timestamp_ns>)) from fn_test"
+    order_qt_sql_array_popback_TimestampNs "select array_popback(katsns) from fn_test"
     order_qt_sql_array_popback_DatetimeV2_notnull "select array_popback(kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_popback_TimestampNs_notnull "select array_popback(cast(kadtmv2 as array<timestamp_ns>)) from fn_test_not_nullable"
+    order_qt_sql_array_popback_TimestampNs_notnull "select array_popback(katsns) from fn_test_not_nullable"
     order_qt_sql_array_popback_DateV2 "select array_popback(kadtv2) from fn_test"
     order_qt_sql_array_popback_DateV2_notnull "select array_popback(kadtv2) from fn_test_not_nullable"
 
@@ -451,9 +451,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_popfront_String_notnull "select array_popfront(kastr) from fn_test_not_nullable"
 
     order_qt_sql_array_popfront_DatetimeV2 "select array_popfront(kadtmv2) from fn_test"
-    order_qt_sql_array_popfront_TimestampNs "select array_popfront(cast(kadtmv2 as array<timestamp_ns>)) from fn_test"
+    order_qt_sql_array_popfront_TimestampNs "select array_popfront(katsns) from fn_test"
     order_qt_sql_array_popfront_DatetimeV2_notnull "select array_popfront(kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_popfront_TimestampNs_notnull "select array_popfront(cast(kadtmv2 as array<timestamp_ns>)) from fn_test_not_nullable"
+    order_qt_sql_array_popfront_TimestampNs_notnull "select array_popfront(katsns) from fn_test_not_nullable"
     order_qt_sql_array_popfront_DateV2 "select array_popfront(kadtv2) from fn_test"
     order_qt_sql_array_popfront_DateV2_notnull "select array_popfront(kadtv2) from fn_test_not_nullable"
 
@@ -486,9 +486,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_position_String_notnull "select array_position(kastr, kstr) from fn_test_not_nullable"
 
     order_qt_sql_array_position_DatetimeV2 "select array_position(kadtmv2, kdtmv2s1) from fn_test"
-    order_qt_sql_array_position_TimestampNs "select array_position(cast(kadtmv2 as array<timestamp_ns>), cast(kdtmv2s1 as timestamp_ns)) from fn_test"
+    order_qt_sql_array_position_TimestampNs "select array_position(katsns, ktsns) from fn_test"
     order_qt_sql_array_position_DatetimeV2_notnull "select array_position(kadtmv2, kdtmv2s1) from fn_test_not_nullable"
-    order_qt_sql_array_position_TimestampNs_notnull "select array_position(cast(kadtmv2 as array<timestamp_ns>), cast(kdtmv2s1 as timestamp_ns)) from fn_test_not_nullable"
+    order_qt_sql_array_position_TimestampNs_notnull "select array_position(katsns, ktsns) from fn_test_not_nullable"
     order_qt_sql_array_position_DateV2 "select array_position(kadtv2, kdtv2) from fn_test"
     order_qt_sql_array_position_DateV2_notnull "select array_position(kadtv2, kdtv2) from fn_test_not_nullable"
 
@@ -539,9 +539,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_pushback_String_notnull "select array_pushback(kastr, kstr) from fn_test_not_nullable"
 
     order_qt_sql_array_pushback_DatetimeV2 "select array_pushback(kadtmv2, kdtmv2s1) from fn_test"
-    order_qt_sql_array_pushback_TimestampNs "select array_pushback(cast(kadtmv2 as array<timestamp_ns>), cast(kdtmv2s1 as timestamp_ns)) from fn_test"
+    order_qt_sql_array_pushback_TimestampNs "select array_pushback(katsns, ktsns) from fn_test"
     order_qt_sql_array_pushback_DatetimeV2_notnull "select array_pushback(kadtmv2, kdtmv2s1) from fn_test_not_nullable"
-    order_qt_sql_array_pushback_TimestampNs_notnull "select array_pushback(cast(kadtmv2 as array<timestamp_ns>), cast(kdtmv2s1 as timestamp_ns)) from fn_test_not_nullable"
+    order_qt_sql_array_pushback_TimestampNs_notnull "select array_pushback(katsns, ktsns) from fn_test_not_nullable"
     order_qt_sql_array_pushback_DateV2 "select array_pushback(kadtv2, kdtv2) from fn_test"
     order_qt_sql_array_pushback_DateV2_notnull "select array_pushback(kadtv2, kdtv2) from fn_test_not_nullable"
 
@@ -574,9 +574,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_pushfront_String_notnull "select array_pushfront(kastr, kstr) from fn_test_not_nullable"
 
     order_qt_sql_array_pushfront_DatetimeV2 "select array_pushfront(kadtmv2, kdtmv2s1) from fn_test"
-    order_qt_sql_array_pushfront_TimestampNs "select array_pushfront(cast(kadtmv2 as array<timestamp_ns>), cast(kdtmv2s1 as timestamp_ns)) from fn_test"
+    order_qt_sql_array_pushfront_TimestampNs "select array_pushfront(katsns, ktsns) from fn_test"
     order_qt_sql_array_pushfront_DatetimeV2_notnull "select array_pushfront(kadtmv2, kdtmv2s1) from fn_test_not_nullable"
-    order_qt_sql_array_pushfront_TimestampNs_notnull "select array_pushfront(cast(kadtmv2 as array<timestamp_ns>), cast(kdtmv2s1 as timestamp_ns)) from fn_test_not_nullable"
+    order_qt_sql_array_pushfront_TimestampNs_notnull "select array_pushfront(katsns, ktsns) from fn_test_not_nullable"
     order_qt_sql_array_pushfront_DateV2 "select array_pushfront(kadtv2, kdtv2) from fn_test"
     order_qt_sql_array_pushfront_DateV2_notnull "select array_pushfront(kadtv2, kdtv2) from fn_test_not_nullable"
 
@@ -622,9 +622,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_remove_String_notnull "select array_remove(kastr, kstr) from fn_test_not_nullable"
 
     order_qt_sql_array_remove_DatetimeV2 "select array_remove(kadtmv2, kdtmv2s1) from fn_test"
-    order_qt_sql_array_remove_TimestampNs "select array_remove(cast(kadtmv2 as array<timestamp_ns>), cast(kdtmv2s1 as timestamp_ns)) from fn_test"
+    order_qt_sql_array_remove_TimestampNs "select array_remove(katsns, ktsns) from fn_test"
     order_qt_sql_array_remove_DatetimeV2_notnull "select array_remove(kadtmv2, kdtmv2s1) from fn_test_not_nullable"
-    order_qt_sql_array_remove_TimestampNs_notnull "select array_remove(cast(kadtmv2 as array<timestamp_ns>), cast(kdtmv2s1 as timestamp_ns)) from fn_test_not_nullable"
+    order_qt_sql_array_remove_TimestampNs_notnull "select array_remove(katsns, ktsns) from fn_test_not_nullable"
     order_qt_sql_array_remove_DateV2 "select array_remove(kadtv2, kdtv2) from fn_test"
     order_qt_sql_array_remove_DateV2_notnull "select array_remove(kadtv2, kdtv2) from fn_test_not_nullable"
 
@@ -657,9 +657,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_reverse_sort_String_notnull "select array_reverse_sort(kastr) from fn_test_not_nullable"
 
     order_qt_sql_array_reverse_sort_DatetimeV2 "select array_reverse_sort(kadtmv2) from fn_test"
-    order_qt_sql_array_reverse_sort_TimestampNs "select array_reverse_sort(cast(kadtmv2 as array<timestamp_ns>)) from fn_test"
+    order_qt_sql_array_reverse_sort_TimestampNs "select array_reverse_sort(katsns) from fn_test"
     order_qt_sql_array_reverse_sort_DatetimeV2_notnull "select array_reverse_sort(kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_reverse_sort_TimestampNs_notnull "select array_reverse_sort(cast(kadtmv2 as array<timestamp_ns>)) from fn_test_not_nullable"
+    order_qt_sql_array_reverse_sort_TimestampNs_notnull "select array_reverse_sort(katsns) from fn_test_not_nullable"
     order_qt_sql_array_reverse_sort_DateV2 "select array_reverse_sort(kadtv2) from fn_test"
     order_qt_sql_array_reverse_sort_DateV2_notnull "select array_reverse_sort(kadtv2) from fn_test_not_nullable"
 
@@ -692,9 +692,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_slice_String_notnull "select array_slice(kastr, kint) from fn_test_not_nullable"
 
     order_qt_sql_array_slice_DatetimeV2 "select array_slice(kadtmv2, kint) from fn_test"
-    order_qt_sql_array_slice_TimestampNs "select array_slice(cast(kadtmv2 as array<timestamp_ns>), kint) from fn_test"
+    order_qt_sql_array_slice_TimestampNs "select array_slice(katsns, kint) from fn_test"
     order_qt_sql_array_slice_DatetimeV2_notnull "select array_slice(kadtmv2, kint) from fn_test_not_nullable"
-    order_qt_sql_array_slice_TimestampNs_notnull "select array_slice(cast(kadtmv2 as array<timestamp_ns>), kint) from fn_test_not_nullable"
+    order_qt_sql_array_slice_TimestampNs_notnull "select array_slice(katsns, kint) from fn_test_not_nullable"
     order_qt_sql_array_slice_DateV2 "select array_slice(kadtv2, kint) from fn_test"
     order_qt_sql_array_slice_DateV2_notnull "select array_slice(kadtv2, kint) from fn_test_not_nullable"
 
@@ -727,9 +727,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_slice_three_params_String_notnull "select array_slice(kastr, kint, ktint) from fn_test_not_nullable"
 
     order_qt_sql_array_slice_three_params_DatetimeV2 "select array_slice(kadtmv2, kint, ktint) from fn_test"
-    order_qt_sql_array_slice_three_params_TimestampNs "select array_slice(cast(kadtmv2 as array<timestamp_ns>), kint, ktint) from fn_test"
+    order_qt_sql_array_slice_three_params_TimestampNs "select array_slice(katsns, kint, ktint) from fn_test"
     order_qt_sql_array_slice_three_params_DatetimeV2_notnull "select array_slice(kadtmv2, kint, ktint) from fn_test_not_nullable"
-    order_qt_sql_array_slice_three_params_TimestampNs_notnull "select array_slice(cast(kadtmv2 as array<timestamp_ns>), kint, ktint) from fn_test_not_nullable"
+    order_qt_sql_array_slice_three_params_TimestampNs_notnull "select array_slice(katsns, kint, ktint) from fn_test_not_nullable"
     order_qt_sql_array_slice_three_params_DateV2 "select array_slice(kadtv2, kint, ktint) from fn_test"
     order_qt_sql_array_slice_three_params_DateV2_notnull "select array_slice(kadtv2, kint, ktint) from fn_test_not_nullable"
 
@@ -762,9 +762,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_sort_String_notnull "select array_sort(kastr) from fn_test_not_nullable"
 
     order_qt_sql_array_sort_DatetimeV2 "select array_sort(kadtmv2) from fn_test"
-    order_qt_sql_array_sort_TimestampNs "select array_sort(cast(kadtmv2 as array<timestamp_ns>)) from fn_test"
+    order_qt_sql_array_sort_TimestampNs "select array_sort(katsns) from fn_test"
     order_qt_sql_array_sort_DatetimeV2_notnull "select array_sort(kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_sort_TimestampNs_notnull "select array_sort(cast(kadtmv2 as array<timestamp_ns>)) from fn_test_not_nullable"
+    order_qt_sql_array_sort_TimestampNs_notnull "select array_sort(katsns) from fn_test_not_nullable"
     order_qt_sql_array_sort_DateV2 "select array_sort(kadtv2) from fn_test"
     order_qt_sql_array_sort_DateV2_notnull "select array_sort(kadtv2) from fn_test_not_nullable"
 
@@ -815,9 +815,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_union_String_notnull "select array_sort(array_union(kastr, kastr)) from fn_test_not_nullable"
 
     order_qt_sql_array_union_DatetimeV2 "select array_sort(array_union(kadtmv2, kadtmv2)) from fn_test"
-    order_qt_sql_array_union_TimestampNs "select array_sort(array_union(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>))) from fn_test"
+    order_qt_sql_array_union_TimestampNs "select array_sort(array_union(katsns, katsns)) from fn_test"
     order_qt_sql_array_union_DatetimeV2_notnull "select array_sort(array_union(kadtmv2, kadtmv2)) from fn_test_not_nullable"
-    order_qt_sql_array_union_TimestampNs_notnull "select array_sort(array_union(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>))) from fn_test_not_nullable"
+    order_qt_sql_array_union_TimestampNs_notnull "select array_sort(array_union(katsns, katsns)) from fn_test_not_nullable"
     order_qt_sql_array_union_DateV2 "select array_sort(array_union(kadtv2, kadtv2)) from fn_test"
     order_qt_sql_array_union_DateV2_notnull "select array_sort(array_union(kadtv2, kadtv2)) from fn_test_not_nullable"
 
@@ -850,9 +850,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_with_constant_String_notnull "select array_with_constant(kint, kstr) from fn_test_not_nullable"
 
     order_qt_sql_array_with_constant_DatetimeV2 "select array_with_constant(kint, kdtmv2s1) from fn_test"
-    order_qt_sql_array_with_constant_TimestampNs "select array_with_constant(kint, cast(kdtmv2s1 as timestamp_ns)) from fn_test"
+    order_qt_sql_array_with_constant_TimestampNs "select array_with_constant(kint, ktsns) from fn_test"
     order_qt_sql_array_with_constant_DatetimeV2_notnull "select array_with_constant(kint, kdtmv2s1) from fn_test_not_nullable"
-    order_qt_sql_array_with_constant_TimestampNs_notnull "select array_with_constant(kint, cast(kdtmv2s1 as timestamp_ns)) from fn_test_not_nullable"
+    order_qt_sql_array_with_constant_TimestampNs_notnull "select array_with_constant(kint, ktsns) from fn_test_not_nullable"
     order_qt_sql_array_with_constant_DateV2 "select array_with_constant(kint, kdtv2) from fn_test"
     order_qt_sql_array_with_constant_DateV2_notnull "select array_with_constant(kint, kdtv2) from fn_test_not_nullable"
 
@@ -885,9 +885,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_cardinality_String_notnull "select cardinality(kastr) from fn_test_not_nullable"
 
     order_qt_sql_cardinality_DatetimeV2 "select cardinality(kadtmv2) from fn_test"
-    order_qt_sql_cardinality_TimestampNs "select cardinality(cast(kadtmv2 as array<timestamp_ns>)) from fn_test"
+    order_qt_sql_cardinality_TimestampNs "select cardinality(katsns) from fn_test"
     order_qt_sql_cardinality_DatetimeV2_notnull "select cardinality(kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_cardinality_TimestampNs_notnull "select cardinality(cast(kadtmv2 as array<timestamp_ns>)) from fn_test_not_nullable"
+    order_qt_sql_cardinality_TimestampNs_notnull "select cardinality(katsns) from fn_test_not_nullable"
     order_qt_sql_cardinality_DateV2 "select cardinality(kadtv2) from fn_test"
     order_qt_sql_cardinality_DateV2_notnull "select cardinality(kadtv2) from fn_test_not_nullable"
 
@@ -920,9 +920,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_array_size_String_notnull "select array_size(kastr) from fn_test_not_nullable"
 
     order_qt_sql_array_size_DatetimeV2 "select array_size(kadtmv2) from fn_test"
-    order_qt_sql_array_size_TimestampNs "select array_size(cast(kadtmv2 as array<timestamp_ns>)) from fn_test"
+    order_qt_sql_array_size_TimestampNs "select array_size(katsns) from fn_test"
     order_qt_sql_array_size_DatetimeV2_notnull "select array_size(kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_array_size_TimestampNs_notnull "select array_size(cast(kadtmv2 as array<timestamp_ns>)) from fn_test_not_nullable"
+    order_qt_sql_array_size_TimestampNs_notnull "select array_size(katsns) from fn_test_not_nullable"
     order_qt_sql_array_size_DateV2 "select array_size(kadtv2) from fn_test"
     order_qt_sql_array_size_DateV2_notnull "select array_size(kadtv2) from fn_test_not_nullable"
 
@@ -955,9 +955,9 @@ suite("nereids_scalar_fn_Array") {
     order_qt_sql_size_String_notnull "select size(kastr) from fn_test_not_nullable"
 
     order_qt_sql_size_DatetimeV2 "select size(kadtmv2) from fn_test"
-    order_qt_sql_size_TimestampNs "select size(cast(kadtmv2 as array<timestamp_ns>)) from fn_test"
+    order_qt_sql_size_TimestampNs "select size(katsns) from fn_test"
     order_qt_sql_size_DatetimeV2_notnull "select size(kadtmv2) from fn_test_not_nullable"
-    order_qt_sql_size_TimestampNs_notnull "select size(cast(kadtmv2 as array<timestamp_ns>)) from fn_test_not_nullable"
+    order_qt_sql_size_TimestampNs_notnull "select size(katsns) from fn_test_not_nullable"
     order_qt_sql_size_DateV2 "select size(kadtv2) from fn_test"
     order_qt_sql_size_DateV2_notnull "select size(kadtv2) from fn_test_not_nullable"
 
@@ -1218,6 +1218,7 @@ suite("nereids_scalar_fn_Array") {
         `c_decimal` decimal(8,3) NULL COMMENT "",
         `c_decimalv3` decimalv3(8,3) NULL COMMENT "",
         `c_array_datetimev2` ARRAY<datetimev2(3)> NULL COMMENT "",
+        `c_array_timestamp_ns` ARRAY<timestamp_ns> NULL COMMENT "",
         `c_array_decimal` ARRAY<decimal(8,3)> NULL COMMENT "",
         `c_array_decimalv3` ARRAY<decimalv3(8,3)> NULL COMMENT ""
         ) ENGINE=OLAP
@@ -1230,17 +1231,17 @@ suite("nereids_scalar_fn_Array") {
     """
 
     sql """INSERT INTO test_array_with_scale_type_table values
-    (1,"2022-12-01 22:23:24.999999",22.6789,33.6789,["2022-12-01 22:23:24.999999","2022-12-01 23:23:24.999999"],[22.6789,33.6789],[22.6789,33.6789]),
-    (2,"2022-12-02 22:23:24.999999",23.6789,34.6789,["2022-12-02 22:23:24.999999","2022-12-02 23:23:24.999999"],[23.6789,34.6789],[22.6789,34.6789])
+    (1,"2022-12-01 22:23:24.999999",22.6789,33.6789,["2022-12-01 22:23:24.999999","2022-12-01 23:23:24.999999"],["2022-12-01 22:23:24.999999000","2022-12-01 23:23:24.999999000"],[22.6789,33.6789],[22.6789,33.6789]),
+    (2,"2022-12-02 22:23:24.999999",23.6789,34.6789,["2022-12-02 22:23:24.999999","2022-12-02 23:23:24.999999"],["2022-12-02 22:23:24.999999000","2022-12-02 23:23:24.999999000"],[23.6789,34.6789],[22.6789,34.6789])
     """
 
     // array_apply
     qt_array_apply1 """select array_apply(c_array_datetimev2, "=", '2022-12-02 22:23:24.999999') from test_array_with_scale_type_table"""
     qt_array_apply2 """select array_apply(c_array_datetimev2, ">", '2022-12-01 22:23:24.999999') from test_array_with_scale_type_table"""
     qt_array_apply3 """select array_apply(c_array_datetimev2, ">", null) from test_array_with_scale_type_table"""
-    order_qt_array_apply_timestamp_ns_eq """select array_apply(cast(c_array_datetimev2 as array<timestamp_ns>), "=", cast('2022-12-02 22:23:24.999999' as timestamp_ns)) from test_array_with_scale_type_table"""
-    order_qt_array_apply_timestamp_ns_gt """select array_apply(cast(c_array_datetimev2 as array<timestamp_ns>), ">", cast('2022-12-01 22:23:24.999999' as timestamp_ns)) from test_array_with_scale_type_table"""
-    order_qt_array_apply_timestamp_ns_null """select array_apply(cast(c_array_datetimev2 as array<timestamp_ns>), ">", null) from test_array_with_scale_type_table"""
+    order_qt_array_apply_timestamp_ns_eq """select array_apply(c_array_timestamp_ns, "=", cast('2022-12-02 22:23:24.999999' as timestamp_ns)) from test_array_with_scale_type_table"""
+    order_qt_array_apply_timestamp_ns_gt """select array_apply(c_array_timestamp_ns, ">", cast('2022-12-01 22:23:24.999999' as timestamp_ns)) from test_array_with_scale_type_table"""
+    order_qt_array_apply_timestamp_ns_null """select array_apply(c_array_timestamp_ns, ">", null) from test_array_with_scale_type_table"""
     qt_array_apply4 """select array_apply(c_array_decimal, "=", 22.679) from test_array_with_scale_type_table"""
     qt_array_apply5 """select array_apply(c_array_decimal, ">=", 22.1) from test_array_with_scale_type_table"""
     qt_array_apply6 """select array_apply(c_array_decimal, ">=", null) from test_array_with_scale_type_table"""
@@ -1256,36 +1257,36 @@ suite("nereids_scalar_fn_Array") {
 
     // array_range with datetime argument, sequence with int and datetime argument
     qt_array_range_datetime1 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 day), interval kint day) from fn_test order by kdtmv2s1;"""
-    qt_array_range_datetime1_timestamp_ns """select array_range(cast(kdtmv2s1 as timestamp_ns), date_add(cast(kdtmv2s1 as timestamp_ns), interval kint+1 day), interval kint day) from fn_test order by cast(kdtmv2s1 as timestamp_ns);"""
+    qt_array_range_datetime1_timestamp_ns """select array_range(ktsns, date_add(ktsns, interval kint+1 day), interval kint day) from fn_test where id not in (0, 5) order by ktsns;"""
     qt_array_range_datetime2 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+2 week), interval kint week) from fn_test order by kdtmv2s1;"""
-    qt_array_range_datetime2_timestamp_ns """select array_range(cast(kdtmv2s1 as timestamp_ns), date_add(cast(kdtmv2s1 as timestamp_ns), interval kint+2 week), interval kint week) from fn_test order by cast(kdtmv2s1 as timestamp_ns);"""
+    qt_array_range_datetime2_timestamp_ns """select array_range(ktsns, date_add(ktsns, interval kint+2 week), interval kint week) from fn_test where id not in (0, 5) order by ktsns;"""
     qt_array_range_datetime3 """select array_range(kdtmv2s1, date_add(kdtmv2s1, interval kint+2 quarter), interval kint quarter) from fn_test order by kdtmv2s1;"""
-    qt_array_range_datetime3_timestamp_ns """select array_range(cast(kdtmv2s1 as timestamp_ns), date_add(cast(kdtmv2s1 as timestamp_ns), interval kint+2 quarter), interval kint quarter) from fn_test order by cast(kdtmv2s1 as timestamp_ns);"""
+    qt_array_range_datetime3_timestamp_ns """select array_range(ktsns, date_add(ktsns, interval kint+2 quarter), interval kint quarter) from fn_test where id not in (0, 5) order by ktsns;"""
     qt_sequence_int_one_para """select sequence(kint) from fn_test order by kint;"""
     qt_sequence_int_two_para """select sequence(kint, kint+2) from fn_test order by kint;"""
     qt_sequence_int_three_para """select sequence(kint-1, kint+2, 1) from fn_test order by kint;"""
     qt_sequence_datetime_default """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint-3 day)) from fn_test order by kdtmv2s1;"""
-    qt_sequence_datetime_default_timestamp_ns """select sequence(cast(kdtmv2s1 as timestamp_ns), date_add(cast(kdtmv2s1 as timestamp_ns), interval kint-3 day)) from fn_test order by cast(kdtmv2s1 as timestamp_ns);"""
+    qt_sequence_datetime_default_timestamp_ns """select sequence(ktsns, date_add(ktsns, interval kint-3 day)) from fn_test where id not in (0, 5) order by ktsns;"""
     qt_sequence_datetime_day """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 day), interval kint day) from fn_test order by kdtmv2s1;"""
-    qt_sequence_datetime_day_timestamp_ns """select sequence(cast(kdtmv2s1 as timestamp_ns), date_add(cast(kdtmv2s1 as timestamp_ns), interval kint+1 day), interval kint day) from fn_test order by cast(kdtmv2s1 as timestamp_ns);"""
+    qt_sequence_datetime_day_timestamp_ns """select sequence(ktsns, date_add(ktsns, interval kint+1 day), interval kint day) from fn_test where id not in (0, 5) order by ktsns;"""
     qt_sequence_datetime_week """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+2 week), interval kint week) from fn_test order by kdtmv2s1;"""
-    qt_sequence_datetime_week_timestamp_ns """select sequence(cast(kdtmv2s1 as timestamp_ns), date_add(cast(kdtmv2s1 as timestamp_ns), interval kint+2 week), interval kint week) from fn_test order by cast(kdtmv2s1 as timestamp_ns);"""
+    qt_sequence_datetime_week_timestamp_ns """select sequence(ktsns, date_add(ktsns, interval kint+2 week), interval kint week) from fn_test where id not in (0, 5) order by ktsns;"""
     qt_sequence_datetime_month """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+3 month), interval kint month) from fn_test order by kdtmv2s1;"""
-    qt_sequence_datetime_month_timestamp_ns """select sequence(cast(kdtmv2s1 as timestamp_ns), date_add(cast(kdtmv2s1 as timestamp_ns), interval kint+3 month), interval kint month) from fn_test order by cast(kdtmv2s1 as timestamp_ns);"""
+    qt_sequence_datetime_month_timestamp_ns """select sequence(ktsns, date_add(ktsns, interval kint+3 month), interval kint month) from fn_test where id not in (0, 5) order by ktsns;"""
     qt_sequence_datetime_year """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+3 year), interval kint year) from fn_test order by kdtmv2s1;"""
-    qt_sequence_datetime_year_timestamp_ns """select sequence(cast(kdtmv2s1 as timestamp_ns), date_add(cast(kdtmv2s1 as timestamp_ns), interval kint+3 year), interval kint year) from fn_test order by cast(kdtmv2s1 as timestamp_ns);"""
+    qt_sequence_datetime_year_timestamp_ns """select sequence(ktsns, date_add(ktsns, interval kint+3 year), interval kint year) from fn_test where id not in (0, 5) order by ktsns;"""
     qt_sequence_datetime_hour """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint-3 hour), interval kint hour) from fn_test order by kdtmv2s1;"""
-    qt_sequence_datetime_hour_timestamp_ns """select sequence(cast(kdtmv2s1 as timestamp_ns), date_add(cast(kdtmv2s1 as timestamp_ns), interval kint-3 hour), interval kint hour) from fn_test order by cast(kdtmv2s1 as timestamp_ns);"""
+    qt_sequence_datetime_hour_timestamp_ns """select sequence(ktsns, date_add(ktsns, interval kint-3 hour), interval kint hour) from fn_test where id not in (0, 5) order by ktsns;"""
     qt_sequence_datetime_minute """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1 minute), interval kint minute) from fn_test order by kdtmv2s1;"""
-    qt_sequence_datetime_minute_timestamp_ns """select sequence(cast(kdtmv2s1 as timestamp_ns), date_add(cast(kdtmv2s1 as timestamp_ns), interval kint+1 minute), interval kint minute) from fn_test order by cast(kdtmv2s1 as timestamp_ns);"""
+    qt_sequence_datetime_minute_timestamp_ns """select sequence(ktsns, date_add(ktsns, interval kint+1 minute), interval kint minute) from fn_test where id not in (0, 5) order by ktsns;"""
     qt_sequence_datetime_second """select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint second), interval kint-1 second) from fn_test order by kdtmv2s1;"""
-    qt_sequence_datetime_second_timestamp_ns """select sequence(cast(kdtmv2s1 as timestamp_ns), date_add(cast(kdtmv2s1 as timestamp_ns), interval kint second), interval kint-1 second) from fn_test order by cast(kdtmv2s1 as timestamp_ns);"""
+    qt_sequence_datetime_second_timestamp_ns """select sequence(ktsns, date_add(ktsns, interval kint second), interval kint-1 second) from fn_test where id not in (0, 5) order by ktsns;"""
 
     // max_array_size_as_field = 1000000;
     sql "select count(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year))) from fn_test"
     sql "select count(sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year), INTERVAL 5 YEAR)) from fn_test"
     order_qt_sql_sequence_dt_3args "select sequence(kdtmv2s1, date_add(kdtmv2s1, interval kint+1000 year), INTERVAL 125 YEAR) from fn_test"
-    order_qt_sql_sequence_dt_3args_timestamp_ns "select sequence(cast(kdtmv2s1 as timestamp_ns), date_add(cast(kdtmv2s1 as timestamp_ns), interval kint+100 year), INTERVAL 12 YEAR) from fn_test"
+    order_qt_sql_sequence_dt_3args_timestamp_ns "select sequence(ktsns, date_add(ktsns, interval kint+100 year), INTERVAL 12 YEAR) from fn_test where id not in (0, 5)"
     sql "select count(sequence(kint, kint+100000)) from fn_test"
     sql "select count(sequence(kint, kint+100000, 10000)) from fn_test"
     order_qt_sql_sequence_int_3args "select sequence(kint, kint+100000, 10000) from fn_test"

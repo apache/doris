@@ -31,10 +31,8 @@ import org.apache.doris.nereids.trees.expressions.Default;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.TimestampNsDefaultValueUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -92,12 +90,6 @@ public class RewriteDefaultExpression implements ExpressionPatternRuleFactory {
                 throw new AnalysisException("Column '" + column.getName()
                         + "' has no default value and does not allow NULL or column is auto-increment");
             }
-        }
-
-        Optional<TimeStampNsLiteral> timestampNsDefault
-                = TimestampNsDefaultValueUtils.currentTimestampLiteral(column);
-        if (timestampNsDefault.isPresent()) {
-            return timestampNsDefault.get();
         }
 
         Expression defaultValueExpr = new NereidsParser().parseExpression(defaultValueSql);

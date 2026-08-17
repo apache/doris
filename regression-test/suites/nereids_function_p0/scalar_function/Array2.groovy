@@ -174,8 +174,8 @@ suite("nereids_scalar_fn_Array2") {
                                  WHEN y IS NULL THEN 1
                                  WHEN x < y THEN 1
                                  WHEN x = y THEN 0
-                                 ELSE -1 END, arr) FROM (SELECT array_agg(cast(kdtmv2s3 as timestamp_ns)) AS arr FROM fn_test)t"""
-    order_qt_sql_array_sort_TimestampNs_notnull """SELECT array_sort((x, y) -> IF(x < y, 1, IF(x = y, 0, -1)), arr) FROM (SELECT array_agg(cast(kdtmv2s3 as timestamp_ns)) AS arr FROM fn_test_not_nullable)t"""
+                                 ELSE -1 END, arr) FROM (SELECT array_agg(ktsns) AS arr FROM fn_test)t"""
+    order_qt_sql_array_sort_TimestampNs_notnull """SELECT array_sort((x, y) -> IF(x < y, 1, IF(x = y, 0, -1)), arr) FROM (SELECT array_agg(ktsns) AS arr FROM fn_test_not_nullable)t"""
     order_qt_sql_array_sort_Boolean """SELECT array_sort((x, y) -> CASE WHEN x IS NULL THEN -1
                                  WHEN y IS NULL THEN 1
                                  WHEN x < y THEN 1
@@ -200,6 +200,7 @@ suite("nereids_scalar_fn_Array2") {
             `kadtv2` array<datev2> null,
             `kadtmv2_` array<datetimev2(0)> null,
             `kadtmv2` array<datetimev2(6)> null,
+            `katsns` array<timestamp_ns> null,
             `kachr` array<char(255)> null,
             `kavchr` array<varchar(65533)> null,
             `kastr` array<string> null,
@@ -213,7 +214,7 @@ suite("nereids_scalar_fn_Array2") {
 
     sql """INSERT INTO fn_test_array_sort (
             id, katint, kasint, kaint, kabint, kalint, kafloat, kadbl,
-            kadt, kadtm, kadtv2, kadtmv2_, kadtmv2,
+            kadt, kadtm, kadtv2, kadtmv2_, kadtmv2, katsns,
             kachr, kavchr, kastr,
             kadcml2, kaipv4, kaipv6
         ) VALUES
@@ -231,6 +232,7 @@ suite("nereids_scalar_fn_Array2") {
             ['2024-01-03','2024-01-01',NULL,'2024-01-05','2024-01-02'],
             ['2024-01-03 10:00:00', '2024-01-01 10:00:00', NULL, '2024-01-05 10:00:00', '2024-01-02 10:00:00'],
             ['2024-01-03 10:00:00.000000','2024-01-01 10:00:00.000000',NULL,'2024-01-05 10:00:00.000000','2024-01-02 10:00:00.000000'],
+            ['1677-09-21 00:12:43.145224192','2024-02-29 12:34:56.123456789',NULL,'2024-02-29 12:34:56.000000000','2262-04-11 23:47:16.854775807'],
             ['c','a',NULL,'e','b'],
             ['ccc','aaa',NULL,'eee','bbb'],
             ['ccc','aaa',NULL,'eee','bbb'],
@@ -255,6 +257,7 @@ suite("nereids_scalar_fn_Array2") {
             ['2024-02-09','2024-02-07',NULL,'2024-02-08','2024-02-06'],
             ['2024-02-09 10:00:00','2024-02-07 10:00:00',NULL,'2024-02-08 10:00:00','2024-02-06 10:00:00'],
             ['2024-02-09 10:00:00.000000','2024-02-07 10:00:00.000000',NULL,'2024-02-08 10:00:00.000000','2024-02-06 10:00:00.000000'],
+            ['1969-12-31 23:59:59.999999999','1970-01-01 00:00:00.000000000',NULL,'2024-02-29 12:34:56.123456789','2024-02-29 12:34:56.000000000'],
             ['i','g',NULL,'h','f'],
             ['iii','ggg',NULL,'hhh','fff'],
             ['iii','ggg',NULL,'hhh','fff'],
@@ -279,6 +282,7 @@ suite("nereids_scalar_fn_Array2") {
             ['2024-03-04','2024-03-03',NULL,'2024-03-02','2024-03-01'],
             ['2024-03-04 10:00:00','2024-03-03 10:00:00',NULL,'2024-03-02 10:00:00','2024-03-01 10:00:00'],
             ['2024-03-04 10:00:00.000000','2024-03-03 10:00:00.000000',NULL,'2024-03-02 10:00:00.000000','2024-03-01 10:00:00.000000'],
+            ['2024-03-04 10:00:00.000000001','2024-03-03 10:00:00.000001000',NULL,'2024-03-02 10:00:00.001000000','2024-03-01 10:00:00.010203040'],
             ['d','c',NULL,'b','a'],
             ['ddd','ccc',NULL,'bbb','aaa'],
             ['ddd','ccc',NULL,'bbb','aaa'],
@@ -442,7 +446,7 @@ suite("nereids_scalar_fn_Array2") {
                             WHEN x < y THEN 1
                             WHEN x = y THEN 0
                             ELSE -1 END,
-                cast(kadtmv2 as array<timestamp_ns>))
+                katsns)
         FROM fn_test_array_sort
         ORDER BY id
     """

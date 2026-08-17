@@ -36,6 +36,15 @@
 namespace doris {
 using namespace ut_type;
 
+TEST(VTimestampFunctionsTest, current_timestamp_ns_precision_test) {
+    TimezoneUtils::load_timezones_to_cache();
+    InputTypeSet input_types = {ConstedNotnull {PrimitiveType::TYPE_INT}};
+    DataSet data_set = {{{int32_t {9}}, std::string("2019-08-06 01:38:57.805000000")}};
+
+    static_cast<void>(
+            check_function<DataTypeTimeStampNs>("now", input_types, data_set));
+}
+
 TEST(VTimestampFunctionsTest, day_of_week_test) {
     std::string func_name = "dayofweek";
 

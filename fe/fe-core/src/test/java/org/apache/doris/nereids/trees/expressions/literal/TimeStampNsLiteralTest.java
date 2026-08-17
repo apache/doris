@@ -27,7 +27,9 @@ import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -169,6 +171,26 @@ class TimeStampNsLiteralTest {
                 ((LargeIntLiteral) normal.checkedCastTo(LargeIntType.INSTANCE)).getValue().toString());
         Assertions.assertThrows(AnalysisException.class,
                 () -> normal.checkedCastTo(IntegerType.INSTANCE));
+    }
+
+    @Test
+    void testTimestampTzCastMatchesBeDstTransitionPolicy() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            TimeStampNsLiteral gap = new TimeStampNsLiteral(
+                    "2024-03-10 02:30:00.123456789");
+            Assertions.assertEquals("2024-03-10 07:00:00.123457+00:00",
+                    ((Literal) gap.checkedCastTo(TimeStampTzType.of(6))).getStringValue());
+
+            TimeStampNsLiteral overlap = new TimeStampNsLiteral(
+                    "2024-11-03 01:30:00.123456789");
+            Assertions.assertEquals("2024-11-03 05:30:00.123457+00:00",
+                    ((Literal) overlap.checkedCastTo(TimeStampTzType.of(6))).getStringValue());
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test

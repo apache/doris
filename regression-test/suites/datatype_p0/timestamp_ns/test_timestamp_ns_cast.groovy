@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_timestamp_ns_cast") {
+suite("test_timestamp_ns_cast", "nonConcurrent") {
     sql "set time_zone = '+08:00'"
     sql "set enable_strict_cast = false"
     setFeConfigTemporary([

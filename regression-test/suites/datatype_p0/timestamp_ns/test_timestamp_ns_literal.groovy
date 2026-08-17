@@ -113,7 +113,9 @@ suite("test_timestamp_ns_literal") {
     qt_current_timestamp_support """
         select
             cast(current_timestamp as timestamp_ns) is not null,
-            cast(current_timestamp(6) as timestamp_ns) is not null
+            cast(current_timestamp(6) as timestamp_ns) is not null,
+            current_timestamp(9) is not null,
+            right(cast(current_timestamp(7) as string), 2) = '00'
     """
 
     sql "drop table if exists test_timestamp_ns_current_default"
@@ -123,13 +125,19 @@ suite("test_timestamp_ns_literal") {
             dt_literal timestamp_ns default '1970-01-01 00:00:00.000000001',
             dt_current timestamp_ns default current_timestamp,
             dt_current_6 timestamp_ns default current_timestamp(6),
-            dt_current_9 timestamp_ns default current_timestamp(9)
+            dt_current_9 timestamp_ns default current_timestamp(9),
+            dt_current_9_copy timestamp_ns default current_timestamp(9)
         )
         distributed by hash(id) buckets 1
         properties("replication_num" = "1")
     """
     sql "insert into test_timestamp_ns_current_default(id) values (1)"
-    sql "insert into test_timestamp_ns_current_default values (2, default, default, default, default)"
+    sql "insert into test_timestamp_ns_current_default values (2, default, default, default, default, default)"
+    sql """
+        insert into test_timestamp_ns_current_default values
+            (3, default, default, default, default, default),
+            (4, default, default, default, default, default)
+    """
     order_qt_timestamp_ns_defaults """
         select
             id,
@@ -137,11 +145,17 @@ suite("test_timestamp_ns_literal") {
             dt_current is not null,
             dt_current_6 is not null,
             dt_current_9 is not null,
+            dt_current_9 = dt_current_9_copy,
             dt_current between seconds_sub(cast(current_timestamp as timestamp_ns), 3600)
                 and cast(current_timestamp as timestamp_ns),
             right(cast(dt_current_6 as string), 3) = '000'
         from test_timestamp_ns_current_default
         order by id
+    """
+    qt_timestamp_ns_default_statement_snapshot """
+        select count(distinct dt_current_9) = 1
+        from test_timestamp_ns_current_default
+        where id in (3, 4)
     """
 
     test {

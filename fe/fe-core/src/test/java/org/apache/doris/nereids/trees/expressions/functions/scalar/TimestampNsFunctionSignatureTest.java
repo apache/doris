@@ -75,6 +75,15 @@ class TimestampNsFunctionSignatureTest {
     }
 
     @Test
+    void testNowUsesTimestampNsForNanosecondPrecision() {
+        assertAnalyzedType("now(6)", DateTimeV2Type.MAX);
+        assertAnalyzedType("now(7)", TimeStampNsType.INSTANCE);
+        assertAnalyzedType("now(9)", TimeStampNsType.INSTANCE);
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> ExpressionAnalyzer.analyzeFunction(null, null, parser.parseExpression("now(10)")));
+    }
+
+    @Test
     void testUntypedDatetimeInputsDoNotSelectTimestampNsSignatures() {
         VarcharLiteral first = new VarcharLiteral("2010-01-01 01:00:00");
         VarcharLiteral second = new VarcharLiteral("2010-01-02 01:00:00");

@@ -302,6 +302,17 @@ public class DateTimeLiteral extends DateLiteral {
         return transition.getInstant();
     }
 
+    /**
+     * Resolve a local civil second with the BE cctz policy while preserving its fraction.
+     * In a DST gap cctz maps the civil second to the transition instant independently of the
+     * subsecond part, so resolve the integral second first and then restore the fraction.
+     */
+    public static Instant convertLocalToInstantPreservingFraction(
+            LocalDateTime localDateTime, ZoneId fromZone) {
+        return convertLocalToInstant(localDateTime.withNano(0), fromZone)
+                .plusNanos(localDateTime.getNano());
+    }
+
     public boolean checkRange() {
         return checkRange(year, month, day) || hour > MAX_DATETIME.getHour() || minute > MAX_DATETIME.getMinute()
                 || second > MAX_DATETIME.getSecond() || microSecond > MAX_MICROSECOND;
