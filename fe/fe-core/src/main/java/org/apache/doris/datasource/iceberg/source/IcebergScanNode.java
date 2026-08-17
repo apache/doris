@@ -814,7 +814,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                 : source.getTargetTable().getColumns();
         ExternalUtil.initSchemaInfoForAllColumn(params, -1L, columns,
                 nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(),
-                getBase64EncodedInitialDefaultsForScan());
+                getBase64EncodedInitialDefaultsForScan(),
+                getBinaryLikeFieldIdsForScan(), getFieldOptionalityForScan());
     }
 
     @VisibleForTesting
@@ -826,11 +827,25 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @VisibleForTesting
     Map<Integer, String> getBase64EncodedInitialDefaultsForScan() throws UserException {
+        return IcebergUtils.getBase64EncodedInitialDefaults(getSchemaForInitialDefaultTransport());
+    }
+
+    @VisibleForTesting
+    Set<Integer> getBinaryLikeFieldIdsForScan() throws UserException {
+        return IcebergUtils.getBinaryLikeFieldIds(getSchemaForInitialDefaultTransport());
+    }
+
+    @VisibleForTesting
+    Map<Integer, Boolean> getFieldOptionalityForScan() throws UserException {
+        return IcebergUtils.getFieldOptionality(getSchemaForInitialDefaultTransport());
+    }
+
+    private Schema getSchemaForInitialDefaultTransport() throws UserException {
         if (isSystemTable) {
             // System-table columns are derived from the metadata table schema. Some metadata
             // tables, such as position_deletes, do not support Table.newScan(). Use the same
             // schema that produced source.getTargetTable().getColumns() to keep defaults aligned.
-            return IcebergUtils.getBase64EncodedInitialDefaults(icebergTable.schema());
+            return icebergTable.schema();
         }
         IcebergTableQueryInfo selectedSnapshot = getSpecifiedSnapshot();
         Schema scanSchema = null;
@@ -846,8 +861,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         // A branch can expose a schema newer than its data snapshot. The statement-pinned schema
         // produced the target columns, so default markers must not be recomputed from that snapshot.
-        return IcebergUtils.getBase64EncodedInitialDefaults(
-                Preconditions.checkNotNull(scanSchema, "Schema for Iceberg scan is null"));
+        return Preconditions.checkNotNull(scanSchema, "Schema for Iceberg scan is null");
     }
 
     @Override

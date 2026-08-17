@@ -90,9 +90,11 @@ public abstract class AbstractJobProcessor implements JobProcessor {
         }
         SingleFragmentPipelineTask fragmentTask = backendFragmentTasks.get().get(
                 new BackendFragmentId(params.getBackendId(), params.getFragmentId()));
+        boolean transfersExternalFileOwnership = params.isDone()
+                && (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
+                || params.isSetMcCommitDatas() || params.isSetPaimonCommitMessages());
         if (fragmentTask == null) {
-            if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
-                    || params.isSetMcCommitDatas() || params.isSetPaimonCommitMessages()) {
+            if (transfersExternalFileOwnership) {
                 throw new IllegalStateException("Missing fragment handler for external-file report");
             }
             return false;
@@ -121,9 +123,8 @@ public abstract class AbstractJobProcessor implements JobProcessor {
             }
         }
         doProcessReportExecStatus(params, fragmentTask);
-        return (!params.isSetHivePartitionUpdates() && !params.isSetIcebergCommitDatas()
-                && !params.isSetMcCommitDatas() && !params.isSetPaimonCommitMessages())
-                || fragmentTask.isDone();
+        // A legacy periodic vector is informational; only EOS requires durable acceptance.
+        return !transfersExternalFileOwnership || fragmentTask.isDone();
     }
 
     private Map<BackendFragmentId, SingleFragmentPipelineTask> buildBackendFragmentTasks(

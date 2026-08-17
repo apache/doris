@@ -147,6 +147,7 @@ Status VHivePartitionWriter::close(const Status& status) {
                                         result_status.to_string());
         }
     }
+    _register_rejected_report_cleanup();
     bool status_ok = result_status.ok() && status.ok();
     if (!status_ok) {
         _add_s3_mpu_pending_upload_for_rollback();
@@ -165,6 +166,21 @@ Status VHivePartitionWriter::close(const Status& status) {
         _state->add_hive_partition_updates(partition_update);
     }
     return result_status;
+}
+
+void VHivePartitionWriter::_register_rejected_report_cleanup() {
+    if (_rejected_report_cleanup_registered || _write_info.file_type != TFileType::FILE_S3 ||
+        _file_writer == nullptr) {
+        return;
+    }
+    auto* s3_writer = dynamic_cast<io::S3FileWriter*>(_file_writer.get());
+    if (s3_writer == nullptr || s3_writer->upload_id().empty()) {
+        return;
+    }
+    // The writer can be destroyed before the final RPC result; the cleanup owns only the client
+    // and immutable upload identity needed when FE explicitly rejects ownership.
+    _state->add_rejected_external_file_report_cleanup(s3_writer->rejected_report_cleanup());
+    _rejected_report_cleanup_registered = true;
 }
 
 Status VHivePartitionWriter::write(Block& block) {

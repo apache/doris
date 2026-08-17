@@ -59,6 +59,29 @@ class QeProcessorImplReportAckTest {
     }
 
     @Test
+    void acceptsLegacyPeriodicExternalReportWithoutTakingOwnership() {
+        TReportExecStatusParams params = params(new TUniqueId(12345, 7)).setDone(false);
+
+        TReportExecStatusResult result = report(params);
+
+        Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
+        Assertions.assertFalse(result.isSetExternalFileCommitDataAccepted());
+    }
+
+    @Test
+    void forwardsLegacyPeriodicExternalReportWithoutRequiringAcceptance() throws Exception {
+        TUniqueId queryId = new TUniqueId(12345, 8);
+        Coordinator coordinator = register(queryId);
+        TReportExecStatusParams params = params(queryId).setDone(false);
+
+        TReportExecStatusResult result = report(params);
+
+        Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
+        Assertions.assertFalse(result.isSetExternalFileCommitDataAccepted());
+        Mockito.verify(coordinator).updateFragmentExecStatus(params);
+    }
+
+    @Test
     void rejectsExternalReportWhenHandlerThrows() throws Exception {
         TUniqueId queryId = new TUniqueId(12345, 2);
         Coordinator coordinator = register(queryId);

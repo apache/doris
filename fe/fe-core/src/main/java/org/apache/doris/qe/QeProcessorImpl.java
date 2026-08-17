@@ -285,11 +285,14 @@ public final class QeProcessorImpl implements QeProcessor {
         }
 
         boolean hasExternalCommitData = hasExternalCommitData(params);
-        String reportKey = hasExternalCommitData ? externalFileReportKey(params) : null;
-        if (hasExternalCommitData && reportKey == null) {
+        // Legacy BEs may attach the same vectors to periodic reports and resend them at EOS. Only
+        // the final report transfers ownership, so rollout must not reject or cache the preview.
+        boolean transfersExternalFileOwnership = hasExternalCommitData && params.isDone();
+        String reportKey = transfersExternalFileOwnership ? externalFileReportKey(params) : null;
+        if (transfersExternalFileOwnership && reportKey == null) {
             return rejectedExternalFileReport(result, "External-file report is missing its identity fields");
         }
-        if (hasExternalCommitData && acceptedExternalFileReports.getIfPresent(reportKey) != null) {
+        if (transfersExternalFileOwnership && acceptedExternalFileReports.getIfPresent(reportKey) != null) {
             // Keep acceptance available after coordinator removal so a lost response is retry-safe.
             result.setStatus(new TStatus(TStatusCode.OK));
             result.setExternalFileCommitDataAccepted(true);
@@ -302,24 +305,24 @@ public final class QeProcessorImpl implements QeProcessor {
             // Currently, the execution of query is splited from the exec status process.
             // So, it is very likely that when exec status arrived on FE asynchronously, coordinator
             // has been removed from coordinatorMap.
-            return hasExternalCommitData
+            return transfersExternalFileOwnership
                     ? rejectedExternalFileReport(result, "Coordinator no longer owns this external-file report")
                     : result;
         }
         try {
             boolean accepted = info.getCoord().updateFragmentExecStatus(params);
-            if (hasExternalCommitData && !accepted) {
+            if (transfersExternalFileOwnership && !accepted) {
                 return rejectedExternalFileReport(result, "FE has not accepted the external-file report");
             }
         } catch (Exception e) {
             LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
                     DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id), e);
-            return hasExternalCommitData
+            return transfersExternalFileOwnership
                     ? rejectedExternalFileReport(result, "FE did not accept the external-file report")
                     : result;
         }
         result.setStatus(new TStatus(TStatusCode.OK));
-        if (hasExternalCommitData) {
+        if (transfersExternalFileOwnership) {
             // Publish the retry token before replying; a transport loss cannot revoke FE ownership.
             acceptedExternalFileReports.put(reportKey, Boolean.TRUE);
             result.setExternalFileCommitDataAccepted(true);

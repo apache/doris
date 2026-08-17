@@ -512,9 +512,6 @@ Status IcebergTableReader::annotate_projected_column(const TFileScanSlotInfo& sl
     RETURN_IF_ERROR(format::TableReader::annotate_projected_column(slot_info, context, column));
     DORIS_CHECK(context != nullptr);
     DORIS_CHECK(column != nullptr);
-    if (!supports_iceberg_scan_semantics_v2(context->scan_params)) {
-        return Status::OK();
-    }
     if (!context->schema_column.has_value()) {
         return Status::OK();
     }
@@ -528,7 +525,8 @@ Status IcebergTableReader::annotate_projected_column(const TFileScanSlotInfo& sl
         // The Iceberg typed literal is authoritative. In particular, this replaces FE's generic
         // string expression for Base64-transported UUID/BINARY/FIXED defaults.
         column->default_expr = schema_column.default_expr;
-    } else if (schema_column.is_optional.has_value() && !*schema_column.is_optional) {
+    } else if (supports_iceberg_scan_semantics_v2(context->scan_params) &&
+               schema_column.is_optional.has_value() && !*schema_column.is_optional) {
         // FE's generic external-column metadata currently treats Iceberg columns as nullable. Clear
         // that fallback so a physically missing required field is rejected by the Iceberg mapper.
         column->default_expr = nullptr;

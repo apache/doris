@@ -31,9 +31,11 @@ import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.HiveProperties;
 import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -47,6 +49,7 @@ import org.apache.doris.thrift.THivePartition;
 import org.apache.doris.thrift.THiveSerDeProperties;
 import org.apache.doris.thrift.THiveTableSink;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
@@ -55,6 +58,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -93,9 +97,6 @@ public class HiveTableSink extends BaseExternalTableDataSink {
     public void bindDataSink(Optional<InsertCommandContext> insertCtx)
             throws AnalysisException {
         THiveTableSink tSink = new THiveTableSink();
-        // The legacy planner uses the same deferred Azure protocol as the connector planner, so the BE
-        // must not fall back to publishing blocks before FE has durably accepted the commit records.
-        tSink.setSupportsDeferredAzureMultipart(true);
         tSink.setDbName(targetTable.getDbName());
         tSink.setTableName(targetTable.getName());
         Set<String> partNames = new HashSet<>(targetTable.getPartitionColumnNames());
@@ -136,6 +137,14 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         LocationPath locationPath = LocationPath.of(sd.getLocation(), targetTable.getStoragePropertiesMap());
         String location = sd.getLocation();
         TFileType fileType = locationPath.getTFileTypeForBE();
+        Map<String, String> backendStorageProperties = targetTable.getBackendStorageProperties();
+        boolean isAzureObjectStorage = fileType == TFileType.FILE_S3
+                && "azure".equalsIgnoreCase(
+                        backendStorageProperties.get(StorageProperties.FS_PROVIDER_KEY));
+        validateDeferredAzureMultipartBackendCompatibility(isAzureObjectStorage,
+                Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values());
+        // The flag is safe only after every eligible BE is known to understand deferred block IDs.
+        tSink.setSupportsDeferredAzureMultipart(true);
         if (fileType == TFileType.FILE_S3) {
             locationParams.setWritePath(locationPath.getNormalizedLocation());
             locationParams.setOriginalWritePath(originalLocation);
@@ -164,10 +173,24 @@ public class HiveTableSink extends BaseExternalTableDataSink {
             tSink.setBrokerAddresses(getBrokerAddresses(targetTable.getCatalog().bindBrokerName()));
         }
 
-        tSink.setHadoopConfig(targetTable.getBackendStorageProperties());
+        tSink.setHadoopConfig(backendStorageProperties);
 
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setHiveTableSink(tSink);
+    }
+
+    @VisibleForTesting
+    static void validateDeferredAzureMultipartBackendCompatibility(
+            boolean isAzureObjectStorage, Iterable<Backend> backends) throws AnalysisException {
+        if (!isAzureObjectStorage) {
+            return;
+        }
+        for (Backend backend : backends) {
+            if (backend.isQueryAvailable() && backend.isSmoothUpgradeSrc()) {
+                throw new AnalysisException("Azure Hive writes are unavailable while backend "
+                        + backend.getId() + " is a smooth upgrade source");
+            }
+        }
     }
 
     private String createTempPath(String location) {

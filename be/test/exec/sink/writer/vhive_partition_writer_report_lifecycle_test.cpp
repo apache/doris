@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <string>
@@ -36,6 +37,8 @@ namespace {
 
 class RecordingObjStorageClient final : public io::ObjStorageClient {
 public:
+    std::atomic<int> abort_count {0};
+
     io::ObjectStorageUploadResponse create_multipart_upload(
             const io::ObjectStoragePathOptions&) override {
         return {.resp = io::ObjectStorageResponse::OK(), .upload_id = "upload-id"};
@@ -54,6 +57,11 @@ public:
     io::ObjectStorageResponse complete_multipart_upload(
             const io::ObjectStoragePathOptions&,
             const std::vector<io::ObjectCompleteMultiPart>&) override {
+        return io::ObjectStorageResponse::OK();
+    }
+
+    io::ObjectStorageResponse abort_multipart_upload(const io::ObjectStoragePathOptions&) override {
+        ++abort_count;
         return io::ObjectStorageResponse::OK();
     }
 
@@ -212,6 +220,29 @@ TEST(VHivePartitionWriterReportLifecycleTest, AzureFinalReportCarriesExactBlockI
     ASSERT_EQ(1, pending_uploads.size());
     EXPECT_EQ("upload-id", pending_uploads[0].upload_id);
     EXPECT_EQ("exact-block-id", pending_uploads[0].etags.at(1));
+}
+
+TEST(VHivePartitionWriterReportLifecycleTest, RejectedFinalReportAbortsStagedS3Upload) {
+    MockRuntimeState state;
+    VExprContextSPtrs output_exprs;
+    auto client = std::make_shared<RecordingObjStorageClient>();
+    auto writer = create_closed_hive_writer(&state, output_exprs, client);
+
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+
+    EXPECT_EQ(1, client->abort_count.load());
+}
+
+TEST(VHivePartitionWriterReportLifecycleTest, AmbiguousFinalReportRetainsStagedS3Upload) {
+    MockRuntimeState state;
+    VExprContextSPtrs output_exprs;
+    auto client = std::make_shared<RecordingObjStorageClient>();
+    auto writer = create_closed_hive_writer(&state, output_exprs, client);
+
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::AMBIGUOUS);
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+
+    EXPECT_EQ(0, client->abort_count.load());
 }
 
 } // namespace doris

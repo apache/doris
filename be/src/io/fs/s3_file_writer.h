@@ -21,6 +21,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -69,6 +70,8 @@ public:
                        ? _obj_storage_path_opts.upload_id.value()
                        : std::string();
     }
+
+    std::function<void()> rejected_report_cleanup() const;
 
     Status close(bool non_block = false) override;
     Status try_finish_close() override;

@@ -183,11 +183,7 @@ public class LoadProcessor extends AbstractJobProcessor {
         }
 
         if (!fragmentTask.processReportExecStatus(params, () -> acceptFinalReport(params))) {
-            if ((params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
-                    || params.isSetMcCommitDatas() || params.isSetPaimonCommitMessages())
-                    && !fragmentTask.isDone()) {
-                throw new IllegalStateException("External-file report was not a completed fragment report");
-            }
+            // Old BEs retain periodic commit vectors and replay them at EOS, where ownership moves.
             LOG.debug("Fragment {} is not done, ignore report status: {}",
                     params.getFragmentId(), params.toString());
             return;
