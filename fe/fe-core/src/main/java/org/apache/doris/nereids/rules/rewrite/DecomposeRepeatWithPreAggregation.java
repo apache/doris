@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.properties.ShuffleKeyPruneUtils;
 import org.apache.doris.nereids.rules.rewrite.DistinctAggStrategySelector.DistinctSelectorContext;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
@@ -96,6 +97,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
     private static final Set<Class<? extends AggregateFunction>> SUPPORT_AGG_FUNCTIONS =
             ImmutableSet.of(Sum.class, Sum0.class, Min.class, Max.class, AnyValue.class, Count.class);
     private static final int DECOMPOSE_REPEAT_THRESHOLD = 3;
+    private static final int BALANCE_MULTIPLIER = 128;
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -548,7 +550,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             if (columnStatistic == null || columnStatistic.isUnKnown()) {
                 continue;
             }
-            if (StatisticsUtil.isBalanced(columnStatistic, inputStats.getRowCount(), totalInstanceNum)) {
+            if (isBalanced(columnStatistic, totalInstanceNum, inputStats.getRowCount())) {
                 return Optional.of(candidate);
             }
         }
@@ -617,5 +619,12 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         }
         return repeat.withNormalizedExpr(replacedNewGroupingSets, replacedRepeatOutputs,
                 repeat.getGroupingId().get(), child);
+    }
+
+    private static boolean isBalanced(ColumnStatistic columnStatistic, int instanceNum, double rowCount) {
+        double ndv = columnStatistic.ndv;
+        return ndv > instanceNum * BALANCE_MULTIPLIER
+                && !StatisticsUtil.hasSignificantHotValues(columnStatistic,
+                ShuffleKeyPruneUtils.shuffleKeyHotValueThreshold, rowCount, false);
     }
 }

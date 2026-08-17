@@ -16,8 +16,4 @@
 # specific language governing permissions and limitations
 # under the License.
 
-if [[ ! -f "/mnt/SUCCESS" ]]; then
-    exit 1
-else
-    exit 0
-fi
+bash -c "exec 3<>/dev/tcp/127.0.0.1/${HMS_PORT:-9083}"

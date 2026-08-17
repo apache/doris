@@ -66,7 +66,7 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
         super(ENGINE, refreshExecutor);
         tableLoader = new PaimonTableLoader();
         latestSnapshotProjectionLoader = new PaimonLatestSnapshotProjectionLoader(
-                new PaimonPartitionInfoLoader(tableLoader), this::getPaimonSchemaCacheValue);
+                new PaimonPartitionInfoLoader(), this::getPaimonSchemaCacheValue);
         tableEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_TABLE, NameMapping.class, PaimonTableCacheValue.class,
                 this::loadTableCacheValue, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping)));
@@ -87,6 +87,28 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
     public PaimonSnapshotCacheValue getSnapshotCache(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         return tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getLatestSnapshotCacheValue();
+    }
+
+    public PaimonSnapshotCacheValue loadSnapshotProjection(ExternalTable dorisTable, Table effectiveTable) {
+        return latestSnapshotProjectionLoader.load(dorisTable.getOrBuildNameMapping(), effectiveTable);
+    }
+
+    public PaimonSnapshotCacheValue loadLatestSnapshotFence(ExternalTable dorisTable) {
+        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        Table table = tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getPaimonTable();
+        return latestSnapshotProjectionLoader.loadFence(nameMapping, table);
+    }
+
+    public PaimonSnapshotCacheValue loadSnapshotAtFence(
+            ExternalTable dorisTable, PaimonSnapshot fence) {
+        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        return latestSnapshotProjectionLoader.loadAtFence(nameMapping, fence);
+    }
+
+    public PaimonSnapshotCacheValue loadSnapshotAtFence(
+            ExternalTable dorisTable, Table effectiveTable, PaimonSnapshot fence) {
+        return latestSnapshotProjectionLoader.loadEffectiveAtFence(
+                dorisTable.getOrBuildNameMapping(), effectiveTable, fence);
     }
 
     public PaimonSchemaCacheValue getPaimonSchemaCacheValue(NameMapping nameMapping, long schemaId) {

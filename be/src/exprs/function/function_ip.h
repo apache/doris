@@ -1346,10 +1346,10 @@ public:
                 unpack_if_const(ipv6_column_with_type_and_name.column);
         const auto* ipv6_addr_column = assert_cast<const ColumnString*>(ipv6_column.get());
         // result is nullable column
-        auto col_res = ColumnNullable::create(ColumnIPv6::create(input_rows_count, 0),
-                                              ColumnUInt8::create(input_rows_count, 1));
-        auto& col_res_data = assert_cast<ColumnIPv6*>(&col_res->get_nested_column())->get_data();
-        auto& res_null_map_data = col_res->get_null_map_data();
+        auto col_res_nested = ColumnIPv6::create(input_rows_count, 0);
+        auto col_res_null_map = ColumnUInt8::create(input_rows_count, 1);
+        auto& col_res_data = col_res_nested->get_data();
+        auto& res_null_map_data = col_res_null_map->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             IPv6 ipv6 = 0;
@@ -1365,7 +1365,8 @@ public:
             }
         }
 
-        block.replace_by_position(result, std::move(col_res));
+        block.replace_by_position(result, ColumnNullable::create(std::move(col_res_nested),
+                                                                 std::move(col_res_null_map)));
         return Status::OK();
     }
 };

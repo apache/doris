@@ -91,14 +91,17 @@ public class IcebergDeleteExecutorTest {
         Mockito.when(transactionManager.getTransaction(10L)).thenReturn(transaction);
 
         IcebergExternalTable table = mockIcebergExternalTable(3, transactionManager);
+        Table targetIcebergTable = table.getIcebergTable();
         NereidsPlanner planner = mockPlanner(Collections.singletonList(scanNode));
         ConnectContext ctx = new ConnectContext();
         ctx.setQueryId(new TUniqueId(1L, 2L));
         ctx.getSessionVariable().setEnableNereidsDistributePlanner(false);
         ctx.setThreadLocalInfo();
 
-        IcebergDeleteExecutor executor = new IcebergDeleteExecutor(ctx, table, "label", planner, false, -1L);
-        IcebergDeleteSink sink = new IcebergDeleteSink(table, new org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext());
+        IcebergDeleteExecutor executor = new IcebergDeleteExecutor(
+                ctx, table, targetIcebergTable, "label", planner, false, -1L);
+        IcebergDeleteSink sink = new IcebergDeleteSink(table, targetIcebergTable,
+                new org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext());
 
         executor.finalizeSinkForDelete(null, sink, null);
         TDataSink tDataSink = getTDataSink(sink);
@@ -109,7 +112,7 @@ public class IcebergDeleteExecutorTest {
         executor.txnId = 10L;
         executor.beforeExec();
 
-        Mockito.verify(transaction).beginDelete(table);
+        Mockito.verify(transaction).beginDelete(table, targetIcebergTable);
         ArgumentCaptor<Map<String, List<DeleteFile>>> deleteFilesCaptor = ArgumentCaptor.forClass(Map.class);
         Mockito.verify(transaction).setRewrittenDeleteFilesByReferencedDataFile(deleteFilesCaptor.capture());
         Assertions.assertSame(deleteFile, deleteFilesCaptor.getValue().get(referencedDataFile).get(0));

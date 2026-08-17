@@ -173,7 +173,8 @@ under the License.
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>
                         <excludes>
                             **/apache/doris/thrift/**/*,
-                            **/apache/parquet/**/*
+                            **/apache/parquet/**/*,
+                            **/apache/hadoop/**/*
                         </excludes>
                     </configuration>
                     <executions>
@@ -255,13 +256,13 @@ under the License.
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
         <commons-filerupload.version>1.6.0</commons-filerupload.version>
-        <commons-configuration2.version>2.11.0</commons-configuration2.version>
+        <commons-configuration2.version>2.15.1</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
-        <commons-lang.version>2.6</commons-lang.version>
         <commons-lang3.version>3.19.0</commons-lang3.version>
+        <commons-net.version>3.13.0</commons-net.version>
         <commons-pool2.version>2.2</commons-pool2.version>
         <commons-pool.version>1.5.1</commons-pool.version>
-        <commons-text.version>1.10.0</commons-text.version>
+        <commons-text.version>1.15.0</commons-text.version>
         <commons-math3.version>3.6.1</commons-math3.version>
         <commons-validator.version>1.9.0</commons-validator.version>
         <gson.version>2.10.1</gson.version>
@@ -278,14 +279,14 @@ under the License.
         <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
-        <log4j2.version>2.25.3</log4j2.version>
-        <log4j-1.2.version>2.25.3</log4j-1.2.version>
+        <log4j2.version>2.25.4</log4j2.version>
+        <log4j-1.2.version>2.25.4</log4j-1.2.version>
         <mqtt.version>1.2.5</mqtt.version>
         <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
-        <!--Netty 4.1.94 is not compatible with arrow flight.-->
-        <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <netty-all.version>4.1.130.Final</netty-all.version>
+        <resilience4j.version>2.4.0</resilience4j.version>
+        <!-- Keep Netty compatible with Arrow Flight SQL 19 and other transitive Netty users. -->
+        <netty-all.version>4.2.15.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
@@ -297,8 +298,9 @@ under the License.
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
         <grpc.version>1.65.1</grpc.version>
         <check.freamework.version>3.53.0</check.freamework.version>
-        <cel.version>0.9.1-proto3</cel.version>
-        <protobuf.version>3.25.8</protobuf.version>
+        <!-- FE-only Arrow 19 startup POC: align protobuf runtime with Arrow Java 19's protobuf BOM. -->
+        <protobuf.version>4.33.4</protobuf.version>
+        <cel.version>0.12.0</cel.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
         <protoc.artifact.version>3.24.3</protoc.artifact.version>
@@ -332,11 +334,12 @@ under the License.
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.10.1</iceberg.version>
+        <lance.version>9.1.0-beta.3</lance.version>
+        <substrait.version>0.40.0</substrait.version>
         <!-- 0.56.1 has bug that "SplitMode" in query response may not be set-->
         <maxcompute.version>0.53.2-public</maxcompute.version>
-        <!-- Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet
-         https://github.com/apache/doris/pull/51217-->
-        <arrow.version>17.0.0</arrow.version>
+        <!-- FE-only POC: validate whether Arrow Java 19.0.0 can compile before touching BE/C++ thirdparty. -->
+        <arrow.version>19.0.0</arrow.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
@@ -354,6 +357,7 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
+        <postgresql.version>42.7.13</postgresql.version>
         <hadoop.version>3.4.2</hadoop.version>
         <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
@@ -364,8 +368,8 @@ under the License.
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
-        <spring.version>3.5.7</spring.version>
-        <spring-framework.version>6.2.12</spring-framework.version>
+        <spring.version>3.5.14</spring.version>
+        <spring-framework.version>6.2.18</spring-framework.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
@@ -384,7 +388,7 @@ under the License.
         <quartz.version>2.3.2</quartz.version>
         <aircompressor.version>2.0.3</aircompressor.version>
         <!-- paimon -->
-        <paimon.version>1.3.1</paimon.version>
+        <paimon.version>1.4.2</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
         <!-- arrow flight sql -->
         <arrow.vector.classifier>shade-format-flatbuffers</arrow.vector.classifier>
@@ -395,8 +399,10 @@ under the License.
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
         <airlift.concurrent.version>202</airlift.concurrent.version>
-        <azure.sdk.version>1.3.4</azure.sdk.version>
+        <azure.sdk.version>1.3.7</azure.sdk.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
+        <msal4j.version>1.25.0</msal4j.version>
+        <azure.keyvault.core.version>1.2.6</azure.keyvault.core.version>
         <semver4j.version>5.3.0</semver4j.version>
         <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
         <!--Fixes the regression described in https://github.com/aws/aws-sdk-java-v2/issues/5805 that forced us to downgrade aws-s3 to version 2.29.x.-->
@@ -801,18 +807,17 @@ under the License.
                 <artifactId>commons-codec</artifactId>
                 <version>${commons-codec.version}</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/commons-lang/commons-lang -->
-            <!-- upgrade commons-lang from 2.4 to 2.6 to fix incompatibility of with versioning scheme of Java 9 and later -->
-            <dependency>
-                <groupId>commons-lang</groupId>
-                <artifactId>commons-lang</artifactId>
-                <version>${commons-lang.version}</version>
-            </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
             <dependency>
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>
                 <version>${commons-lang3.version}</version>
+            </dependency>
+            <!-- Pulled in by hive-exec -> hadoop-yarn-registry and hadoop-common. -->
+            <dependency>
+                <groupId>commons-net</groupId>
+                <artifactId>commons-net</artifactId>
+                <version>${commons-net.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-math3 -->
             <dependency>
@@ -864,6 +869,11 @@ under the License.
                 <artifactId>cel</artifactId>
                 <version>${cel.version}</version>
             </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-ratelimiter</artifactId>
+                <version>${resilience4j.version}</version>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/org.javassist/javassist -->
             <dependency>
                 <groupId>org.javassist</groupId>
@@ -888,6 +898,15 @@ under the License.
                     <exclusion>
                         <groupId>org.checkerframework</groupId>
                         <artifactId>checker</artifactId>
+                    </exclusion>
+                    <!-- BDB JE only references javax.resource in its optional JCA resource
+                         adapter (com.sleepycat.je.jca.ra), which embedded FE never uses.
+                         javax.resource:connector:1.0 has no jar in Maven Central (only a pom)
+                         and its historical host (repo.grails.org) is unreliable, so pulling it
+                         breaks the build in many environments. Exclude it. -->
+                    <exclusion>
+                        <groupId>javax.resource</groupId>
+                        <artifactId>connector</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -928,6 +947,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-core</artifactId>
+                <version>${log4j2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-web</artifactId>
                 <version>${log4j2.version}</version>
             </dependency>
             <dependency>
@@ -1376,7 +1400,7 @@ under the License.
                 </exclusions>
             </dependency>
             <dependency>
-                <!-- This is a dependency chain: odps-sdk-core:0.53.2-public → credentials-java:0.3.12 → com.aliyun:tea:[1.1.14,2.0.0)-->
+                <!-- Keep tea pinned for Alibaba SDK dependency chains that allow com.aliyun:tea:[1.1.14,2.0.0). -->
                 <groupId>com.aliyun</groupId>
                 <artifactId>tea</artifactId>
                 <version>1.4.1</version>
@@ -1668,6 +1692,16 @@ under the License.
                 <version>${arrow.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.lance</groupId>
+                <artifactId>lance-core</artifactId>
+                <version>${lance.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.substrait</groupId>
+                <artifactId>core</artifactId>
+                <version>${substrait.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>arrow-compression</artifactId>
                 <version>${arrow.version}</version>
@@ -1791,6 +1825,18 @@ under the License.
                 <version>${azure.sdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <!-- Pulled in by azure-identity and msal4j-persistence-extension. -->
+            <dependency>
+                <groupId>com.microsoft.azure</groupId>
+                <artifactId>msal4j</artifactId>
+                <version>${msal4j.version}</version>
+            </dependency>
+            <!-- Pulled in by hadoop-azure -> azure-storage. -->
+            <dependency>
+                <groupId>com.microsoft.azure</groupId>
+                <artifactId>azure-keyvault-core</artifactId>
+                <version>${azure.keyvault.core.version}</version>
             </dependency>
             <!-- tencent COS -->
             <dependency>

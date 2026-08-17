@@ -19,19 +19,20 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * merge one row relation into union, for easy to compute physical properties
@@ -46,25 +47,23 @@ public class MergeOneRowRelationIntoUnion extends OneRewriteRuleFactory {
                     ImmutableList.Builder<List<SlotReference>> newChildrenOutputs = ImmutableList.builder();
                     for (int i = 0; i < u.arity(); i++) {
                         Plan child = u.child(i);
-                        // if one row relation contains unique function which exist multiple times,
-                        // don't merge it, later AddProjectForUniqueFunction will handle this one row relation.
+                        // if one row relation contains volatile expression which exist multiple times,
+                        // don't merge it, later AddProjectForVolatileExpression will handle this one row relation.
                         if (!(child instanceof LogicalOneRowRelation)
-                                || ExpressionUtils.containUniqueFunctionExistMultiple(
+                                || ExpressionUtils.containVolatileExpressionExistMultiple(
                                         ((LogicalOneRowRelation) child).getProjects())) {
                             newChildren.add(child);
                             newChildrenOutputs.add(u.getRegularChildOutput(i));
                         } else {
                             ImmutableList.Builder<NamedExpression> constantExprs = new Builder<>();
                             List<NamedExpression> projects = ((LogicalOneRowRelation) child).getProjects();
-                            for (int j = 0; j < projects.size(); j++) {
-                                NamedExpression project = projects.get(j);
-                                DataType targetType = u.getOutput().get(j).getDataType();
-                                if (project.getDataType().equals(targetType)) {
-                                    constantExprs.add(project);
-                                } else {
-                                    constantExprs.add((NamedExpression) project.withChildren(
-                                            TypeCoercionUtils.castIfNotSameType(project.child(0), targetType)));
-                                }
+                            Map<Expression, Expression> replaceMap = new HashMap<>();
+                            for (NamedExpression project : projects) {
+                                replaceMap.put(project.toSlot(), project);
+                            }
+                            for (Expression regularChildOutput : u.getRegularChildOutput(i)) {
+                                constantExprs.add((NamedExpression) ExpressionUtils.replace(
+                                        regularChildOutput, replaceMap));
                             }
                             constantExprsList.add(constantExprs.build());
                         }

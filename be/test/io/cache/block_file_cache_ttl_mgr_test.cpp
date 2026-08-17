@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <memory>
@@ -29,6 +30,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/cache_block_meta_store.h"
 #include "io/cache/file_block.h"
@@ -132,6 +134,7 @@ public:
 
     Status get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta,
                            bool /*force_use_only_cached*/ = false) override {
+        _get_tablet_meta_call_count.fetch_add(1, std::memory_order_relaxed);
         auto tablet_res = get_tablet(tablet_id);
         if (!tablet_res.has_value()) {
             return tablet_res.error();
@@ -149,9 +152,14 @@ public:
         _tablets[tablet_id] = tablet;
     }
 
+    int64_t get_tablet_meta_call_count() const {
+        return _get_tablet_meta_call_count.load(std::memory_order_relaxed);
+    }
+
 private:
     std::mutex _mutex;
     std::unordered_map<int64_t, BaseTabletSPtr> _tablets;
+    std::atomic<int64_t> _get_tablet_meta_call_count {0};
 };
 
 std::vector<FileBlockSPtr> blocks_from_holder(const FileBlocksHolder& holder) {
@@ -237,7 +245,9 @@ protected:
     }
 
     FileBlockSPtr create_block(int64_t tablet_id, const std::string& cache_key, size_t offset,
-                               size_t size, UInt128Wrapper* out_hash) {
+                               size_t size, UInt128Wrapper* out_hash,
+                               FileCacheType cache_type = FileCacheType::NORMAL,
+                               uint64_t expiration_time = 0) {
         auto hash = BlockFileCache::hash(cache_key);
         if (out_hash != nullptr) {
             *out_hash = hash;
@@ -246,7 +256,8 @@ protected:
         CacheContext context;
         ReadStatistics stats;
         context.stats = &stats;
-        context.cache_type = FileCacheType::NORMAL;
+        context.cache_type = cache_type;
+        context.expiration_time = expiration_time;
         context.tablet_id = tablet_id;
 
         auto holder = _cache->get_or_set(hash, offset, size, context);
@@ -269,7 +280,7 @@ protected:
         }
         auto block = *it;
         EXPECT_TRUE(block);
-        EXPECT_EQ(FileCacheType::NORMAL, block->cache_type());
+        EXPECT_EQ(cache_type, block->cache_type());
         EXPECT_EQ(FileBlock::get_caller_id(), block->get_or_set_downloader());
         // Only append up to the selected file block's size. The requested
         // range may be split into multiple file blocks, so appending the
@@ -282,9 +293,10 @@ protected:
     }
 
     void persist_block_meta(int64_t tablet_id, const UInt128Wrapper& hash, size_t offset,
-                            size_t size) {
+                            size_t size, FileCacheType cache_type = FileCacheType::NORMAL,
+                            uint64_t expiration_time = 0) {
         BlockMetaKey key {tablet_id, hash, offset};
-        BlockMeta meta {FileCacheType::NORMAL, size, 0};
+        BlockMeta meta {cache_type, size, expiration_time};
         _meta_store->put(key, meta);
         ASSERT_TRUE(wait_for_condition([this, &key]() { return _meta_store->get(key).has_value(); },
                                        std::chrono::seconds(2)));
@@ -339,6 +351,110 @@ TEST_F(BlockFileCacheTtlMgrTest, ExpiredTabletMovesBlocksBackToNormal) {
 
     tablet->set_creation_time(UnixSeconds() - 120);
     tablet->set_ttl_seconds(1);
+    _ttl_mgr->register_tablet_id(kTabletId);
+
+    ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::NORMAL; },
+                                   std::chrono::seconds(5)));
+}
+
+TEST_F(BlockFileCacheTtlMgrTest, NonTtlTabletWithoutPriorTtlInfoSkipsBlockScan) {
+    config::file_cache_background_ttl_info_update_interval_ms = 100;
+
+    constexpr int64_t kTabletId = 3003;
+    auto tablet = std::make_shared<FakeTablet>(UnixSeconds(), 0);
+    fake_engine()->add_tablet(kTabletId, tablet);
+
+    UInt128Wrapper hash;
+    auto block = create_block(kTabletId, "non-ttl-tablet", 0, 1024, &hash);
+    persist_block_meta(kTabletId, hash, block->range().left, block->range().size());
+
+    std::atomic<int64_t> block_scan_count {0};
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->clear_all_call_backs();
+    sync_point->clear_trace();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id",
+            [&block_scan_count](std::vector<std::any>&& args) {
+                if (doris::try_any_cast<int64_t>(args[0]) == kTabletId) {
+                    block_scan_count.fetch_add(1, std::memory_order_relaxed);
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+
+    _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(_cache.get(), _meta_store.get());
+    _ttl_mgr->register_tablet_id(kTabletId);
+
+    bool update_thread_observed = wait_for_condition(
+            [this]() { return fake_engine()->get_tablet_meta_call_count() >= 2; },
+            std::chrono::seconds(5));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    sync_point->disable_processing();
+    sync_point->clear_trace();
+
+    EXPECT_TRUE(update_thread_observed);
+    EXPECT_EQ(0, block_scan_count.load(std::memory_order_relaxed));
+    EXPECT_EQ(FileCacheType::NORMAL, block->cache_type());
+}
+
+TEST_F(BlockFileCacheTtlMgrTest, PeriodicReconcileDemotesTtlBlockWithoutPriorTtlInfo) {
+    constexpr int64_t kTabletId = 4004;
+    auto tablet = std::make_shared<FakeTablet>(UnixSeconds(), 0);
+    fake_engine()->add_tablet(kTabletId, tablet);
+
+    const uint64_t expiration_time = UnixSeconds() + 3600;
+    UInt128Wrapper hash;
+    auto block = create_block(kTabletId, "ttl-block-without-info", 0, 1024, &hash,
+                              FileCacheType::TTL, expiration_time);
+    persist_block_meta(kTabletId, hash, block->range().left, block->range().size(),
+                       FileCacheType::TTL, expiration_time);
+    ASSERT_EQ(FileCacheType::TTL, block->cache_type());
+
+    std::atomic<int64_t> block_scan_count {0};
+    auto* sync_point = SyncPoint::get_instance();
+    sync_point->clear_all_call_backs();
+    sync_point->clear_trace();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id",
+            [&block_scan_count](std::vector<std::any>&& args) {
+                if (doris::try_any_cast<int64_t>(args[0]) == kTabletId) {
+                    block_scan_count.fetch_add(1, std::memory_order_relaxed);
+                }
+            },
+            &guard);
+    sync_point->enable_processing();
+
+    _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(_cache.get(), _meta_store.get());
+    _ttl_mgr->register_tablet_id(kTabletId);
+
+    bool demoted =
+            wait_for_condition([&]() { return block->cache_type() == FileCacheType::NORMAL; },
+                               std::chrono::seconds(5));
+    sync_point->disable_processing();
+    sync_point->clear_trace();
+
+    EXPECT_TRUE(demoted);
+    EXPECT_GE(block_scan_count.load(std::memory_order_relaxed), 1);
+}
+
+TEST_F(BlockFileCacheTtlMgrTest, TabletTtlRemovedMovesBlocksBackToNormal) {
+    constexpr int64_t kTabletId = 5005;
+    auto tablet = std::make_shared<FakeTablet>(UnixSeconds(), 120);
+    fake_engine()->add_tablet(kTabletId, tablet);
+
+    UInt128Wrapper hash;
+    auto block = create_block(kTabletId, "ttl-remove", 0, 1024, &hash);
+    persist_block_meta(kTabletId, hash, block->range().left, block->range().size());
+
+    _ttl_mgr = std::make_unique<BlockFileCacheTtlMgr>(_cache.get(), _meta_store.get());
+    _ttl_mgr->register_tablet_id(kTabletId);
+
+    ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::TTL; },
+                                   std::chrono::seconds(5)));
+
+    tablet->set_ttl_seconds(0);
     _ttl_mgr->register_tablet_id(kTabletId);
 
     ASSERT_TRUE(wait_for_condition([&]() { return block->cache_type() == FileCacheType::NORMAL; },

@@ -23,6 +23,7 @@
 #include "core/column/column_array.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
@@ -31,10 +32,13 @@
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/orc/vorc_reader.h"
 #include "orc/ColumnPrinter.hh"
+#include "util/timezone_utils.h"
 
 namespace doris {
 class OrcReaderFillDataTest : public ::testing::Test {
 protected:
+    static void SetUpTestSuite() { TimezoneUtils::load_timezones_to_cache(); }
+
     void SetUp() override {}
 
     void TearDown() override {}
@@ -67,6 +71,21 @@ std::unique_ptr<orc::LongVectorBatch> create_long_batch(size_t size,
         batch->hasNulls = true;
     } else {
         batch->hasNulls = false;
+    }
+    return batch;
+}
+
+std::unique_ptr<orc::TimestampVectorBatch> create_timestamp_batch(
+        size_t size, const std::vector<int64_t>& seconds, const std::vector<int64_t>& nanoseconds) {
+    auto batch = std::make_unique<orc::TimestampVectorBatch>(size, *orc::getDefaultPool());
+    batch->resize(size);
+    batch->notNull.resize(size);
+    batch->hasNulls = false;
+
+    for (size_t i = 0; i < size; ++i) {
+        batch->notNull[i] = true;
+        batch->data[i] = seconds[i];
+        batch->nanoseconds[i] = nanoseconds[i];
     }
     return batch;
 }
@@ -123,6 +142,26 @@ TEST_F(OrcReaderFillDataTest, TestFillLongColumnWithNull) {
             ASSERT_EQ(column->get_int(i), values[i]);
         }
     }
+}
+
+TEST_F(OrcReaderFillDataTest, TimestampDecodeNormalizesCstTimezone) {
+    auto batch = create_timestamp_batch(1, {1577905445}, {321000000});
+    auto data_type = std::make_shared<DataTypeDateTimeV2>(6);
+    auto column = data_type->create_column();
+    auto orc_type_ptr = createPrimitiveType(orc::TypeKind::TIMESTAMP);
+
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    auto reader = OrcReader::create_unique(params, range, 4064, "CST", nullptr, nullptr, true);
+
+    MutableColumnPtr mutable_column = column->assert_mutable();
+    Status status = reader->_fill_doris_data_column<false>(
+            "test_ts", mutable_column, data_type, const_node, orc_type_ptr.get(), batch.get(), 1);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& timestamp_column = assert_cast<const ColumnDateTimeV2&>(*mutable_column);
+    ASSERT_EQ(timestamp_column.size(), 1);
+    EXPECT_EQ(data_type->to_string(timestamp_column.get_data()[0]), "2020-01-02 03:04:05.321000");
 }
 
 TEST_F(OrcReaderFillDataTest, SchemaChangeNullableNullMapUsesAppendedSlice) {

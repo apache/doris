@@ -221,6 +221,25 @@ public class SSBUtils {
             + "GROUP BY d_year, s_city, p_brand\n"
             + "ORDER BY d_year, s_city, p_brand";
 
+    public static final String Q4_4 = "SELECT\n"
+            + "    d_year,\n"
+            + "    c_nation,\n"
+            + "    SUM(lo_revenue - lo_supplycost) AS PROFIT\n"
+            + "FROM lineorder join dates join customer join supplier join part \n"
+            + "WHERE\n"
+            + "    lo_custkey = c_custkey\n"
+            + "    AND lo_suppkey = s_suppkey\n"
+            + "    AND lo_partkey = p_partkey\n"
+            + "    AND lo_orderdate = d_datekey\n"
+            + "    AND c_region = 'AMERICA'\n"
+            + "    AND s_region = 'AMERICA'\n"
+            + "    AND (\n"
+            + "        p_mfgr = 'MFGR#1'\n"
+            + "        OR p_mfgr = 'MFGR#2'\n"
+            + "    )\n"
+            + "GROUP BY d_year, c_nation\n"
+            + "ORDER BY d_year, c_nation";
+
     public static void createTables(TestWithFeService service) throws Exception {
         service.createTable("CREATE TABLE IF NOT EXISTS `lineorder` (\n"
                 + "  `lo_orderkey` int(11) NOT NULL COMMENT \"\",\n"

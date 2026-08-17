@@ -85,7 +85,7 @@ public:
 
 private:
     ColumnPtr _value_column;
-    ColumnPtr _elements_column = ColumnInt32::create();
+    ColumnInt32::MutablePtr _elements_column = ColumnInt32::create();
 };
 
 #include "common/compile_check_end.h"

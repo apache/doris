@@ -1,7 +1,9 @@
 create database if not exists multi_catalog;
 use multi_catalog;
 
-CREATE TABLE IF NOT EXISTS `hive_textfile_array_all_types`(
+drop table if exists `hive_textfile_array_all_types`;
+
+create table `hive_textfile_array_all_types`(
   `col1` array<tinyint>,
   `col2` array<smallint>,
   `col3` array<int>,
@@ -23,5 +25,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
 LOCATION
   '/user/doris/suites/multi_catalog/hive_textfile_array_all_types';
-
-msck repair table hive_textfile_array_all_types;

@@ -341,6 +341,21 @@ Status Block::check_type_and_column() const {
     return Status::OK();
 }
 
+Status Block::check_column_and_type_not_null() const {
+    for (size_t i = 0; i != data.size(); ++i) {
+        const auto& elem = data[i];
+        if (!elem.column) {
+            return Status::InternalError("Column in block is nullptr, column index: {}, name: {}",
+                                         i, elem.name);
+        }
+        if (!elem.type) {
+            return Status::InternalError("Type in block is nullptr, column index: {}, name: {}", i,
+                                         elem.name);
+        }
+    }
+    return Status::OK();
+}
+
 size_t Block::rows() const {
     for (const auto& elem : data) {
         if (elem.column) {
@@ -802,6 +817,7 @@ void Block::clear() {
     data.clear();
 }
 
+// Both clear paths must preserve shared children even when a composite column is top-level exclusive.
 void Block::clear_column_data(int64_t column_size) {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
@@ -813,7 +829,7 @@ void Block::clear_column_data(int64_t column_size) {
     }
     for (auto& d : data) {
         if (d.column) {
-            if (d.column->is_exclusive()) {
+            if (is_recursively_exclusive(*d.column)) {
                 d.column->assert_mutable()->clear();
             } else {
                 d.column = d.column->clone_empty();
@@ -828,7 +844,7 @@ void Block::clear_column_data(const std::vector<uint32_t>& columns_to_clear) {
         DCHECK_LT(col, data.size());
         auto& column = data[col].column;
         if (column) {
-            if (column->is_exclusive()) {
+            if (is_recursively_exclusive(*column)) {
                 column->assert_mutable()->clear();
             } else {
                 column = column->clone_empty();

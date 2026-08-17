@@ -164,4 +164,18 @@ public class PhysicalDistribute<CHILD_TYPE extends Plan> extends PhysicalUnary<C
         }
         return builder.toString();
     }
+
+    /**getOrderedShuffledSlots*/
+    public List<Slot> getOrderedShuffledSlots() {
+        if (distributionSpec instanceof DistributionSpecHash) {
+            DistributionSpecHash hash = (DistributionSpecHash) distributionSpec;
+            Map<ExprId, Slot> outputById = child().getOutput().stream()
+                    .collect(Collectors.toMap(NamedExpression::getExprId, slot -> slot, (a, b) -> a));
+            return hash.getOrderedShuffledColumns().stream()
+                    .map(outputById::get)
+                    .collect(ImmutableList.toImmutableList());
+        } else {
+            return ImmutableList.of();
+        }
+    }
 }

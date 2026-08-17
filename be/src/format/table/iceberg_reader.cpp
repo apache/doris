@@ -199,8 +199,12 @@ Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows,
 }
 
 Status IcebergTableReader::init_row_filters() {
-    // We get the count value by doris's be, so we don't need to read the delete file
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && _table_level_row_count > 0) {
+    // We get the count value by doris's be, so we don't need to read the delete file.
+    // A table-level row count of 0 (e.g. an all-deleted table read with ignore_iceberg_dangling_delete,
+    // where total-records == total-position-deletes) is still a valid pushed-down count, so accept >= 0.
+    // FE sends -1 when there is no table-level count; using > 0 here would drop a genuine 0 into the
+    // delete-applying path below and never produce the intended CountReader(0).
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _table_level_row_count >= 0) {
         return Status::OK();
     }
 

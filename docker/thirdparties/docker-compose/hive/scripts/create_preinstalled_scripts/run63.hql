@@ -1,7 +1,9 @@
-CREATE DATABASE write_test;
+CREATE DATABASE if not exists write_test;
 use write_test;
 
-CREATE TABLE `all_types_parquet_snappy_src`(
+drop table if exists `all_types_parquet_snappy_src`;
+
+create table `all_types_parquet_snappy_src`(
   `boolean_col` boolean,
   `tinyint_col` tinyint,
   `smallint_col` smallint,
@@ -70,7 +72,9 @@ LOCATION
   '/user/doris/preinstalled_data/parquet_table/all_types_parquet_snappy_src'
 TBLPROPERTIES('parquet.compression'='SNAPPY');
 
-CREATE TABLE `all_types_par_parquet_snappy_src`(
+drop table if exists `all_types_par_parquet_snappy_src`;
+
+create table `all_types_par_parquet_snappy_src`(
     `boolean_col` boolean,
     `tinyint_col` tinyint,
     `smallint_col` smallint,
@@ -141,7 +145,9 @@ LOCATION
 TBLPROPERTIES('parquet.compression'='SNAPPY');
 msck repair table all_types_par_parquet_snappy_src;
 
-CREATE TABLE `all_types_parquet_snappy`(
+drop table if exists `all_types_parquet_snappy`;
+
+create table `all_types_parquet_snappy`(
   `boolean_col` boolean,
   `tinyint_col` tinyint,
   `smallint_col` smallint,
@@ -208,7 +214,9 @@ CREATE TABLE `all_types_parquet_snappy`(
 stored as parquet
 TBLPROPERTIES('parquet.compression'='SNAPPY');
 
-CREATE TABLE `all_types_par_parquet_snappy`(
+drop table if exists `all_types_par_parquet_snappy`;
+
+create table `all_types_par_parquet_snappy`(
     `boolean_col` boolean,
     `tinyint_col` tinyint,
     `smallint_col` smallint,
@@ -276,7 +284,9 @@ PARTITIONED BY (
 stored as parquet
 TBLPROPERTIES('parquet.compression'='SNAPPY');
 
-CREATE TABLE `all_types_orc_zlib`(
+drop table if exists `all_types_orc_zlib`;
+
+create table `all_types_orc_zlib`(
   `boolean_col` boolean,
   `tinyint_col` tinyint,
   `smallint_col` smallint,
@@ -343,7 +353,9 @@ CREATE TABLE `all_types_orc_zlib`(
 stored as orc
 TBLPROPERTIES("orc.compress"="ZLIB");
 
-CREATE TABLE `all_types_par_orc_zlib`(
+drop table if exists `all_types_par_orc_zlib`;
+
+create table `all_types_par_orc_zlib`(
     `boolean_col` boolean,
     `tinyint_col` tinyint,
     `smallint_col` smallint,
@@ -411,7 +423,9 @@ PARTITIONED BY (
 stored as orc
 TBLPROPERTIES("orc.compress"="ZLIB");
 
-CREATE TABLE `all_partition_types1_parquet_snappy_src`(
+drop table if exists `all_partition_types1_parquet_snappy_src`;
+
+create table `all_partition_types1_parquet_snappy_src`(
   `id` int
 )
 PARTITIONED BY (
@@ -428,7 +442,9 @@ LOCATION
 TBLPROPERTIES('parquet.compression'='SNAPPY');
 msck repair table all_partition_types1_parquet_snappy_src;
 
-CREATE TABLE `all_partition_types1_parquet_snappy`(
+drop table if exists `all_partition_types1_parquet_snappy`;
+
+create table `all_partition_types1_parquet_snappy`(
   `id` int
 )
 PARTITIONED BY (
@@ -442,7 +458,9 @@ PARTITIONED BY (
 stored as parquet
 TBLPROPERTIES('parquet.compression'='SNAPPY');
 
-CREATE TABLE `all_partition_types1_orc_zlib`(
+drop table if exists `all_partition_types1_orc_zlib`;
+
+create table `all_partition_types1_orc_zlib`(
   `id` int
 )
 PARTITIONED BY (
@@ -456,7 +474,9 @@ PARTITIONED BY (
 stored as orc
 TBLPROPERTIES("orc.compress"="ZLIB");
 
-CREATE TABLE `all_partition_types2_parquet_snappy_src`(
+drop table if exists `all_partition_types2_parquet_snappy_src`;
+
+create table `all_partition_types2_parquet_snappy_src`(
   `id` int
 )
 PARTITIONED BY (
@@ -471,7 +491,9 @@ LOCATION
 TBLPROPERTIES('parquet.compression'='SNAPPY');
 msck repair table all_partition_types2_parquet_snappy_src;
 
-CREATE TABLE `all_partition_types2_parquet_snappy`(
+drop table if exists `all_partition_types2_parquet_snappy`;
+
+create table `all_partition_types2_parquet_snappy`(
   `id` int
 )
 PARTITIONED BY (
@@ -483,7 +505,9 @@ PARTITIONED BY (
 stored as parquet
 TBLPROPERTIES('parquet.compression'='SNAPPY');
 
-CREATE TABLE `all_partition_types2_orc_zlib`(
+drop table if exists `all_partition_types2_orc_zlib`;
+
+create table `all_partition_types2_orc_zlib`(
   `id` int
 )
 PARTITIONED BY (
@@ -495,7 +519,9 @@ PARTITIONED BY (
 stored as orc
 TBLPROPERTIES("orc.compress"="ZLIB");
 
-CREATE TABLE `all_types_text`(
+drop table if exists `all_types_text`;
+
+create table `all_types_text`(
   `boolean_col` boolean,
   `tinyint_col` tinyint,
   `smallint_col` smallint,
@@ -569,7 +595,9 @@ TBLPROPERTIES(
   'serialization.null.format'='null'
 );
 
-CREATE TABLE all_types_par_text(
+drop table if exists all_types_par_text;
+
+create table all_types_par_text(
     `boolean_col` boolean,
     `tinyint_col` tinyint,
     `smallint_col` smallint,

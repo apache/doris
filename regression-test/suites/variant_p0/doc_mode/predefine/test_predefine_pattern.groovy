@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("variant_predefine_base_doc_value", "p0"){ 
+suite("variant_predefine_base_doc_value", "p0"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
@@ -41,11 +42,11 @@ suite("variant_predefine_base_doc_value", "p0"){
         INDEX idx_bx_glob (var) USING INVERTED PROPERTIES("field_pattern"="bx?", "parser"="unicode", "support_phrase" = "true") COMMENT ''
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
-    sql """insert into ${tableName} values(1, '{"ab" : 123, "*cc" : 123, "b?b" : 123, "bb3" : 123, "bxx" : 123}')"""
-    sql """insert into ${tableName} values(2, '{"ab" : 456, "*cc" : 456, "b?b" : 456, "bb3" : 456, "bxx" : 456}')"""
-    sql """insert into ${tableName} values(3, '{"ab" : 789, "*cc" : 789, "b?b" : 789, "bb3" : 789, "bxx" : 789}')"""
-    sql """insert into ${tableName} values(4, '{"ab" : 100, "*cc" : 100, "b?b" : 100, "bb3" : 100, "bxx" : 100}')"""
-    sql """insert into ${tableName} values(5, '{"ab" : 111, "*cc" : 111, "b?b" : 111, "bb3" : 111, "bxx" : 111}')"""
+    sql """insert into ${tableName} values(1, ${variantV2Function}('{"ab" : 123, "*cc" : 123, "b?b" : 123, "bb3" : 123, "bxx" : 123}'))"""
+    sql """insert into ${tableName} values(2, ${variantV2Function}('{"ab" : 456, "*cc" : 456, "b?b" : 456, "bb3" : 456, "bxx" : 456}'))"""
+    sql """insert into ${tableName} values(3, ${variantV2Function}('{"ab" : 789, "*cc" : 789, "b?b" : 789, "bb3" : 789, "bxx" : 789}'))"""
+    sql """insert into ${tableName} values(4, ${variantV2Function}('{"ab" : 100, "*cc" : 100, "b?b" : 100, "bb3" : 100, "bxx" : 100}'))"""
+    sql """insert into ${tableName} values(5, ${variantV2Function}('{"ab" : 111, "*cc" : 111, "b?b" : 111, "bb3" : 111, "bxx" : 111}'))"""
     qt_sql """select * from ${tableName} order by id"""
     qt_sql """ select count() from ${tableName} where cast(var['ab'] as string) match '789' """
     qt_sql """ select count() from ${tableName} where cast(var['*cc'] as string) match '789' """
@@ -83,9 +84,9 @@ suite("variant_predefine_base_doc_value", "p0"){
         INDEX idx_bx_glob (var) USING INVERTED PROPERTIES("field_pattern"="a.c*", "parser"="unicode", "support_phrase" = "true") COMMENT ''
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
-    sql """insert into ${tableName} values(1, '{"a" : {"b" : 789, "*" : 789, "b1" : 789, "bxc" : 789, "c2323" : 789}}')"""
-    sql """insert into ${tableName} values(2, '{"a" : {"b" : 111, "*" : 111, "b1" : 111, "bxc" : 111, "c2323" : 111}}')"""
-    sql """insert into ${tableName} values(3, '{"a" : {"b" : 222, "*" : 222, "b1" : 222, "bxc" : 222, "c2323" : 222}}')"""
+    sql """insert into ${tableName} values(1, ${variantV2Function}('{"a" : {"b" : 789, "*" : 789, "b1" : 789, "bxc" : 789, "c2323" : 789}}'))"""
+    sql """insert into ${tableName} values(2, ${variantV2Function}('{"a" : {"b" : 111, "*" : 111, "b1" : 111, "bxc" : 111, "c2323" : 111}}'))"""
+    sql """insert into ${tableName} values(3, ${variantV2Function}('{"a" : {"b" : 222, "*" : 222, "b1" : 222, "bxc" : 222, "c2323" : 222}}'))"""
 
     qt_sql """select * from ${tableName} order by id"""
     qt_sql """ select count() from ${tableName} where cast(var['a']['b'] as string) match '789' """

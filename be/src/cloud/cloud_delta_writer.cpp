@@ -22,6 +22,8 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "load/delta_writer/delta_writer.h"
+#include "load/memtable/memtable_memory_limiter.h"
+#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 
 namespace doris {
@@ -64,9 +66,21 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
     return cloud::bthread_fork_join(tasks, 10);
 }
 
-Status CloudDeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs) {
+Status CloudDeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+                               bool* memtable_flushed) {
+    if (memtable_flushed != nullptr) {
+        *memtable_flushed = false;
+    }
     if (row_idxs.empty()) [[unlikely]] {
         return Status::OK();
+    }
+    if (_req.enable_table_memtable_backpressure && !_req.is_high_priority) {
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_table_memtable_backpressure(
+                [this]() {
+                    std::lock_guard lock(_mtx);
+                    return _is_cancelled;
+                },
+                table_id());
     }
     std::lock_guard lock(_mtx);
     CHECK(_is_init || _is_cancelled);
@@ -77,13 +91,18 @@ Status CloudDeltaWriter::write(const Block* block, const DorisVector<uint32_t>& 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    return _memtable_writer->write(block, row_idxs);
+    return _memtable_writer->write(block, row_idxs, memtable_flushed);
 }
 
 Status CloudDeltaWriter::close() {
     std::lock_guard lock(_mtx);
     CHECK(_is_init);
     return _memtable_writer->close();
+}
+
+Status CloudDeltaWriter::flush_memtable_async() {
+    std::lock_guard lock(_mtx);
+    return BaseDeltaWriter::flush_memtable_async();
 }
 
 Status CloudDeltaWriter::cancel_with_status(const Status& st) {

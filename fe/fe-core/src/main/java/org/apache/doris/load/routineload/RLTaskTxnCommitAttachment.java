@@ -18,12 +18,14 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.cloud.proto.Cloud.RLTaskTxnCommitAttachmentPB;
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 
 // {"progress": "", "backendId": "", "taskSignature": "", "numOfErrorData": "",
 // "numOfTotalData": "", "taskId": "", "jobId": ""}
@@ -44,6 +46,7 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
     @SerializedName(value = "pro")
     private RoutineLoadProgress progress;
     private String errorLogUrl;
+    private String firstErrorMsg;
 
     public RLTaskTxnCommitAttachment() {
         super(TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK);
@@ -70,6 +73,9 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
         if (rlTaskTxnCommitAttachment.isSetErrorLogUrl()) {
             this.errorLogUrl = rlTaskTxnCommitAttachment.getErrorLogUrl();
         }
+        if (rlTaskTxnCommitAttachment.isSetFirstErrorMsg()) {
+            this.firstErrorMsg = abbreviateFirstErrorMsg(rlTaskTxnCommitAttachment.getFirstErrorMsg());
+        }
     }
 
     public RLTaskTxnCommitAttachment(RLTaskTxnCommitAttachmentPB rlTaskTxnCommitAttachment) {
@@ -87,6 +93,11 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
         this.progress = progress;
         this.errorLogUrl = rlTaskTxnCommitAttachment.getErrorLogUrl();
+        this.firstErrorMsg = abbreviateFirstErrorMsg(rlTaskTxnCommitAttachment.getFirstErrorMsg());
+    }
+
+    private static String abbreviateFirstErrorMsg(String firstErrorMsg) {
+        return StringUtils.abbreviate(firstErrorMsg, Config.first_error_msg_max_length);
     }
 
     public long getJobId() {
@@ -127,6 +138,10 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
 
     public String getErrorLogUrl() {
         return errorLogUrl;
+    }
+
+    public String getFirstErrorMsg() {
+        return firstErrorMsg;
     }
 
     @Override

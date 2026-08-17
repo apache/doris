@@ -84,7 +84,7 @@ public:
         _output_blocks.push_back(std::move(block));
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         if (_output_blocks.empty()) {
             *eos = true;
             return Status::OK();

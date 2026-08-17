@@ -78,16 +78,8 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- For BE Paimon OSS/S3 Access -->
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-s3</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-jindo</artifactId>
-        </dependency>
+        <!-- Paimon FileIO plugins are packaged with paimon-connector so their service providers
+             and the paimon-common SPI are loaded by the same classloader. -->
         <!-- For Avro and Hudi Scanner PreLoad -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>
@@ -146,11 +138,6 @@ under the License.
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>commons-lang</groupId>
-            <artifactId>commons-lang</artifactId>
-            <version>${commons-lang.version}</version>
         </dependency>
         <!-- For BE CosN Access -->
         <dependency>

@@ -65,7 +65,6 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_cumu_compaction_delay_fault_injection," + // force 3 replica cause fail
     "test_full_compaction_run_status," + // unstable
     "test_routine_load_timeout_value," + // to be fix
-    "test_decimalv2_common," + // to be fix
     "test_insert_error_url," + // cause stop grace fail
     "zzz_the_end_sentinel_do_not_touch"// keep this line as the last line
 
@@ -122,6 +121,7 @@ kafka_port=19193
 // iceberg test config
 iceberg_rest_uri_port=18181
 iceberg_minio_port=19001
+lance_rest_port=19102
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182
 iceberg_rest_uri_port_cos=19183

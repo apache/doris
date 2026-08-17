@@ -103,6 +103,7 @@ public:
         return _distribute_rows_into_channels_timer;
     }
     std::vector<std::shared_ptr<Channel>> channels;
+    std::vector<int> local_channel_ids;
     int current_channel_idx {0}; // index of current channel to send to if _random == true
     bool _only_local_exchange {false};
 
@@ -198,7 +199,7 @@ public:
     // TaskExecutionContext.
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     bool is_serial_operator() const override { return true; }
     void set_low_memory_mode(RuntimeState* state) override {
@@ -243,6 +244,8 @@ private:
     RuntimeState* _state = nullptr;
 
     const std::vector<TExpr> _texprs;
+    TExternalTableSinkHashPartitionInfo _external_table_sink_hash_partition_info;
+    bool _has_external_table_sink_hash_partition_info = false;
     TMergePartitionInfo _merge_partition_info;
     bool _has_merge_partition_info = false;
 

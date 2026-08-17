@@ -44,6 +44,9 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.TableFormatType;
+import org.apache.doris.datasource.lance.LanceTableMetadata;
+import org.apache.doris.datasource.lance.LanceTypeConverter;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
@@ -76,14 +79,17 @@ import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.THdfsParams;
+import org.apache.doris.thrift.TLanceFileDesc;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -91,9 +97,11 @@ import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -129,6 +137,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public FileFormatProperties fileFormatProperties;
     private long tableId;
+    private long lanceDatasetVersion = -1;
+    private List<LanceTableMetadata.LanceFragmentInfo> lanceFragments = Collections.emptyList();
 
     public abstract TFileType getTFileType();
 
@@ -142,6 +152,18 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public TFileCompressType getTFileCompressType() {
         return fileFormatProperties.getCompressionType();
+    }
+
+    public boolean isLanceFormat() {
+        return getTFileFormatType() == TFileFormatType.FORMAT_LANCE;
+    }
+
+    public long getLanceDatasetVersion() {
+        return lanceDatasetVersion;
+    }
+
+    public List<LanceTableMetadata.LanceFragmentInfo> getLanceFragments() {
+        return lanceFragments;
     }
 
     public Map<String, String> getBackendConnectProperties() {
@@ -194,6 +216,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         String formatString = getOrDefaultAndRemove(copiedProps, FileFormatConstants.PROP_FORMAT, "").toLowerCase();
         fileFormatProperties = FileFormatProperties.createFileFormatProperties(formatString);
+        if (isLanceFormat() && getTFileType() != TFileType.FILE_LOCAL
+                && getTFileType() != TFileType.FILE_S3) {
+            throw new AnalysisException("Lance format is supported only by local() and s3() TVFs");
+        }
 
         // Parse enable_mapping_varbinary property
         String enableMappingVarbinaryStr = getOrDefaultAndRemove(copiedProps,
@@ -222,6 +248,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                         .map(String::trim)
                         .collect(Collectors.toList()))
                 .orElse(Lists.newArrayList());
+        if (isLanceFormat() && !pathPartitionKeys.isEmpty()) {
+            throw new AnalysisException("'path_partition_keys' is not supported for Lance TVF");
+        }
         this.processedParams = new HashMap<>(copiedProps);
         return copiedProps;
     }
@@ -322,6 +351,48 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             throw new AnalysisException("getFetchTableStructureRequest exception", e);
         }
         return columns;
+    }
+
+    protected void setLanceTableMetadata(LanceTableMetadata metadata) throws AnalysisException {
+        if (metadata.getVersion() <= 0) {
+            throw new AnalysisException("Lance returned an invalid dataset version: "
+                    + metadata.getVersion());
+        }
+        List<LanceTableMetadata.LanceFragmentInfo> fragments =
+                new ArrayList<>(metadata.getFragments().size());
+        Set<Long> uniqueIds = new HashSet<>();
+        for (LanceTableMetadata.LanceFragmentInfo fragment : metadata.getFragments()) {
+            long fragmentId = fragment.getId();
+            if (fragmentId < 0) {
+                throw new AnalysisException("Lance returned an invalid fragment id: " + fragmentId);
+            }
+            if (!uniqueIds.add(fragmentId)) {
+                throw new AnalysisException("Lance returned duplicate fragment id: " + fragmentId);
+            }
+            fragments.add(fragment);
+        }
+
+        List<Column> lanceColumns = new ArrayList<>(metadata.getSchema().getFields().size());
+        Set<String> columnLowerNames = new HashSet<>();
+        for (Field field : metadata.getSchema().getFields()) {
+            String lowerName = field.getName().toLowerCase(Locale.ROOT);
+            if (!columnLowerNames.add(lowerName)) {
+                throw new NotSupportedException("Repeated lowercase column names: " + lowerName);
+            }
+            Type type;
+            try {
+                type = LanceTypeConverter.toDorisType(field);
+            } catch (IllegalArgumentException e) {
+                throw new AnalysisException("Invalid Lance type for column '" + field.getName()
+                        + "': " + e.getMessage(), e);
+            }
+            String comment = field.getMetadata() == null ? null : field.getMetadata().get("comment");
+            lanceColumns.add(new Column(field.getName(), type, field.isNullable(), comment));
+        }
+
+        lanceDatasetVersion = metadata.getVersion();
+        lanceFragments = Collections.unmodifiableList(fragments);
+        columns = lanceColumns;
     }
 
     protected Backend getBackend() {
@@ -428,14 +499,16 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         Set<String> columnLowerNames = new HashSet<>();
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
-            String colName = result.getColumnNames(idx).toLowerCase();
+            String originalColName = result.getColumnNames(idx);
+            String colName = originalColName.toLowerCase();
             // Since doris does not distinguish between upper and lower case columns when querying, in order to avoid
             // query ambiguity, two columns with the same name but different capitalization are not allowed.
             if (columnLowerNames.contains(colName)) {
                 throw new NotSupportedException("Repeated lowercase column names: " + colName);
             } else {
                 columnLowerNames.add(colName);
-                columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
+                columns.add(new Column(isLanceFormat() ? originalColName : colName,
+                        getColumnType(type.getTypesList(), 0).key(), true));
             }
         }
         // add path columns
@@ -473,14 +546,20 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             fileScanRangeParams.setHdfsParams(tHdfsParams);
         }
 
-        // get first file, used to parse table schema
-        TBrokerFileStatus firstFile = null;
-        for (TBrokerFileStatus fileStatus : fileStatuses) {
-            if (isFileContentEmpty(fileStatus)) {
-                continue;
+        // Lance points at a dataset directory rather than an individual data file, so it bypasses
+        // normal file listing and sends the dataset URI directly to the metadata reader.
+        TBrokerFileStatus firstFile;
+        if (isLanceFormat()) {
+            firstFile = new TBrokerFileStatus(getFilePath(), false, -1, false);
+        } else {
+            firstFile = null;
+            for (TBrokerFileStatus fileStatus : fileStatuses) {
+                if (isFileContentEmpty(fileStatus)) {
+                    continue;
+                }
+                firstFile = fileStatus;
+                break;
             }
-            firstFile = fileStatus;
-            break;
         }
 
         // `firstFile == null` means:
@@ -502,6 +581,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileRangeDesc.setSize(firstFile.getSize());
         fileRangeDesc.setFileSize(firstFile.getSize());
         fileRangeDesc.setModificationTime(firstFile.getModificationTime());
+        if (isLanceFormat()) {
+            TLanceFileDesc lanceParams = new TLanceFileDesc();
+            lanceParams.setDatasetUri(getFilePath());
+            // Local TVF schema discovery and execution independently open the latest snapshot.
+            // S3 TVF obtains its schema and fixed snapshot metadata directly in FE instead.
+            lanceParams.setVersion(0);
+            TTableFormatFileDesc tableFormatParams = new TTableFormatFileDesc();
+            tableFormatParams.setTableFormatType(TableFormatType.LANCE.value());
+            tableFormatParams.setLanceParams(lanceParams);
+            fileRangeDesc.setTableFormatParams(tableFormatParams);
+        }
         // set TFileScanRange
         TFileScanRange fileScanRange = new TFileScanRange();
         fileScanRange.addToRanges(fileRangeDesc);

@@ -65,6 +65,11 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
 Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concurrency,
                          std::future<Status>* fut);
 
+// Returns the exact actual_code when recognized. An unknown actual_code uses an explicit non-OK
+// legacy fallback and otherwise fails closed. Responses from a legacy Meta Service use code.
+// Exposed for unit tests.
+MetaServiceCode get_response_code(const MetaServiceResponseStatus& status);
+
 class CloudMetaMgr {
 public:
     CloudMetaMgr() = default;
@@ -161,7 +166,7 @@ public:
 
     // Fill version holes by creating empty rowsets for missing versions
     Status fill_version_holes(CloudTablet* tablet, int64_t max_version,
-                              std::unique_lock<std::shared_mutex>& wlock);
+                              std::unique_lock<BthreadSharedMutex>& wlock);
 
     // Create an empty rowset to fill a version hole
     Status create_empty_rowset_for_hole(CloudTablet* tablet, int64_t version,

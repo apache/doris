@@ -41,6 +41,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.NullType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.OlapScanNode;
@@ -138,6 +141,43 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testVariantNumericSegmentsKeepLegacyPath() throws Exception {
+        withVariantSubPathPruningDisabled(() -> {
+            assertColumn("select v['0']['city'] from variant_tbl",
+                    "variant",
+                    ImmutableList.of(path("v", "0", "city")),
+                    ImmutableList.of());
+            assertColumn("select v[0]['city'] from variant_tbl",
+                    "variant",
+                    ImmutableList.of(path("v", "0", "city")),
+                    ImmutableList.of());
+            assertColumn("select v['0'], v[0] from variant_tbl",
+                    "variant",
+                    ImmutableList.of(path("v", "0")),
+                    ImmutableList.of());
+        });
+    }
+
+    @Test
+    public void testVariantMultipleObjectAccessPaths() throws Exception {
+        withVariantSubPathPruningDisabled(() -> {
+            assertColumn("select v['profile']['city'], v['profile']['age'] from variant_tbl",
+                    "variant",
+                    ImmutableList.of(
+                            path("v", "profile", "age"),
+                            path("v", "profile", "city")),
+                    ImmutableList.of());
+
+            assertColumn("select v['a.b'], v['a']['b'] from variant_tbl",
+                    "variant",
+                    ImmutableList.of(
+                            path("v", "a", "b"),
+                            path("v", "a.b")),
+                    ImmutableList.of());
+        });
+    }
+
+    @Test
     public void testVariantMultiProjectionAccessPaths() throws Exception {
         assertVariantSubColumnSlots("select v['a'], v['b']['c'] from variant_tbl",
                 ImmutableList.of(
@@ -196,7 +236,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     public void testExplodeVariantAccessPath() throws Exception {
         assertColumn("select x['k'] from variant_tbl lateral view explode(v) tmp as x",
                 "variant",
-                ImmutableList.of(path("v", "k")),
+                ImmutableList.of(path("v")),
                 ImmutableList.of()
         );
     }
@@ -205,7 +245,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     public void testExplodeVariantProjectAndFilterAccessPath() throws Exception {
         assertColumn("select x['x'] from variant_tbl lateral view explode(v['arr']) tmp as x where x['y'] is not null",
                 "variant",
-                ImmutableList.of(path("v", "arr", "x"), path("v", "arr", "y")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
     }
@@ -214,7 +254,7 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     public void testExplodeVariantMultiLevelFieldAccessPath() throws Exception {
         assertColumn("select x['a']['b'] from variant_tbl lateral view explode(v['arr']) tmp as x",
                 "variant",
-                ImmutableList.of(path("v", "arr", "a", "b")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
     }
@@ -223,7 +263,9 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     public void testExplodeVariantWithOuterPredicateAccessPath() throws Exception {
         assertAllAccessPathsContain("select x['x'] from variant_tbl lateral view explode(v['arr']) tmp as x "
                         + "where v['filter']['k'] = 1 and x['y'] is not null",
-                ImmutableList.of(path("v", "arr", "x"), path("v", "arr", "y"), path("v", "filter", "k")),
+                ImmutableList.of(
+                        path("v", "arr"),
+                        path("v", "filter", "k")),
                 ImmutableList.of());
     }
 
@@ -232,9 +274,29 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         assertColumn("select x['m'] from (select v as a from variant_tbl) t lateral view explode(a['arr']) tmp as x "
                         + "where x['n'] is not null",
                 "variant",
-                ImmutableList.of(path("v", "arr", "m"), path("v", "arr", "n")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
+    }
+
+    @Test
+    public void testMultiArgumentExplodePreservesVariantContainers() throws Exception {
+        assertColumn("select x1['k'] from variant_tbl lateral view explode(v, v) tmp as x1, x2",
+                "variant",
+                ImmutableList.of(path("v")),
+                ImmutableList.of());
+
+        assertColumns("select x1['k'] from variant_tbl "
+                        + "lateral view explode(v['a'], v['b']) tmp as x1, x2",
+                ImmutableList.of(
+                        Triple.of("variant", ImmutableList.of(path("v", "a")), ImmutableList.of()),
+                        Triple.of("variant", ImmutableList.of(path("v", "b")), ImmutableList.of())));
+
+        assertColumn("select x1['k'] from variant_tbl "
+                        + "lateral view explode_outer(v, v) tmp as x1, x2",
+                "variant",
+                ImmutableList.of(path("v")),
+                ImmutableList.of());
     }
 
     @Test
@@ -862,15 +924,24 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         Assertions.assertEquals("struct<city:text,data:array<map<int,struct<a:int,b:double>>>>", columnType.toSql());
 
         setAccessPathAndAssertType(slot, ImmutableList.of("s", "city"), "STRUCT<city:TEXT>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "KEYS"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES", "a"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES", "b"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*", "a"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT>>>>");
-        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*", "b"), "STRUCT<data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "KEYS"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES", "a"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "VALUES", "b"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT,b:DOUBLE>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*", "a"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<a:INT>>>>");
+        setAccessPathAndAssertType(slot, ImmutableList.of("s", "data", "*", "*", "b"),
+                "STRUCT<data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>");
 
         setAccessPathsAndAssertType(slot,
                 ImmutableList.of(
@@ -879,6 +950,22 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ),
                 "STRUCT<city:TEXT,data:ARRAY<MAP<INT,STRUCT<b:DOUBLE>>>>"
         );
+    }
+
+    @Test
+    public void testDataTypeAccessTreeKeepsVariantTerminalPath() {
+        StructType type = new StructType(ImmutableList.of(
+                new StructField("payload", VariantType.INSTANCE, true, "")));
+        SlotReference slot = new SlotReference("info", type);
+        DataTypeAccessTree tree = DataTypeAccessTree.ofRoot(slot, TAccessPathType.DATA);
+
+        tree.setAccessByPath(ImmutableList.of("info", "payload", "typed_col"), 0,
+                TAccessPathType.DATA);
+
+        DataType prunedType = tree.pruneDataType().get();
+        Assertions.assertInstanceOf(StructType.class, prunedType);
+        Assertions.assertEquals(VariantType.INSTANCE,
+                ((StructType) prunedType).getFields().get(0).getDataType());
     }
 
     @Test
@@ -1198,6 +1285,25 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.DATA);
         accessPath.data_access_path = new TDataAccessPath(ImmutableList.copyOf(path));
         return accessPath;
+    }
+
+    private void withVariantSubPathPruningDisabled(CheckedRunnable runnable) throws Exception {
+        String disabledRules = String.join(",",
+                connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().setDisableNereidsRules(
+                disabledRules.isEmpty()
+                        ? "VARIANT_SUB_PATH_PRUNING"
+                        : disabledRules + ",VARIANT_SUB_PATH_PRUNING");
+        try {
+            runnable.run();
+        } finally {
+            connectContext.getSessionVariable().setDisableNereidsRules(disabledRules);
+        }
+    }
+
+    @FunctionalInterface
+    private interface CheckedRunnable {
+        void run() throws Exception;
     }
 
     private TColumnAccessPath metaPath(String... path) {

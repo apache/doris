@@ -23,6 +23,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
+import org.apache.doris.datasource.property.fileformat.LanceFileFormatProperties;
+import org.apache.doris.thrift.TFileFormatType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -33,6 +36,13 @@ import java.util.List;
 import java.util.Map;
 
 public class ExternalFileTableValuedFunctionTest {
+    @Test
+    public void testLanceIsAcceptedByFileFormatFactory() {
+        FileFormatProperties properties = FileFormatProperties.createFileFormatProperties("LaNcE");
+        Assert.assertTrue(properties instanceof LanceFileFormatProperties);
+        Assert.assertEquals(TFileFormatType.FORMAT_LANCE, properties.getFileFormatType());
+    }
+
     @Test
     public void testCsvSchemaParse() {
         Config.enable_date_conversion = true;

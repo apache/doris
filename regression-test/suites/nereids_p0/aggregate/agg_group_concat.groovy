@@ -107,6 +107,14 @@ suite("agg_group_concat") {
         from (select 1 as k union all select 2) t;
     """
 
+    test {
+        sql """
+            select group_concat(k order by sum(k)) as s
+            from (select 1 as k union all select 2) t;
+        """
+        exception "aggregate function cannot contain aggregate parameters"
+    }
+
     order_qt_group_concat_order_by_subquery """
         select group_concat(kint order by (select 1), kint) as s
         from agg_group_concat_table;

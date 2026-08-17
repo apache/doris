@@ -27,6 +27,7 @@
 #include "common/cast_set.h"
 #include "common/status.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/field.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
@@ -41,6 +42,7 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 namespace orc {
+class Type;
 struct ColumnVectorBatch;
 } // namespace orc
 
@@ -92,6 +94,10 @@ struct CastParameters;
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
+class ParquetDecodeSource;
+class ParquetLogicalValueConsumer;
+struct ParquetDecodeContext;
+struct ParquetMaterializationState;
 
 /// Info that represents a scalar or array field in a decomposed view.
 /// It allows to recreate field with different number
@@ -110,6 +116,16 @@ struct FieldInfo {
     // decimal info
     int scale = 0;
     int precision = 0;
+};
+
+struct OrcDecodedColumnView {
+    const orc::Type* file_type = nullptr;
+    const orc::Type* selected_type = nullptr;
+    const orc::ColumnVectorBatch* batch = nullptr;
+    size_t rows = 0;
+    const std::vector<size_t>* selected_rows = nullptr;
+    const cctz::time_zone* timezone = nullptr;
+    bool enable_mapping_timestamp_tz = false;
 };
 
 // Deserialize means read from different file format or memory format,
@@ -486,6 +502,39 @@ public:
                                           int64_t start, int64_t end,
                                           const cctz::time_zone& ctz) const = 0;
 
+    // Read already decoded column values into a Doris column. The input view is format-neutral:
+    // file readers translate their decoder output into DecodedColumnView, while SerDe owns
+    // the Doris-type-specific materialization into IColumn.
+    virtual Status read_column_from_decoded_values(IColumn& column,
+                                                   const DecodedColumnView& view) const;
+
+    // Read encoded Parquet values directly into the destination Doris column. ColumnReader owns
+    // levels/null/filter handling; the source owns only encoding-stream state; the target SerDe
+    // owns all physical/logical type interpretation and materialization.
+    virtual Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                            const ParquetDecodeContext& context, size_t num_values,
+                                            ParquetMaterializationState& state) const;
+    // Convert decoder-owned physical values into contiguous Doris logical POD values and publish
+    // them directly to a predicate sink. Implementations must not construct an IColumn.
+    virtual bool supports_parquet_raw_predicate(const ParquetDecodeContext& context) const;
+    virtual Status read_parquet_raw_predicate(ParquetDecodeSource& source,
+                                              const ParquetDecodeContext& context,
+                                              size_t num_values, bool enable_strict_mode,
+                                              ParquetLogicalValueConsumer& consumer) const;
+    // Raw conversion scratch is owned by the persistent leaf SerDe. The reader accounts active
+    // and retained bytes separately, then asks the SerDe to discard idle oversized capacity using
+    // the same bounded high-water policy as decoder scratch.
+    virtual size_t retained_parquet_raw_predicate_scratch_bytes() const { return 0; }
+    virtual size_t active_parquet_raw_predicate_scratch_bytes() const { return 0; }
+    virtual void release_parquet_raw_predicate_scratch(size_t max_retained_bytes) const {}
+    // Decode one dictionary page into the selected Doris type without consuming data-page
+    // indices. Dictionary filters use this to keep type interpretation in SerDe instead of
+    // exposing dictionary bytes or decoder-owned strings to ColumnReader.
+    virtual Status read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                           const ParquetDecodeContext& context) const;
+    virtual Status read_field_from_decoded_value(const IDataType& data_type, Field* field,
+                                                 const DecodedColumnView& view) const;
+
     // ORC serializer
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                        const NullMap* null_map,
@@ -493,6 +542,7 @@ public:
                                        int64_t end, Arena& arena,
                                        const FormatOptions& options) const = 0;
     // ORC deserializer
+    virtual Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const;
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 

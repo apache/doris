@@ -228,7 +228,7 @@ Status PartitionedAggSourceOperatorX::revoke_memory(RuntimeState* state) {
     return Status::OK();
 }
 
-Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status PartitionedAggSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     Status status;
 

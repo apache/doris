@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "core/custom_allocator.h"
 #include "runtime/exec_env.h"
+#include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
@@ -657,7 +658,9 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
     std::function<void(PrefetchBuffer&)> sync_buffer = nullptr;
     if (profile != nullptr) {
         const char* prefetch_buffered_reader = "PrefetchBufferedReader";
-        ADD_TIMER(profile, prefetch_buffered_reader);
+        auto* total_time =
+                ADD_CHILD_TIMER(profile, prefetch_buffered_reader,
+                                file_scan_profile::parent_or_root(profile, file_scan_profile::IO));
         auto copy_time = ADD_CHILD_TIMER(profile, "CopyTime", prefetch_buffered_reader);
         auto read_time = ADD_CHILD_TIMER(profile, "ReadTime", prefetch_buffered_reader);
         auto prefetch_request_io =
@@ -669,6 +672,7 @@ PrefetchBufferedReader::PrefetchBufferedReader(RuntimeProfile* profile, io::File
         auto request_bytes =
                 ADD_CHILD_COUNTER(profile, "RequestBytes", TUnit::BYTES, prefetch_buffered_reader);
         sync_buffer = [=](PrefetchBuffer& buf) {
+            COUNTER_UPDATE(total_time, buf._statis.copy_time + buf._statis.read_time);
             COUNTER_UPDATE(copy_time, buf._statis.copy_time);
             COUNTER_UPDATE(read_time, buf._statis.read_time);
             COUNTER_UPDATE(prefetch_request_io, buf._statis.prefetch_request_io);
@@ -926,7 +930,9 @@ RangeCacheFileReader::RangeCacheFileReader(RuntimeProfile* profile, io::FileRead
 
     if (_profile != nullptr) {
         const char* random_profile = "RangeCacheFileReader";
-        ADD_TIMER_WITH_LEVEL(_profile, random_profile, 1);
+        _total_time = ADD_CHILD_TIMER_WITH_LEVEL(
+                _profile, random_profile,
+                file_scan_profile::parent_or_root(_profile, file_scan_profile::IO), 1);
         _request_io =
                 ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestIO", TUnit::UNIT, random_profile, 1);
         _request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestBytes", TUnit::BYTES,
@@ -987,6 +993,7 @@ Status RangeCacheFileReader::read_at_impl(size_t offset, Slice result, size_t* b
 
 void RangeCacheFileReader::_collect_profile_before_close() {
     if (_profile != nullptr) {
+        COUNTER_UPDATE(_total_time, _cache_statistics.request_time);
         COUNTER_UPDATE(_request_io, _cache_statistics.request_io);
         COUNTER_UPDATE(_request_bytes, _cache_statistics.request_bytes);
         COUNTER_UPDATE(_request_time, _cache_statistics.request_time);

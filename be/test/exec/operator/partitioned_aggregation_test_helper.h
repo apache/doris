@@ -83,7 +83,9 @@ public:
         return Status::OK();
     }
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override { return Status::OK(); }
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override {
+        return Status::OK();
+    }
 };
 
 class MockPartitionedAggLocalState : public PartitionedAggLocalState {

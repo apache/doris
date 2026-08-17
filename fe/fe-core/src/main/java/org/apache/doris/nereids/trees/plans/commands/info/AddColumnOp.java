@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AlterTableClause;
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -46,6 +47,7 @@ import java.util.stream.Collectors;
  */
 public class AddColumnOp extends AlterTableOp {
     private ColumnDefinition columnDef;
+    private ColumnPath columnPath;
     // Column position
     private ColumnPosition colPos;
     // if rollupName is null, add to column to base index.
@@ -58,8 +60,17 @@ public class AddColumnOp extends AlterTableOp {
 
     public AddColumnOp(ColumnDefinition columnDef, ColumnPosition colPos, String rollupName,
             Map<String, String> properties) {
+        this(columnDef, ColumnPath.of(columnDef.getName()), colPos, rollupName, properties);
+    }
+
+    /**
+     * Create add-column operation with the original nested column path.
+     */
+    public AddColumnOp(ColumnDefinition columnDef, ColumnPath columnPath, ColumnPosition colPos,
+            String rollupName, Map<String, String> properties) {
         super(AlterOpType.SCHEMA_CHANGE);
         this.columnDef = columnDef;
+        this.columnPath = columnPath;
         this.colPos = colPos;
         this.rollupName = rollupName;
         this.properties = properties;
@@ -67,6 +78,14 @@ public class AddColumnOp extends AlterTableOp {
 
     public Column getColumn() {
         return column;
+    }
+
+    public ColumnDefinition getColumnDef() {
+        return columnDef;
+    }
+
+    public ColumnPath getColumnPath() {
+        return columnPath;
     }
 
     public ColumnPosition getColPos() {
@@ -86,13 +105,13 @@ public class AddColumnOp extends AlterTableOp {
         if (colPos != null) {
             colPos.analyze();
         }
-        validateColumnDef(tableName, columnDef, colPos, rollupName);
+        validateColumnDef(tableName, columnDef, colPos, rollupName, columnPath.isNested());
         column = columnDef.translateToCatalogStyleForSchemaChange();
     }
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new AddColumnClause(toSql(), column, colPos, rollupName, properties);
+        return new AddColumnClause(toSql(), columnPath, column, colPos, rollupName, properties);
     }
 
     @Override
@@ -113,7 +132,7 @@ public class AddColumnOp extends AlterTableOp {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ADD COLUMN ").append(columnDef.toSql());
+        sb.append("ADD COLUMN ").append(columnDef.toSql(columnPath.toSql()));
         if (colPos != null) {
             sb.append(" ").append(colPos.toSql());
         }
@@ -134,6 +153,11 @@ public class AddColumnOp extends AlterTableOp {
     public static void validateColumnDef(TableNameInfo tableName, ColumnDefinition columnDef, ColumnPosition colPos,
                                          String rollupName)
             throws UserException {
+        validateColumnDef(tableName, columnDef, colPos, rollupName, false);
+    }
+
+    private static void validateColumnDef(TableNameInfo tableName, ColumnDefinition columnDef, ColumnPosition colPos,
+            String rollupName, boolean nestedColumn) throws UserException {
         if (columnDef == null) {
             throw new AnalysisException("No column definition in add column clause.");
         }
@@ -181,7 +205,11 @@ public class AddColumnOp extends AlterTableOp {
                     .addAll(olapTable.getBaseSchema().stream().filter(Column::isClusterKey).map(Column::getName)
                             .collect(Collectors.toList()));
         }
-        columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+        if (nestedColumn) {
+            columnDef.validateNestedColumn(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+        } else {
+            columnDef.validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType);
+        }
         if (!columnDef.isNullable() && !columnDef.hasDefaultValue()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DEFAULT_FOR_FIELD, columnDef.getName());
         }

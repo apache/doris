@@ -19,6 +19,7 @@ package org.apache.doris.system;
 
 import org.apache.doris.analysis.ModifyBackendClause;
 import org.apache.doris.analysis.ModifyBackendHostNameClause;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
@@ -96,6 +97,9 @@ public class SystemInfoService {
     protected volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
 
     private volatile ImmutableMap<Long, DiskInfo> pathHashToDiskInfoRef = ImmutableMap.of();
+
+    public void invalidateCloudColocatePlacement(GroupId groupId) {
+    }
 
     public static class HostInfo implements Comparable<HostInfo> {
         public String host;

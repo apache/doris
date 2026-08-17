@@ -1348,8 +1348,9 @@ Status VariantColumnWriter::init() {
 }
 
 Status VariantColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+    RETURN_IF_ERROR(_impl->append_data(ptr, num_rows));
     _next_rowid += num_rows;
-    return _impl->append_data(ptr, num_rows);
+    return Status::OK();
 }
 
 uint64_t VariantColumnWriter::estimate_buffer_size() {
@@ -1379,7 +1380,9 @@ Status VariantColumnWriter::write_bloom_filter_index() {
 
 Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                             size_t num_rows) {
-    return _impl->append_nullable(null_map, ptr, num_rows);
+    RETURN_IF_ERROR(_impl->append_nullable(null_map, ptr, num_rows));
+    _next_rowid += num_rows;
+    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

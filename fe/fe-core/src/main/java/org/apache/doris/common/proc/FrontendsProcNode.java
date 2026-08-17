@@ -204,34 +204,36 @@ public class FrontendsProcNode implements ProcNodeInterface {
     }
 
     private static boolean isJoin(List<InetSocketAddress> allFeHosts, Frontend fe) {
+        String feHost = fe.getHost();
+        int fePort = fe.getEditLogPort();
         for (InetSocketAddress addr : allFeHosts) {
-            if (fe.getEditLogPort() != addr.getPort()) {
+            if (fePort != addr.getPort()) {
                 continue;
             }
-            // if hostname of InetSocketAddress is ip, addr.getHostName() may be not equal to fe.getIp()
-            // so we need to compare fe.getIp() with address.getHostAddress()
-            InetAddress address = addr.getAddress();
-            if (null == address) {
-                LOG.warn("Failed to get InetAddress {}", addr);
-                continue;
-            }
-            if (fe.getHost().equals(address.getHostAddress())) {
-                return true;
-            }
-        }
-
-        // Avoid calling getHostName multiple times, don't remove it
-        for (InetSocketAddress addr : allFeHosts) {
-            // Avoid calling getHostName multiple times, don't remove it
-            if (fe.getEditLogPort() != addr.getPort()) {
-                continue;
-            }
-            // https://bugs.openjdk.org/browse/JDK-8143378#:~:text=getHostName()%3B%20takes%20about%205,millisecond%20on%20JDK%20update%2051
-            // getHostName sometime has bug, take 5s
-            String host = addr.getHostName();
-            if (!Strings.isNullOrEmpty(host)) {
-                if (host.equals(fe.getHost())) {
+            if (Config.enable_fqdn_mode) {
+                String hostName = addr.getHostName();
+                if (!Strings.isNullOrEmpty(hostName) && hostName.equals(feHost)) {
                     return true;
+                }
+                InetAddress address = addr.getAddress();
+                if (address != null && feHost.equals(address.getHostAddress())) {
+                    return true;
+                }
+                if (address == null && !Strings.isNullOrEmpty(hostName) && hostName.equals(feHost)) {
+                    return true;
+                }
+            } else {
+                InetAddress address = addr.getAddress();
+                if (address != null) {
+                    String addrIp = address.getHostAddress();
+                    if (feHost.equals(addrIp)) {
+                        return true;
+                    }
+                } else {
+                    String hostName = addr.getHostName();
+                    if (!Strings.isNullOrEmpty(hostName) && hostName.equals(feHost)) {
+                        return true;
+                    }
                 }
             }
         }

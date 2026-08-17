@@ -95,6 +95,12 @@ public class CreateTableLikeTest {
         command.run(connectContext, new StmtExecutor(connectContext, sql));
     }
 
+    private static String getCreateTableStmt(Table table) {
+        List<String> createTableStmt = Lists.newArrayList();
+        Env.getDdlStmt(table, createTableStmt, null, null, false, true /* hide password */, -1L);
+        return createTableStmt.get(0);
+    }
+
     private static void checkTableEqual(Table newTable, Table existedTable, int rollupSize) {
         List<String> newCreateTableStmt = Lists.newArrayList();
         List<String> newAddRollupStmt = Lists.newArrayList();
@@ -382,6 +388,157 @@ public class CreateTableLikeTest {
                 "Rollup index[r11] not exists in Table[table_with_rollup]",
                 () -> checkCreateOlapTableLike(createTableWithRollup, createTableLikeWithRollupSq3, newDbName3,
                         existedDbName3, newTblName3, existedTblName3, 1));
+    }
+
+    @Test
+    public void testTimestampTzLessThanPartitionCreateTableAcceptsExplicitOffset() throws Exception {
+        String tableName = "test_timestamptz_less_than_create";
+        String createTableSql = "CREATE TABLE test." + tableName + " (\n"
+                + "  `ts` TIMESTAMPTZ(6) NOT NULL,\n"
+                + "  `seq` INT NOT NULL\n"
+                + ")\n"
+                + "UNIQUE KEY(`ts`)\n"
+                + "PARTITION BY RANGE(`ts`) (\n"
+                + "  PARTITION p0 VALUES LESS THAN ('2024-01-15 13:00:00 +00:00'),\n"
+                + "  PARTITION p1 VALUES LESS THAN ('2024-01-15 14:00:00 +00:00')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`ts`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\",\n"
+                + "  \"enable_unique_key_merge_on_write\" = \"true\"\n"
+                + ");";
+
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("+00:00");
+            createTable(createTableSql);
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+            OlapTable table = (OlapTable) db.getTableOrDdlException(tableName);
+
+            String createStmt = getCreateTableStmt(table);
+            Assert.assertTrue(createStmt, createStmt.contains(
+                    "PARTITION p0 VALUES [('0000-01-01 00:00:00.000000+00:00'), ('2024-01-15 13:00:00.000000+00:00'))"));
+            Assert.assertTrue(createStmt, createStmt.contains(
+                    "PARTITION p1 VALUES [('2024-01-15 13:00:00.000000+00:00'), ('2024-01-15 14:00:00.000000+00:00'))"));
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
+    }
+
+    @Test
+    public void testTimestampTzRangePartitionCreateTableAcceptsNamedAndLowercaseZones() throws Exception {
+        String tableName = "test_timestamptz_named_lowercase_zone_create";
+        String createTableSql = "CREATE TABLE test." + tableName + " (\n"
+                + "  `ts` TIMESTAMPTZ(6) NOT NULL,\n"
+                + "  `seq` INT NOT NULL\n"
+                + ")\n"
+                + "UNIQUE KEY(`ts`)\n"
+                + "PARTITION BY RANGE(`ts`) (\n"
+                + "  PARTITION p1 VALUES [('2024-01-15 20:00:00Asia/Shanghai'), ('2024-01-15 13:00:00    uTc')),\n"
+                + "  PARTITION p2 VALUES [('2024-01-15 13:00:00    uTc'), ('2024-01-15 22:00:00 Asia/Shanghai'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`ts`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\",\n"
+                + "  \"enable_unique_key_merge_on_write\" = \"true\"\n"
+                + ");";
+
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("America/New_York");
+            createTable(createTableSql);
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+            OlapTable table = (OlapTable) db.getTableOrDdlException(tableName);
+
+            String createStmt = getCreateTableStmt(table);
+            Assert.assertTrue(createStmt, createStmt.contains(
+                    "PARTITION p1 VALUES [('2024-01-15 12:00:00.000000+00:00'), ('2024-01-15 13:00:00.000000+00:00'))"));
+            Assert.assertTrue(createStmt, createStmt.contains(
+                    "PARTITION p2 VALUES [('2024-01-15 13:00:00.000000+00:00'), ('2024-01-15 14:00:00.000000+00:00'))"));
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
+    }
+
+    @Test
+    public void testTimestampTzLessThanPartitionCreateTableUsesSessionTimezoneWithoutOffset() throws Exception {
+        String tableName = "test_timestamptz_less_than_session_tz";
+        String createTableSql = "CREATE TABLE test." + tableName + " (\n"
+                + "  `ts` TIMESTAMPTZ(6) NOT NULL,\n"
+                + "  `seq` INT NOT NULL\n"
+                + ")\n"
+                + "UNIQUE KEY(`ts`)\n"
+                + "PARTITION BY RANGE(`ts`) (\n"
+                + "  PARTITION p0 VALUES LESS THAN ('2024-01-15 13:00:00'),\n"
+                + "  PARTITION p1 VALUES LESS THAN ('2024-01-15 14:00:00')\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`ts`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\",\n"
+                + "  \"enable_unique_key_merge_on_write\" = \"true\"\n"
+                + ");";
+
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("America/New_York");
+            createTable(createTableSql);
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+            OlapTable table = (OlapTable) db.getTableOrDdlException(tableName);
+
+            String createStmt = getCreateTableStmt(table);
+            Assert.assertTrue(createStmt, createStmt.contains(
+                    "PARTITION p0 VALUES [('0000-01-01 00:00:00.000000+00:00'), ('2024-01-15 18:00:00.000000+00:00'))"));
+            Assert.assertTrue(createStmt, createStmt.contains(
+                    "PARTITION p1 VALUES [('2024-01-15 18:00:00.000000+00:00'), ('2024-01-15 19:00:00.000000+00:00'))"));
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
+    }
+
+    @Test
+    public void testTimestampTzRangePartitionCreateLikeKeepsUtcBoundary() throws Exception {
+        String sourceTableName = "test_timestamptz_range_like_src";
+        String cloneTableName = "test_timestamptz_range_like_clone";
+        String createSourceTableSql = "CREATE TABLE test." + sourceTableName + " (\n"
+                + "  `ts` TIMESTAMPTZ(6) NOT NULL,\n"
+                + "  `seq` INT NOT NULL\n"
+                + ")\n"
+                + "UNIQUE KEY(`ts`)\n"
+                + "PARTITION BY RANGE(`ts`) (\n"
+                + "  PARTITION p1 VALUES [('2024-01-15 12:00:00 +00:00'), ('2024-01-15 13:00:00 +00:00')),\n"
+                + "  PARTITION p2 VALUES [('2024-01-15 13:00:00 +00:00'), ('2024-01-15 14:00:00 +00:00'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(`ts`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\",\n"
+                + "  \"enable_unique_key_merge_on_write\" = \"true\"\n"
+                + ");";
+        String createLikeSql = "CREATE TABLE test." + cloneTableName + " LIKE test." + sourceTableName;
+
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            connectContext.getSessionVariable().setTimeZone("+00:00");
+            createTable(createSourceTableSql);
+
+            connectContext.getSessionVariable().setTimeZone("Asia/Shanghai");
+            createTableLike(createLikeSql);
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+            OlapTable sourceTable = (OlapTable) db.getTableOrDdlException(sourceTableName);
+            OlapTable cloneTable = (OlapTable) db.getTableOrDdlException(cloneTableName);
+
+            String sourceCreateStmt = getCreateTableStmt(sourceTable);
+            Assert.assertTrue(sourceCreateStmt.contains(
+                    "PARTITION p1 VALUES [('2024-01-15 12:00:00.000000+00:00'), ('2024-01-15 13:00:00.000000+00:00'))"));
+            Assert.assertTrue(sourceCreateStmt.contains(
+                    "PARTITION p2 VALUES [('2024-01-15 13:00:00.000000+00:00'), ('2024-01-15 14:00:00.000000+00:00'))"));
+            checkTableEqual(cloneTable, sourceTable, 0);
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
     }
 
     @Test

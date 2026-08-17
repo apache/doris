@@ -189,13 +189,15 @@ public class AuditLogHelper {
         String cloudCluster = "";
         try {
             if (Config.isCloudMode()) {
-                cloudCluster = ctx.getCloudCluster(false);
+                cloudCluster = getCloudClusterForAudit(ctx);
             }
         } catch (ComputeGroupException e) {
             LOG.warn("Failed to get cloud cluster", e);
         }
         String cluster = Config.isCloudMode() ? cloudCluster : "";
         String stmtType = getStmtType(parsedStmt);
+        long queueTimeMs = getQueueTimeMs(ctx);
+
 
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
         // ATTN: MUST reset, otherwise, the same AuditEventBuilder instance will be used in the next query.
@@ -214,6 +216,7 @@ public class AuditLogHelper {
                 .setErrorMessage((ctx.getState().getErrorMessage() == null ? "" :
                         ctx.getState().getErrorMessage().replace("\n", " ").replace("\t", " ")))
                 .setQueryTime(elapseMs)
+                .setQueueTimeMs(queueTimeMs)
                 .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
                 .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
                 .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
@@ -372,6 +375,13 @@ public class AuditLogHelper {
         return queueToken == null ? -1 : queueToken.getQueueEndTime() - queueToken.getQueueStartTime();
     }
 
+    static String getCloudClusterForAudit(ConnectContext ctx) throws ComputeGroupException {
+        if (!Strings.isNullOrEmpty(ctx.getEffectiveCloudCluster())) {
+            return ctx.getEffectiveCloudCluster();
+        }
+        return ctx.getCloudCluster(false);
+    }
+
     /**
      * Update query metrics without writing audit log. This is used when
      * enable_prepared_stmt_audit_log is disabled, to ensure QPS metrics
@@ -407,7 +417,7 @@ public class AuditLogHelper {
         String physicalClusterName = "";
         try {
             if (Config.isCloudMode()) {
-                cloudCluster = ctx.getCloudCluster(false);
+                cloudCluster = getCloudClusterForAudit(ctx);
                 physicalClusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                     .getPhysicalCluster(cloudCluster);
                 if (!cloudCluster.equals(physicalClusterName)) {
@@ -471,4 +481,3 @@ public class AuditLogHelper {
         }
     }
 }
-

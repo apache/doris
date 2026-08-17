@@ -28,18 +28,28 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.VariantWritePlanValidator;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
+import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonVariantWriteAnalyzer;
+import org.apache.doris.datasource.paimon.PaimonWriteTarget;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -50,6 +60,7 @@ import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
+import org.apache.doris.nereids.analyzer.UnboundPaimonTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -86,6 +97,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
@@ -117,6 +129,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -162,6 +175,8 @@ public class BindSink implements AnalysisRuleFactory {
                 RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
                 RuleType.BINDING_INSERT_ICEBERG_TABLE.build(
                     unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
+                RuleType.BINDING_INSERT_PAIMON_TABLE.build(
+                    unboundPaimonTableSink().thenApply(this::bindPaimonTableSink)),
                 RuleType.BINDING_INSERT_MAX_COMPUTE_TABLE.build(
                     unboundMaxComputeTableSink().thenApply(this::bindMaxComputeTableSink)),
                 RuleType.BINDING_INSERT_JDBC_TABLE.build(unboundJdbcTableSink().thenApply(this::bindJdbcTableSink)),
@@ -304,6 +319,11 @@ public class BindSink implements AnalysisRuleFactory {
 
     private LogicalProject<?> getOutputProjectByCoercion(List<Column> tableSchema, LogicalPlan child,
                                                          Map<String, NamedExpression> columnToOutput) {
+        return getOutputProjectByCoercion(tableSchema, child, columnToOutput, Collections.emptyMap());
+    }
+
+    private LogicalProject<?> getOutputProjectByCoercion(List<Column> tableSchema, LogicalPlan child,
+            Map<String, NamedExpression> columnToOutput, Map<String, Type> targetColumnTypes) {
         List<NamedExpression> fullOutputExprs = Utils.fastToImmutableList(columnToOutput.values());
         if (child instanceof LogicalOneRowRelation) {
             // remove default value slot in one row relation
@@ -331,7 +351,8 @@ public class BindSink implements AnalysisRuleFactory {
             }
             expr = expr.toSlot();
             DataType inputType = expr.getDataType();
-            DataType targetType = DataType.fromCatalogType(tableSchema.get(i).getType());
+            Type targetCatalogType = targetColumnTypes.getOrDefault(col.getName(), col.getType());
+            DataType targetType = DataType.fromCatalogType(targetCatalogType);
             Expression castExpr = expr;
             // TODO move string like type logic into TypeCoercionUtils#castIfNotSameType
             if (isSourceAndTargetStringLikeType(inputType, targetType) && !inputType.equals(targetType)) {
@@ -369,6 +390,14 @@ public class BindSink implements AnalysisRuleFactory {
             MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child) {
+        return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
+                boundSink, child, boundSink.getTargetTable().getFullSchema());
+    }
+
+    private static Map<String, NamedExpression> getColumnToOutput(
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
+            TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
+            LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> targetSchema) {
         // we need to insert all the columns of the target table
         // although some columns are not mentions.
         // so we add a projects to supply the default value.
@@ -384,7 +413,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> materializedViewColumn = Lists.newArrayList();
         List<Column> shadowColumns = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
-        for (Column column : boundSink.getTargetTable().getFullSchema()) {
+        for (Column column : targetSchema) {
             if (column.isGeneratedColumn()) {
                 generatedColumns.add(column);
                 continue;
@@ -711,6 +740,19 @@ public class BindSink implements AnalysisRuleFactory {
         IcebergExternalDatabase database = pair.first;
         IcebergExternalTable table = pair.second;
         LogicalPlan child = ((LogicalPlan) sink.child());
+        Optional<MvccSnapshot> targetSnapshot = ctx.cascadesContext.getStatementContext()
+                .loadSnapshots(table, Optional.empty(), Optional.empty());
+        IcebergSnapshotCacheValue targetSnapshotValue = ((IcebergMvccSnapshot) targetSnapshot.orElseThrow(
+                () -> new AnalysisException("Iceberg write target snapshot is not available")))
+                .getSnapshotCacheValue();
+        Table targetIcebergTable = targetSnapshotValue.getIcebergTable().orElseThrow(
+                () -> new AnalysisException("Iceberg write target metadata is not available"));
+        // Sink columns belong to the write target's latest snapshot. A historical child scan
+        // of the same table must not make target-column lookup use its older relation schema.
+        List<Column> targetSchema = table.getFullSchema(targetSnapshot);
+        // Validate the same pinned generation used to bind the sink. A self-insert can pin an
+        // older source snapshot in StatementContext before the latest write target is loaded.
+        IcebergUtils.validateWriteSchema(targetIcebergTable, targetSchema);
 
         // Get static partition columns if present
         Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
@@ -720,7 +762,7 @@ public class BindSink implements AnalysisRuleFactory {
 
         // Validate static partition if present
         if (sink.hasStaticPartition()) {
-            validateStaticPartition(sink, table);
+            validateStaticPartition(sink, table, targetIcebergTable);
         }
 
         // Build bindColumns: exclude static partition columns from the columns that
@@ -731,19 +773,19 @@ public class BindSink implements AnalysisRuleFactory {
         if (sink.getColNames().isEmpty()) {
             // When no column names specified, include all non-static-partition columns
             if (sink.isRewrite()) {
-                bindColumns = table.getBaseSchema(true).stream()
+                bindColumns = targetSchema.stream()
                         .filter(col -> !staticPartitionColNames.contains(col.getName()))
                         .filter(col -> col.isVisible() || IcebergUtils.isIcebergRowLineageColumn(col))
                         .collect(ImmutableList.toImmutableList());
             } else {
-                bindColumns = table.getBaseSchema(true).stream()
+                bindColumns = targetSchema.stream()
                         .filter(col -> !staticPartitionColNames.contains(col.getName()))
                         .filter(Column::isVisible)
                         .collect(ImmutableList.toImmutableList());
             }
         } else {
             bindColumns = sink.getColNames().stream().map(cn -> {
-                Column column = table.getColumn(cn);
+                Column column = findColumn(targetSchema, cn);
                 if (column == null) {
                     throw new AnalysisException(String.format("column %s is not found in table %s",
                             cn, table.getName()));
@@ -759,6 +801,7 @@ public class BindSink implements AnalysisRuleFactory {
         LogicalIcebergTableSink<?> boundSink = new LogicalIcebergTableSink<>(
                 database,
                 table,
+                targetIcebergTable,
                 bindColumns,
                 child.getOutput().stream()
                         .map(NamedExpression.class::cast)
@@ -775,8 +818,12 @@ public class BindSink implements AnalysisRuleFactory {
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
 
+        IcebergVariantWriteAnalyzer.validate(bindColumns, child.getOutput());
+        VariantWritePlanValidator.validateNoLossyCoercion(
+                "Iceberg", bindColumns, child, ctx.cascadesContext.getCteContext());
+
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
-                boundSink, child);
+                boundSink, child, targetSchema);
 
         // For static partition columns, add constant expressions from PARTITION clause
         // This ensures partition column values are written to the data file
@@ -784,7 +831,7 @@ public class BindSink implements AnalysisRuleFactory {
             for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
                 String colName = entry.getKey();
                 Expression valueExpr = entry.getValue();
-                Column column = table.getColumn(colName);
+                Column column = findColumn(targetSchema, colName);
                 if (column != null) {
                     // Cast the literal to the correct column type
                     Expression castExpr = TypeCoercionUtils.castIfNotSameType(
@@ -794,7 +841,9 @@ public class BindSink implements AnalysisRuleFactory {
             }
         }
 
-        List<Column> insertSchema = table.getFullSchema();
+        // Iceberg branches share the current table schema, while their rows stay pinned to the
+        // branch head; target coercion must therefore use latest metadata as well.
+        List<Column> insertSchema = targetSchema;
         if (!sink.isRewrite()) {
             insertSchema = insertSchema.stream()
                     .filter(Column::isVisible)
@@ -804,16 +853,23 @@ public class BindSink implements AnalysisRuleFactory {
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }
 
+    private static Column findColumn(List<Column> schema, String columnName) {
+        return schema.stream()
+                .filter(column -> column.getName().equalsIgnoreCase(columnName))
+                .findFirst()
+                .orElse(null);
+    }
+
     /**
      * Validate static partition specification for Iceberg table
      */
-    private void validateStaticPartition(UnboundIcebergTableSink<?> sink, IcebergExternalTable table) {
+    private void validateStaticPartition(UnboundIcebergTableSink<?> sink, IcebergExternalTable table,
+            Table icebergTable) {
         Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
         if (staticPartitions == null || staticPartitions.isEmpty()) {
             return;
         }
 
-        Table icebergTable = table.getIcebergTable();
         PartitionSpec partitionSpec = icebergTable.spec();
 
         // Check if table is partitioned
@@ -857,6 +913,100 @@ public class BindSink implements AnalysisRuleFactory {
                                 partitionColName, partitionValue));
             }
         }
+    }
+
+    private Plan bindPaimonTableSink(MatchingContext<UnboundPaimonTableSink<Plan>> ctx) {
+        UnboundPaimonTableSink<?> sink = ctx.root;
+        Pair<PaimonExternalDatabase, PaimonExternalTable> pair = bind(ctx.cascadesContext, sink);
+        PaimonExternalDatabase database = pair.first;
+        PaimonExternalTable table = pair.second;
+        PaimonWriteTarget writeTarget;
+        try {
+            writeTarget = PaimonWriteTarget.create(table);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+        LogicalPlan child = ((LogicalPlan) sink.child());
+
+        Map<String, Expression> staticPartitions = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        staticPartitions.putAll(sink.getStaticPartitionKeyValues());
+        Set<String> staticPartitionColNames = staticPartitions.keySet();
+        if (!staticPartitionColNames.isEmpty()) {
+            Set<String> partitionColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            partitionColumnNames.addAll(writeTarget.getPartitionColumnNames());
+            for (String columnName : staticPartitionColNames) {
+                if (!partitionColumnNames.contains(columnName)) {
+                    throw new AnalysisException(String.format(
+                            "Column '%s' is not a partition column of Paimon table '%s'",
+                            columnName, table.getName()));
+                }
+                Expression partitionValue = staticPartitions.get(columnName);
+                if (!(partitionValue instanceof Literal)) {
+                    throw new AnalysisException(String.format(
+                            "Partition value for column '%s' must be a literal, but got: %s",
+                            columnName, partitionValue));
+                }
+            }
+        }
+
+        List<Column> bindColumns;
+        if (sink.getColNames().isEmpty()) {
+            bindColumns = writeTarget.getSchema().stream()
+                    .filter(Column::isVisible)
+                    .filter(column -> !staticPartitionColNames.contains(column.getName()))
+                    .collect(ImmutableList.toImmutableList());
+        } else {
+            Set<String> specifiedColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            for (String columnName : sink.getColNames()) {
+                if (!specifiedColumnNames.add(columnName)) {
+                    throw new AnalysisException(
+                            "Duplicate column '" + columnName + "' in Paimon insert column list");
+                }
+            }
+            bindColumns = sink.getColNames().stream().map(cn -> {
+                if (staticPartitionColNames.contains(cn)) {
+                    throw new AnalysisException(String.format(
+                            "Static partition column '%s' must not appear in the insert column list", cn));
+                }
+                Column column = writeTarget.getColumn(cn);
+                if (column == null) {
+                    throw new AnalysisException(String.format(
+                            "column %s is not found in table %s", cn, table.getName()));
+                }
+                return column;
+            }).collect(ImmutableList.toImmutableList());
+        }
+
+        if (bindColumns.size() != child.getOutput().size()) {
+            throw new AnalysisException("insert into cols should be corresponding to the query output");
+        }
+        Map<String, NamedExpression> columnToOutput = getPaimonColumnToOutput(bindColumns, child);
+        List<Column> writeColumns = new ArrayList<>(bindColumns);
+        if (!staticPartitionColNames.isEmpty()) {
+            for (Column column : writeTarget.getSchema()) {
+                Expression staticValue = staticPartitions.get(column.getName());
+                if (staticValue != null) {
+                    Expression castExpr = TypeCoercionUtils.castIfNotSameType(
+                            staticValue, DataType.fromCatalogType(column.getType()));
+                    columnToOutput.put(column.getName(), new Alias(castExpr, column.getName()));
+                    writeColumns.add(column);
+                }
+            }
+        }
+
+        LogicalPaimonTableSink<?> boundSink = new LogicalPaimonTableSink<>(
+                database, writeTarget, writeColumns,
+                child.getOutput().stream()
+                        .map(NamedExpression.class::cast)
+                        .collect(ImmutableList.toImmutableList()),
+                sink.getDMLCommandType(), Optional.empty(), Optional.empty(), child);
+        PaimonVariantWriteAnalyzer.validate(
+                writeTarget, writeColumns, columnToOutput);
+        VariantWritePlanValidator.validateNoLossyCoercion(
+                "Paimon", bindColumns, child, ctx.cascadesContext.getCteContext());
+        LogicalProject<?> outputProject = getOutputProjectByCoercion(
+                writeColumns, child, columnToOutput, writeTarget.getColumnTypes());
+        return boundSink.withChildAndUpdateOutput(outputProject);
     }
 
     private Plan bindMaxComputeTableSink(MatchingContext<UnboundMaxComputeTableSink<Plan>> ctx) {
@@ -964,11 +1114,22 @@ public class BindSink implements AnalysisRuleFactory {
         return columnToOutput;
     }
 
+    private static Map<String, NamedExpression> getPaimonColumnToOutput(
+            List<Column> bindColumns, LogicalPlan child) {
+        Map<String, NamedExpression> columnToOutput =
+                Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (int i = 0; i < bindColumns.size(); i++) {
+            Column column = bindColumns.get(i);
+            columnToOutput.put(column.getName(),
+                    new Alias(child.getOutput().get(i), column.getName()));
+        }
+        return columnToOutput;
+    }
+
     private Plan bindDictionarySink(MatchingContext<UnboundDictionarySink<Plan>> ctx) {
         UnboundDictionarySink<?> sink = ctx.root;
-        Pair<Database, Dictionary> pair = bind(ctx.cascadesContext, sink);
-        Database database = pair.first;
-        Dictionary dictionary = pair.second;
+        Database database = sink.getDatabase();
+        Dictionary dictionary = sink.getDictionary();
         LogicalPlan child = ((LogicalPlan) sink.child());
 
         // 1. bind target columns: from sink's column names to target tables' Columns
@@ -1068,6 +1229,18 @@ public class BindSink implements AnalysisRuleFactory {
         throw new AnalysisException("the target table of insert into is not an iceberg table");
     }
 
+    private Pair<PaimonExternalDatabase, PaimonExternalTable> bind(CascadesContext cascadesContext,
+            UnboundPaimonTableSink<? extends Plan> sink) {
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                sink.getNameParts());
+        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
+                cascadesContext.getConnectContext().getEnv(), Optional.empty());
+        if (pair.second instanceof PaimonExternalTable) {
+            return Pair.of(((PaimonExternalDatabase) pair.first), (PaimonExternalTable) pair.second);
+        }
+        throw new AnalysisException("the target table of insert into is not a paimon table");
+    }
+
     private Pair<MaxComputeExternalDatabase, MaxComputeExternalTable> bind(CascadesContext cascadesContext,
             UnboundMaxComputeTableSink<? extends Plan> sink) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
@@ -1090,19 +1263,6 @@ public class BindSink implements AnalysisRuleFactory {
             return Pair.of(((JdbcExternalDatabase) pair.first), (JdbcExternalTable) pair.second);
         }
         throw new AnalysisException("the target table of insert into is not an jdbc table");
-    }
-
-    private Pair<Database, Dictionary> bind(CascadesContext cascadesContext,
-            UnboundDictionarySink<? extends Plan> sink) {
-        Dictionary dictionary = sink.getDictionary();
-        Database db;
-        try {
-            db = cascadesContext.getConnectContext().getEnv().getInternalCatalog()
-                    .getDbOrAnalysisException(dictionary.getDatabase().getName());
-        } catch (org.apache.doris.common.AnalysisException e) {
-            throw new AnalysisException(e.getMessage());
-        }
-        return Pair.of(db, dictionary);
     }
 
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions, boolean temp) {

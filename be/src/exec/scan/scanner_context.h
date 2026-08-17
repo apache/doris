@@ -239,6 +239,7 @@ protected:
     std::shared_ptr<ResourceContext> _resource_ctx;
     std::shared_ptr<Dependency> _dependency = nullptr;
     std::shared_ptr<doris::TaskHandle> _task_handle;
+    std::weak_ptr<doris::TaskExecutor> _task_executor;
 
     std::atomic<int64_t> _block_memory_usage = 0;
 
@@ -251,7 +252,8 @@ protected:
     // Each scan operator can submit _max_scan_concurrency scanner to scheduelr if scheduler has enough resource.
     // So that for a single query, we can make sure it could make full utilization of the resource.
     int32_t _max_scan_concurrency = 0;
-    MOCK_REMOVE(const) int32_t _min_scan_concurrency = 1;
+    int32_t _min_scan_concurrency = 1;
+    bool _scan_starving = false;
 
     std::shared_ptr<ScanTask> _pull_next_scan_task(std::shared_ptr<ScanTask> current_scan_task,
                                                    int32_t current_concurrency);

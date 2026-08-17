@@ -223,7 +223,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
 
-    [[nodiscard]] Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    [[nodiscard]] Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     Status push(RuntimeState* state, Block* input_block, bool eos) const override;
     Status pull(doris::RuntimeState* state, Block* output_block, bool* eos) const override;

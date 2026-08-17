@@ -22,33 +22,33 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.paimon.PaimonPartitionInfo;
+import org.apache.doris.datasource.paimon.PaimonReaderOptions;
 import org.apache.doris.datasource.paimon.PaimonUtil;
 
 import org.apache.commons.collections4.CollectionUtils;
-import org.apache.paimon.partition.Partition;
+import org.apache.paimon.manifest.PartitionEntry;
 import org.apache.paimon.table.Table;
 
 import java.util.List;
 
 /**
- * Loads partition info for a snapshot projection from the base Paimon table and catalog metadata.
+ * Loads typed partition metadata from the same snapshot-scoped table used to plan the query.
  */
 public final class PaimonPartitionInfoLoader {
-    private final PaimonTableLoader tableLoader;
-
-    public PaimonPartitionInfoLoader(PaimonTableLoader tableLoader) {
-        this.tableLoader = tableLoader;
-    }
-
-    public PaimonPartitionInfo load(NameMapping nameMapping, Table paimonTable, List<Column> partitionColumns)
+    public PaimonPartitionInfo load(NameMapping nameMapping, Table snapshotTable, List<Column> partitionColumns)
             throws AnalysisException {
         if (CollectionUtils.isEmpty(partitionColumns)) {
             return PaimonPartitionInfo.EMPTY;
         }
         try {
-            List<Partition> paimonPartitions = tableLoader.catalog(nameMapping).getPaimonPartitions(nameMapping);
-            boolean legacyPartitionName = PaimonUtil.isLegacyPartitionName(paimonTable);
-            return PaimonUtil.generatePartitionInfo(partitionColumns, paimonPartitions, legacyPartitionName);
+            // Catalog.listPartitions exposes path-oriented string specs. Paimon intentionally
+            // maps null and blank strings to the same partition.default-name there, so those
+            // specs cannot be used as logical partition identities. PartitionEntry retains the
+            // typed BinaryRow and is also bound to the data snapshot represented by this table.
+            PaimonReaderOptions.validateEffectivePlanningTable(snapshotTable);
+            List<PartitionEntry> partitionEntries =
+                    snapshotTable.newReadBuilder().newScan().listPartitionEntries();
+            return PaimonUtil.generatePartitionInfo(snapshotTable, partitionColumns, partitionEntries);
         } catch (Exception e) {
             throw new CacheException("failed to load paimon partition info %s.%s.%s: %s",
                     e, nameMapping.getCtlId(), nameMapping.getLocalDbName(), nameMapping.getLocalTblName(),

@@ -24,6 +24,8 @@
 
 namespace doris {
 
+static constexpr size_t MD5_HEX_LENGTH = 2 * MD5_DIGEST_LENGTH;
+
 class Md5Digest {
 public:
     Md5Digest();
@@ -37,5 +39,8 @@ private:
     MD5_CTX _md5_ctx;
     std::string _hex;
 };
+
+void md5_hex_batch(const unsigned char* const inputs[], const size_t lengths[], char* outputs,
+                   size_t count);
 
 } // namespace doris

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -42,21 +43,30 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
 
     private final PhysicalCatalogRelation relation;
     private final PushDownAggOp aggOp;
+    private final List<ExprId> countArgumentExprIds;
 
     public PhysicalStorageLayerAggregate(PhysicalCatalogRelation relation, PushDownAggOp aggOp) {
+        this(relation, aggOp, ImmutableList.of());
+    }
+
+    public PhysicalStorageLayerAggregate(PhysicalCatalogRelation relation, PushDownAggOp aggOp,
+            List<ExprId> countArgumentExprIds) {
         super(relation.getRelationId(), relation.getType(), relation.getTable(), relation.getQualifier(),
                 Optional.empty(), relation.getLogicalProperties(), ImmutableList.of());
         this.relation = Objects.requireNonNull(relation, "relation cannot be null");
         this.aggOp = Objects.requireNonNull(aggOp, "aggOp cannot be null");
+        this.countArgumentExprIds = ImmutableList.copyOf(countArgumentExprIds);
     }
 
     public PhysicalStorageLayerAggregate(PhysicalCatalogRelation relation, PushDownAggOp aggOp,
+            List<ExprId> countArgumentExprIds,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics) {
         super(relation.getRelationId(), relation.getType(), relation.getTable(), relation.getQualifier(),
                 groupExpression, logicalProperties, physicalProperties, statistics, ImmutableList.of());
         this.relation = Objects.requireNonNull(relation, "relation cannot be null");
         this.aggOp = Objects.requireNonNull(aggOp, "aggOp cannot be null");
+        this.countArgumentExprIds = ImmutableList.copyOf(countArgumentExprIds);
     }
 
     public PhysicalRelation getRelation() {
@@ -65,6 +75,10 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
 
     public PushDownAggOp getAggOp() {
         return aggOp;
+    }
+
+    public List<ExprId> getCountArgumentExprIds() {
+        return countArgumentExprIds;
     }
 
     @Override
@@ -82,20 +96,21 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
     }
 
     public PhysicalStorageLayerAggregate withPhysicalOlapScan(PhysicalOlapScan physicalOlapScan) {
-        return new PhysicalStorageLayerAggregate(physicalOlapScan, aggOp);
+        // branch-4.1 predates copyWithSameId; its plan-copy contract creates a fresh node ID.
+        return new PhysicalStorageLayerAggregate(physicalOlapScan, aggOp, countArgumentExprIds);
     }
 
     @Override
     public PhysicalStorageLayerAggregate withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalStorageLayerAggregate(relation, aggOp, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics);
+        return new PhysicalStorageLayerAggregate(relation, aggOp, countArgumentExprIds,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalStorageLayerAggregate(relation, aggOp, groupExpression,
-                logicalProperties.get(), physicalProperties, statistics);
+        return new PhysicalStorageLayerAggregate(relation, aggOp, countArgumentExprIds,
+                groupExpression, logicalProperties.get(), physicalProperties, statistics);
     }
 
     @Override
@@ -103,7 +118,7 @@ public class PhysicalStorageLayerAggregate extends PhysicalCatalogRelation {
             Statistics statistics) {
         return new PhysicalStorageLayerAggregate(
                 (PhysicalCatalogRelation) relation.withPhysicalPropertiesAndStats(null, statistics),
-                aggOp, groupExpression,
+                aggOp, countArgumentExprIds, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics);
     }
 

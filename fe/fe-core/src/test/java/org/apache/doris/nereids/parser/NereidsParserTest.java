@@ -24,6 +24,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -116,6 +117,100 @@ public class NereidsParserTest extends ParserTestBase {
             e.printStackTrace();
         }
         Assertions.assertNull(exceptionOccurred);
+    }
+
+    @Test
+    public void testParseTableOptionsParams() {
+        NereidsParser nereidsParser = new NereidsParser();
+        UnboundRelation relation = findFirstUnboundRelation(nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.`orders$files`"
+                        + "@options('scan.snapshot-id'='12345', 'scan.mode'='from-snapshot')"));
+
+        Assertions.assertNotNull(relation);
+        Assertions.assertNotNull(relation.getScanParams());
+        Assertions.assertEquals("options", relation.getScanParams().getParamType());
+        Assertions.assertEquals(
+                ImmutableMap.of("scan.snapshot-id", "12345", "scan.mode", "from-snapshot"),
+                relation.getScanParams().getMapParams());
+    }
+
+    @Test
+    public void testRejectOptionsWithoutKeyValuePairs() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> nereidsParser.parseSingle("select * from t@options()"));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> nereidsParser.parseSingle("select * from t@options(foo, bar)"));
+    }
+
+    @Test
+    public void testCreateViewParserPreservesTableOptions() {
+        NereidsParser nereidsParser = new NereidsParser();
+        UnboundRelation relation = findFirstUnboundRelation(nereidsParser.parseForCreateView(
+                "select * from paimon_catalog.test_db.orders"
+                        + "@options('scan.snapshot-id'='1')"));
+
+        Assertions.assertNotNull(relation);
+        Assertions.assertNotNull(relation.getScanParams());
+        Assertions.assertEquals(
+                ImmutableMap.of("scan.snapshot-id", "1"),
+                relation.getScanParams().getMapParams());
+    }
+
+    @Test
+    public void testRejectOptionsInBaseTableRefCommand() {
+        NereidsParser nereidsParser = new NereidsParser();
+        ParseException exception = Assertions.assertThrows(ParseException.class,
+                () -> nereidsParser.parseSingle(
+                        "show replica distribution from db1.t"
+                                + "@options('scan.snapshot-id'='1')"));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "OPTIONS scan params are only supported in query relations"));
+    }
+
+    @Test
+    public void testParseIndependentDataTableOptionsParams() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Plan plan = nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.orders"
+                        + "@options('scan.snapshot-id'='1') left_orders "
+                        + "join paimon_catalog.test_db.orders"
+                        + "@options('scan.snapshot-id'='2') right_orders "
+                        + "on left_orders.id = right_orders.id");
+
+        List<UnboundRelation> relations = new ArrayList<>();
+        collectUnboundRelations(plan, relations);
+        Assertions.assertEquals(2, relations.size());
+        Assertions.assertEquals(
+                ImmutableMap.of("scan.snapshot-id", "1"),
+                relations.get(0).getScanParams().getMapParams());
+        Assertions.assertEquals(
+                ImmutableMap.of("scan.snapshot-id", "2"),
+                relations.get(1).getScanParams().getMapParams());
+    }
+
+    @Test
+    public void testRejectConflictingTableScanParams() {
+        NereidsParser nereidsParser = new NereidsParser();
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.orders"
+                        + "@options('scan.snapshot-id'='1')"
+                        + "@options('scan.snapshot-id'='2')"));
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.orders@incr("
+                        + "'startSnapshotId'=1, 'endSnapshotId'=2)"
+                        + "@options('scan.snapshot-id'='1')"));
+    }
+
+    @Test
+    public void testOptionsHintIsNotTableScanParams() {
+        NereidsParser nereidsParser = new NereidsParser();
+        UnboundRelation relation = findFirstUnboundRelation(nereidsParser.parseSingle(
+                "select * from paimon_catalog.test_db.orders "
+                        + "/*+ OPTIONS('scan.snapshot-id'='1') */"));
+
+        Assertions.assertNotNull(relation);
+        Assertions.assertNull(relation.getScanParams());
     }
 
     @Test
@@ -928,6 +1023,28 @@ public class NereidsParserTest extends ParserTestBase {
         } else {
             LogicalPlan logicalPlan = parser.parseSingle(sql);
             Assertions.assertInstanceOf(clazz, logicalPlan.child(0));
+        }
+    }
+
+    private UnboundRelation findFirstUnboundRelation(Plan plan) {
+        if (plan instanceof UnboundRelation) {
+            return (UnboundRelation) plan;
+        }
+        for (Plan child : plan.children()) {
+            UnboundRelation relation = findFirstUnboundRelation(child);
+            if (relation != null) {
+                return relation;
+            }
+        }
+        return null;
+    }
+
+    private void collectUnboundRelations(Plan plan, List<UnboundRelation> relations) {
+        if (plan instanceof UnboundRelation) {
+            relations.add((UnboundRelation) plan);
+        }
+        for (Plan child : plan.children()) {
+            collectUnboundRelations(child, relations);
         }
     }
 

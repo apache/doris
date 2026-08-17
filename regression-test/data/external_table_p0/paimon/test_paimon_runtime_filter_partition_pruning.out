@@ -32,6 +32,9 @@
 -- !runtime_filter_partition_pruning_string_in_null --
 2
 
+-- !static_partition_pruning_string_in --
+6
+
 -- !runtime_filter_partition_pruning_date1 --
 1
 
@@ -128,6 +131,9 @@
 -- !runtime_filter_partition_pruning_string_in_null --
 2
 
+-- !static_partition_pruning_string_in --
+6
+
 -- !runtime_filter_partition_pruning_date1 --
 1
 
@@ -190,4 +196,3 @@
 
 -- !null_partition_4 --
 1	\N	100.0
-

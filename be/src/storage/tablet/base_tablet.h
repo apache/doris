@@ -35,6 +35,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/version_graph.h"
+#include "util/bthread_shared_mutex.h"
 
 namespace doris {
 struct RowSetSplits;
@@ -94,7 +95,7 @@ public:
     int32_t max_version_config();
 
     // FIXME(plat1ko): It is not appropriate to expose this lock
-    std::shared_mutex& get_header_lock() { return _meta_lock; }
+    BthreadSharedMutex& get_header_lock() { return _meta_lock; }
 
     void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
 
@@ -122,6 +123,10 @@ public:
     // this method just return the compaction sum on each rowset
     // note(tsy): we should unify the compaction score calculation finally
     uint32_t get_real_compaction_score() const;
+    // MUST hold shared `_meta_lock`. Use this variant when the caller already
+    // holds the header lock to avoid recursively re-acquiring the (now
+    // writer-preferring) `_meta_lock`, which would self-deadlock.
+    uint32_t get_real_compaction_score_unlocked() const;
 
     // MUST hold shared meta lock
     Status capture_rs_readers_unlocked(const Versions& version_path,
@@ -158,7 +163,7 @@ public:
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
                            RowsetSharedPtr rowset, OlapReaderStatistics& stats, std::string& values,
-                           bool write_to_cache = false);
+                           bool write_to_cache = false, const io::IOContext* io_ctx = nullptr);
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
@@ -169,7 +174,8 @@ public:
                           RowsetSharedPtr* rowset = nullptr, bool with_rowid = true,
                           std::string* encoded_seq_value = nullptr,
                           OlapReaderStatistics* stats = nullptr,
-                          DeleteBitmapPtr tablet_delete_bitmap = nullptr);
+                          DeleteBitmapPtr tablet_delete_bitmap = nullptr,
+                          const io::IOContext* io_ctx = nullptr);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -190,12 +196,13 @@ public:
                                       const std::vector<RowsetSharedPtr>& specified_rowsets,
                                       DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                       RowsetWriter* rowset_writer,
-                                      DeleteBitmapPtr tablet_delete_bitmap = nullptr);
+                                      DeleteBitmapPtr tablet_delete_bitmap = nullptr,
+                                      int64_t queue_time_us = 0);
 
     Status calc_delete_bitmap_between_segments(
             TabletSchemaSPtr schema, RowsetId rowset_id,
             const std::vector<segment_v2::SegmentSharedPtr>& segments,
-            DeleteBitmapPtr delete_bitmap);
+            DeleteBitmapPtr delete_bitmap, int64_t queue_time_us = 0);
 
     static Status commit_phase_update_delete_bitmap(
             const BaseTabletSPtr& tablet, const RowsetSharedPtr& rowset,
@@ -369,7 +376,7 @@ protected:
 
     Result<CaptureRowsetResult> _remote_capture_rowsets(const Version& version_range) const;
 
-    mutable std::shared_mutex _meta_lock;
+    mutable BthreadSharedMutex _meta_lock;
     TimestampedVersionTracker _timestamped_version_tracker;
     // After version 0.13, all newly created rowsets are saved in _rs_version_map.
     // And if rowset being compacted, the old rowsets will be saved in _stale_rs_version_map;

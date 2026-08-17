@@ -28,7 +28,7 @@ public class IcebergTransactionManager extends AbstractExternalTransactionManage
     }
 
     @Override
-    IcebergTransaction createTransaction() {
+    IcebergTransaction createTransaction(long transactionId) {
         return new IcebergTransaction((IcebergMetadataOps) ops);
     }
 }

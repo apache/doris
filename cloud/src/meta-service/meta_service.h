@@ -28,9 +28,11 @@
 #include <type_traits>
 
 #include "common/config.h"
+#include "common/defer.h"
 #include "common/stats.h"
 #include "cpp/sync_point.h"
 #include "meta-service/delete_bitmap_lock_white_list.h"
+#include "meta-service/meta_service_helper.h"
 #include "meta-service/txn_lazy_committer.h"
 #include "meta-store/txn_kv.h"
 #include "rate-limiter/rate_limiter.h"
@@ -427,6 +429,9 @@ public:
     void compact_snapshot(::google::protobuf::RpcController* controller,
                           const CompactSnapshotRequest* request, CompactSnapshotResponse* response,
                           ::google::protobuf::Closure* done) override;
+
+    std::pair<MetaServiceCode, std::string> check_instance_recycle_completed(
+            const std::string& instance_id, bool& finished, std::string& reason);
 
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
@@ -1034,6 +1039,11 @@ private:
 
         using namespace std::chrono;
         brpc::ClosureGuard done_guard(done);
+
+        DORIS_CLOUD_DEFER {
+            auto* status = resp->mutable_status();
+            set_response_code(status, status->code(), status->msg());
+        };
 
         // life span of this defer MUST be longer than `done`
         std::unique_ptr<int, std::function<void(int*)>> defer_injection(

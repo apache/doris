@@ -18,12 +18,16 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.lance.LanceMetadataLoader;
+import org.apache.doris.datasource.lance.LanceTableMetadata;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -56,6 +60,19 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
             // Just check
             // Fixme wait to be done  #50320
             // FileSystemFactory.get(storageProperties);
+            return;
+        }
+        if (isLanceFormat()) {
+            try {
+                LanceTableMetadata metadata =
+                        LanceMetadataLoader.loadLatestForTvf(filePath, backendConnectProperties);
+                setLanceTableMetadata(metadata);
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "Failed to load Lance metadata from S3 dataset '" + filePath + "': "
+                                + e.getMessage(),
+                        e);
+            }
         } else {
             parseFile();
         }
@@ -66,6 +83,17 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
     @Override
     public TFileType getTFileType() {
         return TFileType.FILE_S3;
+    }
+
+    @Override
+    public List<Column> getTableColumns() throws AnalysisException {
+        if (isLanceFormat()) {
+            if (columns == null) {
+                throw new AnalysisException("S3 Lance metadata was not initialized in FE");
+            }
+            return columns;
+        }
+        return super.getTableColumns();
     }
 
     @Override
@@ -85,4 +113,3 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         return "S3TableValuedFunction";
     }
 }
-

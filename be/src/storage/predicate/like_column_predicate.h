@@ -43,23 +43,22 @@ class Roaring;
 namespace doris {
 class FunctionContext;
 
-template <PrimitiveType T>
 class LikeColumnPredicate final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(LikeColumnPredicate);
     LikeColumnPredicate(bool opposite, uint32_t column_id, std::string col_name,
                         doris::FunctionContext* fn_ctx, doris::StringRef val);
     ~LikeColumnPredicate() override = default;
-    LikeColumnPredicate(const LikeColumnPredicate<T>& other, uint32_t col_id)
+    LikeColumnPredicate(const LikeColumnPredicate& other, uint32_t col_id)
             : ColumnPredicate(other, col_id) {
         _origin = other._origin;
         pattern = other.pattern;
         _state = other._state;
         _opposite = other._opposite;
     }
-    LikeColumnPredicate(const LikeColumnPredicate<T>& other) = delete;
+    LikeColumnPredicate(const LikeColumnPredicate& other) = delete;
     std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
-        return LikeColumnPredicate<T>::create_shared(*this, col_id);
+        return LikeColumnPredicate::create_shared(*this, col_id);
     }
     std::string debug_string() const override {
         fmt::memory_buffer debug_string_buffer;

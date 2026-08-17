@@ -57,8 +57,8 @@ import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
 import org.apache.doris.thrift.TTransactionalHiveDesc;
@@ -135,6 +135,7 @@ public class HiveScanNode extends FileQueryScanNode {
         super.doInitialize();
 
         if (hmsTable.isHiveTransactionalTable()) {
+            markTransactionalHiveScanParams(params);
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
@@ -142,42 +143,60 @@ public class HiveScanNode extends FileQueryScanNode {
         }
     }
 
-    protected List<HivePartition> getPartitions() throws AnalysisException {
-        List<HivePartition> resPartitions = Lists.newArrayList();
-        HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .hive(hmsTable.getCatalog().getId());
-        List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(hmsTable));
-        if (!partitionColumnTypes.isEmpty()) {
-            // partitioned table
-            Collection<PartitionItem> partitionItems;
-            // partitions has benn pruned by Nereids, in PruneFileScanPartition,
-            // so just use the selected partitions.
-            this.totalPartitionNum = selectedPartitions.totalPartitionNum;
-            partitionItems = selectedPartitions.selectedPartitions.values();
-            Preconditions.checkNotNull(partitionItems);
-            this.selectedPartitionNum = partitionItems.size();
+    static void markTransactionalHiveScanParams(TFileScanRangeParams scanParams) {
+        // BE selects the scanner before remote batch splits are fetched, so expose the table format
+        // in scan-level params as well as in each range.
+        TTableFormatFileDesc tableFormatParams = new TTableFormatFileDesc();
+        tableFormatParams.setTableFormatType(TableFormatType.TRANSACTIONAL_HIVE.value());
+        scanParams.setTableFormatParams(tableFormatParams);
+    }
 
-            // get partitions from cache
-            List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(partitionItems.size());
-            for (PartitionItem item : partitionItems) {
-                partitionValuesList.add(
-                        ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
+    protected List<HivePartition> getPartitions() throws AnalysisException {
+        long startTime = System.currentTimeMillis();
+        List<HivePartition> resPartitions = Lists.newArrayList();
+        try {
+            HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .hive(hmsTable.getCatalog().getId());
+            List<Type> partitionColumnTypes =
+                    hmsTable.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(hmsTable));
+            if (!partitionColumnTypes.isEmpty()) {
+                // partitioned table
+                Collection<PartitionItem> partitionItems;
+                // partitions has benn pruned by Nereids, in PruneFileScanPartition,
+                // so just use the selected partitions.
+                this.totalPartitionNum = selectedPartitions.totalPartitionNum;
+                partitionItems = selectedPartitions.selectedPartitions.values();
+                Preconditions.checkNotNull(partitionItems);
+                this.selectedPartitionNum = partitionItems.size();
+
+                // get partitions from cache
+                List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(partitionItems.size());
+                for (PartitionItem item : partitionItems) {
+                    partitionValuesList.add(
+                            ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
+                }
+                resPartitions = cache.getAllPartitionsWithCache(hmsTable, partitionValuesList);
+            } else {
+                // non partitioned table, create a dummy partition to save location and inputformat,
+                // so that we can unify the interface.
+                HivePartition dummyPartition = new HivePartition(hmsTable.getOrBuildNameMapping(), true,
+                        hmsTable.getRemoteTable().getSd().getInputFormat(),
+                        hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
+                this.totalPartitionNum = 1;
+                this.selectedPartitionNum = 1;
+                resPartitions.add(dummyPartition);
             }
-            resPartitions = cache.getAllPartitionsWithCache(hmsTable, partitionValuesList);
-        } else {
-            // non partitioned table, create a dummy partition to save location and inputformat,
-            // so that we can unify the interface.
-            HivePartition dummyPartition = new HivePartition(hmsTable.getOrBuildNameMapping(), true,
-                    hmsTable.getRemoteTable().getSd().getInputFormat(),
-                    hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
-            this.totalPartitionNum = 1;
-            this.selectedPartitionNum = 1;
-            resPartitions.add(dummyPartition);
+            if (ConnectContext.get().getExecutor() != null) {
+                getSummaryProfile().addExternalTableGetPartitionsTime(System.currentTimeMillis() - startTime);
+                getSummaryProfile().setGetPartitionsFinishTime();
+            }
+            return resPartitions;
+        } catch (RuntimeException e) {
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetPartitionsTime(System.currentTimeMillis() - startTime);
+            }
+            throw e;
         }
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionsFinishTime();
-        }
-        return resPartitions;
     }
 
     @Override
@@ -221,6 +240,7 @@ public class HiveScanNode extends FileQueryScanNode {
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
         AtomicInteger numFinishedPartitions = new AtomicInteger(0);
+        long startTime = System.currentTimeMillis();
         CompletableFuture.runAsync(() -> {
             for (HivePartition partition : prunedPartitions) {
                 if (batchException.get() != null || splitAssignment.isStop()) {
@@ -248,6 +268,10 @@ public class HiveScanNode extends FileQueryScanNode {
                                 splitAssignment.setException(batchException.get());
                             }
                             if (numFinishedPartitions.incrementAndGet() == prunedPartitions.size()) {
+                                if (getSummaryProfile() != null) {
+                                    getSummaryProfile().addExternalTableGetPartitionFilesTime(
+                                            System.currentTimeMillis() - startTime);
+                                }
                                 splitAssignment.finishSchedule();
                             }
                         }
@@ -287,6 +311,7 @@ public class HiveScanNode extends FileQueryScanNode {
             List<Split> allFiles, String bindBrokerName, int numBackends,
             boolean isBatchMode) throws IOException, UserException {
         List<FileCacheValue> fileCaches;
+        long startTime = System.currentTimeMillis();
         if (hiveTransaction != null) {
             try {
                 fileCaches = getFileSplitByTransaction(cache, partitions, bindBrokerName);
@@ -301,6 +326,9 @@ public class HiveScanNode extends FileQueryScanNode {
             fileCaches = cache.getFilesByPartitions(partitions, withCache, partitions.size() > 1,
                     directoryLister, hmsTable);
         }
+        if (!isBatchMode && getSummaryProfile() != null) {
+            getSummaryProfile().addExternalTableGetPartitionFilesTime(System.currentTimeMillis() - startTime);
+        }
 
         long targetFileSplitSize = determineTargetFileSplitSize(fileCaches, isBatchMode);
         if (tableSample != null) {
@@ -310,7 +338,7 @@ public class HiveScanNode extends FileQueryScanNode {
         }
 
         /**
-         * If the push down aggregation operator is COUNT,
+         * If a table-level COUNT(*) is pushed down,
          * we don't need to split the file because for parquet/orc format, only metadata is read.
          * If we split the file, we will read metadata of a file multiple times, which is not efficient.
          *
@@ -318,7 +346,7 @@ public class HiveScanNode extends FileQueryScanNode {
          * - If the file format is not parquet/orc, eg, text, we need to split the file to increase the parallelism.
          */
         boolean needSplit = true;
-        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
+        if (isTableLevelCountStarPushdown()
                 && !(hmsTable.isHiveTransactionalTable() && hmsTable.isFullAcidTable())) {
             int totalFileNum = 0;
             for (FileCacheValue fileCacheValue : fileCaches) {
@@ -576,7 +604,7 @@ public class HiveScanNode extends FileQueryScanNode {
             textParams.setNullFormat("");
             fileAttributes.setTextParams(textParams);
             fileAttributes.setHeaderType("");
-            if (textParams.isSetEnclose()) {
+            if (shouldTrimDoubleQuotes(textParams)) {
                 fileAttributes.setTrimDoubleQuotes(true);
             }
             fileAttributes.setEnableTextValidateUtf8(
@@ -631,6 +659,10 @@ public class HiveScanNode extends FileQueryScanNode {
         }
 
         return fileAttributes;
+    }
+
+    static boolean shouldTrimDoubleQuotes(TFileTextScanRangeParams textParams) {
+        return textParams.isSetEnclose() && textParams.getEnclose() == (byte) '"';
     }
 
     @Override

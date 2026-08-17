@@ -1,4 +1,5 @@
-CREATE TABLE IF NOT EXISTS `orc_all_types_t`(
+drop table if exists `orc_all_types_t`;
+create table `orc_all_types_t`(
 `t_null_string` string,
 `t_null_varchar` varchar(65535),
 `t_null_char` char(10),
@@ -89,6 +90,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat'
 LOCATION
   '/user/doris/preinstalled_data/orc_table/orc_all_types';
-
-msck repair table orc_all_types_t;
-

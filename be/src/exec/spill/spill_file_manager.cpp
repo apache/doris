@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
@@ -31,6 +32,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "storage/olap_define.h"
+#include "util/debug_points.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/time.h"
@@ -39,12 +41,28 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 SpillFileManager::~SpillFileManager() {
+    // QueryContext destruction can still queue failed deletions after stop(), for example while
+    // VDataStreamMgr is being destroyed. Retry them once more before dropping the in-memory state.
+    // Any directory that still cannot be deleted remains under the active spill root and will be
+    // moved to the GC root by init() after restart.
+    _retry_pending_query_spill_directories();
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }
 
 SpillFileManager::SpillFileManager(
         std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&& spill_store_map)
         : _spill_store_map(std::move(spill_store_map)), _stop_background_threads_latch(1) {}
+
+void SpillFileManager::stop() {
+    _stop_background_threads_latch.count_down();
+    if (_spill_gc_thread) {
+        _spill_gc_thread->join();
+    }
+    // The GC thread may observe the stop latch before processing a recently queued failed deletion.
+    // Retry the pending directories after the thread exits; later failures get one final retry in
+    // the destructor.
+    _retry_pending_query_spill_directories();
+}
 
 Status SpillFileManager::init() {
     LOG(INFO) << "init spill stream manager";
@@ -98,7 +116,7 @@ void SpillFileManager::_init_metrics() {
             _spill_read_bytes_metric.get()));
 }
 
-// clean up stale spilled files
+// Retry failed query-directory deletions and clean up stale spill files.
 void SpillFileManager::_spill_gc_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::spill_gc_interval_ms))) {
@@ -163,6 +181,66 @@ void SpillFileManager::delete_spill_file(SpillFileSPtr spill_file) {
     spill_file->gc();
 }
 
+void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
+                                                    SpillDataDir* data_dir) {
+    PendingQuerySpillDirectory pending_directory {
+            .query_dir = data_dir->get_spill_data_path(query_id),
+    };
+
+    auto status = _try_delete_query_spill_directory(pending_directory);
+    if (!status.ok()) {
+        std::lock_guard lock(_pending_query_spill_directories_mutex);
+        ++pending_directory.failed_count;
+        _pending_query_spill_directories.emplace_back(std::move(pending_directory));
+    }
+}
+
+Status SpillFileManager::_try_delete_query_spill_directory(
+        const PendingQuerySpillDirectory& pending_directory) {
+    DBUG_EXECUTE_IF("fault_inject::spill_file_manager::delete_query_spill_directory", {
+        return Status::Error<INTERNAL_ERROR>("injected query spill directory deletion failure");
+    });
+    const auto& fs = io::global_local_filesystem();
+    return fs->delete_directory(pending_directory.query_dir);
+}
+
+void SpillFileManager::_retry_pending_query_spill_directories() {
+    std::vector<PendingQuerySpillDirectory> pending_directories;
+    {
+        std::lock_guard lock(_pending_query_spill_directories_mutex);
+        pending_directories.swap(_pending_query_spill_directories);
+    }
+    DBUG_EXECUTE_IF(
+            "fault_inject::spill_file_manager::retry_pending_query_spill_directories_after_drain",
+            { DBUG_RUN_CALLBACK(); });
+
+    // Limit repeated warnings for a persistently unavailable directory while retaining it for
+    // every subsequent retry.
+    constexpr int log_interval = 5;
+    std::vector<PendingQuerySpillDirectory> failed_directories;
+    for (auto& pending_directory : pending_directories) {
+        auto status = _try_delete_query_spill_directory(pending_directory);
+        if (status.ok()) {
+            continue;
+        }
+
+        ++pending_directory.failed_count;
+        if (pending_directory.failed_count % log_interval == 0) {
+            LOG(WARNING) << fmt::format(
+                    "failed to retry deleting spill query directory, dir {}, error: {}",
+                    pending_directory.query_dir, status.to_string());
+        }
+        failed_directories.emplace_back(std::move(pending_directory));
+    }
+
+    if (!failed_directories.empty()) {
+        std::lock_guard lock(_pending_query_spill_directories_mutex);
+        for (auto& pending_directory : failed_directories) {
+            _pending_query_spill_directories.emplace_back(std::move(pending_directory));
+        }
+    }
+}
+
 void SpillFileManager::gc(int32_t max_work_time_ms) {
     bool exists = true;
     bool has_work = false;
@@ -182,6 +260,7 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
             LOG(INFO) << msg;
         }
     }};
+    _retry_pending_query_spill_directories();
     for (const auto& [path, store_dir] : _spill_store_map) {
         std::string gc_root_dir = store_dir->get_spill_data_gc_path();
 
@@ -253,12 +332,12 @@ SpillDataDir::SpillDataDir(std::string path, int64_t capacity_bytes,
 }
 
 bool is_directory_empty(const std::filesystem::path& dir) {
+    // Spill cleanup may delete the directory while the iterator is constructed or advanced. Treat
+    // that race as empty for these presence metrics.
     try {
         return std::filesystem::is_directory(dir) &&
                std::filesystem::directory_iterator(dir) ==
                        std::filesystem::end(std::filesystem::directory_iterator {});
-        // this method is not thread safe, the file referenced by directory_iterator
-        // maybe moved to spill_gc dir during this function call, so need to catch expection
     } catch (const std::filesystem::filesystem_error&) {
         return true;
     }

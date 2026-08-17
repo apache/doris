@@ -26,6 +26,7 @@
 #include <future>
 #include <mutex>
 #include <random>
+#include <string>
 #include <thread>
 
 #include "common/exception.h"
@@ -337,6 +338,20 @@ private:
     std::atomic<bool> _finished {false};
 };
 
+class TestingTaskHandle final : public TaskHandle {
+public:
+    explicit TestingTaskHandle(std::string task_id) : _task_id(std::move(task_id)) {}
+
+    Status init() override { return Status::OK(); }
+
+    bool is_closed() const override { return false; }
+
+    TaskId task_id() const override { return _task_id; }
+
+private:
+    TaskId _task_id;
+};
+
 class TimeSharingTaskExecutorTest : public testing::Test {
 protected:
     void SetUp() override {}
@@ -420,6 +435,48 @@ TEST_F(TimeSharingTaskExecutorTest, test_remove_task_clears_queued_task_count) {
         throw;
     }
     executor.stop();
+}
+
+TEST_F(TimeSharingTaskExecutorTest, test_invalid_task_handle_returns_error) {
+    auto ticker = std::make_shared<TestingTicker>();
+
+    TimeSharingTaskExecutor::ThreadConfig thread_config;
+    thread_config.thread_name = "invalid_task_handle";
+    thread_config.workload_group = "normal";
+    TimeSharingTaskExecutor executor(thread_config, 0, 1, 1, ticker);
+    ASSERT_TRUE(executor.init().ok());
+
+    auto split = std::make_shared<QueueOnlySplitRunner>();
+
+    auto null_enqueue_result = executor.enqueue_splits(nullptr, false, {split});
+    ASSERT_FALSE(null_enqueue_result.has_value());
+    EXPECT_NE(std::string(null_enqueue_result.error().msg()).find("null task handle"),
+              std::string::npos);
+
+    Status null_re_enqueue_status = executor.re_enqueue_split(nullptr, false, split);
+    ASSERT_FALSE(null_re_enqueue_status.ok());
+    EXPECT_NE(std::string(null_re_enqueue_status.msg()).find("null task handle"),
+              std::string::npos);
+
+    Status null_remove_status = executor.remove_task(nullptr);
+    ASSERT_FALSE(null_remove_status.ok());
+    EXPECT_NE(std::string(null_remove_status.msg()).find("null task handle"), std::string::npos);
+
+    auto invalid_task_handle = std::make_shared<TestingTaskHandle>("invalid_task");
+    auto invalid_enqueue_result = executor.enqueue_splits(invalid_task_handle, false, {split});
+    ASSERT_FALSE(invalid_enqueue_result.has_value());
+    EXPECT_NE(std::string(invalid_enqueue_result.error().msg()).find("invalid task handle type"),
+              std::string::npos);
+
+    Status invalid_re_enqueue_status = executor.re_enqueue_split(invalid_task_handle, false, split);
+    ASSERT_FALSE(invalid_re_enqueue_status.ok());
+    EXPECT_NE(std::string(invalid_re_enqueue_status.msg()).find("invalid task handle type"),
+              std::string::npos);
+
+    Status invalid_remove_status = executor.remove_task(invalid_task_handle);
+    ASSERT_FALSE(invalid_remove_status.ok());
+    EXPECT_NE(std::string(invalid_remove_status.msg()).find("invalid task handle type"),
+              std::string::npos);
 }
 
 TEST_F(TimeSharingTaskExecutorTest, test_tasks_complete) {

@@ -71,7 +71,7 @@ public:
 };
 
 struct VariantColumnData {
-    const void* column_data;
+    const IColumn* column_data;
     size_t row_pos;
 };
 
@@ -182,11 +182,10 @@ private:
 
         static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length) {
             auto column = ColumnString::create();
-            auto padded_column = assert_cast<ColumnString*>(column->assert_mutable().get());
 
             column->offsets.resize(input->size());
             column->chars.resize(input->size() * padding_length);
-            memset(padded_column->chars.data(), 0, input->size() * padding_length);
+            memset(column->chars.data(), 0, input->size() * padding_length);
 
             for (size_t i = 0; i < input->size(); i++) {
                 column->offsets[i] = cast_set<uint32_t, size_t, false>((i + 1) * padding_length);
@@ -198,7 +197,7 @@ private:
                         << ", real=" << str.size;
 
                 if (str.size) {
-                    memcpy(padded_column->chars.data() + i * padding_length, str.data, str.size);
+                    memcpy(column->chars.data() + i * padding_length, str.data, str.size);
                 }
             }
 
@@ -536,7 +535,7 @@ private:
         const void* get_data_at(size_t offset) const override;
 
     private:
-        const void* _value_ptr;
+        const IColumn* _value_ptr = nullptr;
         std::unique_ptr<OlapColumnDataConvertorVarChar> _root_data_convertor;
         std::unique_ptr<VariantColumnData> _variant_column_data;
     };

@@ -27,7 +27,8 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned.WriterAssignment;
+import org.apache.doris.nereids.properties.DistributionSpecIcebergTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -36,10 +37,12 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
@@ -49,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -62,6 +66,7 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
@@ -171,10 +176,6 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         }).when(spyTable).getFullSchema();
         Mockito.doReturn(ImmutableList.of()).when(spyTable)
                 .getPartitionColumns(ArgumentMatchers.any());
-        IcebergSnapshotCacheValue snapshotCacheValue = new IcebergSnapshotCacheValue(
-                IcebergPartitionInfo.empty(), new IcebergSnapshot(0L, 0L));
-        Mockito.doReturn(new IcebergMvccSnapshot(snapshotCacheValue)).when(spyTable)
-                .loadSnapshot(ArgumentMatchers.any(), ArgumentMatchers.any());
         Table mockedIcebergTable = Mockito.mock(Table.class);
         PartitionSpec mockedSpec = Mockito.mock(PartitionSpec.class);
         Mockito.doReturn(false).when(mockedSpec).isPartitioned();
@@ -187,6 +188,16 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Mockito.doReturn(mockedSpec).when(mockedIcebergTable).spec();
         Mockito.doReturn(ImmutableMap.<Integer, PartitionSpec>of()).when(mockedIcebergTable).specs();
         Mockito.doReturn(icebergSchema).when(mockedIcebergTable).schema();
+        Mockito.doReturn(SortOrder.unsorted()).when(mockedIcebergTable).sortOrder();
+        IcebergSnapshotCacheValue snapshotCacheValue = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(0L, 0L), Optional.empty(), mockedIcebergTable);
+        Mockito.doReturn(new IcebergMvccSnapshot(snapshotCacheValue)).when(spyTable)
+                .loadSnapshot(ArgumentMatchers.any(), ArgumentMatchers.any());
+        // The scan now resolves initial defaults from the statement-pinned schema id, so the
+        // mocked table must expose the same historical-schema lookup as a real Iceberg table.
+        Mockito.doAnswer(invocation -> ImmutableMap.of(
+                mockedIcebergTable.schema().schemaId(), mockedIcebergTable.schema()))
+                .when(mockedIcebergTable).schemas();
 
         // Mock newScan() chain used by IcebergScanNode.createTableScan()
         TableScan mockedTableScan = Mockito.mock(TableScan.class, Mockito.RETURNS_DEEP_STUBS);
@@ -197,6 +208,10 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
         Mockito.doReturn(mockedTableScan).when(mockedTableScan).filter(ArgumentMatchers.<org.apache.iceberg.expressions.Expression>any());
         Mockito.doReturn(mockedTableScan).when(mockedTableScan).planWith(ArgumentMatchers.any());
         Mockito.doReturn(null).when(mockedTableScan).snapshot();
+        // Keep the scan schema aligned with the mocked table schema. IcebergScanNode reads the
+        // selected scan schema when serializing initial defaults, and several tests temporarily
+        // replace the table schema to exercise partition transforms.
+        Mockito.doAnswer(invocation -> mockedIcebergTable.schema()).when(mockedTableScan).schema();
         Mockito.doReturn(CloseableIterable.withNoopClose(java.util.Collections.emptyList()))
                 .when(mockedTableScan).planFiles();
 
@@ -271,6 +286,137 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
 
         PhysicalPlan physicalPlan = planPhysicalPlan((LogicalPlan) explainPlan, PhysicalProperties.GATHER, sql);
         assertContainsPhysicalSink(physicalPlan, PhysicalIcebergDeleteSink.class);
+    }
+
+    @Test
+    public void testCreateIcebergV3TableRejectsRowLineageReservedColumn() throws Exception {
+        useIceberg();
+        String rowIdTable = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+        String rowIdSql = "create table " + rowIdTable
+                + " (_row_id bigint) properties('format-version'='3')";
+        LogicalPlan rowIdPlan = parseStmt(rowIdSql);
+        Assertions.assertTrue(rowIdPlan instanceof CreateTableCommand);
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> ((CreateTableCommand) rowIdPlan).getCreateTableInfo().validate(connectContext));
+
+        String lastUpdatedSequenceNumberTable =
+                "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+        String lastUpdatedSequenceNumberSql = "create table " + lastUpdatedSequenceNumberTable
+                + " (_last_updated_sequence_number bigint) properties('format-version'='3')";
+        LogicalPlan lastUpdatedSequenceNumberPlan = parseStmt(lastUpdatedSequenceNumberSql);
+        Assertions.assertTrue(lastUpdatedSequenceNumberPlan instanceof CreateTableCommand);
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> ((CreateTableCommand) lastUpdatedSequenceNumberPlan).getCreateTableInfo()
+                        .validate(connectContext));
+
+        String formatV2Table = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+        String formatV2Sql = "create table " + formatV2Table
+                + " (_row_id bigint) properties('format-version'='2')";
+        LogicalPlan formatV2Plan = parseStmt(formatV2Sql);
+        Assertions.assertTrue(formatV2Plan instanceof CreateTableCommand);
+        Assertions.assertDoesNotThrow(
+                () -> ((CreateTableCommand) formatV2Plan).getCreateTableInfo().validate(connectContext));
+    }
+
+    @Test
+    public void testCreateIcebergDefaultV3TableRejectsRowLineageReservedColumn() throws Exception {
+        useIceberg();
+        IcebergExternalCatalog catalog = (IcebergExternalCatalog) Env.getCurrentEnv()
+                .getCatalogMgr().getCatalog(catalogName);
+        catalog.getCatalogProperty().addProperty("table-default.format-version", "3");
+        try {
+            String rowIdTable = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+            String rowIdSql = "create table " + rowIdTable + " (_row_id bigint)";
+            LogicalPlan rowIdPlan = parseStmt(rowIdSql);
+            Assertions.assertTrue(rowIdPlan instanceof CreateTableCommand);
+            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                    () -> ((CreateTableCommand) rowIdPlan).getCreateTableInfo().validate(connectContext));
+            Assertions.assertFalse(catalog.getCatalog().tableExists(TableIdentifier.of(dbName, rowIdTable)));
+
+            String formatV2Table = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+            String formatV2Sql = "create table " + formatV2Table
+                    + " (_row_id bigint) properties('format-version'='2')";
+            LogicalPlan formatV2Plan = parseStmt(formatV2Sql);
+            Assertions.assertTrue(formatV2Plan instanceof CreateTableCommand);
+            Assertions.assertDoesNotThrow(
+                    () -> ((CreateTableCommand) formatV2Plan).getCreateTableInfo().validate(connectContext));
+        } finally {
+            catalog.getCatalogProperty().deleteProperty("table-default.format-version");
+        }
+    }
+
+    @Test
+    public void testIcebergInsertUsesTransformOwnershipExchange() throws Exception {
+        useIceberg();
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(baseIcebergSchema).bucket("id", 16).build();
+        Mockito.doReturn(partitionSpec).when(mockedIcebergTable).spec();
+        try {
+            String sql = "insert into " + tableName + " values (1, 'name', 2, 3, 4.00)";
+            LogicalPlan command = parseStmt(sql);
+            Assertions.assertTrue(command instanceof InsertIntoTableCommand);
+            Plan explainPlan = ((InsertIntoTableCommand) command).getExplainPlan(connectContext);
+            PhysicalPlan physicalPlan = planPhysicalPlan(
+                    (LogicalPlan) explainPlan, PhysicalProperties.ANY, sql);
+
+            PhysicalIcebergTableSink<?> sink =
+                    getSinglePhysicalSink(physicalPlan, PhysicalIcebergTableSink.class);
+            Assertions.assertTrue(sink.getRequirePhysicalProperties().getDistributionSpec()
+                    instanceof DistributionSpecIcebergTableSinkHashPartitioned);
+            DistributionSpecIcebergTableSinkHashPartitioned distributionSpec =
+                    (DistributionSpecIcebergTableSinkHashPartitioned) sink
+                            .getRequirePhysicalProperties().getDistributionSpec();
+            Assertions.assertEquals(ImmutableList.of("bucket[16]"),
+                    distributionSpec.getPartitionTransforms());
+            Assertions.assertEquals(WriterAssignment.SKEWED, distributionSpec.getWriterAssignment());
+
+            Set<PhysicalDistribute> distributes = physicalPlan.collect(PhysicalDistribute.class::isInstance);
+            Assertions.assertTrue(distributes.stream().anyMatch(distribute -> distribute.getDistributionSpec()
+                    instanceof DistributionSpecIcebergTableSinkHashPartitioned));
+        } finally {
+            Mockito.doReturn(basePartitionSpec).when(mockedIcebergTable).spec();
+        }
+    }
+
+    @Test
+    public void testIcebergInsertWithReorderedColumnsUsesTransformSourceColumn() throws Exception {
+        useIceberg();
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(baseIcebergSchema).bucket("id", 16).build();
+        Mockito.doReturn(partitionSpec).when(mockedIcebergTable).spec();
+        try {
+            String sql = "insert into " + tableName
+                    + " (name, id, age, score, amount) values ('name', 1, 2, 3, 4.00)";
+            LogicalPlan command = parseStmt(sql);
+            Assertions.assertTrue(command instanceof InsertIntoTableCommand);
+            Plan explainPlan = ((InsertIntoTableCommand) command).getExplainPlan(connectContext);
+            PhysicalPlan physicalPlan = planPhysicalPlan(
+                    (LogicalPlan) explainPlan, PhysicalProperties.ANY, sql);
+
+            PhysicalIcebergTableSink<?> sink =
+                    getSinglePhysicalSink(physicalPlan, PhysicalIcebergTableSink.class);
+            DistributionSpecIcebergTableSinkHashPartitioned distributionSpec =
+                    (DistributionSpecIcebergTableSinkHashPartitioned) sink
+                            .getRequirePhysicalProperties().getDistributionSpec();
+            ExprId idExprId = findExprIdByName(sink.child().getOutput(), "id");
+            Assertions.assertEquals(ImmutableList.of(idExprId),
+                    distributionSpec.getOutputColumnExprIds());
+            Assertions.assertEquals(ImmutableList.of("bucket[16]"),
+                    distributionSpec.getPartitionTransforms());
+        } finally {
+            Mockito.doReturn(basePartitionSpec).when(mockedIcebergTable).spec();
+        }
+    }
+
+    @Test
+    public void testIcebergV3CtasRejectsRowLineageReservedColumn() throws Exception {
+        useIceberg();
+        String ctasTable = "row_lineage_reserved_" + UUID.randomUUID().toString().replace("-", "");
+        String ctasSql = "create table " + ctasTable
+                + " properties('format-version'='3') as select 1 as _row_id";
+        LogicalPlan ctasPlan = parseStmt(ctasSql);
+        Assertions.assertTrue(ctasPlan instanceof CreateTableCommand);
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> ((CreateTableCommand) ctasPlan).validateCreateTableAsSelect(
+                        connectContext, ((CreateTableCommand) ctasPlan).getCtasQuery().get()));
     }
 
     @Test
@@ -383,6 +529,68 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
     }
 
     @Test
+    public void testIcebergMergeIntoExchangeIgnoresStrictConsistencySwitch() throws Exception {
+        useIceberg();
+        boolean previousMergePartitioning = connectContext.getSessionVariable().enableIcebergMergePartitioning;
+        boolean previousStrictConsistency = connectContext.getSessionVariable().enableStrictConsistencyDml;
+        connectContext.getSessionVariable().enableIcebergMergePartitioning = true;
+        connectContext.getSessionVariable().enableStrictConsistencyDml = false;
+        try {
+            String sql = "merge into " + tableName + " t "
+                    + "using (select 1 as id, 'name1' as name, 10 as age, 1 as score, 1.23 as amount) s "
+                    + "on t.id = s.id "
+                    + "when matched then update set name = s.name";
+            LogicalPlan mergePlan = parseStmt(sql);
+            Plan explainPlan = ((MergeIntoCommand) mergePlan).getExplainPlan(connectContext);
+            PhysicalPlan physicalPlan =
+                    planPhysicalPlan((LogicalPlan) explainPlan, PhysicalProperties.GATHER, sql);
+
+            PhysicalIcebergMergeSink<?> sink =
+                    getSinglePhysicalSink(physicalPlan, PhysicalIcebergMergeSink.class);
+            Assertions.assertTrue(sink.isRequireMergeCardinalityCheck());
+            Assertions.assertTrue(sink.child() instanceof PhysicalDistribute,
+                    "MERGE cardinality requires row-id routing even when strict consistency is disabled\n"
+                            + physicalPlan.treeString());
+            Assertions.assertTrue(
+                    ((PhysicalDistribute<?>) sink.child()).getDistributionSpec() instanceof DistributionSpecMerge,
+                    "Missing merge distribution spec\n" + physicalPlan.treeString());
+        } finally {
+            connectContext.getSessionVariable().enableIcebergMergePartitioning = previousMergePartitioning;
+            connectContext.getSessionVariable().enableStrictConsistencyDml = previousStrictConsistency;
+        }
+    }
+
+    @Test
+    public void testIcebergUpdateAvoidsExchangeWhenStrictConsistencyDisabled() throws Exception {
+        useIceberg();
+        boolean previousMergePartitioning = connectContext.getSessionVariable().enableIcebergMergePartitioning;
+        boolean previousStrictConsistency = connectContext.getSessionVariable().enableStrictConsistencyDml;
+        connectContext.getSessionVariable().enableIcebergMergePartitioning = true;
+        connectContext.getSessionVariable().enableStrictConsistencyDml = false;
+        try {
+            // UPDATE FROM may produce the same target row more than once, but SQL MERGE's
+            // one-source-row cardinality rule must not be applied to UPDATE statements.
+            String sql = "update " + tableName + " t set name = s.name "
+                    + "from (select 1 as id, 'first' as name union all "
+                    + "select 1 as id, 'second' as name) s where t.id = s.id";
+            LogicalPlan updatePlan = parseStmt(sql);
+            Plan explainPlan = ((UpdateCommand) updatePlan).getExplainPlan(connectContext);
+            PhysicalPlan physicalPlan =
+                    planPhysicalPlan((LogicalPlan) explainPlan, PhysicalProperties.GATHER, sql);
+
+            PhysicalIcebergMergeSink<?> sink =
+                    getSinglePhysicalSink(physicalPlan, PhysicalIcebergMergeSink.class);
+            Assertions.assertFalse(sink.isRequireMergeCardinalityCheck());
+            Assertions.assertFalse(sink.child() instanceof PhysicalDistribute,
+                    "Strict-consistency-off UPDATE should not add an Iceberg merge exchange\n"
+                            + physicalPlan.treeString());
+        } finally {
+            connectContext.getSessionVariable().enableIcebergMergePartitioning = previousMergePartitioning;
+            connectContext.getSessionVariable().enableStrictConsistencyDml = previousStrictConsistency;
+        }
+    }
+
+    @Test
     public void testIcebergUpdateCastsConstantForSmallintAndDecimal() throws Exception {
         useIceberg();
         String sql = "update " + tableName + " set score = 1, amount = 1.23 where id = 1";
@@ -397,7 +605,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
     }
 
     @Test
-    public void testIcebergUpdateExchangeUsesRowIdOnlyWhenDisabled() throws Exception {
+    public void testIcebergUpdateExchangeRoutesOnlyDeletesByRowIdWhenDisabled() throws Exception {
         useIceberg();
         boolean previous = connectContext.getSessionVariable().enableIcebergMergePartitioning;
         connectContext.getSessionVariable().enableIcebergMergePartitioning = false;
@@ -410,16 +618,90 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
 
             PhysicalIcebergMergeSink<?> sink =
                     getSinglePhysicalSink(physicalPlan, PhysicalIcebergMergeSink.class);
+            ExprId operationExprId = findOperationExprId(sink.child().getOutput());
             ExprId rowIdExprId = findRowIdExprId(sink.child().getOutput());
             Assertions.assertTrue(sink.child() instanceof PhysicalDistribute,
-                    "Missing row_id exchange\n" + physicalPlan.treeString());
+                    "Missing operation-aware exchange\n" + physicalPlan.treeString());
             PhysicalDistribute<?> distribute = (PhysicalDistribute<?>) sink.child();
-            Assertions.assertTrue(distribute.getDistributionSpec() instanceof DistributionSpecHash,
-                    "Missing row_id hash distribution\n" + physicalPlan.treeString());
-            DistributionSpecHash hash = (DistributionSpecHash) distribute.getDistributionSpec();
-            Assertions.assertEquals(ImmutableList.of(rowIdExprId), hash.getOrderedShuffledColumns());
+            Assertions.assertTrue(distribute.getDistributionSpec() instanceof DistributionSpecMerge,
+                    "Missing operation-aware merge distribution\n" + physicalPlan.treeString());
+            DistributionSpecMerge spec = (DistributionSpecMerge) distribute.getDistributionSpec();
+            Assertions.assertEquals(operationExprId, spec.getOperationExprId());
+            Assertions.assertTrue(spec.isInsertRandom());
+            Assertions.assertEquals(ImmutableList.of(rowIdExprId), spec.getDeletePartitionExprIds());
         } finally {
             connectContext.getSessionVariable().enableIcebergMergePartitioning = previous;
+        }
+    }
+
+    @Test
+    public void testIcebergInsertOnlyMergeDoesNotHashNullRowIdsWhenStrictConsistencyDisabled()
+            throws Exception {
+        useIceberg();
+        boolean previousMergePartitioning = connectContext.getSessionVariable().enableIcebergMergePartitioning;
+        boolean previousStrictConsistency = connectContext.getSessionVariable().enableStrictConsistencyDml;
+        connectContext.getSessionVariable().enableIcebergMergePartitioning = false;
+        connectContext.getSessionVariable().enableStrictConsistencyDml = false;
+        try {
+            String sql = "merge into " + tableName + " t "
+                    + "using (select 1 as id, 'name1' as name, 10 as age, 1 as score, 1.23 as amount) s "
+                    + "on t.id = s.id "
+                    + "when not matched then insert (id, name, age, score, amount) "
+                    + "values (s.id, s.name, s.age, s.score, s.amount)";
+            LogicalPlan mergePlan = parseStmt(sql);
+            Plan explainPlan = ((MergeIntoCommand) mergePlan).getExplainPlan(connectContext);
+            PhysicalPlan physicalPlan =
+                    planPhysicalPlan((LogicalPlan) explainPlan, PhysicalProperties.GATHER, sql);
+
+            PhysicalIcebergMergeSink<?> sink =
+                    getSinglePhysicalSink(physicalPlan, PhysicalIcebergMergeSink.class);
+            Assertions.assertTrue(sink.child() instanceof PhysicalDistribute,
+                    "Missing operation-aware exchange\n" + physicalPlan.treeString());
+            DistributionSpecMerge spec = (DistributionSpecMerge)
+                    ((PhysicalDistribute<?>) sink.child()).getDistributionSpec();
+            Assertions.assertTrue(spec.isInsertRandom());
+            Assertions.assertTrue(spec.getInsertPartitionExprIds().isEmpty());
+            Assertions.assertEquals(
+                    ImmutableList.of(findRowIdExprId(sink.child().getOutput())),
+                    spec.getDeletePartitionExprIds());
+        } finally {
+            connectContext.getSessionVariable().enableIcebergMergePartitioning = previousMergePartitioning;
+            connectContext.getSessionVariable().enableStrictConsistencyDml = previousStrictConsistency;
+        }
+    }
+
+    @Test
+    public void testIcebergMixedMergeRoutesInsertsRandomlyWhenStrictConsistencyDisabled()
+            throws Exception {
+        useIceberg();
+        boolean previousMergePartitioning = connectContext.getSessionVariable().enableIcebergMergePartitioning;
+        boolean previousStrictConsistency = connectContext.getSessionVariable().enableStrictConsistencyDml;
+        connectContext.getSessionVariable().enableIcebergMergePartitioning = false;
+        connectContext.getSessionVariable().enableStrictConsistencyDml = false;
+        try {
+            String sql = "merge into " + tableName + " t "
+                    + "using (select 1 as id, 'name1' as name, 10 as age, 1 as score, 1.23 as amount) s "
+                    + "on t.id = s.id "
+                    + "when matched then update set name = s.name "
+                    + "when not matched then insert (id, name, age, score, amount) "
+                    + "values (s.id, s.name, s.age, s.score, s.amount)";
+            LogicalPlan mergePlan = parseStmt(sql);
+            Plan explainPlan = ((MergeIntoCommand) mergePlan).getExplainPlan(connectContext);
+            PhysicalPlan physicalPlan =
+                    planPhysicalPlan((LogicalPlan) explainPlan, PhysicalProperties.GATHER, sql);
+
+            PhysicalIcebergMergeSink<?> sink =
+                    getSinglePhysicalSink(physicalPlan, PhysicalIcebergMergeSink.class);
+            DistributionSpecMerge spec = (DistributionSpecMerge)
+                    ((PhysicalDistribute<?>) sink.child()).getDistributionSpec();
+            Assertions.assertTrue(spec.isInsertRandom());
+            Assertions.assertTrue(spec.getInsertPartitionExprIds().isEmpty());
+            Assertions.assertEquals(
+                    ImmutableList.of(findRowIdExprId(sink.child().getOutput())),
+                    spec.getDeletePartitionExprIds());
+        } finally {
+            connectContext.getSessionVariable().enableIcebergMergePartitioning = previousMergePartitioning;
+            connectContext.getSessionVariable().enableStrictConsistencyDml = previousStrictConsistency;
         }
     }
 
@@ -459,10 +741,8 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
     @Test
     public void testIcebergUpdateExchangeUsesPartitionColumnsWhenEnabled() throws Exception {
         useIceberg();
-        IcebergExternalTable table = getIcebergTable();
-        Column partitionColumn = new Column("age", PrimitiveType.INT);
-        Mockito.doReturn(ImmutableList.of(partitionColumn)).when(table)
-                .getPartitionColumns(ArgumentMatchers.any());
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(baseIcebergSchema).identity("age").build();
+        Mockito.doReturn(partitionSpec).when(mockedIcebergTable).spec();
         boolean previous = connectContext.getSessionVariable().enableIcebergMergePartitioning;
         connectContext.getSessionVariable().enableIcebergMergePartitioning = true;
         try {
@@ -492,17 +772,15 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
             Assertions.assertEquals(rowIdExprId, spec.getDeletePartitionExprIds().get(0));
         } finally {
             connectContext.getSessionVariable().enableIcebergMergePartitioning = previous;
-            Mockito.doReturn(ImmutableList.of()).when(table).getPartitionColumns(ArgumentMatchers.any());
+            Mockito.doReturn(basePartitionSpec).when(mockedIcebergTable).spec();
         }
     }
 
     @Test
     public void testIcebergUpdatePartitionExpressionUsesPartitionColumnWhenEnabled() throws Exception {
         useIceberg();
-        IcebergExternalTable table = getIcebergTable();
-        Column partitionColumn = new Column("age", PrimitiveType.INT);
-        Mockito.doReturn(ImmutableList.of(partitionColumn)).when(table)
-                .getPartitionColumns(ArgumentMatchers.any());
+        PartitionSpec partitionSpec = PartitionSpec.builderFor(baseIcebergSchema).identity("age").build();
+        Mockito.doReturn(partitionSpec).when(mockedIcebergTable).spec();
         boolean previous = connectContext.getSessionVariable().enableIcebergMergePartitioning;
         connectContext.getSessionVariable().enableIcebergMergePartitioning = true;
         try {
@@ -531,7 +809,7 @@ public class IcebergDDLAndDMLPlanTest extends TestWithFeService {
             Assertions.assertEquals(ImmutableList.of(rowIdExprId), spec.getDeletePartitionExprIds());
         } finally {
             connectContext.getSessionVariable().enableIcebergMergePartitioning = previous;
-            Mockito.doReturn(ImmutableList.of()).when(table).getPartitionColumns(ArgumentMatchers.any());
+            Mockito.doReturn(basePartitionSpec).when(mockedIcebergTable).spec();
         }
     }
 

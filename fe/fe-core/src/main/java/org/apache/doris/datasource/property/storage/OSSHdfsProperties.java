@@ -161,7 +161,7 @@ public class OSSHdfsProperties extends HdfsCompatibleProperties {
     private static final String OSS_HDFS_ENDPOINT_SUFFIX = ".oss-dls.aliyuncs.com";
 
     @Override
-    public Map<String, String> getBackendConfigProperties() {
+    protected Map<String, String> doGetBackendConfigProperties() {
         return backendConfigProperties;
     }
 

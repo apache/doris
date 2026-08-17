@@ -19,6 +19,9 @@
 
 #include <arrow/array/builder_nested.h>
 
+#include <algorithm>
+
+#include "common/config.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -27,7 +30,9 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/get_least_supertype.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_helpers.h"
 #include "util/jsonb_document.h"
@@ -321,29 +326,68 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
                                                   const cctz::time_zone& ctz) const {
     auto& column_array = static_cast<ColumnArray&>(column);
     auto& offsets_data = column_array.get_offsets();
-    const auto* concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
-    auto arrow_offsets_array = concrete_array->offsets();
-    auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
-    auto prev_size = offsets_data.back();
-    const auto* base_offsets_ptr = reinterpret_cast<const uint8_t*>(arrow_offsets->raw_values());
-    const size_t offset_element_size = sizeof(int32_t);
-    int32_t arrow_nested_start_offset = 0;
-    int32_t arrow_nested_end_offset = 0;
-    const uint8_t* start_offset_ptr = base_offsets_ptr + start * offset_element_size;
-    const uint8_t* end_offset_ptr = base_offsets_ptr + end * offset_element_size;
-    memcpy(&arrow_nested_start_offset, start_offset_ptr, offset_element_size);
-    memcpy(&arrow_nested_end_offset, end_offset_ptr, offset_element_size);
 
-    for (auto i = start + 1; i < end + 1; ++i) {
-        int32_t current_offset = 0;
-        const uint8_t* current_offset_ptr = base_offsets_ptr + i * offset_element_size;
-        memcpy(&current_offset, current_offset_ptr, offset_element_size);
-        // convert to doris offset, start from offsets.back()
-        offsets_data.emplace_back(prev_size + current_offset - arrow_nested_start_offset);
+    const auto read_list = [&](const auto* concrete_array, const auto& read_offset) -> Status {
+        const int64_t arrow_nested_start_offset = read_offset(start);
+        const int64_t arrow_nested_end_offset = read_offset(end);
+        const auto prev_size = offsets_data.back();
+        for (int64_t i = start + 1; i <= end; ++i) {
+            // Convert Arrow offsets to Doris offsets, starting at offsets.back().
+            offsets_data.emplace_back(prev_size + read_offset(i) - arrow_nested_start_offset);
+        }
+        return nested_serde->read_column_from_arrow(
+                column_array.get_data(), concrete_array->values().get(), arrow_nested_start_offset,
+                arrow_nested_end_offset, ctz);
+    };
+
+    switch (arrow_array->type_id()) {
+    case arrow::Type::LIST: {
+        const auto* concrete_array = dynamic_cast<const arrow::ListArray*>(arrow_array);
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow ListArray, got {}",
+                                           arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_list_offsets(*concrete_array, start, end);
+        }
+        const auto* offsets = concrete_array->value_offsets()->data();
+        const auto array_offset = concrete_array->offset();
+        return read_list(concrete_array, [offsets, array_offset](int64_t index) {
+            return unaligned_load<int32_t>(offsets + (array_offset + index) * sizeof(int32_t));
+        });
     }
-    return nested_serde->read_column_from_arrow(
-            column_array.get_data(), concrete_array->values().get(), arrow_nested_start_offset,
-            arrow_nested_end_offset, ctz);
+    case arrow::Type::LARGE_LIST: {
+        const auto* concrete_array = dynamic_cast<const arrow::LargeListArray*>(arrow_array);
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow LargeListArray, got {}",
+                                           arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_large_list_offsets(*concrete_array, start, end);
+        }
+        const auto* offsets = concrete_array->value_offsets()->data();
+        const auto array_offset = concrete_array->offset();
+        return read_list(concrete_array, [offsets, array_offset](int64_t index) {
+            return unaligned_load<int64_t>(offsets + (array_offset + index) * sizeof(int64_t));
+        });
+    }
+    case arrow::Type::FIXED_SIZE_LIST: {
+        const auto* concrete_array = dynamic_cast<const arrow::FixedSizeListArray*>(arrow_array);
+        if (concrete_array == nullptr) {
+            return Status::InvalidArgument("Expected Arrow FixedSizeListArray, got {}",
+                                           arrow_array->type()->name());
+        }
+        if (config::enable_arrow_input_validation) {
+            check_arrow_array_range(*concrete_array, start, end);
+        }
+        return read_list(concrete_array, [concrete_array](int64_t index) {
+            return concrete_array->value_offset(index);
+        });
+    }
+    default:
+        return Status::InvalidArgument("Unsupported Arrow array type for Doris ARRAY: {}",
+                                       arrow_array->type()->name());
+    }
 }
 
 Status DataTypeArraySerDe::write_column_to_mysql_binary(const IColumn& column,
@@ -364,15 +408,44 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
     const auto& array_col = assert_cast<const ColumnArray&>(column);
     const IColumn& nested_column = array_col.get_data();
     const auto& offsets = array_col.get_offsets();
-    for (size_t row_id = start; row_id < end; row_id++) {
-        size_t offset = offsets[row_id - 1];
-        size_t next_offset = offsets[row_id];
-        RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
-                                                          cur_batch->elements.get(), offset,
-                                                          next_offset, arena, options));
-        cur_batch->offsets[row_id + 1] = next_offset;
+    const size_t source_nested_start = start == 0 ? 0 : offsets[start - 1];
+    const size_t source_nested_end = end == 0 ? source_nested_start : offsets[end - 1];
+    const bool has_masked_row =
+            null_map != nullptr && std::any_of(null_map->begin() + start, null_map->begin() + end,
+                                               [](UInt8 is_null) { return is_null != 0; });
+    if (!has_masked_row) {
+        for (size_t row_id = start; row_id < end; row_id++) {
+            cur_batch->offsets[row_id - start + 1] = offsets[row_id] - source_nested_start;
+        }
+        RETURN_IF_ERROR(nested_serde->write_column_to_orc(
+                timezone, nested_column, nullptr, cur_batch->elements.get(), source_nested_start,
+                source_nested_end, arena, options));
+        cur_batch->elements->numElements = source_nested_end - source_nested_start;
+        cur_batch->numElements = end - start;
+        return Status::OK();
     }
-    cur_batch->elements->numElements = nested_column.size();
+
+    auto packed_nested_column = nested_column.clone_empty();
+    size_t packed_nested_size = 0;
+    for (size_t row_id = start; row_id < end; row_id++) {
+        const size_t nested_start = row_id == 0 ? 0 : offsets[row_id - 1];
+        size_t next_offset = offsets[row_id];
+        // ORC omits collection payload for absent parent rows, so offsets and child values must
+        // be compacted together when a nullable ancestor masks a physically populated array.
+        if (!(*null_map)[row_id]) {
+            packed_nested_column->insert_range_from(nested_column, nested_start,
+                                                    next_offset - nested_start);
+            packed_nested_size += next_offset - nested_start;
+        }
+        cur_batch->offsets[row_id - start + 1] = packed_nested_size;
+    }
+    RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, *packed_nested_column, nullptr,
+                                                      cur_batch->elements.get(), 0,
+                                                      packed_nested_size, arena, options));
+    // String batches borrow their source bytes, but the packed column is local to this call;
+    // keep only those borrowed leaves in the write Arena until Writer::add() consumes them.
+    copy_orc_string_data_to_arena(cur_batch->elements.get(), arena);
+    cur_batch->elements->numElements = packed_nested_size;
 
     cur_batch->numElements = end - start;
     return Status::OK();

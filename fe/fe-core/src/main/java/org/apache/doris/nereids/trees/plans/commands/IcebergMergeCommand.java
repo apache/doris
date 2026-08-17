@@ -25,9 +25,11 @@ import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
 import org.apache.doris.datasource.iceberg.IcebergRowId;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -39,6 +41,7 @@ import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -70,6 +73,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.DataSink;
@@ -83,6 +87,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.iceberg.Table;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -387,8 +392,42 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         return output;
     }
 
-    private LogicalPlan buildMergeProjectPlan(ConnectContext ctx, IcebergExternalTable icebergTable) {
-        List<Column> columns = icebergTable.getBaseSchema(true);
+    /**
+     * Coerces each action independently before the action values are combined by IF. Without
+     * this, type coercion may choose a scalar common type for a Variant V2 value and a primitive
+     * value, losing non-scalar Variant data before the merge sink casts the final result.
+     */
+    @VisibleForTesting
+    static List<List<Expression>> coerceVariantActionProjections(
+            List<List<Expression>> actionProjections, List<Column> columns) {
+        int expectedProjectionSize = 2 + (int) columns.stream()
+                .filter(column -> column.isVisible() || IcebergUtils.isIcebergRowLineageColumn(column))
+                .count();
+        List<List<Expression>> coercedProjections = Lists.newArrayListWithCapacity(actionProjections.size());
+        for (List<Expression> projection : actionProjections) {
+            if (projection.size() != expectedProjectionSize) {
+                throw new AnalysisException("Iceberg merge action projection is not aligned with target columns");
+            }
+            List<Expression> coercedProjection = new ArrayList<>(projection);
+            int projectionIndex = 2;
+            for (Column column : columns) {
+                if (!column.isVisible() && !IcebergUtils.isIcebergRowLineageColumn(column)) {
+                    continue;
+                }
+                DataType targetType = DataType.fromCatalogType(column.getType());
+                if (column.isVisible() && VariantType.containsVariant(targetType)) {
+                    coercedProjection.set(projectionIndex,
+                            new Cast(coercedProjection.get(projectionIndex), targetType));
+                }
+                ++projectionIndex;
+            }
+            coercedProjections.add(coercedProjection);
+        }
+        return coercedProjections;
+    }
+
+    private LogicalPlan buildMergeProjectPlan(ConnectContext ctx, IcebergExternalTable icebergTable,
+            List<Column> columns) {
 
         LogicalPlan plan = generateBasePlan();
         plan = injectRowIdColumn(plan, icebergTable);
@@ -429,6 +468,12 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
             finalProjections.add(buildInsertProjection(clause, columns, ctx, rowIdType));
         }
 
+        boolean writesDataFiles = matchedClauses.stream().anyMatch(clause -> !clause.isDelete())
+                || !notMatchedClauses.isEmpty();
+        if (writesDataFiles) {
+            finalProjections = coerceVariantActionProjections(finalProjections, columns);
+        }
+
         List<String> colNames = new ArrayList<>();
         colNames.add(IcebergMergeOperation.OPERATION_COLUMN);
         colNames.add(Column.ICEBERG_ROWID_COL);
@@ -446,7 +491,15 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
     }
 
     private LogicalPlan buildMergePlan(ConnectContext ctx, IcebergExternalTable icebergTable) {
-        LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable);
+        Optional<MvccSnapshot> targetSnapshot = ctx.getStatementContext()
+                .loadSnapshots(icebergTable, Optional.empty(), Optional.empty());
+        Table targetIcebergTable = ((IcebergMvccSnapshot) targetSnapshot.orElseThrow(
+                () -> new AnalysisException("Iceberg merge target snapshot is not available")))
+                .getSnapshotCacheValue().getIcebergTable().orElseThrow(
+                        () -> new AnalysisException("Iceberg merge target metadata is not available"));
+        // Bind projections and the sink from the same target generation retained for execution.
+        List<Column> targetSchema = icebergTable.getBaseSchema(targetSnapshot, true);
+        LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable, targetSchema);
 
         List<NamedExpression> outputExprs;
         if (!IcebergNereidsUtils.hasUnboundPlan(projectPlan)) {
@@ -462,9 +515,13 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
         return new LogicalIcebergMergeSink<>(
                 (IcebergExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
-                icebergTable.getBaseSchema(true),
+                targetIcebergTable,
+                targetSchema,
                 outputExprs,
                 deleteCtx,
+                matchedClauses.stream().anyMatch(clause -> !clause.isDelete())
+                        || !notMatchedClauses.isEmpty(),
+                true,
                 Optional.empty(),
                 Optional.empty(),
                 projectPlan);
@@ -491,7 +548,9 @@ public class IcebergMergeCommand extends Command implements ForwardWithSync, Exp
             String label = String.format("iceberg_merge_into_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
 
             IcebergMergeExecutor insertExecutor =
-                    new IcebergMergeExecutor(ctx, icebergTable, label, planner, emptyInsert, -1L);
+                    new IcebergMergeExecutor(ctx, icebergTable,
+                            ((PhysicalIcebergMergeSink<?>) physicalSink).getTargetIcebergTable(),
+                            label, planner, emptyInsert, -1L);
             insertExecutor.setConflictDetectionFilter(conflictFilter);
 
             if (insertExecutor.isEmptyInsert()) {

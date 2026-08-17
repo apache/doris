@@ -35,6 +35,7 @@
 #include "core/block/block.h"
 #include "exec/sink/load_stream_stub.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "service/backend_options.h"
@@ -93,6 +94,11 @@ DeltaWriterV2::~DeltaWriterV2() {
     static_cast<void>(_memtable_writer->cancel());
 }
 
+int64_t DeltaWriterV2::_table_id() const {
+    DORIS_CHECK(_req.table_schema_param != nullptr);
+    return _req.table_schema_param->table_id();
+}
+
 Status DeltaWriterV2::init() {
     if (_is_init) {
         return Status::OK();
@@ -138,9 +144,22 @@ Status DeltaWriterV2::init() {
 }
 
 Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row_idxs,
-                            const std::function<Status()>& cancel_check) {
+                            const std::function<Status()>& cancel_check, bool* memtable_flushed) {
+    if (memtable_flushed != nullptr) {
+        *memtable_flushed = false;
+    }
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
+    }
+    if (_req.enable_table_memtable_backpressure && !_req.is_high_priority) {
+        Status cancel_status = Status::OK();
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_table_memtable_backpressure(
+                [&]() {
+                    cancel_status = cancel_check();
+                    return !cancel_status.ok();
+                },
+                _table_id());
+        RETURN_IF_ERROR(cancel_status);
     }
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
@@ -160,7 +179,7 @@ Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row
         }
     }
     SCOPED_RAW_TIMER(&_write_memtable_time);
-    return _memtable_writer->write(block, row_idxs);
+    return _memtable_writer->write(block, row_idxs, memtable_flushed);
 }
 
 Status DeltaWriterV2::close() {

@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 
 import com.google.common.base.Preconditions;
@@ -34,6 +36,7 @@ import java.util.stream.Collectors;
 
 public class VariantType extends ScalarType {
     private static final Logger LOG = LogManager.getLogger(VariantType.class);
+    public static final VariantType COMPUTE_V2_INSTANCE = new VariantType(true);
     @SerializedName(value = "fieldMap")
     private final HashMap<String, VariantField> fieldMap = Maps.newHashMap();
 
@@ -64,6 +67,10 @@ public class VariantType extends ScalarType {
     @SerializedName(value = "enableNestedGroup")
     private final boolean enableNestedGroup;
 
+    // Execution-only physical representation for external Parquet Variant. It must never be
+    // persisted in Doris table metadata.
+    private transient boolean computeV2;
+
     private Map<String, String> properties = Maps.newHashMap();
 
     public VariantType() {
@@ -77,6 +84,12 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.computeV2 = false;
+    }
+
+    private VariantType(boolean computeV2) {
+        this();
+        this.computeV2 = computeV2;
     }
 
     public VariantType(ArrayList<VariantField> fields) {
@@ -94,6 +107,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.computeV2 = false;
     }
 
     public VariantType(Map<String, String> properties) {
@@ -108,6 +122,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.computeV2 = false;
     }
 
     public VariantType(ArrayList<VariantField> fields, Map<String, String> properties) {
@@ -126,6 +141,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.computeV2 = false;
     }
 
     public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
@@ -136,6 +152,21 @@ public class VariantType extends ScalarType {
                                                         long variantDocMaterializationMinRows,
                                                         int variantDocShardCount,
                                                         boolean enableNestedGroup) {
+        this(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
+                enableVariantDocMode, variantDocMaterializationMinRows, variantDocShardCount,
+                enableNestedGroup, false);
+    }
+
+    public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
+                                                        boolean enableTypedPathsToSparse,
+                                                        int variantMaxSparseColumnStatisticsSize,
+                                                        int variantSparseHashShardCount,
+                                                        boolean enableVariantDocMode,
+                                                        long variantDocMaterializationMinRows,
+                                                        int variantDocShardCount,
+                                                        boolean enableNestedGroup,
+                                                        boolean computeV2) {
         super(PrimitiveType.VARIANT);
         Preconditions.checkNotNull(fields);
         this.predefinedFields = fields;
@@ -150,6 +181,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = variantDocMaterializationMinRows;
         this.variantDocShardCount = variantDocShardCount;
         this.enableNestedGroup = enableNestedGroup;
+        this.computeV2 = computeV2;
     }
 
     @Override
@@ -203,11 +235,11 @@ public class VariantType extends ScalarType {
     @Override
     public void toThrift(TTypeDesc container) {
         super.toThrift(container);
+        TScalarType scalarType = container.getTypes().get(container.getTypes().size() - 1).scalar_type;
         // set the count
-        container.getTypes().get(container.getTypes().size() - 1)
-                .scalar_type.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
-        container.getTypes().get(container.getTypes().size() - 1)
-                .scalar_type.setVariantEnableDocMode(enableVariantDocMode);
+        scalarType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
+        scalarType.setVariantEnableDocMode(enableVariantDocMode);
+        scalarType.setVariantIsV2(Config.enable_variant_v2 || computeV2);
     }
 
     @Override
@@ -236,7 +268,8 @@ public class VariantType extends ScalarType {
                 && enableTypedPathsToSparse == otherVariantType.enableTypedPathsToSparse
                 && enableVariantDocMode == otherVariantType.enableVariantDocMode
                 && variantDocMaterializationMinRows == otherVariantType.variantDocMaterializationMinRows
-                && enableNestedGroup == otherVariantType.enableNestedGroup;
+                && enableNestedGroup == otherVariantType.enableNestedGroup
+                && computeV2 == otherVariantType.computeV2;
     }
 
     @Override
@@ -279,4 +312,9 @@ public class VariantType extends ScalarType {
     public boolean getEnableNestedGroup() {
         return enableNestedGroup;
     }
+
+    public boolean isComputeV2() {
+        return computeV2;
+    }
+
 }

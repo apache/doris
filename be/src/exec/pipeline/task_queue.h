@@ -57,6 +57,8 @@ public:
 
     bool empty() { return _queue.empty(); }
 
+    std::queue<PipelineTaskSPtr> take_all();
+
 private:
     std::queue<PipelineTaskSPtr> _queue;
     // depends on LEVEL_QUEUE_TIME_FACTOR

@@ -30,6 +30,7 @@ import java.util.Map;
 // Drop one column
 public class DropColumnClause extends AlterTableClause {
     private String colName;
+    private ColumnPath columnPath;
     private String rollupName;
 
     private Map<String, String> properties;
@@ -38,13 +39,22 @@ public class DropColumnClause extends AlterTableClause {
         return colName;
     }
 
+    public ColumnPath getColumnPath() {
+        return columnPath;
+    }
+
     public String getRollupName() {
         return rollupName;
     }
 
     public DropColumnClause(String colName, String rollupName, Map<String, String> properties) {
+        this(ColumnPath.of(colName), rollupName, properties);
+    }
+
+    public DropColumnClause(ColumnPath columnPath, String rollupName, Map<String, String> properties) {
         super(AlterOpType.SCHEMA_CHANGE);
-        this.colName = colName;
+        this.colName = columnPath.getLeafName();
+        this.columnPath = columnPath;
         this.rollupName = rollupName;
         this.properties = properties;
     }
@@ -78,7 +88,7 @@ public class DropColumnClause extends AlterTableClause {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP COLUMN `").append(colName).append("`");
+        sb.append("DROP COLUMN ").append(columnPath.toSql());
         if (rollupName != null) {
             sb.append(" FROM `").append(rollupName).append("`");
         }

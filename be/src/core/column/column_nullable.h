@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -65,6 +64,11 @@ private:
     ColumnNullable(const ColumnNullable&) = default;
 
 public:
+    struct NullMapState {
+        bool has_null;
+        bool only_null;
+    };
+
     /** Create a column from immutable/shared subcolumns without cloning them.
       * Call IColumn::mutate before modifying the returned column tree.
       */
@@ -100,9 +104,7 @@ public:
     std::string get_name() const override { return "Nullable(" + _nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return get_null_map_column().size(); }
-    PURE bool is_null_at(size_t n) const override {
-        return get_null_map_column().get_data()[n] != 0;
-    }
+    bool is_null_at(size_t n) const override { return get_null_map_column().get_data()[n] != 0; }
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
@@ -209,7 +211,8 @@ public:
 
     size_t filter(const Filter& filter) override;
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                              IColumn* col_ptr) const override;
     MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int null_direction_hint) const override;
@@ -272,7 +275,10 @@ public:
                get_null_map_column().is_exclusive();
     }
 
+    bool try_replace_null_payload_with_default_without_cow() const override;
+
     bool only_null() const override;
+    NullMapState get_null_map_state() const;
 
     // used in schema change
     void change_nested_column(ColumnPtr& other) { ((ColumnPtr&)_nested_column) = other; }

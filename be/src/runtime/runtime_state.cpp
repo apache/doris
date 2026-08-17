@@ -155,6 +155,18 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
     DCHECK(_query_mem_tracker != nullptr);
 }
 
+RuntimeState::RuntimeState(const TQueryOptions& query_options, const TQueryGlobals& query_globals)
+        : _profile("<unnamed>"),
+          _load_channel_profile("<unnamed>"),
+          _obj_pool(new ObjectPool()),
+          _unreported_error_idx(0),
+          _per_fragment_instance_idx(0) {
+    Status status = init(TUniqueId(), query_options, query_globals, nullptr);
+    _exec_env = ExecEnv::GetInstance();
+    init_mem_trackers("<unnamed>");
+    DCHECK(status.ok());
+}
+
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         : _profile("<unnamed>"),
           _load_channel_profile("<unnamed>"),
@@ -526,7 +538,7 @@ Status RuntimeState::register_producer_runtime_filter(
         DORIS_CHECK(pfc);
         (*producer_filter)->set_stage(pfc->rec_cte_stage());
     }
-    RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merger_producer_filter(
+    RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merge_producer_filter(
             _query_ctx, desc, *producer_filter));
     return Status::OK();
 }

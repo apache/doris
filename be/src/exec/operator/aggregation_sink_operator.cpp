@@ -639,16 +639,22 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(AggregateDataPtr* places,
                               };
 
                               auto creator_for_null_key = [&](auto& mapped) {
-                                  mapped = Base::_shared_state->agg_arena_pool.aligned_alloc(
-                                          Base::_parent->template cast<AggSinkOperatorX>()
-                                                  ._total_size_of_aggregate_states,
-                                          Base::_parent->template cast<AggSinkOperatorX>()
-                                                  ._align_aggregate_states);
-                                  auto st = _create_agg_status(mapped);
+                                  auto* new_state =
+                                          Base::_shared_state->agg_arena_pool.aligned_alloc(
+                                                  Base::_parent->template cast<AggSinkOperatorX>()
+                                                          ._total_size_of_aggregate_states,
+                                                  Base::_parent->template cast<AggSinkOperatorX>()
+                                                          ._align_aggregate_states);
+                                  auto st = _create_agg_status(new_state);
                                   if (!st) {
                                       throw Exception(st.code(), st.to_string());
                                   }
-                                  _shared_state->refresh_top_limit(i, key_columns);
+                                  commit_aggregate_state(
+                                          mapped, new_state,
+                                          [&] { _shared_state->refresh_top_limit(i, key_columns); },
+                                          [&](auto* state) {
+                                              static_cast<void>(_destroy_agg_status(state));
+                                          });
                               };
 
                               SCOPED_TIMER(_hash_table_emplace_timer);
@@ -872,7 +878,7 @@ Status AggSinkOperatorX::_check_agg_fn_output() {
     return Status::OK();
 }
 
-Status AggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool eos) {
+Status AggSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

@@ -32,10 +32,16 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 int StreamLoadForwardHandler::on_header(HttpRequest* req) {
-    std::ostringstream headers_info;
-    const auto& headers = req->headers();
-    for (const auto& header : headers) {
-        headers_info << header.first << ":" << header.second << " ";
+    if (!config::enable_group_commit_streamload_be_forward) {
+        HttpChannel::send_reply(req, HttpStatus::FORBIDDEN,
+                                "Stream load forward is disabled. "
+                                "Set enable_group_commit_streamload_be_forward=true to enable.");
+        return -1;
+    }
+
+    int auth_ret = HttpHandlerWithAuth::on_header(req);
+    if (auth_ret != 0) {
+        return auth_ret;
     }
 
     std::ostringstream params_info;
@@ -46,7 +52,7 @@ int StreamLoadForwardHandler::on_header(HttpRequest* req) {
 
     LOG(INFO) << "StreamLoadForward request started - "
               << "path: " << req->raw_path() << ", remote: " << req->remote_host() << ", headers: ["
-              << headers_info.str() << "]"
+              << req->get_all_headers() << "]"
               << ", params: [" << params_info.str() << "]";
 
     std::shared_ptr<StreamLoadForwardContext> ctx(new StreamLoadForwardContext());

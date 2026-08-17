@@ -456,5 +456,34 @@ public class S3UtilTest {
         // Malformed bracket (no closing ]) - [ kept as literal
         Assert.assertEquals("file[abc.csv", S3Util.expandBracketPatterns("file[abc.csv"));
     }
-}
 
+    @Test
+    public void testGetGlobListPrefixes_expandsBoundedPatterns() {
+        Assert.assertEquals(Arrays.asList(
+                        "data/date=2025-03-01/", "data/date=2025-04-01/",
+                        "data/date=2025-10-01/", "data/date=2025-11-01/",
+                        "data/date=2025-12-01/"),
+                S3Util.getGlobListPrefixes("data/date=2025-{0[3-4],1[0-2]}-01/*"));
+    }
+
+    @Test
+    public void testGetGlobListPrefixes_fallsBackForWildcardBraceArm() {
+        Assert.assertEquals(Arrays.asList("data/"),
+                S3Util.getGlobListPrefixes("data/{foo*,bar*}/part.parquet"));
+    }
+
+    @Test
+    public void testGetGlobListPrefixes_fallsBackForSurrogateCharacterClass() {
+        String emoji = new String(Character.toChars(0x1F600));
+        Assert.assertEquals(Arrays.asList("data/"),
+                S3Util.getGlobListPrefixes("data/[" + emoji + "]/part.parquet"));
+    }
+
+    @Test
+    public void testGetGlobListPrefixes_usesUtf8BinaryOrder() {
+        String emoji = new String(Character.toChars(0x1F600));
+        String privateUse = new String(Character.toChars(0xE000));
+        Assert.assertEquals(Arrays.asList("data/" + privateUse + "/", "data/" + emoji + "/"),
+                S3Util.getGlobListPrefixes("data/{" + emoji + "," + privateUse + "}/*"));
+    }
+}

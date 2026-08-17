@@ -46,6 +46,7 @@ enum TDataSinkType {
     MAXCOMPUTE_TABLE_SINK = 18,
     ICEBERG_DELETE_SINK = 19,
     ICEBERG_MERGE_SINK = 20,
+    PAIMON_TABLE_SINK = 21,
 }
 
 enum TResultSinkType {
@@ -309,6 +310,15 @@ struct TOlapTableSink {
     23: optional double max_filter_ratio
 
     24: optional string storage_vault_id
+
+    // When true, FE should assign each sink a receiver bucket_be_id/load_tablet_idx pair for
+    // random distribution partitions. Sinks routed to the same receiver BE for the same
+    // partition share one ordered tablet sequence. BE then derives the bucket sequence owned by
+    // bucket_be_id from the location info and rotates within that sequence once per-tablet write
+    // volume exceeds the threshold (default 200 MB). This flag is set regardless of whether the
+    // initial partition list is empty, so auto-partition tables whose first partitions arrive at
+    // runtime still enter the correct mode from the start.
+    25: optional bool enable_adaptive_random_bucket
 }
 
 struct THiveLocationParams {
@@ -477,6 +487,8 @@ struct TIcebergTableSink {
     15: optional map<string, string> static_partition_values;
     16: optional PlanNodes.TSortInfo sort_info;
     17: optional TIcebergWriteType write_type = TIcebergWriteType.INSERT;
+    // Unset keeps collection enabled for rolling upgrades with older FEs.
+    18: optional bool collect_column_stats;
 }
 
 struct TIcebergRewritableDeleteFileSet {
@@ -523,6 +535,12 @@ struct TIcebergMergeSink {
     11: optional map<string, string> hadoop_config
     12: optional Types.TFileType file_type
     13: optional list<Types.TNetworkAddress> broker_addresses;
+    // Unset keeps collection enabled for rolling upgrades with older FEs.
+    14: optional bool collect_column_stats;
+    // Unset preserves old-FE UPDATE behavior; execution version gates SQL MERGE validation.
+    15: optional bool require_merge_cardinality_check;
+    // Unset preserves old-FE UPDATE behavior, which always writes replacement data rows.
+    16: optional bool writes_data_files;
 
     // delete side (position delete only)
     20: optional TFileContent delete_type
@@ -608,6 +626,30 @@ struct TMaxComputeTableSink {
     18: optional i64 txn_id                       // FE external transaction ID for runtime block_id allocation
 }
 
+enum TPaimonWriteBackendType {
+    JNI = 0,
+    FFI = 1,
+}
+
+enum TPaimonWriteMode {
+    APPEND = 0,
+    OVERWRITE = 1,
+}
+
+struct TPaimonCommitMessage {
+    1: optional binary payload          // Paimon native CommitMessageSerializer bytes (DPCM-framed)
+}
+
+struct TPaimonTableSink {
+    1: optional string serialized_table           // required at runtime; serialized Paimon Table object (base64)
+    2: optional map<string, string> hadoop_config
+    3: optional list<string> column_names
+    4: optional TPaimonWriteBackendType backend_type
+    5: optional TPaimonWriteMode write_mode
+    6: optional i64 transaction_id
+    7: optional string commit_user
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -628,4 +670,5 @@ struct TDataSink {
   18: optional TMaxComputeTableSink max_compute_table_sink
   19: optional TIcebergDeleteSink iceberg_delete_sink
   20: optional TIcebergMergeSink iceberg_merge_sink
+  21: optional TPaimonTableSink paimon_table_sink
 }

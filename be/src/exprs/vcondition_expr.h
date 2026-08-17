@@ -65,6 +65,11 @@ public:
                           size_t count, ColumnPtr& result_column) const override;
 
     const std::string& expr_name() const override { return IF_NAME; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = VectorizedIfExpr::create_shared(clone_texpr_node());
+        return Status::OK();
+    }
     inline static const std::string IF_NAME = "if";
 
 protected:
@@ -123,6 +128,11 @@ class VectorizedIfNullExpr : public VectorizedIfExpr {
 public:
     VectorizedIfNullExpr(const TExprNode& node) : VectorizedIfExpr(node) {}
     const std::string& expr_name() const override { return IF_NULL_NAME; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = VectorizedIfNullExpr::create_shared(clone_texpr_node());
+        return Status::OK();
+    }
     inline static const std::string IF_NULL_NAME = "ifnull";
 
     Status execute_column(VExprContext* context, const Block* block, Selector* selector,
@@ -137,6 +147,11 @@ public:
                           size_t count, ColumnPtr& result_column) const override;
     VectorizedCoalesceExpr(const TExprNode& node) : VConditionExpr(node) {}
     const std::string& expr_name() const override { return NAME; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = VectorizedCoalesceExpr::create_shared(clone_texpr_node());
+        return Status::OK();
+    }
     inline static const std::string NAME = "coalesce";
 };
 

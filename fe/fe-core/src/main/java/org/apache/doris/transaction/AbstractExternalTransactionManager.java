@@ -36,12 +36,12 @@ public abstract class AbstractExternalTransactionManager<T extends Transaction> 
         this.ops = ops;
     }
 
-    abstract T createTransaction();
+    abstract T createTransaction(long transactionId);
 
     @Override
     public long begin() {
         long id = Env.getCurrentEnv().getNextId();
-        T transaction = createTransaction();
+        T transaction = createTransaction(id);
         transactions.put(id, transaction);
         Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().putTxnById(id, transaction);
         return id;

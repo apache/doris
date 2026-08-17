@@ -94,15 +94,18 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
             if (has_tablet_states) {
                 tablet_calc_delete_bitmap_ptr->set_tablet_state(partition.tablet_states[i]);
             }
-            auto submit_st = token->submit_func([tablet_id, tablet_calc_delete_bitmap_ptr, this]() {
-                auto st = tablet_calc_delete_bitmap_ptr->handle();
-                if (st.ok()) {
-                    add_succ_tablet_id(tablet_id);
-                } else {
-                    LOG(WARNING) << "handle calc delete bitmap fail, st=" << st.to_string();
-                    add_error_tablet_id(tablet_id, st);
-                }
-            });
+            const auto submit_time_us = MonotonicMicros();
+            auto submit_st = token->submit_func(
+                    [tablet_id, tablet_calc_delete_bitmap_ptr, this, submit_time_us]() {
+                        const auto queue_time_us = MonotonicMicros() - submit_time_us;
+                        auto st = tablet_calc_delete_bitmap_ptr->handle(queue_time_us);
+                        if (st.ok()) {
+                            add_succ_tablet_id(tablet_id);
+                        } else {
+                            LOG(WARNING) << "handle calc delete bitmap fail, st=" << st.to_string();
+                            add_error_tablet_id(tablet_id, st);
+                        }
+                    });
             VLOG_DEBUG << "submit TabletCalcDeleteBitmapTask for tablet=" << tablet_id;
             if (!submit_st.ok()) {
                 _res = submit_st;
@@ -144,7 +147,7 @@ void CloudTabletCalcDeleteBitmapTask::set_tablet_state(int64_t tablet_state) {
     _ms_tablet_state = tablet_state;
 }
 
-Status CloudTabletCalcDeleteBitmapTask::handle() const {
+Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
     VLOG_DEBUG << "start calculate delete bitmap on tablet " << _tablet_id
                << ", txn_id=" << _transaction_id;
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -285,7 +288,7 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     auto total_update_delete_bitmap_time_us = MonotonicMicros() - t3;
     LOG(INFO) << "finish calculate delete bitmap on tablet"
               << ", table_id=" << tablet->table_id() << ", transaction_id=" << _transaction_id
-              << ", tablet_id=" << tablet->tablet_id()
+              << ", tablet_id=" << tablet->tablet_id() << ", queue_time_us=" << queue_time_us
               << ", get_tablet_time_us=" << get_tablet_time_us
               << ", sync_rowset_time_us=" << sync_rowset_time_us
               << ", total_update_delete_bitmap_time_us=" << total_update_delete_bitmap_time_us

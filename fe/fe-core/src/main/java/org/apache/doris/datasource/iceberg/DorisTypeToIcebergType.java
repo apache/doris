@@ -29,6 +29,7 @@ import com.google.common.collect.Lists;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
+import java.util.Collections;
 import java.util.List;
 
 
@@ -37,14 +38,21 @@ import java.util.List;
  */
 public class DorisTypeToIcebergType extends DorisTypeVisitor<Type> {
     private final StructType root;
+    private final List<String> rootFieldNames;
     private int nextId = 0;
 
     public DorisTypeToIcebergType() {
         this.root = null;
+        this.rootFieldNames = Collections.emptyList();
     }
 
     public DorisTypeToIcebergType(StructType root) {
+        this(root, Collections.emptyList());
+    }
+
+    public DorisTypeToIcebergType(StructType root, List<String> rootFieldNames) {
         this.root = root;
+        this.rootFieldNames = rootFieldNames;
         // the root struct's fields use the first ids
         this.nextId = root.getFields().size();
     }
@@ -65,10 +73,11 @@ public class DorisTypeToIcebergType extends DorisTypeVisitor<Type> {
             Type type = types.get(i);
 
             int id = isRoot ? i : getNextId();
+            String fieldName = isRoot && !rootFieldNames.isEmpty() ? rootFieldNames.get(i) : field.getName();
             if (field.getContainsNull()) {
-                newFields.add(Types.NestedField.optional(id, field.getName(), type, field.getComment()));
+                newFields.add(Types.NestedField.optional(id, fieldName, type, field.getComment()));
             } else {
-                newFields.add(Types.NestedField.required(id, field.getName(), type, field.getComment()));
+                newFields.add(Types.NestedField.required(id, fieldName, type, field.getComment()));
             }
         }
         return Types.StructType.of(newFields);
@@ -125,6 +134,8 @@ public class DorisTypeToIcebergType extends DorisTypeVisitor<Type> {
             return Types.TimestampType.withoutZone();
         } else if (primitiveType.equals(PrimitiveType.TIMESTAMPTZ)) {
             return Types.TimestampType.withZone();
+        } else if (primitiveType.equals(PrimitiveType.VARIANT)) {
+            return Types.VariantType.get();
         }
         // unsupported type: PrimitiveType.HLL BITMAP BINARY
 

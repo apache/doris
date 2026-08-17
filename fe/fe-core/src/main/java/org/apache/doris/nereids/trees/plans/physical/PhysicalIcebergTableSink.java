@@ -18,40 +18,51 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecIcebergTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
+import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.types.Types;
+
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.TreeMap;
 
 /** physical iceberg sink */
 public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
+    private final Table targetIcebergTable;
 
     /**
      * constructor
      */
     public PhysicalIcebergTableSink(IcebergExternalDatabase database,
                                     IcebergExternalTable targetTable,
+                                    Table targetIcebergTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
-        this(database, targetTable, cols, outputExprs, groupExpression, logicalProperties,
+        this(database, targetTable, targetIcebergTable, cols, outputExprs, groupExpression, logicalProperties,
                 PhysicalProperties.GATHER, null, child);
     }
 
@@ -60,6 +71,7 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
      */
     public PhysicalIcebergTableSink(IcebergExternalDatabase database,
                                     IcebergExternalTable targetTable,
+                                    Table targetIcebergTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
                                     Optional<GroupExpression> groupExpression,
@@ -69,13 +81,15 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
                                     CHILD_TYPE child) {
         super(PlanType.PHYSICAL_ICEBERG_TABLE_SINK, database, targetTable, cols, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
+        this.targetIcebergTable = Objects.requireNonNull(
+                targetIcebergTable, "targetIcebergTable != null in PhysicalIcebergTableSink");
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return new PhysicalIcebergTableSink<>(
                 (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
-                cols, outputExprs, groupExpression,
+                targetIcebergTable, cols, outputExprs, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
@@ -87,23 +101,28 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalIcebergTableSink<>(
-                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), child());
+                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
+                targetIcebergTable, cols, outputExprs, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalIcebergTableSink<>(
-                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                groupExpression, logicalProperties.get(), children.get(0));
+                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
+                targetIcebergTable, cols, outputExprs, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalIcebergTableSink<>(
-                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
+                targetIcebergTable, cols, outputExprs, groupExpression, getLogicalProperties(),
+                physicalProperties, statistics, child());
+    }
+
+    public Table getTargetIcebergTable() {
+        return targetIcebergTable;
     }
 
     /**
@@ -120,25 +139,99 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
             return PhysicalProperties.GATHER;
         }
 
-        Set<String> partitionNames = targetTable.getPartitionNames();
-        if (!partitionNames.isEmpty()) {
-            List<Integer> columnIdx = new ArrayList<>();
-            List<Column> fullSchema = targetTable.getFullSchema();
-            for (int i = 0; i < fullSchema.size(); i++) {
-                Column column = fullSchema.get(i);
-                if (partitionNames.contains(column.getName())) {
-                    columnIdx.add(i);
-                }
+        if (targetIcebergTable.spec().isPartitioned()) {
+            if (Config.be_exec_version
+                    < DistributionSpecExternalTableSinkHashPartitioned.MIN_BE_EXEC_VERSION) {
+                return PhysicalProperties.GATHER;
             }
-            // mapping partition id
-            List<ExprId> exprIds = columnIdx.stream()
-                    .map(idx -> child().getOutput().get(idx).getExprId())
-                    .collect(Collectors.toList());
-            DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
-                    = new DistributionSpecHiveTableSinkHashPartitioned();
-            shuffleInfo.setOutputColExprIds(exprIds);
-            return new PhysicalProperties(shuffleInfo);
+            DistributionSpecIcebergTableSinkHashPartitioned distributionSpec
+                    = buildPartitionDistributionSpec();
+            // An unsupported transform must not silently hash its raw source column as though it
+            // were the final Iceberg partition value. GATHER is the safe fallback until the
+            // transform is supported.
+            return distributionSpec == null
+                    ? PhysicalProperties.GATHER
+                    : new PhysicalProperties(distributionSpec);
         }
-        return PhysicalProperties.SINK_RANDOM_PARTITIONED;
+        return PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED;
+    }
+
+    private DistributionSpecIcebergTableSinkHashPartitioned buildPartitionDistributionSpec() {
+        Map<String, Slot> outputSlotsByName = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (Slot outputSlot : child().getOutput()) {
+            if (outputSlotsByName.put(outputSlot.getName(), outputSlot) != null) {
+                return null;
+            }
+        }
+
+        List<ExprId> sourceExprIds = new ArrayList<>();
+        List<String> transforms = new ArrayList<>();
+        for (PartitionField field : targetIcebergTable.spec().fields()) {
+            Types.NestedField sourceField = targetIcebergTable.schema().findField(field.sourceId());
+            if (sourceField == null) {
+                return null;
+            }
+            Slot sourceSlot = outputSlotsByName.get(sourceField.name());
+            String transform = field.transform().toString();
+            if (sourceSlot == null || !supportsPartitionTransform(
+                    transform, sourceSlot.getDataType().toCatalogDataType().getPrimitiveType())) {
+                return null;
+            }
+            sourceExprIds.add(sourceSlot.getExprId());
+            transforms.add(transform);
+        }
+        if (sourceExprIds.isEmpty()) {
+            return null;
+        }
+        return new DistributionSpecIcebergTableSinkHashPartitioned(sourceExprIds, transforms);
+    }
+
+    private boolean supportsPartitionTransform(String transform, PrimitiveType sourceType) {
+        if ("identity".equals(transform) || "void".equals(transform)) {
+            return true;
+        }
+        if ("year".equals(transform) || "month".equals(transform) || "day".equals(transform)) {
+            return sourceType == PrimitiveType.DATEV2 || sourceType == PrimitiveType.DATETIMEV2;
+        }
+        if ("hour".equals(transform)) {
+            return sourceType == PrimitiveType.DATETIMEV2;
+        }
+        if (transform.startsWith("bucket[") && transform.endsWith("]")) {
+            switch (sourceType) {
+                case INT:
+                case BIGINT:
+                case VARCHAR:
+                case CHAR:
+                case STRING:
+                case DATEV2:
+                case DATETIMEV2:
+                case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
+                case DECIMAL256:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+        if (transform.startsWith("truncate[") && transform.endsWith("]")) {
+            switch (sourceType) {
+                case INT:
+                case BIGINT:
+                case VARCHAR:
+                case CHAR:
+                case STRING:
+                case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
+                case DECIMAL256:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+        return false;
     }
 }

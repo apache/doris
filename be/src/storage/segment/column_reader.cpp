@@ -323,8 +323,7 @@ void ColumnReader::check_data_by_zone_map_for_test(const MutableColumnPtr& dst) 
                     ? assert_cast<ColumnNullable*>(dst.get())->get_nested_column_ptr().get()
                     : dst.get();
 
-    /// `PredicateColumnType<TYPE_INT>` does not support `void get(size_t n, Field& res)`,
-    /// So here only check `CoumnVector<TYPE_INT>`
+    /// Only verify when the destination column carries Field-accessible TYPE_INT data.
     if (check_and_get_column<ColumnVector<TYPE_INT>>(non_nullable_column) == nullptr) {
         return;
     }
@@ -572,7 +571,8 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
             _load_bloom_filter_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
     RowRanges bf_row_ranges;
     std::unique_ptr<BloomFilterIndexIterator> bf_iter;
-    RETURN_IF_ERROR(_bloom_filter_index->new_iterator(&bf_iter, iter_opts.stats));
+    RETURN_IF_ERROR(
+            _bloom_filter_index->new_iterator(&bf_iter, iter_opts.stats, &iter_opts.io_ctx));
     size_t range_size = row_ranges->range_size();
     // get covered page ids
     std::set<uint32_t> page_ids;
@@ -604,14 +604,44 @@ Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memor
     if (!_ordinal_index) {
         return Status::InternalError("ordinal_index not inited");
     }
-    return _ordinal_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
+    return _ordinal_index->load(use_page_cache, kept_in_memory, iter_opts.stats, &iter_opts.io_ctx);
 }
 
 Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memory,
                                           const ColumnIteratorOptions& iter_opts) {
     if (_zone_map_index != nullptr) {
-        return _zone_map_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
+        return _zone_map_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
+                                     &iter_opts.io_ctx);
     }
+    return Status::OK();
+}
+
+Status ColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
+    DORIS_CHECK(zone_map != nullptr);
+    DORIS_CHECK(_segment_zone_map != nullptr);
+    return ZoneMap::from_proto(*_segment_zone_map, _data_type, *zone_map);
+}
+
+Status ColumnReader::get_page_zone_maps(const ColumnIteratorOptions& iter_opts,
+                                        const std::vector<ZoneMapPB>** zone_maps) {
+    DORIS_CHECK(zone_maps != nullptr);
+    if (_zone_map_index == nullptr) {
+        *zone_maps = nullptr;
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+    *zone_maps = &_zone_map_index->page_zone_maps();
+    return Status::OK();
+}
+
+Status ColumnReader::get_row_range_for_page(uint32_t page_index,
+                                            const ColumnIteratorOptions& iter_opts,
+                                            RowRange* row_range) {
+    DORIS_CHECK(row_range != nullptr);
+    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+    DORIS_CHECK(page_index < _ordinal_index->num_data_pages());
+    *row_range = RowRange(_ordinal_index->get_first_ordinal(page_index),
+                          _ordinal_index->get_last_ordinal(page_index) + 1);
     return Status::OK();
 }
 
@@ -664,7 +694,7 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
                         "create StringTypeInvertedIndexReader error: {}", e.what());
             }
         }
-    } else if (is_numeric_type(type)) {
+    } else if (field_is_numeric_type(type)) {
         try {
             index_reader = BkdIndexReader::create_shared(index_meta, index_file_reader);
         } catch (const CLuceneError& e) {
@@ -692,7 +722,8 @@ bool ColumnReader::has_bloom_filter_index(bool ngram) const {
 Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                               const ColumnIteratorOptions& iter_opts) {
     if (_bloom_filter_index != nullptr) {
-        return _bloom_filter_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
+        return _bloom_filter_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
+                                         &iter_opts.io_ctx);
     }
     return Status::OK();
 }

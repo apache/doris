@@ -1,4 +1,5 @@
-CREATE TABLE `bloom_parquet_table`(
+drop table if exists `bloom_parquet_table`;
+create table `bloom_parquet_table`(
 `t_null_string` string,
 `t_null_varchar` varchar(65535),
 `t_null_char` char(10),
@@ -62,7 +63,3 @@ TBLPROPERTIES (
   'transient_lastDdlTime'='1681213018',
   'parquet.bloom.filter.columns'='t_int',
   'parquet.bloom.filter.fpp'='0.05');
-
-msck repair table bloom_parquet_table;
-
-

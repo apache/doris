@@ -28,6 +28,11 @@ suite("test_query_sys_rowsets", "query,p0") {
     def rowsets_table_name = """ test_query_sys_rowsets.test_query_rowset """  
     sql """ drop table if exists ${rowsets_table_name}  """ 
 
+    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+    // Use a lower bound before table creation to keep the timestamp filter stable
+    // across second-level boundary races.
+    def rowsetFilterStartTime = sdf.format(new Date(System.currentTimeMillis() - 60000L)).toString();
+
     sql """ 
         create table ${rowsets_table_name}( 
             a int , 
@@ -39,17 +44,29 @@ suite("test_query_sys_rowsets", "query,p0") {
             "disable_auto_compaction" = "true"
         );
     """
-
-    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
-    def now = sdf.format(new Date()).toString();
     
-    List<List<Object>> rowsets_table_name_tablets   = sql """ show tablets from ${rowsets_table_name} """
-    order_qt_rowsets1 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  group by START_VERSION,END_VERSION order by START_VERSION,END_VERSION; """ 
+    List<List<Object>> rowsets_table_name_tablets = sql """ show tablets from ${rowsets_table_name} """
+    def tabletId = rowsets_table_name_tablets[0][0]
+    logger.info("Tablet metadata after creation: ${rowsets_table_name_tablets}")
+    // information_schema.rowsets is a distributed BE snapshot. Retry the observation
+    // of the synchronously created initial rowset before validating the full result.
+    awaitUntil(30) {
+        def visibleRowsets = sql """
+            select BACKEND_ID, ROWSET_ID, START_VERSION, END_VERSION,
+                   CREATION_TIME, NEWEST_WRITE_TIMESTAMP
+            from information_schema.rowsets
+            where TABLET_ID = ${tabletId}
+        """
+        logger.info("Visible rowsets for tablet ${tabletId}: ${visibleRowsets}")
+        return visibleRowsets != null
+                && visibleRowsets.any { rowset -> rowset[2] == 0 && rowset[3] == 1 }
+    }
+    order_qt_rowsets1 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${tabletId}  group by START_VERSION,END_VERSION order by START_VERSION,END_VERSION; """
     sql """ insert into  ${rowsets_table_name} values (1,0,"abc");  """ 
     order_qt_rowsets2 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  group by START_VERSION,END_VERSION order by START_VERSION,END_VERSION; """ 
     sql """ insert into  ${rowsets_table_name} values (2,1,"hello world");  """ 
     sql """ insert into  ${rowsets_table_name} values (3,0,"dssadasdsafafdf");  """ 
     order_qt_rowsets3 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]}  group by START_VERSION,END_VERSION order by START_VERSION,END_VERSION; """ 
     sql """ insert into  ${rowsets_table_name} values (4,0,"abcd");  """ 
-    order_qt_rowsets4 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]} and NEWEST_WRITE_TIMESTAMP>='${now}' group by START_VERSION,END_VERSION order by START_VERSION,END_VERSION; """ 
+    order_qt_rowsets4 """  select START_VERSION,END_VERSION from information_schema.rowsets where TABLET_ID=${rowsets_table_name_tablets[0][0]} and NEWEST_WRITE_TIMESTAMP>='${rowsetFilterStartTime}' group by START_VERSION,END_VERSION order by START_VERSION,END_VERSION; """
 }

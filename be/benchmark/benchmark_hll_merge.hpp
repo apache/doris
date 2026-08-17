@@ -17,7 +17,7 @@
 
 #include <benchmark/benchmark.h>
 
-#include "olap/hll.h"
+#include "core/value/hll.h"
 #include "util/hash_util.hpp"
 
 namespace doris {

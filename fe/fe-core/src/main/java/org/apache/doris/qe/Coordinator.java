@@ -40,6 +40,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.datasource.maxcompute.MCTransaction;
+import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
@@ -59,6 +60,7 @@ import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
@@ -104,6 +106,7 @@ import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFragmentInstanceReport;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
@@ -155,6 +158,7 @@ import org.joda.time.DateTime;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -165,6 +169,7 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -365,11 +370,8 @@ public class Coordinator implements CoordInterface {
         this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
         this.queryGlobals.setLoadZeroTolerance(false);
-        if (context.getSessionVariable().getTimeZone().equals("CST")) {
-            this.queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-        } else {
-            this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
-        }
+        this.queryGlobals.setTimeZone(
+                TimeUtils.getCanonicalTimeZone(context.getSessionVariable().getTimeZone()));
         this.queryGlobals.setLcTimeNames(context.getSessionVariable().getLcTimeNames());
         this.assignedRuntimeFilters = planner.getRuntimeFilters();
         this.topnFilters = planner.getTopnFilters();
@@ -546,6 +548,98 @@ public class Coordinator implements CoordInterface {
                     ctxs.getInstanceNumber());
         }
         return result;
+    }
+
+    public static final class AdaptiveRandomBucketSinkContext {
+        private final List<Long> sinkBackendIds;
+        private final int sinkInstanceNum;
+
+        private AdaptiveRandomBucketSinkContext(List<Long> sinkBackendIds, int sinkInstanceNum) {
+            this.sinkBackendIds = sinkBackendIds;
+            this.sinkInstanceNum = sinkInstanceNum;
+        }
+
+        public List<Long> getSinkBackendIds() {
+            return sinkBackendIds;
+        }
+
+        public int getSinkInstanceNum() {
+            return sinkInstanceNum;
+        }
+    }
+
+    public Optional<AdaptiveRandomBucketSinkContext> getAdaptiveRandomBucketSinkContext(long tableId) {
+        Set<Long> sinkBackendIds = new TreeSet<>();
+        int sinkInstanceNum = 0;
+        for (PipelineExecContext context : pipelineExecContexts.values()) {
+            TPipelineFragmentParams params = context.rpcParams;
+            if (params.getFragment().getOutputSink() == null
+                    || params.getFragment().getOutputSink().getType() != TDataSinkType.OLAP_TABLE_SINK) {
+                continue;
+            }
+            TOlapTableSink sink = params.getFragment().getOutputSink().getOlapTableSink();
+            if (sink.getTableId() != tableId) {
+                continue;
+            }
+            if (!OlapTableSink.shouldAssignAdaptiveRandomBucket(sink)) {
+                continue;
+            }
+            sinkBackendIds.add(params.getBackendId());
+            sinkInstanceNum += params.getLocalParamsSize();
+        }
+        if (sinkBackendIds.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new AdaptiveRandomBucketSinkContext(
+                new ArrayList<>(sinkBackendIds), Math.max(sinkInstanceNum, 1)));
+    }
+
+    private static void assignAdaptiveRandomBucketForFragment(
+            Collection<TPipelineFragmentParams> fragmentParamsList) {
+        List<TPipelineFragmentParams> sinkParams = fragmentParamsList.stream()
+                .filter(param -> param.getFragment().getOutputSink() != null
+                        && param.getFragment().getOutputSink().getType() == TDataSinkType.OLAP_TABLE_SINK)
+                .collect(Collectors.toList());
+        if (sinkParams.isEmpty()) {
+            return;
+        }
+        TOlapTableSink sink = sinkParams.get(0).getFragment().getOutputSink().getOlapTableSink();
+        if (!OlapTableSink.shouldAssignAdaptiveRandomBucket(sink)) {
+            return;
+        }
+        List<Long> sinkBackendIds = sinkParams.stream()
+                .map(TPipelineFragmentParams::getBackendId)
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
+        int sinkInstanceNum = sinkParams.stream()
+                .mapToInt(TPipelineFragmentParams::getLocalParamsSize)
+                .sum();
+        if (LOG.isInfoEnabled()) {
+            LOG.info("Adaptive random bucket planning in legacy fragment={}, sinkBackendIds={}, "
+                            + "sinkInstanceNum={}",
+                    sinkParams.get(0).getFragmentId(), sinkBackendIds, sinkInstanceNum);
+        }
+        Map<Long, Map<Long, OlapTableSink.AdaptiveBucketAssignment>> assignments =
+                OlapTableSink.computeAdaptiveRandomBucketAssignments(sinkBackendIds,
+                        sink.getPartition().getPartitions(), sink.getLocation().getTablets(), sinkInstanceNum);
+        for (TPipelineFragmentParams sinkParam : sinkParams) {
+            Map<Long, OlapTableSink.AdaptiveBucketAssignment> partitionAssignments =
+                    assignments.get(sinkParam.getBackendId());
+            if (partitionAssignments == null) {
+                continue;
+            }
+            TOlapTableSink copiedSink = deepCopyOlapTableSinkForCurrentBackend(sinkParam);
+            OlapTableSink.applyAdaptiveRandomBucketAssignments(
+                    copiedSink.getPartition().getPartitions(),
+                    partitionAssignments);
+        }
+    }
+
+    private static TOlapTableSink deepCopyOlapTableSinkForCurrentBackend(TPipelineFragmentParams sinkParam) {
+        TPlanFragment copiedFragment = sinkParam.getFragment().deepCopy();
+        sinkParam.setFragment(copiedFragment);
+        return copiedFragment.getOutputSink().getOlapTableSink();
     }
 
     // Initialize
@@ -908,6 +1002,7 @@ public class Coordinator implements CoordInterface {
                     }
                     ++backendIdx;
                 }
+                assignAdaptiveRandomBucketForFragment(tParams.values());
                 for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     if (entry.getValue().getFragment().getOutputSink() != null
                             && entry.getValue().getFragment().getOutputSink().getType()
@@ -1686,6 +1781,21 @@ public class Coordinator implements CoordInterface {
             throw new UserException("be arrow_flight_sql_port cannot be empty.");
         }
         return backend.getArrowFlightAddress();
+    }
+
+    private Map<String, TAIResource> getNeededAiResources() {
+        Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
+        if (context == null || context.getStatementContext() == null) {
+            return aiResourceMap;
+        }
+        for (String resourceName : context.getStatementContext().getUsedAIResourceNames()) {
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+            if (!(resource instanceof AIResource)) {
+                throw new IllegalStateException("AI resource '" + resourceName + "' does not exist");
+            }
+            aiResourceMap.put(resourceName, ((AIResource) resource).toThrift());
+        }
+        return aiResourceMap;
     }
 
     // estimate if this fragment contains UnionNode
@@ -2545,6 +2655,11 @@ public class Coordinator implements CoordInterface {
             ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
                 .updateMCCommitData(params.getMcCommitDatas());
         }
+        if (params.isSetPaimonCommitMessages()) {
+            ((PaimonTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
+                    .getTxnById(txnId))
+                    .updateCommitMessages(params.getPaimonCommitMessages());
+        }
 
         if (ctx.done) {
             if (LOG.isDebugEnabled()) {
@@ -3315,15 +3430,7 @@ public class Coordinator implements CoordInterface {
                     }
 
                     // Used for AI Functions
-                    Map<String, TAIResource> aiResourceMap = Maps.newLinkedHashMap();
-                    for (Resource resource : Env.getCurrentEnv().getResourceMgr()
-                                                    .getResource(Resource.ResourceType.AI)) {
-                        if (resource instanceof AIResource) {
-                            aiResourceMap.put(resource.getName(), ((AIResource) resource).toThrift());
-                        }
-                    }
-
-                    params.setAiResources(aiResourceMap);
+                    params.setAiResources(getNeededAiResources());
                     res.put(instanceExecParam.host, params);
                     res.get(instanceExecParam.host).setBucketSeqToInstanceIdx(new HashMap<Integer, Integer>());
                     res.get(instanceExecParam.host).setShuffleIdxToInstanceIdx(new HashMap<Integer, Integer>());
@@ -3571,4 +3678,3 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setEnableProfile(isSafe && queryOptions.isEnableProfile());
     }
 }
-

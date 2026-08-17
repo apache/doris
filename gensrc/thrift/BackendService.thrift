@@ -135,6 +135,7 @@ struct TWarmUpCacheAsyncRequest {
     1: required string host
     2: required i32 brpc_port
     3: required list<i64> tablet_ids
+    4: optional string cloud_compute_group_id
 }
 
 struct TWarmUpCacheAsyncResponse {
@@ -297,7 +298,9 @@ enum TWorkloadMetricType {
     BE_SCAN_ROWS = 1,
     BE_SCAN_BYTES = 2,
     QUERY_BE_MEMORY_BYTES = 3,
-    USERNAME = 4
+    USERNAME = 4,
+    // Append the new enum value to keep existing metric ids stable across versions.
+    BE_SCAN_BYTES_FROM_REMOTE_STORAGE = 5
 }
 
 enum TCompareOperator {

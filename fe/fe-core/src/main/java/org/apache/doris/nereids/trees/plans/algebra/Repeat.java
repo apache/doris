@@ -51,7 +51,7 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
 
     @Override
     default List<Expression> getGroupByExpressions() {
-        return ExpressionUtils.flatExpressions(getGroupingSets());
+        return ImmutableList.copyOf(ExpressionUtils.flatExpressions(getGroupingSets()));
     }
 
     @Override

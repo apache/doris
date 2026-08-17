@@ -32,6 +32,7 @@
 #include "load/stream_load/stream_load_context.h"
 #include "load/stream_load/stream_load_recorder.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
+#include "util/stack_util.h"
 #include "util/thrift_server.h"
 
 namespace doris {
@@ -48,21 +49,8 @@ CloudBackendService::CloudBackendService(CloudStorageEngine& engine, ExecEnv* ex
 
 CloudBackendService::~CloudBackendService() = default;
 
-Status CloudBackendService::create_service(CloudStorageEngine& engine, ExecEnv* exec_env, int port,
-                                           std::unique_ptr<ThriftServer>* server,
-                                           std::shared_ptr<doris::CloudBackendService> service) {
-    service->_agent_server->cloud_start_workers(engine, exec_env);
-    // TODO: do we want a BoostThreadFactory?
-    // TODO: we want separate thread factories here, so that fe requests can't starve
-    // be requests
-    // std::shared_ptr<TProcessor> be_processor = std::make_shared<BackendServiceProcessor>(service);
-    auto be_processor = std::make_shared<BackendServiceProcessor>(service);
-
-    *server = std::make_unique<ThriftServer>("backend", be_processor, port,
-                                             config::be_service_threads);
-
-    LOG(INFO) << "Doris CloudBackendService listening on " << port;
-
+Status CloudBackendService::start_thrift_dependencies() {
+    _agent_server->cloud_start_workers(_engine, _exec_env);
     return Status::OK();
 }
 
@@ -194,8 +182,7 @@ static Status run_rpc_get_file_cache_meta(std::shared_ptr<PBackendService_Stub> 
     return Status::OK();
 }
 
-void CloudBackendService::_warm_up_cache(TWarmUpCacheAsyncResponse& response,
-                                         const TWarmUpCacheAsyncRequest& request) {
+void CloudBackendService::_warm_up_cache(const TWarmUpCacheAsyncRequest& request) {
     std::ostringstream oss;
     oss << "[";
     for (size_t i = 0; i < request.tablet_ids.size() && i < 10; ++i) {
@@ -209,8 +196,13 @@ void CloudBackendService::_warm_up_cache(TWarmUpCacheAsyncResponse& response,
 
     auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
     // Record each tablet in manager
+    std::string compute_group_id;
+    if (request.__isset.cloud_compute_group_id) {
+        compute_group_id = request.cloud_compute_group_id;
+    }
     for (int64_t tablet_id : request.tablet_ids) {
-        manager.record_balanced_tablet(tablet_id, request.host, request.brpc_port);
+        manager.record_balanced_tablet(tablet_id, request.host, request.brpc_port,
+                                       compute_group_id);
     }
 
     std::string host = request.host;
@@ -233,16 +225,29 @@ void CloudBackendService::_warm_up_cache(TWarmUpCacheAsyncResponse& response,
         return;
     }
     PGetFileCacheMetaRequest brpc_request;
-    PGetFileCacheMetaResponse brpc_response;
+    std::stringstream ss;
     for (int64_t tablet_id : request.tablet_ids) {
         brpc_request.add_tablet_ids(tablet_id);
+        ss << tablet_id << ",";
     }
+    VLOG_DEBUG << "tablets set: " << ss.str() << " stack: " << get_stack_trace();
+    PGetFileCacheMetaResponse brpc_response;
 
     Status rpc_status = run_rpc_get_file_cache_meta(brpc_stub, brpc_addr, std::move(brpc_request),
                                                     brpc_response);
     if (rpc_status.ok()) {
-        _engine.file_cache_block_downloader().submit_download_task(
-                std::move(*brpc_response.mutable_file_cache_block_metas()));
+        auto& file_cache_block_metas = *brpc_response.mutable_file_cache_block_metas();
+        if (!file_cache_block_metas.empty()) {
+            _engine.file_cache_block_downloader().submit_download_task(
+                    std::move(file_cache_block_metas));
+            LOG(INFO) << "warm_up_cache_async: successfully submitted download task for tablets="
+                      << oss.str();
+        } else {
+            // Source BE is reachable but has no hot blocks to download right now. Keep the
+            // peer mapping so future peer reads can still try the source.
+            LOG(INFO) << "warm_up_cache_async: no file cache block meta found, addr=" << brpc_addr
+                      << ", keeping peer mapping for future peer reads";
+        }
     } else {
         LOG(WARNING) << "warm_up_cache_async: rpc failed for addr=" << brpc_addr
                      << ", status=" << rpc_status;
@@ -252,7 +257,7 @@ void CloudBackendService::_warm_up_cache(TWarmUpCacheAsyncResponse& response,
 void CloudBackendService::warm_up_cache_async(TWarmUpCacheAsyncResponse& response,
                                               const TWarmUpCacheAsyncRequest& request) {
     // just submit the task to the thread pool, no need to wait for the result
-    auto do_warm_up = [this, request, &response]() { this->_warm_up_cache(response, request); };
+    auto do_warm_up = [this, request]() { this->_warm_up_cache(request); };
     g_file_cache_warm_up_cache_async_submitted_task_num << 1;
     Status submit_st = _engine.warmup_cache_async_thread_pool().submit_func(std::move(do_warm_up));
     if (!submit_st.ok()) {

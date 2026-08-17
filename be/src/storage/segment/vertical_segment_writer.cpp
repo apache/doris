@@ -555,7 +555,10 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     const auto& including_cids = _opts.rowset_ctx->partial_update_info->update_cids;
     size_t input_id = 0;
     for (auto i : including_cids) {
-        full_block.replace_by_position(i, data.block->get_by_position(input_id++).column);
+        const auto& input_column = data.block->get_by_position(input_id++);
+        auto& full_column = full_block.get_by_position(i);
+        full_column.column = input_column.column;
+        full_column.type = input_column.type;
     }
 
     if (_opts.rowset_ctx->write_type != DataWriteType::TYPE_COMPACTION &&
@@ -800,7 +803,10 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(RowsIn
     DCHECK(delete_signs != nullptr);
 
     for (std::size_t cid {0}; cid < _tablet_schema->num_key_columns(); cid++) {
-        full_block.replace_by_position(cid, data.block->get_by_position(cid).column);
+        const auto& input_column = data.block->get_by_position(cid);
+        auto& full_column = full_block.get_by_position(cid);
+        full_column.column = input_column.column;
+        full_column.type = input_column.type;
     }
 
     // 4. write primary key columns data
@@ -1324,6 +1330,9 @@ uint64_t VerticalSegmentWriter::_estimated_remaining_size() {
 
 Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
+    // Record the common index range for cloud index-only file-cache preload.
+    // This VerticalSegmentWriter path is used when cloud load, compaction, or schema change flushes
+    // a whole block through SegmentCreator with enable_vertical_segment_writer enabled.
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
     RETURN_IF_ERROR(_write_inverted_index());
@@ -1345,6 +1354,8 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
         RETURN_IF_ERROR(_write_short_key_index());
         *index_size = _file_writer->bytes_appended() - index_start;
     }
+    uint64_t file_index_end = _file_writer->bytes_appended();
+    _index_file_cache_info.add_index_range(index_start, file_index_end - index_start);
 
     // reset all column writers and data_conveter
     clear();
@@ -1352,18 +1363,28 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     return Status::OK();
 }
 
-Status VerticalSegmentWriter::finalize_footer(uint64_t* segment_file_size) {
+Status VerticalSegmentWriter::finalize_footer(uint64_t* segment_file_size,
+                                              SegmentIndexFileCacheInfo* index_file_cache_info) {
+    uint64_t footer_start = _file_writer->bytes_appended();
     RETURN_IF_ERROR(_write_footer());
     // finish
     RETURN_IF_ERROR(_file_writer->close(true));
     *segment_file_size = _file_writer->bytes_appended();
+    // The closed size completes the preload range recorded above. SegmentIndexFileCacheLoader
+    // later decides whether this is a remote cloud rowset that should actually be preloaded.
+    _index_file_cache_info.segment_file_size = *segment_file_size;
+    _index_file_cache_info.add_index_range(footer_start, *segment_file_size - footer_start);
+    if (index_file_cache_info != nullptr) {
+        *index_file_cache_info = _index_file_cache_info;
+    }
     if (*segment_file_size == 0) {
         return Status::Corruption("Bad segment, file size = 0");
     }
     return Status::OK();
 }
 
-Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
+Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size,
+                                       SegmentIndexFileCacheInfo* index_file_cache_info) {
     MonotonicStopWatch timer;
     timer.start();
     // check disk capacity
@@ -1377,7 +1398,7 @@ Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* in
     // write index
     RETURN_IF_ERROR(finalize_columns_index(index_size));
     // write footer
-    RETURN_IF_ERROR(finalize_footer(segment_file_size));
+    RETURN_IF_ERROR(finalize_footer(segment_file_size, index_file_cache_info));
 
     if (timer.elapsed_time() > 5000000000L) {
         LOG(INFO) << "segment flush consumes a lot time_ns " << timer.elapsed_time()

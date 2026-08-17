@@ -37,6 +37,7 @@
 #include "io/fs/err_utils.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_common.h"
+#include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
@@ -117,6 +118,9 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     size_t bytes_req = result.size;
     char* to = result.data;
     bytes_req = std::min(bytes_req, _file_size - offset);
+    VLOG_DEBUG << fmt::format("S3FileReader::read_at_impl offset={} size={} path={} hash={}",
+                              offset, result.size, _path.native(),
+                              io::BlockFileCache::hash(_path.native()).to_string());
     VLOG_DEBUG << "enter s3 read_at_impl, off=" << offset << " n=" << bytes_req
                << " req=" << result.size << " file size=" << _file_size;
     if (UNLIKELY(bytes_req == 0)) {
@@ -211,7 +215,9 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
 void S3FileReader::_collect_profile_before_close() {
     if (_profile != nullptr) {
         const char* s3_profile_name = "S3Profile";
-        ADD_TIMER(_profile, s3_profile_name);
+        auto* total_time =
+                ADD_CHILD_TIMER(_profile, s3_profile_name,
+                                file_scan_profile::parent_or_root(_profile, file_scan_profile::IO));
         RuntimeProfile::Counter* total_get_request_counter =
                 ADD_CHILD_COUNTER(_profile, "TotalGetRequest", TUnit::UNIT, s3_profile_name);
         RuntimeProfile::Counter* too_many_request_err_counter =
@@ -228,6 +234,7 @@ void S3FileReader::_collect_profile_before_close() {
         COUNTER_UPDATE(too_many_request_sleep_time, _s3_stats.too_many_request_sleep_time_ms);
         COUNTER_UPDATE(total_bytes_read, _s3_stats.total_bytes_read);
         COUNTER_UPDATE(total_get_request_time_ns, _s3_stats.total_get_request_time_ns);
+        COUNTER_UPDATE(total_time, _s3_stats.total_get_request_time_ns);
     }
 }
 

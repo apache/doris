@@ -64,6 +64,11 @@ public:
     }
 
     int source_node_id() const { return _source_node_id; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = VTopNPred::create_shared(clone_texpr_node(), _source_node_id, nullptr);
+        return Status::OK();
+    }
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         _predicate = &state->get_query_ctx()->get_runtime_predicate(_source_node_id);
@@ -124,6 +129,47 @@ public:
         DCHECK_EQ(result_column->size(), count);
         return Status::OK();
     }
+
+    // Returns true only for a direct slot binding whose logical fixed-width type exactly matches
+    // `data_type`. Eligibility does not depend on whether the dynamic TopN bound has arrived: a
+    // reader may cache this answer during initialization and observe the bound in a later batch.
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override;
+
+    // Compares the contiguous non-NULL physical values with one snapshot of the current TopN bound
+    // and ANDs the result into `matches`. `value_width` must equal the logical Doris value width.
+    // When no bound is available yet, this is deliberately an all-pass operation.
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const override;
+
+    // Returns true for a directly bound STRING-like or VARBINARY slot. As with the fixed-width
+    // capability, a not-yet-published bound does not force the scanner onto a materializing path.
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override;
+
+    // Compares decoder-owned immutable byte slices with the current TopN bound and ANDs each
+    // decision into `matches`; it never copies the slices into a ColumnString/ColumnVarbinary.
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override;
+
+    bool raw_predicate_result_for_null() const override {
+        // execute_column() is all-pass until publication; afterwards NULLS FIRST keeps NULL while
+        // NULLS LAST rejects it. Sample this state per fragment just like the mutable bound.
+        return _predicate != nullptr && (!_predicate->has_value() || _predicate->nulls_first());
+    }
+
+    // Dictionary capability is restricted to a direct slot and NULLS-LAST semantics. It stays
+    // enabled before the first bound so row-group setup can cache an all-pass bitmap; the scan
+    // scheduler retains a per-batch residual and defers dictionary-id filtering while NULL still
+    // matches, then safely resumes it after bound publication.
+    bool can_evaluate_dictionary_filter() const override;
+
+    // Evaluates every non-NULL entry in the bound slot dictionary against one current-bound
+    // snapshot. kNoMatch proves that no entry can pass; kMayMatch includes both a matching entry and
+    // a not-yet-published bound; kUnsupported reports an absent or incompatible dictionary slot.
+    ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const override;
 
     const std::string& expr_name() const override { return _expr_name; }
 

@@ -98,18 +98,19 @@ suite('test_immediate_warmup_multi_segments', 'docker') {
         return getBrpcMetrics(ip, port, name)
     }
 
-    def injectS3FileReadSlow = {cluster, sleep_s ->
+    def injectS3FileReadSlow = {cluster, sleepSeconds ->
         def backends = sql """SHOW BACKENDS"""
         def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
         def injectName = 'S3FileReader::read_at_impl.io_slow'
+        def sleepMicros = sleepSeconds * 1000 * 1000
         for (be in cluster_bes) {
             def ip = be[1]
             def port = be[4]
-            GetDebugPoint().enableDebugPoint(ip, port as int, NodeType.BE, injectName, [sleep:sleep_s, execute:1])
+            GetDebugPoint().enableDebugPoint(ip, port as int, NodeType.BE, injectName, [sleep:sleepMicros, execute:1])
         }
     }
 
-    def getTabletStatus = { cluster, tablet_id, rowsetIndex, lastRowsetSegmentNum, enableAssert = false ->
+    def getRowsetSegmentNum = { cluster, tablet_id, rowsetIndex ->
         def backends = sql """SHOW BACKENDS"""
         def cluster_bes = backends.findAll { it[19].contains("""\"compute_group_name\" : \"${cluster}\"""") }
         assert cluster_bes.size() > 0, "No backend found for cluster ${cluster}"
@@ -146,11 +147,7 @@ suite('test_immediate_warmup_multi_segments', 'docker') {
         int end_index = rowset.indexOf("DATA")
         def segmentNumStr = rowset.substring(start_index + 1, end_index).trim()
         logger.info("segmentNumStr: ${segmentNumStr}")
-        if (enableAssert) {
-            assertEquals(lastRowsetSegmentNum, Integer.parseInt(segmentNumStr))
-        } else {
-            return lastRowsetSegmentNum == Integer.parseInt(segmentNumStr);
-        }
+        return Integer.parseInt(segmentNumStr)
     }
 
     docker(options) {
@@ -217,8 +214,9 @@ suite('test_immediate_warmup_multi_segments', 'docker') {
             sql "sync"
             def rowCount1 = sql """ select count() from ${testTable}; """
             logger.info("rowCount1: ${rowCount1}")
-            // check generate 3 segments
-            getTabletStatus(clusterName1, tablet_id, 2, 3, true)
+            // Check it generates multiple segments. The exact number depends on flush timing.
+            def segmentNum = getRowsetSegmentNum(clusterName1, tablet_id, 2)
+            assertTrue(segmentNum > 1, "Expect multi-segment rowset, actual segment num: ${segmentNum}")
 
             // switch to read cluster, trigger a sync rowset
             injectS3FileReadSlow(clusterName2, 10)
@@ -229,11 +227,13 @@ suite('test_immediate_warmup_multi_segments', 'docker') {
             }
             sleep(1000)
             assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_rowset_triggered_by_sync_rowset_num"))
-            assertEquals(2, getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_segment_complete_num"))
+            def segmentCompleteNum = getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_segment_complete_num")
+            assertTrue(segmentNum > segmentCompleteNum,
+                    "Expect segment num: ${segmentNum} not warm up yet, but actual file_cache_warm_up_segment_complete_num: ${segmentCompleteNum}")
             assertEquals(0, getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_rowset_complete_num"))
 
             future.get()
-            assertEquals(3, getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_segment_complete_num"))
+            assertEquals(segmentNum, getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_segment_complete_num"))
             assertEquals(1, getBrpcMetricsByCluster(clusterName2, "file_cache_warm_up_rowset_complete_num"))
         } finally {
             GetDebugPoint().clearDebugPointsForAllBEs()

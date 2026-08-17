@@ -19,8 +19,11 @@
 
 #include <gtest/gtest.h>
 
+#include <barrier>
 #include <cstdlib>
 #include <sstream>
+#include <thread>
+#include <vector>
 
 #include "common/exception.h"
 #include "common/object_pool.h"
@@ -556,6 +559,34 @@ TEST(RuntimeProfileTest, TestGetChild) {
     // Verify original children still accessible
     ASSERT_EQ(child1, root.get_child("Child1"));
     ASSERT_EQ(child2, root.get_child("Child2"));
+}
+
+TEST(RuntimeProfileTest, ConcurrentGetOrCreateChildReturnsSingleSharedProfile) {
+    RuntimeProfile root("Root");
+    constexpr size_t kThreadCount = 32;
+    std::barrier start(kThreadCount);
+    std::vector<RuntimeProfile*> children(kThreadCount);
+    std::vector<std::thread> threads;
+    threads.reserve(kThreadCount);
+
+    for (size_t i = 0; i < kThreadCount; ++i) {
+        threads.emplace_back([&, i] {
+            start.arrive_and_wait();
+            children[i] = root.get_or_create_child("SharedChild");
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    ASSERT_NE(children.front(), nullptr);
+    for (const auto* child : children) {
+        EXPECT_EQ(child, children.front());
+    }
+    std::vector<RuntimeProfile*> profile_children;
+    root.get_children(&profile_children);
+    ASSERT_EQ(profile_children.size(), 1);
+    EXPECT_EQ(profile_children.front(), children.front());
 }
 
 } // namespace doris

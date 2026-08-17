@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS default;
 USE default;
 
-CREATE TABLE `default.hive01`(
+drop table if exists `default.hive01`;
+
+create table `default.hive01`(
   `first_year` int, 
   `d_disease` varchar(200), 
   `i_day` int, 
@@ -18,5 +20,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/default/hive01'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1669712244');
-
-msck repair table hive01;

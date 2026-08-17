@@ -95,6 +95,28 @@ suite("test_iceberg_struct_schema_evolution", "p0,external,doris,external_docker
     // Test 8: DISTINCT query on struct fields
     qt_struct_distinct """SELECT DISTINCT element_at(a_struct, 'renamed'), element_at(a_struct, 'added'), element_at(a_struct, 'keep') FROM ${table_name} ORDER BY 1, 2, 3"""
 
+    // Reproduce Spark Iceberg struct child type evolution: old files keep col.a as INT while
+    // current Iceberg schema exposes it as BIGINT. Reading col.a must cast the materialized struct
+    // child without assuming the declared nullable file type matches the actual column nullability.
+    def type_evolution_table_name = "test_struct_child_type_evolution"
+    spark_iceberg_multi """
+        DROP TABLE IF EXISTS demo.test_db.${type_evolution_table_name};
+        CREATE TABLE demo.test_db.${type_evolution_table_name} (
+            id INT,
+            col STRUCT<a: INT, b: INT, c: INT>
+        ) USING iceberg
+        TBLPROPERTIES ('write.format.default' = 'parquet');
+        INSERT INTO demo.test_db.${type_evolution_table_name}
+            SELECT 1, named_struct('a', 10, 'b', 20, 'c', 30);
+        ALTER TABLE demo.test_db.${type_evolution_table_name} ALTER COLUMN col.a TYPE BIGINT;
+    """
+    sql """REFRESH CATALOG ${catalog_name}"""
+    sql """
+        SELECT /*+ SET_VAR(enable_prune_nested_column=true) */ col.a, col.b, col.c
+        FROM ${type_evolution_table_name}
+        ORDER BY id
+    """
+
     // ============================================================
     // Test with ORC format (for completeness)
     // ============================================================

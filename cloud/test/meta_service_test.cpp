@@ -591,6 +591,23 @@ TEST(MetaServiceTest, CreateInstanceTest) {
         instance.ParseFromString(val);
         ASSERT_EQ(instance.status(), InstanceInfoPB::DELETED);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        instance.set_recycle_state(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+        txn->put(key, instance.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        AlterInstanceResponse retry_res;
+        meta_service->alter_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &retry_res, nullptr);
+        ASSERT_EQ(retry_res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(retry_res.status().msg().find("instance has already been recycled"),
+                  std::string::npos);
+        val.clear();
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        instance.ParseFromString(val);
+        ASSERT_EQ(instance.status(), InstanceInfoPB::DELETED);
+        ASSERT_EQ(instance.recycle_state(), INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
     }
 
     // case: normal refresh instance
@@ -4924,6 +4941,28 @@ void remove_delete_bitmap_lock(MetaServiceProxy* meta_service, int64_t table_id)
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
+void check_delete_bitmap_lock_id(MetaServiceProxy* meta_service, int64_t table_id,
+                                 int64_t expected_lock_id) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string lock_key = meta_delete_bitmap_update_lock_key({"test_instance", table_id, -1});
+    std::string lock_val;
+    ASSERT_EQ(txn->get(lock_key, &lock_val), TxnErrorCode::TXN_OK);
+    DeleteBitmapUpdateLockPB lock_info;
+    ASSERT_TRUE(lock_info.ParseFromString(lock_val));
+    EXPECT_EQ(lock_info.lock_id(), expected_lock_id);
+}
+
+void check_mow_tablet_job_key(MetaServiceProxy* meta_service, int64_t table_id, int64_t initiator,
+                              bool expected_exists) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string job_key = mow_tablet_job_key({"test_instance", table_id, initiator});
+    std::string job_val;
+    EXPECT_EQ(txn->get(job_key, &job_val),
+              expected_exists ? TxnErrorCode::TXN_OK : TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
 void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
     config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
     auto meta_service = get_meta_service();
@@ -5140,7 +5179,33 @@ void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
             nullptr);
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
-    // case 11: lock by schema change but expired, compaction get lock but txn commit conflict, do fast retry
+    // case 11: urgent load can force take compaction lock but not schema change lock
+    req.set_lock_id(job_lock_id);
+    req.set_initiator(100);
+    req.set_expiration(100);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+    req.set_lock_id(888);
+    req.set_initiator(-1);
+    req.set_expiration(60);
+    req.set_urgent(true);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), job_lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID
+                                           ? MetaServiceCode::LOCK_CONFLICT
+                                           : MetaServiceCode::OK);
+    req.set_urgent(false);
+    remove_req.set_lock_id(job_lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID ? job_lock_id : 888);
+    remove_req.set_initiator(job_lock_id == SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID ? 100 : -1);
+    meta_service->remove_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &remove_req, &remove_res,
+            nullptr);
+    ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // case 12: lock by schema change but expired, compaction get lock but txn commit conflict, do fast retry
     sp->set_call_back("get_delete_bitmap_update_lock:commit:conflict", [&](auto&& args) {
         auto* first_retry = try_any_cast<bool*>(args[0]);
         auto lock_id = (try_any_cast<const GetDeleteBitmapUpdateLockRequest*>(args[1]))->lock_id();
@@ -5164,7 +5229,7 @@ void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
             nullptr);
     ASSERT_EQ(remove_res.status().code(), MetaServiceCode::OK);
 
-    // case 12: lock by load but expired, compaction get lock but txn commit conflict, do fast retry
+    // case 13: lock by load but expired, compaction get lock but txn commit conflict, do fast retry
     req.set_lock_id(300);
     req.set_initiator(-1);
     req.set_expiration(1);
@@ -5181,7 +5246,7 @@ void testGetDeleteBitmapUpdateLock(int lock_version, int job_lock_id) {
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     remove_delete_bitmap_lock(meta_service.get(), table_id);
 
-    // case 13: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
+    // case 14: lock key does not exist, compaction get lock but txn commit conflict, do fast retry
     meta_service->get_delete_bitmap_update_lock(
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
@@ -5197,6 +5262,70 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLock) {
     testGetDeleteBitmapUpdateLock(2, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
     testGetDeleteBitmapUpdateLock(1, COMPACTION_DELETE_BITMAP_LOCK_ID);
     testGetDeleteBitmapUpdateLock(1, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
+}
+
+void testUrgentLoadDeleteBitmapLock(int lock_version) {
+    config::delete_bitmap_lock_v2_white_list = lock_version == 1 ? "" : "*";
+    auto meta_service = get_meta_service();
+    int64_t table_id = 90 + lock_version;
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    brpc::Controller cntl;
+    GetDeleteBitmapUpdateLockRequest req;
+    GetDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(table_id);
+    req.add_partition_ids(123);
+
+    auto get_lock = [&](int64_t lock_id, int64_t initiator, int64_t expiration, bool urgent) {
+        req.set_lock_id(lock_id);
+        req.set_initiator(initiator);
+        req.set_expiration(expiration);
+        req.set_urgent(urgent);
+        res.Clear();
+        meta_service->get_delete_bitmap_update_lock(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        return res.status().code();
+    };
+
+    // An urgent load must preserve an active schema change lock.
+    ASSERT_EQ(get_lock(SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, 100, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::LOCK_CONFLICT);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
+    if (lock_version == 2) {
+        check_mow_tablet_job_key(meta_service.get(), table_id, 100, true);
+    }
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // Expired schema change locks still follow the ordinary stale-lock cleanup path.
+    ASSERT_EQ(get_lock(SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, 101, 1, false), MetaServiceCode::OK);
+    sleep(2);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    if (lock_version == 2) {
+        check_mow_tablet_job_key(meta_service.get(), table_id, 101, false);
+    }
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // The existing force-take behavior for compaction locks is unchanged.
+    ASSERT_EQ(get_lock(COMPACTION_DELETE_BITMAP_LOCK_ID, 102, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    if (lock_version == 2) {
+        check_mow_tablet_job_key(meta_service.get(), table_id, 102, false);
+    }
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // The existing force-take behavior for another load lock is unchanged.
+    ASSERT_EQ(get_lock(777, -1, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+}
+
+TEST(MetaServiceTest, UrgentLoadDeleteBitmapLock) {
+    testUrgentLoadDeleteBitmapLock(2);
+    testUrgentLoadDeleteBitmapLock(1);
 }
 
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLockNoReadStats) {
@@ -8528,6 +8657,8 @@ TEST(MetaServiceTxnStoreRetryableTest, MaybeCommittedCodeWithoutRetryReturnsComm
 
     ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     EXPECT_EQ(index, 1);
 
     SyncPoint::get_instance()->disable_processing();
@@ -8568,6 +8699,8 @@ TEST(MetaServiceTxnStoreRetryableTest, ReadMaybeCommittedCodeWithoutRetryReturns
 
     ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     EXPECT_EQ(resp.version(), 2);
     EXPECT_EQ(index, 1);
 }
@@ -8607,6 +8740,8 @@ TEST(MetaServiceTxnStoreRetryableTest, RetryMaybeCommittedCodeReturnsCommitErr) 
 
     ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     EXPECT_GE(index, static_cast<size_t>(config::txn_store_retry_times + 1));
 
     SyncPoint::get_instance()->disable_processing();
@@ -8651,6 +8786,8 @@ TEST(MetaServiceTxnStoreRetryableTest, RetryReadMaybeCommittedCodeReturnsCommitE
 
     ASSERT_EQ(resp.status().code(), MetaServiceCode::KV_TXN_COMMIT_ERR)
             << " status is " << resp.status().msg() << ", code=" << resp.status().code();
+    ASSERT_TRUE(resp.status().has_actual_code());
+    EXPECT_EQ(resp.status().actual_code(), MetaServiceCode::KV_TXN_COMMIT_ERR);
     EXPECT_EQ(resp.version(), 2);
     EXPECT_GE(index, static_cast<size_t>(config::txn_store_retry_times + 1));
 }

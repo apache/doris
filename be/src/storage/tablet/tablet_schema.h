@@ -128,13 +128,6 @@ public:
                _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
                _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
-    // Such columns are not exist in frontend schema info, so we need to
-    // add them into tablet_schema for later column indexing.
-    static TabletColumn create_materialized_variant_column(const std::string& root,
-                                                           const std::vector<std::string>& paths,
-                                                           int32_t parent_unique_id,
-                                                           int32_t max_subcolumns_count,
-                                                           bool enable_doc_mode = false);
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     int32_t length() const { return _length; }
@@ -157,6 +150,8 @@ public:
                                                       int current_be_exec_version) const;
     AggregateFunctionPtr get_aggregate_function(std::string suffix,
                                                 int current_be_exec_version) const;
+    AggregateFunctionPtr get_aggregate_function(std::string suffix, int current_be_exec_version,
+                                                DataTypePtr runtime_type) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
@@ -182,8 +177,6 @@ public:
     static std::string get_string_by_field_type(FieldType type);
     static std::string get_string_by_aggregation_type(FieldAggregationMethod aggregation_type);
     static FieldType get_field_type_by_string(const std::string& str);
-    static FieldType get_field_type_by_type(PrimitiveType type);
-    static PrimitiveType get_primitive_type_by_field_type(FieldType type);
     static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
     static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
     bool is_row_store_column() const;
@@ -235,6 +228,9 @@ public:
     void set_variant_max_subcolumns_count(int32_t variant_max_subcolumns_count) {
         _variant.max_subcolumns_count = variant_max_subcolumns_count;
     }
+
+    bool variant_is_v2() const { return _variant_is_v2; }
+    void set_variant_is_v2(bool is_v2) { _variant_is_v2 = is_v2; }
 
     PatternTypePB pattern_type() const { return _pattern_type; }
 
@@ -329,6 +325,10 @@ private:
     PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
 
     VariantParams _variant;
+    // TODO: Remove this transient read-schema marker after legacy ColumnVariant destinations are
+    // deleted and Variant readers always produce ColumnVariantV2. It only selects the in-memory
+    // compute destination and must never be serialized into tablet or segment metadata.
+    bool _variant_is_v2 = false;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
@@ -460,9 +460,21 @@ public:
     void replace_column(size_t pos, TabletColumn new_col);
     const std::vector<TabletColumnPtr>& columns() const;
     size_t num_columns() const { return _num_columns; }
+    // num_key_columns: Total number of sort key columns in the table, determined by the key columns
+    // specified in DUPLICATE KEY/UNIQUE KEY/AGGREGATE KEY when creating the table, used for complete data sorting
+    // Example: CREATE TABLE t(a INT, b DATE, c VARCHAR) DUPLICATE KEY(a, b, c)
+    //          Then num_key_columns = 3 (columns a, b, c are all sort keys)
     size_t num_key_columns() const { return _num_key_columns; }
     const std::vector<uint32_t>& cluster_key_uids() const { return _cluster_key_uids; }
     size_t num_null_columns() const { return _num_null_columns; }
+    // num_short_key_columns: Number of columns used to build the Short Key Index, automatically calculated by FE
+    // Limited by max column count (default 3) and max bytes (default 36 bytes). Types like float/double/STRING/JSONB
+    // cannot be used as short keys. VARCHAR can only be the last short key column. Optimizes index size and query performance.
+    // Example: CREATE TABLE t(a INT, b DATE, c VARCHAR) DUPLICATE KEY(a, b, c)
+    //          Then num_short_key_columns = 3 (a, b, c all meet criteria, c as VARCHAR is the last short key)
+    // Example: CREATE TABLE t(a INT, b DOUBLE, c DATE) DUPLICATE KEY(a, b, c)
+    //          Then num_short_key_columns = 1 (b is DOUBLE type which cannot be short key, stops at b)
+    // short key's size is limited to 36 bytes, because it will be loaded to memory during segment loaded.
     size_t num_short_key_columns() const { return _num_short_key_columns; }
     size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
     size_t num_variant_columns() const { return _num_variant_columns; };

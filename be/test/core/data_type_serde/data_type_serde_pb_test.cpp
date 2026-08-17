@@ -54,6 +54,7 @@
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
 #include "core/value/bitmap_value.h"
@@ -644,6 +645,17 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestDateTime) {
         block.insert(type_and_name);
         check_pb_col(data_type, *vec.get());
     }
+}
+
+TEST(DataTypeSerDePbTest, DataTypeTimeStampTzToProtobufKeepsScale) {
+    DataTypePtr data_type(std::make_shared<DataTypeTimeStampTz>(6));
+    PTypeDesc type_desc;
+    data_type->to_protobuf(&type_desc);
+
+    ASSERT_EQ(type_desc.types_size(), 1);
+    const auto& scalar_type = type_desc.types(0).scalar_type();
+    EXPECT_EQ(scalar_type.type(), TPrimitiveType::TIMESTAMPTZ);
+    EXPECT_EQ(scalar_type.scale(), 6);
 }
 
 TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestLargeInt) {

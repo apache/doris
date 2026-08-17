@@ -80,8 +80,8 @@ Status MultiCastDataStreamSourceLocalState::close(RuntimeState* state) {
     return Base::close(state);
 }
 
-Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state, Block* block,
-                                                       bool* eos) {
+Status MultiCastDataStreamerSourceOperatorX::get_block_impl(RuntimeState* state, Block* block,
+                                                            bool* eos) {
     //auto& local_state = get_local_state(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());

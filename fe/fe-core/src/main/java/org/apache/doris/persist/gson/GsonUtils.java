@@ -71,6 +71,7 @@ import org.apache.doris.catalog.AnyElementType;
 import org.apache.doris.catalog.AnyStructType;
 import org.apache.doris.catalog.AnyType;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.AzureResource;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
@@ -162,6 +163,9 @@ import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalCatalog;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.lance.LanceExternalDatabase;
+import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
@@ -256,6 +260,7 @@ import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
+import com.google.protobuf.MessageLite;
 import org.apache.commons.lang3.reflect.TypeUtils;
 
 import java.io.ByteArrayInputStream;
@@ -365,6 +370,7 @@ public class GsonUtils {
             .registerSubtype(SparkResource.class, SparkResource.class.getSimpleName())
             .registerSubtype(OdbcCatalogResource.class, OdbcCatalogResource.class.getSimpleName())
             .registerSubtype(S3Resource.class, S3Resource.class.getSimpleName())
+            .registerSubtype(AzureResource.class, AzureResource.class.getSimpleName())
             .registerSubtype(JdbcResource.class, JdbcResource.class.getSimpleName())
             .registerSubtype(HdfsResource.class, HdfsResource.class.getSimpleName())
             .registerSubtype(HMSResource.class, HMSResource.class.getSimpleName())
@@ -438,6 +444,7 @@ public class GsonUtils {
                 .registerSubtype(
                             TrinoConnectorExternalCatalog.class, TrinoConnectorExternalCatalog.class.getSimpleName())
                 .registerSubtype(LakeSoulExternalCatalog.class, LakeSoulExternalCatalog.class.getSimpleName())
+                .registerSubtype(LanceExternalCatalog.class, LanceExternalCatalog.class.getSimpleName())
                 .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName())
                 .registerSubtype(PaimonDLFExternalCatalog.class, PaimonDLFExternalCatalog.class.getSimpleName())
                 .registerSubtype(RemoteDorisExternalCatalog.class, RemoteDorisExternalCatalog.class.getSimpleName());
@@ -478,6 +485,7 @@ public class GsonUtils {
             .registerSubtype(JdbcExternalDatabase.class, JdbcExternalDatabase.class.getSimpleName())
             .registerSubtype(IcebergExternalDatabase.class, IcebergExternalDatabase.class.getSimpleName())
             .registerSubtype(LakeSoulExternalDatabase.class, LakeSoulExternalDatabase.class.getSimpleName())
+            .registerSubtype(LanceExternalDatabase.class, LanceExternalDatabase.class.getSimpleName())
             .registerSubtype(PaimonExternalDatabase.class, PaimonExternalDatabase.class.getSimpleName())
             .registerSubtype(MaxComputeExternalDatabase.class, MaxComputeExternalDatabase.class.getSimpleName())
             .registerSubtype(ExternalInfoSchemaDatabase.class, ExternalInfoSchemaDatabase.class.getSimpleName())
@@ -493,6 +501,7 @@ public class GsonUtils {
             .registerSubtype(JdbcExternalTable.class, JdbcExternalTable.class.getSimpleName())
             .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName())
             .registerSubtype(LakeSoulExternalTable.class, LakeSoulExternalTable.class.getSimpleName())
+            .registerSubtype(LanceExternalTable.class, LanceExternalTable.class.getSimpleName())
             .registerSubtype(PaimonExternalTable.class, PaimonExternalTable.class.getSimpleName())
             .registerSubtype(MaxComputeExternalTable.class, MaxComputeExternalTable.class.getSimpleName())
             .registerSubtype(ExternalInfoSchemaTable.class, ExternalInfoSchemaTable.class.getSimpleName())
@@ -680,7 +689,10 @@ public class GsonUtils {
                             /* due to java.lang.IllegalArgumentException: com.lmax.disruptor.RingBuffer
                             <org.apache.doris.scheduler.disruptor.TimerTaskEvent> declares multiple
                             JSON fields named p1 */
-                            return clazz.getName().startsWith("com.lmax.disruptor.RingBuffer");
+                            return clazz.getName().startsWith("com.lmax.disruptor.RingBuffer")
+                                    // Protobuf 4 builders expose duplicate internal fields such as
+                                    // "meAsParent". They are runtime-only and must not enter FE metadata.
+                                    || MessageLite.Builder.class.isAssignableFrom(clazz);
                         }
                     });
 

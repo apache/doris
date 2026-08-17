@@ -1012,6 +1012,12 @@ TPushAggOp::type ScanLocalState<Derived>::get_push_down_agg_type() {
 }
 
 template <typename Derived>
+const std::optional<std::vector<int32_t>>& ScanLocalState<Derived>::get_push_down_count_slot_ids()
+        const {
+    return _parent->cast<typename Derived::Parent>()._push_down_count_slot_ids;
+}
+
+template <typename Derived>
 int64_t ScanLocalState<Derived>::limit_per_scanner() {
     return _parent->cast<typename Derived::Parent>()._limit_per_scanner;
 }
@@ -1164,6 +1170,9 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
     } else {
         _push_down_agg_type = TPushAggOp::type::NONE;
     }
+    if (tnode.__isset.push_down_count_slot_ids) {
+        _push_down_count_slot_ids = tnode.push_down_count_slot_ids;
+    }
 
     if (tnode.__isset.topn_filter_source_node_ids) {
         _topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
@@ -1249,7 +1258,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
 }
 
 template <typename LocalStateType>
-Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status ScanOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 

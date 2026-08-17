@@ -117,7 +117,8 @@ public class GCSPropertiesTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("fs.gcs.support", "true");
         GCSProperties s3Properties = (GCSProperties) StorageProperties.createPrimary(props);
-        Assertions.assertTrue(s3Properties.hadoopStorageConfig.getBoolean("fs.gs.impl.disable.cache", false));
+        // No longer disabled by default: the patched FileSystem keys its cache by doris.fs.cache.key.
+        Assertions.assertNull(s3Properties.hadoopStorageConfig.get("fs.gs.impl.disable.cache"));
         props.put("fs.gs.impl.disable.cache", "true");
         s3Properties = (GCSProperties) StorageProperties.createPrimary(props);
         Assertions.assertTrue(s3Properties.hadoopStorageConfig.getBoolean("fs.gs.impl.disable.cache", false));

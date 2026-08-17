@@ -47,6 +47,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _task_idx = info.task_idx;
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
+    custom_profile()->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
 
     _build_expr_ctxs.resize(p._build_expr_ctxs.size());
     for (size_t i = 0; i < _build_expr_ctxs.size(); i++) {
@@ -821,7 +822,7 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
     return VExpr::open(_build_expr_ctxs, state);
 }
 
-Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status HashJoinBuildSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

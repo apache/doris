@@ -183,15 +183,20 @@ uint32_t ColumnVector<T>::_zlib_crc32_hash(uint32_t hash, size_t idx) const {
 }
 
 template <PrimitiveType T>
-uint32_t ColumnVector<T>::_crc32c_hash(uint32_t hash, size_t idx) const {
+uint32_t ColumnVector<T>::_crc32c_hash_value(uint32_t hash, const value_type& value) const {
     if constexpr (is_date_or_datetime(T)) {
         char buf[64];
-        const auto& date_val = (const VecDateTimeValue&)data[idx];
+        const auto& date_val = (const VecDateTimeValue&)value;
         auto len = date_val.to_buffer(buf);
         return crc32c_extend(hash, (const uint8_t*)buf, len);
     } else {
-        return HashUtil::crc32c_fixed(data[idx], hash);
+        return HashUtil::crc32c_fixed(value, hash);
     }
+}
+
+template <PrimitiveType T>
+uint32_t ColumnVector<T>::_crc32c_hash(uint32_t hash, size_t idx) const {
+    return _crc32c_hash_value(hash, data[idx]);
 }
 
 template <PrimitiveType T>
@@ -208,6 +213,18 @@ void ColumnVector<T>::update_crc32c_batch(uint32_t* __restrict hashes,
         for (size_t i = 0; i < s; ++i) {
             hashes[i] = _crc32c_hash(hashes[i], i);
         }
+    }
+}
+
+template <PrimitiveType T>
+void ColumnVector<T>::update_crc32c_batch_default_on_null(
+        uint32_t* __restrict hashes, const uint8_t* __restrict null_map) const {
+    DCHECK(null_map != nullptr);
+    auto s = size();
+    auto default_value = this->default_value();
+    for (size_t i = 0; i < s; ++i) {
+        hashes[i] = null_map[i] ? _crc32c_hash_value(hashes[i], default_value)
+                                : _crc32c_hash(hashes[i], i);
     }
 }
 

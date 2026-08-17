@@ -180,6 +180,8 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
         TabletMap& tablet_map;
     };
 
+    VLOG_DEBUG << "get_tablet tablet_id=" << tablet_id << " stack: " << get_stack_trace();
+
     auto tablet_id_str = std::to_string(tablet_id);
     CacheKey key(tablet_id_str);
     auto* handle = _cache->lookup(key);
@@ -578,7 +580,7 @@ void CloudTabletMgr::get_topn_tablet_delete_bitmap_score(
     buf.reserve(n + 1);
     auto handler = [&](const std::weak_ptr<CloudTablet>& tablet_wk) {
         auto t = tablet_wk.lock();
-        if (!t) return;
+        if (!t || !t->enable_unique_key_merge_on_write()) return;
         uint64_t delete_bitmap_count =
                 t.get()->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
         total_delete_map_count += delete_bitmap_count;

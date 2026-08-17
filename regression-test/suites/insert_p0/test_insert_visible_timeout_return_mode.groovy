@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.Config
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.util.NodeType
 
@@ -24,10 +25,13 @@ suite("test_insert_visible_timeout_return_mode", "nonConcurrent") {
     }
 
     def debugPoint = "PublishVersionDaemon.stop_publish"
-    // Use the configured FE HTTP endpoint so the case also works when SHOW FRONTENDS exposes loopback addresses.
+    // PublishVersionDaemon runs on the master FE. The pipeline config provides runner-facing
+    // master FE endpoints; do not replace their mapped ports with raw SHOW FRONTENDS values.
     def feHttpAddress = context.config.feHttpAddress
     def feHost = feHttpAddress.split(":")[0]
     def feHttpPort = Integer.parseInt(feHttpAddress.split(":")[1])
+    def masterJdbcUrl = Config.buildUrlWithDb(context.getJdbcUrl(), context.dbName)
+    context.connectTo(masterJdbcUrl, context.config.jdbcUser, context.config.jdbcPassword)
 
     // Prepare a single-replica table so publish blocking deterministically drives the visible timeout path.
     sql """ DROP TABLE IF EXISTS test_insert_visible_timeout_return_mode_tbl FORCE """

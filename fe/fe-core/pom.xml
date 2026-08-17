@@ -82,6 +82,23 @@ under the License.
         </profile>
     </profiles>
     <dependencies>
+        <!-- Must stay the FIRST dependency: it carries the DORIS-PATCH copy of
+             org.apache.hadoop.fs.FileSystem (credential-aware cache key, see
+             doris.fs.cache.key) which has to precede hadoop-common on every
+             classpath. start_fe.sh prepends this jar at runtime; declaring it
+             first here keeps the maven test classpath consistent with that.
+             All transitives are excluded — FE manages its own hadoop deps. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>hadoop-deps</artifactId>
+            <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-foundation</artifactId>
@@ -199,6 +216,10 @@ under the License.
             <groupId>com.google.guava</groupId>
             <artifactId>guava-testlib</artifactId>
             <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-ratelimiter</artifactId>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.googlecode.java-ipv6/java-ipv6 -->
         <dependency>
@@ -447,6 +468,32 @@ under the License.
             <groupId>com.google.flatbuffers</groupId>
             <artifactId>flatbuffers-java</artifactId>
         </dependency>
+        <!-- Must precede hive-catalog-shade: that published shade artifact embeds
+             Paimon 1.3 classes, while Doris compiles against paimon.version. -->
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-hive-connector-3.1</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-format</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-s3</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-jindo</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>hive-catalog-shade</artifactId>
@@ -537,7 +584,7 @@ under the License.
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <version>42.7.3</version>
+            <version>${postgresql.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -557,30 +604,6 @@ under the License.
             <artifactId>iceberg-aws</artifactId>
             <version>${iceberg.version}</version>
         </dependency>
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-core</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-common</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-format</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-s3</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-jindo</artifactId>
-        </dependency>
-
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>glue</artifactId>
@@ -754,6 +777,14 @@ under the License.
             <artifactId>arrow-vector</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.lance</groupId>
+            <artifactId>lance-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.substrait</groupId>
+            <artifactId>core</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.hamcrest</groupId>
             <artifactId>hamcrest</artifactId>
         </dependency>
@@ -894,7 +925,7 @@ under the License.
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>
                     <argLine>
-                        -Xmx1024m -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar @{argLine}
+                        -Xmx1024m --add-reads=org.apache.arrow.flight.core=ALL-UNNAMED --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar @{argLine}
                     </argLine>
                 </configuration>
             </plugin>
@@ -1086,8 +1117,41 @@ under the License.
                             <overWriteSnapshots>false</overWriteSnapshots>
                             <overWriteIfNewer>true</overWriteIfNewer>
                             <includeScope>runtime</includeScope>
+                            <!-- hive-catalog-shade 3.1.1 embeds Paimon 1.3. The FE supplies
+                                 Paimon from the managed paimon.version instead. Repackage this
+                                 dependency below without its embedded Paimon runtime. -->
+                            <excludeArtifactIds>hive-catalog-shade</excludeArtifactIds>
                             <skip>${skip.plugin}</skip>
                         </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>package-hive-catalog-shade-without-paimon</id>
+                        <phase>package</phase>
+                        <configuration>
+                            <target>
+                                <delete dir="${project.build.directory}/hive-catalog-shade-without-paimon"/>
+                                <mkdir dir="${project.build.directory}/hive-catalog-shade-without-paimon"/>
+                                <unzip src="${settings.localRepository}/org/apache/doris/hive-catalog-shade/${doris.hive.catalog.shade.version}/hive-catalog-shade-${doris.hive.catalog.shade.version}.jar"
+                                       dest="${project.build.directory}/hive-catalog-shade-without-paimon">
+                                    <patternset>
+                                        <exclude name="org/apache/paimon/**"/>
+                                        <exclude name="META-INF/services/org.apache.paimon*"/>
+                                    </patternset>
+                                </unzip>
+                                <jar destfile="${project.build.directory}/lib/hive-catalog-shade-${doris.hive.catalog.shade.version}.jar"
+                                     basedir="${project.build.directory}/hive-catalog-shade-without-paimon"/>
+                            </target>
+                        </configuration>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>

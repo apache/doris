@@ -82,6 +82,7 @@
 #include "exprs/vruntimefilter_wrapper.h"
 #include "format/orc/orc_file_reader.h"
 #include "format/table/iceberg_reader.h"
+#include "format/table/partition_column_filler.h"
 #include "format/table/transactional_hive_common.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
@@ -171,6 +172,10 @@ Status build_iceberg_rowid_column(const DataTypePtr& type, const std::string& fi
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 static constexpr char EMPTY_STRING_FOR_OVERFLOW[ColumnString::MAX_STRINGS_OVERFLOW_SIZE] = "";
+
+static std::string normalized_orc_timezone_name(const std::string& ctz) {
+    return ctz.empty() ? "UTC" : (ctz == "CST" ? "Asia/Shanghai" : ctz);
+}
 
 static void fill_orc_null_map(ColumnNullable* nullable_column, const orc::ColumnVectorBatch* cvb,
                               size_t num_values) {
@@ -286,7 +291,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
+    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -312,7 +317,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
+    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -346,6 +351,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
+    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
     _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
@@ -366,6 +372,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
+    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
     _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
@@ -1188,8 +1195,10 @@ bool OrcReader::_init_search_argument(const VExprSPtrs& exprs) {
 Status OrcReader::set_fill_columns(
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns,
-        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns,
+        const std::unordered_map<std::string, bool>& partition_value_is_null) {
     SCOPED_RAW_TIMER(&_statistics.set_fill_column_time);
+    _lazy_read_ctx.partition_value_is_null = partition_value_is_null;
 
     // std::unordered_map<column_name, std::pair<col_id, slot_id>>
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_table_columns;
@@ -1368,7 +1377,7 @@ Status OrcReader::set_fill_columns(
     }
     try {
         _row_reader_options.range(_range_start_offset, _range_size);
-        _row_reader_options.setTimezoneName(_ctz == "CST" ? "Asia/Shanghai" : _ctz);
+        _row_reader_options.setTimezoneName(normalized_orc_timezone_name(_ctz));
         if (!_column_ids.empty()) {
             std::list<uint64_t> column_ids_list(_column_ids.begin(), _column_ids.end());
             _row_reader_options.includeTypes(column_ids_list);
@@ -1525,23 +1534,12 @@ Status OrcReader::_fill_partition_columns(
         auto column_guard = block->mutate_column_scoped((*_col_name_to_block_idx)[kv.first]);
         auto& col_ptr = column_guard.mutable_column();
         const auto& [value, slot_desc] = kv.second;
-        auto _text_serde = slot_desc->get_data_type_ptr()->get_serde();
-        Slice slice(value.data(), value.size());
-        uint64_t num_deserialized = 0;
-        if (_text_serde->deserialize_column_from_fixed_json(*col_ptr, slice, rows,
-                                                            &num_deserialized,
-                                                            _text_formatOptions) != Status::OK()) {
-            return Status::InternalError("Failed to fill partition column: {}={}",
-                                         slot_desc->col_name(), value);
-        }
-        if (num_deserialized != rows) {
-            return Status::InternalError(
-                    "Failed to fill partition column: {}={} ."
-                    "Number of rows expected to be written : {}, number of rows actually "
-                    "written : "
-                    "{}",
-                    slot_desc->col_name(), value, num_deserialized, rows);
-        }
+        auto null_it = _lazy_read_ctx.partition_value_is_null.find(kv.first);
+        RETURN_IF_ERROR(fill_partition_column_from_path_value(
+                *col_ptr, *slot_desc, value, rows,
+                null_it != _lazy_read_ctx.partition_value_is_null.end(),
+                null_it != _lazy_read_ctx.partition_value_is_null.end() && null_it->second,
+                _text_formatOptions));
     }
     return Status::OK();
 }
@@ -2483,7 +2481,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                        _reader_metrics.SelectedRowGroupCount);
         COUNTER_UPDATE(_orc_profile.evaluated_row_group_count,
                        _reader_metrics.EvaluatedRowGroupCount);
-        if (_io_ctx) {
+        if (_io_ctx && _io_ctx->file_reader_stats) {
             _io_ctx->file_reader_stats->read_rows += _reader_metrics.ReadRowCount;
         }
     }
@@ -3238,7 +3236,7 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             for (int& dict_code : dict_codes) {
                 hybrid_set->insert(&dict_code);
             }
-            root = VDirectInPredicate::create_shared(node, hybrid_set);
+            root = VDirectInPredicate::create_shared(node, hybrid_set, false);
         }
         {
             SlotDescriptor* slot = nullptr;
@@ -3494,7 +3492,7 @@ void ORCFileInputStream::_build_small_ranges_input_stripe_streams(
                 std::make_shared<OrcMergeRangeFileReader>(_profile, _file_reader, merged_range);
 
         std::shared_ptr<io::FileReader> tracing_file_reader;
-        if (_io_ctx) {
+        if (_io_ctx && _io_ctx->file_reader_stats) {
             tracing_file_reader = std::make_shared<io::TracingFileReader>(
                     std::move(merge_range_file_reader), _io_ctx->file_reader_stats);
         } else {
@@ -3527,7 +3525,8 @@ void ORCFileInputStream::_build_large_ranges_input_stripe_streams(
     for (const auto& range : ranges) {
         auto stripe_stream_input_stream = std::make_shared<StripeStreamInputStream>(
                 getName(),
-                _io_ctx ? std::make_shared<io::TracingFileReader>(_file_reader,
+                _io_ctx && _io_ctx->file_reader_stats
+                        ? std::make_shared<io::TracingFileReader>(_file_reader,
                                                                   _io_ctx->file_reader_stats)
                         : _file_reader,
                 _io_ctx, _profile);

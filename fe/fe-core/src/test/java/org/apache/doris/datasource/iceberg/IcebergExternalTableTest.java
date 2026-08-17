@@ -322,6 +322,13 @@ public class IcebergExternalTableTest {
     }
 
     @Test
+    public void testGetPartitionSpecSqlPreservesNonLowercaseColumnName() {
+        IcebergExternalTable spy = createSpyTable();
+        setupSingleField(mockTransform("identity"), "mIxEd_COL");
+        Assertions.assertEquals("PARTITION BY LIST (`mIxEd_COL`) ()", spy.getPartitionSpecSql());
+    }
+
+    @Test
     public void testGetPartitionSpecSqlBucket() {
         IcebergExternalTable spy = createSpyTable();
         setupSingleField(mockTransform("bucket[2048]"), "ss_item_sk");

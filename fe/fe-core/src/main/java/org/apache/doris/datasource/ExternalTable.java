@@ -178,6 +178,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
     }
 
+    public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
+        return getFullSchema();
+    }
+
     protected boolean needInternalHiddenColumns() {
         return false;
     }
@@ -193,7 +197,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public List<Column> getBaseSchema(boolean full) {
-        List<Column> schema = getFullSchema();
+        return getBaseSchema(Optional.empty(), full);
+    }
+
+    public List<Column> getBaseSchema(Optional<MvccSnapshot> snapshot, boolean full) {
+        List<Column> schema = snapshot.isPresent() ? getFullSchema(snapshot) : getFullSchema();
         if (schema == null) {
             return null;
         }

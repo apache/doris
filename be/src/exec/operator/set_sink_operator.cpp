@@ -68,7 +68,7 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
 }
 
 template <bool is_intersect>
-Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status SetSinkOperatorX<is_intersect>::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
 

@@ -56,7 +56,8 @@ public:
     // Prepare this merger to merge and return rows from the sorted runs in 'input_runs'.
     // Retrieves the first batch from each run and sets up the binary heap implementing
     // the priority queue.
-    Status prepare(const std::vector<BlockSupplier>& input_runs);
+    Status prepare(const std::vector<BlockSupplier>& input_runs,
+                   const std::vector<BlockSupplierReadyChecker>& input_run_ready_checkers = {});
 
     // Return the next block of sorted rows from this merger.
     Status get_next(Block* output_block, bool* eos);
@@ -92,8 +93,9 @@ protected:
 
 private:
     void init_timers(RuntimeProfile* profile);
-    // If current stream is exhausted and not eof, we should break this loop and read more blocks.
-    bool _need_more_data(MergeSortCursor& current);
+    // If current stream is exhausted and not eof, keep merging only when the next block or eos is
+    // already available. Otherwise break this loop and wait for more data.
+    bool _need_more_data(MergeSortCursor& current, bool has_ready_block_or_eos);
 };
 
 } // namespace doris

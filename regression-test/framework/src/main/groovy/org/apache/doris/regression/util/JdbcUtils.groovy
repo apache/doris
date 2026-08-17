@@ -24,6 +24,7 @@ import java.sql.Connection
 import java.sql.PreparedStatement
 import java.sql.ResultSet
 import java.sql.ResultSetMetaData
+import java.sql.SQLFeatureNotSupportedException
 import java.sql.Types
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -126,8 +127,12 @@ class JdbcUtils {
                 for (int i = 1; i <= columnCount; ++i) {
                     int jdbcType = resultSet.metaData.getColumnType(i)
                     if (isBinaryJdbcType(jdbcType)) {
-                        byte[] bytes = resultSet.getBytes(i)
-                        row.add(bytes == null ? null : bytesToHex(bytes))
+                        try {
+                            byte[] bytes = resultSet.getBytes(i)
+                            row.add(bytes == null ? null : bytesToHex(bytes))
+                        } catch (SQLFeatureNotSupportedException ignored) {
+                            row.add(resultSet.getObject(i))
+                        }
                     } else {
                         row.add(resultSet.getObject(i))
                     }

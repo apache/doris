@@ -29,6 +29,7 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.mtmv.MTMVUtil;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
+import org.apache.doris.nereids.analyzer.UnboundPaimonTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -137,7 +139,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         TableIf targetTableIf = InsertUtils.getTargetTable(originLogicalQuery, ctx);
         //check allow insert overwrite
         if (!allowInsertOverwrite(targetTableIf)) {
-            String errMsg = "insert into overwrite only support OLAP and HMS/ICEBERG table."
+            String errMsg = "insert into overwrite only support OLAP and "
+                    + "HMS/ICEBERG/MAXCOMPUTE/PAIMON table."
                     + " But current table type is " + targetTableIf.getType();
             LOG.error(errMsg);
             throw new AnalysisException(errMsg);
@@ -191,7 +194,6 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                         ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                         ((OlapTable) targetTable).getQualifiedDbName() + ": " + targetTable.getName());
             }
-            ConnectContext.get().setSkipAuth(true);
             partitionNames = ((UnboundTableSink<?>) logicalQuery).getPartitions();
             // If not specific partition to overwrite, means it's a command to overwrite the table.
             // not we execute as overwrite every partitions.
@@ -220,6 +222,12 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         isRunning.set(true);
         long taskId = 0;
         try {
+            // OLAP overwrite runs its internal partition replacement with the auth check skipped.
+            // Set the flag here, inside the try, so the finally below always pairs the reset even if
+            // an earlier step (e.g. the @branch guard) throws before we get here.
+            if (physicalTableSink instanceof PhysicalOlapTableSink && targetTable instanceof OlapTable) {
+                ctx.setSkipAuth(true);
+            }
             if (isAutoDetectOverwrite(getLogicalQuery())) {
                 // taskId here is a group id. it contains all replace tasks made and registered in rpc process.
                 taskId = insertOverwriteManager.registerTaskGroup(targetTable.getId());
@@ -309,7 +317,8 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         } else {
             return targetTable instanceof HMSExternalTable
                     || targetTable instanceof IcebergExternalTable
-                    || targetTable instanceof MaxComputeExternalTable;
+                    || targetTable instanceof MaxComputeExternalTable
+                    || targetTable instanceof PaimonExternalTable;
         }
     }
 
@@ -408,6 +417,17 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                 mcCtx.setStaticPartitionSpec(staticSpec);
             }
             insertCtx = mcCtx;
+        } else if (logicalQuery instanceof UnboundPaimonTableSink) {
+            UnboundPaimonTableSink<?> sink = (UnboundPaimonTableSink<?>) logicalQuery;
+            copySink = (UnboundLogicalSink<?>) UnboundTableSinkCreator.createUnboundTableSink(
+                    sink.getNameParts(), sink.getColNames(), sink.getHints(), false,
+                    sink.getPartitions(), false, TPartialUpdateNewRowPolicy.APPEND,
+                    sink.getDMLCommandType(), (LogicalPlan) sink.child(0),
+                    sink.getStaticPartitionKeyValues());
+            PaimonInsertCommandContext paimonCtx = new PaimonInsertCommandContext();
+            paimonCtx.setOverwrite(true);
+            setStaticPartitionToContext(sink, paimonCtx);
+            insertCtx = paimonCtx;
         } else {
             throw new UserException("Current catalog does not support insert overwrite yet.");
         }
@@ -456,6 +476,13 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
                 }
             }
             insertCtx.setStaticPartitionValues(staticPartitionValues);
+        }
+    }
+
+    private void setStaticPartitionToContext(UnboundPaimonTableSink<?> sink,
+            PaimonInsertCommandContext insertCtx) {
+        if (sink.hasStaticPartition()) {
+            insertCtx.setStaticPartition(sink.getStaticPartitionKeyValues());
         }
     }
 

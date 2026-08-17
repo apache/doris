@@ -1,7 +1,9 @@
 create database if not exists schema_change;
 use schema_change;
 
-CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_boolean (
+drop table if exists parquet_primitive_types_to_boolean;
+
+create table parquet_primitive_types_to_boolean (
     id INT,
     bool_col BOOLEAN,
     int_col BOOLEAN,
@@ -21,7 +23,9 @@ CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_boolean (
 ) STORED AS PARQUET
 LOCATION '/user/doris/preinstalled_data/parquet_table/parquet_schema_change';
 
-CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_bigint (
+drop table if exists parquet_primitive_types_to_bigint;
+
+create table parquet_primitive_types_to_bigint (
     id INT,
     bool_col BIGINT,
     int_col BIGINT,
@@ -41,7 +45,9 @@ CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_bigint (
 ) STORED AS PARQUET
 LOCATION '/user/doris/preinstalled_data/parquet_table/parquet_schema_change';
 
-CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_int (
+drop table if exists parquet_primitive_types_to_int;
+
+create table parquet_primitive_types_to_int (
     id INT,
     bool_col INT,
     int_col INT,
@@ -61,7 +67,9 @@ CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_int (
 ) STORED AS PARQUET
 LOCATION '/user/doris/preinstalled_data/parquet_table/parquet_schema_change';
 
-CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_smallint (
+drop table if exists parquet_primitive_types_to_smallint;
+
+create table parquet_primitive_types_to_smallint (
     id INT,
     bool_col SMALLINT,
     int_col SMALLINT,
@@ -81,7 +89,9 @@ CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_smallint (
 ) STORED AS PARQUET
 LOCATION '/user/doris/preinstalled_data/parquet_table/parquet_schema_change';
 
-CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_tinyint (
+drop table if exists parquet_primitive_types_to_tinyint;
+
+create table parquet_primitive_types_to_tinyint (
     id INT,
     bool_col TINYINT,
     int_col TINYINT,
@@ -101,7 +111,9 @@ CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_tinyint (
 ) STORED AS PARQUET
 LOCATION '/user/doris/preinstalled_data/parquet_table/parquet_schema_change';
 
-CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_float (
+drop table if exists parquet_primitive_types_to_float;
+
+create table parquet_primitive_types_to_float (
     id INT,
     bool_col FLOAT,
     int_col FLOAT,
@@ -121,7 +133,9 @@ CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_float (
 ) STORED AS PARQUET
 LOCATION '/user/doris/preinstalled_data/parquet_table/parquet_schema_change';
 
-CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_double (
+drop table if exists parquet_primitive_types_to_double;
+
+create table parquet_primitive_types_to_double (
     id INT,
     bool_col DOUBLE,
     int_col DOUBLE,
@@ -141,7 +155,9 @@ CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_double (
 ) STORED AS PARQUET
 LOCATION '/user/doris/preinstalled_data/parquet_table/parquet_schema_change';
 
-CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_string (
+drop table if exists parquet_primitive_types_to_string;
+
+create table parquet_primitive_types_to_string (
     id INT,
     bool_col STRING,
     int_col STRING,
@@ -161,7 +177,9 @@ CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_string (
 ) STORED AS PARQUET
 LOCATION '/user/doris/preinstalled_data/parquet_table/parquet_schema_change';
 
-CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_date (
+drop table if exists parquet_primitive_types_to_date;
+
+create table parquet_primitive_types_to_date (
     id INT,
     bool_col DATE,
     int_col DATE,
@@ -181,7 +199,9 @@ CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_date (
 ) STORED AS PARQUET
 LOCATION '/user/doris/preinstalled_data/parquet_table/parquet_schema_change';
 
-CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_timestamp (
+drop table if exists parquet_primitive_types_to_timestamp;
+
+create table parquet_primitive_types_to_timestamp (
     id INT,
     bool_col TIMESTAMP,
     int_col TIMESTAMP,
@@ -202,7 +222,10 @@ CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_timestamp (
 LOCATION '/user/doris/preinstalled_data/parquet_table/parquet_schema_change';
 
 
-CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_decimal1 (
+drop table if exists parquet_primitive_types_to_decimal1;
+
+
+create table parquet_primitive_types_to_decimal1 (
     id INT,
     bool_col DECIMAL(20,5),
     int_col DECIMAL(20,5),
@@ -222,7 +245,9 @@ CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_decimal1 (
 ) STORED AS PARQUET
 LOCATION '/user/doris/preinstalled_data/parquet_table/parquet_schema_change';
 
-CREATE TABLE IF NOT EXISTS parquet_primitive_types_to_decimal2 (
+drop table if exists parquet_primitive_types_to_decimal2;
+
+create table parquet_primitive_types_to_decimal2 (
     id INT,
     bool_col DECIMAL(7,1),
     int_col DECIMAL(7,1),
@@ -245,7 +270,12 @@ LOCATION '/user/doris/preinstalled_data/parquet_table/parquet_schema_change';
 
 
 
-CREATE TABLE IF NOT EXISTS orc_primitive_types_to_boolean (
+drop table if exists orc_primitive_types_to_boolean;
+
+
+
+
+create table orc_primitive_types_to_boolean (
     id INT,
     bool_col BOOLEAN,
     int_col BOOLEAN,
@@ -266,7 +296,10 @@ CREATE TABLE IF NOT EXISTS orc_primitive_types_to_boolean (
 LOCATION '/user/doris/preinstalled_data/orc_table/orc_schema_change';
 
 
-CREATE TABLE IF NOT EXISTS orc_primitive_types_to_bigint (
+drop table if exists orc_primitive_types_to_bigint;
+
+
+create table orc_primitive_types_to_bigint (
     id INT,
     bool_col BIGINT,
     int_col BIGINT,
@@ -286,7 +319,9 @@ CREATE TABLE IF NOT EXISTS orc_primitive_types_to_bigint (
 ) STORED AS orc
 LOCATION '/user/doris/preinstalled_data/orc_table/orc_schema_change';
 
-CREATE TABLE IF NOT EXISTS orc_primitive_types_to_int (
+drop table if exists orc_primitive_types_to_int;
+
+create table orc_primitive_types_to_int (
     id INT,
     bool_col INT,
     int_col INT,
@@ -306,7 +341,9 @@ CREATE TABLE IF NOT EXISTS orc_primitive_types_to_int (
 ) STORED AS orc
 LOCATION '/user/doris/preinstalled_data/orc_table/orc_schema_change';
 
-CREATE TABLE IF NOT EXISTS orc_primitive_types_to_smallint (
+drop table if exists orc_primitive_types_to_smallint;
+
+create table orc_primitive_types_to_smallint (
     id INT,
     bool_col SMALLINT,
     int_col SMALLINT,
@@ -326,7 +363,9 @@ CREATE TABLE IF NOT EXISTS orc_primitive_types_to_smallint (
 ) STORED AS orc
 LOCATION '/user/doris/preinstalled_data/orc_table/orc_schema_change';
 
-CREATE TABLE IF NOT EXISTS orc_primitive_types_to_tinyint (
+drop table if exists orc_primitive_types_to_tinyint;
+
+create table orc_primitive_types_to_tinyint (
     id INT,
     bool_col TINYINT,
     int_col TINYINT,
@@ -346,7 +385,9 @@ CREATE TABLE IF NOT EXISTS orc_primitive_types_to_tinyint (
 ) STORED AS orc
 LOCATION '/user/doris/preinstalled_data/orc_table/orc_schema_change';
 
-CREATE TABLE IF NOT EXISTS orc_primitive_types_to_float (
+drop table if exists orc_primitive_types_to_float;
+
+create table orc_primitive_types_to_float (
     id INT,
     bool_col FLOAT,
     int_col FLOAT,
@@ -366,7 +407,9 @@ CREATE TABLE IF NOT EXISTS orc_primitive_types_to_float (
 ) STORED AS orc
 LOCATION '/user/doris/preinstalled_data/orc_table/orc_schema_change';
 
-CREATE TABLE IF NOT EXISTS orc_primitive_types_to_double (
+drop table if exists orc_primitive_types_to_double;
+
+create table orc_primitive_types_to_double (
     id INT,
     bool_col DOUBLE,
     int_col DOUBLE,
@@ -386,7 +429,9 @@ CREATE TABLE IF NOT EXISTS orc_primitive_types_to_double (
 ) STORED AS orc
 LOCATION '/user/doris/preinstalled_data/orc_table/orc_schema_change';
 
-CREATE TABLE IF NOT EXISTS orc_primitive_types_to_string (
+drop table if exists orc_primitive_types_to_string;
+
+create table orc_primitive_types_to_string (
     id INT,
     bool_col STRING,
     int_col STRING,
@@ -406,7 +451,9 @@ CREATE TABLE IF NOT EXISTS orc_primitive_types_to_string (
 ) STORED AS orc
 LOCATION '/user/doris/preinstalled_data/orc_table/orc_schema_change';
 
-CREATE TABLE IF NOT EXISTS orc_primitive_types_to_date (
+drop table if exists orc_primitive_types_to_date;
+
+create table orc_primitive_types_to_date (
     id INT,
     bool_col DATE,
     int_col DATE,
@@ -426,7 +473,9 @@ CREATE TABLE IF NOT EXISTS orc_primitive_types_to_date (
 ) STORED AS orc
 LOCATION '/user/doris/preinstalled_data/orc_table/orc_schema_change';
 
-CREATE TABLE IF NOT EXISTS orc_primitive_types_to_timestamp (
+drop table if exists orc_primitive_types_to_timestamp;
+
+create table orc_primitive_types_to_timestamp (
     id INT,
     bool_col TIMESTAMP,
     int_col TIMESTAMP,
@@ -447,7 +496,10 @@ CREATE TABLE IF NOT EXISTS orc_primitive_types_to_timestamp (
 LOCATION '/user/doris/preinstalled_data/orc_table/orc_schema_change';
 
 
-CREATE TABLE IF NOT EXISTS orc_primitive_types_to_decimal1 (
+drop table if exists orc_primitive_types_to_decimal1;
+
+
+create table orc_primitive_types_to_decimal1 (
     id INT,
     bool_col DECIMAL(20,5),
     int_col DECIMAL(20,5),
@@ -467,7 +519,9 @@ CREATE TABLE IF NOT EXISTS orc_primitive_types_to_decimal1 (
 ) STORED AS orc
 LOCATION '/user/doris/preinstalled_data/orc_table/orc_schema_change';
 
-CREATE TABLE IF NOT EXISTS orc_primitive_types_to_decimal2 (
+drop table if exists orc_primitive_types_to_decimal2;
+
+create table orc_primitive_types_to_decimal2 (
     id INT,
     bool_col DECIMAL(7,1),
     int_col DECIMAL(7,1),
@@ -486,30 +540,3 @@ CREATE TABLE IF NOT EXISTS orc_primitive_types_to_decimal2 (
     decimal2_col DECIMAL(7,1)
 ) STORED AS orc
 LOCATION '/user/doris/preinstalled_data/orc_table/orc_schema_change';
-
-
-MSCK REPAIR TABLE parquet_primitive_types_to_boolean;
-MSCK REPAIR TABLE parquet_primitive_types_to_bigint;
-MSCK REPAIR TABLE parquet_primitive_types_to_int;
-MSCK REPAIR TABLE parquet_primitive_types_to_smallint;
-MSCK REPAIR TABLE parquet_primitive_types_to_tinyint;
-MSCK REPAIR TABLE parquet_primitive_types_to_float;
-MSCK REPAIR TABLE parquet_primitive_types_to_double;
-MSCK REPAIR TABLE parquet_primitive_types_to_string;
-MSCK REPAIR TABLE parquet_primitive_types_to_date;
-MSCK REPAIR TABLE parquet_primitive_types_to_timestamp;
-MSCK REPAIR TABLE parquet_primitive_types_to_decimal1;
-MSCK REPAIR TABLE parquet_primitive_types_to_decimal2;
-
-MSCK REPAIR TABLE orc_primitive_types_to_boolean;
-MSCK REPAIR TABLE orc_primitive_types_to_bigint;
-MSCK REPAIR TABLE orc_primitive_types_to_int;
-MSCK REPAIR TABLE orc_primitive_types_to_smallint;
-MSCK REPAIR TABLE orc_primitive_types_to_tinyint;
-MSCK REPAIR TABLE orc_primitive_types_to_float;
-MSCK REPAIR TABLE orc_primitive_types_to_double;
-MSCK REPAIR TABLE orc_primitive_types_to_string;
-MSCK REPAIR TABLE orc_primitive_types_to_date;
-MSCK REPAIR TABLE orc_primitive_types_to_timestamp;
-MSCK REPAIR TABLE orc_primitive_types_to_decimal1;
-MSCK REPAIR TABLE orc_primitive_types_to_decimal2;

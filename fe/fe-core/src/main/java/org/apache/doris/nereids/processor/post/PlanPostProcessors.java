@@ -66,6 +66,7 @@ public class PlanPostProcessors {
         builder.add(new PushDownFilterThroughProject());
         builder.add(new PrunePartitionPredicate());
         builder.add(new RemoveUselessProjectPostProcessor());
+        builder.add(new ShuffleKeyPruner());
         builder.add(new RecomputeLogicalPropertiesProcessor());
         /*
          1. LazyMaterializeTopN should be applied before MergeProjectPostProcessor

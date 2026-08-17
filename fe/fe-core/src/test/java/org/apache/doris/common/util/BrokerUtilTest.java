@@ -22,8 +22,10 @@ import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.thrift.TBrokerCloseReaderRequest;
 import org.apache.doris.thrift.TBrokerCloseWriterRequest;
 import org.apache.doris.thrift.TBrokerDeletePathRequest;
@@ -154,6 +156,49 @@ public class BrokerUtilTest {
             Assert.fail();
         }
 
+    }
+
+    @Test
+    public void parseColumnsFromPathPreservesNullMetadataAndInputKeys() throws Exception {
+        List<String> partitionKeys = Lists.newArrayList("region", "dt");
+        BrokerUtil.ParsedColumnsFromPath parsed = BrokerUtil.parseColumnsFromPathWithNullInfo(
+                "hdfs://host/table/Region=cn/Dt=" + HiveExternalMetaCache.HIVE_DEFAULT_PARTITION
+                        + "/data.parquet",
+                partitionKeys, false, false);
+
+        Assert.assertEquals(Lists.newArrayList("cn", ""), parsed.getValues());
+        Assert.assertEquals(Lists.newArrayList(false, true), parsed.getIsNull());
+        Assert.assertEquals(Lists.newArrayList("region", "dt"), partitionKeys);
+
+        parsed = BrokerUtil.parseColumnsFromPathWithNullInfo(
+                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true, false);
+        Assert.assertEquals(Collections.singletonList("\\N"), parsed.getValues());
+        Assert.assertEquals(Collections.singletonList(false), parsed.getIsNull());
+
+        parsed = BrokerUtil.parseColumnsFromPathWithNullInfo(
+                "hdfs://host/table/p=value/delta_1_1/bucket_00000",
+                Collections.singletonList("p"), true, true);
+        Assert.assertEquals(Collections.singletonList("value"), parsed.getValues());
+        Assert.assertEquals(Collections.singletonList(false), parsed.getIsNull());
+    }
+
+    @Test
+    public void normalizeColumnsFromPathPreservesNullInfo() {
+        BrokerUtil.ParsedColumnsFromPath parsed = BrokerUtil.normalizeColumnsFromPath(
+                Lists.newArrayList("p1", FeConstants.null_string,
+                        HiveExternalMetaCache.HIVE_DEFAULT_PARTITION, null));
+
+        Assert.assertEquals(Lists.newArrayList("p1", "\\N", "", ""), parsed.getValues());
+        Assert.assertEquals(Lists.newArrayList(false, false, true, true), parsed.getIsNull());
+    }
+
+    @Test
+    public void parseColumnsFromPathForLoadKeepsLegacyNullSemantics() throws Exception {
+        BrokerUtil.ParsedColumnsFromPath parsed = BrokerUtil.parseColumnsFromPathWithNullInfoForLoad(
+                "hdfs://host/table/p=\\N/data.orc", Collections.singletonList("p"), true, false);
+
+        Assert.assertEquals(Collections.singletonList(""), parsed.getValues());
+        Assert.assertEquals(Collections.singletonList(true), parsed.getIsNull());
     }
 
     @Test

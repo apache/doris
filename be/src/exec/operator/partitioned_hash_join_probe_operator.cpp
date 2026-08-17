@@ -1018,7 +1018,8 @@ Status PartitionedHashJoinProbeOperatorX::revoke_memory(RuntimeState* state) {
     return local_state.revoke_build_data(state);
 }
 
-Status PartitionedHashJoinProbeOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status PartitionedHashJoinProbeOperatorX::get_block_impl(RuntimeState* state, Block* block,
+                                                         bool* eos) {
     *eos = false;
     auto& local_state = get_local_state(state);
     const bool is_spilled = local_state._shared_state->_is_spilled;

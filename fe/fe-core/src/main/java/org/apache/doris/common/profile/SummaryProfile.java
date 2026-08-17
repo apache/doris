@@ -82,8 +82,12 @@ public class SummaryProfile {
     public static final String INIT_SCAN_NODE_TIME = "Init Scan Node Time";
     public static final String FINALIZE_SCAN_NODE_TIME = "Finalize Scan Node Time";
     public static final String GET_SPLITS_TIME = "Get Splits Time";
+    public static final String EXTERNAL_TABLE_META_TIME = "External Table Meta Time";
+    public static final String EXTERNAL_TABLE_GET_TABLE_META_TIME = "External Table Get Table Meta Time";
+    public static final String EXTERNAL_TABLE_GET_PARTITION_VALUES_TIME = "External Table Get Partition Values Time";
     public static final String GET_PARTITIONS_TIME = "Get Partitions Time";
     public static final String GET_PARTITION_FILES_TIME = "Get Partition Files Time";
+    public static final String EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME = "External Table Get File Scan Tasks Time";
     public static final String CREATE_SCAN_RANGE_TIME = "Create Scan Range Time";
     public static final String SINK_SET_PARTITION_VALUES_TIME = "Sink Set Partition Values Time";
     public static final String PLAN_TIME = "Plan Time";
@@ -96,6 +100,7 @@ public class SummaryProfile {
     public static final String FETCH_RESULT_TIME = "Fetch Result Time";
     public static final String WRITE_RESULT_TIME = "Write Result Time";
     public static final String GET_META_VERSION_TIME = "Get Meta Version Time";
+    public static final String GET_META_VERSION_RATE_LIMIT_WAIT_TIME = "Get Meta Version Rate Limit Wait Time";
     public static final String GET_PARTITION_VERSION_TIME = "Get Partition Version Time";
     public static final String GET_PARTITION_VERSION_COUNT = "Get Partition Version Count";
     public static final String GET_PARTITION_VERSION_BY_HAS_DATA_COUNT = "Get Partition Version Count (hasData)";
@@ -173,14 +178,19 @@ public class SummaryProfile {
             INIT_SCAN_NODE_TIME,
             FINALIZE_SCAN_NODE_TIME,
             GET_SPLITS_TIME,
+            EXTERNAL_TABLE_META_TIME,
+            EXTERNAL_TABLE_GET_TABLE_META_TIME,
+            EXTERNAL_TABLE_GET_PARTITION_VALUES_TIME,
             GET_PARTITIONS_TIME,
             GET_PARTITION_FILES_TIME,
+            EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME,
             SINK_SET_PARTITION_VALUES_TIME,
             CREATE_SCAN_RANGE_TIME,
             ICEBERG_SCAN_METRICS,
             PAIMON_SCAN_METRICS,
             NEREIDS_DISTRIBUTE_TIME,
             GET_META_VERSION_TIME,
+            GET_META_VERSION_RATE_LIMIT_WAIT_TIME,
             GET_PARTITION_VERSION_TIME,
             GET_PARTITION_VERSION_BY_HAS_DATA_COUNT,
             GET_PARTITION_VERSION_COUNT,
@@ -225,14 +235,19 @@ public class SummaryProfile {
             .put(INIT_SCAN_NODE_TIME, 2)
             .put(FINALIZE_SCAN_NODE_TIME, 2)
             .put(GET_SPLITS_TIME, 3)
+            .put(EXTERNAL_TABLE_META_TIME, 4)
+            .put(EXTERNAL_TABLE_GET_TABLE_META_TIME, 5)
+            .put(EXTERNAL_TABLE_GET_PARTITION_VALUES_TIME, 5)
             .put(NEREIDS_DISTRIBUTE_TIME, 1)
             .put(NEREIDS_BE_FOLD_CONST_TIME, 2)
             .put(GET_PARTITIONS_TIME, 3)
             .put(GET_PARTITION_FILES_TIME, 3)
+            .put(EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME, 5)
             .put(SINK_SET_PARTITION_VALUES_TIME, 3)
             .put(CREATE_SCAN_RANGE_TIME, 2)
             .put(ICEBERG_SCAN_METRICS, 3)
             .put(PAIMON_SCAN_METRICS, 3)
+            .put(GET_META_VERSION_RATE_LIMIT_WAIT_TIME, 1)
             .put(GET_PARTITION_VERSION_TIME, 1)
             .put(GET_PARTITION_VERSION_COUNT, 1)
             .put(GET_PARTITION_VERSION_BY_HAS_DATA_COUNT, 1)
@@ -351,6 +366,8 @@ public class SummaryProfile {
     private long getTableVersionTime = 0;
     @SerializedName(value = "getTableVersionCount")
     private long getTableVersionCount = 0;
+    @SerializedName(value = "getMetaVersionRateLimitWaitTime")
+    private long getMetaVersionRateLimitWaitTime = 0;
     @SerializedName(value = "transactionCommitBeginTime")
     private long transactionCommitBeginTime = -1;
     @SerializedName(value = "transactionCommitEndTime")
@@ -379,6 +396,26 @@ public class SummaryProfile {
     private long nereidsMvRewriteTime = 0;
     @SerializedName(value = "externalCatalogMetaTime")
     private long externalCatalogMetaTime = 0;
+    // Total time to get table meta, including time to get table meta from external catalog and time to do some
+    // process based on the meta, such as partition prune.
+    @SerializedName(value = "externalTableGetTableMetaTime")
+    private long externalTableGetTableMetaTime = 0;
+    // Total time to get partition values, including time to get partition values from external catalog and time to do
+    // some process based on the partition values, such as partition prune.
+    @SerializedName(value = "externalTableGetPartitionValuesTime")
+    private long externalTableGetPartitionValuesTime = 0;
+    // Total time to get partitions, including time to get partitions from external catalog and time to do some
+    // process based on the partitions, such as partition prune.
+    @SerializedName(value = "externalTableGetPartitionsTime")
+    private long externalTableGetPartitionsTime = 0;
+    // Total time to get partition files, including time to get partition files from external catalog and time to do
+    // some process based on the partition files, such as creating scan range.
+    @SerializedName(value = "externalTableGetPartitionFilesTime")
+    private long externalTableGetPartitionFilesTime = 0;
+    // Total time to get file scan tasks, including time to get file scan tasks from external catalog and time to do
+    // some process based on the file scan tasks, such as creating scan range.
+    @SerializedName(value = "externalTableGetFileScanTasksTime")
+    private long externalTableGetFileScanTasksTime = 0;
     @SerializedName(value = "externalTvfInitTime")
     private long externalTvfInitTime = 0;
     @SerializedName(value = "nereidsPartitiionPruneTime")
@@ -504,10 +541,19 @@ public class SummaryProfile {
                 getPrettyTime(finalizeScanNodeFinishTime, finalizeScanNodeStartTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(GET_SPLITS_TIME,
                 getPrettyTime(getSplitsFinishTime, getSplitsStartTime, TUnit.TIME_MS));
+        executionSummaryProfile.addInfoString(EXTERNAL_TABLE_META_TIME,
+                getPrettyAccumulatedTime(externalCatalogMetaTime));
+        executionSummaryProfile.addInfoString(EXTERNAL_TABLE_GET_TABLE_META_TIME,
+                getPrettyAccumulatedTime(externalTableGetTableMetaTime));
+        executionSummaryProfile.addInfoString(EXTERNAL_TABLE_GET_PARTITION_VALUES_TIME,
+                getPrettyAccumulatedTime(externalTableGetPartitionValuesTime));
         executionSummaryProfile.addInfoString(GET_PARTITIONS_TIME,
-                getPrettyTime(getPartitionsFinishTime, getSplitsStartTime, TUnit.TIME_MS));
+                getExternalTableMetaTime(externalTableGetPartitionsTime, getPartitionsFinishTime, getSplitsStartTime));
         executionSummaryProfile.addInfoString(GET_PARTITION_FILES_TIME,
-                getPrettyTime(getPartitionFilesFinishTime, getPartitionsFinishTime, TUnit.TIME_MS));
+                getExternalTableMetaTime(externalTableGetPartitionFilesTime,
+                        getPartitionFilesFinishTime, getPartitionsFinishTime));
+        executionSummaryProfile.addInfoString(EXTERNAL_TABLE_GET_FILE_SCAN_TASKS_TIME,
+                getPrettyAccumulatedTime(externalTableGetFileScanTasksTime));
         executionSummaryProfile.addInfoString(SINK_SET_PARTITION_VALUES_TIME,
                 getPrettyTime(sinkSetPartitionValuesFinishTime, sinkSetPartitionValuesStartTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(CREATE_SCAN_RANGE_TIME,
@@ -536,6 +582,8 @@ public class SummaryProfile {
 
         if (Config.isCloudMode()) {
             executionSummaryProfile.addInfoString(GET_META_VERSION_TIME, getPrettyGetMetaVersionTime());
+            executionSummaryProfile.addInfoString(GET_META_VERSION_RATE_LIMIT_WAIT_TIME,
+                    getPrettyGetMetaVersionRateLimitWaitTime());
             executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_TIME, getPrettyGetPartitionVersionTime());
             executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_COUNT, getPrettyGetPartitionVersionCount());
             executionSummaryProfile.addInfoString(GET_PARTITION_VERSION_BY_HAS_DATA_COUNT,
@@ -734,6 +782,10 @@ public class SummaryProfile {
     public void addGetTableVersionTime(long ns) {
         this.getTableVersionTime += ns;
         this.getTableVersionCount += 1;
+    }
+
+    public void addGetMetaVersionRateLimitWaitTime(long ns) {
+        this.getMetaVersionRateLimitWaitTime += ns;
     }
 
     public void incGetPartitionVersionByHasDataCount() {
@@ -1005,6 +1057,13 @@ public class SummaryProfile {
         return RuntimeProfile.printCounter(getMetaVersionTime, TUnit.TIME_NS);
     }
 
+    private String getPrettyGetMetaVersionRateLimitWaitTime() {
+        if (getMetaVersionRateLimitWaitTime == 0) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(getMetaVersionRateLimitWaitTime, TUnit.TIME_NS);
+    }
+
     private String getPrettyGetPartitionVersionTime() {
         if (getPartitionVersionTime == 0) {
             return "N/A";
@@ -1035,8 +1094,8 @@ public class SummaryProfile {
         return RuntimeProfile.printCounter(getTableVersionCount, TUnit.UNIT);
     }
 
-    public long getGetPartitionVersionTime() {
-        return getPartitionVersionTime;
+    public long getGetPartitionVersionTimeMs() {
+        return TimeUnit.NANOSECONDS.toMillis(getPartitionVersionTime);
     }
 
     public long getGetPartitionVersionCount() {
@@ -1047,12 +1106,16 @@ public class SummaryProfile {
         return getPartitionVersionByHasDataCount;
     }
 
-    public long getGetTableVersionTime() {
-        return getTableVersionTime;
+    public long getGetTableVersionTimeMs() {
+        return TimeUnit.NANOSECONDS.toMillis(getTableVersionTime);
     }
 
     public long getGetTableVersionCount() {
         return getTableVersionCount;
+    }
+
+    public long getGetMetaVersionRateLimitWaitTime() {
+        return getMetaVersionRateLimitWaitTime;
     }
 
     private String getPrettyTime(long end, long start, TUnit unit) {
@@ -1060,6 +1123,20 @@ public class SummaryProfile {
             return "N/A";
         }
         return RuntimeProfile.printCounter(end - start, unit);
+    }
+
+    private String getPrettyAccumulatedTime(long timeMs) {
+        if (timeMs <= 0) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(timeMs, TUnit.TIME_MS);
+    }
+
+    private String getExternalTableMetaTime(long accumulatedTimeMs, long end, long start) {
+        if (accumulatedTimeMs > 0) {
+            return RuntimeProfile.printCounter(accumulatedTimeMs, TUnit.TIME_MS);
+        }
+        return getPrettyTime(end, start, TUnit.TIME_MS);
     }
 
     public void setTransactionBeginTime(TransactionType type) {
@@ -1181,12 +1258,41 @@ public class SummaryProfile {
         return TimeUnit.NANOSECONDS.toMillis(getPartitionVersionTime + getTableVersionTime);
     }
 
-    public void addExternalCatalogMetaTime(long ms) {
-        this.externalCatalogMetaTime += ms;
-    }
-
     public long getExternalCatalogMetaTimeMs() {
         return externalCatalogMetaTime;
+    }
+
+    public synchronized void addExternalTableGetTableMetaTime(long ms) {
+        this.externalTableGetTableMetaTime += ms;
+        addExternalCatalogMetaTimeInternal(ms);
+    }
+
+    public synchronized void addExternalTableGetPartitionValuesTime(long ms) {
+        this.externalTableGetPartitionValuesTime += ms;
+        addExternalCatalogMetaTimeInternal(ms);
+    }
+
+    public synchronized void addExternalTableGetPartitionsTime(long ms) {
+        this.externalTableGetPartitionsTime += ms;
+        addExternalCatalogMetaTimeInternal(ms);
+    }
+
+    public synchronized void addExternalTableGetPartitionFilesTime(long ms) {
+        this.externalTableGetPartitionFilesTime += ms;
+        addExternalCatalogMetaTimeInternal(ms);
+    }
+
+    public synchronized void addExternalTableGetFileScanTasksTime(long ms) {
+        this.externalTableGetFileScanTasksTime += ms;
+        addExternalCatalogMetaTimeInternal(ms);
+    }
+
+    public synchronized void addExternalCatalogMetaTime(long ms) {
+        addExternalCatalogMetaTimeInternal(ms);
+    }
+
+    private void addExternalCatalogMetaTimeInternal(long ms) {
+        this.externalCatalogMetaTime += ms;
     }
 
     public void addExternalTvfInitTime(long ms) {
@@ -1244,13 +1350,17 @@ public class SummaryProfile {
     }
 
     public String getMetaTime() {
-        return "{"
-                + "\"get_partition_version_time_ms\"" + ":" + this.getGetPartitionVersionTime() + ","
+        String metaTime = "{"
+                + "\"get_partition_version_time_ms\"" + ":" + this.getGetPartitionVersionTimeMs() + ","
                 + "\"get_partition_version_count_has_data\"" + ":" + this.getGetPartitionVersionByHasDataCount() + ","
                 + "\"get_partition_version_count\"" + ":" + this.getGetPartitionVersionCount() + ","
-                + "\"get_table_version_time_ms\"" + ":" + this.getGetTableVersionTime() + ","
-                + "\"get_table_version_count\"" + ":" + this.getGetTableVersionCount()
-                + "}";
+                + "\"get_table_version_time_ms\"" + ":" + this.getGetTableVersionTimeMs() + ","
+                + "\"get_table_version_count\"" + ":" + this.getGetTableVersionCount();
+        if (this.getGetMetaVersionRateLimitWaitTime() > 0) {
+            metaTime += ",\"get_meta_version_rate_limit_wait_time_ms\"" + ":"
+                    + TimeUnit.NANOSECONDS.toMillis(this.getGetMetaVersionRateLimitWaitTime());
+        }
+        return metaTime + "}";
     }
 
     public String getScheduleTime() {

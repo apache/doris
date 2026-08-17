@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <set>
 #include <string>
 
@@ -73,6 +74,19 @@ public:
     virtual void set_scan_ranges(RuntimeState* state,
                                  const std::vector<TScanRangeParams>& scan_ranges) = 0;
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
+    virtual const std::optional<std::vector<int32_t>>& get_push_down_count_slot_ids() const = 0;
+
+    static bool is_count_star_pushdown(TPushAggOp::type agg_type,
+                                       const std::optional<std::vector<int32_t>>& count_slot_ids) {
+        // An absent argument field is an old plan with unknown semantics. Only an explicitly empty
+        // argument list proves COUNT(*)/COUNT(1) and permits placeholder slots to be ignored.
+        return agg_type == TPushAggOp::type::COUNT && count_slot_ids.has_value() &&
+               count_slot_ids->empty();
+    }
+
+    bool is_count_star_pushdown() {
+        return is_count_star_pushdown(get_push_down_agg_type(), get_push_down_count_slot_ids());
+    }
 
     // If scan operator is serial operator(like topn), its real parallelism is 1.
     // Otherwise, its real parallelism is query_parallel_instance_num.
@@ -87,11 +101,11 @@ public:
 
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
+    uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
+
     Status update_late_arrival_runtime_filter(RuntimeState* state, int& arrived_rf_num);
 
     Status clone_conjunct_ctxs(VExprContextSPtrs& scanner_conjuncts);
-
-    uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
 
 protected:
     friend class ScannerContext;
@@ -231,6 +245,7 @@ class ScanLocalState : public ScanLocalStateBase {
                          const std::vector<TScanRangeParams>& scan_ranges) override {}
 
     TPushAggOp::type get_push_down_agg_type() override;
+    const std::optional<std::vector<int32_t>>& get_push_down_count_slot_ids() const override;
 
     std::vector<Dependency*> execution_dependencies() override {
         if (_filter_dependencies.empty()) {
@@ -328,9 +343,9 @@ class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
     Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
-        Status status = get_block(state, block, eos);
+        Status status = OperatorX<LocalStateType>::get_block(state, block, eos);
         if (status.ok()) {
             state->get_local_state(operator_id())->update_output_block_counters(*block);
         }
@@ -408,6 +423,16 @@ protected:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 
     TPushAggOp::type _push_down_agg_type;
+
+    // Semantic arguments of a pushed-down COUNT. This is deliberately optional because absence
+    // and an empty list have different meanings during a BE-first rolling upgrade:
+    //
+    //  - nullopt: an old FE did not send the field, so the new BE must use the normal scan;
+    //  - empty: the new FE explicitly planned COUNT(*)/COUNT(1);
+    //  - non-empty: the new FE explicitly planned COUNT(col).
+    //
+    // Treating nullopt as empty would silently reinterpret an old plan as COUNT(*).
+    std::optional<std::vector<int32_t>> _push_down_count_slot_ids;
 
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;

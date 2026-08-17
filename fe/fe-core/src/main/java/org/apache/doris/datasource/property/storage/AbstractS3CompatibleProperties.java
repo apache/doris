@@ -129,7 +129,7 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
     }
 
     @Override
-    public Map<String, String> getBackendConfigProperties() {
+    protected Map<String, String> doGetBackendConfigProperties() {
         return generateBackendS3Configuration();
     }
 
@@ -277,8 +277,6 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
         hadoopStorageConfig.set("fs.s3a.endpoint", getEndpoint());
         Preconditions.checkNotNull(getRegion(), "region is null");
         hadoopStorageConfig.set("fs.s3a.endpoint.region", getRegion());
-        hadoopStorageConfig.set("fs.s3.impl.disable.cache", "true");
-        hadoopStorageConfig.set("fs.s3a.impl.disable.cache", "true");
         if (StringUtils.isNotBlank(getAccessKey())) {
             hadoopStorageConfig.set("fs.s3a.aws.credentials.provider",
                     "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider");

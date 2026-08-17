@@ -20,6 +20,8 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <pdqsort.h>
 
+#include <cstring>
+
 #include "common/object_pool.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -136,6 +138,19 @@ struct IsFixedContainer : std::false_type {};
 template <typename T, size_t N>
 struct IsFixedContainer<FixedContainer<T, N>> : std::true_type {};
 
+template <typename T>
+struct DynamicContainerHash {
+    size_t operator()(const T& value) const {
+        if constexpr (std::is_floating_point_v<T>) {
+            T normalized = value;
+            // The hash must collapse NaN payloads and signed zeros exactly as Doris equality does.
+            NormalizeFloat(normalized);
+            return phmap::Hash<T> {}(normalized);
+        }
+        return phmap::Hash<T> {}(value);
+    }
+};
+
 /**
  * Dynamic Container uses phmap::flat_hash_set.
  * @tparam T Element Type
@@ -144,7 +159,8 @@ template <typename T>
 class DynamicContainer {
 public:
     using Self = DynamicContainer;
-    using Iterator = typename flat_hash_set<T>::iterator;
+    using Set = flat_hash_set<T, DynamicContainerHash<T>>;
+    using Iterator = typename Set::iterator;
     using ElementType = T;
 
     DynamicContainer() = default;
@@ -165,7 +181,7 @@ public:
     size_t size() const { return _set.size(); }
 
 private:
-    flat_hash_set<T> _set;
+    Set _set;
 };
 
 // TODO Maybe change void* parameter to template parameter better.
@@ -197,6 +213,34 @@ public:
     virtual bool find(const void* data) const = 0;
     // use in vectorize execute engine
     virtual bool find(const void* data, size_t) const = 0;
+
+    virtual void find_batch_raw_fixed(const uint8_t* values, size_t rows, size_t value_width,
+                                      uint8_t* matches) const {
+        for (size_t row = 0; row < rows; ++row) {
+            matches[row] &= find(values + row * value_width) ? 1 : 0;
+        }
+    }
+
+    virtual void find_batch_raw_fixed_negative(const uint8_t* values, size_t rows,
+                                               size_t value_width, uint8_t* matches) const {
+        for (size_t row = 0; row < rows; ++row) {
+            matches[row] &= find(values + row * value_width) ? 0 : 1;
+        }
+    }
+
+    virtual void find_batch_raw_binary(const StringRef* values, size_t rows,
+                                       uint8_t* matches) const {
+        for (size_t row = 0; row < rows; ++row) {
+            matches[row] &= find(values[row].data, values[row].size) ? 1 : 0;
+        }
+    }
+
+    virtual void find_batch_raw_binary_negative(const StringRef* values, size_t rows,
+                                                uint8_t* matches) const {
+        for (size_t row = 0; row < rows; ++row) {
+            matches[row] &= find(values[row].data, values[row].size) ? 0 : 1;
+        }
+    }
 
     virtual void find_batch(const doris::IColumn& column, size_t rows,
                             doris::ColumnUInt8::Container& results,
@@ -290,6 +334,26 @@ public:
     }
 
     bool find(const void* data, size_t /*unused*/) const override { return find(data); }
+
+    void find_batch_raw_fixed(const uint8_t* values, size_t rows, size_t value_width,
+                              uint8_t* matches) const override {
+        DORIS_CHECK_EQ(value_width, sizeof(ElementType));
+        for (size_t row = 0; row < rows; ++row) {
+            ElementType value;
+            std::memcpy(&value, values + row * sizeof(ElementType), sizeof(ElementType));
+            matches[row] &= _set.find(value) ? 1 : 0;
+        }
+    }
+
+    void find_batch_raw_fixed_negative(const uint8_t* values, size_t rows, size_t value_width,
+                                       uint8_t* matches) const override {
+        DORIS_CHECK_EQ(value_width, sizeof(ElementType));
+        for (size_t row = 0; row < rows; ++row) {
+            ElementType value;
+            std::memcpy(&value, values + row * sizeof(ElementType), sizeof(ElementType));
+            matches[row] &= _set.find(value) ? 0 : 1;
+        }
+    }
 
     void find_batch(const doris::IColumn& column, size_t rows,
                     doris::ColumnUInt8::Container& results,

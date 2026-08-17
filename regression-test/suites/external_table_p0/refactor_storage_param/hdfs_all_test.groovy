@@ -75,6 +75,9 @@ suite("refactor_params_hdfs_all_test", "p0,external,kerberos,external_docker,ext
     }
 
     def hdfsNonXmlParams = "\"fs.defaultFS\" = \"hdfs://${externalEnvIp}:8520\",\n" +
+            "\"dfs.namenode.kerberos.principal\" = \"hdfs/hadoop-master@LABS.TERADATA.COM\",\n" +
+            "\"dfs.client.use.datanode.hostname\" = \"true\",\n" +
+            "\"hadoop.security.token.service.use_ip\" = \"false\",\n" +
             "\"hadoop.kerberos.min.seconds.before.relogin\" = \"5\",\n" +
             "\"hadoop.security.authentication\" = \"kerberos\",\n" +
             "\"hadoop.kerberos.principal\"=\"hive/presto-master.docker.cluster@LABS.TERADATA.COM\",\n" +

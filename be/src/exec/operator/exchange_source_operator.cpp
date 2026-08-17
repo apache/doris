@@ -147,7 +147,7 @@ Status ExchangeSourceOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status ExchangeSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status ExchangeSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     Defer is_eos([&]() {
         if (*eos) {

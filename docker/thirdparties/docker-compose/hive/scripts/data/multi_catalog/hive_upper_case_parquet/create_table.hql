@@ -1,7 +1,9 @@
 create database if not exists multi_catalog;
 use multi_catalog;
 
-CREATE TABLE `hive_upper_case_parquet`(
+drop table if exists `hive_upper_case_parquet`;
+
+create table `hive_upper_case_parquet`(
   `id` int,
   `name` string)
 ROW FORMAT SERDE
@@ -16,6 +18,3 @@ TBLPROPERTIES (
   'spark.sql.create.version'='3.2.1',
   'spark.sql.sources.schema'='{"type":"struct","fields":[{"name":"ID","type":"integer","nullable":true,"metadata":{}},{"name":"NAME","type":"string","nullable":true,"metadata":{}}]}',
   'transient_lastDdlTime'='1674189051');
-
-msck repair table hive_upper_case_parquet;
-

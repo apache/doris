@@ -35,6 +35,7 @@
 #include "core/column/column_variant.cpp"
 #include "core/column/common_column_test.h"
 #include "core/column/subcolumn_tree.h"
+#include "core/column/variant_column_utils.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
@@ -984,13 +985,14 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         Field result1;
         dst_column->get(0, result1);
 
-        const auto& fv = result1.get<TYPE_VARIANT>();
+        const auto& fv = result1.get<TYPE_VARIANT>().legacy_map();
         auto res = fv.at(PathInData());
         EXPECT_EQ(res.field.get<TYPE_INT>(), 123);
 
         Field result2;
         dst_column->get(1, result2);
-        EXPECT_EQ(result2.get<TYPE_VARIANT>().at(PathInData()).field.get<TYPE_INT>(), 456);
+        EXPECT_EQ(result2.get<TYPE_VARIANT>().legacy_map().at(PathInData()).field.get<TYPE_INT>(),
+                  456);
     }
 
     // Test case 2: Insert from scalar variant source to non-empty destination of same type
@@ -1024,9 +1026,12 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         dst_column->get(1, result2);
         dst_column->get(2, result3);
 
-        EXPECT_EQ(result1.get<TYPE_VARIANT>().at(PathInData()).field.get<TYPE_INT>(), 789);
-        EXPECT_EQ(result2.get<TYPE_VARIANT>().at(PathInData()).field.get<TYPE_INT>(), 456);
-        EXPECT_EQ(result3.get<TYPE_VARIANT>().at(PathInData()).field.get<TYPE_INT>(), 123);
+        EXPECT_EQ(result1.get<TYPE_VARIANT>().legacy_map().at(PathInData()).field.get<TYPE_INT>(),
+                  789);
+        EXPECT_EQ(result2.get<TYPE_VARIANT>().legacy_map().at(PathInData()).field.get<TYPE_INT>(),
+                  456);
+        EXPECT_EQ(result3.get<TYPE_VARIANT>().legacy_map().at(PathInData()).field.get<TYPE_INT>(),
+                  123);
     }
 
     // Test case 3: Insert from non-scalar or different type source (fallback to try_insert)
@@ -1036,7 +1041,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
 
         // Create a map with {"a": 123}
         Field field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
-        auto& map1 = field_map.get<TYPE_VARIANT>();
+        auto& map1 = field_map.get<TYPE_VARIANT>().legacy_map();
         map1.insert_or_assign(PathInData("a"),
                               FieldWithDataType {.field = Field::create_field<TYPE_INT>(123),
                                                  .base_scalar_type_id = PrimitiveType::TYPE_INT});
@@ -1044,7 +1049,7 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
 
         // Create another map with {"b": "hello"}
         field_map = Field::create_field<TYPE_VARIANT>(VariantMap());
-        auto& map2 = field_map.get<TYPE_VARIANT>();
+        auto& map2 = field_map.get<TYPE_VARIANT>().legacy_map();
         map2.insert_or_assign(
                 PathInData("b"),
                 FieldWithDataType {.field = Field::create_field<TYPE_STRING>(String("hello")),
@@ -1074,12 +1079,39 @@ TEST_F(ColumnVariantTest, test_insert_indices_from) {
         EXPECT_TRUE(result1.get_type() == PrimitiveType::TYPE_VARIANT);
         EXPECT_TRUE(result2.get_type() == PrimitiveType::TYPE_VARIANT);
 
-        const auto& result1_map = result1.get<TYPE_VARIANT>();
-        const auto& result2_map = result2.get<TYPE_VARIANT>();
+        const auto& result1_map = result1.get<TYPE_VARIANT>().legacy_map();
+        const auto& result2_map = result2.get<TYPE_VARIANT>().legacy_map();
 
         EXPECT_EQ(result1_map.at(PathInData("b")).field.get<TYPE_STRING>(), "hello");
         EXPECT_EQ(result2_map.at(PathInData("a")).field.get<TYPE_INT>(), 123);
     }
+}
+
+TEST_F(ColumnVariantTest, visible_root_does_not_hide_sparse_fields) {
+    auto source = ColumnVariant::create(0, false);
+    VariantMap mixed;
+    mixed.try_emplace(PathInData(), FieldWithDataType {.field = get_jsonb_field("array_int")});
+    mixed.try_emplace(PathInData("n"), FieldWithDataType {.field = VariantUtil::get_field("int")});
+    mixed.try_emplace(PathInData("word"),
+                      FieldWithDataType {.field = VariantUtil::get_field("string")});
+    source->try_insert(Field::create_field<TYPE_VARIANT>(std::move(mixed)));
+    source->finalize();
+
+    auto destination = ColumnVariant::create(1, false);
+    destination->try_insert(
+            VariantUtil::construct_variant_map({{"k", VariantUtil::get_field("int")}}));
+    destination->insert_range_from(*source, 0, 1);
+    destination->finalize();
+
+    EXPECT_EQ(destination->get_subcolumns().get_root()->data.get_least_common_base_type_id(),
+              PrimitiveType::TYPE_JSONB);
+    const auto& sparse_offsets = destination->serialized_sparse_column_offsets();
+    EXPECT_LT(sparse_offsets[0], sparse_offsets[1]);
+
+    DataTypeSerDe::FormatOptions options;
+    std::string json;
+    destination->serialize_one_row_to_string(1, &json, options);
+    EXPECT_EQ(json, R"({"n":20,"word":"str"})");
 }
 
 TEST_F(ColumnVariantTest, is_variable_length) {
@@ -1805,16 +1837,36 @@ TEST_F(ColumnVariantTest, is_scalar_variant) {
 }
 
 TEST_F(ColumnVariantTest, is_exclusive) {
-    auto test_func = [](const auto& source_column) {
-        auto src_size = source_column->size();
-        EXPECT_TRUE(src_size > 0);
+    auto variant = VariantUtil::construct_basic_varint_column();
+    EXPECT_GT(variant->size(), 0);
+    EXPECT_TRUE(variant->is_exclusive());
 
-        // Test is_exclusive
-        bool is_exclusive = source_column->is_exclusive();
-        // The result depends on the actual data structure
-        EXPECT_TRUE(is_exclusive);
-    };
-    test_func(column_variant);
+    const auto& subcolumns = variant->get_subcolumns();
+    const auto* root = subcolumns.get_root();
+    ColumnPtr shared_subcolumn;
+    for (const auto& entry : subcolumns) {
+        if (entry.get() != root && !entry->data.data.empty()) {
+            shared_subcolumn = static_cast<const IColumn::Ptr&>(entry->data.data[0]);
+            break;
+        }
+    }
+    ASSERT_TRUE(shared_subcolumn);
+    EXPECT_FALSE(variant->is_exclusive());
+
+    shared_subcolumn.reset();
+    EXPECT_TRUE(variant->is_exclusive());
+
+    auto shared_sparse_column = variant->get_sparse_column();
+    EXPECT_FALSE(variant->is_exclusive());
+
+    shared_sparse_column.reset();
+    EXPECT_TRUE(variant->is_exclusive());
+
+    auto shared_doc_value_column = variant->get_doc_value_column();
+    EXPECT_FALSE(variant->is_exclusive());
+
+    shared_doc_value_column.reset();
+    EXPECT_TRUE(variant->is_exclusive());
 }
 
 TEST_F(ColumnVariantTest, get_root_type) {
@@ -2155,7 +2207,7 @@ TEST_F(ColumnVariantTest, find_path_lower_bound_in_sparse_data) {
         for (size_t i = 0; i != src_sparse_data_offsets.size(); ++i) {
             size_t start = src_sparse_data_offsets[ssize_t(i) - 1];
             size_t end = src_sparse_data_offsets[ssize_t(i)];
-            size_t lower_bound_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
+            size_t lower_bound_index = find_variant_sparse_path_lower_bound(
                     prefix_ref, src_sparse_data_paths, start, end);
             for (; lower_bound_index != end; ++lower_bound_index) {
                 auto path_ref = src_sparse_data_paths.get_data_at(lower_bound_index);
@@ -3594,6 +3646,14 @@ TEST_F(ColumnVariantTest, subcolumn_finalize_and_insert) {
     field2.num_dimensions = 1;
     array_subcolumn.insert(field2);
     array_subcolumn.finalize();
+}
+
+TEST(ColumnVariantNestedGroupTypeTest, nullable_array_element_is_recognized) {
+    EXPECT_TRUE(is_nested_group_type(ColumnVariant::NESTED_TYPE));
+
+    auto variant = std::make_shared<DataTypeVariant>(0, false);
+    EXPECT_TRUE(is_nested_group_type(variant));
+    EXPECT_FALSE(is_nested_group_type(make_nullable(variant)));
 }
 
 TEST_F(ColumnVariantTest, deserialize_mixed_array_elements) {

@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -31,6 +32,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/operator/file_scan_operator.h"
+#include "exec/scan/file_scan_io_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "format/generic_reader.h"
 #include "format/orc/vorc_reader.h"
@@ -65,6 +67,23 @@ public:
     // sub profile name (for parquet/orc)
     static const std::string FileReadBytesProfile;
     static const std::string FileReadTimeProfile;
+
+#ifdef BE_TEST
+    void TEST_init_runtime_filter_partition_prune_ctxs(
+            const VExprContextSPtrs& conjuncts,
+            const std::unordered_map<SlotId, int>& partition_slot_index_map) {
+        _conjuncts = conjuncts;
+        _partition_slot_index_map = partition_slot_index_map;
+        _init_runtime_filter_partition_prune_ctxs();
+    }
+    const VExprContextSPtrs& TEST_runtime_filter_partition_prune_ctxs() const {
+        return _runtime_filter_partition_prune_ctxs;
+    }
+    static TPushAggOp::type TEST_effective_push_down_agg_type(
+            TPushAggOp::type agg_type, const std::optional<std::vector<int32_t>>& count_slot_ids) {
+        return _effective_push_down_agg_type(agg_type, count_slot_ids);
+    }
+#endif
 
     FileScanner(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
                 std::shared_ptr<SplitSourceConnector> split_source, RuntimeProfile* profile,
@@ -111,6 +130,8 @@ protected:
     Status _cast_src_block(Block* block) { return Status::OK(); }
 
     void _collect_profile_before_close() override;
+
+    bool _should_update_load_counters() const override;
 
     // fe will add skip_bitmap_col to _input_tuple_desc iff the target olaptable has skip_bitmap_col
     // and the current load is a flexible partial update
@@ -185,7 +206,8 @@ protected:
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
-    std::unique_ptr<io::IOContext> _io_ctx;
+    // Reader stacks retain this context so delegate readers never outlive their scan state.
+    std::shared_ptr<io::IOContext> _io_ctx;
 
     // Whether to fill partition columns from path, default is true.
     bool _fill_partition_from_path = true;
@@ -279,19 +301,13 @@ private:
     };
 
     Status _init_io_ctx() {
-        _io_ctx.reset(new io::IOContext());
-        _io_ctx->query_id = &_state->query_id();
+        _io_ctx = create_file_scan_io_context(_state);
         return Status::OK();
     };
 
     void _reset_counter() {
         _counter.num_rows_unselected = 0;
         _counter.num_rows_filtered = 0;
-    }
-
-    TPushAggOp::type _get_push_down_agg_type() const {
-        return _local_state == nullptr ? TPushAggOp::type::NONE
-                                       : _local_state->get_push_down_agg_type();
     }
 
     void _reset_adaptive_batch_size_state();
@@ -301,6 +317,30 @@ private:
     size_t _predict_reader_batch_rows();
     void _update_adaptive_batch_size_before_truncate(const Block& block);
     void _update_adaptive_batch_size_after_truncate(const Block& block);
+
+    static TPushAggOp::type _effective_push_down_agg_type(
+            TPushAggOp::type agg_type, const std::optional<std::vector<int32_t>>& count_slot_ids) {
+        if (agg_type != TPushAggOp::type::COUNT) {
+            return agg_type;
+        }
+        // V1's CountReader receives only the file's total row count and emits that many synthetic
+        // rows. This is exact for COUNT(*)/COUNT(1), but it has no column metadata for NULL or CAST
+        // semantics. For example, a 10,000-row file with 9,015 non-null values must return 10,000
+        // for COUNT(*) and 9,015 for COUNT(nullable_col); CountReader can produce only the former.
+        // Therefore a non-empty argument list must use the normal reader. nullopt is an old FE plan
+        // that predates the argument field; treating it as empty would silently reinterpret unknown
+        // semantics as COUNT(*).
+        return count_slot_ids.has_value() && count_slot_ids->empty() ? TPushAggOp::type::COUNT
+                                                                     : TPushAggOp::type::NONE;
+    }
+
+    TPushAggOp::type _get_push_down_agg_type() const {
+        if (_local_state == nullptr) {
+            return TPushAggOp::type::NONE;
+        }
+        return _effective_push_down_agg_type(_local_state->get_push_down_agg_type(),
+                                             _local_state->get_push_down_count_slot_ids());
+    }
 
     // enable the file meta cache only when
     // 1. max_external_file_meta_cache_num is > 0

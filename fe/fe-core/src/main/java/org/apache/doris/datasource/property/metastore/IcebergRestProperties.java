@@ -81,6 +81,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.oauth2.token"},
             required = false,
+            sensitive = true,
             description = "The oauth2 token for the iceberg rest catalog service.")
     private String icebergRestOauth2Token;
 

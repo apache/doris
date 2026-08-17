@@ -30,8 +30,11 @@
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/field.h"
 #include "core/value/jsonb_value.h"
 #include "exec/common/variant_util.h"
@@ -110,6 +113,13 @@ static size_t _doc_value_entry_count(const ColumnVariant& variant) {
     return offsets.empty() ? 0 : offsets.back();
 }
 
+static std::string _serialize_variant_row(const ColumnVariant& variant, size_t row) {
+    DataTypeSerDe::FormatOptions options;
+    std::string value;
+    variant.serialize_one_row_to_string(row, &value, options);
+    return value;
+}
+
 class ScopedDuplicateJsonPathCheck {
 public:
     explicit ScopedDuplicateJsonPathCheck(bool value)
@@ -135,6 +145,41 @@ public:
 private:
     int32_t _old_value;
 };
+
+TEST(VariantUtilTest, NumericConflictResolvedAsJsonbPreservesOriginalNumberText) {
+    // Values distributed to different tablets can reach the reader as a JSONB conflict. JSONB
+    // preserves the original number text instead of formatting the value through DOUBLE.
+    auto variant = ColumnVariant::create(0, false);
+    auto json_col = _make_json_column({R"({"b":1111111111111111})", R"({"b":1.222222})"});
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+    parse_json_to_variant(*variant, *json_col, cfg);
+
+    const auto* sub_b = variant->get_subcolumn(PathInData("b"));
+    ASSERT_NE(sub_b, nullptr);
+    EXPECT_EQ(sub_b->get_least_common_base_type_id(), PrimitiveType::TYPE_JSONB);
+    EXPECT_EQ(_serialize_variant_row(*variant, 0), R"({"b":1111111111111111})");
+    EXPECT_EQ(_serialize_variant_row(*variant, 1), R"({"b":1.222222})");
+}
+
+TEST(VariantUtilTest, DoubleSubcolumnUsesRoundTripNumberText) {
+    // When one tablet resolves the extracted path as DOUBLE, serialization must use enough digits
+    // to round-trip the binary value.
+    auto variant = ColumnVariant::create(0, false);
+    auto json_col = _make_json_column({R"({"b":1.222222})"});
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+    parse_json_to_variant(*variant, *json_col, cfg);
+
+    const auto* sub_b = variant->get_subcolumn(PathInData("b"));
+    ASSERT_NE(sub_b, nullptr);
+    EXPECT_EQ(sub_b->get_least_common_base_type_id(), PrimitiveType::TYPE_DOUBLE);
+    EXPECT_EQ(_serialize_variant_row(*variant, 0), R"({"b":1.222222})");
+}
 
 TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
     const std::vector<std::string_view> jsons = {
@@ -540,6 +585,51 @@ TEST(VariantUtilTest, ParseVariantColumns_StorageNonDocScalarJsonToDocValueKv) {
     materialized_a.get(1, f);
     EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
     EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 2);
+}
+
+TEST(VariantUtilTest, ParseVariantColumns_StorageLeavesV2Untouched) {
+    auto strings = ColumnString::create();
+    strings->insert_data(R"({"a":1})", 7);
+    strings->insert_data("ignored-inner-null", 18);
+    strings->insert_data("ignored-outer-null", 18);
+    strings->insert_data("not-json", 8);
+    auto inner_nulls = ColumnUInt8::create();
+    inner_nulls->insert_value(0);
+    inner_nulls->insert_value(1);
+    inner_nulls->insert_value(0);
+    inner_nulls->insert_value(0);
+    auto variant = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(strings), std::move(inner_nulls)),
+            std::make_shared<DataTypeString>());
+    const ColumnVariantV2* variant_identity = variant.get();
+    auto outer_nulls = ColumnUInt8::create();
+    outer_nulls->insert_value(0);
+    outer_nulls->insert_value(0);
+    outer_nulls->insert_value(1);
+    outer_nulls->insert_value(0);
+
+    auto nullable = ColumnNullable::create(std::move(variant), std::move(outer_nulls));
+    const ColumnNullable* nullable_identity = nullable.get();
+    Block block;
+    block.insert({std::move(nullable), make_nullable(std::make_shared<DataTypeVariantV2>()), "v"});
+    ParseConfig config;
+    config.check_duplicate_json_path = false;
+    ASSERT_TRUE(parse_and_materialize_variant_columns(block, {0}, {config}).ok());
+
+    EXPECT_EQ(block.get_by_position(0).column.get(), nullable_identity);
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    EXPECT_EQ(result.get_null_map_data(), NullMap({0, 0, 1, 0}));
+    const auto& untouched = assert_cast<const ColumnVariantV2&>(result.get_nested_column());
+    EXPECT_EQ(&untouched, variant_identity);
+    const ColumnVariantV2::ReadView view = untouched.read_view();
+    ASSERT_TRUE(view.is_typed());
+    ASSERT_EQ(view.size(), 4);
+    const auto& typed = assert_cast<const ColumnNullable&>(view.typed_column());
+    EXPECT_EQ(typed.get_null_map_data(), NullMap({0, 1, 0, 0}));
+    const auto& result_strings = assert_cast<const ColumnString&>(typed.get_nested_column());
+    EXPECT_EQ(result_strings.get_data_at(0), StringRef(R"({"a":1})"));
+    EXPECT_EQ(result_strings.get_data_at(2), StringRef("ignored-outer-null"));
+    EXPECT_EQ(result_strings.get_data_at(3), StringRef("not-json"));
 }
 
 TEST(VariantUtilTest, ParseVariantColumns_StorageTypedPathUsesDocValueKv) {

@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.VolatileExpression;
 import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -100,31 +102,22 @@ import java.util.List;
 public abstract class UniqueFunction extends ScalarFunction implements VolatileExpression {
 
     protected final VolatileIdentity volatileIdentity;
-    protected final ExprId uniqueId;
-
-    // when compare and bind unique id with group by expressions, should ignore the unique id
-    protected final boolean ignoreUniqueId;
 
     /** constructor for withChildren and reuse signature */
     public UniqueFunction(UniqueFunctionParams functionParams) {
         super(functionParams);
-        this.volatileIdentity = VolatileIdentity.of(functionParams.uniqueId, functionParams.ignoreUniqueId);
-        this.uniqueId = functionParams.uniqueId;
-        this.ignoreUniqueId = functionParams.ignoreUniqueId;
+        this.volatileIdentity = functionParams.volatileIdentity;
+        checkVolatileIdentity();
     }
 
-    public UniqueFunction(String name, ExprId uniqueId, boolean ignoreUniqueId, Expression... arguments) {
-        super(name, arguments);
-        this.volatileIdentity = VolatileIdentity.of(uniqueId, ignoreUniqueId);
-        this.uniqueId = uniqueId;
-        this.ignoreUniqueId = ignoreUniqueId;
+    public UniqueFunction(String name, VolatileIdentity volatileIdentity, Expression... arguments) {
+        this(name, volatileIdentity, ImmutableList.copyOf(arguments));
     }
 
-    public UniqueFunction(String name, ExprId uniqueId, boolean ignoreUniqueId, List<Expression> arguments) {
+    public UniqueFunction(String name, VolatileIdentity volatileIdentity, List<Expression> arguments) {
         super(name, arguments);
-        this.volatileIdentity = VolatileIdentity.of(uniqueId, ignoreUniqueId);
-        this.uniqueId = uniqueId;
-        this.ignoreUniqueId = ignoreUniqueId;
+        this.volatileIdentity = volatileIdentity;
+        checkVolatileIdentity();
     }
 
     @Override
@@ -132,11 +125,16 @@ public abstract class UniqueFunction extends ScalarFunction implements VolatileE
         return volatileIdentity;
     }
 
+    @Override
     public abstract UniqueFunction withIgnoreUniqueId(boolean ignoreUniqueId);
 
     @Override
     protected UniqueFunctionParams getFunctionParams(List<Expression> arguments) {
-        return new UniqueFunctionParams(this, getName(), uniqueId, ignoreUniqueId, arguments, isInferred());
+        return new UniqueFunctionParams(this, getName(), volatileIdentity, arguments, isInferred());
+    }
+
+    private void checkVolatileIdentity() {
+        Preconditions.checkArgument(volatileIdentity.isVolatile(), "UniqueFunction must have a volatile identity");
     }
 
     @Override
@@ -158,15 +156,14 @@ public abstract class UniqueFunction extends ScalarFunction implements VolatileE
             return false;
         }
         UniqueFunction other = (UniqueFunction) o;
-        // in BindExpression phase, when compare two expression equals except the unique id,
+        // in BindExpression phase, when compare two expression equals except the volatile identity,
         // will set ignoreUniqueId = true temporarily, after bind expression, will recover ignoreUniqueId = false
         return volatileIdentity.equalsByIdentity(other.volatileIdentity, super.equals(other));
     }
 
-    // The contains method needs to use hashCode, so similar to equals, it only compares exprId
+    // The contains method needs to use hashCode, so similar to equals, it only compares volatile identity
     @Override
     public int computeHashCode() {
-        // direct return exprId to speed up
         return volatileIdentity.hashCodeByIdentity(super.computeHashCode());
     }
 }

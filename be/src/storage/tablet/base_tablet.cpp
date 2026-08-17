@@ -174,8 +174,10 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
                                     const TabletColumn& target_column,
                                     SegmentCacheHandle* segment_cache_handle,
                                     std::unique_ptr<segment_v2::ColumnIterator>* column_iterator,
-                                    OlapReaderStatistics* stats) {
-    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, segment_cache_handle, true));
+                                    OlapReaderStatistics* stats,
+                                    const io::IOContext* input_io_ctx = nullptr) {
+    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, segment_cache_handle, true,
+                                                             false, stats, input_io_ctx));
     // find segment
     auto it = std::find_if(
             segment_cache_handle->get_segments().begin(),
@@ -188,13 +190,18 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
     segment_v2::SegmentSharedPtr segment = *it;
     StorageReadOptions opts;
     opts.stats = stats;
+    if (input_io_ctx != nullptr) {
+        opts.io_ctx = *input_io_ctx;
+    }
     RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, &opts));
+    auto io_ctx = opts.io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.file_cache_stats = &stats->file_cache_stats;
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = segment->file_reader().get(),
             .stats = stats,
-            .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY,
-                                     .file_cache_stats = &stats->file_cache_stats},
+            .io_ctx = io_ctx,
     };
     RETURN_IF_ERROR((*column_iterator)->init(opt));
     return Status::OK();
@@ -279,6 +286,10 @@ void BaseTablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema
 
 uint32_t BaseTablet::get_real_compaction_score() const {
     std::shared_lock l(_meta_lock);
+    return get_real_compaction_score_unlocked();
+}
+
+uint32_t BaseTablet::get_real_compaction_score_unlocked() const {
     const auto& rs_metas = _tablet_meta->all_rs_metas();
     return std::accumulate(rs_metas.begin(), rs_metas.end(), 0, [](uint32_t score, const auto& it) {
         return score + it.second->get_compaction_score();
@@ -446,7 +457,8 @@ void BaseTablet::generate_tablet_meta_copy_unlocked(TabletMeta& new_tablet_meta,
 
 Status BaseTablet::calc_delete_bitmap_between_segments(
         TabletSchemaSPtr schema, RowsetId rowset_id,
-        const std::vector<segment_v2::SegmentSharedPtr>& segments, DeleteBitmapPtr delete_bitmap) {
+        const std::vector<segment_v2::SegmentSharedPtr>& segments, DeleteBitmapPtr delete_bitmap,
+        int64_t queue_time_us) {
     size_t const num_segments = segments.size();
     if (num_segments < 2) {
         return Status::OK();
@@ -474,9 +486,9 @@ Status BaseTablet::calc_delete_bitmap_between_segments(
     LOG(INFO) << fmt::format(
             "construct delete bitmap between segments, "
             "tablet: {}, rowset: {}, number of segments: {}, bitmap count: {}, bitmap cardinality: "
-            "{}, cost {} (us)",
+            "{}, queue_time_us: {}, cost {} (us)",
             tablet_id(), rowset_id.to_string(), num_segments,
-            delete_bitmap->get_delete_bitmap_count(), delete_bitmap->cardinality(),
+            delete_bitmap->get_delete_bitmap_count(), delete_bitmap->cardinality(), queue_time_us,
             watch.get_elapse_time_us());
     return Status::OK();
 }
@@ -499,7 +511,8 @@ std::vector<RowsetSharedPtr> BaseTablet::get_rowset_by_ids(
 
 Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
                                    RowsetSharedPtr input_rowset, OlapReaderStatistics& stats,
-                                   std::string& values, bool write_to_cache) {
+                                   std::string& values, bool write_to_cache,
+                                   const io::IOContext* io_ctx) {
     MonotonicStopWatch watch;
     size_t row_size = 1;
     watch.start();
@@ -515,7 +528,8 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
     const auto& column = *DORIS_TRY(tablet_schema->column(BeConsts::ROW_STORE_COL));
     RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id, column,
-                                                 &segment_cache_handle, &column_iterator, &stats));
+                                                 &segment_cache_handle, &column_iterator, &stats,
+                                                 io_ctx));
     // get and parse tuple row
     MutableColumnPtr column_ptr = ColumnString::create();
     std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
@@ -537,7 +551,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
                                   std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                                   RowsetSharedPtr* rowset, bool with_rowid,
                                   std::string* encoded_seq_value, OlapReaderStatistics* stats,
-                                  DeleteBitmapPtr delete_bitmap) {
+                                  DeleteBitmapPtr delete_bitmap, const io::IOContext* io_ctx) {
     SCOPED_BVAR_LATENCY(g_tablet_lookup_rowkey_latency);
     size_t seq_col_length = 0;
     // use the latest tablet schema to decide if the tablet has sequence column currently
@@ -588,14 +602,15 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         if (UNLIKELY(segment_caches[i] == nullptr)) {
             segment_caches[i] = std::make_unique<SegmentCacheHandle>();
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true, true));
+                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true, true,
+                    stats, io_ctx));
         }
         auto& segments = segment_caches[i]->get_segments();
         DCHECK_EQ(segments.size(), num_segments);
 
         for (auto id : picked_segments) {
             Status s = segments[id]->lookup_row_key(encoded_key, schema, with_seq_col, with_rowid,
-                                                    &loc, stats, encoded_seq_value);
+                                                    &loc, stats, encoded_seq_value, io_ctx);
             if (s.is<KEY_NOT_FOUND>()) {
                 continue;
             }
@@ -663,7 +678,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                               const std::vector<RowsetSharedPtr>& specified_rowsets,
                                               DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                               RowsetWriter* rowset_writer,
-                                              DeleteBitmapPtr tablet_delete_bitmap) {
+                                              DeleteBitmapPtr tablet_delete_bitmap,
+                                              int64_t queue_time_us) {
     OlapStopWatch watch;
     auto rowset_id = rowset->rowset_id();
     Version dummy_version(end_version + 1, end_version + 1);
@@ -906,7 +922,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RETURN_IF_ERROR(sort_block(block, ordered_block));
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block));
         auto cost_us = watch.get_elapse_time_us();
-        if (config::enable_mow_verbose_log || cost_us > 10 * 1000) {
+        if (config::enable_mow_verbose_log || cost_us > 10 * 1000 || queue_time_us > 10 * 1000) {
             LOG(INFO) << "calc segment delete bitmap for "
                       << partial_update_info->partial_update_mode_str()
                       << ", tablet: " << tablet_id() << " rowset: " << rowset_id
@@ -915,19 +931,19 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                       << " new generated rows: " << new_generated_rows
                       << " bitmap num: " << delete_bitmap->get_delete_bitmap_count()
                       << " bitmap cardinality: " << delete_bitmap->cardinality()
-                      << " cost: " << cost_us << "(us)";
+                      << " queue_time_us: " << queue_time_us << ", cost: " << cost_us << "(us)";
         }
         return Status::OK();
     }
     auto cost_us = watch.get_elapse_time_us();
-    if (config::enable_mow_verbose_log || cost_us > 10 * 1000) {
+    if (config::enable_mow_verbose_log || cost_us > 10 * 1000 || queue_time_us > 10 * 1000) {
         LOG(INFO) << "calc segment delete bitmap, tablet: " << tablet_id()
                   << " rowset: " << rowset_id << " seg_id: " << seg->id()
                   << " dummy_version: " << end_version + 1 << " rows: " << seg->num_rows()
                   << " conflict rows: " << conflict_rows
                   << " bitmap num: " << delete_bitmap->get_delete_bitmap_count()
-                  << " bitmap cardinality: " << delete_bitmap->cardinality() << " cost: " << cost_us
-                  << "(us)";
+                  << " bitmap cardinality: " << delete_bitmap->cardinality()
+                  << " queue_time_us: " << queue_time_us << ", cost: " << cost_us << "(us)";
     }
     return Status::OK();
 }

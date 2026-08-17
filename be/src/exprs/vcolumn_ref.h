@@ -81,6 +81,19 @@ public:
         }
     }
 
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        auto node = clone_texpr_node();
+        TColumnRef column_ref;
+        column_ref.__set_column_id(_column_id);
+        column_ref.__set_column_name(_column_name);
+        node.__set_column_ref(column_ref);
+        auto cloned = VColumnRef::create_shared(node);
+        cloned->set_gap(_gap.load());
+        *cloned_expr = std::move(cloned);
+        return Status::OK();
+    }
+
     std::string debug_string() const override {
         std::stringstream out;
         out << "VColumnRef(slot_id: " << _column_id << ",column_name: " << _column_name

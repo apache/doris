@@ -1,4 +1,5 @@
-CREATE EXTERNAL TABLE `delta_binary_packed`(
+drop table if exists `delta_binary_packed`;
+create external table `delta_binary_packed`(
   bitwidth0 bigint,
   bitwidth1 bigint,
   bitwidth2 bigint,
@@ -71,7 +72,3 @@ LOCATION
   '/user/doris/preinstalled_data/different_types_parquet/delta_binary_packed'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table delta_binary_packed;
-
-

@@ -104,6 +104,25 @@ public class VariantPruningLogicTest extends TestWithFeService {
     }
 
     @Test
+    public void testWholeVariantOutputDominatesPredicateLeafProjection() throws Exception {
+        String rootOutputSql = "select v from variant_tbl where v['n'] > 1";
+        assertAllAccessPathsContain(
+                rootOutputSql,
+                ImmutableList.of(path("v")),
+                ImmutableList.of()
+        );
+        assertPredicateAccessPathsEqual(rootOutputSql, ImmutableList.of(path("v", "n")));
+
+        String predicateOnlySql = "select count(*) from variant_tbl where v['n'] > 1";
+        assertAllAccessPathsContain(
+                predicateOnlySql,
+                ImmutableList.of(path("v", "n")),
+                ImmutableList.of(path("v"))
+        );
+        assertPredicateAccessPathsEqual(predicateOnlySql, ImmutableList.of(path("v", "n")));
+    }
+
+    @Test
     public void testVariantIfExpressionPaths() throws Exception {
         assertVariantSubColumnSlots(
                 "select if(v['a'] is null, v['b']['c'], v['d']) from variant_tbl",
@@ -124,7 +143,7 @@ public class VariantPruningLogicTest extends TestWithFeService {
     public void testExplodeWholeVariantAccessPaths() throws Exception {
         assertAllAccessPathsContain(
                 "select x['k'] from variant_tbl lateral view explode(v) tmp as x",
-                ImmutableList.of(path("v", "k")),
+                ImmutableList.of(path("v")),
                 ImmutableList.of()
         );
     }
@@ -135,8 +154,7 @@ public class VariantPruningLogicTest extends TestWithFeService {
                 "select x['x'] from variant_tbl lateral view explode(v['arr']) tmp as x "
                         + "where v['filter']['k'] = 1 and x['y'] is not null",
                 ImmutableList.of(
-                        path("v", "arr", "x"),
-                        path("v", "arr", "y"),
+                        path("v", "arr"),
                         path("v", "filter", "k")
                 ),
                 ImmutableList.of()
@@ -147,7 +165,7 @@ public class VariantPruningLogicTest extends TestWithFeService {
     public void testExplodeVariantDeepNestedAccessPaths() throws Exception {
         assertAllAccessPathsContain(
                 "select x['a']['b'][0]['c'] from variant_tbl lateral view explode(v['arr']) tmp as x",
-                ImmutableList.of(path("v", "arr", "a", "b", "0", "c")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
     }
@@ -161,7 +179,7 @@ public class VariantPruningLogicTest extends TestWithFeService {
                         + "where x['a']['b'] = 1 and t2.v['k'] is not null "
                         + "group by cast(t2.v['k'] as string)",
                 ImmutableList.of(
-                        path("v", "arr", "a", "b"),
+                        path("v", "arr"),
                         path("v", "k")
                 ),
                 ImmutableList.of()
@@ -173,7 +191,7 @@ public class VariantPruningLogicTest extends TestWithFeService {
         assertAllAccessPathsContain(
                 "select sum(cast(x['metric'] as int)) from variant_tbl lateral view explode(v['arr']) tmp as x "
                         + "where x['metric'] is not null",
-                ImmutableList.of(path("v", "arr", "metric")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
     }
@@ -182,7 +200,7 @@ public class VariantPruningLogicTest extends TestWithFeService {
     public void testExplodeOuterAccessPaths() throws Exception {
         assertAllAccessPathsContain(
                 "select x['k'] from variant_tbl lateral view explode_outer(v['arr']) tmp as x",
-                ImmutableList.of(path("v", "arr", "k")),
+                ImmutableList.of(path("v", "arr")),
                 ImmutableList.of()
         );
     }

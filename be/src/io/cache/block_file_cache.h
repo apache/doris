@@ -236,6 +236,14 @@ public:
                                 CacheContext& context);
 
     /**
+     * Return existing downloaded blocks only if they fully cover [offset, offset + size).
+     * This lookup is read-only: it does not reserve cache space or create EMPTY blocks.
+     */
+    Status get_downloaded_blocks_if_fully_covered(const UInt128Wrapper& hash, size_t offset,
+                                                  size_t size, const CacheContext& context,
+                                                  FileBlocks* blocks, bool* fully_covered);
+
+    /**
      * record blocks read directly by CachedRemoteFileReader
      */
     void add_need_update_lru_block(FileBlockSPtr block);
@@ -488,7 +496,8 @@ private:
     bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size,
                      bool evict_in_advance) const;
 
-    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync);
+    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&, bool sync,
+                            std::string& reason);
 
     void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
@@ -624,6 +633,8 @@ private:
     std::array<std::shared_ptr<bvar::LatencyRecorder>, 4> _lru_recorder_queue_length_recorder;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_produce_metrics;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _lru_recorder_queue_consume_metrics;
+    std::array<std::shared_ptr<bvar::Status<size_t>>, 4>
+            _lru_recorder_shadow_queue_element_count_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _lru_recorder_log_replay_idle_metrics;
     // keep _storage last so it will deconstruct first
     // otherwise, load_cache_info_into_memory might crash

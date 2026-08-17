@@ -57,6 +57,16 @@ CONF_Int64(fdb_txn_timeout_ms, "10000");
 CONF_Int64(brpc_max_body_size, "3147483648");
 CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
 
+CONF_Bool(enable_tls, "false");
+CONF_String(tls_certificate_path, "");
+CONF_String(tls_private_key_path, "");
+CONF_String(tls_private_key_password, "");
+CONF_String(tls_verify_mode, "verify_peer");
+CONF_String(tls_ca_certificate_path, "");
+CONF_Int32(tls_cert_refresh_interval_seconds, "3600");
+CONF_String(tls_excluded_protocols, "");
+CONF_String(tls_peer_cert_required_san_dns, "");
+
 CONF_String(bvar_max_dump_multi_dimension_metric_num, "5000");
 
 // logging
@@ -264,6 +274,9 @@ CONF_Int32(txn_store_retry_base_intervals_ms, "500");
 CONF_Bool(enable_retry_txn_conflict, "true");
 
 CONF_mBool(enable_s3_rate_limiter, "false");
+// Log active S3 rate limiter every N throttled/rejected requests, 0 means no log.
+CONF_mInt64(s3_rate_limiter_log_interval, "1000");
+CONF_Validator(s3_rate_limiter_log_interval, [](int64_t config) -> bool { return config >= 0; });
 CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
 CONF_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
 
@@ -293,8 +306,8 @@ CONF_mBool(enable_load_txn_status_check, "true");
 CONF_mBool(enable_tablet_job_check, "true");
 
 CONF_mBool(enable_recycle_delete_rowset_key_check, "true");
-CONF_mBool(enable_mark_delete_rowset_before_recycle, "true");
-CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "true");
+CONF_mBool(enable_mark_delete_rowset_before_recycle, "false");
+CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "false");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -314,8 +327,6 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
 
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
-// Whether to retry on S3 SlowDown (429/503) errors
-CONF_Bool(s3_client_retry_slow_down, "false");
 
 // Max byte getting delete bitmap can return, default is 1GB
 CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");

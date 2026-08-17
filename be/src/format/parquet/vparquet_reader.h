@@ -76,6 +76,7 @@ public:
     struct ReaderStatistics {
         int32_t filtered_row_groups = 0;
         int32_t filtered_row_groups_by_min_max = 0;
+        int32_t filtered_row_groups_by_expr_zonemap = 0;
         int32_t filtered_row_groups_by_bloom_filter = 0;
         int32_t read_row_groups = 0;
         int64_t filtered_group_rows = 0;
@@ -97,6 +98,9 @@ public:
         int64_t predicate_filter_time = 0;
         int64_t dict_filter_rewrite_time = 0;
         int64_t bloom_filter_read_time = 0;
+        int64_t expr_zonemap_unusable_evals = 0;
+        int64_t in_zonemap_point_check_count = 0;
+        int64_t in_zonemap_range_only_count = 0;
     };
 
     ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -121,6 +125,9 @@ public:
 #ifdef BE_TEST
     // for unit test
     void set_file_reader(io::FileReaderSPtr file_reader);
+    void set_conjuncts_for_test(const VExprContextSPtrs& conjuncts) {
+        _lazy_read_ctx.conjuncts = conjuncts;
+    }
 #endif
 
     Status init_reader(
@@ -165,7 +172,8 @@ public:
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns,
+            const std::unordered_map<std::string, bool>& partition_value_is_null = {}) override;
 
     Status get_file_metadata_schema(const FieldDescriptor** ptr);
 
@@ -190,6 +198,7 @@ private:
     struct ParquetProfile {
         RuntimeProfile::Counter* filtered_row_groups = nullptr;
         RuntimeProfile::Counter* filtered_row_groups_by_min_max = nullptr;
+        RuntimeProfile::Counter* filtered_row_groups_by_expr_zonemap = nullptr;
         RuntimeProfile::Counter* filtered_row_groups_by_bloom_filter = nullptr;
         RuntimeProfile::Counter* to_read_row_groups = nullptr;
         RuntimeProfile::Counter* total_row_groups = nullptr;
@@ -231,6 +240,9 @@ private:
         RuntimeProfile::Counter* predicate_filter_time = nullptr;
         RuntimeProfile::Counter* dict_filter_rewrite_time = nullptr;
         RuntimeProfile::Counter* bloom_filter_read_time = nullptr;
+        RuntimeProfile::Counter* expr_zonemap_unusable = nullptr;
+        RuntimeProfile::Counter* in_zonemap_point_check = nullptr;
+        RuntimeProfile::Counter* in_zonemap_range_only = nullptr;
     };
 
     Status _open_file();
@@ -249,6 +261,11 @@ private:
             const RowGroupReader::RowGroupIndex& row_group_index,
             const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
             RowRanges* candidate_row_ranges);
+    Status _process_expr_zonemap_page_filter(
+            ParquetPredicate::CachedPageIndexStat* cached_page_index,
+            RowRanges* candidate_row_ranges, bool* filtered_row_group_by_expr_zonemap);
+    bool _expr_zonemap_page_slot_index(const VExprContextSPtr& conjunct, int* cid) const;
+    bool _has_expr_zonemap_page_filter() const;
 
     // check this range contain this row group.
     bool _is_misaligned_range_group(const tparquet::RowGroup& row_group);
@@ -258,6 +275,7 @@ private:
             const tparquet::RowGroup& row_group,
             const std::vector<std::unique_ptr<MutilColumnBlockPredicate>>& push_down_pred,
             bool* filter_group, bool* filtered_by_min_max, bool* filtered_by_bloom_filter);
+    Status _process_expr_zonemap_filter(const tparquet::RowGroup& row_group, bool* filter_group);
 
     /*
      * 1. row group min-max filter

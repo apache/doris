@@ -31,7 +31,7 @@ SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnod
                                          const DescriptorTbl& descs)
         : OperatorX<SortLocalState>(pool, tnode, operator_id, descs) {}
 
-Status SortSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status SortSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);

@@ -22,6 +22,8 @@
 
 #include "common/compare.h"
 #include "core/column/column_dictionary.h"
+#include "core/column/column_execute_util.h"
+#include "core/column/column_string.h"
 #include "core/field.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/inverted/inverted_index_cache.h" // IWYU pragma: keep
@@ -426,12 +428,7 @@ public:
                     __builtin_unreachable();
                 }
             } else {
-                auto* data_array = check_and_get_column<
-                                           const PredicateColumnType<PredicateEvaluateType<Type>>>(
-                                           nested_column)
-                                           ->get_data()
-                                           .data();
-
+                ColumnElementView<Type> data_array {nested_column};
                 _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array, _value);
             }
         } else {
@@ -455,12 +452,7 @@ public:
                     __builtin_unreachable();
                 }
             } else {
-                auto* data_array =
-                        check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(
-                                column)
-                                ->get_data()
-                                .data();
-
+                ColumnElementView<Type> data_array {column};
                 _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, _value);
             }
         }
@@ -556,10 +548,12 @@ private:
         }
     }
 
+    // `data_array` is raw pointer or ColumnElementView wrapper; passed by value
+    // (no __restrict on struct), SIMD preserved via loop versioning.
     template <bool is_nullable, bool is_and, typename TArray, typename TValue>
     void __attribute__((flatten))
     _base_loop_vec(uint16_t size, bool* __restrict bflags, const uint8_t* __restrict null_map,
-                   const TArray* __restrict data_array, const TValue& value) const {
+                   TArray data_array, const TValue& value) const {
         //uint8_t helps compiler to generate vectorized code
         auto* flags = reinterpret_cast<uint8_t*>(bflags);
         if constexpr (is_and) {
@@ -583,7 +577,7 @@ private:
 
     template <bool is_nullable, bool is_and, typename TArray, typename TValue>
     void _base_loop_bit(const uint16_t* sel, uint16_t size, bool* flags,
-                        const uint8_t* __restrict null_map, const TArray* __restrict data_array,
+                        const uint8_t* __restrict null_map, TArray data_array,
                         const TValue& value) const {
         for (uint16_t i = 0; i < size; i++) {
             if (is_and ^ flags[i]) {
@@ -617,11 +611,7 @@ private:
                 __builtin_unreachable();
             }
         } else {
-            auto* data_array =
-                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column)
-                            ->get_data()
-                            .data();
-
+            ColumnElementView<Type> data_array {*column};
             _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array, _value);
         }
     }
@@ -655,14 +645,11 @@ private:
                 return 0;
             }
         } else {
-            auto& pred_col =
-                    check_and_get_column<PredicateColumnType<PredicateEvaluateType<Type>>>(column)
-                            ->get_data();
-            auto pred_col_data = pred_col.data();
             uint16_t new_size = 0;
+            ColumnElementView<Type> pred_col {*column};
 #define EVALUATE_WITH_NULL_IMPL(IDX) \
-    _opposite ^ (!null_map[IDX] && _operator(pred_col_data[IDX], _value))
-#define EVALUATE_WITHOUT_NULL_IMPL(IDX) _opposite ^ _operator(pred_col_data[IDX], _value)
+    _opposite ^ (!null_map[IDX] && _operator(pred_col[IDX], _value))
+#define EVALUATE_WITHOUT_NULL_IMPL(IDX) _opposite ^ _operator(pred_col[IDX], _value)
             EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
 #undef EVALUATE_WITH_NULL_IMPL
 #undef EVALUATE_WITHOUT_NULL_IMPL

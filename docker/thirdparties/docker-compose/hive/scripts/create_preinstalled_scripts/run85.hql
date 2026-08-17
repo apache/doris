@@ -1,6 +1,8 @@
 use `multi_catalog`;
 
-CREATE TABLE test_parquet_lazy_read_struct(
+drop table if exists test_parquet_lazy_read_struct;
+
+create table test_parquet_lazy_read_struct(
     id INT,
     name STRING,
     col STRUCT<

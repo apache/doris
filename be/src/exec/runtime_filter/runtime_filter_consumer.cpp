@@ -101,7 +101,7 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& co
         node.in_predicate.__set_is_not_in(false);
         node.__set_opcode(TExprOpcode::FILTER_IN);
         node.__set_is_nullable(false);
-        auto in_pred = VDirectInPredicate::create_shared(node, _wrapper->hybrid_set());
+        auto in_pred = VDirectInPredicate::create_shared(node, _wrapper->hybrid_set(), true);
         in_pred->add_child(probe_ctx->root());
         auto wrapper = VRuntimeFilterWrapper::create_shared(
                 node, in_pred, get_in_list_ignore_thredhold(_wrapper->hybrid_set()->size()),

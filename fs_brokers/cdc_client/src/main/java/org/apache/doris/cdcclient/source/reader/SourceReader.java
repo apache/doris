@@ -43,6 +43,13 @@ public interface SourceReader {
     /** Initialization, called when the program starts */
     void initialize(String jobId, DataSource dataSource, Map<String, String> config);
 
+    /**
+     * Provision job-scoped source resources (PG slot/publication) once on first open; rebuilds must
+     * not recreate them.
+     */
+    default void createSourceResources(
+            String jobId, DataSource dataSource, Map<String, String> config) {}
+
     /** Divide the data to be read. For example: split mysql to chunks */
     List<AbstractSourceSplit> getSourceSplits(FetchTableSplitsRequest config);
 
@@ -94,7 +101,7 @@ public interface SourceReader {
     default void applySchemaChange(Map<TableId, TableChanges.TableChange> updatedSchemas) {}
 
     /** Serialize current tableSchemas to JSON for persistence via commitOffset. */
-    default String serializeTableSchemas() {
+    default String serializeTableSchemas() throws IOException {
         return null;
     }
 

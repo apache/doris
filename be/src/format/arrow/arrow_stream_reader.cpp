@@ -58,7 +58,8 @@ ArrowStreamReader::~ArrowStreamReader() = default;
 Status ArrowStreamReader::init_reader() {
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &file_reader, _state, false));
-    _file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
+    _file_reader = _io_ctx && _io_ctx->file_reader_stats
+                           ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
                                                                      _io_ctx->file_reader_stats)
                            : file_reader;
     _pip_stream = ArrowPipInputStream::create_unique(_file_reader);

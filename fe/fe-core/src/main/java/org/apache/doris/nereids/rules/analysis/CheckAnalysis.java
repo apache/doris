@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -28,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -36,8 +38,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -97,6 +102,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 any().then(plan -> {
                     checkExpressionInputTypes(plan);
                     checkUnexpectedExpressions(plan);
+                    checkDistinctSetOperation(plan);
                     return null;
                 })
             ),
@@ -145,6 +151,23 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 throw new AnalysisException(
                         "GROUP BY expression must not contain aggregate functions: " + expr.toSql());
             }
+            if (expr.getDataType().isObjectType()
+                    || isLegacyVariant(expr.getDataType())
+                    || expr.getDataType().isVarBinaryType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
         }
+    }
+
+    private void checkDistinctSetOperation(Plan plan) {
+        if (plan instanceof LogicalSetOperation
+                && ((LogicalSetOperation) plan).getQualifier() == Qualifier.DISTINCT
+                && plan.getOutput().stream().anyMatch(output -> isLegacyVariant(output.getDataType()))) {
+            throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+        }
+    }
+
+    private boolean isLegacyVariant(DataType dataType) {
+        return dataType instanceof VariantType && !((VariantType) dataType).isExecutionV2();
     }
 }

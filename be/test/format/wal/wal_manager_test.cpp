@@ -33,6 +33,8 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -379,6 +381,36 @@ TEST_F(WalManagerTest, read_block_fail_with_not_equal) {
     auto pos = msg.find("not equal");
     ASSERT_TRUE(pos != msg.npos);
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
+}
+
+TEST_F(WalManagerTest, TestLastReplayWalFailedReason) {
+    const auto origin_enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("WalTable.replay_wals.stop");
+    Defer defer([origin_enable_debug_points]() {
+        DebugPoints::instance()->remove("WalTable.replay_wals.stop");
+        config::enable_debug_points = origin_enable_debug_points;
+    });
+
+    const int64_t wal_id = 789;
+    const std::string label = "test_last_replay_failed_reason";
+    const std::string wal_path = _wal_dir + "/" + std::to_string(_db_id) + "/" +
+                                 std::to_string(_tb_id) + "/" + std::to_string(_version_1) + "_" +
+                                 std::to_string(_backend_id) + "_" + std::to_string(wal_id) + "_" +
+                                 label;
+    std::filesystem::copy_file("./be/test/exec/test_data/wal_scanner/wal_version1", wal_path,
+                               std::filesystem::copy_options::overwrite_existing);
+
+    WalTable wal_table(_env, _db_id, _tb_id);
+    wal_table.add_wal(wal_id, wal_path);
+    EXPECT_EQ(wal_table.replay_wals(), Status::OK());
+    auto failed_reason = wal_table.get_last_replay_wal_failed_reason();
+    EXPECT_NE(failed_reason.find("WalTable.replay_wals.stop"), failed_reason.npos);
+    EXPECT_NE(failed_reason.find(wal_path), failed_reason.npos);
+
+    DebugPoints::instance()->remove("WalTable.replay_wals.stop");
+    EXPECT_EQ(wal_table.replay_wals(), Status::OK());
+    EXPECT_TRUE(wal_table.get_last_replay_wal_failed_reason().empty());
 }
 
 TEST_F(WalManagerTest, TestDynamicWalSpaceLimt) {

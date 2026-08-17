@@ -26,16 +26,28 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/types.h"
 
 namespace doris {
+class ColumnNullable;
 class PColumnMeta;
 } // namespace doris
 
 namespace doris {
+
+struct NullableColumnInfo {
+    bool has_null = false;
+    bool only_null = false;
+    bool is_const = false;
+    bool is_nullable = false;
+};
+
+using NullableColumnInfos = std::vector<NullableColumnInfo>;
 
 // class WriteBuffer;
 
@@ -69,9 +81,16 @@ struct ColumnWithTypeAndName {
 
     void to_pb_column_meta(PColumnMeta* col_meta) const;
 
+    const ColumnUInt8::Ptr& get_nullable_null_map_column() const;
+    NullableColumnInfo get_nullable_column_info() const;
     ColumnWithTypeAndName unnest_nullable(bool replace_null_data_to_default = false) const;
+    ColumnWithTypeAndName unnest_nullable(const NullableColumnInfo& info,
+                                          bool replace_null_data_to_default) const;
 
     Status check_type_and_column_match() const;
+
+private:
+    const ColumnNullable& get_nullable_column() const;
 };
 
 } // namespace doris

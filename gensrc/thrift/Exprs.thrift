@@ -88,6 +88,10 @@ enum TExprNodeType {
   TRY_CAST_EXPR = 41
   // for search DSL function
   SEARCH_EXPR = 42,
+  // Normal predicate expression
+  PREDICATE = 43,
+  // Normal literal
+  LITERAL = 44,
 }
 
 //enum TAggregationOp {

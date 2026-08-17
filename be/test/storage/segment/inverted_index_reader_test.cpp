@@ -4181,6 +4181,11 @@ TEST_F(InvertedIndexReaderTest, SearcherCache) {
     test_searcher_cache();
 }
 
+// Exercise the different combinations of query/searcher caches.
+TEST_F(InvertedIndexReaderTest, CacheCombinationMatrix) {
+    test_inverted_index_cache_matrix();
+}
+
 // Test string index with large document set (>512 docs)
 TEST_F(InvertedIndexReaderTest, StringIndexLargeDocset) {
     test_string_index_large_docset();

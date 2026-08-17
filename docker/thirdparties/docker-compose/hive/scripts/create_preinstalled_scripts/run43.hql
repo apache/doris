@@ -1,4 +1,5 @@
-CREATE TABLE IF NOT EXISTS `sequence_all_types`(
+drop table if exists `sequence_all_types`;
+create table `sequence_all_types`(
 `t_null_string` string,
 `t_null_varchar` varchar(65535),
 `t_null_char` char(10),
@@ -84,6 +85,3 @@ CREATE TABLE IF NOT EXISTS `sequence_all_types`(
 STORED AS SEQUENCEFILE
 LOCATION
   '/user/doris/preinstalled_data/sequence/sequence_all_types';
-
-msck repair table sequence_all_types;
-

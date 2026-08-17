@@ -35,6 +35,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/stopwatch.h"
+#include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "recycler/s3_accessor.h"
@@ -50,7 +51,9 @@ auto s3_rate_limit(S3RateLimitType op, Func callback) -> decltype(callback()) {
     if (!config::enable_s3_rate_limiter) {
         return callback();
     }
-    auto sleep_duration = AccessorRateLimiter::instance().rate_limiter(op)->add(1);
+    auto sleep_duration =
+            doris::apply_s3_rate_limit(op, AccessorRateLimiter::instance().rate_limiter(op),
+                                       config::s3_rate_limiter_log_interval);
     if (sleep_duration < 0) {
         throw std::runtime_error("Azure exceeds request limit");
     }
@@ -75,6 +78,7 @@ ObjectStorageResponse do_azure_client_call(Func f, std::string_view url, std::st
     try {
         f();
     } catch (Azure::Core::RequestFailedException& e) {
+        doris::record_object_request_failed(static_cast<int>(e.StatusCode));
         auto msg = fmt::format(
                 "Azure request failed because {}, http_code: {}, request_id: {}, url: {}, "
                 "key: {}",
@@ -274,6 +278,7 @@ ObjectStorageResponse AzureObjClient::delete_objects(const std::string& bucket,
                     0 == strcmp(e.ErrorCode.c_str(), BlobNotFound)) {
                     continue;
                 }
+                doris::record_object_request_failed(static_cast<int>(e.StatusCode));
                 auto msg = fmt::format(
                         "Azure request failed because {}, http code {}, request id {}, url {}",
                         e.Message, static_cast<int>(e.StatusCode), e.RequestId, client_->GetUrl());

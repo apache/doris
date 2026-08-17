@@ -394,6 +394,23 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     return child;
 }
 
+RuntimeProfile* RuntimeProfile::get_or_create_child(const std::string& name, bool indent,
+                                                    bool prepend) {
+    std::lock_guard<std::mutex> l(_children_lock);
+    auto it = _child_map.find(name);
+    if (it != _child_map.end()) {
+        return it->second;
+    }
+
+    RuntimeProfile* child = _pool->add(new RuntimeProfile(name));
+    if (this->is_set_metadata()) {
+        child->set_metadata(this->metadata());
+    }
+    auto* location = !_children.empty() && prepend ? _children.front().first : nullptr;
+    add_child_unlock(child, indent, location);
+    return child;
+}
+
 void RuntimeProfile::add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc) {
     DCHECK(child != nullptr);
     _child_map[child->_name] = child;
@@ -500,6 +517,28 @@ RuntimeProfile::Counter* RuntimeProfile::add_counter(const std::string& name, TU
 
     Counter* counter = _pool->add(new Counter(type, 0, level));
     _counter_map[name] = counter;
+    _child_counter_map[parent_counter_name].insert(name);
+    return counter;
+}
+
+std::shared_ptr<RuntimeProfile::Counter> RuntimeProfile::add_shared_counter(
+        const std::string& name, TUnit::type type, const std::string& parent_counter_name,
+        int64_t level) {
+    std::lock_guard<std::mutex> l(_counter_map_lock);
+
+    if (auto it = _shared_counter_pool.find(name); it != _shared_counter_pool.end()) {
+        DCHECK_EQ(it->second->type(), type);
+        return it->second;
+    }
+
+    // A raw counter with the same name cannot be safely upgraded because external users may
+    // already hold its profile-owned address.
+    DCHECK(_counter_map.find(name) == _counter_map.end());
+    DCHECK(parent_counter_name == ROOT_COUNTER ||
+           _counter_map.find(parent_counter_name) != _counter_map.end());
+    auto counter = std::make_shared<Counter>(type, 0, level);
+    _shared_counter_pool.emplace(name, counter);
+    _counter_map[name] = counter.get();
     _child_counter_map[parent_counter_name].insert(name);
     return counter;
 }

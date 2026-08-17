@@ -22,6 +22,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -37,6 +38,8 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -45,8 +48,10 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonbParseErrorToValue;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
@@ -60,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPreFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
@@ -78,6 +84,16 @@ import java.util.TreeSet;
  * NereidsLoadUtils
  */
 public class NereidsLoadUtils {
+    static boolean hasImportColumn(List<NereidsImportColumnDesc> importColumnDescs, Column tableColumn) {
+        for (NereidsImportColumnDesc importColumnDesc : importColumnDescs) {
+            if (importColumnDesc.getColumnName() != null
+                    && importColumnDesc.getColumnName().equalsIgnoreCase(tableColumn.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * parse a expression list as 'select expr1, expr2,... exprn' into a nereids Expression List
      */
@@ -174,9 +190,7 @@ public class NereidsLoadUtils {
                 if (exprMapColumnNames.contains(colName)) {
                     castScanProjects.add(slotReference);
                 } else {
-                    castScanProjects.add(new Alias(
-                            TypeCoercionUtils.castIfNotSameType(slotReference, DataType.fromCatalogType(col.getType())),
-                            colName));
+                    castScanProjects.add(new Alias(castScanSlotForLoad(slotReference, col), colName));
                 }
             } else {
                 castScanProjects.add(slotReference);
@@ -236,6 +250,11 @@ public class NereidsLoadUtils {
                     //      the NereidsLoadPlanInfoCollector will not generate slot by id#0,
                     //      so we must use MergeProjects here
                     new MergeProjects(),
+                    // RewriteEncryptKeyRef must be placed before ExpressionNormalization,
+                    // because setDebugSkipFoldConstant(true) will skip FoldConstantRule which
+                    // is responsible for folding EncryptKeyRef to StringLiteral.
+                    // We need to handle EncryptKeyRef separately to support KEY syntax in stream load.
+                    new RewriteEncryptKeyRef(),
                     new ExpressionNormalization())
             )).execute();
             Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext, ImmutableList.of()).execute();
@@ -292,6 +311,11 @@ public class NereidsLoadUtils {
                                 newProjects.add(
                                         new Alias(new JsonbParseErrorToValue(realExpr), expression.getName()));
                             }
+                        } else if (shouldParseVariantForLoad(expression, column)) {
+                            Expression realExpr = expression instanceof Alias ? ((Alias) expression).child()
+                                    : expression;
+                            newProjects.add(new Alias(new TryParseToVariant(realExpr,
+                                    (VariantType) DataType.fromCatalogType(column.getType())), expression.getName()));
                         } else {
                             newProjects.add(expression);
                         }
@@ -303,6 +327,21 @@ public class NereidsLoadUtils {
                 return new LogicalProject(newProjects, project.child());
             }).toRule(RuleType.REWRITE_LOAD_PROJECT_FOR_STREAM_LOAD);
         }
+    }
+
+    private static Expression castScanSlotForLoad(Expression expression, Column targetColumn) {
+        if (shouldParseVariantForLoad(expression, targetColumn)) {
+            return new TryParseToVariant(expression,
+                    (VariantType) DataType.fromCatalogType(targetColumn.getType()));
+        }
+        return TypeCoercionUtils.castIfNotSameType(
+                expression, DataType.fromCatalogType(targetColumn.getType()));
+    }
+
+    private static boolean shouldParseVariantForLoad(Expression expression, Column targetColumn) {
+        return Config.enable_variant_v2
+                && targetColumn.getType().isVariantType()
+                && expression.getDataType().isStringLikeType();
     }
 
     /** AddPostFilter
@@ -369,6 +408,30 @@ public class NereidsLoadUtils {
                                 Lists.newArrayList(
                                         new LogicalPostProject(projectList, (Plan) logicalOlapTableSink.child(0))));
                     }).toRule(RuleType.ADD_POST_PROJECT_FOR_LOAD);
+        }
+    }
+
+    /**
+     * RewriteEncryptKeyRef
+     * This rule rewrites EncryptKeyRef to StringLiteral in stream load.
+     * Since setDebugSkipFoldConstant(true) is set during stream load planning,
+     * FoldConstantRule will be skipped and EncryptKeyRef won't be folded.
+     * This rule handles EncryptKeyRef separately to support KEY syntax in stream load columns parameter.
+     */
+    private static class RewriteEncryptKeyRef extends ExpressionRewrite {
+        private static final FoldConstantRuleOnFE FOLD_ENCRYPT_KEY_REF = FoldConstantRuleOnFE.VISITOR_INSTANCE;
+
+        public RewriteEncryptKeyRef() {
+            super(((expression, context) -> {
+                // Use rewriteUp to traverse the expression tree bottom-up and only fold
+                // EncryptKeyRef nodes to StringLiteral, leaving all other expressions unchanged.
+                return expression.rewriteUp(e -> {
+                    if (e instanceof EncryptKeyRef) {
+                        return e.accept(FOLD_ENCRYPT_KEY_REF, context);
+                    }
+                    return e;
+                });
+            }));
         }
     }
 }

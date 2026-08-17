@@ -23,15 +23,21 @@
 #include <chrono> // IWYU pragma: keep
 #include <cstdint>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/parquet_decode_source.h"
+#include "core/data_type_serde/parquet_timestamp.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
+#include "util/unaligned.h"
 
 enum {
     DIVISOR_FOR_SECOND = 1,
@@ -43,6 +49,190 @@ enum {
 namespace doris {
 static const int64_t micro_to_nano_second = 1000;
 #include "common/compile_check_begin.h"
+
+namespace {
+
+Status append_datetimev2_from_epoch_micros(ColumnDateTimeV2::Container& data,
+                                           int64_t timestamp_micros) {
+    static constexpr int64_t MICROS_PER_SECOND = 1000000;
+    static constexpr int64_t MICROS_PER_MINUTE = MICROS_PER_SECOND * 60;
+    static constexpr int64_t MICROS_PER_HOUR = MICROS_PER_MINUTE * 60;
+    static constexpr int64_t MICROS_PER_DAY = MICROS_PER_HOUR * 24;
+    static const int64_t EPOCH_DAYNR = calc_daynr(1970, 1, 1);
+
+    int64_t days_since_epoch = timestamp_micros / MICROS_PER_DAY;
+    int64_t micros_of_day = timestamp_micros % MICROS_PER_DAY;
+    if (micros_of_day < 0) {
+        micros_of_day += MICROS_PER_DAY;
+        --days_since_epoch;
+    }
+
+    const int64_t daynr = EPOCH_DAYNR + days_since_epoch;
+    if (daynr <= 0) {
+        return Status::DataQualityError(
+                "Decoded DATETIMEV2 timestamp is out of range: micros={}, daynr={}",
+                timestamp_micros, daynr);
+    }
+
+    DateV2Value<DateTimeV2ValueType> datetime_value;
+    if (!datetime_value.get_date_from_daynr(static_cast<uint64_t>(daynr))) {
+        return Status::DataQualityError(
+                "Decoded DATETIMEV2 timestamp is out of range: micros={}, daynr={}",
+                timestamp_micros, daynr);
+    }
+
+    const auto hour = static_cast<uint8_t>(micros_of_day / MICROS_PER_HOUR);
+    micros_of_day %= MICROS_PER_HOUR;
+    const auto minute = static_cast<uint8_t>(micros_of_day / MICROS_PER_MINUTE);
+    micros_of_day %= MICROS_PER_MINUTE;
+    const auto second = static_cast<uint16_t>(micros_of_day / MICROS_PER_SECOND);
+    const auto microsecond = static_cast<uint32_t>(micros_of_day % MICROS_PER_SECOND);
+    datetime_value.unchecked_set_time(datetime_value.year(), datetime_value.month(),
+                                      datetime_value.day(), hour, minute, second, microsecond);
+    data.push_back(datetime_value);
+    return Status::OK();
+}
+
+Status append_datetimev2_from_utc_epoch_micros(ColumnDateTimeV2::Container& data,
+                                               int64_t timestamp_micros,
+                                               const cctz::time_zone& timezone) {
+    static constexpr int64_t MICROS_PER_SECOND = 1000000;
+
+    int64_t epoch_seconds = timestamp_micros / MICROS_PER_SECOND;
+    int64_t micros_of_second = timestamp_micros % MICROS_PER_SECOND;
+    if (micros_of_second < 0) {
+        micros_of_second += MICROS_PER_SECOND;
+        --epoch_seconds;
+    }
+
+    DateV2Value<DateTimeV2ValueType> datetime_value;
+    datetime_value.from_unixtime(epoch_seconds, timezone);
+    datetime_value.set_microsecond(static_cast<uint32_t>(micros_of_second));
+    if (!datetime_value.is_valid_date()) {
+        return Status::DataQualityError(
+                "Decoded DATETIMEV2 timestamp is outside the target timezone range: micros={}",
+                timestamp_micros);
+    }
+    data.push_back(datetime_value);
+    return Status::OK();
+}
+
+ParquetTimeUnit decoded_parquet_time_unit(const DecodedColumnView& view) {
+    if (view.time_unit == DecodedTimeUnit::MILLIS) {
+        return ParquetTimeUnit::MILLIS;
+    }
+    if (view.time_unit == DecodedTimeUnit::NANOS) {
+        return ParquetTimeUnit::NANOS;
+    }
+    return ParquetTimeUnit::MICROS;
+}
+
+class DateTimeV2ParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    DateTimeV2ParquetConsumer(IColumn& column, const ParquetDecodeContext& context,
+                              ParquetMaterializationState* state = nullptr)
+            : DateTimeV2ParquetConsumer(assert_cast<ColumnDateTimeV2&>(column).get_data(), context,
+                                        state) {}
+
+    DateTimeV2ParquetConsumer(ColumnDateTimeV2::Container& data,
+                              const ParquetDecodeContext& context,
+                              ParquetMaterializationState* state = nullptr)
+            : _data(data), _context(context), _state(state) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        const size_t old_size = _data.size();
+        static const auto utc_timezone = cctz::utc_time_zone();
+        const auto& timezone = _context.timezone == nullptr ? utc_timezone : *_context.timezone;
+        for (size_t row = 0; row < num_values; ++row) {
+            int64_t timestamp_micros;
+            Status status;
+            if (_context.physical_type == ParquetPhysicalType::INT96) {
+                DORIS_CHECK_EQ(value_width, sizeof(ParquetInt96Timestamp));
+                status = parquet_int96_timestamp_micros(
+                        unaligned_load<ParquetInt96Timestamp>(values +
+                                                              row * sizeof(ParquetInt96Timestamp)),
+                        &timestamp_micros);
+            } else {
+                DORIS_CHECK(_context.physical_type == ParquetPhysicalType::INT64);
+                DORIS_CHECK_EQ(value_width, sizeof(int64_t));
+                status = parquet_timestamp_micros(
+                        _context.time_unit, unaligned_load<int64_t>(values + row * sizeof(int64_t)),
+                        &timestamp_micros);
+            }
+            if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(_data.size())) {
+                    _data.emplace_back();
+                    continue;
+                }
+                _data.resize(old_size);
+                return status;
+            }
+            status = _context.physical_type == ParquetPhysicalType::INT96 ||
+                                     _context.timestamp_is_adjusted_to_utc
+                             ? append_datetimev2_from_utc_epoch_micros(_data, timestamp_micros,
+                                                                       timezone)
+                             : append_datetimev2_from_epoch_micros(_data, timestamp_micros);
+            if (!status.ok()) {
+                if (_state != nullptr && _state->mark_conversion_failure(_data.size())) {
+                    _data.emplace_back();
+                    continue;
+                }
+                _data.resize(old_size);
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    ColumnDateTimeV2::Container& _data;
+    const ParquetDecodeContext& _context;
+    ParquetMaterializationState* _state;
+};
+
+class RejectDateTimeV2BinaryConsumer final : public ParquetBinaryValueConsumer {
+public:
+    Status consume(const StringRef* values, size_t num_values) override {
+        return Status::NotSupported("Binary Parquet values cannot be materialized as DATETIMEV2");
+    }
+};
+
+class DateTimeV2PredicateParquetConsumer final : public ParquetFixedValueConsumer {
+public:
+    DateTimeV2PredicateParquetConsumer(const ParquetDecodeContext& context, bool enable_strict_mode,
+                                       ParquetLogicalValueConsumer& consumer,
+                                       ColumnDateTimeV2::Container& logical_values,
+                                       IColumn::Filter& conversion_nulls)
+            : _context(context),
+              _enable_strict_mode(enable_strict_mode),
+              _consumer(consumer),
+              _logical_values(logical_values),
+              _conversion_nulls(conversion_nulls) {}
+
+    Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
+        _logical_values.clear();
+        _conversion_nulls.clear();
+        _conversion_nulls.resize_fill(num_values, 0);
+        ParquetMaterializationState state;
+        state.enable_strict_mode = _enable_strict_mode;
+        state.conversion_failure_null_map = &_conversion_nulls;
+        DateTimeV2ParquetConsumer converter(_logical_values, _context, &state);
+        RETURN_IF_ERROR(converter.consume(values, num_values, value_width));
+        return _consumer.consume(
+                reinterpret_cast<const uint8_t*>(_logical_values.data()), num_values,
+                sizeof(DateV2Value<DateTimeV2ValueType>),
+                _context.conversion_failure_is_null ? _conversion_nulls.data() : nullptr);
+    }
+
+private:
+    const ParquetDecodeContext& _context;
+    bool _enable_strict_mode;
+    ParquetLogicalValueConsumer& _consumer;
+    ColumnDateTimeV2::Container& _logical_values;
+    IColumn::Filter& _conversion_nulls;
+};
+
+} // namespace
 
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
@@ -398,6 +588,9 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                                        const arrow::Array* arrow_array,
                                                        int64_t start, int64_t end,
                                                        const cctz::time_zone& ctz) const {
+    if (config::enable_arrow_input_validation) {
+        check_arrow_no_offset(*arrow_array);
+    }
     auto& col_data = static_cast<ColumnDateTimeV2&>(column).get_data();
     int64_t divisor = 1;
     if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
@@ -426,22 +619,32 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                            type->unit());
         }
         }
+        // A timezone-naive Arrow timestamp is a wall-clock value. Decode its epoch-based
+        // representation in UTC so the session timezone does not shift its date/time fields.
+        const cctz::time_zone& real_ctz = type->timezone().empty() ? cctz::utc_time_zone() : ctz;
         const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
         const size_t element_size = sizeof(int64_t);
         for (auto value_i = start; value_i < end; ++value_i) {
             int64_t date_value = 0;
             const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
             memcpy(&date_value, raw_byte_ptr, element_size);
-            auto utc_epoch = static_cast<UInt64>(date_value);
-
             DateV2Value<DateTimeV2ValueType> v;
-            // convert second
-            v.from_unixtime(utc_epoch / divisor, ctz);
-            // get rest time
+            // C++ integer division truncates toward zero. Normalize the remainder so a negative
+            // timestamp still has a non-negative fractional part, e.g. -876544us becomes
+            // -1 second and 123456us.
+            int64_t seconds = date_value / divisor;
+            int64_t remainder = date_value % divisor;
+            if (remainder < 0) {
+                --seconds;
+                remainder += divisor;
+            }
+            v.from_unixtime(seconds, real_ctz);
+            // Get the fractional part.
             // add 0 on the right to make it 6 digits. DateTimeV2Value microsecond is 6 digits,
             // the scale decides to keep the first few digits, so the valid digits should be kept at the front.
-            // "2022-01-01 11:11:11.111", utc_epoch = 1641035471111, divisor = 1000, set_microsecond(111000)
-            v.set_microsecond((utc_epoch % divisor) * DIVISOR_FOR_MICRO / divisor);
+            // "2022-01-01 11:11:11.111", timestamp = 1641035471111, divisor = 1000,
+            // set_microsecond(111000)
+            v.set_microsecond(remainder * DIVISOR_FOR_MICRO / divisor);
             col_data.emplace_back(v);
         }
     } else {
@@ -451,6 +654,129 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                      arrow_array->type()->id());
     }
     return Status::OK();
+}
+
+Status DataTypeDateTimeV2SerDe::read_column_from_decoded_values(
+        IColumn& column, const DecodedColumnView& view) const {
+    if (view.value_kind != DecodedValueKind::INT64 && view.value_kind != DecodedValueKind::INT96) {
+        return decoded_column_view_handle_conversion_failure(
+                column, view,
+                Status::NotSupported("DATETIMEV2 decoded reader expects INT64 or INT96 source"));
+    }
+    if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
+        return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
+    }
+    auto& data = assert_cast<ColumnDateTimeV2&>(column).get_data();
+    const auto old_size = data.size();
+    if (view.value_kind == DecodedValueKind::INT96) {
+        const auto* values = reinterpret_cast<const ParquetInt96Timestamp*>(view.values);
+        static const auto utc_timezone = cctz::utc_time_zone();
+        const auto& timezone = view.timezone == nullptr ? utc_timezone : *view.timezone;
+        for (int64_t row = 0; row < view.row_count; ++row) {
+            if (decoded_column_view_row_is_null(view, row)) {
+                data.push_back(DateV2Value<DateTimeV2ValueType>());
+                continue;
+            }
+            int64_t timestamp_micros;
+            auto status = parquet_int96_timestamp_micros(values[row], &timestamp_micros);
+            if (status.ok()) {
+                status = append_datetimev2_from_utc_epoch_micros(data, timestamp_micros, timezone);
+            }
+            if (!status.ok()) {
+                if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                    decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                    continue;
+                }
+                data.resize(old_size);
+                return status;
+            }
+        }
+        return Status::OK();
+    }
+
+    const auto* values = reinterpret_cast<const int64_t*>(view.values);
+    static const auto utc_timezone = cctz::utc_time_zone();
+    const auto& timezone = view.timezone == nullptr ? utc_timezone : *view.timezone;
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        if (decoded_column_view_row_is_null(view, row)) {
+            data.push_back(DateV2Value<DateTimeV2ValueType>());
+            continue;
+        }
+        int64_t timestamp_micros;
+        auto status = parquet_timestamp_micros(decoded_parquet_time_unit(view), values[row],
+                                               &timestamp_micros);
+        if (status.ok()) {
+            status = view.timestamp_is_adjusted_to_utc
+                             ? append_datetimev2_from_utc_epoch_micros(data, timestamp_micros,
+                                                                       timezone)
+                             : append_datetimev2_from_epoch_micros(data, timestamp_micros);
+        }
+        if (!status.ok()) {
+            if (decoded_column_view_can_null_on_conversion_failure(view)) {
+                decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+                continue;
+            }
+            data.resize(old_size);
+            return status;
+        }
+    }
+    return Status::OK();
+}
+
+Status DataTypeDateTimeV2SerDe::read_parquet_dictionary(IColumn& column,
+                                                        ParquetDecodeSource& source,
+                                                        const ParquetDecodeContext& context) const {
+    DateTimeV2ParquetConsumer consumer(column, context);
+    RejectDateTimeV2BinaryConsumer binary_consumer;
+    return source.decode_dictionary(consumer, binary_consumer);
+}
+
+Status DataTypeDateTimeV2SerDe::read_column_from_parquet(IColumn& column,
+                                                         ParquetDecodeSource& source,
+                                                         const ParquetDecodeContext& context,
+                                                         size_t num_values,
+                                                         ParquetMaterializationState& state) const {
+    if (context.physical_type != ParquetPhysicalType::INT64 &&
+        context.physical_type != ParquetPhysicalType::INT96) {
+        return Status::NotSupported("DATETIMEV2 expects Parquet INT64 or INT96");
+    }
+    DateTimeV2ParquetConsumer consumer(column, context, &state);
+    if (context.encoding != ParquetValueEncoding::DICTIONARY) {
+        return source.decode_fixed_values(num_values, consumer);
+    }
+    if (state.dictionary_generation != source.dictionary_generation()) {
+        state.typed_dictionary = column.clone_empty();
+        auto* output_null_map = state.begin_dictionary_conversion(source.dictionary_size());
+        DateTimeV2ParquetConsumer dictionary_consumer(*state.typed_dictionary, context, &state);
+        RejectDateTimeV2BinaryConsumer binary_consumer;
+        const Status dictionary_status =
+                source.decode_dictionary(dictionary_consumer, binary_consumer);
+        state.end_dictionary_conversion(output_null_map);
+        RETURN_IF_ERROR(dictionary_status);
+        DORIS_CHECK_EQ(state.typed_dictionary->size(), source.dictionary_size());
+        state.dictionary_generation = source.dictionary_generation();
+    }
+    return state.materialize_dictionary(column, source, num_values);
+}
+
+bool DataTypeDateTimeV2SerDe::supports_parquet_raw_predicate(
+        const ParquetDecodeContext& context) const {
+    return context.encoding != ParquetValueEncoding::DICTIONARY &&
+           (context.physical_type == ParquetPhysicalType::INT64 ||
+            context.physical_type == ParquetPhysicalType::INT96) &&
+           context.logical_type == ParquetLogicalType::TIMESTAMP;
+}
+
+Status DataTypeDateTimeV2SerDe::read_parquet_raw_predicate(
+        ParquetDecodeSource& source, const ParquetDecodeContext& context, size_t num_values,
+        bool enable_strict_mode, ParquetLogicalValueConsumer& consumer) const {
+    if (!supports_parquet_raw_predicate(context)) {
+        return Status::NotSupported("Unsupported Parquet raw predicate conversion for DATETIMEV2");
+    }
+    DateTimeV2PredicateParquetConsumer predicate_consumer(context, enable_strict_mode, consumer,
+                                                          _parquet_predicate_values,
+                                                          _parquet_predicate_nulls);
+    return source.decode_fixed_values(num_values, predicate_consumer);
 }
 
 Status DataTypeDateTimeV2SerDe::write_column_to_mysql_binary(const IColumn& column,

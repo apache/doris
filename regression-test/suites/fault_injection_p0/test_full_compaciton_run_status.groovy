@@ -66,12 +66,13 @@ suite("test_full_compaction_run_status","nonConcurrent") {
             backend_id = tablet.BackendId
 
             def times = 1
+            def runCode, runOut, runErr
             do{
-                def (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
-                logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
+                (runCode, runOut, runErr) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+                logger.info("Run compaction: code=" + runCode + ", out=" + runOut + ", err=" + runErr)
                 ++times
                 sleep(1000)
-            } while (parseJson(out.trim()).status.toLowerCase()!="success" && times<=10)
+            } while (parseJson(runOut.trim()).status.toLowerCase()!="success" && times<=10)
 
             def (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
             logger.info("Get compaction status: code=" + code + ", out=" + out + ", err=" + err)

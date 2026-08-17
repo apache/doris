@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") { 
+suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_common_expr_pushdown = true """
@@ -45,7 +46,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
         INDEX idx_a_d_2 (var) USING INVERTED
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
-    sql """insert into ${tableName} values(1, '{"string" : "hello", "array_string" : ["hello"]}'), (2, '{"string" : "world", "array_string" : ["world"]}'), (3, '{"string" : "hello", "array_string" : ["hello"]}'), (4, '{"string" : "world", "array_string" : ["world"]}'), (5, '{"string" : "hello", "array_string" : ["hello"]}') """
+    sql """insert into ${tableName} values(1, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')), (2, ${variantV2Function}('{"string" : "world", "array_string" : ["world"]}')), (3, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')), (4, ${variantV2Function}('{"string" : "world", "array_string" : ["world"]}')), (5, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')) """
     // insert into test_variant_multi_index_nonCurrent  values(1, '{"string" : "hello", "array_string" : ["hello"]}'), (2, '{"string" : "world", "array_string" : ["world"]}'), (3, '{"string" : "hello", "array_string" : ["hello"]}'), (4, '{"string" : "world", "array_string" : ["world"]}'), (5, '{"string" : "hello", "array_string" : ["hello"]}')
     sql """ set inverted_index_skip_threshold = 0 """
     sql """ set enable_common_expr_pushdown = true """
@@ -64,7 +65,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_string'] as array<text>), 'hello')", 2)
 
     for (int i = 0; i < 10; i++) {
-        sql """insert into ${tableName} values(1, '{"string" : "hello", "array_string" : ["hello"]}'), (2, '{"string" : "world", "array_string" : ["world"]}'), (3, '{"string" : "hello", "array_string" : ["hello"]}'), (4, '{"string" : "world", "array_string" : ["world"]}'), (5, '{"string" : "hello", "array_string" : ["hello"]}') """
+        sql """insert into ${tableName} values(1, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')), (2, ${variantV2Function}('{"string" : "world", "array_string" : ["world"]}')), (3, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')), (4, ${variantV2Function}('{"string" : "world", "array_string" : ["world"]}')), (5, ${variantV2Function}('{"string" : "hello", "array_string" : ["hello"]}')) """
     }
     trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
@@ -118,11 +119,11 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
         INDEX idx_a_d_7 (var) USING INVERTED PROPERTIES("field_pattern" = "array_string") COMMENT ''
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""
 
-    sql """insert into ${tableName} values(1, '{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}'),
-                                (2, '{"string1" : "world", "array_string" : ["world"], "string2" : "world"}'),
-                                (3, '{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}'),
-                                (4, '{"string1" : "world", "array_string" : ["world"], "string2" : "world"}'),
-                                (5, '{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}') """
+    sql """insert into ${tableName} values(1, ${variantV2Function}('{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}')),
+                                (2, ${variantV2Function}('{"string1" : "world", "array_string" : ["world"], "string2" : "world"}')),
+                                (3, ${variantV2Function}('{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}')),
+                                (4, ${variantV2Function}('{"string1" : "world", "array_string" : ["world"], "string2" : "world"}')),
+                                (5, ${variantV2Function}('{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}')) """
 
     sql """ set inverted_index_skip_threshold = 0 """
     sql """ set enable_common_expr_pushdown = true """
@@ -152,11 +153,11 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     queryAndCheck("select count() from ${tableName} where var['string2'] = 'world'", 3)
 
     for (int i = 0; i < 10; i++) {
-        sql """insert into ${tableName} values(1, '{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}'),
-                                            (2, '{"string1" : "world", "array_string" : ["world"], "string2" : "world"}'),
-                                            (3, '{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}'),
-                                            (4, '{"string1" : "world", "array_string" : ["world"], "string2" : "world"}'),
-                                            (5, '{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}') """
+        sql """insert into ${tableName} values(1, ${variantV2Function}('{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}')),
+                                            (2, ${variantV2Function}('{"string1" : "world", "array_string" : ["world"], "string2" : "world"}')),
+                                            (3, ${variantV2Function}('{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}')),
+                                            (4, ${variantV2Function}('{"string1" : "world", "array_string" : ["world"], "string2" : "world"}')),
+                                            (5, ${variantV2Function}('{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}')) """
     }
     trigger_and_wait_compaction(tableName, "cumulative", 1800)
 
@@ -254,7 +255,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql """
          INSERT INTO ${tableName} (`var`) VALUES
         (
-            '{
+            ${variantV2Function}('{
               "array_decimal_1": ["12345678901234567.123456789", "987.654321"],
               "array_ipv6_1": ["2001:0db8:85a3:0000:0000:8a2e:0370:7334", "::1"],
               "int_1": 42,
@@ -279,8 +280,8 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
               "ipv6_1": "::1",
               "largeint_1": "12345678901234567890123456789012345678",
               "char_1": "short text"
-            }'
-        ); 
+            }')
+        );
     """
 
     queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456789)", 0)
@@ -396,11 +397,30 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
       queryAndCheck("select count() from ${tableName} where cast(var['largeint_1'] as largeint) = 12345678901234567890123456789012345678", 90000)
     }
 
+    def typedOutputQuery = """
+        select id,
+               cast(var['array_decimal_1'] as array<decimalv3(26,9)>),
+               cast(var['array_ipv6_1'] as array<ipv6>),
+               cast(var['int_1'] as int),
+               cast(var['int_nested']['level1_num_1'] as int),
+               cast(var['string_1'] as string),
+               cast(var['decimal_1'] as decimalv3(26,9)),
+               cast(var['datetime_1'] as datetime),
+               cast(var['datetimev2_1'] as datetimev2(6)),
+               cast(var['date_1'] as date),
+               cast(var['datev2_1'] as datev2),
+               cast(var['ipv4_1'] as ipv4),
+               cast(var['ipv6_1'] as ipv6),
+               cast(var['largeint_1'] as largeint),
+               cast(var['char_1'] as string)
+        from ${tableName}
+        where id = 1
+    """
     sql "set enable_two_phase_read_opt = false"
-    qt_sql "select * from ${tableName} order by id limit 10"
+    qt_sql "${typedOutputQuery}"
     trigger_and_wait_compaction(tableName, "cumulative", 1800)
     sql "set enable_two_phase_read_opt = true"
-    qt_sql "select * from ${tableName} order by id limit 10"
+    qt_sql "${typedOutputQuery}"
     //qt_sql "select variant_type(var) from ${tableName} where id = 1"
     accurateCheckIndexWithQueries()
     findException = false

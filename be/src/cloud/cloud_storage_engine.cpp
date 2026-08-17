@@ -207,10 +207,12 @@ Status CloudStorageEngine::open() {
             cast_set<int32_t>(io::FileCacheFactory::instance()->get_cache_instance_size()));
 
     _calc_delete_bitmap_executor = std::make_unique<CalcDeleteBitmapExecutor>();
-    _calc_delete_bitmap_executor->init(config::calc_delete_bitmap_max_thread);
+    _calc_delete_bitmap_executor->init("TabletCalcDeleteBitmapThreadPool",
+                                       config::calc_delete_bitmap_max_thread);
 
     _calc_delete_bitmap_executor_for_load = std::make_unique<CalcDeleteBitmapExecutor>();
     _calc_delete_bitmap_executor_for_load->init(
+            "LoadCalcDeleteBitmapThreadPool",
             config::calc_delete_bitmap_for_load_max_thread > 0
                     ? config::calc_delete_bitmap_for_load_max_thread
                     : std::max(1, CpuInfo::num_cores() / 2));
@@ -231,7 +233,7 @@ Status CloudStorageEngine::open() {
 
     _file_cache_block_downloader = std::make_unique<io::FileCacheBlockDownloader>(*this);
 
-    _cloud_warm_up_manager = std::make_unique<CloudWarmUpManager>(*this);
+    _cloud_warm_up_manager = std::make_shared<CloudWarmUpManager>(*this);
 
     _tablet_hotspot = std::make_unique<TabletHotspot>();
 
@@ -293,6 +295,12 @@ void CloudStorageEngine::stop() {
 bool CloudStorageEngine::stopped() {
     return _stopped;
 }
+
+#ifdef BE_TEST
+void CloudStorageEngine::set_cloud_warm_up_manager(std::unique_ptr<CloudWarmUpManager> manager) {
+    _cloud_warm_up_manager = std::shared_ptr<CloudWarmUpManager>(std::move(manager));
+}
+#endif
 
 Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id,
                                                       SyncRowsetStats* sync_stats,
@@ -1289,13 +1297,9 @@ void CloudStorageEngine::_check_tablet_delete_bitmap_score_callback() {
         uint64_t max_base_rowset_delete_bitmap_score = 0;
         tablet_mgr().get_topn_tablet_delete_bitmap_score(&max_delete_bitmap_score,
                                                          &max_base_rowset_delete_bitmap_score);
-        if (max_delete_bitmap_score > 0) {
-            _tablet_max_delete_bitmap_score_metrics->set_value(max_delete_bitmap_score);
-        }
-        if (max_base_rowset_delete_bitmap_score > 0) {
-            _tablet_max_base_rowset_delete_bitmap_score_metrics->set_value(
-                    max_base_rowset_delete_bitmap_score);
-        }
+        _tablet_max_delete_bitmap_score_metrics->set_value(max_delete_bitmap_score);
+        _tablet_max_base_rowset_delete_bitmap_score_metrics->set_value(
+                max_base_rowset_delete_bitmap_score);
     }
 }
 

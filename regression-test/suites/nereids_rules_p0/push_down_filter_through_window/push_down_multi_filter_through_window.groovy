@@ -48,18 +48,19 @@ suite("push_down_multi_filter_through_window") {
         notContains "VPartitionTopN"
     }
 
+    // The chosen window row_number(partition by c1, c2) is NOT a subset of the
+    // co-located rank(partition by c1), so pushing its partition topn below the
+    // whole window would prune rows that rk still needs -> optimization disabled.
     explain {
         sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk <= 1;")
-        contains "VPartitionTopN"
-        contains "functions: row_number"
-        contains "partition limit: 1"
+        notContains "VPartitionTopN"
     }
 
+    // row_number(partition by c1, c2) preferred as chosen, but it is not a subset
+    // of rank(partition by c1) -> disabled.
     explain {
         sql ("select * from (select rank() over(partition by c1 order by c3) as rk, row_number() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 10 and rk <= 1;")
-        contains "VPartitionTopN"
-        contains "functions: row_number"
-        contains "partition limit: 10"
+        notContains "VPartitionTopN"
     }
 
     explain {
@@ -69,18 +70,16 @@ suite("push_down_multi_filter_through_window") {
         contains "partition limit: 1"
     }
 
+    // chosen row_number(partition by c1, c2) is not a subset of rank(partition by c1) -> disabled.
     explain {
         sql ("select * from (select rank() over(partition by c1 order by c3) as rk, row_number() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 10;")
-        contains "VPartitionTopN"
-        contains "functions: row_number"
-        contains "partition limit: 10"
+        notContains "VPartitionTopN"
     }
 
+    // chosen rank(partition by c1, c2) (min limit) is not a subset of rank(partition by c1) -> disabled.
     explain {
         sql ("select * from (select rank() over(partition by c1 order by c3) as rk, rank() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk <= 10;")
-        contains "VPartitionTopN"
-        contains "functions: rank"
-        contains "partition limit: 1"
+        notContains "VPartitionTopN"
     }
 
     explain {
@@ -97,18 +96,16 @@ suite("push_down_multi_filter_through_window") {
         contains "partition limit: 1"
     }
 
+    // chosen rank(partition by c1, c2) is not a subset of rank(partition by c1) -> disabled.
     explain {
         sql ("select * from (select rank() over(partition by c1 order by c3) as rk, rank() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk > 1;")
-        contains "VPartitionTopN"
-        contains "functions: rank"
-        contains "partition limit: 1"
+        notContains "VPartitionTopN"
     }
 
+    // chosen row_number(partition by c1, c2) is not a subset of rank(partition by c1) -> disabled.
     explain {
         sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t limit 10;")
-        contains "VPartitionTopN"
-        contains "functions: row_number"
-        contains "partition limit: 10"
+        notContains "VPartitionTopN"
     }
 
     explain {
@@ -125,32 +122,32 @@ suite("push_down_multi_filter_through_window") {
         contains "partition limit: 1"
     }
 
+    // chosen row_number(partition by c1, c2) (min limit) is not a subset of
+    // row_number(partition by c1) -> disabled.
     explain {
         sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn, row_number() over(partition by c1 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk <= 10;")
-        contains "VPartitionTopN"
-        contains "functions: row_number"
-        contains "partition limit: 1"
+        notContains "VPartitionTopN"
     }
 
+    // 3 windows: chosen row_number(partition by c1, c2) is not a subset of
+    // rank(partition by c1) nor rank(partition by c2) -> disabled.
     explain {
         sql ("select * from (select row_number() over(partition by c1, c2 order by c3) as rn, rank() over(partition by c1 order by c3) as rk1, rank() over(partition by c2 order by c3) as rk2 from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk1 <= 10 and rk2 <= 100;")
-        contains "VPartitionTopN"
-        contains "functions: row_number"
-        contains "partition limit: 1"
+        notContains "VPartitionTopN"
     }
 
+    // 3 windows: chosen row_number(partition by c2) (min limit) is not a subset
+    // of row_number(partition by c1) -> disabled.
     explain {
         sql ("select * from (select row_number() over(partition by c1 order by c3) as rn1, row_number() over(partition by c2 order by c3) as rn2, rank() over(partition by c1, c2 order by c3) as rk from push_down_multi_predicate_through_window_t) t where rn1 <= 10 and rn2 <= 1 and rk <= 100;")
-        contains "VPartitionTopN"
-        contains "functions: row_number"
-        contains "partition limit: 1"
+        notContains "VPartitionTopN"
     }
 
+    // 3 windows: chosen row_number(partition by c1) (min limit) is not a subset
+    // of row_number(partition by c2) -> disabled.
     explain {
         sql ("select * from (select rank() over(partition by c1, c2 order by c3) as rk, row_number() over(partition by c1 order by c3) as rn1, row_number() over(partition by c2 order by c3) as rn2 from push_down_multi_predicate_through_window_t) t where rn1 <= 1 and rn2 <= 10 and rk <= 100;")
-        contains "VPartitionTopN"
-        contains "functions: row_number"
-        contains "partition limit: 1"
+        notContains "VPartitionTopN"
     }
 
     explain {

@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS default;
 USE default;
 
-CREATE TABLE `default.student`(
+drop table if exists `default.student`;
+
+create table `default.student`(
   `id` varchar(50), 
   `name` varchar(50), 
   `age` int, 
@@ -20,5 +22,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/default/student'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1669364024');
-
-msck repair table student;

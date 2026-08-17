@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StringLiteral;
@@ -25,6 +26,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.rewrite.eageraggregation.EagerAggHints.Action;
+import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Mock;
@@ -167,6 +170,54 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testRuntimeFilterBroadcastJoinProducerNumDescription() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertEquals(3, sessionVar.getRuntimeFilterBroadcastJoinProducerNum());
+
+        Field field = SessionVariable.class.getDeclaredField("runtimeFilterBroadcastJoinProducerNum");
+        VariableMgr.VarAttr varAttr = field.getAnnotation(VariableMgr.VarAttr.class);
+        Assertions.assertArrayEquals(new String[] {
+                "控制 Nereids 分布式规划中每个 broadcast join runtime filter 的生产 BE 数量。"
+                        + "设置为小于等于 0 时不限制。Legacy Coordinator 路径保持原行为。",
+                "Controls the number of producer BEs for each broadcast join runtime filter in "
+                        + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
+                        + "The legacy Coordinator path keeps the existing behavior."
+        }, varAttr.description());
+    }
+
+    @Test
+    public void testExternalTableBatchModeDefaultsAndFuzzyAttribute() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertTrue(sessionVar.getEnableExternalTableBatchMode());
+
+        Field field = SessionVariable.class.getDeclaredField("enableExternalTableBatchMode");
+        VariableMgr.VarAttr varAttr = field.getAnnotation(VariableMgr.VarAttr.class);
+        Assertions.assertTrue(varAttr.fuzzy());
+    }
+
+    @Test
+    public void testForceEagerAggHintParseWhenSetSessionVariable() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+
+        VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                "force_eager_agg_hint", new StringLiteral("sum:t1.a=push; count:*=nopush")));
+        Assertions.assertEquals("sum:t1.a=push; count:*=nopush", sessionVar.forceEagerAggHint);
+        Assertions.assertEquals(Action.PUSH, sessionVar.getForceEagerAggHintMap().get("sum:t1.a"));
+        Assertions.assertEquals(Action.NOPUSH, sessionVar.getForceEagerAggHintMap().get("count:*"));
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "Invalid force_eager_agg_hint",
+                () -> VariableMgr.setVar(sessionVar, new SetVar(SetType.SESSION,
+                        "force_eager_agg_hint", new StringLiteral("sum:t1.a=unknown"))));
+        Assertions.assertEquals("sum:t1.a=push; count:*=nopush", sessionVar.forceEagerAggHint);
+        Assertions.assertEquals(Action.PUSH, sessionVar.getForceEagerAggHintMap().get("sum:t1.a"));
+
+        SessionVariable restored = new SessionVariable();
+        restored.readFromJson("{\"force_eager_agg_hint\":\"sum:t2.b=no_push\"}");
+        Assertions.assertEquals(Action.NOPUSH, restored.getForceEagerAggHintMap().get("sum:t2.b"));
+    }
+
+    @Test
     public void testSetVarInHint() {
         String sql = "insert into test_t1 select /*+ set_var(enable_nereids_dml_with_pipeline=false)*/ * from test_t1 where enable_nereids_dml_with_pipeline=true";
         new NereidsParser().parseSQL(sql);
@@ -271,5 +322,17 @@ public class SessionVariablesTest extends TestWithFeService {
                 new StringLiteral("true")));
 
         Assertions.assertTrue(sessionVariable.isEnablePreloadExternalMetadata());
+    }
+
+    @Test
+    public void testFileCacheQueryLimitBytesToThrift() throws Exception {
+        SessionVariable variable = new SessionVariable();
+        VariableMgr.setVar(variable, new SetVar(SetType.SESSION,
+                SessionVariable.FILE_CACHE_QUERY_LIMIT_BYTES,
+                new IntLiteral(262144)));
+
+        TQueryOptions queryOptions = variable.toThrift();
+        Assertions.assertTrue(queryOptions.isSetFileCacheQueryLimitBytes());
+        Assertions.assertEquals(262144L, queryOptions.getFileCacheQueryLimitBytes());
     }
 }

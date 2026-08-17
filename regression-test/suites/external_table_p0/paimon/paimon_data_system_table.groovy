@@ -138,6 +138,7 @@ suite("paimon_data_system_table", "p0,external,doris,external_docker,external_do
         }
 
         sql """set force_jni_scanner=false"""
+        sql """set enable_paimon_cpp_reader=true"""
         // Paimon data system tables need Paimon-side semantics:
         // - binlog: pack/merge + array materialization
         // - audit_log: rowkind / sequence-number projection
@@ -146,6 +147,25 @@ suite("paimon_data_system_table", "p0,external,doris,external_docker,external_do
         assertJniPath("select rowkind, id[1], name[1] from ${nativeTableName}\$binlog", "${nativeTableName}\$binlog")
         assertJniPath("select rowkind, id, name from ${tableName}\$audit_log", "${tableName}\$audit_log")
         assertJniPath("select rowkind, id, name from ${nativeTableName}\$audit_log", "${nativeTableName}\$audit_log")
+        assertJniPath(
+                "select rowkind, id, name from ${tableName}\$audit_log"
+                        + "@incr('startSnapshotId'=1, 'endSnapshotId'=2)",
+                "${tableName}\$audit_log incremental")
+
+        order_qt_audit_log_incr """
+                select rowkind, id, name from ${tableName}\$audit_log
+                @incr('startSnapshotId'=1, 'endSnapshotId'=2)
+                order by id
+                """
+        order_qt_binlog_incr """
+                select rowkind, id[1], id[2], name[1], name[2] from ${tableName}\$binlog
+                @incr('startSnapshotId'=1, 'endSnapshotId'=2)
+                order by id[1]
+                """
+        qt_binlog_incr_count """
+                select count(*) from ${tableName}\$binlog
+                @incr('startSnapshotId'=1, 'endSnapshotId'=2)
+                """
 
         assertCountStarPushdown("select count(*) from ${tableName}\$binlog", "${tableName}\$binlog")
         assertCountStarPushdown("select count(*) from ${tableName}\$audit_log", "${tableName}\$audit_log")
@@ -163,6 +183,7 @@ suite("paimon_data_system_table", "p0,external,doris,external_docker,external_do
         qt_jni_native_binlog_rows """select rowkind, id[1], id[2], name[1], name[2] from ${nativeTableName}\$binlog order by id[1]"""
         qt_jni_native_audit_log_rows """select rowkind, id, name from ${nativeTableName}\$audit_log order by id"""
     } finally {
+        sql """set enable_paimon_cpp_reader=false"""
         sql """set force_jni_scanner=false"""
     }
 }

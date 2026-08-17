@@ -106,6 +106,7 @@ struct LazyReadContext {
     // lazy read partition columns or all partition columns
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
+    std::unordered_map<std::string, bool> partition_value_is_null;
     std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
     // lazy read missing columns or all missing columns
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
@@ -177,7 +178,8 @@ public:
     Status set_fill_columns(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_columns,
-            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) override;
+            const std::unordered_map<std::string, VExprContextSPtr>& missing_columns,
+            const std::unordered_map<std::string, bool>& partition_value_is_null = {}) override;
 
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -834,9 +836,10 @@ public:
             : _file_name(file_name),
               _inner_reader(inner_reader),
               _file_reader(inner_reader),
-              _tracing_file_reader(io_ctx ? std::make_shared<io::TracingFileReader>(
-                                                    _file_reader, io_ctx->file_reader_stats)
-                                          : _file_reader),
+              _tracing_file_reader(io_ctx && io_ctx->file_reader_stats
+                                           ? std::make_shared<io::TracingFileReader>(
+                                                     _file_reader, io_ctx->file_reader_stats)
+                                           : _file_reader),
               _orc_once_max_read_bytes(orc_once_max_read_bytes),
               _orc_max_merge_distance_bytes(orc_max_merge_distance_bytes),
               _io_ctx(io_ctx),

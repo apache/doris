@@ -22,7 +22,7 @@
 #include <string>
 
 #include "exec/partitioner/partitioner.h"
-#include "format/transformer/writer_assigner.h"
+#include "exec/partitioner/writer_assigner.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -41,8 +41,8 @@ public:
     Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
 
 private:
-    void _apply_insert_rebalance(const std::vector<int8_t>& ops,
-                                 std::vector<uint32_t>& insert_hashes, size_t block_bytes) const;
+    Status _apply_insert_rebalance(const std::vector<int8_t>& ops,
+                                   std::vector<uint32_t>& insert_hashes, size_t block_bytes) const;
     void _init_insert_scaling(RuntimeState* state);
     uint32_t _next_rr_channel() const;
     Status _clone_expr_ctxs(RuntimeState* state, const VExprContextSPtrs& src,

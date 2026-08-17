@@ -20,6 +20,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <array>
 #include <cstdint>
 #include <string>
 
@@ -183,27 +184,149 @@ TEST_F(BloomFilterFuncTest, InsertFixedLen) {
     PODArray<uint16_t> offsets(4);
     std::iota(offsets.begin(), offsets.end(), 0);
 
-    std::vector<StringRef> strings(4);
-    strings[0] = StringRef("aa");
-    strings[1] = StringRef("bb");
-    strings[2] = StringRef("cc");
-    strings[3] = StringRef("dd");
+    auto probe_column = ColumnHelper::create_column<DataTypeString>({"aa", "bb", "cc", "dd"});
 
     auto find_count = bloom_filter_func2.find_fixed_len_olap_engine(
-            reinterpret_cast<const char*>(strings.data()), nullmap_column->get_data().data(),
-            offsets.data(), 4, false);
+            *probe_column, nullmap_column->get_data().data(), offsets.data(), 4, false);
 
     ASSERT_EQ(find_count, 4);
 
     nullmap_column->get_data()[1] = 0;
     nullmap_column->get_data()[3] = 0;
     find_count = bloom_filter_func2.find_fixed_len_olap_engine(
-            reinterpret_cast<const char*>(strings.data()), nullmap_column->get_data().data(),
-            offsets.data(), 4, false);
+            *probe_column, nullmap_column->get_data().data(), offsets.data(), 4, false);
 
     ASSERT_EQ(find_count, 2);
     ASSERT_EQ(offsets[0], 0);
     ASSERT_EQ(offsets[1], 2);
+}
+
+TEST_F(BloomFilterFuncTest, RawFixedCapabilitiesCoverEveryFixedRuntimeFilterType) {
+#define EXPECT_RAW_FIXED(TYPE)                                                   \
+    do {                                                                         \
+        BloomFilterFunc<TYPE> filter(false);                                     \
+        EXPECT_TRUE(filter.supports_raw_fixed_values()) << type_to_string(TYPE); \
+        EXPECT_EQ(filter.raw_fixed_value_size(),                                 \
+                  sizeof(typename PrimitiveTypeTraits<TYPE>::CppType))           \
+                << type_to_string(TYPE);                                         \
+    } while (false)
+    EXPECT_RAW_FIXED(TYPE_BOOLEAN);
+    EXPECT_RAW_FIXED(TYPE_TINYINT);
+    EXPECT_RAW_FIXED(TYPE_SMALLINT);
+    EXPECT_RAW_FIXED(TYPE_INT);
+    EXPECT_RAW_FIXED(TYPE_BIGINT);
+    EXPECT_RAW_FIXED(TYPE_LARGEINT);
+    EXPECT_RAW_FIXED(TYPE_FLOAT);
+    EXPECT_RAW_FIXED(TYPE_DOUBLE);
+    EXPECT_RAW_FIXED(TYPE_DATE);
+    EXPECT_RAW_FIXED(TYPE_DATETIME);
+    EXPECT_RAW_FIXED(TYPE_DATEV2);
+    EXPECT_RAW_FIXED(TYPE_DATETIMEV2);
+    EXPECT_RAW_FIXED(TYPE_TIMESTAMPTZ);
+    EXPECT_RAW_FIXED(TYPE_DECIMAL32);
+    EXPECT_RAW_FIXED(TYPE_DECIMAL64);
+    EXPECT_RAW_FIXED(TYPE_DECIMALV2);
+    EXPECT_RAW_FIXED(TYPE_DECIMAL128I);
+    EXPECT_RAW_FIXED(TYPE_DECIMAL256);
+    EXPECT_RAW_FIXED(TYPE_IPV4);
+    EXPECT_RAW_FIXED(TYPE_IPV6);
+#undef EXPECT_RAW_FIXED
+
+    BloomFilterFunc<TYPE_STRING> string_filter(false);
+    EXPECT_FALSE(string_filter.supports_raw_fixed_values());
+    EXPECT_EQ(string_filter.raw_fixed_value_size(), 0);
+}
+
+TEST_F(BloomFilterFuncTest, RawFixedProbeUsesTheSameHashAsColumnProbe) {
+    BloomFilterFunc<TYPE_INT> filter(false);
+    RuntimeFilterParams params {
+            1, RuntimeFilterType::BLOOM_FILTER, TYPE_INT, false, 0, 0, 0, 256, 0, 0};
+    filter.init_params(&params);
+    ASSERT_TRUE(filter.init_with_fixed_length(1024).ok());
+    auto build_column = ColumnHelper::create_column<DataTypeInt32>({2, 4});
+    filter.insert_fixed_len(build_column, 0);
+
+    const std::array<int32_t, 4> values {1, 2, 3, 4};
+    std::array<uint8_t, 4> raw_matches {1, 1, 1, 1};
+    ASSERT_TRUE(filter.find_batch_raw_fixed(reinterpret_cast<const uint8_t*>(values.data()),
+                                            values.size(), sizeof(int32_t), raw_matches.data())
+                        .ok());
+
+    auto probe_column = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4});
+    std::array<uint8_t, 4> column_matches {};
+    filter.find_fixed_len(probe_column, column_matches.data());
+    EXPECT_EQ(column_matches, raw_matches);
+}
+
+TEST_F(BloomFilterFuncTest, RawFixedProbeMatchesBuildHashForEveryFixedRuntimeFilterType) {
+    const auto expect_match = []<PrimitiveType TYPE>() {
+        BloomFilterFunc<TYPE> filter(false);
+        RuntimeFilterParams params;
+        params.filter_type = RuntimeFilterType::BLOOM_FILTER;
+        params.column_return_type = TYPE;
+        params.bloom_filter_size = 1024;
+        filter.init_params(&params);
+        ASSERT_TRUE(filter.init_with_fixed_length(1024).ok()) << type_to_string(TYPE);
+
+        using ValueType = typename PrimitiveTypeTraits<TYPE>::CppType;
+        ValueType value {};
+        auto set = std::make_shared<HybridSet<TYPE>>(false);
+        set->insert(&value);
+        filter.insert_set(set);
+
+        uint8_t match = 1;
+        ASSERT_TRUE(filter.find_batch_raw_fixed(reinterpret_cast<const uint8_t*>(&value), 1,
+                                                sizeof(ValueType), &match)
+                            .ok())
+                << type_to_string(TYPE);
+        EXPECT_EQ(match, 1) << type_to_string(TYPE);
+        EXPECT_TRUE(filter.test_field(Field::create_field<TYPE>(value))) << type_to_string(TYPE);
+    };
+
+#define EXPECT_RAW_FIXED_MATCH(TYPE) expect_match.template operator()<TYPE>()
+    EXPECT_RAW_FIXED_MATCH(TYPE_BOOLEAN);
+    EXPECT_RAW_FIXED_MATCH(TYPE_TINYINT);
+    EXPECT_RAW_FIXED_MATCH(TYPE_SMALLINT);
+    EXPECT_RAW_FIXED_MATCH(TYPE_INT);
+    EXPECT_RAW_FIXED_MATCH(TYPE_BIGINT);
+    EXPECT_RAW_FIXED_MATCH(TYPE_LARGEINT);
+    EXPECT_RAW_FIXED_MATCH(TYPE_FLOAT);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DOUBLE);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DATE);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DATETIME);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DATEV2);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DATETIMEV2);
+    EXPECT_RAW_FIXED_MATCH(TYPE_TIMESTAMPTZ);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DECIMAL32);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DECIMAL64);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DECIMALV2);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DECIMAL128I);
+    EXPECT_RAW_FIXED_MATCH(TYPE_DECIMAL256);
+    EXPECT_RAW_FIXED_MATCH(TYPE_IPV4);
+    EXPECT_RAW_FIXED_MATCH(TYPE_IPV6);
+#undef EXPECT_RAW_FIXED_MATCH
+}
+
+TEST_F(BloomFilterFuncTest, DictionaryFieldProbeSupportsEveryStringRuntimeFilterType) {
+    const auto expect_match = []<PrimitiveType TYPE>() {
+        BloomFilterFunc<TYPE> filter(false);
+        RuntimeFilterParams params;
+        params.filter_type = RuntimeFilterType::BLOOM_FILTER;
+        params.column_return_type = TYPE;
+        params.bloom_filter_size = 1024;
+        filter.init_params(&params);
+        ASSERT_TRUE(filter.init_with_fixed_length(1024).ok()) << type_to_string(TYPE);
+
+        auto column = ColumnString::create();
+        column->insert_data("value", 5);
+        filter.insert_fixed_len(std::move(column), 0);
+        EXPECT_TRUE(filter.test_field(Field::create_field<TYPE_STRING>(std::string("value"))))
+                << type_to_string(TYPE);
+    };
+
+    expect_match.template operator()<TYPE_CHAR>();
+    expect_match.template operator()<TYPE_VARCHAR>();
+    expect_match.template operator()<TYPE_STRING>();
 }
 
 TEST_F(BloomFilterFuncTest, Merge) {
@@ -417,7 +540,7 @@ TEST_F(BloomFilterFuncTest, FindDictOlapEngine) {
     std::vector<StringRef> dicts = {StringRef("aa"),  StringRef("bb"),  StringRef("cc"),
                                     StringRef("dd"),  StringRef("aab"), StringRef("bbc"),
                                     StringRef("ccd"), StringRef("dde")};
-    auto column = ColumnDictI32::create(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    auto column = ColumnDictI32::create();
     column->reserve(count);
     std::vector<int32_t> data(count);
     for (size_t i = 0; i != count; ++i) {
@@ -483,9 +606,8 @@ TEST_F(BloomFilterFuncTest, FindFixedLenOlapEngine) {
     PODArray<uint8_t> nullmap;
     uint8_t flag = 0;
     nullmap.assign(count, flag);
-    auto find_count = bloom_filter_func.find_fixed_len_olap_engine(
-            reinterpret_cast<const char*>(decimal_column2->get_data().data()), nullmap.data(),
-            offsets.data(), count, true);
+    auto find_count = bloom_filter_func.find_fixed_len_olap_engine(*decimal_column2, nullmap.data(),
+                                                                   offsets.data(), count, true);
     ASSERT_EQ(find_count, count);
 
     BloomFilterFunc<PrimitiveType::TYPE_CHAR> bloom_filter_func2(true);
@@ -500,29 +622,28 @@ TEST_F(BloomFilterFuncTest, FindFixedLenOlapEngine) {
 
     // CHAR padding is stripped at the page decoder now, so the runtime BF
     // probe sees natural-length StringRefs; no trailing '\0' bytes here.
-    StringRef strings[] = {StringRef("aa"), StringRef("bb"), StringRef("cc"), StringRef("dd"),
-                           StringRef("ef")};
+    auto probe_column = ColumnHelper::create_column<DataTypeString>({"aa", "bb", "cc", "dd", "ef"});
 
     PODArray<uint16_t> offsets2(5);
     std::iota(offsets2.begin(), offsets2.end(), 0);
 
-    find_count = bloom_filter_func2.find_fixed_len_olap_engine(
-            reinterpret_cast<const char*>(&strings[0]), nullmap.data(), offsets2.data(), 5, false);
+    find_count = bloom_filter_func2.find_fixed_len_olap_engine(*probe_column, nullmap.data(),
+                                                               offsets2.data(), 5, false);
     ASSERT_EQ(find_count, 4);
 
     std::iota(offsets2.begin(), offsets2.end(), 0);
-    find_count = bloom_filter_func2.find_fixed_len_olap_engine(
-            reinterpret_cast<const char*>(&strings[0]), nullmap.data(), offsets2.data(), 5, true);
+    find_count = bloom_filter_func2.find_fixed_len_olap_engine(*probe_column, nullmap.data(),
+                                                               offsets2.data(), 5, true);
     ASSERT_EQ(find_count, 4);
 
     std::iota(offsets2.begin(), offsets2.end(), 0);
-    find_count = bloom_filter_func2.find_fixed_len_olap_engine(
-            reinterpret_cast<const char*>(&strings[0]), nullptr, offsets2.data(), 5, false);
+    find_count = bloom_filter_func2.find_fixed_len_olap_engine(*probe_column, nullptr,
+                                                               offsets2.data(), 5, false);
     ASSERT_EQ(find_count, 4);
 
     std::iota(offsets2.begin(), offsets2.end(), 0);
-    find_count = bloom_filter_func2.find_fixed_len_olap_engine(
-            reinterpret_cast<const char*>(&strings[0]), nullptr, offsets2.data(), 5, true);
+    find_count = bloom_filter_func2.find_fixed_len_olap_engine(*probe_column, nullptr,
+                                                               offsets2.data(), 5, true);
     ASSERT_EQ(find_count, 4);
 
     PODArray<uint8_t> nullmap2;
@@ -531,8 +652,8 @@ TEST_F(BloomFilterFuncTest, FindFixedLenOlapEngine) {
     nullmap2[2] = 1;
 
     std::iota(offsets2.begin(), offsets2.end(), 0);
-    find_count = bloom_filter_func2.find_fixed_len_olap_engine(
-            reinterpret_cast<const char*>(&strings[0]), nullmap2.data(), offsets2.data(), 5, false);
+    find_count = bloom_filter_func2.find_fixed_len_olap_engine(*probe_column, nullmap2.data(),
+                                                               offsets2.data(), 5, false);
     ASSERT_EQ(find_count, 2);
     ASSERT_EQ(offsets2[0], 0);
     ASSERT_EQ(offsets2[1], 3);

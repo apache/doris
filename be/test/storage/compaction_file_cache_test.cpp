@@ -34,17 +34,22 @@ class CompactionFileCacheTest : public testing::Test {
 public:
     void SetUp() override {
         // Save original configuration
+        _orig_index_file_only_config = config::enable_file_cache_write_index_file_only;
         _orig_base_config = config::enable_file_cache_write_base_compaction_index_only;
         _orig_cumu_config = config::enable_file_cache_write_cumu_compaction_index_only;
+
+        config::enable_file_cache_write_index_file_only = false;
     }
 
     void TearDown() override {
         // Restore original configuration
+        config::enable_file_cache_write_index_file_only = _orig_index_file_only_config;
         config::enable_file_cache_write_base_compaction_index_only = _orig_base_config;
         config::enable_file_cache_write_cumu_compaction_index_only = _orig_cumu_config;
     }
 
 private:
+    bool _orig_index_file_only_config;
     bool _orig_base_config;
     bool _orig_cumu_config;
 };
@@ -63,7 +68,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_IndexOnly_False_IndexFile) {
     ctx.compaction_output_write_index_only = false;
 
     // Test: Get file writer options for index file
-    auto opts = ctx.get_file_writer_options(true);
+    auto opts = ctx.get_file_writer_options(FileType::INVERTED_INDEX_FILE);
 
     // Verify: write_file_cache should be true
     EXPECT_TRUE(opts.write_file_cache);
@@ -79,7 +84,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_IndexOnly_False_DataFile) {
     ctx.compaction_output_write_index_only = false;
 
     // Test: Get file writer options for data file
-    auto opts = ctx.get_file_writer_options(false);
+    auto opts = ctx.get_file_writer_options(FileType::SEGMENT_FILE);
 
     // Verify: write_file_cache should be true
     EXPECT_TRUE(opts.write_file_cache);
@@ -95,7 +100,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_IndexOnly_True_IndexFile) {
     ctx.compaction_output_write_index_only = true;
 
     // Test: Get file writer options for index file
-    auto opts = ctx.get_file_writer_options(true);
+    auto opts = ctx.get_file_writer_options(FileType::INVERTED_INDEX_FILE);
 
     // Verify: write_file_cache should be true (index files are always cached)
     EXPECT_TRUE(opts.write_file_cache);
@@ -111,7 +116,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_IndexOnly_True_DataFile) {
     ctx.compaction_output_write_index_only = true;
 
     // Test: Get file writer options for data file
-    auto opts = ctx.get_file_writer_options(false);
+    auto opts = ctx.get_file_writer_options(FileType::SEGMENT_FILE);
 
     // Verify: write_file_cache should be false (data files are NOT cached when index-only is enabled)
     EXPECT_FALSE(opts.write_file_cache);
@@ -131,7 +136,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_IndexOnly_False_IndexFile) {
     ctx.compaction_output_write_index_only = false;
 
     // Test: Get file writer options for index file
-    auto opts = ctx.get_file_writer_options(true);
+    auto opts = ctx.get_file_writer_options(FileType::INVERTED_INDEX_FILE);
 
     // Verify: write_file_cache should be true
     EXPECT_TRUE(opts.write_file_cache);
@@ -147,7 +152,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_IndexOnly_False_DataFile) {
     ctx.compaction_output_write_index_only = false;
 
     // Test: Get file writer options for data file
-    auto opts = ctx.get_file_writer_options(false);
+    auto opts = ctx.get_file_writer_options(FileType::SEGMENT_FILE);
 
     // Verify: write_file_cache should be true
     EXPECT_TRUE(opts.write_file_cache);
@@ -163,7 +168,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_IndexOnly_True_IndexFile) {
     ctx.compaction_output_write_index_only = true;
 
     // Test: Get file writer options for index file
-    auto opts = ctx.get_file_writer_options(true);
+    auto opts = ctx.get_file_writer_options(FileType::INVERTED_INDEX_FILE);
 
     // Verify: write_file_cache should be true (index files are always cached)
     EXPECT_TRUE(opts.write_file_cache);
@@ -179,7 +184,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_IndexOnly_True_DataFile) {
     ctx.compaction_output_write_index_only = true;
 
     // Test: Get file writer options for data file
-    auto opts = ctx.get_file_writer_options(false);
+    auto opts = ctx.get_file_writer_options(FileType::SEGMENT_FILE);
 
     // Verify: write_file_cache should be false (data files are NOT cached when index-only is enabled)
     EXPECT_FALSE(opts.write_file_cache);
@@ -199,7 +204,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_WriteCacheFalse_IndexOnly_False_I
     ctx.compaction_output_write_index_only = false;
 
     // Test: Get file writer options for index file
-    auto opts = ctx.get_file_writer_options(true);
+    auto opts = ctx.get_file_writer_options(FileType::INVERTED_INDEX_FILE);
 
     // Verify: write_file_cache should remain false
     EXPECT_FALSE(opts.write_file_cache);
@@ -215,7 +220,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_WriteCacheFalse_IndexOnly_False_D
     ctx.compaction_output_write_index_only = false;
 
     // Test: Get file writer options for data file
-    auto opts = ctx.get_file_writer_options(false);
+    auto opts = ctx.get_file_writer_options(FileType::SEGMENT_FILE);
 
     // Verify: write_file_cache should remain false
     EXPECT_FALSE(opts.write_file_cache);
@@ -231,7 +236,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_WriteCacheFalse_IndexOnly_True_In
     ctx.compaction_output_write_index_only = true;
 
     // Test: Get file writer options for index file
-    auto opts = ctx.get_file_writer_options(true);
+    auto opts = ctx.get_file_writer_options(FileType::INVERTED_INDEX_FILE);
 
     // Verify: write_file_cache should remain false (base cache setting takes precedence)
     EXPECT_FALSE(opts.write_file_cache);
@@ -247,7 +252,7 @@ TEST_F(CompactionFileCacheTest, BaseCompaction_WriteCacheFalse_IndexOnly_True_Da
     ctx.compaction_output_write_index_only = true;
 
     // Test: Get file writer options for data file
-    auto opts = ctx.get_file_writer_options(false);
+    auto opts = ctx.get_file_writer_options(FileType::SEGMENT_FILE);
 
     // Verify: write_file_cache should remain false
     EXPECT_FALSE(opts.write_file_cache);
@@ -267,7 +272,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_WriteCacheFalse_IndexOnly_False_I
     ctx.compaction_output_write_index_only = false;
 
     // Test: Get file writer options for index file
-    auto opts = ctx.get_file_writer_options(true);
+    auto opts = ctx.get_file_writer_options(FileType::INVERTED_INDEX_FILE);
 
     // Verify: write_file_cache should remain false
     EXPECT_FALSE(opts.write_file_cache);
@@ -283,7 +288,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_WriteCacheFalse_IndexOnly_False_D
     ctx.compaction_output_write_index_only = false;
 
     // Test: Get file writer options for data file
-    auto opts = ctx.get_file_writer_options(false);
+    auto opts = ctx.get_file_writer_options(FileType::SEGMENT_FILE);
 
     // Verify: write_file_cache should remain false
     EXPECT_FALSE(opts.write_file_cache);
@@ -299,7 +304,7 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_WriteCacheFalse_IndexOnly_True_In
     ctx.compaction_output_write_index_only = true;
 
     // Test: Get file writer options for index file
-    auto opts = ctx.get_file_writer_options(true);
+    auto opts = ctx.get_file_writer_options(FileType::INVERTED_INDEX_FILE);
 
     // Verify: write_file_cache should remain false (base cache setting takes precedence)
     EXPECT_FALSE(opts.write_file_cache);
@@ -315,10 +320,31 @@ TEST_F(CompactionFileCacheTest, CumuCompaction_WriteCacheFalse_IndexOnly_True_Da
     ctx.compaction_output_write_index_only = true;
 
     // Test: Get file writer options for data file
-    auto opts = ctx.get_file_writer_options(false);
+    auto opts = ctx.get_file_writer_options(FileType::SEGMENT_FILE);
 
     // Verify: write_file_cache should remain false
     EXPECT_FALSE(opts.write_file_cache);
+}
+
+TEST_F(CompactionFileCacheTest, GlobalIndexFileOnlyTakesPrecedenceOverCompactionConfigs) {
+    config::enable_file_cache_write_index_file_only = true;
+    config::enable_file_cache_write_base_compaction_index_only = true;
+    config::enable_file_cache_write_cumu_compaction_index_only = true;
+
+    RowsetWriterContext ctx;
+    ctx.write_file_cache = false;
+    ctx.compaction_output_write_index_only = false;
+    ctx.approximate_bytes_to_write = 12345;
+
+    auto segment_opts = ctx.get_file_writer_options(FileType::SEGMENT_FILE);
+    EXPECT_FALSE(segment_opts.write_file_cache);
+    EXPECT_FALSE(segment_opts.allow_adaptive_file_cache_write);
+    EXPECT_EQ(segment_opts.approximate_bytes_to_write, 0);
+
+    auto index_opts = ctx.get_file_writer_options(FileType::INVERTED_INDEX_FILE);
+    EXPECT_TRUE(index_opts.write_file_cache);
+    EXPECT_FALSE(index_opts.allow_adaptive_file_cache_write);
+    EXPECT_EQ(index_opts.approximate_bytes_to_write, 0);
 }
 
 // ============================================================================

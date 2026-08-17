@@ -746,7 +746,7 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, Block* input_block, bool eos) {
+Status AnalyticSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* input_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
@@ -772,6 +772,12 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state, Block
     local_state._input_block_first_row_positions.emplace_back(local_state._input_total_rows);
     size_t block_rows = input_block->rows();
     local_state._input_total_rows += block_rows;
+    auto convert_column_if_overflow = [](MutableColumnPtr& column) {
+        auto converted_column = column->convert_column_if_overflow();
+        if (converted_column.get() != column.get()) {
+            column = converted_column->assert_mutable();
+        }
+    };
 
     // record origin columns, maybe be after this, could cast some column but no need to output
     auto column_to_keep = input_block->columns();
@@ -792,6 +798,7 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state, Block
             RETURN_IF_ERROR(
                     _insert_range_column(input_block, local_state._partition_by_eq_expr_ctxs[i],
                                          local_state._partition_by_columns[i].get(), block_rows));
+            convert_column_if_overflow(local_state._partition_by_columns[i]);
         }
     }
     {
@@ -800,6 +807,7 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state, Block
             RETURN_IF_ERROR(_insert_range_column(input_block, local_state._order_by_eq_expr_ctxs[i],
                                                  local_state._order_by_columns[i].get(),
                                                  block_rows));
+            convert_column_if_overflow(local_state._order_by_columns[i]);
         }
     }
     {

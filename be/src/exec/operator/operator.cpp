@@ -63,6 +63,7 @@
 #include "exec/operator/olap_scan_operator.h"
 #include "exec/operator/olap_table_sink_operator.h"
 #include "exec/operator/olap_table_sink_v2_operator.h"
+#include "exec/operator/paimon_table_sink_operator.h"
 #include "exec/operator/partition_sort_sink_operator.h"
 #include "exec/operator/partition_sort_source_operator.h"
 #include "exec/operator/partitioned_aggregation_sink_operator.h"
@@ -150,6 +151,23 @@ DataDistribution OperatorBase::required_data_distribution(RuntimeState* /*state*
     return _child && _child->is_serial_operator() && !is_source()
                    ? DataDistribution(ExchangeType::PASSTHROUGH)
                    : DataDistribution(ExchangeType::NOOP);
+}
+
+bool OperatorBase::is_hash_shuffle(ExchangeType exchange_type) {
+    return exchange_type == ExchangeType::HASH_SHUFFLE ||
+           exchange_type == ExchangeType::BUCKET_HASH_SHUFFLE;
+}
+
+bool OperatorBase::child_breaks_local_key_distribution(RuntimeState* state) const {
+    if (!_child) {
+        return false;
+    }
+    if (_child->is_serial_operator()) {
+        return true;
+    }
+    const auto child_distribution = _child->required_data_distribution(state);
+    return child_distribution.need_local_exchange() &&
+           !is_hash_shuffle(child_distribution.distribution_type);
 }
 
 const RowDescriptor& OperatorBase::row_desc() const {
@@ -315,58 +333,54 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
     if (rows == 0) {
         return Status::OK();
     }
-    Block input_block = *origin_block;
+    SCOPED_PEAK_MEM(&local_state->_estimate_memory_usage);
 
-    size_t bytes_usage = 0;
-    ColumnsWithTypeAndName new_columns;
-    for (const auto& projections : local_state->_intermediate_projections) {
-        new_columns.resize(projections.size());
-        for (int i = 0; i < projections.size(); i++) {
-            RETURN_IF_ERROR(projections[i]->execute(&input_block, new_columns[i]));
-        }
-        Block tmp_block {new_columns};
-        bytes_usage += tmp_block.allocated_bytes();
-        input_block.swap(tmp_block);
-    }
+    {
+        Block input_block = *origin_block;
 
-    DCHECK_EQ(rows, input_block.rows());
-    auto insert_column_datas = [&](auto& to, ColumnPtr& from, size_t rows) {
-        if (to->is_nullable() && !from->is_nullable()) {
-            if (_keep_origin || !from->is_exclusive()) {
-                auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
-                null_column.get_nested_column().insert_range_from(*from, 0, rows);
-                null_column.get_null_map_column().get_data().resize_fill(rows, 0);
-                bytes_usage += null_column.allocated_bytes();
-            } else {
-                to = ColumnNullable::create(IColumn::mutate(std::move(from)),
-                                            ColumnUInt8::create(rows, 0));
+        ColumnsWithTypeAndName new_columns;
+        for (const auto& projections : local_state->_intermediate_projections) {
+            new_columns.resize(projections.size());
+            for (int i = 0; i < projections.size(); i++) {
+                RETURN_IF_ERROR(projections[i]->execute(&input_block, new_columns[i]));
             }
-        } else {
-            if (_keep_origin || !from->is_exclusive()) {
-                to->insert_range_from(*from, 0, rows);
-                bytes_usage += from->allocated_bytes();
-            } else {
-                to = IColumn::mutate(std::move(from));
-            }
+            Block tmp_block {new_columns};
+            input_block.swap(tmp_block);
         }
-    };
 
-    auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
-            output_block, *_output_row_descriptor);
-    auto& mutable_block = scoped_mutable_block.mutable_block();
-    auto& mutable_columns = mutable_block.mutable_columns();
-    if (rows != 0) {
+        DCHECK_EQ(rows, input_block.rows());
+
+        auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
+                output_block, *_output_row_descriptor);
+        auto& mutable_columns = scoped_mutable_block.mutable_columns();
         DCHECK_EQ(mutable_columns.size(), local_state->_projections.size()) << debug_string();
+        Columns shared_columns(mutable_columns.size());
+
         for (int i = 0; i < mutable_columns.size(); ++i) {
             ColumnPtr column_ptr;
             RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, column_ptr));
             column_ptr = column_ptr->convert_to_full_column_if_const();
-            bytes_usage += column_ptr->allocated_bytes();
-            insert_column_datas(mutable_columns[i], column_ptr, rows);
+            if (is_column_nullable(*mutable_columns[i]) && !is_column_nullable(*column_ptr)) {
+                column_ptr = make_nullable(column_ptr, false);
+            }
+            if (column_ptr->is_exclusive()) {
+                mutable_columns[i] = IColumn::mutate(std::move(column_ptr));
+            } else {
+                shared_columns[i] = std::move(column_ptr);
+            }
         }
-        DCHECK(mutable_block.rows() == rows);
+
+        scoped_mutable_block.restore();
+        for (int i = 0; i < shared_columns.size(); ++i) {
+            if (shared_columns[i]) {
+                output_block->replace_by_position(i, std::move(shared_columns[i]));
+            }
+        }
     }
-    local_state->_estimate_memory_usage += bytes_usage;
+
+    origin_block->clear_column_data(
+            local_state->_parent->intermediate_row_desc().num_materialized_slots());
+    DCHECK_EQ(output_block->rows(), rows);
 
     return Status::OK();
 }
@@ -695,13 +709,15 @@ Status PipelineXSinkLocalState<SharedState>::close(RuntimeState* state, Status e
 }
 
 template <typename LocalStateType>
-Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status StreamingOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Block* block,
+                                                          bool* eos) {
     RETURN_IF_ERROR(OperatorX<LocalStateType>::_child->get_block_after_projects(state, block, eos));
     return pull(state, block, eos);
 }
 
 template <typename LocalStateType>
-Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status StatefulOperatorX<LocalStateType>::get_block_impl(RuntimeState* state, Block* block,
+                                                         bool* eos) {
     auto& local_state = get_local_state(state);
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data(
@@ -800,6 +816,7 @@ DECLARE_OPERATOR(OlapTableSinkV2LocalState)
 DECLARE_OPERATOR(HiveTableSinkLocalState)
 DECLARE_OPERATOR(TVFTableSinkLocalState)
 DECLARE_OPERATOR(IcebergTableSinkLocalState)
+DECLARE_OPERATOR(PaimonTableSinkLocalState)
 DECLARE_OPERATOR(SpillIcebergTableSinkLocalState)
 DECLARE_OPERATOR(IcebergDeleteSinkLocalState)
 DECLARE_OPERATOR(IcebergMergeSinkLocalState)
@@ -927,6 +944,7 @@ template class AsyncWriterSink<doris::VIcebergDeleteSink, IcebergDeleteSinkOpera
 template class AsyncWriterSink<doris::VIcebergMergeSink, IcebergMergeSinkOperatorX>;
 template class AsyncWriterSink<doris::VMCTableWriter, MCTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTVFTableWriter, TVFTableSinkOperatorX>;
+template class AsyncWriterSink<doris::PaimonTableWriter, PaimonTableSinkOperatorX>;
 
 #ifdef BE_TEST
 template class OperatorX<DummyOperatorLocalState>;

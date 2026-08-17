@@ -2,7 +2,9 @@
 create database if not exists multi_catalog;
 use multi_catalog;
 
-CREATE TABLE IF NOT EXISTS `logs1_parquet`(
+drop table if exists `logs1_parquet`;
+
+create table `logs1_parquet`(
   `log_time` timestamp,
   `machine_name` varchar(128),
   `machine_group` varchar(128),
@@ -35,5 +37,3 @@ OUTPUTFORMAT
   'org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat'
 LOCATION
   '/user/doris/suites/multi_catalog/logs1_parquet';
-
-msck repair table logs1_parquet;

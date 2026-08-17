@@ -515,7 +515,7 @@ void PartitionedHashJoinSinkLocalState::update_profile_from_inner() {
 
 #undef UPDATE_COUNTER_FROM_INNER
 
-Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
+Status PartitionedHashJoinSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     const auto rows = in_block->rows();

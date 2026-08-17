@@ -338,7 +338,7 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
         if (!(skipResult.shouldSkipCounting() || skipResult.isNotBeneficial())) {
             if (expr.getDepth() >= MIN_EXPRESSION_DEPTH
                     && expr.children().size() > 0
-                    && !ExpressionUtils.containUniqueFunctionExistMultiple(ImmutableList.of(expr))) {
+                    && !ExpressionUtils.containVolatileExpressionExistMultiple(ImmutableList.of(expr))) {
                 expressionCounts.put(expr, expressionCounts.getOrDefault(expr, 0) + 1);
             }
         }

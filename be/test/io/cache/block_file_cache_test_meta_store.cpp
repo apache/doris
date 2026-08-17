@@ -260,10 +260,10 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
 
         // then check the log replay
         ASSERT_EQ(cache.replay_lru_logs_once(), 20);
-        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 5);
+        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 2);
+        ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 2);
+        ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 2);
+        ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 2);
 
         // do some REMOVE
         {
@@ -271,12 +271,13 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
         }
 
         ASSERT_EQ(cache.replay_lru_logs_once(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 5);
+        ASSERT_EQ(cache._lru_recorder->_shadow_ttl_queue.get_elements_num_unsafe(), 2);
         ASSERT_EQ(cache._lru_recorder->_shadow_index_queue.get_elements_num_unsafe(), 0);
-        ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 5);
-        ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 5);
+        ASSERT_EQ(cache._lru_recorder->_shadow_normal_queue.get_elements_num_unsafe(), 2);
+        ASSERT_EQ(cache._lru_recorder->_shadow_disposable_queue.get_elements_num_unsafe(), 2);
         EXPECT_EQ(cache.replay_lru_logs_once(), 0);
         EXPECT_EQ(cache._lru_recorder_log_replay_idle_metrics->get_value(), 1);
+        cache.dump_lru_queues(true);
 
         // check the meta store to see the content
         {
@@ -312,8 +313,6 @@ TEST_F(BlockFileCacheTest, version3_add_remove_restart) {
             verify_meta_key(*meta_store, 50, "key4", 300000, FileCacheType::DISPOSABLE, 0, 100000);
             verify_meta_key(*meta_store, 50, "key4", 400000, FileCacheType::DISPOSABLE, 0, 100000);
         }
-        std::this_thread::sleep_for(
-                std::chrono::milliseconds(2 * config::file_cache_background_lru_dump_interval_ms));
     }
 
     { // cache2

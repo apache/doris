@@ -103,7 +103,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);

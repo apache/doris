@@ -31,16 +31,26 @@ import java.util.Map;
 public class ModifyColumnCommentClause extends AlterTableClause {
     private static final Logger LOG = LogManager.getLogger(ModifyColumnCommentClause.class);
     private String colName;
+    private ColumnPath columnPath;
     private String comment;
 
     public ModifyColumnCommentClause(String colName, String comment) {
+        this(ColumnPath.of(colName), comment);
+    }
+
+    public ModifyColumnCommentClause(ColumnPath columnPath, String comment) {
         super(AlterOpType.MODIFY_COLUMN_COMMENT);
-        this.colName = colName;
+        this.colName = columnPath.getLeafName();
+        this.columnPath = columnPath;
         this.comment = Strings.nullToEmpty(comment);
     }
 
     public String getColName() {
         return colName;
+    }
+
+    public ColumnPath getColumnPath() {
+        return columnPath;
     }
 
     public String getComment() {
@@ -72,7 +82,7 @@ public class ModifyColumnCommentClause extends AlterTableClause {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("MODIFY COLUMN COMMENT ").append(colName);
+        sb.append("MODIFY COLUMN COMMENT ").append(columnPath.toSql());
         sb.append(" '").append(comment).append("'");
         return sb.toString();
     }

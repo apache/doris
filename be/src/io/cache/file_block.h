@@ -32,6 +32,10 @@
 #include "io/cache/file_cache_common.h"
 #include "util/slice.h"
 
+namespace butil {
+class IOBuf;
+}
+
 namespace doris {
 namespace io {
 
@@ -97,9 +101,13 @@ public:
 
     // append data to cache file
     [[nodiscard]] Status append(Slice data);
+    [[nodiscard]] Status appendv(const Slice* data, size_t data_cnt);
+    [[nodiscard]] Status append_iobuf(const butil::IOBuf& data);
 
     // read data from cache file
     [[nodiscard]] Status read(Slice buffer, size_t read_offset);
+    [[nodiscard]] Status read_to_iobuf(butil::IOBuf* out, size_t read_offset, size_t bytes_req,
+                                       size_t* bytes_read);
 
     // finish write, release the file writer
     [[nodiscard]] Status finalize();

@@ -19,14 +19,18 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -37,6 +41,7 @@ import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -70,6 +75,7 @@ public class ExecuteCommand extends Command {
         StatementContext statementContext = ctx.getStatementContext();
         statementContext.setPrepareStage(false);
         statementContext.setIsInsert(false);
+        statementContext.resetMvccSnapshots();
         PreparedStatementContext preparedStmtCtx = ctx.getPreparedStementContext(stmtName);
         if (null == preparedStmtCtx) {
             throw new AnalysisException(
@@ -77,6 +83,44 @@ public class ExecuteCommand extends Command {
         }
         PrepareCommand prepareCommand = preparedStmtCtx.command;
         LogicalPlan logicalPlan = prepareCommand.getLogicalPlan();
+        List<LogicalPlan> relationRoots = new ArrayList<>();
+        if (logicalPlan instanceof InsertIntoTableCommand) {
+            relationRoots.add(((InsertIntoTableCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof InsertOverwriteTableCommand) {
+            relationRoots.add(((InsertOverwriteTableCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof UpdateCommand) {
+            relationRoots.add(((UpdateCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof DeleteFromUsingCommand) {
+            relationRoots.add(((DeleteFromUsingCommand) logicalPlan).getLogicalQuery());
+        } else if (logicalPlan instanceof DeleteFromCommand) {
+            relationRoots.add(((DeleteFromCommand) logicalPlan).logicalQuery);
+        } else if (logicalPlan instanceof MergeIntoCommand) {
+            relationRoots.addAll(((MergeIntoCommand) logicalPlan).getRelationRoots());
+        } else if (!(logicalPlan instanceof Command)) {
+            relationRoots.add(logicalPlan);
+        }
+        // Commands hide their retained query trees from normal plan traversal. Reset every exposed
+        // root so a later EXECUTE cannot reuse a relation-local snapshot from an earlier execution.
+        for (int rootIndex = 0; rootIndex < relationRoots.size(); rootIndex++) {
+            LogicalPlan relationRoot = relationRoots.get(rootIndex);
+            for (UnboundRelation relation : relationRoot.<UnboundRelation>collectToList(
+                    UnboundRelation.class::isInstance)) {
+                TableScanParams scanParams = relation.getScanParams();
+                if (scanParams != null) {
+                    scanParams.resetResolvedMapParams();
+                }
+            }
+            for (LogicalPlan plan : relationRoot.<LogicalPlan>collectToList(node -> true)) {
+                for (Expression expression : plan.getExpressions()) {
+                    for (SubqueryExpr subquery : expression.<SubqueryExpr>collectToList(
+                            SubqueryExpr.class::isInstance)) {
+                        // SubqueryExpr owns its query plan outside Plan.children(), so retained prepared
+                        // commands need this explicit edge to clear nested relation-local snapshot state.
+                        relationRoots.add(subquery.getQueryPlan());
+                    }
+                }
+            }
+        }
         if (logicalPlan instanceof LogicalSqlCache) {
             throw new AnalysisException("Unsupported sql cache for server prepared statement");
         }
@@ -88,13 +132,12 @@ public class ExecuteCommand extends Command {
         LogicalPlanAdapter planAdapter = new LogicalPlanAdapter(
                 logicalPlan, executor.getContext().getStatementContext());
         executor.setParsedStmt(planAdapter);
-        // If it's not a short circuit query or schema version is different(indicates schema changed) or
-        // has nondeterministic functions in statement, then need to do reanalyze and plan
+        // If it's not a short circuit query, schema version or file cache query limit changed, or
+        // the statement has nondeterministic functions, then reanalyze and plan.
         if (executor.getContext().getStatementContext().isShortCircuitQuery()
                 && preparedStmtCtx.shortCircuitQueryContext.isPresent()
-                && preparedStmtCtx.shortCircuitQueryContext.get().tbl.getBaseSchemaVersion()
-                == preparedStmtCtx.shortCircuitQueryContext.get().schemaVersion && !executor.getContext()
-                .getStatementContext().hasNondeterministic()) {
+                && preparedStmtCtx.shortCircuitQueryContext.get().isReusable(ctx)
+                && !executor.getContext().getStatementContext().hasNondeterministic()) {
             PointQueryExecutor.directExecuteShortCircuitQuery(executor, preparedStmtCtx, statementContext);
             return;
         }
