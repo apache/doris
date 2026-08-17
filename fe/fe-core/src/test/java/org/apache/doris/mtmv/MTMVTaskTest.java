@@ -576,7 +576,8 @@ public class MTMVTaskTest {
         mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.generatePartitionSnapshots(
                 Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class)))
                 .thenReturn(Collections.emptyMap());
-        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getBaseVersions(Mockito.same(mtmv)))
+        mtmvPartitionUtilStatic.when(() -> MTMVPartitionUtil.getBaseVersions(
+                Mockito.same(mtmv), Mockito.anyMap()))
                 .thenReturn(Mockito.mock(MTMVBaseVersions.class));
         AtomicInteger refreshCount = new AtomicInteger();
         try (MockedConstruction<IvmIncrRefreshManager> ignored = Mockito.mockConstruction(IvmIncrRefreshManager.class,
