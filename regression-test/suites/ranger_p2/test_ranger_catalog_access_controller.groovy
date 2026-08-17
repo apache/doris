@@ -86,9 +86,50 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 		}
 	}
 
-	// Grants `user` `accesses` on `resources` of `service`, and waits for the plugin to pick it up.
+	// Waits for a policy change to become observable, rather than for a fixed duration.
+	//
+	// The shared waitPolicyEffect() sleeps 6 seconds, which is sized for the *doris* plugin's 5 second
+	// poll interval - every sibling suite writes into the doris service only. This is the first suite to
+	// write into a *hive* Ranger service, and the hive plugin polls on whatever
+	// ranger.plugin.hive.policy.pollIntervalMs says in the FE's ranger-hive-security.xml, defaulting to
+	// Ranger's own 30 seconds. Sleeping 6 seconds there is a race, and pinning the interval would make a
+	// suite depend on a value nobody documents, so wait for the answer to change instead.
+	def awaitPolicyEffect = { String what, Closure<Boolean> effective ->
+		logger.info("waiting for ${what}")
+		awaitUntil(180, 3) { effective() }
+	}
+
+	// Can `user` read the table through this catalog at all.
+	def readable = { String catalog ->
+		return connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+			try {
+				sql """SELECT * FROM ${catalog}.${dbName}.${tblName}"""
+				return true
+			} catch (Exception e) {
+				return false
+			}
+		}
+	}
+
+	// How many rows `user` sees through this catalog, which is what a row filter changes.
+	def visibleRows = { String catalog ->
+		return connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+			return sql("""SELECT id FROM ${catalog}.${dbName}.${tblName}""").size()
+		}
+	}
+
+	// Whether every username `user` sees through this catalog is masked away.
+	def usernamesMasked = { String catalog ->
+		return connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+			def rows = sql("""SELECT username FROM ${catalog}.${dbName}.${tblName}""")
+			return !rows.isEmpty() && rows.every { it[0] == null }
+		}
+	}
+
+	// Grants `user` `accesses` on `resources` of `service`. `effective` says how to tell it has been
+	// picked up; without one the doris plugin's poll interval is waited out.
 	def grant = { String service, String name, Map<String, RangerPolicy.RangerPolicyResource> resources,
-			List<String> accesses ->
+			List<String> accesses, Closure<Boolean> effective = null ->
 		dropPolicyQuietly(service, name)
 		RangerPolicy policy = new RangerPolicy()
 		policy.setService(service)
@@ -99,7 +140,11 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 		item.setAccesses(accesses.collect { new RangerPolicy.RangerPolicyItemAccess(it) })
 		policy.setPolicyItems([item])
 		logger.info("created policy ${name} with id ${rangerClient.createPolicy(policy).getId()}")
-		waitPolicyEffect()
+		if (effective == null) {
+			waitPolicyEffect()
+		} else {
+			awaitPolicyEffect("policy ${name} in ${service} to take effect", effective)
+		}
 	}
 
 	// ---- the Ranger service the bound catalog answers to ----
@@ -153,7 +198,11 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	sql """DROP USER IF EXISTS ${user}"""
 	sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
+	// Everything this suite owns is dropped here, before it is used, rather than in a finally block:
+	// what a failed run leaves behind is what makes it debuggable (root AGENTS.md, test convention 3).
 	dropPolicyQuietly(HIVE_SERVICE_NAME, hivePolicyName)
+	dropPolicyQuietly(HIVE_SERVICE_NAME, hiveRowFilterName)
+	dropPolicyQuietly(HIVE_SERVICE_NAME, hiveMaskName)
 	dropPolicyQuietly(dorisServiceName, dorisPolicyName)
 
 	Map<String, RangerPolicy.RangerPolicyResource> hiveResources = [
@@ -170,140 +219,128 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	]
 	List<String> dorisAccesses = ["SELECT", "LOAD", "ALTER", "CREATE", "DROP", "SHOW_VIEW"]
 
-	try {
-		// case 1: what is inside the catalog is the bound source's to answer, and it has been given
-		// nothing. The refusal names the table, in the shape a Hive service phrases it: no catalog,
-		// because a Hive service has no such scope.
-		connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
-			test {
-				sql """SELECT * FROM ${boundCatalog}.${dbName}.${tblName}"""
-				exception "does not have privilege"
-			}
+	// case 1: what is inside the catalog is the bound source's to answer, and it has been given
+	// nothing. The refusal names the table, in the shape a Hive service phrases it: no catalog,
+	// because a Hive service has no such scope.
+	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+		test {
+			sql """SELECT * FROM ${boundCatalog}.${dbName}.${tblName}"""
+			exception "does not have privilege"
 		}
+	}
 
-		// case 2: a policy in that service, and only in that service, opens the table.
-		// Hive access types are lower case; RangerHiveAccessController maps a Doris SELECT onto this.
-		grant(HIVE_SERVICE_NAME, hivePolicyName, hiveResources, ["select"])
-		connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
-			def rows = sql """SELECT * FROM ${boundCatalog}.${dbName}.${tblName}"""
-			assertEquals(4, rows.size())
-		}
+	// case 2: a policy in that service, and only in that service, opens the table.
+	// Hive access types are lower case; RangerHiveAccessController maps a Doris SELECT onto this.
+	grant(HIVE_SERVICE_NAME, hivePolicyName, hiveResources, ["select"], { readable(boundCatalog) })
+	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+		def rows = sql """SELECT * FROM ${boundCatalog}.${dbName}.${tblName}"""
+		assertEquals(4, rows.size())
+	}
 
-		// case 3: the catalog itself is a different question, and the bound source never sees it.
-		// Reading a qualified table above asked about the table alone; SWITCH asks about the catalog,
-		// which routes to the instance wide source, where nothing has been granted yet.
-		connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
-			test {
-				sql """SWITCH ${boundCatalog}"""
-				exception "to catalog"
-			}
-		}
-		grant(dorisServiceName, dorisPolicyName, dorisResources, dorisAccesses)
-		connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+	// case 3: the catalog itself is a different question, and the bound source never sees it.
+	// Reading a qualified table above asked about the table alone; SWITCH asks about the catalog,
+	// which routes to the instance wide source, where nothing has been granted yet.
+	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+		test {
 			sql """SWITCH ${boundCatalog}"""
+			exception "to catalog"
 		}
+	}
+	grant(dorisServiceName, dorisPolicyName, dorisResources, dorisAccesses)
+	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+		sql """SWITCH ${boundCatalog}"""
+	}
 
-		// case 4: and that catalog grant reaches no further than the catalog. It is still in force
-		// here, so the table closing again when the Hive policy goes away is the bound source's
-		// doing: the two services each answer their own half and neither covers for the other.
-		dropPolicyQuietly(HIVE_SERVICE_NAME, hivePolicyName)
-		waitPolicyEffect()
-		connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
-			test {
-				sql """SELECT * FROM ${boundCatalog}.${dbName}.${tblName}"""
-				exception "does not have privilege"
-			}
+	// case 4: and that catalog grant reaches no further than the catalog. It is still in force
+	// here, so the table closing again when the Hive policy goes away is the bound source's
+	// doing: the two services each answer their own half and neither covers for the other.
+	dropPolicyQuietly(HIVE_SERVICE_NAME, hivePolicyName)
+	awaitPolicyEffect("the hive policy to stop opening the table", { !readable(boundCatalog) })
+	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+		test {
+			sql """SELECT * FROM ${boundCatalog}.${dbName}.${tblName}"""
+			exception "does not have privilege"
 		}
+	}
 
-		// case 5: the same source can be named by the class of the factory publishing it, which is
-		// what releases before the sources became plugins wrote, and what a catalog created then
-		// still has persisted.
-		grant(HIVE_SERVICE_NAME, hivePolicyName, hiveResources, ["select"])
-		sql """DROP CATALOG IF EXISTS ${fqcnCatalog}"""
-		sql """CREATE CATALOG ${fqcnCatalog} PROPERTIES (
-			"type"="hms",
-			'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
-			'access_controller.class' = '${FACTORY_CLASS}',
-			'access_controller.properties.ranger.service.name' = '${HIVE_SERVICE_NAME}'
-		)"""
-		connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
-			def rows = sql """SELECT * FROM ${fqcnCatalog}.${dbName}.${tblName}"""
-			assertEquals(4, rows.size())
-		}
+	// case 5: the same source can be named by the class of the factory publishing it, which is
+	// what releases before the sources became plugins wrote, and what a catalog created then
+	// still has persisted.
+	grant(HIVE_SERVICE_NAME, hivePolicyName, hiveResources, ["select"], { readable(boundCatalog) })
+	sql """DROP CATALOG IF EXISTS ${fqcnCatalog}"""
+	sql """CREATE CATALOG ${fqcnCatalog} PROPERTIES (
+		"type"="hms",
+		'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
+		'access_controller.class' = '${FACTORY_CLASS}',
+		'access_controller.properties.ranger.service.name' = '${HIVE_SERVICE_NAME}'
+	)"""
+	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+		def rows = sql """SELECT * FROM ${fqcnCatalog}.${dbName}.${tblName}"""
+		assertEquals(4, rows.size())
+	}
 
-		// case 6: a row filter is decided by the same source as the read it applies to, so writing
-		// one in the bound catalog's service changes what that catalog returns and leaves the plain
-		// catalog, whose authority is the instance wide service, returning the whole table. Same
-		// metastore, same table, two answers.
-		RangerPolicy rowFilter = new RangerPolicy()
-		rowFilter.setService(HIVE_SERVICE_NAME)
-		rowFilter.setName(hiveRowFilterName)
-		rowFilter.setPolicyType(RangerPolicy.POLICY_TYPE_ROWFILTER)
-		// A Hive row filter is written against the table; a column resource is not part of that def.
-		rowFilter.setResources([
-				'database': new RangerPolicy.RangerPolicyResource(dbName),
-				'table'   : new RangerPolicy.RangerPolicyResource(tblName)
-		])
-		RangerPolicy.RangerRowFilterPolicyItem rowFilterItem = new RangerPolicy.RangerRowFilterPolicyItem()
-		rowFilterItem.setUsers([user])
-		rowFilterItem.setAccesses([new RangerPolicy.RangerPolicyItemAccess("select")])
-		rowFilterItem.setRowFilterInfo(new RangerPolicy.RangerPolicyItemRowFilterInfo("id >= 3"))
-		rowFilter.setRowFilterPolicyItems([rowFilterItem])
-		dropPolicyQuietly(HIVE_SERVICE_NAME, hiveRowFilterName)
-		logger.info("created row filter policy id ${rangerClient.createPolicy(rowFilter).getId()}")
-		waitPolicyEffect()
+	// case 6: a row filter is decided by the same source as the read it applies to, so writing
+	// one in the bound catalog's service changes what that catalog returns and leaves the plain
+	// catalog, whose authority is the instance wide service, returning the whole table. Same
+	// metastore, same table, two answers.
+	RangerPolicy rowFilter = new RangerPolicy()
+	rowFilter.setService(HIVE_SERVICE_NAME)
+	rowFilter.setName(hiveRowFilterName)
+	rowFilter.setPolicyType(RangerPolicy.POLICY_TYPE_ROWFILTER)
+	// A Hive row filter is written against the table; a column resource is not part of that def.
+	rowFilter.setResources([
+			'database': new RangerPolicy.RangerPolicyResource(dbName),
+			'table'   : new RangerPolicy.RangerPolicyResource(tblName)
+	])
+	RangerPolicy.RangerRowFilterPolicyItem rowFilterItem = new RangerPolicy.RangerRowFilterPolicyItem()
+	rowFilterItem.setUsers([user])
+	rowFilterItem.setAccesses([new RangerPolicy.RangerPolicyItemAccess("select")])
+	rowFilterItem.setRowFilterInfo(new RangerPolicy.RangerPolicyItemRowFilterInfo("id >= 3"))
+	rowFilter.setRowFilterPolicyItems([rowFilterItem])
+	dropPolicyQuietly(HIVE_SERVICE_NAME, hiveRowFilterName)
+	logger.info("created row filter policy id ${rangerClient.createPolicy(rowFilter).getId()}")
+	awaitPolicyEffect("the row filter to reach the bound catalog", { visibleRows(boundCatalog) == 2 })
 
-		connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
-			def filtered = sql """SELECT id FROM ${boundCatalog}.${dbName}.${tblName}"""
-			assertEquals(2, filtered.size())
-			filtered.each { assertTrue(it[0] >= 3, "row ${it[0]} should have been filtered out") }
+	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+		def filtered = sql """SELECT id FROM ${boundCatalog}.${dbName}.${tblName}"""
+		assertEquals(2, filtered.size())
+		filtered.each { assertTrue(it[0] >= 3, "row ${it[0]} should have been filtered out") }
 
-			def whole = sql """SELECT id FROM ${plainCatalog}.${dbName}.${tblName}"""
-			assertEquals(4, whole.size())
-		}
-		dropPolicyQuietly(HIVE_SERVICE_NAME, hiveRowFilterName)
-		waitPolicyEffect()
+		def whole = sql """SELECT id FROM ${plainCatalog}.${dbName}.${tblName}"""
+		assertEquals(4, whole.size())
+	}
+	dropPolicyQuietly(HIVE_SERVICE_NAME, hiveRowFilterName)
+	awaitPolicyEffect("the row filter to be gone again", { visibleRows(boundCatalog) == 4 })
 
-		// case 7: and the same for a column mask. MASK_NULL is the one whose effect needs no
-		// agreement about string shapes: the column comes back null through the bound catalog and
-		// intact through the plain one.
-		RangerPolicy mask = new RangerPolicy()
-		mask.setService(HIVE_SERVICE_NAME)
-		mask.setName(hiveMaskName)
-		mask.setPolicyType(RangerPolicy.POLICY_TYPE_DATAMASK)
-		// A mask is written against one column, which is why Ranger evaluates masks a column at a time.
-		mask.setResources([
-				'database': new RangerPolicy.RangerPolicyResource(dbName),
-				'table'   : new RangerPolicy.RangerPolicyResource(tblName),
-				'column'  : new RangerPolicy.RangerPolicyResource('username')
-		])
-		RangerPolicy.RangerDataMaskPolicyItem maskItem = new RangerPolicy.RangerDataMaskPolicyItem()
-		maskItem.setUsers([user])
-		maskItem.setAccesses([new RangerPolicy.RangerPolicyItemAccess("select")])
-		maskItem.setDataMaskInfo(new RangerPolicy.RangerPolicyItemDataMaskInfo("MASK_NULL", "", ""))
-		mask.setDataMaskPolicyItems([maskItem])
-		dropPolicyQuietly(HIVE_SERVICE_NAME, hiveMaskName)
-		logger.info("created data mask policy id ${rangerClient.createPolicy(mask).getId()}")
-		waitPolicyEffect()
+	// case 7: and the same for a column mask. MASK_NULL is the one whose effect needs no
+	// agreement about string shapes: the column comes back null through the bound catalog and
+	// intact through the plain one.
+	RangerPolicy mask = new RangerPolicy()
+	mask.setService(HIVE_SERVICE_NAME)
+	mask.setName(hiveMaskName)
+	mask.setPolicyType(RangerPolicy.POLICY_TYPE_DATAMASK)
+	// A mask is written against one column, which is why Ranger evaluates masks a column at a time.
+	mask.setResources([
+			'database': new RangerPolicy.RangerPolicyResource(dbName),
+			'table'   : new RangerPolicy.RangerPolicyResource(tblName),
+			'column'  : new RangerPolicy.RangerPolicyResource('username')
+	])
+	RangerPolicy.RangerDataMaskPolicyItem maskItem = new RangerPolicy.RangerDataMaskPolicyItem()
+	maskItem.setUsers([user])
+	maskItem.setAccesses([new RangerPolicy.RangerPolicyItemAccess("select")])
+	maskItem.setDataMaskInfo(new RangerPolicy.RangerPolicyItemDataMaskInfo("MASK_NULL", "", ""))
+	mask.setDataMaskPolicyItems([maskItem])
+	dropPolicyQuietly(HIVE_SERVICE_NAME, hiveMaskName)
+	logger.info("created data mask policy id ${rangerClient.createPolicy(mask).getId()}")
+	awaitPolicyEffect("the column mask to reach the bound catalog", { usernamesMasked(boundCatalog) })
 
-		connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
-			def masked = sql """SELECT username FROM ${boundCatalog}.${dbName}.${tblName}"""
-			assertEquals(4, masked.size())
-			masked.each { assertTrue(it[0] == null, "username should have been masked, got ${it[0]}") }
+	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+		def masked = sql """SELECT username FROM ${boundCatalog}.${dbName}.${tblName}"""
+		assertEquals(4, masked.size())
+		masked.each { assertTrue(it[0] == null, "username should have been masked, got ${it[0]}") }
 
-			def clear = sql """SELECT username FROM ${plainCatalog}.${dbName}.${tblName}"""
-			assertEquals(4, clear.size())
-			clear.each { assertTrue(it[0] != null, "username should not be masked here") }
-		}
-	} finally {
-		dropPolicyQuietly(HIVE_SERVICE_NAME, hivePolicyName)
-		dropPolicyQuietly(HIVE_SERVICE_NAME, hiveRowFilterName)
-		dropPolicyQuietly(HIVE_SERVICE_NAME, hiveMaskName)
-		dropPolicyQuietly(dorisServiceName, dorisPolicyName)
-		sql """DROP CATALOG IF EXISTS ${boundCatalog}"""
-		sql """DROP CATALOG IF EXISTS ${fqcnCatalog}"""
-		sql """DROP DATABASE IF EXISTS ${plainCatalog}.${dbName} FORCE"""
-		sql """DROP CATALOG IF EXISTS ${plainCatalog}"""
-		sql """DROP USER IF EXISTS ${user}"""
+		def clear = sql """SELECT username FROM ${plainCatalog}.${dbName}.${tblName}"""
+		assertEquals(4, clear.size())
+		clear.each { assertTrue(it[0] != null, "username should not be masked here") }
 	}
 }

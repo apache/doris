@@ -54,8 +54,8 @@ import java.util.TreeSet;
  *
  * <p>{@code Plugin} / {@code PluginFactory} / {@code PluginContext} from fe-extension-spi are frozen here
  * too, and identically in the other four families' baselines. They are loaded parent-first for every family
- * (see {@code ChildFirstClassLoader.DEFAULT_PARENT_FIRST_PACKAGES}), so a change to them breaks all four
- * plugin kinds at once — and turns all four baselines red at once, each asking for its own bump.
+ * (see {@code ChildFirstClassLoader.DEFAULT_PARENT_FIRST_PACKAGES}), so a change to them breaks all five
+ * plugin kinds at once — and turns all five baselines red at once, each asking for its own bump.
  *
  * <p>Signatures are recorded with their return type, unlike the older
  * {@code connector-metadata-methods.txt} baseline: a changed return type is a MAJOR change by the same

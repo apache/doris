@@ -30,11 +30,14 @@ until curl -f "${ADMIN}"; do
 done
 
 # Both steps are idempotent: this script reruns on every container restart, and
-# a 400 "duplicate" out of `set -e` would take the whole stack down.
+# a 400 "duplicate" out of `set -e` would take the whole stack down. The existence
+# probe in front of each POST is what makes that safe, so the POSTs themselves keep
+# `-f`: without it a real failure is swallowed and the stack comes up healthy with
+# neither the Doris service definition nor its instance registered.
 if curl -sf -u "${AUTH}" "${ADMIN}/service/plugins/definitions/name/doris" >/dev/null; then
     echo "Doris service definition already registered"
 else
-    curl -sS -u "${AUTH}" -X POST \
+    curl -fsS -u "${AUTH}" -X POST \
         -H "Accept: application/json" \
         -H "Content-Type: application/json" \
         "${ADMIN}/service/plugins/definitions" \
@@ -46,7 +49,7 @@ fi
 if curl -sf -u "${AUTH}" "${ADMIN}/service/plugins/services/name/doris" >/dev/null; then
     echo "Doris service instance already exists"
 else
-    curl -sS -u "${AUTH}" -X POST \
+    curl -fsS -u "${AUTH}" -X POST \
         -H "Accept: application/json" \
         -H "Content-Type: application/json" \
         "${ADMIN}/service/plugins/services" \

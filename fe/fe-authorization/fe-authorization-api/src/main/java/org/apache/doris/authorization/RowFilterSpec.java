@@ -44,7 +44,9 @@ public final class RowFilterSpec {
 
     /**
      * @param policyIdent identifies the policy that produced this filter, for auditing and for change
-     *         detection; it must change when the policy changes (e.g. {@code "<policyId>:<version>"})
+     *         detection. The spec as a whole has to compare unequal once the policy changes; carry the
+     *         version here when nothing else moves (e.g. {@code "<policyId>:<version>"} for a source whose
+     *         policies are edited in place)
      * @param filterSql a boolean SQL expression in Doris dialect over the table's columns
      * @param mergeType how this filter combines with the table's other filters
      */

@@ -15,7 +15,9 @@ Plugin authors implement:
 - `AuthorizationPlugin` — the decisions
 - `AuthorizationPluginFactory` — how the engine builds one
 
-Both are discovered via Java `ServiceLoader`. The decision vocabulary (`AuthorizedSubject`,
+`AuthorizationPluginFactory` is the one discovered via Java `ServiceLoader`, so it is the one that needs a
+`META-INF/services` descriptor; the engine reaches an `AuthorizationPlugin` only through the factory that
+built it, and a second descriptor for it fails the load. The decision vocabulary (`AuthorizedSubject`,
 `AuthorizedResource`, `AccessAction`, `AccessRequirement`, …) lives in `fe-authorization-api`, which this
 module depends on and which is part of the same frozen contract.
 
