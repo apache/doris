@@ -213,8 +213,15 @@ public:
     SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos) const;
 
     SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos,
+                                                        size_t sort_threshold_bytes) const;
+
+    SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos,
                                                         size_t incoming_rows,
                                                         size_t incoming_bytes) const;
+
+    SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos,
+                                                        size_t incoming_rows, size_t incoming_bytes,
+                                                        size_t sort_threshold_bytes) const;
 
     Status merge_sort_read_for_spill(RuntimeState* state, doris::Block* block, int batch_size,
                                      bool* eos) override;

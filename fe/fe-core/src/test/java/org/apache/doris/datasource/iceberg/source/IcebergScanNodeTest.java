@@ -107,6 +107,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -1962,6 +1963,48 @@ public class IcebergScanNodeTest {
                 current, ImmutableList.of(historicalOptional)));
         Assert.assertFalse(IcebergScanNode.schemaHistoryRequiresMissingRequiredFieldRejection(
                 current, ImmutableList.of(historicalRequired)));
+    }
+
+    @Test
+    public void testReachableSchemasExcludeLaterAndUnrelatedHistory() {
+        Schema selectedSchema = new Schema(1, ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.LongType.get())));
+        Schema unrelatedSchema = new Schema(2, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.LongType.get())));
+        Snapshot selectedSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(selectedSnapshot.snapshotId()).thenReturn(10L);
+        Mockito.when(selectedSnapshot.schemaId()).thenReturn(1);
+        Mockito.when(selectedSnapshot.parentId()).thenReturn(null);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
+                1, selectedSchema, 2, unrelatedSchema));
+
+        List<Schema> reachable = new ArrayList<>();
+        IcebergScanNode.reachableSchemas(table, selectedSnapshot).forEach(reachable::add);
+
+        Assert.assertEquals(ImmutableList.of(selectedSchema), reachable);
+        Assert.assertFalse(IcebergScanNode.schemaHistoryRequiresMissingRequiredFieldRejection(
+                selectedSchema, reachable));
+    }
+
+    @Test
+    public void testProjectedFieldIdsExcludePrunedSibling() {
+        Schema schema = new Schema(ImmutableList.of(Types.NestedField.required(
+                1, "payload", Types.StructType.of(
+                        Types.NestedField.required(2, "keep", Types.StringType.get()),
+                        Types.NestedField.required(3, "added", Types.IntegerType.get())))));
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        Column column = new Column("payload", new StructType(
+                new StructField("keep", Type.STRING), new StructField("added", Type.INT)));
+        column.setUniqueId(1);
+        SlotDescriptor slot = node.addSlot(1, column);
+        slot.setType(new StructType(new StructField("keep", Type.STRING)));
+
+        Set<Integer> projected = IcebergScanNode.projectedFieldIds(
+                schema, ImmutableList.of(slot));
+
+        Assert.assertEquals(ImmutableList.of(1, 2), projected.stream().sorted()
+                .collect(java.util.stream.Collectors.toList()));
     }
 
     @Test

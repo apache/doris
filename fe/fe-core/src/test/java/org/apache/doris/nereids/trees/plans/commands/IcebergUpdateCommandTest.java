@@ -116,6 +116,10 @@ public class IcebergUpdateCommandTest {
 
         // Satisfy the branch-4.1 sink invariants so the assertion exercises Variant write validation.
         org.apache.iceberg.Table icebergTable = Mockito.mock(org.apache.iceberg.Table.class);
+        Mockito.when(icebergTable.schema()).thenReturn(new org.apache.iceberg.Schema(
+                org.apache.iceberg.types.Types.NestedField.optional(
+                        1, "payload", org.apache.iceberg.types.Types.VariantType.get())));
+        Mockito.when(icebergTable.spec()).thenReturn(org.apache.iceberg.PartitionSpec.unpartitioned());
         Mockito.when(icebergTable.properties()).thenReturn(ImmutableMap.of("format-version", "2",
                 "write.format.default", "parquet"));
         Assertions.assertThrows(AnalysisException.class, () -> new LogicalIcebergMergeSink<>(

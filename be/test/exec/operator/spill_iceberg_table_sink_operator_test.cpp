@@ -22,7 +22,14 @@
 #include <string>
 
 #include "core/block/block.h"
+#include "core/column/column_array.h"
+#include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/iceberg_sorter_reserve_memory.h"
 #include "exec/sink/writer/async_writer_queue_admission.h"
@@ -86,6 +93,49 @@ TEST(SpillIcebergTableSinkOperatorTest, ColdWriterReserveUsesFirstBlockLargerTha
     ASSERT_GT(block.allocated_bytes(), operator_floor);
     EXPECT_GE(iceberg_cold_writer_reserve_size(block, operator_floor),
               4 * block.allocated_bytes() + operator_floor);
+}
+
+TEST(SpillIcebergTableSinkOperatorTest, ColdWriterReserveDoesNotAmplifyHugeFirstValuePerPartition) {
+    constexpr size_t operator_floor = 32 * 1024 * 1024;
+    constexpr size_t payload_size = 8 * 1024 * 1024;
+    std::string payload(payload_size, 'x');
+
+    auto strings = ColumnString::create();
+    strings->insert_data(payload.data(), payload.size());
+
+    auto array_strings = ColumnString::create();
+    array_strings->insert_data(payload.data(), payload.size());
+    auto array_nulls = ColumnUInt8::create(1, 0);
+    auto array_offsets = ColumnArray::ColumnOffsets::create();
+    array_offsets->get_data().push_back(1);
+    auto array = ColumnArray::create(
+            ColumnNullable::create(std::move(array_strings), std::move(array_nulls)),
+            std::move(array_offsets));
+
+    auto map_keys = ColumnString::create();
+    map_keys->insert_data(payload.data(), payload.size());
+    auto map_values = ColumnInt32::create(1, 7);
+    auto map_offsets = ColumnArray::ColumnOffsets::create();
+    map_offsets->get_data().push_back(1);
+    auto map =
+            ColumnMap::create(std::move(map_keys), std::move(map_values), std::move(map_offsets));
+
+    Block block;
+    block.insert({std::move(strings), std::make_shared<DataTypeString>(), "payload"});
+    block.insert(
+            {std::move(array),
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>())),
+             "items"});
+    block.insert({std::move(map),
+                  std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
+                                                std::make_shared<DataTypeInt32>()),
+                  "attributes"});
+
+    const size_t reserve = iceberg_cold_writer_reserve_size(block, operator_floor);
+
+    // The input payload is covered by dispatch_copies; only structural column capacity is retained
+    // once per touched partition.
+    EXPECT_LT(reserve, 8 * block.allocated_bytes() + operator_floor);
 }
 
 TEST(SpillIcebergTableSinkOperatorTest, ReservesAllMergeInputsAndOutputAtEos) {

@@ -29,6 +29,7 @@ public:
     Status open(const TPaimonTableSink& sink, RuntimeState* state,
                 RuntimeProfile* profile) override;
     Status create_writer(std::unique_ptr<IPaimonWriter>* writer) override;
+    Status prepare_close_for_commit() override;
     Status close() override;
     PaimonBackendType type() const override { return PaimonBackendType::FFI; }
 };

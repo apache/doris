@@ -22,8 +22,12 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -348,7 +352,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             return true;
         }
         return schemaHistoryRequiresMissingRequiredFieldRejection(
-                scanSchema, projectedFieldIds, icebergTable.schemas().values());
+                scanSchema, projectedFieldIds, reachableSchemas(icebergTable, snapshot));
     }
 
     private boolean hasApplicableEqualityDeletes(TableScan scan) throws UserException {
@@ -397,18 +401,65 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     private Set<Integer> projectedFieldIds(Schema scanSchema) {
+        return projectedFieldIds(scanSchema, desc.getSlots());
+    }
+
+    @VisibleForTesting
+    static Set<Integer> projectedFieldIds(Schema scanSchema, Iterable<SlotDescriptor> slots) {
         Set<Integer> projected = new HashSet<>();
-        for (SlotDescriptor slot : desc.getSlots()) {
+        for (SlotDescriptor slot : slots) {
             int fieldId = slot.getColumn().getUniqueId();
             // Stable Iceberg IDs prevent a dropped-and-readded name from selecting the wrong history.
             NestedField field = fieldId >= 0 ? scanSchema.findField(fieldId)
                     : scanSchema.caseInsensitiveFindField(slot.getColumn().getName());
             if (field != null) {
-                projected.addAll(TypeUtil.indexById(
-                        org.apache.iceberg.types.Types.StructType.of(field)).keySet());
+                collectProjectedFieldIds(field, slot.getType(), projected);
             }
         }
         return projected;
+    }
+
+    private static void collectProjectedFieldIds(
+            NestedField field, org.apache.doris.catalog.Type projectedType,
+            Set<Integer> projected) {
+        projected.add(field.fieldId());
+        if (projectedType instanceof StructType && field.type().isStructType()) {
+            for (StructField projectedChild : ((StructType) projectedType).getFields()) {
+                NestedField icebergChild = field.type().asStructType().fields().stream()
+                        .filter(child -> child.name().equalsIgnoreCase(projectedChild.getName()))
+                        .findFirst().orElse(null);
+                if (icebergChild != null) {
+                    collectProjectedFieldIds(icebergChild, projectedChild.getType(), projected);
+                }
+            }
+        } else if (projectedType instanceof ArrayType && field.type().isListType()) {
+            collectProjectedFieldIds(field.type().asListType().fields().get(0),
+                    ((ArrayType) projectedType).getItemType(), projected);
+        } else if (projectedType instanceof MapType && field.type().isMapType()) {
+            collectProjectedFieldIds(field.type().asMapType().fields().get(0),
+                    ((MapType) projectedType).getKeyType(), projected);
+            collectProjectedFieldIds(field.type().asMapType().fields().get(1),
+                    ((MapType) projectedType).getValueType(), projected);
+        }
+    }
+
+    @VisibleForTesting
+    static Iterable<Schema> reachableSchemas(Table table, Snapshot selectedSnapshot) {
+        Map<Integer, Schema> schemas = table.schemas();
+        List<Schema> reachable = new ArrayList<>();
+        Set<Long> visitedSnapshots = new HashSet<>();
+        Set<Integer> visitedSchemaIds = new HashSet<>();
+        Snapshot snapshot = selectedSnapshot;
+        while (snapshot != null && visitedSnapshots.add(snapshot.snapshotId())) {
+            Schema schema = schemas.get(snapshot.schemaId());
+            if (schema != null && visitedSchemaIds.add(snapshot.schemaId())) {
+                reachable.add(schema);
+            }
+            Long parentId = snapshot.parentId();
+            snapshot = parentId == null ? null : table.snapshot(parentId);
+        }
+        // Only ancestors of the selected ref can have produced files visible to this scan.
+        return reachable;
     }
 
     @VisibleForTesting

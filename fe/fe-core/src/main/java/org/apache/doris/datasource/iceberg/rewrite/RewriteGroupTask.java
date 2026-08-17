@@ -49,6 +49,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -67,10 +68,12 @@ public class RewriteGroupTask implements TransientTaskExecutor {
     private final Long taskId;
     private final AtomicBoolean isCanceled;
     private final AtomicBoolean isFinished;
+    private final AtomicBoolean isStarted;
+    private final CountDownLatch completionLatch;
     private final int availableBeCount;
 
     // for canceling the task
-    private StmtExecutor stmtExecutor;
+    private volatile StmtExecutor stmtExecutor;
 
     public RewriteGroupTask(RewriteDataGroup group,
             long transactionId,
@@ -91,6 +94,8 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         this.taskId = UUID.randomUUID().getMostSignificantBits();
         this.isCanceled = new AtomicBoolean(false);
         this.isFinished = new AtomicBoolean(false);
+        this.isStarted = new AtomicBoolean(false);
+        this.completionLatch = new CountDownLatch(1);
     }
 
     // Tests that only exercise scheduling strategy do not create an Iceberg metadata snapshot.
@@ -115,17 +120,15 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         LOG.debug("[Rewrite Task] taskId: {} starting execution for group with {} tasks",
                 taskId, group.getTaskCount());
 
-        if (isCanceled.get()) {
-            LOG.debug("[Rewrite Task] taskId: {} was already canceled before execution", taskId);
-            throw new JobException("Rewrite task has been canceled, task id: " + taskId);
-        }
-
-        if (isFinished.get()) {
-            LOG.debug("[Rewrite Task] taskId: {} was already finished", taskId);
+        if (!isStarted.compareAndSet(false, true)) {
             return;
         }
 
         try {
+            if (isCanceled.get()) {
+                LOG.debug("[Rewrite Task] taskId: {} was already canceled before execution", taskId);
+                throw new JobException("Rewrite task has been canceled, task id: " + taskId);
+            }
             // Step 1: Create and customize a new ConnectContext for this task
             ConnectContext taskConnectContext = buildConnectContext();
             // Set target file size for Iceberg write
@@ -161,6 +164,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             throw new JobException("Rewrite group execution failed: " + e.getMessage(), e);
         } finally {
             isFinished.set(true);
+            completionLatch.countDown();
         }
     }
 
@@ -172,10 +176,30 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         }
 
         isCanceled.set(true);
-        if (stmtExecutor != null) {
-            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "rewrite task cancelled"));
+        StmtExecutor executor = stmtExecutor;
+        if (executor != null) {
+            executor.cancel(new Status(TStatusCode.CANCELLED, "rewrite task cancelled"));
+        }
+        if (!isStarted.get()) {
+            // A task removed from the transient queue will never enter execute().
+            completionLatch.countDown();
         }
         LOG.info("[Rewrite Task] taskId: {} cancelled", taskId);
+    }
+
+    void awaitCompletionUninterruptibly() {
+        boolean interrupted = false;
+        while (true) {
+            try {
+                completionLatch.await();
+                break;
+            } catch (InterruptedException e) {
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**
@@ -186,6 +210,11 @@ public class RewriteGroupTask implements TransientTaskExecutor {
             StatementBase taskParsedStmt) throws Exception {
         // Step 1: Create stmt executor
         stmtExecutor = new StmtExecutor(taskConnectContext, taskParsedStmt);
+        if (isCanceled.get()) {
+            // Recheck after publishing the executor to close the cancel-before-assignment race.
+            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "rewrite task cancelled"));
+            throw new JobException("Rewrite task has been canceled, task id: " + taskId);
+        }
 
         // Step 2: Create insert executor
         AbstractInsertExecutor insertExecutor = taskLogicalPlan.initPlan(taskConnectContext, stmtExecutor);
