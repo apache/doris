@@ -143,8 +143,18 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     public void alterJob(MTMV mtmv, boolean isReplay) {
-        dropJob(mtmv, isReplay);
-        createJob(mtmv, isReplay);
+        MTMVJob oldJob = getJobByMTMV(mtmv);
+        if (!isReplay && oldJob != null) {
+            oldJob.writeLock();
+        }
+        try {
+            dropJob(mtmv, isReplay);
+            createJob(mtmv, isReplay);
+        } finally {
+            if (!isReplay && oldJob != null) {
+                oldJob.writeUnlock();
+            }
+        }
     }
 
     /**
