@@ -54,9 +54,20 @@ public interface UdfExecutorFactory {
      * FUNCTION is the one moment when discarding it is correct, so BE forwards it here.
      *
      * <p>Called for every loaded plugin, not only the one that ran the function: BE drops a
-     * function without knowing which plugin executed it. A signature this factory never cached is
+     * function without knowing which plugin executed it. A function this factory never cached is
      * therefore normal, and the default does nothing.
+     *
+     * @param functionId        FE's id for the function, the same one it puts on every request that
+     *                          executes it. This is the identity to cache by: it is unique within
+     *                          the cluster, so two same-named functions in different databases are
+     *                          two entries, and a function dropped and re-created is a third -
+     *                          none of which is true of the signature. Not positive only if FE sent
+     *                          no id at all.
+     * @param functionSignature {@code name(argTypes)} as FE renders it, for logs and for the
+     *                          id-less case. Not an identity: it carries no database, and FE spells
+     *                          a variadic signature differently here than on the requests that
+     *                          execute the function.
      */
-    default void invalidate(String functionSignature) {
+    default void invalidate(long functionId, String functionSignature) {
     }
 }

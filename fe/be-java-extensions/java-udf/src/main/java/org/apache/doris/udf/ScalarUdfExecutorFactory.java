@@ -40,10 +40,10 @@ public class ScalarUdfExecutorFactory implements UdfExecutorFactory {
     /**
      * Both factories in this plugin share one cache of compiled functions, so this is the same
      * work {@link AggregateUdfExecutorFactory} does; BE broadcasts DROP FUNCTION to every factory
-     * and dropping a signature that is not cached does nothing.
+     * and dropping a function that is not cached does nothing.
      */
     @Override
-    public void invalidate(String functionSignature) {
-        UdfClassCacheRegistry.invalidate(functionSignature);
+    public void invalidate(long functionId, String functionSignature) {
+        UdfClassCacheRegistry.invalidate(UdfClassCacheRegistry.cacheKey(functionId, functionSignature));
     }
 }

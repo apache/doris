@@ -151,11 +151,12 @@ public:
                                       GlobalClass* executor_class);
 
     // Forwarded to every loaded plugin on DROP FUNCTION, so whichever one compiled that
-    // function can drop what it cached for it.
+    // function can drop what it cached for it. The id is the identity a plugin caches by; the
+    // signature is for its logs, and for the case where FE sent no id.
     //
     // Returns without touching Java when no plugin has ever been loaded: dropping a
     // function must not be the thing that starts a JVM on a BE that runs no Java at all.
-    static Status clean_udf_cache(const std::string& function_signature);
+    static Status clean_udf_cache(int64_t function_id, const std::string& function_signature);
 
     // State of every plugin loaded so far, as JSON.
     static Status plugin_status_json(std::string* status);

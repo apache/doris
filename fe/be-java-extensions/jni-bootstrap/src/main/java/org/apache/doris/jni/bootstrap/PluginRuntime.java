@@ -158,22 +158,22 @@ final class PluginRuntime {
     /**
      * Forwards DROP FUNCTION to whichever plugin caches compiled user functions. Broadcast rather
      * than addressed: BE drops a function without knowing which plugin executed it, and a plugin
-     * that never cached the signature does nothing.
+     * that never cached the function does nothing.
      */
-    void cleanUdfCache(String functionSignature) {
+    void cleanUdfCache(long functionId, String functionSignature) {
         for (PluginHandle handle : plugins.values()) {
             if (handle.state() != PluginHandle.State.READY) {
                 continue;
             }
             try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(handle.classLoader())) {
                 for (UdfExecutorFactory factory : handle.udfExecutorFactories().values()) {
-                    factory.invalidate(functionSignature);
+                    factory.invalidate(functionId, functionSignature);
                 }
             } catch (Throwable t) {
                 // One plugin failing to drop its cache must not stop the others, and DROP FUNCTION
                 // has already been committed on the FE side by now.
                 LOG.log(Level.WARNING, "Java plugin '" + handle.name() + "' failed to invalidate '"
-                        + functionSignature + "': " + JniUtil.throwableToString(t));
+                        + functionSignature + "' (id " + functionId + "): " + JniUtil.throwableToString(t));
             }
         }
     }

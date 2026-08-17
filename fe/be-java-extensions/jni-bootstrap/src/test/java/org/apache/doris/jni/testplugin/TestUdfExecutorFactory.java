@@ -24,7 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Echoes its thrift parameters back as a String, and records the signatures it was asked to
+ * Echoes its thrift parameters back as a String, and records the functions it was asked to
  * invalidate. Both are readable from the test through the SPI-shared types only, since the class
  * itself lives in the plugin's classloader.
  */
@@ -45,8 +45,11 @@ public class TestUdfExecutorFactory implements UdfExecutorFactory {
     }
 
     @Override
-    public void invalidate(String functionSignature) {
-        invalidated.add(functionSignature);
+    public void invalidate(long functionId, String functionSignature) {
+        // Recorded as one string so the test can assert that BOTH halves arrive: a plugin keys its
+        // cache by the id, and dropping the id on the way here is exactly the mistake that leaves a
+        // re-created function running its predecessor's classes.
+        invalidated.add(functionId + ":" + functionSignature);
     }
 
     /** Read back through reflection: this class is not the one the test compiled against. */

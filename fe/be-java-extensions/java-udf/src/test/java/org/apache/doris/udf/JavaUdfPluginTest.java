@@ -129,8 +129,10 @@ public class JavaUdfPluginTest {
     public void dropFunctionReleasesWhatAStaticallyLoadedFunctionCompiledTo(@TempDir Path tmp)
             throws Exception {
         Path jar = jarOf(tmp.resolve("fn.jar"), AddOne.class);
-        String signature = "static_add_one(INT)";
-        byte[] params = staticLoadParams(AddOne.class.getName(), jar, signature);
+        // Deliberately a VARIADIC signature, spelled the way FE spells it on the requests that
+        // execute a function - with the trailing "..." that DROP FUNCTION does not send. Keyed by
+        // the signature, this function could never be invalidated at all.
+        byte[] params = staticLoadParams(AddOne.class.getName(), 4242L, "static_add_one(INT...)", jar);
 
         UdfExecutor first = (UdfExecutor) new ScalarUdfExecutorFactory().create(params);
         UdfExecutor second = (UdfExecutor) new ScalarUdfExecutorFactory().create(params);
@@ -138,11 +140,27 @@ public class JavaUdfPluginTest {
         Assertions.assertSame(first.objCache.udfClass, second.objCache.udfClass);
 
         // Either factory drops it: BE broadcasts DROP FUNCTION to every factory of every plugin
-        // without knowing which one ran the function.
-        new AggregateUdfExecutorFactory().invalidate(signature);
+        // without knowing which one ran the function. The id is what identifies it, so the
+        // signature arriving in its other spelling changes nothing.
+        new AggregateUdfExecutorFactory().invalidate(4242L, "static_add_one(INT)");
 
         UdfExecutor afterDrop = (UdfExecutor) new ScalarUdfExecutorFactory().create(params);
         Assertions.assertNotSame(first.objCache.udfClass, afterDrop.objCache.udfClass);
+    }
+
+    /** ... and dropping some other function leaves this one alone, whatever it is called. */
+    @Test
+    public void droppingAnotherFunctionKeepsThisOneCompiled(@TempDir Path tmp) throws Exception {
+        Path jar = jarOf(tmp.resolve("fn.jar"), AddOne.class);
+        byte[] params = staticLoadParams(AddOne.class.getName(), 11L, "static_add_one(INT)", jar);
+
+        UdfExecutor first = (UdfExecutor) new ScalarUdfExecutorFactory().create(params);
+        // Same name and same argument types, another database: another function, another id. Keyed
+        // by the signature, this drop took this function's classes with it.
+        new ScalarUdfExecutorFactory().invalidate(12L, "static_add_one(INT)");
+
+        UdfExecutor afterOtherDrop = (UdfExecutor) new ScalarUdfExecutorFactory().create(params);
+        Assertions.assertSame(first.objCache.udfClass, afterOtherDrop.objCache.udfClass);
     }
 
     @Test
@@ -172,8 +190,11 @@ public class JavaUdfPluginTest {
         return serialize(function(symbol, signature, false), jar);
     }
 
-    private static byte[] staticLoadParams(String symbol, Path jar, String signature) throws Exception {
-        return serialize(function(symbol, signature, true), jar);
+    private static byte[] staticLoadParams(String symbol, long functionId, String signature, Path jar)
+            throws Exception {
+        TFunction fn = function(symbol, signature, true);
+        fn.setId(functionId);
+        return serialize(fn, jar);
     }
 
     private static TFunction function(String symbol, String signature, boolean staticLoad) {
