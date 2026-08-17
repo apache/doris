@@ -80,6 +80,9 @@ public class MinuteMicrosecondAdd extends ScalarFunction
     @Override
     public FunctionSignature computeSignature(FunctionSignature signature) {
         signature = super.computeSignature(signature);
+        if (signature.argumentsTypes.get(0) instanceof TimeStampTzType) {
+            return signature.withArgumentType(0, TimeStampTzType.MAX).withReturnType(TimeStampTzType.MAX);
+        }
         return signature.withArgumentType(0, DateTimeV2Type.MAX).withReturnType(DateTimeV2Type.MAX);
     }
 }
