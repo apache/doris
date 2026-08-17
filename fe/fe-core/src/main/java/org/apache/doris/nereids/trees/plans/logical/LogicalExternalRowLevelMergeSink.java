@@ -46,6 +46,8 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
     private final ExternalDatabase database;
     private final ExternalTable targetTable;
     private final String boundWriteMetadataIdentity;
+    // Delete-only MERGE emits position deletes but never invokes the data-file writer.
+    private final boolean writesDataFiles;
     // True for SQL MERGE INTO, false for UPDATE. MERGE must reject a target row matched by more than one
     // source row (SQL cardinality rule), which the BE sink can only do when the plan keeps the merge
     // distribution; UPDATE has no such rule. Read by RequestPropertyDeriver (which otherwise drops the
@@ -68,7 +70,7 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
                                    Optional<GroupExpression> groupExpression,
                                    Optional<LogicalProperties> logicalProperties,
                                    CHILD_TYPE child) {
-        this(database, targetTable, null, cols, outputExprs, requireMergeCardinalityCheck,
+        this(database, targetTable, null, cols, outputExprs, true, requireMergeCardinalityCheck,
                 groupExpression, logicalProperties, child);
     }
 
@@ -78,6 +80,7 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
                                    String boundWriteMetadataIdentity,
                                    List<Column> cols,
                                    List<NamedExpression> outputExprs,
+                                   boolean writesDataFiles,
                                    boolean requireMergeCardinalityCheck,
                                    Optional<GroupExpression> groupExpression,
                                    Optional<LogicalProperties> logicalProperties,
@@ -89,6 +92,7 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
         this.targetTable = Objects.requireNonNull(targetTable,
                 "targetTable != null in LogicalExternalRowLevelMergeSink");
         this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
+        this.writesDataFiles = writesDataFiles;
         this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
     }
 
@@ -97,21 +101,21 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, boundWriteMetadataIdentity, cols, output,
-                requireMergeCardinalityCheck, Optional.empty(), Optional.empty(), child);
+                writesDataFiles, requireMergeCardinalityCheck, Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalExternalRowLevelMergeSink only accepts one child");
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, boundWriteMetadataIdentity,
-                cols, outputExprs,
-                requireMergeCardinalityCheck, Optional.empty(), Optional.empty(), children.get(0));
+                cols, outputExprs, writesDataFiles, requireMergeCardinalityCheck,
+                Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public LogicalExternalRowLevelMergeSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, boundWriteMetadataIdentity,
-                cols, outputExprs,
-                requireMergeCardinalityCheck, Optional.empty(), Optional.empty(), child());
+                cols, outputExprs, writesDataFiles, requireMergeCardinalityCheck,
+                Optional.empty(), Optional.empty(), child());
     }
 
     public ExternalDatabase getDatabase() {
@@ -124,6 +128,10 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
 
     public String getBoundWriteMetadataIdentity() {
         return boundWriteMetadataIdentity;
+    }
+
+    public boolean isWritesDataFiles() {
+        return writesDataFiles;
     }
 
     public boolean isRequireMergeCardinalityCheck() {
@@ -146,13 +154,14 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
                 && Objects.equals(targetTable, that.targetTable)
                 && Objects.equals(boundWriteMetadataIdentity, that.boundWriteMetadataIdentity)
                 && Objects.equals(cols, that.cols)
+                && writesDataFiles == that.writesDataFiles
                 && requireMergeCardinalityCheck == that.requireMergeCardinalityCheck;
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), database, targetTable, boundWriteMetadataIdentity, cols,
-                requireMergeCardinalityCheck);
+                writesDataFiles, requireMergeCardinalityCheck);
     }
 
     @Override
@@ -162,6 +171,7 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
                 "database", database.getFullName(),
                 "targetTable", targetTable.getName(),
                 "cols", cols,
+                "writesDataFiles", writesDataFiles,
                 "requireMergeCardinalityCheck", requireMergeCardinalityCheck);
     }
 
@@ -173,15 +183,15 @@ public class LogicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan> extends L
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, boundWriteMetadataIdentity,
-                cols, outputExprs,
-                requireMergeCardinalityCheck, groupExpression, Optional.of(getLogicalProperties()), child());
+                cols, outputExprs, writesDataFiles, requireMergeCardinalityCheck,
+                groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalExternalRowLevelMergeSink<>(database, targetTable, boundWriteMetadataIdentity,
-                cols, outputExprs,
-                requireMergeCardinalityCheck, groupExpression, logicalProperties, children.get(0));
+                cols, outputExprs, writesDataFiles, requireMergeCardinalityCheck,
+                groupExpression, logicalProperties, children.get(0));
     }
 }

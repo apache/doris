@@ -63,4 +63,8 @@ private:
     TUserIdentity _user_identity;
 };
 
+/// Instantiated once in scan_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class ScanOperatorX<MetaScanLocalState>;
+extern template class ScanLocalState<MetaScanLocalState>;
+
 } // namespace doris

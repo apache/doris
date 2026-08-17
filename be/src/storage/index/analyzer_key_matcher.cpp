@@ -17,8 +17,6 @@
 
 #include "storage/index/analyzer_key_matcher.h"
 
-#include "storage/index/inverted/inverted_index_iterator.h"
-
 namespace doris::segment_v2 {
 
 AnalyzerMatchResult AnalyzerKeyMatcher::match(

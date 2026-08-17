@@ -17,13 +17,13 @@
 
 #pragma once
 
-#include "io/fs/obj_storage_client.h"
+#include "cpp/obj-client/obj_storage_client.h"
 
 namespace doris {
 
-inline bool hive_multipart_protocol_supported(io::ObjStorageType provider,
+inline bool hive_multipart_protocol_supported(io::ObjStorageProvider provider,
                                               bool supports_deferred_azure_multipart) {
-    return provider != io::ObjStorageType::AZURE || supports_deferred_azure_multipart;
+    return provider != io::ObjStorageProvider::AZURE || supports_deferred_azure_multipart;
 }
 
 } // namespace doris

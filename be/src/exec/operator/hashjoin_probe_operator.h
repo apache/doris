@@ -220,4 +220,10 @@ private:
     size_t _right_col_idx;
 };
 
+/// Instantiated once in operator.cpp / join_probe_operator.cpp; suppresses per-TU
+/// implicit instantiation.
+extern template class StatefulOperatorX<HashJoinProbeLocalState>;
+extern template class JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>;
+extern template class JoinProbeOperatorX<HashJoinProbeLocalState>;
+
 } // namespace doris

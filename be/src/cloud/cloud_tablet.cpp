@@ -1981,7 +1981,7 @@ void CloudTablet::_add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets,
                                                              expiration_time);
                     }
                 } else {
-                    if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
+                    if (schema_ptr->has_inverted_or_ann_index()) {
                         auto&& inverted_index_info = rowset_meta->inverted_index_file_info(seg_id);
                         int64_t idx_size = 0;
                         if (inverted_index_info.has_index_size()) {

@@ -201,8 +201,20 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         tablet_schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
+    // Let SNII select the direct-load PRX zstd level.
+    opts.is_direct_load = _opts.write_type == DataWriteType::TYPE_DIRECT;
     if (!skip_inverted_index) {
         auto inverted_indexs = tablet_schema->inverted_indexs(column);
+        // SNII splits index compaction per (column, index): indexes in the set
+        // are produced by the postings merge, every sibling on the column still
+        // raw-builds here. V2/V3 skip whole columns above instead.
+        if (_opts.rowset_ctx != nullptr &&
+            !_opts.rowset_ctx->snii_indexes_to_do_compaction.empty()) {
+            std::erase_if(inverted_indexs, [&](const TabletIndex* index_meta) {
+                return _opts.rowset_ctx->snii_indexes_to_do_compaction.contains(
+                        {column.unique_id(), index_meta->index_id()});
+            });
+        }
         if (!inverted_indexs.empty()) {
             opts.inverted_indexes = inverted_indexs;
             opts.need_inverted_index = true;

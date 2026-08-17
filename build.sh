@@ -356,6 +356,7 @@ else
             ;;
         --index-tool)
             BUILD_INDEX_TOOL='ON'
+            BUILD_BE=1
             shift
             ;;
         --benchmark)

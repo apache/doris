@@ -81,6 +81,9 @@ const DataTypePtr& ColumnVariantV2::ReadView::typed_type() const {
 }
 
 ColumnVariantV2::ReadView ColumnVariantV2::read_view() const {
+    if (_shredded) {
+        return _shredded->materialized_column().read_view();
+    }
     if (_typed) {
         DORIS_CHECK(_typed_type != nullptr) << "typed state requires a data type";
         return {static_cast<const IColumn::Ptr&>(_typed).get(), &_typed_type};

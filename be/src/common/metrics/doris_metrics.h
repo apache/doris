@@ -232,6 +232,7 @@ public:
     UIntGauge* load_mem_consumption = nullptr;
     UIntGauge* load_channel_mem_consumption = nullptr;
     UIntGauge* memtable_memory_limiter_mem_consumption = nullptr;
+    UIntGauge* snii_index_build_mem_consumption = nullptr;
     UIntGauge* query_mem_consumption = nullptr;
     UIntGauge* schema_change_mem_consumption = nullptr;
     UIntGauge* storage_migration_mem_consumption = nullptr;

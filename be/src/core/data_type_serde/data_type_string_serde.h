@@ -282,4 +282,10 @@ private:
 
 using DataTypeStringSerDe = DataTypeStringSerDeBase<ColumnString>;
 using DataTypeFixedLengthObjectSerDe = DataTypeStringSerDeBase<ColumnFixedLengthObject>;
+
+/// Instantiated once in data_type_string_serde.cpp; suppresses per-TU implicit instantiation.
+extern template class DataTypeStringSerDeBase<ColumnString>;
+extern template class DataTypeStringSerDeBase<ColumnString64>;
+extern template class DataTypeStringSerDeBase<ColumnFixedLengthObject>;
+
 } // namespace doris
