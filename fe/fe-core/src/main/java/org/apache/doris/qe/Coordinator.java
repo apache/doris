@@ -83,6 +83,8 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
@@ -135,6 +137,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.HashMultiset;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -1947,9 +1950,9 @@ public class Coordinator implements CoordInterface {
                     // can be executed on any BE. addressToBackendID can be empty when this is a constant
                     // select stmt like:
                     //      SELECT  @@session.auto_increment_increment AS auto_increment_increment;
-                    execHostport = SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
+                    execHostport = chooseHostByCurrentBackendSelection(addressToBackendID);
                 } else {
-                    execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
+                    execHostport = chooseHostWithSelection(this.idToBackend, backendIdRef);
                 }
                 if (execHostport == null) {
                     LOG.warn("DataPartition UNPARTITIONED, no scanNode Backend available");
@@ -2133,9 +2136,9 @@ public class Coordinator implements CoordInterface {
                     // of the query can be executed on any BE. addressToBackendID can be empty when this is a constant
                     // select stmt like:
                     //      SELECT  @@session.auto_increment_increment AS auto_increment_increment;
-                    execHostport = SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
+                    execHostport = chooseHostByCurrentBackendSelection(addressToBackendID);
                 } else {
-                    execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
+                    execHostport = chooseHostWithSelection(this.idToBackend, backendIdRef);
                 }
                 if (execHostport == null) {
                     throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
@@ -2148,6 +2151,7 @@ public class Coordinator implements CoordInterface {
                 params.instanceExecParams.add(instanceParam);
             }
         }
+        recordLoadSinkCoordinator();
     }
 
     private int findMaxParallelFragmentIndex(PlanFragment fragment) {
@@ -2179,6 +2183,102 @@ public class Coordinator implements CoordInterface {
                 groupCommitBackend.getBePort());
         addressToBackendID.put(execHostport, groupCommitBackend.getId());
         return execHostport;
+    }
+
+    private boolean isLoadSelectionCoordinator() {
+        return queryOptions != null && queryOptions.getQueryType() == TQueryType.LOAD
+                && BackendSelectionManager.isLoadSelectionEnabled(context);
+    }
+
+    private BackendSelection.SelectionHint resolveLoadSelectionHint() {
+        return BackendSelectionManager.resolveLoadSelectionHint(context);
+    }
+
+    private TNetworkAddress chooseHostWithSelection(ImmutableMap<Long, Backend> backends, Reference<Long> backendIdRef)
+            throws UserException {
+        if (!isLoadSelectionCoordinator()) {
+            return SimpleScheduler.getHost(backends, backendIdRef);
+        }
+        BackendSelection.SelectionHint decision = resolveLoadSelectionHint();
+        if (!BackendSelectionManager.hasLoadSelectionPreference(decision)) {
+            return SimpleScheduler.getHost(backends, backendIdRef);
+        }
+        List<Backend> orderedBackends = BackendSelectionManager.orderLoadCandidates(
+                decision, ImmutableList.copyOf(backends.values()));
+        TNetworkAddress address = firstAvailableLoadBackend(orderedBackends, backendIdRef);
+        if (address == null) {
+            BackendSelectionManager.ensureRequiredSelectionSatisfied(decision, false);
+            address = SimpleScheduler.getHost(backends, backendIdRef);
+        }
+        recordLoadCoordinator(decision, backendIdRef.getRef());
+        return address;
+    }
+
+    private TNetworkAddress chooseHostByCurrentBackendSelection(Map<TNetworkAddress, Long> addressToBackendID)
+            throws UserException {
+        if (!isLoadSelectionCoordinator()) {
+            return SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
+        }
+        ImmutableList.Builder<Backend> candidateBuilder = ImmutableList.builder();
+        for (Long backendId : addressToBackendID.values()) {
+            Backend backend = idToBackend.get(backendId);
+            if (backend != null) {
+                candidateBuilder.add(backend);
+            }
+        }
+        BackendSelection.SelectionHint decision = resolveLoadSelectionHint();
+        if (!BackendSelectionManager.hasLoadSelectionPreference(decision)) {
+            return SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
+        }
+        Reference<Long> backendIdRef = new Reference<>();
+        List<Backend> orderedBackends = BackendSelectionManager.orderLoadCandidates(decision, candidateBuilder.build());
+        TNetworkAddress address = firstAvailableLoadBackend(orderedBackends, backendIdRef);
+        if (address == null) {
+            BackendSelectionManager.ensureRequiredSelectionSatisfied(decision, false);
+            address = SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
+            backendIdRef.setRef(addressToBackendID.get(address));
+        }
+        recordLoadCoordinator(decision, backendIdRef.getRef());
+        return address;
+    }
+
+    private void recordLoadCoordinator(BackendSelection.SelectionHint decision, Long backendId) {
+        if (context == null || backendId == null) {
+            return;
+        }
+        context.getBackendSelectionProfile().recordLoadCoordinator(decision, idToBackend.get(backendId));
+    }
+
+    private void recordLoadSinkCoordinator() {
+        if (!isLoadSelectionCoordinator()) {
+            return;
+        }
+        BackendSelection.SelectionHint decision = resolveLoadSelectionHint();
+        if (!BackendSelectionManager.hasLoadSelectionPreference(decision)) {
+            return;
+        }
+        for (PlanFragment fragment : fragments) {
+            if (!(fragment.getSink() instanceof OlapTableSink)) {
+                continue;
+            }
+            FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
+            if (params == null || params.instanceExecParams.isEmpty()) {
+                continue;
+            }
+            Long backendId = addressToBackendID.get(params.instanceExecParams.get(0).host);
+            recordLoadCoordinator(decision, backendId);
+            return;
+        }
+    }
+
+    private TNetworkAddress firstAvailableLoadBackend(List<Backend> orderedBackends, Reference<Long> backendIdRef) {
+        for (Backend backend : orderedBackends) {
+            if (SimpleScheduler.isAvailable(backend)) {
+                backendIdRef.setRef(backend.getId());
+                return new TNetworkAddress(backend.getHost(), backend.getBePort());
+            }
+        }
+        return null;
     }
 
     // Traverse the expected runtimeFilterID in each fragment, and establish the corresponding relationship
@@ -2356,10 +2456,12 @@ public class Coordinator implements CoordInterface {
             // A fragment may contain both colocate join and bucket shuffle join
             // on need both compute scanRange to init basic data for query coordinator
             if (fragmentContainsColocateJoin) {
+                // Query selection already orders OlapScanNode replica locations before bucket assignment.
                 computeScanRangeAssignmentByColocate((OlapScanNode) scanNode, assignedBytesPerHost,
                         replicaNumPerHost, isEnableOrderedLocations);
             }
             if (fragmentContainsBucketShuffleJoin) {
+                // Keep bucket co-location intact; use the replica order produced by OlapScanNode as the hint.
                 bucketShuffleJoinController.computeScanRangeAssignmentByBucket((OlapScanNode) scanNode,
                         idToBackend, addressToBackendID, replicaNumPerHost);
             }
@@ -2448,34 +2550,110 @@ public class Coordinator implements CoordInterface {
                                                          Map<TNetworkAddress, Long> replicaNumPerHost,
                                                          Reference<Long> backendIdRef,
                                                          boolean isEnableOrderedLocations) throws UserException {
+        return selectBackendsByRoundRobin(seqLocation, assignedBytesPerHost, replicaNumPerHost, backendIdRef,
+                isEnableOrderedLocations, false);
+    }
+
+    private TScanRangeLocation selectBackendsByRoundRobin(TScanRangeLocations seqLocation,
+                                                         Map<TNetworkAddress, Long> assignedBytesPerHost,
+                                                         Map<TNetworkAddress, Long> replicaNumPerHost,
+                                                         Reference<Long> backendIdRef,
+                                                         boolean isEnableOrderedLocations,
+                                                         boolean enableBackendSelection) throws UserException {
         List<TScanRangeLocation> locations = seqLocation.getLocations();
         if (isEnableOrderedLocations) {
             Collections.sort(locations);
         }
+        locations = applyBackendSelection(locations, enableBackendSelection);
+        TScanRangeLocation selectedLocation;
         if (!Config.enable_local_replica_selection) {
-            return selectBackendsByRoundRobin(locations, assignedBytesPerHost, replicaNumPerHost,
+            selectedLocation = selectBackendsByRoundRobin(locations, assignedBytesPerHost, replicaNumPerHost,
                     backendIdRef);
-        }
+        } else {
+            List<TScanRangeLocation> localLocations = new ArrayList<>();
+            List<TScanRangeLocation> nonlocalLocations = new ArrayList<>();
+            long localBeId = Env.getCurrentSystemInfo().getBackendIdByHost(FrontendOptions.getLocalHostAddress());
+            for (final TScanRangeLocation location : locations) {
+                if (location.backend_id == localBeId) {
+                    localLocations.add(location);
+                } else {
+                    nonlocalLocations.add(location);
+                }
+            }
 
-        List<TScanRangeLocation> localLocations = new ArrayList<>();
-        List<TScanRangeLocation> nonlocalLocations = new ArrayList<>();
-        long localBeId = Env.getCurrentSystemInfo().getBackendIdByHost(FrontendOptions.getLocalHostAddress());
-        for (final TScanRangeLocation location : locations) {
-            if (location.backend_id == localBeId) {
-                localLocations.add(location);
-            } else {
-                nonlocalLocations.add(location);
+            try {
+                selectedLocation = selectBackendsByRoundRobin(
+                        localLocations, assignedBytesPerHost, replicaNumPerHost, backendIdRef);
+            } catch (UserException ue) {
+                if (!Config.enable_local_replica_selection_fallback) {
+                    throw ue;
+                }
+                selectedLocation = selectBackendsByRoundRobin(
+                        nonlocalLocations, assignedBytesPerHost, replicaNumPerHost, backendIdRef);
             }
         }
+        recordQueryBackendSelection(enableBackendSelection, selectedLocation);
+        return selectedLocation;
+    }
 
-        try {
-            return selectBackendsByRoundRobin(localLocations, assignedBytesPerHost, replicaNumPerHost, backendIdRef);
-        } catch (UserException ue) {
-            if (!Config.enable_local_replica_selection_fallback) {
-                throw ue;
-            }
-            return selectBackendsByRoundRobin(nonlocalLocations, assignedBytesPerHost, replicaNumPerHost, backendIdRef);
+    private List<TScanRangeLocation> applyBackendSelection(List<TScanRangeLocation> locations,
+            boolean enableBackendSelection) throws UserException {
+        if (!enableBackendSelection || Config.isCloudMode()) {
+            return locations;
         }
+        BackendSelection.SelectionHint decision = getQueryBackendSelectionDecision();
+        BackendSelection.CandidateSelection<TScanRangeLocation> preferredSelection =
+                BackendSelectionManager.partitionPreferredQueryCandidates(decision, locations,
+                        location -> {
+                            Backend backend = idToBackend.get(location.backend_id);
+                            return backend == null ? null : backend.getLocationTag();
+                        });
+        if (preferredSelection != null) {
+            List<TScanRangeLocation> preferredCandidates = preferredSelection.getPreferredCandidates();
+            if (preferredCandidates.isEmpty()) {
+                return preferredSelection.getFallbackCandidates();
+            }
+            if (decision.getMode() == BackendSelection.Mode.PREFER
+                    && !hasAvailableQueryBackend(preferredCandidates)
+                    && !preferredSelection.getFallbackCandidates().isEmpty()) {
+                return preferredSelection.getFallbackCandidates();
+            }
+            return preferredCandidates;
+        }
+        return BackendSelectionManager.orderQueryCandidates(decision, locations,
+                location -> {
+                    Backend backend = idToBackend.get(location.backend_id);
+                    return backend == null ? null : backend.getLocationTag();
+                });
+    }
+
+    private boolean hasAvailableQueryBackend(List<TScanRangeLocation> locations) {
+        for (TScanRangeLocation location : locations) {
+            if (SimpleScheduler.isAvailable(idToBackend.get(location.backend_id))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private BackendSelection.SelectionHint getQueryBackendSelectionDecision() {
+        if (context != null) {
+            return context.getQueryBackendSelectionDecision();
+        }
+        return BackendSelection.SelectionHint.noSelection();
+    }
+
+    private void recordQueryBackendSelection(boolean enableBackendSelection, TScanRangeLocation selectedLocation) {
+        if (!enableBackendSelection || context == null || selectedLocation == null) {
+            return;
+        }
+        BackendSelection.SelectionHint decision = getQueryBackendSelectionDecision();
+        BackendSelection.QuerySelectionResult result = BackendSelectionManager.classifyQuerySelection(
+                decision, Collections.singletonList(selectedLocation), location -> {
+                    Backend backend = idToBackend.get(location.getBackendId());
+                    return backend == null ? null : backend.getLocationTag();
+                });
+        context.getBackendSelectionProfile().recordQuerySelection(decision, result);
     }
 
     public TScanRangeLocation selectBackendsByRoundRobin(List<TScanRangeLocation> sortedLocations,
@@ -2520,7 +2698,8 @@ public class Coordinator implements CoordInterface {
         for (TScanRangeLocations scanRangeLocations : locations) {
             Reference<Long> backendIdRef = new Reference<Long>();
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,
-                    assignedBytesPerHost, replicaNumPerHost, backendIdRef, isEnableOrderedLocations);
+                    assignedBytesPerHost, replicaNumPerHost, backendIdRef, isEnableOrderedLocations,
+                    scanNode instanceof OlapScanNode);
             Backend backend = this.idToBackend.get(backendIdRef.getRef());
             TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
             this.addressToBackendID.put(execHostPort, backendIdRef.getRef());

@@ -137,6 +137,8 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsData;
@@ -1157,9 +1159,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             final TMasterOpResult result = new TMasterOpResult();
             try {
                 result.setGroupCommitLoadBeId(Env.getCurrentEnv().getGroupCommitManager()
-                        .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster));
+                        .selectBackendForGroupCommitInternal(info.groupCommitLoadTableId, info.cluster,
+                                forwardedGroupCommitLoadSelectionHint(info)));
             } catch (LoadException | DdlException e) {
-                throw new TException(e.getMessage());
+                LOG.warn("failed to select backend for forwarded group commit load, tableId={}, cluster={}",
+                        info.groupCommitLoadTableId, info.cluster, e);
+                if (!info.isSetSupportsSelectionErrorResult() || !info.isSupportsSelectionErrorResult()) {
+                    throw new TException(e.getMessage() == null ? e.toString() : e.getMessage());
+                }
+                result.setStatusCode(1);
+                result.setErrMessage(e.getMessage() == null ? e.toString() : e.getMessage());
             }
             // just make the protocol happy
             result.setPacket("".getBytes());
@@ -1199,6 +1208,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
+        context.setConnectingFeLocalResourceGroup(params.isSetConnectingFeLocalResourceGroup()
+                ? params.getConnectingFeLocalResourceGroup() : Config.local_resource_group);
         if (Config.isCloudMode() && !Strings.isNullOrEmpty(params.getCloudCluster())) {
             context.setCloudCluster(params.getCloudCluster());
         }
@@ -1225,6 +1236,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ConnectContext.remove();
         clearCallback.run();
         return result;
+    }
+
+    static BackendSelection.SelectionHint forwardedGroupCommitLoadSelectionHint(TGroupCommitInfo info) {
+        if (!info.isSetLoadSelectionPreferredKey() || !info.isSetLoadSelectionMode()) {
+            return null;
+        }
+        return BackendSelectionManager.getForwardedLoadSelectionHint(
+                info.getLoadSelectionPreferredKey(), info.getLoadSelectionMode());
     }
 
     private List<String> getTableNames(String dbName, List<Long> tableIds) throws UserException {
