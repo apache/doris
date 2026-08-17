@@ -1770,14 +1770,10 @@ public class IcebergUtils {
 
         List<Column> partitionColumns = IcebergUtils.getSchemaCacheValue(
                 dorisTable, schemaId, table).getPartitionColumns();
-        long partitionItemColumnBytes = IcebergPartitionInfo.partitionItemColumnBytes(
-                partitionColumns.size());
         for (IcebergPartition partition : icebergPartitions) {
             nameToPartition.put(partition.getPartitionName(), partition);
             retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(
                     retainedPayloadBytes, partition.getRetainedPayloadBytes());
-            retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(
-                    retainedPayloadBytes, partitionItemColumnBytes);
             String transform = table.specs().get(partition.getSpecId()).fields().get(0).transform().toString();
             Range<PartitionKey> partitionRange = getPartitionRange(
                     partition.getPartitionValues().get(0), transform, partitionColumns);
@@ -1785,6 +1781,12 @@ public class IcebergUtils {
             nameToPartitionItem.put(partition.getPartitionName(), item);
         }
         Map<String, Set<String>> partitionNameMap = mergeOverlapPartitions(nameToPartitionItem);
+        // Only the surviving Doris partitions keep their range endpoints; enclosed items were
+        // dropped by the merge, so the per-column width applies to the merged map size.
+        retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(retainedPayloadBytes,
+                MetaCacheWeightUtils.saturatedMultiply(
+                        IcebergPartitionInfo.partitionItemColumnBytes(partitionColumns.size()),
+                        nameToPartitionItem.size()));
         retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(
                 retainedPayloadBytes, IcebergPartitionInfo.partitionAliasBytes(partitionNameMap));
         return new IcebergPartitionInfo(

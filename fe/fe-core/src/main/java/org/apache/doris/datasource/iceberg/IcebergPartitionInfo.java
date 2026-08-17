@@ -26,10 +26,11 @@ import java.util.Set;
 
 public class IcebergPartitionInfo {
     // Each RangePartitionItem endpoint holds one LiteralExpr per partition column beyond the
-    // first (createPartitionKey fills the vacancy with an infinity literal): literal, its lazy
-    // supplier, children list and array. Calibrated against JOL in IcebergExternalMetaCacheTest.
+    // first (createPartitionKey fills the vacancy with an infinity literal): the MIN literal, its
+    // lazy supplier/lambda, children list and array, plus the key/type list slots (JOL: 224 bytes
+    // on a compressed-oops JVM). Calibrated in IcebergExternalMetaCacheTest.
     private static final long RANGE_KEY_EXTRA_COLUMN_BYTES =
-            MetaCacheWeightUtils.estimatedObjectBytes(208L);
+            MetaCacheWeightUtils.estimatedObjectBytes(224L);
     private static final long RANGE_ENDPOINTS_PER_ITEM = 2L;
     // A merged-overlap alias group is a HashSet of the enclosed physical partition names; the
     // names themselves are shared with the partition maps.
@@ -54,7 +55,7 @@ public class IcebergPartitionInfo {
                                 Map<String, Set<String>> nameToIcebergPartitionNames) {
         this(nameToPartitionItem, nameToIcebergPartition, nameToIcebergPartitionNames,
                 MetaCacheWeightUtils.saturatedAdd(
-                        retainedPayloadBytes(nameToIcebergPartition),
+                        retainedPayloadBytes(nameToPartitionItem, nameToIcebergPartition),
                         partitionAliasBytes(nameToIcebergPartitionNames)));
     }
 
@@ -88,7 +89,8 @@ public class IcebergPartitionInfo {
         return retainedPayloadBytes;
     }
 
-    private static long retainedPayloadBytes(Map<String, IcebergPartition> partitions) {
+    private static long retainedPayloadBytes(
+            Map<String, PartitionItem> items, Map<String, IcebergPartition> partitions) {
         if (partitions == null) {
             return 0L;
         }
@@ -97,6 +99,15 @@ public class IcebergPartitionInfo {
             if (partition != null) {
                 bytes = MetaCacheWeightUtils.saturatedAdd(
                         bytes, partition.getRetainedPayloadBytes());
+            }
+        }
+        if (items == null) {
+            return bytes;
+        }
+        // Range endpoints exist only for the Doris partitions that survived overlap merging.
+        for (String name : items.keySet()) {
+            IcebergPartition partition = partitions.get(name);
+            if (partition != null) {
                 bytes = MetaCacheWeightUtils.saturatedAdd(bytes, partitionItemColumnBytes(
                         partition.getPartitionValues() == null
                                 ? 0 : partition.getPartitionValues().size()));

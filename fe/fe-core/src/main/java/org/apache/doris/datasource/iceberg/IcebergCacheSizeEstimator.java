@@ -152,7 +152,7 @@ final class IcebergCacheSizeEstimator {
     private static final long ENCRYPTED_KEY_BYTES = objectBytes(256L);
     // One retained IcebergPartition (value/transform ArrayLists) or one RangePartitionItem with a
     // single partition column plus its map entry; extra columns are charged by IcebergPartitionInfo.
-    private static final long PARTITION_BYTES = objectBytes(680L);
+    private static final long PARTITION_BYTES = objectBytes(696L);
     // Outer map entry and table share of one merged-overlap group; the alias set itself and its
     // contents are charged by IcebergPartitionInfo per enclosed partition name.
     private static final long PARTITION_ALIAS_BYTES = objectBytes(144L);

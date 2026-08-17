@@ -113,8 +113,7 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
                 ignored -> executeAuthenticated(nameMapping,
                         () -> latestSnapshotProjectionLoader.loadAtFence(
                                 nameMapping, fence, tableValue.getGeneration())));
-        PaimonTableCacheValue currentTable = tableEntry.get(nameMapping.getCtlId()).peekIfPresent(nameMapping);
-        if (currentTable != null && currentTable.getGeneration() != tableValue.getGeneration()) {
+        if (!isCurrentTableGeneration(nameMapping, tableValue.getGeneration())) {
             entry.invalidateKeyIfSame(key, snapshotValue);
         }
         return snapshotValue;
@@ -164,11 +163,21 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
         SchemaCacheValue schemaCacheValue = entry.get(key,
                 ignored -> executeAuthenticated(nameMapping,
                         () -> loadSchemaCacheValue(key, retainedTable)));
-        PaimonTableCacheValue currentTable = tableEntry.get(nameMapping.getCtlId()).peekIfPresent(nameMapping);
-        if (currentTable != null && currentTable.getGeneration() != tableGeneration) {
+        if (!isCurrentTableGeneration(nameMapping, tableGeneration)) {
             entry.invalidateKeyIfSame(key, schemaCacheValue);
         }
         return (PaimonSchemaCacheValue) schemaCacheValue;
+    }
+
+    /**
+     * Snapshot and schema projections are keyed by the synthetic generation of the base table
+     * handle they were derived from. A generation that is no longer published (replaced, expired,
+     * or never admitted because its weight estimate was rejected) can never be looked up again,
+     * so its projections must not stay behind in the child entries.
+     */
+    private boolean isCurrentTableGeneration(NameMapping nameMapping, long tableGeneration) {
+        PaimonTableCacheValue currentTable = tableEntry.get(nameMapping.getCtlId()).peekIfPresent(nameMapping);
+        return currentTable != null && currentTable.getGeneration() == tableGeneration;
     }
 
     private PaimonTableCacheValue loadTableCacheValue(NameMapping nameMapping) {

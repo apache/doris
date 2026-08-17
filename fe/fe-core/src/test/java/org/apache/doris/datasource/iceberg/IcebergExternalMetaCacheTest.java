@@ -1404,13 +1404,18 @@ public class IcebergExternalMetaCacheTest {
         // A spec that widened after the related-table check retains one more literal per range
         // endpoint and one more value/transform per partition; the projection charges the width
         // it actually loaded instead of the single field the check assumed.
+        // (Both fixtures already carry the shared MIN-literal type singleton of the second column.)
+        IcebergSnapshotCacheValue twoColumnSnapshot = new IcebergSnapshotCacheValue(
+                realPartitionInfo(32, 2), new IcebergSnapshot(-1L, 0L));
         IcebergSnapshotCacheValue wideSnapshot = new IcebergSnapshotCacheValue(
                 realPartitionInfo(32, 3), new IcebergSnapshot(-1L, 0L));
+        long twoColumnSnapshotEstimate = IcebergCacheSizeEstimator.estimateSnapshotEntry(
+                key, twoColumnSnapshot).getBytes();
         long wideSnapshotEstimate = IcebergCacheSizeEstimator.estimateSnapshotEntry(
                 key, wideSnapshot).getBytes();
         EstimatorCalibrationAssertions.assertConservativeDelta(
-                "iceberg wide snapshot partitions", populatedSnapshotEstimate, wideSnapshotEstimate,
-                populatedSnapshot, wideSnapshot);
+                "iceberg wide snapshot partitions", twoColumnSnapshotEstimate, wideSnapshotEstimate,
+                twoColumnSnapshot, wideSnapshot);
 
         // Overlapping physical partitions merge into one Doris partition that keeps every
         // enclosed name in a HashSet; the weight follows the set cardinality, not the group count.
@@ -1421,6 +1426,23 @@ public class IcebergExternalMetaCacheTest {
         EstimatorCalibrationAssertions.assertConservativeDelta(
                 "iceberg partition aliases", populatedSnapshotEstimate, aliasedSnapshotEstimate,
                 populatedSnapshot, aliasedSnapshot);
+
+        // When mergeOverlapPartitions() really drops the enclosed day ranges, only the surviving
+        // Doris partition keeps range endpoints: widening the spec must charge the extra
+        // endpoint columns once, not once per enclosed physical partition.
+        IcebergSnapshotCacheValue mergedSnapshot = new IcebergSnapshotCacheValue(
+                mergedPartitionInfo(32, 2), new IcebergSnapshot(-1L, 0L));
+        IcebergSnapshotCacheValue mergedWideSnapshot = new IcebergSnapshotCacheValue(
+                mergedPartitionInfo(32, 3), new IcebergSnapshot(-1L, 0L));
+        Assert.assertEquals(1, mergedWideSnapshot.getPartitionInfo().getNameToPartitionItem().size());
+        Assert.assertEquals(32, mergedWideSnapshot.getPartitionInfo().getNameToIcebergPartition().size());
+        long mergedSnapshotEstimate = IcebergCacheSizeEstimator.estimateSnapshotEntry(
+                key, mergedSnapshot).getBytes();
+        long mergedWideSnapshotEstimate = IcebergCacheSizeEstimator.estimateSnapshotEntry(
+                key, mergedWideSnapshot).getBytes();
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "iceberg merged wide partitions", mergedSnapshotEstimate, mergedWideSnapshotEstimate,
+                mergedSnapshot, mergedWideSnapshot);
 
         // A name mapping retains an element array per field once it has several historical names.
         IcebergSnapshotCacheValue singleNames = new IcebergSnapshotCacheValue(
@@ -2133,12 +2155,14 @@ public class IcebergExternalMetaCacheTest {
             String name = "part=" + value;
             partitionItems.put(name, new org.apache.doris.catalog.RangePartitionItem(
                     IcebergUtils.getPartitionRange(value, "day", partitionColumns)));
-            // Loaded partitions own one String per value and transform.
+            // Loaded partitions own one String per value; bucket/truncate transforms own their
+            // strings too (year/month/day literals are shared and only leave the estimate
+            // more conservative).
             List<String> values = new ArrayList<>();
             List<String> transforms = new ArrayList<>();
             for (int column = 0; column < partitionColumnCount; column++) {
-                values.add(new String(value));
-                transforms.add(new String("day"));
+                values.add(new String(value.toCharArray()));
+                transforms.add(new String("day".toCharArray()));
             }
             partitions.put(name, new IcebergPartition(name, 0, 1L, 1L, 1L, 1L, 1L, values, transforms));
         }
@@ -2147,6 +2171,37 @@ public class IcebergExternalMetaCacheTest {
             // mergeOverlapPartitions() shape: the surviving name owns a set of every enclosed name.
             aliases = Collections.singletonMap("part=0", new java.util.HashSet<>(partitions.keySet()));
         }
+        return new IcebergPartitionInfo(partitionItems, partitions, aliases);
+    }
+
+    /**
+     * One "year" partition enclosing {@code partitionCount - 1} "day" partitions of that year;
+     * mergeOverlapPartitions() keeps a single Doris partition item owning every physical name.
+     */
+    private IcebergPartitionInfo mergedPartitionInfo(int partitionCount, int partitionColumnCount)
+            throws Exception {
+        Map<String, org.apache.doris.catalog.PartitionItem> partitionItems = new java.util.HashMap<>();
+        Map<String, IcebergPartition> partitions = new java.util.HashMap<>();
+        List<org.apache.doris.catalog.Column> partitionColumns = new ArrayList<>();
+        for (int column = 0; column < partitionColumnCount; column++) {
+            partitionColumns.add(new org.apache.doris.catalog.Column(
+                    "part" + column, org.apache.doris.catalog.PrimitiveType.DATETIMEV2));
+        }
+        for (int index = 0; index < partitionCount; index++) {
+            String transform = index == 0 ? "year" : "day";
+            String value = index == 0 ? "0" : Integer.toString(index);
+            String name = "part=" + transform + "-" + value;
+            partitionItems.put(name, new org.apache.doris.catalog.RangePartitionItem(
+                    IcebergUtils.getPartitionRange(value, transform, partitionColumns)));
+            List<String> values = new ArrayList<>();
+            List<String> transforms = new ArrayList<>();
+            for (int column = 0; column < partitionColumnCount; column++) {
+                values.add(new String(value.toCharArray()));
+                transforms.add(new String(transform.toCharArray()));
+            }
+            partitions.put(name, new IcebergPartition(name, 0, 1L, 1L, 1L, 1L, 1L, values, transforms));
+        }
+        Map<String, Set<String>> aliases = IcebergUtils.mergeOverlapPartitions(partitionItems);
         return new IcebergPartitionInfo(partitionItems, partitions, aliases);
     }
 

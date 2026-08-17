@@ -717,6 +717,94 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testRejectedBaseTableDoesNotAccumulateSnapshotOrSchemaProjections() {
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.doReturn(catalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(1L), Mockito.any());
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalog(1L);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                return task.call();
+            }
+        });
+        Mockito.doReturn(database).when(catalog).getDbNullable("db");
+        Mockito.when(database.getTableNullable("tbl")).thenReturn(externalTable);
+        Mockito.doReturn(Optional.of(database)).when(catalog).getDb("db");
+        Mockito.doReturn(Optional.of(externalTable)).when(database).getTable("tbl");
+        Column partitionColumn = new Column("part", Type.INT);
+        Mockito.doReturn(new PaimonSchemaCacheValue(
+                Collections.singletonList(partitionColumn),
+                Collections.singletonList(partitionColumn), null))
+                .when(externalTable).loadSchemaForCache(Mockito.any(), Mockito.anyLong());
+
+        // A mocked table has no supported layout, so its weight estimate is incomplete and every
+        // load is rejected by the weight-bounded table entry.
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable latestSchemaTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable fenceTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable snapshotTable = Mockito.mock(FileStoreTable.class);
+        Snapshot latestSnapshot = Mockito.mock(Snapshot.class);
+        SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
+        TableSchema latestSchema = Mockito.mock(TableSchema.class);
+        ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(baseTable.copyWithLatestSchema()).thenReturn(latestSchemaTable);
+        Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(latestSnapshot));
+        Mockito.when(latestSnapshot.id()).thenReturn(7L);
+        Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
+        Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
+        Mockito.when(latestSchema.id()).thenReturn(3L);
+        Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(fenceTable);
+        Mockito.when(fenceTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(snapshotTable);
+        Mockito.when(snapshotTable.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(snapshotTable.newReadBuilder()).thenReturn(readBuilder);
+        Mockito.when(readBuilder.newScan()).thenReturn(tableScan);
+        Mockito.when(tableScan.listPartitionEntries()).thenReturn(Collections.emptyList());
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+        Mockito.when(catalog.getPaimonTable(mapping)).thenReturn(baseTable);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            cache.initCatalog(1L, Collections.singletonMap(
+                    "meta.cache.paimon.table.max-weight", "1MB"));
+            ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
+                    cache.entry(1L, PaimonExternalMetaCache.ENTRY_TABLE,
+                            NameMapping.class, PaimonTableCacheValue.class);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<
+                    PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> snapshots = cache.entry(
+                    1L, PaimonExternalMetaCache.ENTRY_SNAPSHOT,
+                    PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<PaimonSchemaCacheKey, SchemaCacheValue> schemas =
+                    cache.entry(1L, PaimonExternalMetaCache.ENTRY_SCHEMA,
+                            PaimonSchemaCacheKey.class, SchemaCacheValue.class);
+
+            for (int i = 0; i < 5; i++) {
+                Assert.assertEquals(7L, cache.getSnapshotCache(dorisTable).getSnapshot().getSnapshotId());
+                Assert.assertNotNull(cache.getPaimonSchemaCacheValue(mapping, 3L));
+                Assert.assertNull("rejected table handle must not be published", tables.peekIfPresent(mapping));
+                Assert.assertEquals("projections of an unpublished generation must be retired",
+                        0L, snapshots.stats().getEstimatedSize());
+                Assert.assertEquals(0L, schemas.stats().getEstimatedSize());
+            }
+            Assert.assertEquals(10L, tables.stats().getWeightAdmissionRejectedCount());
+            Mockito.verify(catalog, Mockito.times(10)).getPaimonTable(mapping);
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testSnapshotEstimateSupportsPrivilegedTableWrapper() throws Exception {
         FileStoreTable table = newPartitionedTable("privileged_estimate", Collections.emptyMap());
         FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
