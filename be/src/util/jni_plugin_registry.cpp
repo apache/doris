@@ -72,7 +72,7 @@ Status PluginRegistry::_init_scanner_api() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Env::Get(&env));
 
-    GlobalClass cls;
+    GlobalClass& cls = _scanner_api.cls;
     RETURN_IF_ERROR(Util::find_class(env, SCANNER_CLASS, &cls));
     RETURN_IF_ERROR(cls.get_method(env, "open", "()V", &_scanner_api.open));
     RETURN_IF_ERROR(
@@ -96,7 +96,7 @@ Status PluginRegistry::_init_writer_api() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Env::Get(&env));
 
-    GlobalClass cls;
+    GlobalClass& cls = _writer_api.cls;
     RETURN_IF_ERROR(Util::find_class(env, WRITER_CLASS, &cls));
     RETURN_IF_ERROR(cls.get_method(env, "open", "()V", &_writer_api.open));
     RETURN_IF_ERROR(cls.get_method(env, "write", "(Ljava/util/Map;)V", &_writer_api.write));
@@ -127,6 +127,21 @@ Status PluginRegistry::_create_instance(JNIEnv* env, const PluginRef& ref, int b
             .call(instance);
 }
 
+// Scanner and writer factories share one namespace per plugin, and createInstance() looks a name
+// up in both lists - returning a scanner first when a name somehow sits in both. For every
+// compile-time PluginRef that is a non-issue, but writer_class is user text: a TVF sink can ask
+// for "jdbc:connection-tester", get a JniScanner back, and then have JniWriter's method ids
+// called on it. Those methods are final, so HotSpot dispatches them non-virtually against a
+// foreign receiver - undefined behaviour where a clean error is required.
+Status PluginRegistry::_check_kind(JNIEnv* env, const PluginRef& ref, const GlobalObject& instance,
+                                   const GlobalClass& expected, const char* expected_kind) {
+    if (expected.is_instance(env, instance)) {
+        return Status::OK();
+    }
+    return Status::InvalidArgument("Java plugin '{}' factory '{}' does not produce {}", ref.plugin,
+                                   ref.factory, expected_kind);
+}
+
 Status PluginRegistry::create_scanner(JNIEnv* env, const PluginRef& ref, int batch_size,
                                       const std::map<std::string, std::string>& params,
                                       GlobalObject* scanner, const ScannerApi** api) {
@@ -136,6 +151,7 @@ Status PluginRegistry::create_scanner(JNIEnv* env, const PluginRef& ref, int bat
     RETURN_IF_ERROR(scanner_api_status);
 
     RETURN_IF_ERROR(_create_instance(env, ref, batch_size, params, scanner));
+    RETURN_IF_ERROR(_check_kind(env, ref, *scanner, _scanner_api.cls, "a scanner"));
     *api = &_scanner_api;
     return Status::OK();
 }
@@ -149,6 +165,7 @@ Status PluginRegistry::create_writer(JNIEnv* env, const PluginRef& ref, int batc
     RETURN_IF_ERROR(writer_api_status);
 
     RETURN_IF_ERROR(_create_instance(env, ref, batch_size, params, writer));
+    RETURN_IF_ERROR(_check_kind(env, ref, *writer, _writer_api.cls, "a writer"));
     *api = &_writer_api;
     return Status::OK();
 }
@@ -224,8 +241,8 @@ bool PluginRegistry::any_plugin_deployed() {
 Status PluginRegistry::warmup() {
     if (!any_plugin_deployed()) {
         // Nothing to warm, and reaching Java to find that out would create the JVM this whole
-        // arrangement exists to avoid. This is what makes warmup safe to leave on by default:
-        // on a BE with no plugin deployed it costs one directory read.
+        // arrangement exists to avoid. This is what makes warmup safe to turn on: on a BE with
+        // no plugin deployed it costs one directory read.
         return Status::OK();
     }
 

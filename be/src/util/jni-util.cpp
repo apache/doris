@@ -115,45 +115,67 @@ GlobalClass Util::iteratorClass;
 MethodId Util::iteratorHasNextMethod;
 MethodId Util::iteratorNextMethod;
 
+jlong Util::_parse_xmx(const std::string& options) {
+    jlong parsed = 0;
+    std::istringstream iss(options);
+    std::string opt;
+    while (iss >> opt) {
+        if (!opt.starts_with("-Xmx")) {
+            continue;
+        }
+        std::string value = opt.substr(4);
+        jlong multiplier = 1;
+        if (!value.empty()) {
+            switch (value.back()) {
+            case 'g':
+            case 'G':
+                multiplier = 1024L * 1024 * 1024;
+                value.pop_back();
+                break;
+            case 'm':
+            case 'M':
+                multiplier = 1024L * 1024;
+                value.pop_back();
+                break;
+            case 'k':
+            case 'K':
+                multiplier = 1024L;
+                value.pop_back();
+                break;
+            default:
+                break;
+            }
+        }
+        // Checked rather than handed to std::stoll, which throws on "-Xmxbig" and on a bare
+        // "-Xmx", and which would silently accept "-Xmx12big". The JVM was started with these
+        // options and ignored the malformed one, so neither may this: the value is only used to
+        // rate limit hdfs writes, and an exception here would come out of a user's write.
+        if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos) {
+            LOG(WARNING) << "Ignoring the JVM option '" << opt << "': not a heap size";
+            continue;
+        }
+        try {
+            // The last one wins, as it does for the JVM itself.
+            parsed = std::stoll(value) * multiplier;
+        } catch (const std::exception& e) {
+            LOG(WARNING) << "Ignoring the JVM option '" << opt << "': " << e.what();
+        }
+    }
+    return parsed;
+}
+
 void Util::_parse_max_heap_memory_size_from_jvm() {
     // The same options the JVM was created from, see JvmLauncher::_build_options().
     std::string java_opts = getenv("JAVA_OPTS") ? getenv("JAVA_OPTS") : "";
     if (java_opts.empty()) {
         java_opts = getenv("LIBHDFS_OPTS") ? getenv("LIBHDFS_OPTS") : "";
     }
-    std::istringstream iss(java_opts);
-    std::string opt;
-    while (iss >> opt) {
-        if (opt.find("-Xmx") == 0) {
-            std::string xmxValue = opt.substr(4);
-            LOG(INFO) << "The max heap vaule is " << xmxValue;
-            char unit = xmxValue.back();
-            xmxValue.pop_back();
-            long long value = std::stoll(xmxValue);
-            switch (unit) {
-            case 'g':
-            case 'G':
-                max_jvm_heap_memory_size_ = value * 1024 * 1024 * 1024;
-                break;
-            case 'm':
-            case 'M':
-                max_jvm_heap_memory_size_ = value * 1024 * 1024;
-                break;
-            case 'k':
-            case 'K':
-                max_jvm_heap_memory_size_ = value * 1024;
-                break;
-            default:
-                max_jvm_heap_memory_size_ = value;
-                break;
-            }
-        }
-    }
+    max_jvm_heap_memory_size_ = _parse_xmx(java_opts);
     if (0 == max_jvm_heap_memory_size_) {
-        // Used to be fatal, which was survivable only because it ran while the BE was
-        // starting up. It now runs on whichever query first writes to hdfs, and taking the
-        // BE down over a missing -Xmx would be out of all proportion: fall back to the
-        // same 1g the JVM is created with when nothing else says otherwise.
+        // Used to be LOG(FATAL). This runs on whichever query first writes to hdfs - it did
+        // before this change too - and taking the BE down over a missing -Xmx is out of all
+        // proportion to what the value is for: rate limiting hdfs writes against the JVM heap.
+        // Fall back to the same 1g the JVM is created with when nothing else says otherwise.
         max_jvm_heap_memory_size_ = 1024L * 1024 * 1024;
         LOG(WARNING) << "No -Xmx in the JVM options, assuming a max heap of "
                      << max_jvm_heap_memory_size_
@@ -164,7 +186,7 @@ void Util::_parse_max_heap_memory_size_from_jvm() {
 }
 
 size_t Util::get_max_jni_heap_memory_size() {
-#if defined(USE_LIBHDFS3) || defined(BE_TEST)
+#ifdef BE_TEST
     return std::numeric_limits<size_t>::max();
 #else
     static std::once_flag _parse_max_heap_memory_size_from_jvm_flag;
