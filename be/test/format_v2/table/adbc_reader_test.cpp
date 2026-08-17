@@ -35,9 +35,11 @@
 #include "common/object_pool.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "format_v2/file_reader.h"
@@ -118,6 +120,15 @@ std::vector<SlotDescriptor*> string_slot(ObjectPool* pool, DescriptorTbl** desc_
     return (*desc_tbl)->get_tuple_descriptor(0)->slots();
 }
 
+std::vector<SlotDescriptor*> int_array_slot(ObjectPool* pool, DescriptorTbl** desc_tbl) {
+    DescriptorTblBuilder builder(pool);
+    builder.declare_tuple() << std::make_tuple(
+            std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>()),
+            std::string("c_array"));
+    *desc_tbl = builder.build();
+    return (*desc_tbl)->get_tuple_descriptor(0)->slots();
+}
+
 std::vector<SlotDescriptor*> sqlite_slots(ObjectPool* pool, DescriptorTbl** desc_tbl) {
     DescriptorTblBuilder builder(pool);
     // SQLite stores integers as 64-bit and reals as doubles; the ADBC driver reports them as such.
@@ -144,6 +155,27 @@ std::shared_ptr<arrow::RecordBatch> make_named_large_string_batch(const std::str
 
 std::shared_ptr<arrow::RecordBatch> make_large_string_batch() {
     return make_named_large_string_batch("c_str");
+}
+
+std::shared_ptr<arrow::RecordBatch> make_list_view_batch() {
+    arrow::Int32Builder offsets_builder;
+    EXPECT_TRUE(offsets_builder.AppendValues({2, 0}).ok());
+    std::shared_ptr<arrow::Array> offsets;
+    EXPECT_TRUE(offsets_builder.Finish(&offsets).ok());
+
+    arrow::Int32Builder sizes_builder;
+    EXPECT_TRUE(sizes_builder.AppendValues({1, 2}).ok());
+    std::shared_ptr<arrow::Array> sizes;
+    EXPECT_TRUE(sizes_builder.Finish(&sizes).ok());
+
+    arrow::Int32Builder values_builder;
+    EXPECT_TRUE(values_builder.AppendValues({10, 20, 30}).ok());
+    std::shared_ptr<arrow::Array> values;
+    EXPECT_TRUE(values_builder.Finish(&values).ok());
+
+    auto array = arrow::ListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    auto schema = arrow::schema({arrow::field("c_array", array->type())});
+    return arrow::RecordBatch::Make(schema, 2, {array});
 }
 
 std::unique_ptr<AdbcFileReader> create_reader(RuntimeProfile* profile, const TFileRangeDesc& range,
@@ -297,6 +329,48 @@ TEST(AdbcReaderTest, NormalizesLargeStringBeforeMaterializing) {
     ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
     EXPECT_EQ(rows, 0);
     EXPECT_TRUE(eof);
+    ASSERT_TRUE(reader->close().ok());
+    EXPECT_EQ(*close_count, 1);
+}
+
+TEST(AdbcReaderTest, NormalizesListViewBeforeMaterializing) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = int_array_slot(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("adbc_reader_list_view_test");
+    auto close_count = std::make_shared<int>(0);
+
+    auto reader = create_reader(
+            &profile, fake_adbc_range(), slots,
+            [close_count](const TFileRangeDesc&, std::unique_ptr<AdbcStream>* out) {
+                *out = std::make_unique<BatchAdbcStream>(
+                        std::vector<std::shared_ptr<arrow::RecordBatch>> {make_list_view_batch()},
+                        close_count);
+                return Status::OK();
+            });
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto block = make_request_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(rows, 2);
+    const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    const auto& array = assert_cast<const ColumnArray&>(nullable.get_nested_column());
+    ASSERT_EQ(array.get_offsets(), ColumnArray::Offsets64({1, 3}));
+    const auto& elements = assert_cast<const ColumnNullable&>(array.get_data());
+    const auto& data = assert_cast<const ColumnInt32&>(elements.get_nested_column()).get_data();
+    EXPECT_EQ(data, ColumnInt32::Container({30, 10, 20}));
+
     ASSERT_TRUE(reader->close().ok());
     EXPECT_EQ(*close_count, 1);
 }

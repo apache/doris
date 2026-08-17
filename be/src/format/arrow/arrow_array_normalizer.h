@@ -36,9 +36,10 @@ namespace doris {
 /// Whether the serdes take this Arrow type as-is.
 bool is_serde_acceptable_arrow_type(const arrow::DataType& type);
 
-/// Normalizes `arr` into a serde-acceptable shape. Returns it unchanged (no copy) when it already
-/// is one, and fails with the offending type named when no accepted shape exists.
-Status normalize_arrow_array(const std::shared_ptr<arrow::Array>& arr,
+/// Normalizes `arr` into a serde-acceptable shape using `pool` for every conversion. Returns it
+/// unchanged (no copy) when it already is one, and fails with the offending type named when no
+/// accepted shape exists.
+Status normalize_arrow_array(const std::shared_ptr<arrow::Array>& arr, arrow::MemoryPool* pool,
                              std::shared_ptr<arrow::Array>* out);
 
 } // namespace doris

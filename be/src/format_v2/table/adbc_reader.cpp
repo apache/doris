@@ -42,8 +42,10 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "format/arrow/arrow_array_normalizer.h"
+#include "format/parquet/arrow_memory_pool.h"
 #include "format_v2/materialized_reader_util.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/adbc_driver_registry.h"
@@ -594,6 +596,13 @@ Status AdbcFileReader::_materialize_record_batch(const arrow::RecordBatch& batch
         return Status::OK();
     }
 
+    ArrowMemoryPool<> local_arrow_pool;
+    arrow::MemoryPool* arrow_pool = ExecEnv::GetInstance()->arrow_memory_pool();
+    if (arrow_pool == nullptr) {
+        // Embedded and unit-test runtimes may omit ExecEnv memory initialization; keep conversions
+        // on Doris' tracked allocator instead of falling back to Arrow's untracked default pool.
+        arrow_pool = &local_arrow_pool;
+    }
     std::vector<bool> materialized_columns(file_block->columns(), false);
     for (int arrow_idx = 0; arrow_idx < batch.num_columns(); ++arrow_idx) {
         const std::string& column_name = batch.schema()->field(arrow_idx)->name();
@@ -608,7 +617,7 @@ Status AdbcFileReader::_materialize_record_batch(const arrow::RecordBatch& batch
         std::shared_ptr<arrow::Array> array;
         {
             SCOPED_TIMER(_normalize_time);
-            RETURN_IF_ERROR(normalize_arrow_array(batch.column(arrow_idx), &array));
+            RETURN_IF_ERROR(normalize_arrow_array(batch.column(arrow_idx), arrow_pool, &array));
         }
         RETURN_IF_ERROR(_materialize_arrow_column(column_name, array, batch.num_rows(),
                                                   file_id_it->second, block_position_it->second,

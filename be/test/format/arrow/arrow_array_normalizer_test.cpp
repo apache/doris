@@ -19,6 +19,7 @@
 
 #include <arrow/array.h>
 #include <arrow/builder.h>
+#include <arrow/memory_pool.h>
 #include <arrow/type.h>
 #include <gtest/gtest.h>
 
@@ -52,7 +53,7 @@ TEST(ArrowArrayNormalizerTest, PlainStringIsAcceptedUnchanged) {
     EXPECT_TRUE(is_serde_acceptable_arrow_type(*in->type()));
 
     std::shared_ptr<arrow::Array> out;
-    ASSERT_TRUE(normalize_arrow_array(in, &out).ok());
+    ASSERT_TRUE(normalize_arrow_array(in, arrow::default_memory_pool(), &out).ok());
     EXPECT_EQ(in.get(), out.get());
 }
 
@@ -62,7 +63,7 @@ TEST(ArrowArrayNormalizerTest, LargeStringIsConvertedToString) {
     EXPECT_FALSE(is_serde_acceptable_arrow_type(*in->type()));
 
     std::shared_ptr<arrow::Array> out;
-    ASSERT_TRUE(normalize_arrow_array(in, &out).ok());
+    ASSERT_TRUE(normalize_arrow_array(in, arrow::default_memory_pool(), &out).ok());
     ASSERT_EQ(out->type_id(), arrow::Type::STRING);
     ASSERT_EQ(out->length(), 3);
     auto sa = std::static_pointer_cast<arrow::StringArray>(out);
@@ -87,7 +88,7 @@ TEST(ArrowArrayNormalizerTest, DictionaryIsDecodedToValueType) {
     EXPECT_FALSE(is_serde_acceptable_arrow_type(*in->type()));
 
     std::shared_ptr<arrow::Array> out;
-    ASSERT_TRUE(normalize_arrow_array(in, &out).ok());
+    ASSERT_TRUE(normalize_arrow_array(in, arrow::default_memory_pool(), &out).ok());
     ASSERT_EQ(out->type_id(), arrow::Type::STRING);
     auto sa = std::static_pointer_cast<arrow::StringArray>(out);
     ASSERT_EQ(sa->length(), 3);
@@ -105,7 +106,7 @@ TEST(ArrowArrayNormalizerTest, NullsArePreservedAcrossConversion) {
     ASSERT_TRUE(b.Finish(&in).ok());
 
     std::shared_ptr<arrow::Array> out;
-    ASSERT_TRUE(normalize_arrow_array(in, &out).ok());
+    ASSERT_TRUE(normalize_arrow_array(in, arrow::default_memory_pool(), &out).ok());
     ASSERT_EQ(out->length(), 2);
     EXPECT_FALSE(out->IsNull(0));
     EXPECT_TRUE(out->IsNull(1));
@@ -124,7 +125,7 @@ TEST(ArrowArrayNormalizerTest, DictionaryOfLargeStringIsFullyNormalized) {
     auto in = std::make_shared<arrow::DictionaryArray>(dict_type, idx, dict);
 
     std::shared_ptr<arrow::Array> out;
-    ASSERT_TRUE(normalize_arrow_array(in, &out).ok());
+    ASSERT_TRUE(normalize_arrow_array(in, arrow::default_memory_pool(), &out).ok());
     ASSERT_EQ(out->type_id(), arrow::Type::STRING);
     auto sa = std::static_pointer_cast<arrow::StringArray>(out);
     ASSERT_EQ(sa->length(), 2);
@@ -152,7 +153,7 @@ TEST(ArrowArrayNormalizerTest, ListViewIsConvertedToListInLogicalOrder) {
     EXPECT_FALSE(is_serde_acceptable_arrow_type(*in->type()));
 
     std::shared_ptr<arrow::Array> out;
-    ASSERT_TRUE(normalize_arrow_array(in, &out).ok());
+    ASSERT_TRUE(normalize_arrow_array(in, arrow::default_memory_pool(), &out).ok());
     ASSERT_EQ(out->type_id(), arrow::Type::LIST);
     auto list = std::static_pointer_cast<arrow::ListArray>(out);
     ASSERT_EQ(list->length(), 3);
@@ -181,12 +182,141 @@ TEST(ArrowArrayNormalizerTest, LargeListViewIsConvertedToLargeList) {
     EXPECT_FALSE(is_serde_acceptable_arrow_type(*in->type()));
 
     std::shared_ptr<arrow::Array> out;
-    ASSERT_TRUE(normalize_arrow_array(in, &out).ok());
+    ASSERT_TRUE(normalize_arrow_array(in, arrow::default_memory_pool(), &out).ok());
     ASSERT_EQ(out->type_id(), arrow::Type::LARGE_LIST);
     auto list = std::static_pointer_cast<arrow::LargeListArray>(out);
     ASSERT_EQ(list->length(), 2);
     EXPECT_EQ(list->value_slice(0)->ToString(), "[\n  20,\n  30\n]");
     EXPECT_EQ(list->value_slice(1)->ToString(), "[\n  10\n]");
+}
+
+TEST(ArrowArrayNormalizerTest, ListViewCanonicalizationUsesCallerMemoryPool) {
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 0, 0}).ok());
+    std::shared_ptr<arrow::Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+
+    arrow::Int32Builder sizes_builder;
+    ASSERT_TRUE(sizes_builder.AppendValues({3, 3, 3}).ok());
+    std::shared_ptr<arrow::Array> sizes;
+    ASSERT_TRUE(sizes_builder.Finish(&sizes).ok());
+
+    arrow::Int32Builder values_builder;
+    ASSERT_TRUE(values_builder.AppendValues({10, 20, 30}).ok());
+    std::shared_ptr<arrow::Array> values;
+    ASSERT_TRUE(values_builder.Finish(&values).ok());
+
+    auto in = arrow::ListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    arrow::ProxyMemoryPool pool(arrow::default_memory_pool());
+    std::shared_ptr<arrow::Array> out;
+    ASSERT_TRUE(normalize_arrow_array(in, &pool, &out).ok());
+    EXPECT_GT(pool.bytes_allocated(), 0);
+    out.reset();
+    EXPECT_EQ(pool.bytes_allocated(), 0);
+}
+
+TEST(ArrowArrayNormalizerTest, NullableListViewSlicePreservesValidity) {
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.Append(0).ok());
+    ASSERT_TRUE(offsets_builder.AppendNull().ok());
+    ASSERT_TRUE(offsets_builder.Append(1).ok());
+    std::shared_ptr<arrow::Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+
+    arrow::Int32Builder sizes_builder;
+    ASSERT_TRUE(sizes_builder.AppendValues({1, 0, 1}).ok());
+    std::shared_ptr<arrow::Array> sizes;
+    ASSERT_TRUE(sizes_builder.Finish(&sizes).ok());
+
+    arrow::Int32Builder values_builder;
+    ASSERT_TRUE(values_builder.AppendValues({10, 20}).ok());
+    std::shared_ptr<arrow::Array> values;
+    ASSERT_TRUE(values_builder.Finish(&values).ok());
+
+    auto full = arrow::ListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    auto in = full->Slice(1, 2);
+    ASSERT_EQ(in->offset(), 1);
+
+    std::shared_ptr<arrow::Array> out;
+    ASSERT_TRUE(normalize_arrow_array(in, arrow::default_memory_pool(), &out).ok());
+    ASSERT_EQ(out->type_id(), arrow::Type::LIST);
+    EXPECT_TRUE(out->IsNull(0));
+    EXPECT_TRUE(out->IsValid(1));
+    auto list = std::static_pointer_cast<arrow::ListArray>(out);
+    EXPECT_EQ(list->value_slice(1)->ToString(), "[\n  20\n]");
+}
+
+TEST(ArrowArrayNormalizerTest, NullableLargeListViewSlicePreservesValidity) {
+    arrow::Int64Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.Append(0).ok());
+    ASSERT_TRUE(offsets_builder.AppendNull().ok());
+    ASSERT_TRUE(offsets_builder.Append(1).ok());
+    std::shared_ptr<arrow::Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+
+    arrow::Int64Builder sizes_builder;
+    ASSERT_TRUE(sizes_builder.AppendValues({1, 0, 1}).ok());
+    std::shared_ptr<arrow::Array> sizes;
+    ASSERT_TRUE(sizes_builder.Finish(&sizes).ok());
+
+    arrow::Int32Builder values_builder;
+    ASSERT_TRUE(values_builder.AppendValues({10, 20}).ok());
+    std::shared_ptr<arrow::Array> values;
+    ASSERT_TRUE(values_builder.Finish(&values).ok());
+
+    auto full = arrow::LargeListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    auto in = full->Slice(1, 2);
+    ASSERT_EQ(in->offset(), 1);
+
+    std::shared_ptr<arrow::Array> out;
+    ASSERT_TRUE(normalize_arrow_array(in, arrow::default_memory_pool(), &out).ok());
+    ASSERT_EQ(out->type_id(), arrow::Type::LARGE_LIST);
+    EXPECT_TRUE(out->IsNull(0));
+    EXPECT_TRUE(out->IsValid(1));
+    auto list = std::static_pointer_cast<arrow::LargeListArray>(out);
+    EXPECT_EQ(list->value_slice(1)->ToString(), "[\n  20\n]");
+}
+
+TEST(ArrowArrayNormalizerTest, InvalidListViewRangeIsRejectedBeforeCopy) {
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 2}).ok());
+    std::shared_ptr<arrow::Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+
+    arrow::Int32Builder sizes_builder;
+    ASSERT_TRUE(sizes_builder.AppendValues({1, 1}).ok());
+    std::shared_ptr<arrow::Array> sizes;
+    ASSERT_TRUE(sizes_builder.Finish(&sizes).ok());
+
+    arrow::Int32Builder values_builder;
+    ASSERT_TRUE(values_builder.AppendValues({10, 20}).ok());
+    std::shared_ptr<arrow::Array> values;
+    ASSERT_TRUE(values_builder.Finish(&values).ok());
+
+    auto in = arrow::ListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    std::shared_ptr<arrow::Array> out;
+    EXPECT_FALSE(normalize_arrow_array(in, arrow::default_memory_pool(), &out).ok());
+}
+
+TEST(ArrowArrayNormalizerTest, InvalidLargeListViewRangeIsRejectedBeforeCopy) {
+    arrow::Int64Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({0, 2}).ok());
+    std::shared_ptr<arrow::Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+
+    arrow::Int64Builder sizes_builder;
+    ASSERT_TRUE(sizes_builder.AppendValues({1, 1}).ok());
+    std::shared_ptr<arrow::Array> sizes;
+    ASSERT_TRUE(sizes_builder.Finish(&sizes).ok());
+
+    arrow::Int32Builder values_builder;
+    ASSERT_TRUE(values_builder.AppendValues({10, 20}).ok());
+    std::shared_ptr<arrow::Array> values;
+    ASSERT_TRUE(values_builder.Finish(&values).ok());
+
+    auto in = arrow::LargeListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    std::shared_ptr<arrow::Array> out;
+    EXPECT_FALSE(normalize_arrow_array(in, arrow::default_memory_pool(), &out).ok());
 }
 
 // An unsupported type must name itself, otherwise the offending column cannot be found in prod.
@@ -195,7 +325,7 @@ TEST(ArrowArrayNormalizerTest, UnsupportedTypeFailsLoudWithTypeName) {
     EXPECT_FALSE(is_serde_acceptable_arrow_type(*in->type()));
 
     std::shared_ptr<arrow::Array> out;
-    Status st = normalize_arrow_array(in, &out);
+    Status st = normalize_arrow_array(in, arrow::default_memory_pool(), &out);
     EXPECT_FALSE(st.ok());
     EXPECT_NE(st.to_string().find("interval"), std::string::npos);
 }
