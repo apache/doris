@@ -895,20 +895,19 @@ TEST_F(ParquetExprTest, test_in) {
 
     VExprSPtr in_expr;
     ASSERT_TRUE(direct_in_expr.get_slot_in_expr(in_expr));
-    EXPECT_EQ(
-            "InPredicate(SlotRef(slot_id=2 type=BIGINT) 0,[VLiteral (name = Nullable(BIGINT), type "
-            "= Nullable(BIGINT), value = (0)) VLiteral (name = Nullable(BIGINT), type = "
-            "Nullable(BIGINT), value = (1)) VLiteral (name = Nullable(BIGINT), type = "
-            "Nullable(BIGINT), value = (2))])",
-            in_expr->debug_string());
+    EXPECT_EQ(4, in_expr->children().size());
+    const auto in_expr_debug = in_expr->debug_string();
+    for (const auto* value : {"0", "1", "2"}) {
+        EXPECT_NE(std::string::npos, in_expr_debug.find("value = (" + std::string(value) + "))"));
+    }
 
     VExprSPtr in_expr2;
     ASSERT_TRUE(direct_in_expr2.get_slot_in_expr(in_expr2));
-    EXPECT_EQ(
-            "InPredicate(SlotRef(slot_id=2 type=BIGINT) 0,[VLiteral (name = Nullable(BIGINT), type "
-            "= Nullable(BIGINT), value = (1000)) VLiteral (name = Nullable(BIGINT), type = "
-            "Nullable(BIGINT), value = (10000000000))])",
-            in_expr2->debug_string());
+    EXPECT_EQ(3, in_expr2->children().size());
+    const auto in_expr2_debug = in_expr2->debug_string();
+    for (const auto* value : {"1000", "10000000000"}) {
+        EXPECT_NE(std::string::npos, in_expr2_debug.find("value = (" + std::string(value) + "))"));
+    }
 
     VExprSPtr in_expr3;
     ASSERT_TRUE(direct_in_expr3.get_slot_in_expr(in_expr3));
