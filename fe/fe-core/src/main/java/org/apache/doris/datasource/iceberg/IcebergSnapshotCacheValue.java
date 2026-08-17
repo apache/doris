@@ -181,6 +181,13 @@ public class IcebergSnapshotCacheValue {
         if (!(table instanceof HasTableOperations) || isFrozenGeneration(table)) {
             return table;
         }
+        if (table instanceof QueryScopedTable) {
+            // Already fixed to one admitted metadata generation and isolating its snapshot
+            // copies from the cached BaseSnapshot instances. Rebuilding it as a plain BaseTable
+            // would hand historical scans the shared snapshots, whose lazily materialized
+            // manifest lists would then grow the cached generation past its admitted weight.
+            return table;
+        }
         TableOperations operations = ((HasTableOperations) table).operations();
         // Capture current() exactly once so every projection derived from the returned table sees
         // one metadata generation even when the shared catalog handle refreshes concurrently.
@@ -239,6 +246,20 @@ public class IcebergSnapshotCacheValue {
                 && ((HasTableOperations) table).operations() instanceof FrozenTableOperations;
     }
 
+    /**
+     * True for any table bound to a retained metadata generation that cannot commit by itself:
+     * a frozen generation, or a query-scoped view over one. Writers must re-base such tables onto
+     * live operations through {@link #createWritableTable}.
+     */
+    static boolean isRetainedGeneration(Table table) {
+        if (!(table instanceof HasTableOperations)) {
+            return false;
+        }
+        TableOperations operations = ((HasTableOperations) table).operations();
+        return operations instanceof FrozenTableOperations
+                || operations instanceof QueryScopedTableOperations;
+    }
+
     static TableOperations unwrapRetainedTableOperations(TableOperations operations) {
         TableOperations current = Objects.requireNonNull(operations, "operations can not be null");
         while (current instanceof RetainedTableOperations) {
@@ -248,11 +269,11 @@ public class IcebergSnapshotCacheValue {
     }
 
     static Table createWritableTable(Table retainedTable, Table liveTable) {
-        if (!isFrozenGeneration(retainedTable)) {
+        if (!isRetainedGeneration(retainedTable)) {
             return retainedTable;
         }
         if (!(liveTable instanceof HasTableOperations)
-                || isFrozenGeneration(liveTable)) {
+                || isRetainedGeneration(liveTable)) {
             throw new IllegalArgumentException(
                     "Iceberg commit table must provide writable table operations");
         }

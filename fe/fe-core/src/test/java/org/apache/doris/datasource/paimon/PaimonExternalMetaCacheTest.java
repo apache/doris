@@ -51,6 +51,7 @@ import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.PrimaryKeyFileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.StreamTableCommit;
 import org.apache.paimon.table.sink.StreamTableWrite;
@@ -236,8 +237,27 @@ public class PaimonExternalMetaCacheTest {
 
         long emptyEstimate = empty.prepareForCachePublication(emptyKey).getBytes();
         long populatedEstimate = populated.prepareForCachePublication(populatedKey).getBytes();
+        materializeStoreGraph(emptyTable);
+        materializeStoreGraph(populatedTable);
         EstimatorCalibrationAssertions.assertConservativeDelta(
                 "paimon table fields", emptyEstimate, populatedEstimate, empty, populated);
+    }
+
+    @Test
+    public void testStoreGraphFormulaAgainstJolOwnedGraph() throws Exception {
+        // AppendOnlyFileStore copies every field for its non-null row type; KeyValueFileStore
+        // copies the primary-key fields and shares the rest. Both derive RowTypes with lazy
+        // lookup maps and copy the table options; the estimate must cover them after
+        // newReadBuilder().newScan() runs on the admitted table.
+        assertTableDeltaAgainstJol("paimon append store fields",
+                newTableWithExtraFields("jol_store_append_narrow", 10, false, 0),
+                newTableWithExtraFields("jol_store_append_wide", 300, false, 0));
+        assertTableDeltaAgainstJol("paimon primary-key store fields",
+                newTableWithExtraFields("jol_store_pk_narrow", 10, true, 0),
+                newTableWithExtraFields("jol_store_pk_wide", 300, true, 0));
+        assertTableDeltaAgainstJol("paimon store options",
+                newTableWithExtraFields("jol_store_options_none", 10, false, 0),
+                newTableWithExtraFields("jol_store_options_many", 10, false, 100));
     }
 
     @Test
@@ -1006,24 +1026,35 @@ public class PaimonExternalMetaCacheTest {
     }
 
     private FileStoreTable newTableWithExtraFields(String name, int fieldCount) throws Exception {
+        return newTableWithExtraFields(name, fieldCount, false, 0);
+    }
+
+    private FileStoreTable newTableWithExtraFields(
+            String name, int fieldCount, boolean primaryKey, int optionCount) throws Exception {
         ArrayList<DataField> fields = new ArrayList<>();
         fields.add(new DataField(0, "part", new IntType()));
         for (int index = 0; index < fieldCount; index++) {
             fields.add(new DataField(index + 1, "field_" + index, new IntType()));
         }
+        if (primaryKey) {
+            fields.add(new DataField(fieldCount + 1, "id", new IntType(false)));
+        }
+        Map<String, String> options = new HashMap<>();
+        for (int index = 0; index < optionCount; index++) {
+            options.put("option_" + index, "value_" + index);
+        }
         TableSchema schema = new TableSchema(
                 0,
                 fields,
-                1,
+                fields.size(),
                 Collections.singletonList("part"),
-                Collections.emptyList(),
-                Collections.emptyMap(),
+                primaryKey ? java.util.Arrays.asList("id", "part") : Collections.emptyList(),
+                options,
                 null);
-        return new AppendOnlyFileStoreTable(
-                LocalFileIO.create(),
-                new Path(temporaryFolder.newFolder(name).toURI()),
-                schema,
-                CatalogEnvironment.empty());
+        Path location = new Path(temporaryFolder.newFolder(name).toURI());
+        return primaryKey
+                ? new PrimaryKeyFileStoreTable(LocalFileIO.create(), location, schema, CatalogEnvironment.empty())
+                : new AppendOnlyFileStoreTable(LocalFileIO.create(), location, schema, CatalogEnvironment.empty());
     }
 
     private FileStoreTable newTableWithNestedFields(String name, int nestedFieldCount) throws Exception {
@@ -1113,11 +1144,36 @@ public class PaimonExternalMetaCacheTest {
         long smallEstimate = small.prepareForCachePublication(smallKey).getBytes();
         long populatedEstimate = populated.prepareForCachePublication(populatedKey).getBytes();
         // The estimate reserves the lookup maps every nested RowType can materialize after
-        // admission, so the JOL oracle measures the fully grown graph.
+        // admission and the store graph scan planning creates, so the JOL oracle measures the
+        // fully grown graph.
         materializeRowTypeIndexes(smallTable.schema());
         materializeRowTypeIndexes(populatedTable.schema());
+        materializeStoreGraph(smallTable);
+        materializeStoreGraph(populatedTable);
         EstimatorCalibrationAssertions.assertConservativeDelta(
                 fixture, smallEstimate, populatedEstimate, small, populated);
+    }
+
+    /** What scan planning materializes after admission: the store and its RowType indexes. */
+    private void materializeStoreGraph(FileStoreTable table) {
+        table.newReadBuilder().newScan();
+        try {
+            Object store = readField(table, table.getClass(), "lazyStore");
+            for (Class<?> owner = store.getClass(); owner != null && owner != Object.class;
+                    owner = owner.getSuperclass()) {
+                for (Field field : owner.getDeclaredFields()) {
+                    if (RowType.class.isAssignableFrom(field.getType())) {
+                        field.setAccessible(true);
+                        Object rowType = field.get(store);
+                        if (rowType != null) {
+                            materializeRowTypeIndexes((RowType) rowType);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static final String[] ROW_TYPE_LAZY_FIELDS = {

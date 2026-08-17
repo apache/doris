@@ -53,6 +53,7 @@ import org.apache.paimon.types.VariantType;
 import org.apache.paimon.types.VectorType;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /** Publication-time retained-weight formula for Paimon snapshot projections. */
@@ -124,6 +125,21 @@ final class PaimonCacheSizeEstimator {
     private static final boolean PAIMON_TABLE_LAYOUT_SUPPORTED = checkPaimonTableLayout();
     // One Paimon Partition record with its single-column LinkedHashMap spec plus map entry; extra
     // columns are charged by PaimonPartitionInfo.
+    // FileStoreTable.lazyStore: the store object, its CoreOptions/Options copy, SchemaManager,
+    // and the partition/bucket-key/row/key/value RowTypes it derives from the TableSchema. It is
+    // created by the partition projection before publication or by scan planning afterwards.
+    private static final long STORE_BASE_BYTES = objectBytes(1_536L);
+    private static final long STORE_OPTION_BYTES = objectBytes(48L);
+    // KeyValueFileStore keeps prefixed key-field copies and shares the value fields; the
+    // AppendOnlyFileStore deep copy of the whole type tree is reserved by
+    // retainedTablePayloadBytes, which already walks that tree.
+    private static final long STORE_KEY_FIELD_BYTES = objectBytes(112L);
+    private static final long STORE_LIST_SLOT_BYTES = objectBytes(8L);
+    private static final String APPEND_ONLY_TABLE_CLASS_NAME =
+            "org.apache.paimon.table.AppendOnlyFileStoreTable";
+    private static final String PRIMARY_KEY_TABLE_CLASS_NAME =
+            "org.apache.paimon.table.PrimaryKeyFileStoreTable";
+    private static final String MERGE_ENGINE_OPTION = "merge-engine";
     private static final long PARTITION_BYTES = objectBytes(272L);
     private static final long PARTITION_ITEM_BYTES = objectBytes(640L);
     private static final long WRAPPER_BYTES = objectBytes(512L);
@@ -228,8 +244,8 @@ final class PaimonCacheSizeEstimator {
             return false;
         }
         String className = table.getClass().getName();
-        return "org.apache.paimon.table.AppendOnlyFileStoreTable".equals(className)
-                || "org.apache.paimon.table.PrimaryKeyFileStoreTable".equals(className);
+        return APPEND_ONLY_TABLE_CLASS_NAME.equals(className)
+                || PRIMARY_KEY_TABLE_CLASS_NAME.equals(className);
     }
 
     /** Uses TableSchema cardinalities only and deliberately never calls FileStoreTable.store(). */
@@ -255,7 +271,70 @@ final class PaimonCacheSizeEstimator {
         bytes = addCount(bytes, schema.options().size(), TABLE_OPTION_BYTES);
         bytes = addCount(bytes, schema.partitionKeys().size(), TABLE_KEY_BYTES);
         bytes = addCount(bytes, schema.primaryKeys().size(), TABLE_KEY_BYTES);
-        return addCount(bytes, schema.bucketKeys().size(), TABLE_KEY_BYTES);
+        bytes = addCount(bytes, schema.bucketKeys().size(), TABLE_KEY_BYTES);
+        return MetaCacheWeightUtils.saturatedAdd(bytes, storeGraphBytes(fileStoreTable, schema));
+    }
+
+    /**
+     * Reserve the store graph the table materializes without opening it: TableSchema
+     * cardinalities decide its size, and every RowType it derives can grow the four lazy lookup
+     * maps after admission exactly like nested RowTypes.
+     */
+    private static long storeGraphBytes(FileStoreTable table, TableSchema schema) {
+        long bytes = STORE_BASE_BYTES;
+        bytes = addCount(bytes, schema.options().size(), STORE_OPTION_BYTES);
+        List<DataField> fields = schema.fields();
+        long fieldCount = fields.size();
+        long uncachedFieldIds = 0L;
+        for (DataField field : fields) {
+            if (isUncachedInteger(field.id())) {
+                uncachedFieldIds++;
+            }
+        }
+        long partitionKeys = schema.partitionKeys().size();
+        long bucketKeys = schema.bucketKeys().size();
+        // Partition and bucket key RowTypes reference a subset of the fields; ids beyond the
+        // Integer cache are counted as if all of them were uncached, which is conservative.
+        long uncachedPartitionKeys = Math.min(partitionKeys, uncachedFieldIds);
+        long uncachedBucketKeys = Math.min(bucketKeys, uncachedFieldIds);
+        bytes = MetaCacheWeightUtils.saturatedAdd(bytes, rowTypeBytes(partitionKeys, uncachedPartitionKeys));
+        bytes = MetaCacheWeightUtils.saturatedAdd(bytes, rowTypeBytes(bucketKeys, uncachedBucketKeys));
+        if (PRIMARY_KEY_TABLE_CLASS_NAME.equals(table.getClass().getName())) {
+            long primaryKeys = schema.primaryKeys().size();
+            bytes = addCount(bytes, primaryKeys, STORE_KEY_FIELD_BYTES);
+            for (String primaryKey : schema.primaryKeys()) {
+                // Each trimmed key field gets a fresh "_KEY_" + name string.
+                bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
+                        MetaCacheWeightUtils.estimatedStringBytes(primaryKey));
+            }
+            bytes = addCount(bytes, fieldCount, STORE_LIST_SLOT_BYTES);
+            // Key fields are re-numbered above the Integer cache; the value type shares fields.
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, rowTypeBytes(primaryKeys, primaryKeys));
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, rowTypeBytes(fieldCount, uncachedFieldIds));
+            if (retainsMergeFunctionRowType(schema)) {
+                // partial-update / aggregation merge factories keep a second logical RowType and
+                // option-derived per-field maps (aggregation also copies CoreOptions).
+                bytes = MetaCacheWeightUtils.saturatedAdd(bytes, rowTypeBytes(fieldCount, uncachedFieldIds));
+                bytes = addCount(bytes, schema.options().size(), STORE_OPTION_BYTES);
+            }
+            return bytes;
+        }
+        // The copied row type of an append-only store (fields, types and nested lookup maps) is
+        // reserved by retainedTablePayloadBytes; the top-level RowType wrapper is charged here.
+        return MetaCacheWeightUtils.saturatedAdd(bytes, rowTypeBytes(fieldCount, uncachedFieldIds));
+    }
+
+    private static boolean retainsMergeFunctionRowType(TableSchema schema) {
+        String mergeEngine = schema.options().get(MERGE_ENGINE_OPTION);
+        if (mergeEngine == null) {
+            return false;
+        }
+        String normalized = mergeEngine.trim().toLowerCase(Locale.ROOT).replace('_', '-');
+        return "partial-update".equals(normalized) || "aggregation".equals(normalized);
+    }
+
+    private static boolean isUncachedInteger(int value) {
+        return value < -128 || value > 127;
     }
 
     /**
@@ -288,8 +367,15 @@ final class PaimonCacheSizeEstimator {
             return 0L;
         }
         long bytes = addString(0L, schema.comment());
+        TypeTreeStructure structure = new TypeTreeStructure();
         for (DataField field : schema.fields()) {
-            bytes = addFieldPayload(bytes, field, false, budget, 0);
+            bytes = addFieldPayload(bytes, field, false, budget, 0, structure);
+        }
+        if (isAppendOnlyTable(table)) {
+            // AppendOnlyFileStore keeps logicalRowType().notNull(): a deep copy of every field
+            // and type (names and descriptions are shared), including nested RowTypes with their
+            // own lazy lookup maps. Reserve that copy without creating the store.
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, structure.bytes);
         }
         budget.charge(schema.options().size());
         for (Map.Entry<String, String> option : schema.options().entrySet()) {
@@ -312,15 +398,17 @@ final class PaimonCacheSizeEstimator {
 
     private static long addFieldPayload(
             long bytes, DataField field, boolean nested, AccountingBudget budget,
-            int typeDepth) {
+            int typeDepth, TypeTreeStructure structure) {
         budget.charge(1L);
+        // Top-level DataFields are covered by TABLE_FIELD_BYTES; a copied tree owns them all.
+        structure.add(DATA_FIELD_BYTES);
         if (nested) {
             bytes = MetaCacheWeightUtils.saturatedAdd(bytes, DATA_FIELD_BYTES);
         }
         bytes = addString(bytes, field.name());
         bytes = addString(bytes, field.description());
         bytes = addString(bytes, field.defaultValue());
-        return addTypePayload(bytes, field.type(), budget, typeDepth);
+        return addTypePayload(bytes, field.type(), budget, typeDepth, structure);
     }
 
     /**
@@ -329,7 +417,8 @@ final class PaimonCacheSizeEstimator {
      * instead of counting a future composite type as a small primitive.
      */
     private static long addTypePayload(
-            long bytes, DataType type, AccountingBudget budget, int typeDepth) {
+            long bytes, DataType type, AccountingBudget budget, int typeDepth,
+            TypeTreeStructure structure) {
         if (typeDepth > MAX_TYPE_ACCOUNTING_DEPTH) {
             throw new IllegalStateException(
                     "Paimon cache accounting type depth exceeded");
@@ -342,40 +431,62 @@ final class PaimonCacheSizeEstimator {
         if (typeClass == RowType.class) {
             RowType rowType = (RowType) type;
             List<DataField> fields = rowType.getFields();
-            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, rowTypeBytes(fields));
+            long rowBytes = rowTypeBytes(fields);
+            structure.add(rowBytes);
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, rowBytes);
             for (DataField field : fields) {
-                bytes = addFieldPayload(bytes, field, true, budget, typeDepth + 1);
+                bytes = addFieldPayload(bytes, field, true, budget, typeDepth + 1, structure);
             }
             return bytes;
         }
         if (typeClass == ArrayType.class) {
+            structure.add(ARRAY_TYPE_BYTES);
             bytes = MetaCacheWeightUtils.saturatedAdd(bytes, ARRAY_TYPE_BYTES);
             return addTypePayload(
-                    bytes, ((ArrayType) type).getElementType(), budget, typeDepth + 1);
+                    bytes, ((ArrayType) type).getElementType(), budget, typeDepth + 1, structure);
         }
         if (typeClass == VectorType.class) {
+            structure.add(VECTOR_TYPE_BYTES);
             bytes = MetaCacheWeightUtils.saturatedAdd(bytes, VECTOR_TYPE_BYTES);
             return addTypePayload(
-                    bytes, ((VectorType) type).getElementType(), budget, typeDepth + 1);
+                    bytes, ((VectorType) type).getElementType(), budget, typeDepth + 1, structure);
         }
         if (typeClass == MapType.class) {
+            structure.add(MAP_TYPE_BYTES);
             bytes = MetaCacheWeightUtils.saturatedAdd(bytes, MAP_TYPE_BYTES);
             bytes = addTypePayload(
-                    bytes, ((MapType) type).getKeyType(), budget, typeDepth + 1);
+                    bytes, ((MapType) type).getKeyType(), budget, typeDepth + 1, structure);
             return addTypePayload(
-                    bytes, ((MapType) type).getValueType(), budget, typeDepth + 1);
+                    bytes, ((MapType) type).getValueType(), budget, typeDepth + 1, structure);
         }
         if (typeClass == MultisetType.class) {
+            structure.add(MULTISET_TYPE_BYTES);
             bytes = MetaCacheWeightUtils.saturatedAdd(bytes, MULTISET_TYPE_BYTES);
-            return addTypePayload(
-                    bytes, ((MultisetType) type).getElementType(), budget, typeDepth + 1);
+            // MultisetType.copy() shares its element type, so a deep copy stops here.
+            return addTypePayload(bytes, ((MultisetType) type).getElementType(), budget,
+                    typeDepth + 1, new TypeTreeStructure());
         }
         String[] leafFields = LEAF_TYPE_FIELDS.get(typeClass);
         if (leafFields == null) {
             throw new IllegalStateException(
                     "Unsupported Paimon data type: " + typeClass.getName());
         }
-        return MetaCacheWeightUtils.saturatedAdd(bytes, leafTypeBytes(leafFields));
+        long leafBytes = leafTypeBytes(leafFields);
+        structure.add(leafBytes);
+        return MetaCacheWeightUtils.saturatedAdd(bytes, leafBytes);
+    }
+
+    private static boolean isAppendOnlyTable(Table table) {
+        return APPEND_ONLY_TABLE_CLASS_NAME.equals(table.getClass().getName());
+    }
+
+    /** Non-String bytes of a schema type tree, i.e. what a deep DataType copy allocates again. */
+    private static final class TypeTreeStructure {
+        private long bytes;
+
+        private void add(long structuralBytes) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, structuralBytes);
+        }
     }
 
     /**
@@ -384,7 +495,16 @@ final class PaimonCacheSizeEstimator {
      * so a query cannot grow the retained graph past the admitted weight; nothing is materialized.
      */
     private static long rowTypeBytes(List<DataField> fields) {
-        long fieldCount = fields.size();
+        long uncachedFieldIds = 0L;
+        for (DataField field : fields) {
+            if (isUncachedInteger(field.id())) {
+                uncachedFieldIds++;
+            }
+        }
+        return rowTypeBytes(fields.size(), uncachedFieldIds);
+    }
+
+    private static long rowTypeBytes(long fieldCount, long uncachedFieldIds) {
         long bytes = MetaCacheWeightUtils.saturatedAdd(ROW_TYPE_BYTES, UNMODIFIABLE_LIST_BYTES);
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes, ARRAY_LIST_BYTES);
         if (fieldCount == 0L) {
@@ -392,12 +512,6 @@ final class PaimonCacheSizeEstimator {
         }
         bytes = MetaCacheWeightUtils.saturatedAdd(
                 bytes, MetaCacheWeightUtils.estimatedObjectArrayBytes(fieldCount));
-        long uncachedFieldIds = 0L;
-        for (DataField field : fields) {
-            if (field.id() < -128 || field.id() > 127) {
-                uncachedFieldIds++;
-            }
-        }
         long uncachedIndexes = fieldCount > 128L ? fieldCount - 128L : 0L;
         long mapBytes = MetaCacheWeightUtils.saturatedAdd(HASH_MAP_BYTES,
                 MetaCacheWeightUtils.estimatedObjectArrayBytes(hashMapCapacity(fieldCount)));

@@ -708,6 +708,43 @@ public class IcebergTransactionTest {
     }
 
     @Test
+    public void testQueryScopedGenerationCommitsThroughWritableOperations() throws UserException {
+        // A weight-bounded snapshot cache hands query-scoped (read-only) tables to the sink;
+        // commits must still be re-based onto the live table operations.
+        Table liveTable = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        IcebergTableCacheValue tableValue = new IcebergTableCacheValue(liveTable);
+        tableValue.prepareForCachePublication(NameMapping.createForTest(dbName, tbWithoutPartition));
+        IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(
+                Mockito.mock(IcebergPartitionInfo.class), Mockito.mock(IcebergSnapshot.class),
+                Optional.empty(), tableValue.getRetainedIcebergTable(),
+                tableValue.getRetainedCurrentSnapshotJson());
+        Table queryScopedTable = cacheValue.getIcebergTable().get();
+        Assert.assertFalse(IcebergSnapshotCacheValue.isFrozenGeneration(queryScopedTable));
+        Assert.assertTrue(IcebergSnapshotCacheValue.isRetainedGeneration(queryScopedTable));
+        IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(dorisTable.getName()).thenReturn(tbWithoutPartition);
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("query-scoped-generation.parquet");
+        commitData.setFileContent(TFileContent.DATA);
+        commitData.setRowCount(1);
+        commitData.setFileSize(1);
+
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(
+                IcebergUtils.class, Mockito.CALLS_REAL_METHODS)) {
+            mockedUtils.when(() -> IcebergUtils.getWritableIcebergTable(dorisTable)).thenReturn(liveTable);
+            IcebergTransaction txn = getTxn();
+            txn.updateIcebergCommitData(Collections.singletonList(commitData));
+            txn.beginInsert(dorisTable, queryScopedTable, Optional.empty());
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithoutPartition));
+            txn.commit();
+        }
+
+        Assert.assertNotNull(ops.getCatalog().loadTable(
+                TableIdentifier.of(dbName, tbWithoutPartition)).currentSnapshot());
+    }
+
+    @Test
     public void testRetainedGenerationCommitsThroughWritableOperations() throws UserException {
         Table liveTable = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
         IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(

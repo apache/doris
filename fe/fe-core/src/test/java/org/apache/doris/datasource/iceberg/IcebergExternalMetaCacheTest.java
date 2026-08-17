@@ -1162,6 +1162,25 @@ public class IcebergExternalMetaCacheTest {
         Assert.assertNotSame(firstQuery.currentSnapshot(), secondQuery.currentSnapshot());
         Assert.assertNotSame(firstManifests, secondManifests);
         Assert.assertNotSame(retained.currentSnapshot(), firstQuery.currentSnapshot());
+
+        // A time-travel projection built from the query-scoped view keeps that isolation: a
+        // historical manifest-list read must not touch the cached generation's snapshots.
+        long snapshotId = liveTable.currentSnapshot().snapshotId();
+        IcebergSnapshotCacheValue historical = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(snapshotId, 0L),
+                Optional.empty(), value.getIcebergTable());
+        Table historicalTable = historical.getIcebergTable().get();
+        Assert.assertEquals(1, historicalTable.snapshot(snapshotId).dataManifests(historicalTable.io()).size());
+        Assert.assertNotSame(retained.snapshot(snapshotId), historicalTable.snapshot(snapshotId));
+        Snapshot cachedSnapshot = retained.snapshot(snapshotId);
+        for (Field retainedField : cachedSnapshot.getClass().getDeclaredFields()) {
+            if (java.lang.reflect.Modifier.isTransient(retainedField.getModifiers())
+                    && !retainedField.getType().isPrimitive()) {
+                retainedField.setAccessible(true);
+                Assert.assertNull(retainedField.getName() + " must stay unmaterialized in the cache",
+                        retainedField.get(cachedSnapshot));
+            }
+        }
     }
 
     @Test

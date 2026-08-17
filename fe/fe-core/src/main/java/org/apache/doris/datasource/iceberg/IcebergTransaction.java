@@ -293,7 +293,7 @@ public class IcebergTransaction implements Transaction {
     }
 
     private Table createTransactionTable(ExternalTable dorisTable, Table retainedTable) {
-        if (!IcebergSnapshotCacheValue.isFrozenGeneration(retainedTable)) {
+        if (!IcebergSnapshotCacheValue.isRetainedGeneration(retainedTable)) {
             return retainedTable;
         }
         // Reads stay on the retained generation; commit refreshes may follow data-only snapshots,
