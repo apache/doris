@@ -392,8 +392,8 @@ public class IcebergSnapshotCacheValue {
             // fail instead of silently committing files produced for another metadata generation.
             if (!isWriterCompatible(refreshedMetadata)) {
                 throw new CommitFailedException(
-                        "Cannot retry Iceberg commit after schema, spec, sort order, location, "
-                                + "format version, or table properties changed");
+                        "Cannot retry Iceberg commit after the table UUID, schema, spec, sort "
+                                + "order, location, format version, or table properties changed");
             }
             currentMetadata = refreshedMetadata;
             return refreshedMetadata;
@@ -407,7 +407,10 @@ public class IcebergSnapshotCacheValue {
         }
 
         private boolean isWriterCompatible(TableMetadata refreshedMetadata) {
-            return retainedMetadata.formatVersion() == refreshedMetadata.formatVersion()
+            // A dropped and recreated table can restart schema/spec/order ids at the same
+            // location; only the same table UUID may absorb a retried commit.
+            return Objects.equals(retainedMetadata.uuid(), refreshedMetadata.uuid())
+                    && retainedMetadata.formatVersion() == refreshedMetadata.formatVersion()
                     && retainedMetadata.currentSchemaId() == refreshedMetadata.currentSchemaId()
                     && retainedMetadata.defaultSpecId() == refreshedMetadata.defaultSpecId()
                     && retainedMetadata.defaultSortOrderId() == refreshedMetadata.defaultSortOrderId()

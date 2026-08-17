@@ -31,6 +31,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TArrayField;
@@ -187,6 +188,8 @@ public class PaimonUtil {
 
             List<String> partitionValues = Lists.newArrayListWithExpectedSize(partitionColumns.size());
             LinkedHashMap<String, String> orderedTypedSpec = new LinkedHashMap<>();
+            retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(retainedPayloadBytes,
+                    PaimonPartitionInfo.partitionColumnBytes(partitionColumns.size()));
             for (Column partitionColumn : partitionColumns) {
                 String partitionColumnName = partitionColumn.getName();
                 Preconditions.checkState(typedSpec.containsKey(partitionColumnName),

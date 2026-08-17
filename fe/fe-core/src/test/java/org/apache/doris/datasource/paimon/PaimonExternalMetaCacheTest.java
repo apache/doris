@@ -81,6 +81,7 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -205,6 +206,16 @@ public class PaimonExternalMetaCacheTest {
                 emptyInts.prepareForCachePublication(intKey).getBytes(),
                 populatedInts.prepareForCachePublication(intKey).getBytes(),
                 emptyInts, populatedInts);
+
+        // Every partition column beyond the first adds a literal to each ListPartitionItem key
+        // and an entry to the Partition spec; the estimate scales with the loaded width.
+        PaimonSnapshotCacheValue wideInts = snapshotValueWithRealPartitions(
+                intTable, 32, 0, Type.INT, 3);
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "paimon wide snapshot partitions",
+                populatedInts.prepareForCachePublication(intKey).getBytes(),
+                wideInts.prepareForCachePublication(intKey).getBytes(),
+                populatedInts, wideInts);
     }
 
     @Test
@@ -1177,6 +1188,12 @@ public class PaimonExternalMetaCacheTest {
     private PaimonSnapshotCacheValue snapshotValueWithRealPartitions(
             FileStoreTable table, int partitionCount, int valueLength, Type partitionType)
             throws AnalysisException {
+        return snapshotValueWithRealPartitions(table, partitionCount, valueLength, partitionType, 1);
+    }
+
+    private PaimonSnapshotCacheValue snapshotValueWithRealPartitions(
+            FileStoreTable table, int partitionCount, int valueLength, Type partitionType,
+            int partitionColumnCount) throws AnalysisException {
         Map<String, org.apache.doris.catalog.PartitionItem> partitionItems = new HashMap<>();
         Map<String, org.apache.paimon.partition.Partition> partitions = new HashMap<>();
         for (int index = 0; index < partitionCount; index++) {
@@ -1184,11 +1201,19 @@ public class PaimonExternalMetaCacheTest {
                     ? Integer.toString(index)
                     : "p" + index + repeatedCharacter('x', valueLength);
             String name = "part=" + value;
-            partitionItems.put(name, PaimonUtil.toListPartitionItem(
-                    Collections.singletonList(value), Collections.singletonList(partitionType)));
+            List<String> values = new ArrayList<>();
+            List<Type> types = new ArrayList<>();
+            Map<String, String> spec = new java.util.LinkedHashMap<>();
+            for (int column = 0; column < partitionColumnCount; column++) {
+                // Each loaded column owns its own value String.
+                String columnValue = new String(value);
+                values.add(columnValue);
+                types.add(partitionType);
+                spec.put("part" + column, columnValue);
+            }
+            partitionItems.put(name, PaimonUtil.toListPartitionItem(values, types));
             partitions.put(name, new org.apache.paimon.partition.Partition(
-                    Collections.singletonMap("part", value),
-                    100L, 1024L, 1L, 1L, 1, true));
+                    spec, 100L, 1024L, 1L, 1L, 1, true));
         }
         PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(partitionItems, partitions);
         return new PaimonSnapshotCacheValue(

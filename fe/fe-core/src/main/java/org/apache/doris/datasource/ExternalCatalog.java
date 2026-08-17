@@ -454,7 +454,10 @@ public abstract class ExternalCatalog
                 // This fallback is only for isolated construction tests before Env is initialized.
                 ExternalMetaCacheBudgetManager.fromConfig().validateCatalogMaxWeight(properties);
             } else {
-                extMetaCacheMgr.validateCatalogCacheProperties(this, properties);
+                // Validate what runtime will honor. Newly supplied keys are validated strictly by
+                // CatalogMgr for CREATE and ALTER; persisted legacy keys that initialization
+                // ignores must not reject an unrelated later ALTER.
+                extMetaCacheMgr.validateEffectiveCatalogCacheProperties(this, properties);
             }
         } catch (IllegalArgumentException e) {
             throw new DdlException(e.getMessage());
@@ -1393,8 +1396,18 @@ public abstract class ExternalCatalog
             }
             String remainder = key.substring("meta.cache.".length());
             int separator = remainder.indexOf('.');
-            if (separator > 0) {
-                extMetaCacheMgr.removeCatalogByEngine(id, remainder.substring(0, separator));
+            if (separator <= 0) {
+                continue;
+            }
+            String engine = remainder.substring(0, separator);
+            try {
+                extMetaCacheMgr.removeCatalogByEngine(id, engine);
+            } catch (IllegalArgumentException e) {
+                // New DDL is validated before it reaches this notification. A persisted key with
+                // an unknown or legacy engine namespace (edit-log replay, image load) has no cache
+                // group to retire and must not abort the replay; runtime sanitization ignores it.
+                LOG.warn("Ignoring external meta cache property '{}' with unknown engine namespace '{}' "
+                        + "for catalog {}: {}", key, engine, id, e.getMessage());
             }
         }
     }

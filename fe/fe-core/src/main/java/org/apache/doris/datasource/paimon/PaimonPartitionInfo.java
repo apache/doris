@@ -44,6 +44,12 @@ public class PaimonPartitionInfo {
         UNPRUNABLE
     }
 
+    // Each ListPartitionItem key holds one LiteralExpr (with lazy supplier, children list and
+    // array) and the Paimon Partition spec one map entry per partition column beyond the first;
+    // the fixed per-partition constants cover a single column. Calibrated against JOL.
+    private static final long PARTITION_EXTRA_COLUMN_BYTES =
+            MetaCacheWeightUtils.estimatedObjectBytes(216L);
+
     public static final PaimonPartitionInfo EMPTY = new PaimonPartitionInfo(PruningStatus.PRUNABLE);
     public static final PaimonPartitionInfo UNPRUNABLE = new PaimonPartitionInfo(PruningStatus.UNPRUNABLE);
 
@@ -92,6 +98,15 @@ public class PaimonPartitionInfo {
         return addString(bytes, value);
     }
 
+    /** Structural bytes one partition retains for every partition column beyond the first. */
+    static long partitionColumnBytes(long partitionColumnCount) {
+        if (partitionColumnCount <= 1L) {
+            return 0L;
+        }
+        return MetaCacheWeightUtils.saturatedMultiply(
+                partitionColumnCount - 1L, PARTITION_EXTRA_COLUMN_BYTES);
+    }
+
     private static long retainedPayloadBytes(Map<String, Partition> partitions) {
         if (partitions == null) {
             return 0L;
@@ -104,6 +119,8 @@ public class PaimonPartitionInfo {
                 continue;
             }
             bytes = addStrings(bytes, partition.spec());
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, partitionColumnBytes(
+                    partition.spec() == null ? 0 : partition.spec().size()));
             bytes = addString(bytes, partition.createdBy());
             bytes = addString(bytes, partition.updatedBy());
             bytes = addStrings(bytes, partition.options());

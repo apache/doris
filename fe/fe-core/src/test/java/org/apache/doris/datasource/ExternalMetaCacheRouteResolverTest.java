@@ -94,6 +94,75 @@ public class ExternalMetaCacheRouteResolverTest {
     }
 
     @Test
+    public void testCatalogCachePropertyUpdateIgnoresPersistedLegacyKeys() {
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        HMSExternalCatalog catalog = new HMSExternalCatalog(
+                1L, "hms", null, Collections.emptyMap(), "");
+        Map<String, String> persisted = new HashMap<>();
+        // Legacy keys admitted by image/replay: a typo, an unknown engine namespace and an
+        // option that is valid but stale relative to the update below.
+        persisted.put("meta.cache.hive.partiton_values.capacity", "10");
+        persisted.put("meta.cache.hvie.partition_values.capacity", "10");
+        persisted.put("meta.cache.max-weight", "64MB");
+        persisted.put("meta.cache.hive.partition_values.max-weight", "16MB");
+
+        // The persisted map is not valid as a whole ...
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> metaCacheMgr.validateCatalogCacheProperties(catalog, persisted));
+        // ... but runtime only honors the sane subset, so an unrelated ALTER passes ...
+        metaCacheMgr.validateEffectiveCatalogCacheProperties(catalog, persisted);
+        metaCacheMgr.validateCatalogCachePropertyUpdate(catalog, persisted,
+                Collections.singletonMap("meta.cache.hive.partition_values.capacity", "20"));
+        // ... while newly supplied keys stay strict, alone and against the honored hierarchy.
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> metaCacheMgr.validateCatalogCachePropertyUpdate(catalog, persisted,
+                        Collections.singletonMap("meta.cache.hive.partiton_values.enable", "true")));
+        Assert.assertThrows(IllegalArgumentException.class,
+                () -> metaCacheMgr.validateCatalogCachePropertyUpdate(catalog, persisted,
+                        Collections.singletonMap("meta.cache.hive.partition_values.max-weight", "128MB")));
+    }
+
+    @Test
+    public void testPropertyNotificationToleratesUnknownEngineNamespace() {
+        long catalogId = 15L;
+        HMSExternalCatalog catalog = new HMSExternalCatalog(
+                catalogId, "hms", null, Collections.emptyMap(), "");
+        mockCurrentCatalog(catalogId, catalog);
+        Map<String, String> replayedProperties = new HashMap<>();
+        replayedProperties.put("meta.cache.hvie.partition_values.capacity", "10");
+        replayedProperties.put("meta.cache.hive.partition_values.capacity", "10");
+
+        // Edit-log replay publishes persisted properties without DDL validation; an unknown
+        // legacy namespace must be ignored instead of aborting the replay.
+        catalog.notifyPropertiesUpdated(replayedProperties);
+    }
+
+    @Test
+    public void testLookupRepreparesCatalogRetiredByConcurrentPolicyChange() {
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        long catalogId = 16L;
+        HMSExternalCatalog catalog = new HMSExternalCatalog(
+                catalogId, "hms", null, Collections.emptyMap(), "");
+        mockCurrentCatalog(catalogId, catalog);
+        ExternalMetaCache hive = metaCacheMgr.hive(catalogId);
+        Assert.assertTrue(hive.isCatalogInitialized(catalogId));
+
+        // A cache-policy ALTER retires the group after the caller captured the engine ...
+        metaCacheMgr.removeCatalog(catalogId);
+        Assert.assertFalse(hive.isCatalogInitialized(catalogId));
+
+        // ... and the pending lookup re-prepares the catalog instead of failing.
+        hive.checkCatalogInitialized(catalogId);
+        Assert.assertTrue(hive.isCatalogInitialized(catalogId));
+        metaCacheMgr.removeCatalog(catalogId);
+
+        // A catalog that was really dropped is not re-created by a stale lookup.
+        mockCurrentCatalog(catalogId, null);
+        Assert.assertThrows(IllegalStateException.class, () -> hive.checkCatalogInitialized(catalogId));
+        Assert.assertFalse(hive.isCatalogInitialized(catalogId));
+    }
+
+    @Test
     public void testRuntimePreparationIgnoresInvalidPersistedCacheProperties() {
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
         Map<String, String> properties = new HashMap<>();

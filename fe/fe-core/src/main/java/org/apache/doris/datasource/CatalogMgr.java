@@ -539,6 +539,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         try {
             if (!isReplay && catalog instanceof ExternalCatalog) {
                 ((ExternalCatalog) catalog).checkProperties();
+                validateSuppliedCacheProperties((ExternalCatalog) catalog, catalog.getProperties());
             }
             Map<String, String> props = catalog.getProperties();
             if (props.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
@@ -623,6 +624,40 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
 
+    /** CREATE: every supplied external meta cache property is validated strictly. */
+    private static void validateSuppliedCacheProperties(ExternalCatalog catalog, Map<String, String> properties)
+            throws DdlException {
+        Env currentEnv = Env.getCurrentEnv();
+        ExternalMetaCacheMgr cacheMgr = currentEnv == null ? null : currentEnv.getExtMetaCacheMgr();
+        if (cacheMgr == null) {
+            return;
+        }
+        try {
+            cacheMgr.validateCatalogCacheProperties(catalog, properties);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    /**
+     * ALTER: newly supplied external meta cache properties are validated strictly, persisted
+     * ones only as runtime honors them, so a legacy key cannot block an unrelated update.
+     */
+    private static void validateSuppliedCacheProperties(ExternalCatalog catalog,
+            Map<String, String> persistedProperties, Map<String, String> updatedProperties)
+            throws DdlException {
+        Env currentEnv = Env.getCurrentEnv();
+        ExternalMetaCacheMgr cacheMgr = currentEnv == null ? null : currentEnv.getExtMetaCacheMgr();
+        if (cacheMgr == null) {
+            return;
+        }
+        try {
+            cacheMgr.validateCatalogCachePropertyUpdate(catalog, persistedProperties, updatedProperties);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
+        }
+    }
+
     /**
      * Reply for alter catalog props event.
      */
@@ -637,6 +672,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     boolean tentativelyMutated = false;
                     try {
                         ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
+                        validateSuppliedCacheProperties(externalCatalog, oldProperties, newProps);
                         boolean validatedWithoutMutation = externalCatalog.validatePropertiesBeforeUpdate(
                                 oldProperties, newProps);
                         if (!validatedWithoutMutation) {

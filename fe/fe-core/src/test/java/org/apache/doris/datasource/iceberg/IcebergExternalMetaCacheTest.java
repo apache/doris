@@ -1350,6 +1350,17 @@ public class IcebergExternalMetaCacheTest {
         EstimatorCalibrationAssertions.assertConservativeDelta(
                 "iceberg snapshot partitions", emptySnapshotEstimate, populatedSnapshotEstimate,
                 emptySnapshot, populatedSnapshot);
+
+        // A spec that widened after the related-table check retains one more literal per range
+        // endpoint and one more value/transform per partition; the projection charges the width
+        // it actually loaded instead of the single field the check assumed.
+        IcebergSnapshotCacheValue wideSnapshot = new IcebergSnapshotCacheValue(
+                realPartitionInfo(32, 3), new IcebergSnapshot(-1L, 0L));
+        long wideSnapshotEstimate = IcebergCacheSizeEstimator.estimateSnapshotEntry(
+                key, wideSnapshot).getBytes();
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "iceberg wide snapshot partitions", populatedSnapshotEstimate, wideSnapshotEstimate,
+                populatedSnapshot, wideSnapshot);
     }
 
     @Test
@@ -2015,19 +2026,31 @@ public class IcebergExternalMetaCacheTest {
     }
 
     private IcebergPartitionInfo realPartitionInfo(int partitionCount) throws Exception {
+        return realPartitionInfo(partitionCount, 1);
+    }
+
+    private IcebergPartitionInfo realPartitionInfo(int partitionCount, int partitionColumnCount)
+            throws Exception {
         Map<String, org.apache.doris.catalog.PartitionItem> partitionItems = new java.util.HashMap<>();
         Map<String, IcebergPartition> partitions = new java.util.HashMap<>();
-        List<org.apache.doris.catalog.Column> partitionColumns = Collections.singletonList(
-                new org.apache.doris.catalog.Column(
-                        "part", org.apache.doris.catalog.PrimitiveType.DATETIMEV2));
+        List<org.apache.doris.catalog.Column> partitionColumns = new ArrayList<>();
+        for (int column = 0; column < partitionColumnCount; column++) {
+            partitionColumns.add(new org.apache.doris.catalog.Column(
+                    "part" + column, org.apache.doris.catalog.PrimitiveType.DATETIMEV2));
+        }
         for (int index = 0; index < partitionCount; index++) {
             String value = Integer.toString(index);
             String name = "part=" + value;
             partitionItems.put(name, new org.apache.doris.catalog.RangePartitionItem(
                     IcebergUtils.getPartitionRange(value, "day", partitionColumns)));
-            partitions.put(name, new IcebergPartition(name, 0, 1L, 1L, 1L,
-                    1L, 1L, Collections.singletonList(value),
-                    Collections.singletonList("day")));
+            // Loaded partitions own one String per value and transform.
+            List<String> values = new ArrayList<>();
+            List<String> transforms = new ArrayList<>();
+            for (int column = 0; column < partitionColumnCount; column++) {
+                values.add(new String(value));
+                transforms.add(new String("day"));
+            }
+            partitions.put(name, new IcebergPartition(name, 0, 1L, 1L, 1L, 1L, 1L, values, transforms));
         }
         return new IcebergPartitionInfo(
                 partitionItems, partitions, Collections.emptyMap());

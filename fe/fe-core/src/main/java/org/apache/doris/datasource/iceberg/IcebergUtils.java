@@ -1770,10 +1770,14 @@ public class IcebergUtils {
 
         List<Column> partitionColumns = IcebergUtils.getSchemaCacheValue(
                 dorisTable, schemaId, table).getPartitionColumns();
+        long partitionItemColumnBytes = IcebergPartitionInfo.partitionItemColumnBytes(
+                partitionColumns.size());
         for (IcebergPartition partition : icebergPartitions) {
             nameToPartition.put(partition.getPartitionName(), partition);
             retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(
                     retainedPayloadBytes, partition.getRetainedPayloadBytes());
+            retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(
+                    retainedPayloadBytes, partitionItemColumnBytes);
             String transform = table.specs().get(partition.getSpecId()).fields().get(0).transform().toString();
             Range<PartitionKey> partitionRange = getPartitionRange(
                     partition.getPartitionValues().get(0), transform, partitionColumns);

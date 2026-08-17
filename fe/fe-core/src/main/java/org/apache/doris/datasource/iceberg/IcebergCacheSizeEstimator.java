@@ -140,7 +140,9 @@ final class IcebergCacheSizeEstimator {
     private static final long BLOB_FIELD_BYTES = objectBytes(32L);
     private static final long PARTITION_STATISTICS_FILE_BYTES = objectBytes(256L);
     private static final long ENCRYPTED_KEY_BYTES = objectBytes(256L);
-    private static final long PARTITION_BYTES = objectBytes(640L);
+    // One retained IcebergPartition (value/transform ArrayLists) or one RangePartitionItem with a
+    // single partition column plus its map entry; extra columns are charged by IcebergPartitionInfo.
+    private static final long PARTITION_BYTES = objectBytes(680L);
     private static final long PARTITION_ALIAS_BYTES = objectBytes(256L);
     private static final long NAME_MAPPING_ENTRY_BYTES = objectBytes(256L);
     private static final long MANIFEST_ENTRY_BASE_BYTES = objectBytes(256L);

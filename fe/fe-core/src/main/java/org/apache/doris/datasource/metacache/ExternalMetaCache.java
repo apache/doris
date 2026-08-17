@@ -24,6 +24,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.LongConsumer;
 
 /**
  * Engine-level abstraction for external metadata cache.
@@ -43,6 +44,30 @@ public interface ExternalMetaCache {
 
     /** Validate cache properties in this engine's canonical namespace. */
     default void validateCatalogProperties(Map<String, String> catalogProperties) {
+    }
+
+    /**
+     * Drop the properties in this engine's namespace that runtime initialization would ignore
+     * (unknown entries, obsolete or unparsable options), returning what the engine will honor.
+     */
+    default Map<String, String> sanitizeCatalogPropertiesForRuntime(Map<String, String> catalogProperties) {
+        return catalogProperties;
+    }
+
+    /**
+     * Validate cache properties with the semantics initialization applies to persisted state:
+     * entry weights must fit their catalog bound, but the catalog bound is not compared with this
+     * FE's local global bound (runtime clamps it instead).
+     */
+    default void validateCatalogPropertiesForRuntime(Map<String, String> catalogProperties) {
+    }
+
+    /**
+     * Bind the callback that (re)prepares a catalog group under the manager's lifecycle fence.
+     * A lookup that finds no group (the catalog was retired by a concurrent cache-policy ALTER
+     * after the caller prepared it) uses it once before failing.
+     */
+    default void bindCatalogPreparer(LongConsumer catalogPreparer) {
     }
 
     /**

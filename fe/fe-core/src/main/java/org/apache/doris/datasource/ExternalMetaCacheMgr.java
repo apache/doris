@@ -44,6 +44,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -320,6 +321,63 @@ public class ExternalMetaCacheMgr {
         }
     }
 
+    /**
+     * Strict validation of an ALTER: every newly supplied cache key must be valid, while keys
+     * already persisted before the update are reduced to what runtime initialization honors
+     * (image/replay may carry legacy or obsolete keys that lazy initialization ignores) so an
+     * old unknown key cannot lock the catalog out of unrelated updates. The hierarchy is
+     * validated over the merged runtime view.
+     */
+    public void validateCatalogCachePropertyUpdate(
+            CatalogIf<?> catalog, Map<String, String> persistedProperties,
+            Map<String, String> updatedProperties) {
+        validateCatalogCacheProperties(catalog, updatedProperties);
+        Map<String, String> effective = runtimeEffectiveCacheProperties(
+                catalog, persistedProperties == null ? Collections.emptyMap() : persistedProperties);
+        effective.putAll(updatedProperties);
+        validateRuntimeCacheProperties(catalog, effective);
+    }
+
+    /**
+     * Validate persisted properties as runtime will apply them: unknown engine namespaces and
+     * options no engine honors are dropped, then the remaining set is validated with the
+     * semantics initialization uses.
+     */
+    public void validateEffectiveCatalogCacheProperties(
+            CatalogIf<?> catalog, Map<String, String> catalogProperties) {
+        validateRuntimeCacheProperties(catalog, runtimeEffectiveCacheProperties(catalog, catalogProperties));
+    }
+
+    private void validateRuntimeCacheProperties(CatalogIf<?> catalog, Map<String, String> effective) {
+        budgetManager.parseCatalogMaxWeight(effective);
+        for (ExternalMetaCache cache : routeResolver.resolveCatalogCaches(catalog.getId(), catalog)) {
+            cache.validateCatalogPropertiesForRuntime(effective);
+        }
+    }
+
+    private Map<String, String> runtimeEffectiveCacheProperties(
+            CatalogIf<?> catalog, Map<String, String> catalogProperties) {
+        Map<String, String> effective = sanitizeCatalogCachePropertiesForRuntime(
+                catalog.getId(), catalogProperties);
+        List<ExternalMetaCache> routedCaches = routeResolver.resolveCatalogCaches(catalog.getId(), catalog);
+        Set<String> routedEngines = routedCaches.stream()
+                .map(ExternalMetaCache::engine)
+                .collect(Collectors.toSet());
+        effective.keySet().removeIf(key -> {
+            if (key == null || ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY.equals(key)
+                    || !key.startsWith("meta.cache.")) {
+                return false;
+            }
+            String remainder = key.substring("meta.cache.".length());
+            int separator = remainder.indexOf('.');
+            return separator <= 0 || !routedEngines.contains(remainder.substring(0, separator));
+        });
+        for (ExternalMetaCache cache : routedCaches) {
+            effective = cache.sanitizeCatalogPropertiesForRuntime(effective);
+        }
+        return effective;
+    }
+
     public void invalidateCatalog(long catalogId) {
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateCatalog",
@@ -431,6 +489,44 @@ public class ExternalMetaCacheMgr {
 
     private void initEngineCaches() {
         registerBuiltinEngineCaches();
+        bindCatalogPreparers();
+    }
+
+    private void bindCatalogPreparers() {
+        for (ExternalMetaCache cache : cacheRegistry.allCaches()) {
+            String engine = cache.engine();
+            cache.bindCatalogPreparer(catalogId -> tryPrepareCatalogByEngine(catalogId, engine));
+        }
+    }
+
+    /**
+     * Re-prepare a catalog whose group was retired between a caller's preparation and its lookup.
+     * Lookups may run inside a cache loader, and retirement holds the lifecycle lock while it
+     * closes groups, so this never blocks: when the fence is contended the lookup keeps its
+     * pre-existing failure and the next call prepares under the new policy.
+     */
+    private void tryPrepareCatalogByEngine(long catalogId, String engine) {
+        ExternalMetaCache targetCache = this.engine(engine);
+        if (targetCache.isCatalogInitialized(catalogId)) {
+            return;
+        }
+        Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
+        if (!lifecycleLock.tryLock()) {
+            return;
+        }
+        try {
+            if (targetCache.isCatalogInitialized(catalogId)) {
+                return;
+            }
+            Map<String, String> catalogProperties = findCatalogProperties(catalogId);
+            if (catalogProperties == null) {
+                logMissingCatalogSkip(catalogId, "tryPrepareCatalogByEngine");
+                return;
+            }
+            prepareCatalogByEngineLocked(catalogId, targetCache, catalogProperties);
+        } finally {
+            lifecycleLock.unlock();
+        }
     }
 
     private void registerBuiltinEngineCaches() {
@@ -545,6 +641,7 @@ public class ExternalMetaCacheMgr {
 
     void replaceEngineCachesForTest(List<? extends ExternalMetaCache> caches) {
         cacheRegistry.resetForTest(caches);
+        bindCatalogPreparers();
     }
 
     /**

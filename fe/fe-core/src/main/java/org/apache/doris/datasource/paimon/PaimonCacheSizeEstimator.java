@@ -122,7 +122,9 @@ final class PaimonCacheSizeEstimator {
                     .build();
     private static final boolean PAIMON_TYPE_LAYOUT_SUPPORTED = checkPaimonTypeLayout();
     private static final boolean PAIMON_TABLE_LAYOUT_SUPPORTED = checkPaimonTableLayout();
-    private static final long PARTITION_BYTES = objectBytes(160L);
+    // One Paimon Partition record with its single-column LinkedHashMap spec plus map entry; extra
+    // columns are charged by PaimonPartitionInfo.
+    private static final long PARTITION_BYTES = objectBytes(272L);
     private static final long PARTITION_ITEM_BYTES = objectBytes(640L);
     private static final long WRAPPER_BYTES = objectBytes(512L);
 

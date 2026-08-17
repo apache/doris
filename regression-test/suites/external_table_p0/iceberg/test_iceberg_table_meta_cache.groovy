@@ -80,6 +80,19 @@ suite("test_iceberg_table_meta_cache", "p0,external,doris,external_docker,extern
             sql """refresh table test_iceberg_meta_cache_db.sales"""
             // select 3 rows
             sql """select * from test_iceberg_meta_cache_db.sales"""
+            // The weight-bounded entries expose their budget hierarchy in the statistics view.
+            def weightStats = sql """
+                select entry_name, weight_bounded, max_weight, estimated_weight, catalog_max_weight,
+                       weight_reject_count, last_weight_reject_reason
+                from internal.information_schema.catalog_meta_cache_statistics
+                where catalog_name = "${catalog_name}" and engine_name = "iceberg" and weight_bounded = true
+                order by entry_name;
+            """
+            assertTrue(weightStats.size() > 0)
+            for (row in weightStats) {
+                assertTrue((row[2] as long) > 0L)
+                assertTrue((row[3] as long) >= 0L)
+            }
             sql """drop table test_iceberg_meta_cache_db.sales"""
 
             // 2. test catalog with meta.cache.iceberg.table.ttl-second

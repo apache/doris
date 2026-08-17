@@ -37,7 +37,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.LongConsumer;
 import java.util.function.Predicate;
 
 /**
@@ -75,6 +77,8 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
         this(engine, refreshExecutor, new ExternalMetaCacheBudgetManager(OptionalLong.empty()));
     }
 
+    private volatile LongConsumer catalogPreparer;
+
     protected AbstractExternalMetaCache(String engine, ExecutorService refreshExecutor,
             ExternalMetaCacheBudgetManager budgetManager) {
         this.engine = engine;
@@ -100,6 +104,59 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
     }
 
     @Override
+    public Map<String, String> sanitizeCatalogPropertiesForRuntime(Map<String, String> catalogProperties) {
+        return sanitizeCatalogPropertiesForRuntime(catalogProperties, warning -> LOG.debug(warning));
+    }
+
+    @Override
+    public void validateCatalogPropertiesForRuntime(Map<String, String> catalogProperties) {
+        Map<String, String> safeCatalogProperties = CacheSpec.applyCompatibilityMap(
+                catalogProperties, catalogPropertyCompatibilityMap());
+        validateMappedCatalogProperties(safeCatalogProperties, false);
+    }
+
+    /**
+     * Exactly what initCatalog keeps: mapped legacy keys, only known entries/options in this
+     * engine's namespace, a parsable catalog max-weight, and entry max-weights within it.
+     */
+    private Map<String, String> sanitizeCatalogPropertiesForRuntime(
+            Map<String, String> catalogProperties, Consumer<String> warningConsumer) {
+        Map<String, String> safeCatalogProperties = CacheSpec.applyCompatibilityMap(
+                catalogProperties, catalogPropertyCompatibilityMap());
+        safeCatalogProperties = CacheSpec.sanitizeEnginePropertiesForRuntime(
+                safeCatalogProperties, engine, metaCacheEntryDefs, warningConsumer);
+        try {
+            budgetManager.parseCatalogMaxWeight(safeCatalogProperties);
+        } catch (IllegalArgumentException e) {
+            safeCatalogProperties.remove(ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY);
+            warningConsumer.accept("Ignoring invalid persisted external metadata cache property '"
+                    + ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY + "': " + e.getMessage());
+        }
+        OptionalLong runtimeCatalogMaxWeight = budgetManager.parseCatalogMaxWeight(safeCatalogProperties);
+        for (MetaCacheEntryDef<?, ?> entryDef : metaCacheEntryDefs.values()) {
+            if (entryDef.getSizeEstimator() == null) {
+                continue;
+            }
+            String maxWeightKey = CacheSpec.metaCacheKeyPrefix(engine)
+                    + entryDef.getName() + ".max-weight";
+            if (!safeCatalogProperties.containsKey(maxWeightKey)) {
+                continue;
+            }
+            CacheSpec cacheSpec = CacheSpec.fromProperties(
+                    safeCatalogProperties, engine, entryDef.getName(), entryDef.getDefaultCacheSpec());
+            try {
+                budgetManager.validateCatalogEntryHierarchy(
+                        runtimeCatalogMaxWeight, cacheSpec.getMaxWeight());
+            } catch (IllegalArgumentException e) {
+                safeCatalogProperties.remove(maxWeightKey);
+                warningConsumer.accept("Ignoring invalid persisted external metadata cache property '"
+                        + maxWeightKey + "': " + e.getMessage());
+            }
+        }
+        return safeCatalogProperties;
+    }
+
+    @Override
     public void initCatalog(long catalogId, Map<String, String> catalogProperties) {
         if (catalogEntries.containsKey(catalogId)) {
             return;
@@ -108,42 +165,9 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
             if (catalogEntries.containsKey(catalogId)) {
                 return;
             }
-            Map<String, String> safeCatalogProperties = CacheSpec.applyCompatibilityMap(
-                    catalogProperties, catalogPropertyCompatibilityMap());
-            safeCatalogProperties = CacheSpec.sanitizeEnginePropertiesForRuntime(
-                    safeCatalogProperties, engine, metaCacheEntryDefs,
+            Map<String, String> safeCatalogProperties = sanitizeCatalogPropertiesForRuntime(
+                    catalogProperties,
                     warning -> LOG.warn("{} (engine={}, catalog={})", warning, engine, catalogId));
-            try {
-                budgetManager.parseCatalogMaxWeight(safeCatalogProperties);
-            } catch (IllegalArgumentException e) {
-                safeCatalogProperties.remove(ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY);
-                LOG.warn("Ignoring invalid persisted external metadata cache property '{}' "
-                                + "for engine {}, catalog {}: {}",
-                        ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY,
-                        engine, catalogId, e.getMessage());
-            }
-            OptionalLong runtimeCatalogMaxWeight = budgetManager.parseCatalogMaxWeight(safeCatalogProperties);
-            for (MetaCacheEntryDef<?, ?> entryDef : metaCacheEntryDefs.values()) {
-                if (entryDef.getSizeEstimator() == null) {
-                    continue;
-                }
-                String maxWeightKey = CacheSpec.metaCacheKeyPrefix(engine)
-                        + entryDef.getName() + ".max-weight";
-                if (!safeCatalogProperties.containsKey(maxWeightKey)) {
-                    continue;
-                }
-                CacheSpec cacheSpec = CacheSpec.fromProperties(
-                        safeCatalogProperties, engine, entryDef.getName(), entryDef.getDefaultCacheSpec());
-                try {
-                    budgetManager.validateCatalogEntryHierarchy(
-                            runtimeCatalogMaxWeight, cacheSpec.getMaxWeight());
-                } catch (IllegalArgumentException e) {
-                    safeCatalogProperties.remove(maxWeightKey);
-                    LOG.warn("Ignoring invalid persisted external metadata cache property '{}' "
-                                    + "for engine {}, catalog {}: {}",
-                            maxWeightKey, engine, catalogId, e.getMessage());
-                }
-            }
             validateMappedCatalogProperties(safeCatalogProperties, false);
             catalogEntries.put(catalogId, buildCatalogEntryGroup(catalogId, safeCatalogProperties));
         }
@@ -308,12 +332,24 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
 
     private CatalogEntryGroup requireCatalogEntryGroup(long catalogId) {
         CatalogEntryGroup group = catalogEntries.get(catalogId);
+        if (group == null && catalogPreparer != null) {
+            // The caller prepared the catalog before capturing this engine, but a cache-policy
+            // ALTER retired the group in between. Re-prepare once under the lifecycle fence so
+            // the lookup observes the new policy instead of failing a valid catalog.
+            catalogPreparer.accept(catalogId);
+            group = catalogEntries.get(catalogId);
+        }
         if (group == null) {
             throw new IllegalStateException(String.format(
                     "Catalog %d is not initialized for engine '%s'.",
                     catalogId, engine));
         }
         return group;
+    }
+
+    @Override
+    public void bindCatalogPreparer(LongConsumer catalogPreparer) {
+        this.catalogPreparer = catalogPreparer;
     }
 
     protected CatalogIf<?> getCatalog(long catalogId) {

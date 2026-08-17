@@ -34,6 +34,7 @@ import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
@@ -823,6 +824,30 @@ public class IcebergTransactionTest {
 
         Table refreshedTable = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
         Assert.assertEquals(2, refreshedTable.history().size());
+    }
+
+    @Test
+    public void testRetainedGenerationRefusesRetryAgainstRecreatedTable() {
+        HadoopCatalog icebergCatalog = (HadoopCatalog) ops.getCatalog();
+        TableIdentifier identifier = TableIdentifier.of(dbName, tbWithoutPartition);
+        Table originalTable = icebergCatalog.loadTable(identifier);
+        IcebergSnapshotCacheValue cacheValue = new IcebergSnapshotCacheValue(
+                Mockito.mock(IcebergPartitionInfo.class), Mockito.mock(IcebergSnapshot.class),
+                Optional.empty(), originalTable);
+        Table retainedTable = cacheValue.getIcebergTable().get();
+        String retainedUuid = ((HasTableOperations) retainedTable).operations().current().uuid();
+
+        // Drop and recreate at the same location: schema, spec and sort-order ids restart, and
+        // the writer contract looks identical except for the table UUID.
+        icebergCatalog.dropTable(identifier, true);
+        Table recreatedTable = icebergCatalog.createTable(identifier, originalTable.schema());
+        Assert.assertNotEquals(retainedUuid,
+                ((HasTableOperations) recreatedTable).operations().current().uuid());
+
+        Table writableTable = IcebergSnapshotCacheValue.createWritableTable(retainedTable, recreatedTable);
+        CommitFailedException failure = Assert.assertThrows(CommitFailedException.class,
+                () -> ((HasTableOperations) writableTable).operations().refresh());
+        Assert.assertTrue(failure.getMessage(), failure.getMessage().contains("table UUID"));
     }
 
     @Test

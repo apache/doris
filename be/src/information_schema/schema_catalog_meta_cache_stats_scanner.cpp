@@ -53,6 +53,16 @@ std::vector<SchemaScanner::ColumnDesc> SchemaCatalogMetaCacheStatsScanner::_s_tb
         {"LAST_LOAD_SUCCESS_TIME", TYPE_STRING, sizeof(StringRef), true},
         {"LAST_LOAD_FAILURE_TIME", TYPE_STRING, sizeof(StringRef), true},
         {"LAST_ERROR", TYPE_STRING, sizeof(StringRef), true},
+        {"WEIGHT_BOUNDED", TYPE_BOOLEAN, sizeof(bool), true},
+        {"MAX_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"ESTIMATED_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"EVICTION_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"WEIGHT_REJECT_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CATALOG_MAX_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CATALOG_ESTIMATED_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"GLOBAL_MAX_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"GLOBAL_ESTIMATED_WEIGHT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"LAST_WEIGHT_REJECT_REASON", TYPE_STRING, sizeof(StringRef), true},
 };
 
 SchemaCatalogMetaCacheStatsScanner::SchemaCatalogMetaCacheStatsScanner()
