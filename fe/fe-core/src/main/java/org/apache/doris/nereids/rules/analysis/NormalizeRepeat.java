@@ -160,8 +160,8 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         // rewrite grouping scalar function to virtual slots
         // rewrite the arguments of agg function to slots
         List<NamedExpression> normalizedAggOutput = Lists.newArrayList();
-        // use a map to deduplicate grouping scalar functions in projection
-        Map<GroupingScalarFunction, NamedExpression> groupingFunctions = Maps.newHashMap();
+        // preserve first occurrence order while deduplicating grouping scalar functions in projection
+        Map<GroupingScalarFunction, NamedExpression> groupingFunctions = Maps.newLinkedHashMap();
         for (Expression expr : repeat.getOutputExpressions()) {
             Expression rewrittenExpr = expr.rewriteDownShortCircuit(
                     e -> normalizeAggFuncChildrenAndGroupingScalarFunc(argsContext, e, groupingFunctions));
