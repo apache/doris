@@ -2,6 +2,14 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20260817
+
+- Modified: azure-core 1.16.0 is now built on aarch64 and macOS as well, and only the
+  parts Doris links (azure-core, azure-identity, azure-storage-common,
+  azure-storage-blobs) are built. Its vcpkg dependency closure no longer contains
+  opentelemetry-cpp, protobuf, abseil, utf8-range, uAMQP, and vcpkg builds the
+  remaining ports release-only.
+
 ## 20260816
 
 - Modified: hadoop-libs 3.4.2.3 -> 3.4.2.4

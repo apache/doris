@@ -56,6 +56,26 @@ if [[ -f "${DORIS_HOME}/env.sh" ]]; then
     export DO_NOT_CHECK_JAVA_ENV=
 fi
 
+# Optional ccache for the cmake-based packages. A full third-party build is cold every
+# time, so a warm ccache turns a rebuild triggered by one changed package into a few
+# minutes instead of hours - that is what this is for, and CI is where it pays off.
+#
+# CMake initialises CMAKE_<LANG>_COMPILER_LAUNCHER from the environment variables of the
+# same name, so this needs no change to the cmake invocations below. It is also why this
+# does not go through CC/CXX: "ccache <compiler>" would land the compiler name in
+# CMAKE_<LANG>_FLAGS and leak into whatever the package exports. Autotools packages are
+# deliberately left alone. Off by default, since prefixing the compiler changes how every
+# package configures itself.
+if [[ "${ENABLE_THIRDPARTY_CCACHE:-OFF}" == "ON" ]]; then
+    if ! command -v ccache &>/dev/null; then
+        echo "ENABLE_THIRDPARTY_CCACHE=ON, but ccache is not in PATH" >&2
+        exit 1
+    fi
+    export CMAKE_C_COMPILER_LAUNCHER='ccache'
+    export CMAKE_CXX_COMPILER_LAUNCHER='ccache'
+    echo "ccache is enabled for the cmake-based third-party packages"
+fi
+
 # Check args
 usage() {
     echo "
@@ -64,6 +84,10 @@ Usage: $0 [options...] [packages...]
      -j <num>               build thirdparty parallel
      --clean                clean the extracted data
      --continue <package>   continue to build the remaining packages (starts from the specified package)
+
+  Environment variables:
+     ENABLE_THIRDPARTY_CCACHE=ON   compile the cmake-based packages through ccache
+     DISABLE_BUILD_AZURE=ON        skip the azure-sdk-for-cpp package
   "
     exit 1
 }
@@ -2043,30 +2067,100 @@ build_base64() {
 
 # azure blob storage
 build_azure() {
-    if [[ "${BUILD_AZURE}" == "OFF" || "$(uname -s)" == 'Darwin' ]]; then
+    if [[ "${BUILD_AZURE}" == "OFF" ]]; then
         echo "Skip build azure"
-    else
-        check_if_source_exist "${AZURE_SOURCE}"
-        cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
-        azure_dir=$(pwd)
-
-        rm -rf "${BUILD_DIR}"
-        mkdir -p "${BUILD_DIR}"
-        cd "${BUILD_DIR}"
-
-        # We need use openssl 1.1.1n, which is already carried in vcpkg-custom-ports
-        AZURE_PORTS="vcpkg-custom-ports"
-        AZURE_MANIFEST_DIR="."
-
-        # Add -ldl for clang compatibility (libcrypto.a requires dlopen/dlsym/dlclose/dlerror)
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-        -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" \
-        -DCMAKE_EXE_LINKER_FLAGS="-ldl" \
-        -DCMAKE_SHARED_LINKER_FLAGS="-ldl" \
-        -DDISABLE_RUST_IN_BUILD=ON -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
-        "${BUILD_SYSTEM}" -j "${PARALLEL}"
-        "${BUILD_SYSTEM}" install
+        return
     fi
+
+    check_if_source_exist "${AZURE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${AZURE_SOURCE}"
+    azure_dir="$(pwd)"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    # We need use openssl 1.1.1n, which is already carried in vcpkg-custom-ports
+    AZURE_PORTS="vcpkg-custom-ports"
+    AZURE_MANIFEST_DIR="."
+
+    local azure_machine_type
+    local vcpkg_arch
+    azure_machine_type="$(uname -m)"
+    case "${azure_machine_type}" in
+    aarch64 | arm64)
+        vcpkg_arch='arm64'
+        ;;
+    x86_64 | amd64)
+        vcpkg_arch='x64'
+        ;;
+    *)
+        echo "azure: unsupported machine type ${azure_machine_type}" >&2
+        exit 1
+        ;;
+    esac
+
+    # vcpkg builds every port twice, debug and release, and installs both. Doris only
+    # ever links the release halves, and VCPKG_BUILD_TYPE - the only supported way to
+    # ask for release only - can be set from a triplet file, so shadow the built-in
+    # triplet with our own. Naming the file after the built-in triplet is what makes
+    # the overlay take precedence.
+    local vcpkg_triplet
+    local vcpkg_triplet_dir="${PWD}/doris-vcpkg-triplets"
+    mkdir -p "${vcpkg_triplet_dir}"
+    if [[ "${KERNEL}" == 'Darwin' ]]; then
+        local vcpkg_osx_arch='x86_64'
+        if [[ "${vcpkg_arch}" == 'arm64' ]]; then vcpkg_osx_arch='arm64'; fi
+        vcpkg_triplet="${vcpkg_arch}-osx"
+        cat >"${vcpkg_triplet_dir}/${vcpkg_triplet}.cmake" <<EOF
+set(VCPKG_TARGET_ARCHITECTURE ${vcpkg_arch})
+set(VCPKG_CRT_LINKAGE dynamic)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_CMAKE_SYSTEM_NAME Darwin)
+set(VCPKG_OSX_ARCHITECTURES ${vcpkg_osx_arch})
+set(VCPKG_BUILD_TYPE release)
+EOF
+        if [[ -n "${MACOSX_DEPLOYMENT_TARGET}" ]]; then
+            echo "set(VCPKG_OSX_DEPLOYMENT_TARGET \"${MACOSX_DEPLOYMENT_TARGET}\")" \
+                >>"${vcpkg_triplet_dir}/${vcpkg_triplet}.cmake"
+        fi
+    else
+        vcpkg_triplet="${vcpkg_arch}-linux"
+        cat >"${vcpkg_triplet_dir}/${vcpkg_triplet}.cmake" <<EOF
+set(VCPKG_TARGET_ARCHITECTURE ${vcpkg_arch})
+set(VCPKG_CRT_LINKAGE dynamic)
+set(VCPKG_LIBRARY_LINKAGE static)
+set(VCPKG_CMAKE_SYSTEM_NAME Linux)
+set(VCPKG_BUILD_TYPE release)
+EOF
+    fi
+
+    # vcpkg ships no prebuilt cmake/ninja/curl for aarch64 Linux, so it has to reuse
+    # the ones already on PATH.
+    if [[ "${vcpkg_arch}" == 'arm64' && "${KERNEL}" != 'Darwin' ]]; then
+        export VCPKG_FORCE_SYSTEM_BINARIES=1
+    fi
+
+    # libcrypto.a needs dlopen/dlsym/dlclose/dlerror, and with clang find_library may
+    # not turn up libdl, so ask for it explicitly. Apple has no libdl - those symbols
+    # live in libSystem - and -ldl would fail the link there.
+    local azure_link_flags=()
+    if [[ "${KERNEL}" != 'Darwin' ]]; then
+        azure_link_flags=(-DCMAKE_EXE_LINKER_FLAGS="-ldl" -DCMAKE_SHARED_LINKER_FLAGS="-ldl")
+    fi
+
+    # DISABLE_AMQP and DISABLE_AZURE_CORE_OPENTELEMETRY are already the patched
+    # defaults; passing them here keeps the reason visible from the build script.
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" \
+        "${azure_link_flags[@]}" \
+        -DVCPKG_TARGET_TRIPLET="${vcpkg_triplet}" \
+        -DVCPKG_OVERLAY_TRIPLETS="${vcpkg_triplet_dir}" \
+        -DDISABLE_RUST_IN_BUILD=ON -DDISABLE_AMQP=ON -DDISABLE_AZURE_CORE_OPENTELEMETRY=ON \
+        -DBUILD_TESTING=OFF -DBUILD_SAMPLES=OFF -DBUILD_PERFORMANCE_TESTS=OFF \
+        -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
 }
 
 # dragonbox
