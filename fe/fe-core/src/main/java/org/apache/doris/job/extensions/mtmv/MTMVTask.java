@@ -310,6 +310,7 @@ public class MTMVTask extends AbstractTask {
             // refresh fallback: incompatible MV definitions must fail directly.
             ensureQueryUsableIfNeeded(ctx, tableIfs);
             RefreshRequest request = resolveRefreshRequest();
+            validateIvmBaselineBeforePartitionSync(request);
             List<RefreshAttemptType> attempts = buildAttempts(request, queryAnalysis.containsOneRowRelation());
             try {
                 syncPartitionsIfNeeded(ctx, tableIfs);
@@ -541,19 +542,8 @@ public class MTMVTask extends AbstractTask {
             return false;
         }
         ivmFallbackReason = IvmFailureReason.BINLOG_BROKEN.name();
-        if ((request.refreshMode == RefreshMode.INCREMENTAL && !request.allowFallback)
-                || request.explicitPartitions) {
-            refreshMode = MTMVTaskRefreshMode.NOT_REFRESH;
-            throw new JobException("IVM baseline rebuild is pending for mv=" + mtmv.getName()
-                    + "; run an AUTO or COMPLETE refresh first");
-        }
         IvmInfo ivmInfo = mtmv.getIvmInfo();
         if (ivmInfo.requiresCompleteBaselineRebuild()) {
-            if (request.refreshMode == RefreshMode.PARTITIONS && !request.allowFallback) {
-                refreshMode = MTMVTaskRefreshMode.NOT_REFRESH;
-                throw new JobException("COMPLETE IVM baseline rebuild is pending for mv=" + mtmv.getName()
-                        + "; run a PARTITIONS FALLBACK, AUTO, or COMPLETE refresh");
-            }
             executeCompleteAttempt(context, ctx);
             return true;
         }
@@ -566,6 +556,29 @@ public class MTMVTask extends AbstractTask {
         }
         executePartitionBasedRefresh(context, RefreshMode.PARTITIONS, ctx);
         return true;
+    }
+
+    private void validateIvmBaselineBeforePartitionSync(RefreshRequest request) throws JobException {
+        if (!mtmv.isIvm() || request.refreshMode == RefreshMode.COMPLETE) {
+            return;
+        }
+        IvmInfo ivmInfo = mtmv.getIvmInfo();
+        if (!ivmInfo.isBaselineRebuildRequired()) {
+            return;
+        }
+        ivmFallbackReason = IvmFailureReason.BINLOG_BROKEN.name();
+        if ((request.refreshMode == RefreshMode.INCREMENTAL && !request.allowFallback)
+                || request.explicitPartitions) {
+            refreshMode = MTMVTaskRefreshMode.NOT_REFRESH;
+            throw new JobException("IVM baseline rebuild is pending for mv=" + mtmv.getName()
+                    + "; run an AUTO or COMPLETE refresh first");
+        }
+        if (request.refreshMode == RefreshMode.PARTITIONS && !request.allowFallback
+                && ivmInfo.requiresCompleteBaselineRebuild()) {
+            refreshMode = MTMVTaskRefreshMode.NOT_REFRESH;
+            throw new JobException("COMPLETE IVM baseline rebuild is pending for mv=" + mtmv.getName()
+                    + "; run a PARTITIONS FALLBACK, AUTO, or COMPLETE refresh");
+        }
     }
 
     private AttemptResultType executeIvmAttempt(MTMVRefreshContext refreshContext,
