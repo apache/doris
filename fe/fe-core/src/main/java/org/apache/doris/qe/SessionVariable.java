@@ -3565,13 +3565,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
     @VarAttrDef.VarAttr(name = IGNORE_ICEBERG_DANGLING_DELETE,
-            description = " Whether to ignore the impact of dangling delete files in Iceberg tables on COUNT(*) "
-                    + "statistics. "
-                    + "The default is true, COUNT(*) will directly obtain the number of rows from metadata, "
-                    + "which has better performance, but if there are dangling deletes, "
-                    + "the result may be inaccurate. "
-                    + "When set to false, COUNT(*) will scan data files "
-                    + "to exclude the impact of dangling delete files.")
+            description = "Whether Iceberg metadata COUNT(*) may subtract position-delete record counts from "
+                    + "current data-manifest rows. This improves performance but can be inaccurate for dangling "
+                    + "delete entries. Equality deletes always disable metadata COUNT(*).")
     public boolean ignoreIcebergDanglingDelete = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_ICEBERG_MERGE_PARTITIONING,
