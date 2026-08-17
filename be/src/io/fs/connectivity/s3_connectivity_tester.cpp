@@ -39,10 +39,7 @@ Status S3ConnectivityTester::test(const std::map<std::string, std::string>& prop
     S3Conf s3_conf;
     RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf));
 
-    auto obj_client = S3ClientFactory::instance().create(s3_conf.client_conf);
-    if (!obj_client) {
-        return Status::InternalError("Failed to create S3 client");
-    }
+    auto obj_client = DORIS_TRY(S3ClientFactory::instance().create(s3_conf.client_conf));
 
     auto resp = obj_client->head_object({.bucket = bucket, .key = ""});
     if (resp.resp.status.code != ErrorCode::OK && resp.resp.status.code != ErrorCode::NOT_FOUND) {

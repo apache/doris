@@ -15,24 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "client_bvar.h"
 
-#include <string>
-#include <system_error>
-
-#include "common/status.h"
+#include <bvar/latency_recorder.h>
 
 namespace doris {
-namespace io {
 
-std::string errno_to_str();
-std::string errcode_to_str(const std::error_code& ec);
-int error_code_to_errno(const std::error_code& ec);
-std::string hdfs_error();
-std::string glob_err_to_str(int code);
+namespace client_bvar {
+bvar::LatencyRecorder s3_get_latency("s3_get");
+bvar::LatencyRecorder s3_put_latency("s3_put");
+bvar::LatencyRecorder s3_delete_object_latency("s3_delete_object");
+bvar::LatencyRecorder s3_delete_objects_latency("s3_delete_objects");
+bvar::LatencyRecorder s3_head_latency("s3_head");
+bvar::LatencyRecorder s3_multi_part_upload_latency("s3_multi_part_upload");
+bvar::LatencyRecorder s3_list_latency("s3_list");
+bvar::LatencyRecorder s3_list_object_versions_latency("s3_list_object_versions");
+bvar::LatencyRecorder s3_get_bucket_version_latency("s3_get_bucket_version");
+bvar::LatencyRecorder s3_copy_object_latency("s3_copy_object");
 
-Status localfs_error(const std::error_code& ec, std::string_view msg);
-Status localfs_error(int posix_errno, std::string_view msg);
-
-} // namespace io
+} // namespace client_bvar
 } // namespace doris

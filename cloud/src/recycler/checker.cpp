@@ -852,7 +852,7 @@ int InstanceChecker::do_check() {
 int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
     // If there are multiple buckets, return the minimum lifecycle.
     int64_t min_lifecycle_days = INT64_MAX;
-    int64_t tmp_liefcycle_days = 0;
+    int64_t tmp_lifecycle_days = 0;
     for (const auto& [id, accessor] : accessor_map_) {
         if (accessor->type() != AccessorType::S3) {
             continue;
@@ -864,12 +864,12 @@ int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
             return -1;
         }
 
-        if (s3_accessor->get_life_cycle(&tmp_liefcycle_days) != 0) {
+        if (s3_accessor->get_lifecycle(&tmp_lifecycle_days) != 0) {
             return -1;
         }
 
-        if (tmp_liefcycle_days < min_lifecycle_days) {
-            min_lifecycle_days = tmp_liefcycle_days;
+        if (tmp_lifecycle_days < min_lifecycle_days) {
+            min_lifecycle_days = tmp_lifecycle_days;
         }
     }
     *lifecycle_days = min_lifecycle_days;
