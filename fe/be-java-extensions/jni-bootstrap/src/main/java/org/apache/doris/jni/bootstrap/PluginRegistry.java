@@ -77,9 +77,14 @@ public final class PluginRegistry {
         return runtime().createUdfExecutor(plugin, factoryName, thriftParams);
     }
 
-    /** Called on DROP FUNCTION so plugins can release what they compiled for that signature. */
-    public static void cleanUdfCache(String functionSignature) {
-        runtime().cleanUdfCache(functionSignature);
+    /**
+     * Called on DROP FUNCTION so plugins can release what they compiled for that function.
+     *
+     * @param functionId        FE's id for the dropped function; the identity plugins cache by
+     * @param functionSignature its rendered signature, for logs and for the id-less case
+     */
+    public static void cleanUdfCache(long functionId, String functionSignature) {
+        runtime().cleanUdfCache(functionId, functionSignature);
     }
 
     /** State of every plugin loaded so far, as JSON, for BE to surface. */

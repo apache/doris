@@ -100,7 +100,12 @@ public abstract class BaseExecutor {
             Type funcRetType, Type... parameterTypes) throws UdfRuntimeException {
         try {
             isStaticLoad = request.getFn().isSetIsStaticLoad() && request.getFn().is_static_load;
-            objCache = getClassCache(jarPath, request.getFn().getSignature(), funcRetType, parameterTypes);
+            // Keyed by the function's id rather than by its signature - see
+            // UdfClassCacheRegistry#cacheKey for what the signature cannot tell apart.
+            String functionKey = UdfClassCacheRegistry.cacheKey(
+                    request.getFn().isSetId() ? request.getFn().getId() : 0L,
+                    request.getFn().getSignature());
+            objCache = getClassCache(jarPath, functionKey, funcRetType, parameterTypes);
             Constructor<?> ctor = objCache.udfClass.getConstructor();
             try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(udfClassLoader())) {
                 udf = ctor.newInstance();
@@ -123,13 +128,13 @@ public abstract class BaseExecutor {
     }
 
 
-    public UdfClassCache getClassCache(String jarPath, String signature,
+    public UdfClassCache getClassCache(String jarPath, String functionKey,
             Type funcRetType, Type... parameterTypes)
             throws MalformedURLException, FileNotFoundException, ClassNotFoundException, InternalException,
             UdfRuntimeException {
         UdfClassCache cache = null;
         if (isStaticLoad) {
-            cache = UdfClassCacheRegistry.get(signature);
+            cache = UdfClassCacheRegistry.get(functionKey);
             if (cache != null) {
                 // Reuse the cached classLoader to ensure dependent classes can be loaded.
                 // NOTE: cache.classLoader may be null when the function was loaded from the
@@ -157,7 +162,7 @@ public abstract class BaseExecutor {
             cache.classLoader = classLoader;
             checkAndCacheUdfClass(cache, funcRetType, parameterTypes);
             if (isStaticLoad) {
-                UdfClassCache effective = UdfClassCacheRegistry.publish(signature, cache);
+                UdfClassCache effective = UdfClassCacheRegistry.publish(functionKey, cache);
                 if (effective != cache) {
                     // Another thread won the publish race. Our locally-built cache (and its
                     // URLClassLoader) was already closed inside publish(); switch to the

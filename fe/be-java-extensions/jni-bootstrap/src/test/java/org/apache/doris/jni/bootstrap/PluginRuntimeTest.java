@@ -313,12 +313,13 @@ class PluginRuntimeTest {
         PluginRuntime runtime = runtimeOver(plugins);
         runtime.warmup();
 
-        runtime.cleanUdfCache("db.fn(INT)");
+        runtime.cleanUdfCache(4242L, "db.fn(INT)");
 
         UdfExecutorFactory factory = runtime.plugin("sample").udfExecutorFactories().get("udf");
         List<?> invalidated = (List<?>) factory.getClass()
                 .getMethod("invalidatedSignatures").invoke(factory);
-        Assertions.assertEquals(Collections.singletonList("db.fn(INT)"), invalidated);
+        Assertions.assertEquals(Collections.singletonList("4242:db.fn(INT)"), invalidated,
+                "both the function id and its signature must reach the plugin");
     }
 
     @Test
