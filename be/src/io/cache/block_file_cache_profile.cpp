@@ -193,26 +193,27 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile,
     lock_wait_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "LockWaitTimer", cache_profile, 1);
     get_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "GetTimer", cache_profile, 1);
     set_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile, "SetTimer", cache_profile, 1);
-    async_cache_write_submitted = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "AsyncCacheWriteSubmitted",
-                                                               TUnit::UNIT, cache_profile, 1);
-    async_cache_write_rejected = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "AsyncCacheWriteRejected",
-                                                              TUnit::UNIT, cache_profile, 1);
+    async_cache_write_submitted = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AsyncCacheWriteSubmittedCount", TUnit::UNIT, cache_profile, 1);
+    async_cache_write_rejected = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "AsyncCacheWriteRejectedCount", TUnit::UNIT, cache_profile, 1);
     async_cache_write_buffer_alloc_fail = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "AsyncCacheWriteBufferAllocFail", TUnit::UNIT, cache_profile, 1);
+            profile, "AsyncCacheWriteBufferAllocFailCount", TUnit::UNIT, cache_profile, 1);
     async_cache_write_drop_stale_epoch = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "AsyncCacheWriteDropStaleEpoch", TUnit::UNIT, cache_profile, 1);
+            profile, "AsyncCacheWriteDropStaleEpochCount", TUnit::UNIT, cache_profile, 1);
     inflight_write_buffer_index_hit = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "InflightWriteBufferIndexHit", TUnit::UNIT, cache_profile, 1);
+            profile, "InflightWriteBufferIndexHitCount", TUnit::UNIT, cache_profile, 1);
     inflight_write_buffer_index_miss = ADD_CHILD_COUNTER_WITH_LEVEL(
-            profile, "InflightWriteBufferIndexMiss", TUnit::UNIT, cache_profile, 1);
-    probe_downloaded_hit = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ProbeDownloadedHit", TUnit::UNIT,
-                                                        cache_profile, 1);
-    probe_downloading_hit = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ProbeDownloadingHit",
+            profile, "InflightWriteBufferIndexMissCount", TUnit::UNIT, cache_profile, 1);
+    probe_downloaded_hit = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ProbeDownloadedHitCount",
+                                                        TUnit::UNIT, cache_profile, 1);
+    probe_downloading_hit = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ProbeDownloadingHitCount",
                                                          TUnit::UNIT, cache_profile, 1);
-    probe_miss = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ProbeMiss", TUnit::UNIT, cache_profile, 1);
-    block_wait_success = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BlockWaitSuccess", TUnit::UNIT,
+    probe_miss =
+            ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ProbeMissCount", TUnit::UNIT, cache_profile, 1);
+    block_wait_success = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BlockWaitSuccessCount", TUnit::UNIT,
                                                       cache_profile, 1);
-    block_wait_timeout = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BlockWaitTimeout", TUnit::UNIT,
+    block_wait_timeout = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "BlockWaitTimeoutCount", TUnit::UNIT,
                                                       cache_profile, 1);
     remote_only_on_miss_triggered = profile->AddHighWaterMarkCounter("RemoteOnlyOnMissTriggered",
                                                                      TUnit::UNIT, cache_profile, 1);

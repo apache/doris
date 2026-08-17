@@ -35,7 +35,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "io/cache/async_cache_write_service.h"
+#include "io/cache/async_cache_write_manager.h"
 #include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/cache_lru_dumper.h"
 #include "io/cache/file_block.h"
@@ -200,8 +200,8 @@ public:
     BlockFileCache(const std::string& cache_base_path, const FileCacheSettings& cache_settings);
 
     virtual ~BlockFileCache() {
-        if (_async_write_service) {
-            _async_write_service->shutdown();
+        if (_async_write_manager) {
+            _async_write_manager->shutdown();
         }
         {
             std::lock_guard lock(_close_mtx);
@@ -275,8 +275,8 @@ public:
     /// Check whether `block` is being deleted while taking cache/block locks in canonical order.
     bool is_block_deleting(const FileBlockSPtr& block) const;
 
-    /// Return this cache disk's async-write service.
-    AsyncCacheWriteService* async_write_service() const { return _async_write_service.get(); }
+    /// Return this cache disk's async-write manager.
+    AsyncCacheWriteManager* async_write_manager() const { return _async_write_manager.get(); }
 
     /// Return this cache disk's inflight payload index.
     InflightWriteBufferIndex* inflight_write_buffer_index() const {
@@ -617,7 +617,7 @@ private:
     std::unique_ptr<BlockFileCacheTtlMgr> _ttl_mgr;
 
     std::unique_ptr<InflightWriteBufferIndex> _inflight_write_buffer_index;
-    std::unique_ptr<AsyncCacheWriteService> _async_write_service;
+    std::unique_ptr<AsyncCacheWriteManager> _async_write_manager;
 
     // metrics
     std::shared_ptr<bvar::Status<size_t>> _cache_capacity_metrics;

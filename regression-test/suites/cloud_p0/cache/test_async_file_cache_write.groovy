@@ -79,10 +79,10 @@ suite("test_async_file_cache_write", "docker") {
         def waitForPendingWrites = {
             long deadline = System.currentTimeMillis() + 30000L
             while (System.currentTimeMillis() < deadline &&
-                    readMetric("async_cache_write_pending_count") != 0L) {
+                    readMetric("async_cache_write_pending_task_count") != 0L) {
                 sleep(100)
             }
-            assertEquals(readMetric("async_cache_write_pending_count"), 0L)
+            assertEquals(readMetric("async_cache_write_pending_task_count"), 0L)
         }
 
         sql "DROP TABLE IF EXISTS test_async_file_cache_write_phase1"
@@ -106,35 +106,35 @@ suite("test_async_file_cache_write", "docker") {
         sql "SYNC"
 
         clearFileCache()
-        long submittedBefore = readMetric("async_cache_write_submitted_total")
+        long submittedBefore = readMetric("async_cache_write_submitted_task_count")
         order_qt_async_file_cache_first """
             SELECT sum(k), sum(length(v))
             FROM test_async_file_cache_write_phase1
         """
-        long submittedAfter = readMetric("async_cache_write_submitted_total")
+        long submittedAfter = readMetric("async_cache_write_submitted_task_count")
         assertTrue(submittedAfter > submittedBefore,
                 "cold query should submit async cache writes: before=${submittedBefore}, " +
                         "after=${submittedAfter}")
 
         waitForPendingWrites()
-        long probeHitBefore = readMetric("cached_remote_file_reader_probe_hit_downloaded_total")
+        long probeHitBefore = readMetric("cached_remote_file_reader_probe_hit_downloaded_count")
         order_qt_async_file_cache_second """
             SELECT sum(k), sum(length(v))
             FROM test_async_file_cache_write_phase1
         """
-        long probeHitAfter = readMetric("cached_remote_file_reader_probe_hit_downloaded_total")
+        long probeHitAfter = readMetric("cached_remote_file_reader_probe_hit_downloaded_count")
         assertTrue(probeHitAfter > probeHitBefore,
                 "second query should read downloaded cache blocks: before=${probeHitBefore}, " +
                         "after=${probeHitAfter}")
 
         setBeConfig("enable_async_file_cache_write", "false")
         clearFileCache()
-        submittedBefore = readMetric("async_cache_write_submitted_total")
+        submittedBefore = readMetric("async_cache_write_submitted_task_count")
         order_qt_async_file_cache_sync_fallback """
             SELECT sum(k), sum(length(v))
             FROM test_async_file_cache_write_phase1
         """
-        submittedAfter = readMetric("async_cache_write_submitted_total")
+        submittedAfter = readMetric("async_cache_write_submitted_task_count")
         assertEquals(submittedAfter, submittedBefore)
     }
 }

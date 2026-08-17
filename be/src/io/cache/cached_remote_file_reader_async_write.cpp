@@ -28,7 +28,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "cpp/sync_point.h"
-#include "io/cache/async_cache_write_service.h"
+#include "io/cache/async_cache_write_manager.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/cache/inflight_write_buffer_index.h"
@@ -48,23 +48,23 @@ extern bvar::Adder<uint64_t> g_read_cache_self_heal_on_not_found;
 
 namespace {
 
-bvar::Adder<uint64_t> g_cached_remote_reader_probe_total("cached_remote_file_reader_probe_total");
+bvar::Adder<uint64_t> g_cached_remote_reader_probe_total("cached_remote_file_reader_probe_count");
 bvar::Adder<uint64_t> g_cached_remote_reader_probe_downloaded(
-        "cached_remote_file_reader_probe_hit_downloaded_total");
+        "cached_remote_file_reader_probe_hit_downloaded_count");
 bvar::Adder<uint64_t> g_cached_remote_reader_probe_downloading(
-        "cached_remote_file_reader_probe_hit_downloading_total");
+        "cached_remote_file_reader_probe_hit_downloading_count");
 bvar::Adder<uint64_t> g_cached_remote_reader_probe_miss(
-        "cached_remote_file_reader_probe_miss_total");
+        "cached_remote_file_reader_probe_miss_count");
 bvar::Adder<uint64_t> g_cached_remote_reader_inflight_hit(
-        "cached_remote_file_reader_inflight_write_buffer_hit_total");
+        "cached_remote_file_reader_inflight_write_buffer_hit_count");
 bvar::Adder<uint64_t> g_cached_remote_reader_async_skip_existing(
-        "cached_remote_file_reader_async_write_skip_inflight_existing_total");
+        "cached_remote_file_reader_async_write_skip_inflight_existing_count");
 bvar::Adder<uint64_t> g_cached_remote_reader_block_wait(
-        "cached_remote_file_reader_block_wait_total");
+        "cached_remote_file_reader_block_wait_count");
 bvar::Adder<uint64_t> g_cached_remote_reader_block_wait_timeout(
-        "cached_remote_file_reader_block_wait_timeout_total");
+        "cached_remote_file_reader_block_wait_timeout_count");
 bvar::Adder<uint64_t> g_cached_remote_reader_remote_after_dedup_miss(
-        "cached_remote_file_reader_remote_read_after_all_dedup_miss_total");
+        "cached_remote_file_reader_remote_read_after_all_dedup_miss_count");
 bvar::Adder<uint64_t> g_cached_remote_reader_middle_span_read_bytes(
         "cached_remote_file_reader_middle_span_read_bytes");
 bvar::Adder<uint64_t> g_cached_remote_reader_middle_span_miss_bytes(
@@ -532,9 +532,9 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
         g_cached_remote_reader_async_write_submission_latency
                 << (MonotonicMicros() - submission_start_us);
     }};
-    auto* service = _cache->async_write_service();
+    auto* manager = _cache->async_write_manager();
     auto* inflight_index = _cache->inflight_write_buffer_index();
-    DORIS_CHECK(service != nullptr);
+    DORIS_CHECK(manager != nullptr);
     DORIS_CHECK(inflight_index != nullptr);
     DORIS_CHECK(remote_buffer != nullptr);
 
@@ -560,13 +560,13 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
         DORIS_CHECK(read_block.range.size() <= cache_block_size);
         DORIS_CHECK(read_block.range.left >= remote_left);
         DORIS_CHECK(read_block.range.right <= remote_right);
-        if (!service->check_write_epoch(plan.write_epoch)) {
+        if (!manager->check_write_epoch(plan.write_epoch)) {
             ++stats.async_cache_write_drop_stale_epoch;
             continue;
         }
 
         AsyncCacheWriteBufferPtr tracked_buffer;
-        Status status = service->allocate_tracked_buffer(cache_block_size, &tracked_buffer);
+        Status status = manager->allocate_tracked_buffer(cache_block_size, &tracked_buffer);
         if (!status.ok()) {
             ++stats.async_cache_write_buffer_alloc_fail;
             continue;
@@ -609,7 +609,7 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
             };
         }
 
-        if (!service->try_submit(std::move(task))) {
+        if (!manager->try_submit(std::move(task))) {
             if (entry) {
                 inflight_index->remove_if(_cache_hash, read_block.range.left, entry);
                 inflight_index->record_backpressure_rollback();
@@ -643,10 +643,10 @@ Status CachedRemoteFileReader::_read_async_write_path(size_t offset, Slice resul
         return Status::OK();
     }
 
-    auto* service = _cache->async_write_service();
-    DORIS_CHECK(service != nullptr);
+    auto* manager = _cache->async_write_manager();
+    DORIS_CHECK(manager != nullptr);
     auto plan = _build_async_read_plan(offset + already_read, bytes_req - already_read,
-                                       service->current_write_epoch(_cache_hash), io_ctx, stats);
+                                       manager->current_write_epoch(_cache_hash), io_ctx, stats);
 
     CacheContext cache_context(io_ctx);
     cache_context.stats = &stats;

@@ -214,27 +214,27 @@ TEST(FileCacheProfileReporterTest, ReporterAggregatesDeltaReportsToExactFinalTot
               after_second_report.inverted_index_range_read_count);
     EXPECT_EQ(profile->get_counter("InvertedIndexSerialReadRounds")->value(),
               after_second_report.inverted_index_serial_read_rounds);
-    EXPECT_EQ(profile->get_counter("AsyncCacheWriteSubmitted")->value(),
-               after_second_report.async_cache_write_submitted);
-    EXPECT_EQ(profile->get_counter("AsyncCacheWriteRejected")->value(),
+    EXPECT_EQ(profile->get_counter("AsyncCacheWriteSubmittedCount")->value(),
+              after_second_report.async_cache_write_submitted);
+    EXPECT_EQ(profile->get_counter("AsyncCacheWriteRejectedCount")->value(),
               after_second_report.async_cache_write_rejected);
-    EXPECT_EQ(profile->get_counter("AsyncCacheWriteBufferAllocFail")->value(),
+    EXPECT_EQ(profile->get_counter("AsyncCacheWriteBufferAllocFailCount")->value(),
               after_second_report.async_cache_write_buffer_alloc_fail);
-    EXPECT_EQ(profile->get_counter("AsyncCacheWriteDropStaleEpoch")->value(),
+    EXPECT_EQ(profile->get_counter("AsyncCacheWriteDropStaleEpochCount")->value(),
               after_second_report.async_cache_write_drop_stale_epoch);
-    EXPECT_EQ(profile->get_counter("InflightWriteBufferIndexHit")->value(),
+    EXPECT_EQ(profile->get_counter("InflightWriteBufferIndexHitCount")->value(),
               after_second_report.inflight_write_buffer_index_hit);
-    EXPECT_EQ(profile->get_counter("InflightWriteBufferIndexMiss")->value(),
+    EXPECT_EQ(profile->get_counter("InflightWriteBufferIndexMissCount")->value(),
               after_second_report.inflight_write_buffer_index_miss);
-    EXPECT_EQ(profile->get_counter("ProbeDownloadedHit")->value(),
+    EXPECT_EQ(profile->get_counter("ProbeDownloadedHitCount")->value(),
               after_second_report.probe_downloaded_hit);
-    EXPECT_EQ(profile->get_counter("ProbeDownloadingHit")->value(),
+    EXPECT_EQ(profile->get_counter("ProbeDownloadingHitCount")->value(),
               after_second_report.probe_downloading_hit);
-    EXPECT_EQ(profile->get_counter("ProbeMiss")->value(), after_second_report.probe_miss);
-    EXPECT_EQ(profile->get_counter("BlockWaitSuccess")->value(),
+    EXPECT_EQ(profile->get_counter("ProbeMissCount")->value(), after_second_report.probe_miss);
+    EXPECT_EQ(profile->get_counter("BlockWaitSuccessCount")->value(),
               after_second_report.block_wait_success);
-    EXPECT_EQ(profile->get_counter("BlockWaitTimeout")->value(),
-               after_second_report.block_wait_timeout);
+    EXPECT_EQ(profile->get_counter("BlockWaitTimeoutCount")->value(),
+              after_second_report.block_wait_timeout);
 }
 
 } // namespace doris
