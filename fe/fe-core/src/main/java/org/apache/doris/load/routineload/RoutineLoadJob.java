@@ -2046,12 +2046,13 @@ public abstract class RoutineLoadJob
             // refreshing on every image load) and keep the existing cancel reason if present.
             state = JobState.CANCELLED;
             routineLoadTaskInfoList.clear();
+            long failureTimestamp = System.currentTimeMillis();
             if (endTimestamp == -1) {
-                endTimestamp = System.currentTimeMillis();
+                endTimestamp = failureTimestamp;
             }
             if (cancelReason == null) {
                 cancelReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR,
-                        "FE restart deserialize failed at " + TimeUtils.longToTimeString(endTimestamp)
+                        "FE restart deserialize failed at " + TimeUtils.longToTimeString(failureTimestamp)
                                 + ": " + e.getMessage());
             }
             LOG.warn("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
