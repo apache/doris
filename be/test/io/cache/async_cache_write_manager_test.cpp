@@ -1901,6 +1901,11 @@ TEST_F(AsyncCacheWriteManagerTest, MutableConfigUpdatesManagersExplicitly) {
 
     ASSERT_TRUE(config::set_config("enable_async_file_cache_write", "false").ok());
     ASSERT_TRUE(config::set_config("async_file_cache_write_max_pending_bytes", "-1").ok());
+    const int32_t valid_workers = config::async_file_cache_write_workers_per_disk;
+    EXPECT_FALSE(config::set_config("async_file_cache_write_workers_per_disk", "0").ok());
+    EXPECT_EQ(config::async_file_cache_write_workers_per_disk, valid_workers);
+    EXPECT_FALSE(config::set_config("async_file_cache_write_max_pending_bytes", "0").ok());
+    EXPECT_EQ(config::async_file_cache_write_max_pending_bytes, -1);
     fs::remove_all(path1, error);
     fs::remove_all(path2, error);
     fs::create_directories(path1);
