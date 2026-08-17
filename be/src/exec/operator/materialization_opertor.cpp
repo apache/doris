@@ -490,8 +490,8 @@ Status MaterializationSharedState::create_muiltget_result(const Columns& columns
         for (int j = 0; j < rows; ++j) {
             if (!null_map || !null_map[j]) {
                 MaterializationRowLocation row_location;
-                RETURN_IF_ERROR(decode_materialization_row_location(
-                        column_rowid->get_data_at(j), &row_location));
+                RETURN_IF_ERROR(decode_materialization_row_location(column_rowid->get_data_at(j),
+                                                                    &row_location));
                 auto rpc_struct = rpc_struct_map.find(row_location.backend_id);
                 if (UNLIKELY(rpc_struct == rpc_struct_map.end())) {
                     return Status::InternalError(

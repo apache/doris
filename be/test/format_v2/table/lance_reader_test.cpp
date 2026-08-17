@@ -168,9 +168,8 @@ Status init_reader(LanceTableReader* reader, const Columns& projected_columns,
     });
 }
 
-Status prepare_range(
-        LanceTableReader* reader, TFileRangeDesc range,
-        std::optional<GlobalRowIdContext> global_rowid_context = std::nullopt) {
+Status prepare_range(LanceTableReader* reader, TFileRangeDesc range,
+                     std::optional<GlobalRowIdContext> global_rowid_context = std::nullopt) {
     return reader->prepare_split({.partition_values = {},
                                   .conjuncts = std::nullopt,
                                   .partition_prune_conjuncts = {},
@@ -185,9 +184,9 @@ Status prepare_range(
 Status prepare_fixture(LanceTableReader* reader, const std::filesystem::path& dataset_uri,
                        const LanceFixtureInfo& fixture, std::vector<int64_t> fragment_ids,
                        std::optional<GlobalRowIdContext> global_rowid_context = std::nullopt) {
-    return prepare_range(
-            reader, make_lance_range(dataset_uri, fixture.version, std::move(fragment_ids)),
-            global_rowid_context);
+    return prepare_range(reader,
+                         make_lance_range(dataset_uri, fixture.version, std::move(fragment_ids)),
+                         global_rowid_context);
 }
 
 TFileScanRangeParams make_float32_vector_search_params(
@@ -229,6 +228,24 @@ TFileScanRangeParams make_float32_vector_search_params(
     TFileScanRangeParams scan_params;
     scan_params.__set_external_search_request(std::move(request));
     return scan_params;
+}
+
+TEST(LanceTableReaderVectorSearchTest, RejectsMalformedVectorPayloadBeforeReadingIt) {
+    const Columns columns {
+            projected_column("row_id", TYPE_BIGINT, false),
+            projected_column("_distance", TYPE_FLOAT, true),
+    };
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_vector_search_invalid_request");
+    auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 0);
+    scan_params.external_search_request.search_query.vector_search.query_vector.__set_dimension(4);
+
+    LanceTableReader reader;
+    const auto status = init_reader(&reader, columns, &state, &profile, &scan_params);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("query vector byte size"), std::string::npos);
 }
 
 std::vector<std::pair<int64_t, float>> read_vector_search_rows(LanceTableReader* reader,
@@ -432,8 +449,8 @@ TEST(LanceTableReaderVectorSearchTest, ReturnsStableGlobalRowIdsAndFetchesPayloa
 
     ASSERT_TRUE(first_scan.contains(2));
     ASSERT_TRUE(first_scan.contains(4));
-    const std::vector<uint64_t> fetch_row_ids {
-            first_scan.at(4), first_scan.at(2), first_scan.at(4)};
+    const std::vector<uint64_t> fetch_row_ids {first_scan.at(4), first_scan.at(2),
+                                               first_scan.at(4)};
     const Columns payload_columns {
             projected_column("row_id", TYPE_BIGINT, false),
             projected_column("label", TYPE_STRING, true),
@@ -446,7 +463,7 @@ TEST(LanceTableReaderVectorSearchTest, ReturnsStableGlobalRowIdsAndFetchesPayloa
     add_output_columns(&payload_block, payload_columns);
     ASSERT_TRUE(payload_reader
                         .read_by_row_ids(make_lance_range(dataset_uri, fixture.version,
-                                                         fixture.fragment_ids),
+                                                          fixture.fragment_ids),
                                          fetch_row_ids, &payload_block)
                         .ok());
 

@@ -83,6 +83,7 @@ private:
         bool operator==(const DatasetKey&) const = default;
     };
 
+    Status _validate_external_search_request() const;
     Status _ensure_dataset_open(const TFileRangeDesc& range);
     Status _open_dataset(const DatasetKey& key);
     Status _open_scanner(const TFileRangeDesc& range);

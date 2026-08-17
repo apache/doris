@@ -913,8 +913,7 @@ Status RowIdStorageReader::read_batch_external_row(
     // Hash(TFileRangeDesc) => { all the rows that need to be read and their positions in the result block. } +  file mapping
     // The multimap retains duplicate row IDs because the same source row can appear more than once
     // in the materialized result.
-    std::map<std::string,
-             std::pair<std::multimap<uint64_t, size_t>, std::shared_ptr<FileMapping>>>
+    std::map<std::string, std::pair<std::multimap<uint64_t, size_t>, std::shared_ptr<FileMapping>>>
             scan_rows;
 
     // Block corresponding to the order of `scan_rows` map.
@@ -928,9 +927,8 @@ Status RowIdStorageReader::read_batch_external_row(
 
     auto hash_file_range = [&rpc_scan_params](const ExternalFileMappingInfo& external_info) {
         const auto& file_range_desc = external_info.scan_range_desc;
-        const auto format_type = file_range_desc.__isset.format_type
-                                         ? file_range_desc.format_type
-                                         : rpc_scan_params.format_type;
+        const auto format_type = file_range_desc.__isset.format_type ? file_range_desc.format_type
+                                                                     : rpc_scan_params.format_type;
         if (format_type == TFileFormatType::FORMAT_LANCE) {
             // Parquet and ORC row IDs are offsets within a physical file range, so their fetch
             // path must keep each path/start_offset pair separate. Lance row IDs instead belong
@@ -939,8 +937,8 @@ Status RowIdStorageReader::read_batch_external_row(
             // all of those fragments together. Group the mappings by scan node, snapshot, and
             // dataset URI; the plan node keeps independent scans of the same snapshot isolated.
             const auto& lance_params = file_range_desc.table_format_params.lance_params;
-            return fmt::format("lance:{}:{}:{}", external_info.plan_node_id,
-                               lance_params.version, lance_params.dataset_uri);
+            return fmt::format("lance:{}:{}:{}", external_info.plan_node_id, lance_params.version,
+                               lance_params.dataset_uri);
         }
         std::string value;
         value.resize(file_range_desc.path.size() + sizeof(file_range_desc.start_offset));

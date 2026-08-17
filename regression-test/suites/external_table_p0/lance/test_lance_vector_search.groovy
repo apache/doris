@@ -57,8 +57,8 @@ suite("test_lance_vector_search", "p0,external") {
      *
      * An outer WHERE is deliberately different from the TVF filter property: it is evaluated by
      * Doris after Lance returns Top-K and can therefore reduce the final result below top_k.
-     * The current implementation pins one Lance dataset version and searches its entire snapshot
-     * with one scanner. Multi-scanner search plus global Top-K merging remains future work.
+     * The current implementation pins one Lance dataset version, searches every visible fragment
+     * independently, and lets Doris merge the fragment-local candidates with a global Top-N.
      *
      * Fixture: doris.vs_ivf_pq_f32 is generated offline by
      * docker/thirdparties/docker-compose/iceberg/scripts/lance_build_preinstalled_catalog.py.
@@ -131,7 +131,7 @@ suite("test_lance_vector_search", "p0,external") {
             contains "lanceTopK=5"
             contains "lanceOffset=0"
             contains "lanceMetric=l2"
-            contains "lanceSearchScanners=1"
+            contains "lanceSearchFragments=2"
             // The raw query vector must not be echoed into the plan output.
             notContains "[0,1,2,3"
         }

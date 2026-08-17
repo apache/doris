@@ -273,6 +273,11 @@ public class VectorSearchTableValuedFunction extends TableValuedFunctionIf {
                 throw new AnalysisException("Duplicate Lance schema column under "
                         + "case-insensitive matching: '" + field.getName() + "'");
             }
+            if (field.getName().startsWith(Column.GLOBAL_ROWID_COL)) {
+                throw new AnalysisException("Lance table contains column '" + field.getName()
+                        + "' using reserved Doris internal column prefix '"
+                        + Column.GLOBAL_ROWID_COL + "'");
+            }
             if (field.getName().equalsIgnoreCase(DISTANCE_COLUMN)) {
                 throw new AnalysisException("Lance table already contains reserved vector search "
                         + "column '" + DISTANCE_COLUMN + "'");
