@@ -26,6 +26,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/inverted_index_term_bloom_filter.h"
 #include "storage/index/inverted/util/reader.h"
 #include "storage/olap_common.h"
 #include "storage/segment/common.h"
@@ -76,6 +77,10 @@ public:
     Status add_value(const CppType& value);
     int64_t size() const override;
     void write_null_bitmap(lucene::store::IndexOutput* null_bitmap_out);
+    // Build the token-exists Bloom Filter ("tbf") sub-file by enumerating the just-flushed
+    // term dictionary. Must be called after _index_writer->close() (so the segment + .tis
+    // are durable in _dir) and before _dir is closed. Only the analyzed (fulltext) path.
+    void write_term_bloom_filter();
     Status finish() override;
 
 private:
@@ -102,6 +107,9 @@ private:
     IndexFileWriter* _index_file_writer;
     uint32_t _ignore_above;
     bool _should_analyzer = false;
+    // token-exists Bloom Filter gate (from the "token_bloom_filter" index property).
+    // Only enabled for analyzed (fulltext) indexes; default off.
+    bool _enable_term_bf = false;
 };
 
 } // namespace segment_v2

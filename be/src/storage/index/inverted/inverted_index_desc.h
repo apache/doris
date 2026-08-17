@@ -59,6 +59,12 @@ public:
     static const char* get_temporary_bkd_index_data_file_name() { return "bkd"; }
     static const char* get_temporary_bkd_index_meta_file_name() { return "bkd_meta"; }
     static const char* get_temporary_bkd_index_file_name() { return "bkd_index"; }
+    // token-exists Bloom Filter sub-file. Name must be >= 3 chars and must NOT be a
+    // substring of any key in index_file_info_map / normal_file_info_map (a bare "bf"
+    // would collide with substring matching and pollute file sort/partition ordering).
+    // "tbf" is not a substring of any existing key, so it is auto-classified as a
+    // normal_file (placed after the meta files), satisfying the V2 ordering assertion.
+    static const char* get_temporary_term_bf_file_name() { return "tbf"; }
 };
 
 } // namespace segment_v2

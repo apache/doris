@@ -73,6 +73,7 @@ namespace segment_v2 {
 
 class InvertedIndexIterator;
 class InvertedIndexQueryCacheHandle;
+class InvertedIndexTermBloomFilter;
 class IndexFileReader;
 class InvertedIndexQueryInfo;
 class IndexIterator;
@@ -296,6 +297,24 @@ public:
     }
 
     InvertedIndexReaderType type() override;
+
+private:
+    // token-exists Bloom Filter absent-term fast path. On success (*absent == true) the
+    // result is provably empty (bit_map is the empty bitmap). On *absent == false the BF
+    // could not prove absence (missing/invalid "tbf", analyzer-sig mismatch, or some token
+    // MAYBE present) and the caller must continue with the normal lookup. This never enters
+    // scoring statistics (it runs strictly before searcher open).
+    Status try_term_bf_fast_path(const IndexQueryContextPtr& context,
+                                 InvertedIndexQueryType query_type,
+                                 const InvertedIndexQueryInfo& query_info,
+                                 const InvertedIndexQueryCache::CacheKey& cache_key,
+                                 std::shared_ptr<roaring::Roaring>& bit_map, bool* absent);
+
+    // Structurally load the "tbf" BF for this (segment, index): nullptr means no usable sub-file
+    // (missing or corrupt) -- a stable property of the immutable segment. The caller applies the
+    // analyzer-signature (A3) check and the caching policy (positive vs negative).
+    std::shared_ptr<InvertedIndexTermBloomFilter> load_term_bf_from_subfile(
+            const IndexQueryContextPtr& context);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {

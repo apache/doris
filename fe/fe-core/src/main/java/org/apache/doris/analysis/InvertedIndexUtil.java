@@ -81,6 +81,9 @@ public class InvertedIndexUtil {
     public static String INVERTED_INDEX_DICT_COMPRESSION_KEY =
             InvertedIndexProperties.INVERTED_INDEX_DICT_COMPRESSION_KEY;
 
+    public static String INVERTED_INDEX_TOKEN_BLOOM_FILTER_KEY =
+            InvertedIndexProperties.INVERTED_INDEX_TOKEN_BLOOM_FILTER_KEY;
+
     public static String INVERTED_INDEX_ANALYZER_NAME_KEY =
             InvertedIndexProperties.INVERTED_INDEX_ANALYZER_NAME_KEY;
     public static String INVERTED_INDEX_NORMALIZER_NAME_KEY =
@@ -185,6 +188,7 @@ public class InvertedIndexUtil {
                 INVERTED_INDEX_PARSER_LOWERCASE_KEY,
                 INVERTED_INDEX_PARSER_STOPWORDS_KEY,
                 INVERTED_INDEX_DICT_COMPRESSION_KEY,
+                INVERTED_INDEX_TOKEN_BLOOM_FILTER_KEY,
                 INVERTED_INDEX_ANALYZER_NAME_KEY,
                 INVERTED_INDEX_NORMALIZER_NAME_KEY,
                 INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY
@@ -206,6 +210,7 @@ public class InvertedIndexUtil {
         String lowerCase = properties.get(INVERTED_INDEX_PARSER_LOWERCASE_KEY);
         String stopWords = properties.get(INVERTED_INDEX_PARSER_STOPWORDS_KEY);
         String dictCompression = properties.get(INVERTED_INDEX_DICT_COMPRESSION_KEY);
+        String tokenBloomFilter = properties.get(INVERTED_INDEX_TOKEN_BLOOM_FILTER_KEY);
         String analyzerName = properties.get(INVERTED_INDEX_ANALYZER_NAME_KEY);
         String normalizerName = properties.get(INVERTED_INDEX_NORMALIZER_NAME_KEY);
 
@@ -276,6 +281,11 @@ public class InvertedIndexUtil {
         if (lowerCase != null && !lowerCase.matches("true|false")) {
             throw new AnalysisException(
                     "Invalid inverted index 'lower_case' value: " + lowerCase + ", lower_case must be true or false");
+        }
+
+        if (tokenBloomFilter != null && !tokenBloomFilter.matches("true|false")) {
+            throw new AnalysisException("Invalid inverted index 'token_bloom_filter' value: " + tokenBloomFilter
+                    + ", token_bloom_filter must be true or false");
         }
 
         if (stopWords != null && !stopWords.matches("none")) {

@@ -27,6 +27,7 @@
 
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "storage/index/inverted/inverted_index_term_bloom_filter.h"
 #include "util/defer_op.h"
 
 namespace doris::segment_v2 {
@@ -76,8 +77,11 @@ InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t
 }
 
 Status InvertedIndexSearcherCache::erase(const std::string& index_file_path) {
-    InvertedIndexSearcherCache::CacheKey cache_key(index_file_path);
-    _policy->erase(cache_key.index_file_path);
+    _policy->erase(index_file_path);
+    // The token BF for this (segment, index) lives in the same cache under a derived key; erase it
+    // too, otherwise a compaction/rewrite that invalidates the segment would leave a stale BF that
+    // a same-key rewrite could later serve (a false "absent" -> dropped hit).
+    _policy->erase(term_bf_key(index_file_path));
     return Status::OK();
 }
 
@@ -139,6 +143,41 @@ void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roarin
                                               bitmap->getSizeInBytes(), bitmap->getSizeInBytes(),
                                               CachePriority::NORMAL);
     *handle = InvertedIndexQueryCacheHandle(this, lru_handle);
+}
+
+bool InvertedIndexSearcherCache::lookup_term_bf(const std::string& index_file_key,
+                                                InvertedIndexCacheHandle* handle) {
+    auto* lru_handle = _policy->lookup(term_bf_key(index_file_key));
+    if (lru_handle == nullptr) {
+        return false;
+    }
+    *handle = InvertedIndexCacheHandle(_policy.get(), lru_handle);
+    return true;
+}
+
+void InvertedIndexSearcherCache::insert_term_bf(const std::string& index_file_key,
+                                                std::shared_ptr<InvertedIndexTermBloomFilter> bf,
+                                                InvertedIndexCacheHandle* handle) {
+    auto cache_value = std::make_unique<CacheValue>();
+    size_t charge = bf->byte_size();
+    cache_value->term_bf = std::move(bf);
+    cache_value->size = charge;
+    cache_value->last_visit_time = UnixMillis();
+    auto* lru_handle = _policy->insert(term_bf_key(index_file_key), (void*)cache_value.release(),
+                                       charge, charge, CachePriority::NORMAL);
+    *handle = InvertedIndexCacheHandle(_policy.get(), lru_handle);
+}
+
+void InvertedIndexSearcherCache::insert_term_bf_negative(const std::string& index_file_key,
+                                                         InvertedIndexCacheHandle* handle) {
+    auto cache_value = std::make_unique<CacheValue>();
+    // term_bf stays null: a hit on this entry means "known: no usable BF for this key".
+    static constexpr size_t kNegativeCharge = 16;
+    cache_value->size = kNegativeCharge;
+    cache_value->last_visit_time = UnixMillis();
+    auto* lru_handle = _policy->insert(term_bf_key(index_file_key), (void*)cache_value.release(),
+                                       kNegativeCharge, kNegativeCharge, CachePriority::NORMAL);
+    *handle = InvertedIndexCacheHandle(_policy.get(), lru_handle);
 }
 
 } // namespace doris::segment_v2
