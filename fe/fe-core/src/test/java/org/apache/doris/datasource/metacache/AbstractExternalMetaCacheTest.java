@@ -178,24 +178,25 @@ public class AbstractExternalMetaCacheTest {
     }
 
     @Test
-    public void testEntryWeightWithoutEstimatorFailsCatalogInitialization() {
+    public void testRuntimeInitIgnoresEntryWeightWithoutEstimator() {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         try {
             TestExternalMetaCache cache = new TestExternalMetaCache(refreshExecutor);
             Map<String, String> properties = Maps.newHashMap();
             properties.put("meta.cache.test_engine.schema.max-weight", "1KB");
 
-            IllegalArgumentException exception = Assert.assertThrows(
-                    IllegalArgumentException.class, () -> cache.initCatalog(1L, properties));
-            Assert.assertTrue(exception.getMessage().contains("does not support max-weight"));
-            Assert.assertFalse(cache.isCatalogInitialized(1L));
+            cache.initCatalog(1L, properties);
+
+            Assert.assertTrue(cache.isCatalogInitialized(1L));
+            Assert.assertFalse(cache.entry(1L, "schema", SchemaCacheKey.class, SchemaCacheValue.class)
+                    .isWeightBounded());
         } finally {
             refreshExecutor.shutdownNow();
         }
     }
 
     @Test
-    public void testCommonValidationRejectsEntryWeightAboveCatalogWeight() {
+    public void testRuntimeInitIgnoresEntryWeightAboveCatalogWeight() {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         WeightedExternalMetaCache cache = new WeightedExternalMetaCache(
                 refreshExecutor, new ExternalMetaCacheBudgetManager(OptionalLong.of(4L * 1024L)));
@@ -204,10 +205,11 @@ public class AbstractExternalMetaCacheTest {
             properties.put(ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY, "1KB");
             properties.put("meta.cache.weighted_test.value.max-weight", "2KB");
 
-            IllegalArgumentException exception = Assert.assertThrows(
-                    IllegalArgumentException.class, () -> cache.initCatalog(1L, properties));
-            Assert.assertTrue(exception.getMessage().contains("entry max weight"));
-            Assert.assertFalse(cache.isCatalogInitialized(1L));
+            cache.initCatalog(1L, properties);
+
+            Assert.assertTrue(cache.isCatalogInitialized(1L));
+            Assert.assertEquals(1024L, cache.entry(1L, "value", String.class, Integer.class)
+                    .stats().getMaxWeight());
         } finally {
             cache.close();
             refreshExecutor.shutdownNow();

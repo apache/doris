@@ -24,12 +24,14 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
+import org.apache.doris.datasource.metacache.EstimatorCalibrationAssertions;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileMetadata;
@@ -48,6 +50,7 @@ import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.encryption.EncryptedKey;
 import org.apache.iceberg.hadoop.HadoopTables;
@@ -160,6 +163,139 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
+    public void testReplacingTableGenerationRetiresSnapshotAndSchemaProjection() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+        try {
+            long catalogId = 1L;
+            cache.initCatalog(catalogId, Collections.emptyMap());
+            NameMapping mapping = NameMapping.createForTest(catalogId, "db", "tbl");
+            IcebergTableCacheValue first = new IcebergTableCacheValue(
+                    tableWithMetadataLocation("/metadata/retire-v1.json"));
+            IcebergTableCacheValue second = new IcebergTableCacheValue(
+                    tableWithMetadataLocation("/metadata/retire-v2.json"));
+            MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = cache.entry(
+                    catalogId, IcebergExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, IcebergTableCacheValue.class);
+            tables.put(mapping, first);
+            IcebergSnapshotEntryKey oldSnapshotKey = IcebergSnapshotEntryKey.tryCreate(
+                    mapping, first.getRetainedIcebergTable()).get();
+            MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> snapshots = cache.entry(
+                    catalogId, IcebergExternalMetaCache.ENTRY_SNAPSHOT,
+                    IcebergSnapshotEntryKey.class, IcebergSnapshotCacheValue.class);
+            snapshots.put(oldSnapshotKey, new IcebergSnapshotCacheValue(
+                    IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, 0L)));
+            IcebergSchemaCacheKey oldSchemaKey = new IcebergSchemaCacheKey(
+                    mapping, first.getTableUuid().get(), 0L);
+            MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> schemas = cache.entry(
+                    catalogId, IcebergExternalMetaCache.ENTRY_SCHEMA,
+                    IcebergSchemaCacheKey.class, SchemaCacheValue.class);
+            schemas.put(oldSchemaKey, new SchemaCacheValue(Collections.emptyList()));
+
+            // Simulate expiry/invalidation before the next table generation is published.
+            tables.invalidateKey(mapping);
+            tables.put(mapping, second);
+
+            Assert.assertNull(snapshots.peekIfPresent(oldSnapshotKey));
+            Assert.assertNull(schemas.peekIfPresent(oldSchemaKey));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testOldGenerationSchemaLoadCannotRepopulateAfterTableReplacement() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor);
+        try {
+            long catalogId = 1L;
+            cache.initCatalog(catalogId, Collections.emptyMap());
+            NameMapping mapping = NameMapping.createForTest(catalogId, "db", "tbl");
+            IcebergTableCacheValue oldTable = new IcebergTableCacheValue(
+                    tableWithMetadataLocation("/metadata/schema-race-old.json"));
+            IcebergTableCacheValue newTable = new IcebergTableCacheValue(
+                    tableWithMetadataLocation("/metadata/schema-race-new.json"));
+            cache.entry(catalogId, IcebergExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, IcebergTableCacheValue.class).put(mapping, newTable);
+            IcebergSchemaCacheKey staleKey = new IcebergSchemaCacheKey(
+                    mapping, oldTable.getTableUuid().get(), 0L);
+            IcebergSchemaCacheValue staleValue = new IcebergSchemaCacheValue(
+                    Collections.emptyList(), Collections.emptyList());
+            MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> schemas = cache.entry(
+                    catalogId, IcebergExternalMetaCache.ENTRY_SCHEMA,
+                    IcebergSchemaCacheKey.class, SchemaCacheValue.class);
+            schemas.put(staleKey, staleValue);
+
+            Assert.assertSame(staleValue, cache.getIcebergSchemaCacheValue(
+                    mapping, 0L, oldTable.getRetainedIcebergTable()));
+            Assert.assertNull(schemas.peekIfPresent(staleKey));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testFrozenGenerationPreservesSparseEquivalentSchemaIds() {
+        TableMetadata metadata = TableMetadataParser.fromJson("/metadata/sparse.json", "{"
+                + "\"format-version\":2,\"table-uuid\":\"sparse-schema-table\","
+                + "\"location\":\"file:/warehouse/sparse\",\"last-sequence-number\":0,"
+                + "\"last-updated-ms\":1,\"last-column-id\":2,\"current-schema-id\":2,"
+                + "\"schemas\":["
+                + "{\"type\":\"struct\",\"schema-id\":0,\"fields\":["
+                + "{\"id\":1,\"name\":\"a\",\"required\":false,\"type\":\"int\"}]},"
+                + "{\"type\":\"struct\",\"schema-id\":1,\"fields\":["
+                + "{\"id\":1,\"name\":\"a\",\"required\":false,\"type\":\"int\"},"
+                + "{\"id\":2,\"name\":\"b\",\"required\":false,\"type\":\"string\"}]},"
+                + "{\"type\":\"struct\",\"schema-id\":2,\"fields\":["
+                + "{\"id\":1,\"name\":\"a\",\"required\":false,\"type\":\"int\"}]}],"
+                + "\"default-spec-id\":0,\"partition-specs\":[{\"spec-id\":0,\"fields\":[]}],"
+                + "\"last-partition-id\":999,\"default-sort-order-id\":0,"
+                + "\"sort-orders\":[{\"order-id\":0,\"fields\":[]}],\"properties\":{},"
+                + "\"current-snapshot-id\":-1,\"refs\":{},\"snapshots\":[],"
+                + "\"statistics\":[],\"partition-statistics\":[],"
+                + "\"snapshot-log\":[],\"metadata-log\":[]}");
+        Table retained = IcebergSnapshotCacheValue.retainNonGrowingGeneration(
+                IcebergSnapshotCacheValue.retainTableGeneration(
+                        new BaseTable(new StaticTableOperations(metadata, null), "db.tbl")));
+        TableMetadata retainedMetadata = ((HasTableOperations) retained).operations().current();
+
+        Assert.assertEquals(2, retainedMetadata.currentSchemaId());
+        Assert.assertEquals(java.util.Arrays.asList(0, 1, 2), retainedMetadata.schemas().stream()
+                .map(Schema::schemaId).collect(Collectors.toList()));
+        Assert.assertEquals(1, retainedMetadata.schemas().stream()
+                .filter(schema -> schema.schemaId() == 2).findFirst().get().columns().size());
+    }
+
+    @Test
+    public void testFrozenGenerationAcceptsSnapshotCreatedBeforeV3Upgrade() {
+        TableMetadata metadata = TableMetadataParser.fromJson("/metadata/upgraded-v3.json", "{"
+                + "\"format-version\":3,\"table-uuid\":\"upgraded-v3-table\","
+                + "\"location\":\"file:/warehouse/v3\",\"last-sequence-number\":1,"
+                + "\"last-updated-ms\":2,\"last-column-id\":1,\"current-schema-id\":0,"
+                + "\"schemas\":[{\"type\":\"struct\",\"schema-id\":0,\"fields\":["
+                + "{\"id\":1,\"name\":\"id\",\"required\":false,\"type\":\"int\"}]}],"
+                + "\"default-spec-id\":0,\"partition-specs\":[{\"spec-id\":0,\"fields\":[]}],"
+                + "\"last-partition-id\":999,\"default-sort-order-id\":0,"
+                + "\"sort-orders\":[{\"order-id\":0,\"fields\":[]}],\"properties\":{},"
+                + "\"current-snapshot-id\":7,\"next-row-id\":0,"
+                + "\"refs\":{\"main\":{\"snapshot-id\":7,\"type\":\"branch\"}},"
+                + "\"snapshots\":[{\"sequence-number\":0,\"snapshot-id\":7,"
+                + "\"timestamp-ms\":1,\"summary\":{\"operation\":\"append\"},"
+                + "\"manifests\":[],\"schema-id\":0}],"
+                + "\"statistics\":[],\"partition-statistics\":[],"
+                + "\"snapshot-log\":[{\"timestamp-ms\":1,\"snapshot-id\":7}],"
+                + "\"metadata-log\":[]}");
+        Table retained = IcebergSnapshotCacheValue.retainNonGrowingGeneration(
+                IcebergSnapshotCacheValue.retainTableGeneration(
+                        new BaseTable(new StaticTableOperations(metadata, null), "db.tbl")));
+
+        Assert.assertEquals(7L, retained.currentSnapshot().snapshotId());
+        Assert.assertEquals(3, ((HasTableOperations) retained).operations().current().formatVersion());
+    }
+
+    @Test
     public void testTableSnapshotAndManifestEstimatesArePrecomputed() {
         NameMapping mapping = NameMapping.createForTest(1L, "db", "tbl");
         Table table = tableWithMetadataLocation("/metadata/v1.json");
@@ -190,6 +326,51 @@ public class IcebergExternalMetaCacheTest {
                 mapping, new IcebergTableCacheValue(unsupportedTable));
         Assert.assertFalse(unsupported.isComplete());
         Assert.assertTrue(unsupported.getIncompleteReason().startsWith("unsupported_iceberg_table:"));
+    }
+
+    @Test
+    public void testIcebergPreparationFailureIsFailClosed() {
+        TableMetadata brokenMetadata = Mockito.mock(TableMetadata.class);
+        Mockito.when(brokenMetadata.currentSnapshot())
+                .thenThrow(new IllegalStateException("unsupported snapshot state"));
+        TableOperations operations = Mockito.mock(TableOperations.class);
+        Mockito.when(operations.current()).thenReturn(brokenMetadata);
+        Table brokenTable = new BaseTable(operations, "db.tbl");
+        NameMapping mapping = NameMapping.createForTest(1L, "db", "tbl");
+
+        IcebergTableCacheValue tableValue = new IcebergTableCacheValue(brokenTable);
+        MetaCacheSizeEstimate tableEstimate = tableValue.prepareForCachePublication(mapping);
+
+        Assert.assertFalse(tableEstimate.isComplete());
+        Assert.assertTrue(tableEstimate.getIncompleteReason()
+                .startsWith("iceberg_table_preparation_failed:"));
+        Assert.assertSame(tableValue.getRetainedIcebergTable(), tableValue.newQueryScopedTable());
+
+        Table healthyTable = tableWithMetadataLocation("/metadata/fail-closed-key.json");
+        IcebergSnapshotEntryKey key = IcebergSnapshotEntryKey.tryCreate(mapping, healthyTable).get();
+        IcebergSnapshotCacheValue snapshotValue = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, 0L),
+                Optional.empty(), brokenTable);
+        MetaCacheSizeEstimate snapshotEstimate = snapshotValue.prepareForCachePublication(key);
+
+        Assert.assertFalse(snapshotEstimate.isComplete());
+        Assert.assertTrue(snapshotEstimate.getIncompleteReason()
+                .startsWith("iceberg_snapshot_preparation_failed:"));
+    }
+
+    @Test
+    public void testManifestAccountingFailureKeepsFilesAndRejectsWeightedAdmission() {
+        DataFile file = Mockito.mock(DataFile.class);
+        Mockito.when(file.columnSizes()).thenThrow(new IllegalStateException("new metrics representation"));
+
+        ManifestCacheValue value = ManifestCacheValue.forDataFiles(Collections.singletonList(file));
+        MetaCacheSizeEstimate estimate = IcebergCacheSizeEstimator.estimateManifestEntry(
+                new IcebergManifestEntryKey("/manifest/fail-closed.avro", ManifestContent.DATA), value);
+
+        Assert.assertEquals(Collections.singletonList(file), value.getDataFiles());
+        Assert.assertFalse(value.isAccountingComplete());
+        Assert.assertFalse(estimate.isComplete());
+        Assert.assertEquals("iceberg_manifest_accounting_incomplete", estimate.getIncompleteReason());
     }
 
     @Test
@@ -262,18 +443,18 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
-    public void testTablePayloadExcludesQueryLocalHistoricalMetadata() {
+    public void testTablePayloadAccountsForRetainedHistoricalMetadata() {
         String largePayload = repeatedCharacter('x', 64 * 1024);
         long smallBytes = IcebergCacheSizeEstimator.retainedTablePayloadBytes(
                 tableWithMetadata(metadataWithMaterializedPayload("x", 32)));
         long largeBytes = IcebergCacheSizeEstimator.retainedTablePayloadBytes(
                 tableWithMetadata(metadataWithMaterializedPayload(largePayload, 64 * 1024)));
 
-        Assert.assertEquals(smallBytes, largeBytes);
+        Assert.assertTrue(largeBytes - smallBytes >= 64L * 1024L - 32L);
     }
 
     @Test
-    public void testTableEstimateExcludesQueryLocalBranchHistory() {
+    public void testTableEstimateAccountsForRetainedBranchHistory() {
         TableMetadata oneCommit = metadataWithSnapshotSequence(1L);
         TableMetadata tenThousandCommits = metadataWithSnapshotSequence(10_000L);
         IcebergTableCacheValue smallValue = new IcebergTableCacheValue(tableWithMetadata(oneCommit));
@@ -290,14 +471,14 @@ public class IcebergExternalMetaCacheTest {
                 largeValue.getSizeEstimate().isComplete());
         Assert.assertEquals(smallValue.getSizeEstimate().getBytes(),
                 largeValue.getSizeEstimate().getBytes());
-        Mockito.verify(oneCommit, Mockito.never()).snapshots();
-        Mockito.verify(tenThousandCommits, Mockito.never()).snapshots();
+        Mockito.verify(oneCommit, Mockito.atLeastOnce()).snapshots();
+        Mockito.verify(tenThousandCommits, Mockito.atLeastOnce()).snapshots();
         Mockito.verify(oneCommit, Mockito.never()).lastSequenceNumber();
         Mockito.verify(tenThousandCommits, Mockito.never()).lastSequenceNumber();
-        Mockito.verify(oneCommit, Mockito.never()).snapshotLog();
-        Mockito.verify(tenThousandCommits, Mockito.never()).snapshotLog();
-        Mockito.verify(oneCommit, Mockito.never()).refs();
-        Mockito.verify(tenThousandCommits, Mockito.never()).refs();
+        Mockito.verify(oneCommit, Mockito.atLeastOnce()).snapshotLog();
+        Mockito.verify(tenThousandCommits, Mockito.atLeastOnce()).snapshotLog();
+        Mockito.verify(oneCommit, Mockito.atLeastOnce()).refs();
+        Mockito.verify(tenThousandCommits, Mockito.atLeastOnce()).refs();
     }
 
     @Test
@@ -360,37 +541,24 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
-    public void testExactMetadataReadsRunInsideCatalogAuthenticator() throws Exception {
+    public void testQueryScopedMetadataReusesFrozenGenerationWithoutFileIo() throws Exception {
         String tableLocation = temporaryFolder.newFolder("authenticated-metadata").toURI().toString();
         Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
         Table liveTable = new HadoopTables(new Configuration()).create(
                 schema, PartitionSpec.unpartitioned(), tableLocation);
-        AtomicBoolean authenticated = new AtomicBoolean();
         AtomicInteger metadataReads = new AtomicInteger();
-        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {
-            @Override
-            public <T> T execute(Callable<T> task) throws Exception {
-                Assert.assertTrue(authenticated.compareAndSet(false, true));
-                try {
-                    return task.call();
-                } finally {
-                    authenticated.set(false);
-                }
-            }
-        };
         FileIO trackingFileIO = Mockito.mock(FileIO.class);
         Mockito.when(trackingFileIO.newInputFile(Mockito.anyString())).thenAnswer(invocation -> {
-            Assert.assertTrue("metadata FileIO must retain catalog authentication", authenticated.get());
             metadataReads.incrementAndGet();
             return liveTable.io().newInputFile((String) invocation.getArgument(0));
         });
         TableMetadata metadata = ((HasTableOperations) liveTable).operations().current();
         Table trackedTable = new BaseTable(
                 new StaticTableOperations(metadata, trackingFileIO), liveTable.name());
-        IcebergTableCacheValue countValue = new IcebergTableCacheValue(trackedTable, authenticator);
+        IcebergTableCacheValue countValue = new IcebergTableCacheValue(trackedTable);
         countValue.getWritableIcebergTable(liveTable);
         Assert.assertEquals("count-based writes must not add metadata FileIO", 0, metadataReads.get());
-        IcebergTableCacheValue value = new IcebergTableCacheValue(trackedTable, authenticator);
+        IcebergTableCacheValue value = new IcebergTableCacheValue(trackedTable);
         value.prepareForCachePublication(NameMapping.createForTest(1L, "db", "tbl"));
 
         Table statementTable = value.newQueryScopedTable();
@@ -398,14 +566,14 @@ public class IcebergExternalMetaCacheTest {
         IcebergSnapshotCacheValue statementValue = new IcebergSnapshotCacheValue(
                 IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, 0L),
                 Optional.empty(), statementTable);
-        Assert.assertSame(statementTable, statementValue.getIcebergTable().get());
+        Assert.assertEquals(statementTable.schema().asStruct(),
+                statementValue.getIcebergTable().get().schema().asStruct());
         com.google.common.collect.Lists.newArrayList(
                 statementValue.getIcebergTable().get().snapshots());
-        Assert.assertEquals("statement handoff must reuse parsed metadata", 1, metadataReads.get());
+        Assert.assertEquals("statement handoff must reuse frozen metadata", 0, metadataReads.get());
         value.getWritableIcebergTable(liveTable);
 
-        Assert.assertEquals(2, metadataReads.get());
-        Assert.assertFalse(authenticated.get());
+        Assert.assertEquals(0, metadataReads.get());
     }
 
     @Test
@@ -474,7 +642,7 @@ public class IcebergExternalMetaCacheTest {
     }
 
     @Test
-    public void testMissingPinnedMetadataRefreshesBeforeStatementFence() throws Exception {
+    public void testPinnedGenerationSurvivesMetadataFileRetirement() throws Exception {
         String staleLocation = temporaryFolder.newFolder("stale-metadata").toURI().toString();
         String freshLocation = temporaryFolder.newFolder("fresh-metadata").toURI().toString();
         Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
@@ -511,8 +679,8 @@ public class IcebergExternalMetaCacheTest {
 
             Table queryTable = cache.getQueryScopedIcebergTable(table);
 
-            Assert.assertEquals(freshTable.schema().asStruct(), queryTable.schema().asStruct());
-            Mockito.verify(metadataOps, Mockito.times(1)).loadTable("db", "tbl");
+            Assert.assertEquals(staleTable.schema().asStruct(), queryTable.schema().asStruct());
+            Mockito.verify(metadataOps, Mockito.never()).loadTable("db", "tbl");
         } finally {
             cache.close();
             executor.shutdownNow();
@@ -546,8 +714,6 @@ public class IcebergExternalMetaCacheTest {
         Assert.assertTrue(value.getSizeEstimate().getIncompleteReason(), value.getSizeEstimate().isComplete());
         Table retained = value.getRetainedIcebergTable();
         Assert.assertTrue(IcebergSnapshotCacheValue.isFrozenGeneration(retained));
-        Assert.assertThrows(UnsupportedOperationException.class,
-                () -> retained.snapshot(7L).dataManifests(retained.io()));
         Table firstUse = value.getIcebergTable();
         Table secondUse = value.getIcebergTable();
         Assert.assertNotSame(retained, firstUse);
@@ -556,7 +722,6 @@ public class IcebergExternalMetaCacheTest {
         Assert.assertNotSame(firstUse.currentSnapshot(), secondUse.currentSnapshot());
         Assert.assertEquals(2, firstUse.snapshot(7L).dataManifests(firstUse.io()).size());
         Assert.assertEquals(2, secondUse.snapshot(7L).dataManifests(secondUse.io()).size());
-        Assert.assertTrue(IcebergSnapshotCacheValue.isFrozenGeneration(firstUse));
 
         IcebergSnapshotEntryKey snapshotKey =
                 IcebergSnapshotEntryKey.tryCreate(mapping, retained).get();
@@ -591,8 +756,6 @@ public class IcebergExternalMetaCacheTest {
         Assert.assertTrue(value.getSizeEstimate().getIncompleteReason(),
                 value.getSizeEstimate().isComplete());
         Table retained = value.getRetainedIcebergTable();
-        Assert.assertThrows(UnsupportedOperationException.class,
-                () -> retained.currentSnapshot().dataManifests(retained.io()));
         Table firstQuery = value.getIcebergTable();
         Table secondQuery = value.getIcebergTable();
         List<ManifestFile> firstManifests =
@@ -603,8 +766,7 @@ public class IcebergExternalMetaCacheTest {
         Assert.assertEquals(1, secondManifests.size());
         Assert.assertNotSame(firstQuery.currentSnapshot(), secondQuery.currentSnapshot());
         Assert.assertNotSame(firstManifests, secondManifests);
-        Assert.assertThrows(UnsupportedOperationException.class,
-                () -> retained.currentSnapshot().dataManifests(retained.io()));
+        Assert.assertNotSame(retained.currentSnapshot(), firstQuery.currentSnapshot());
     }
 
     @Test
@@ -644,6 +806,30 @@ public class IcebergExternalMetaCacheTest {
         long twoFileBytes = IcebergCacheSizeEstimator.estimateManifestEntry(key, twoFiles).getBytes();
 
         Assert.assertTrue(twoFileBytes > oneFileBytes);
+    }
+
+    @Test
+    public void testManifestFormulaAgainstJolOwnedGraph() {
+        IcebergManifestEntryKey key = new IcebergManifestEntryKey(
+                "/manifest/jol.avro", ManifestContent.DATA);
+        ManifestCacheValue empty = ManifestCacheValue.forDataFiles(Collections.emptyList());
+        ManifestCacheValue populated = ManifestCacheValue.forDataFiles(
+                IntStream.range(0, 32).mapToObj(this::dataFileWithMetrics)
+                        .collect(Collectors.toList()));
+        ManifestCacheValue shortTail = ManifestCacheValue.forDataFiles(
+                Collections.singletonList(dataFileWithPathPayload(16)));
+        ManifestCacheValue longTail = ManifestCacheValue.forDataFiles(
+                Collections.singletonList(dataFileWithPathPayload(4096)));
+
+        long emptyEstimate = IcebergCacheSizeEstimator.estimateManifestEntry(key, empty).getBytes();
+        long populatedEstimate = IcebergCacheSizeEstimator.estimateManifestEntry(key, populated).getBytes();
+        long shortTailEstimate = IcebergCacheSizeEstimator.estimateManifestEntry(key, shortTail).getBytes();
+        long longTailEstimate = IcebergCacheSizeEstimator.estimateManifestEntry(key, longTail).getBytes();
+
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "iceberg manifest files", emptyEstimate, populatedEstimate, empty, populated);
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "iceberg long-tail path", shortTailEstimate, longTailEstimate, shortTail, longTail);
     }
 
     @Test
@@ -776,7 +962,6 @@ public class IcebergExternalMetaCacheTest {
                 value.getSizeEstimate().isComplete());
         Table queryTable = value.getIcebergTable().get();
         Assert.assertNotSame(table.currentSnapshot(), queryTable.currentSnapshot());
-        Assert.assertTrue(IcebergSnapshotCacheValue.isFrozenGeneration(queryTable));
         Mockito.verifyNoInteractions(fileIO);
     }
 
@@ -993,6 +1178,7 @@ public class IcebergExternalMetaCacheTest {
         List<org.apache.iceberg.DataFile> dataFiles = sizeOnlyList(fileCount);
         Mockito.when(value.getDataFiles()).thenReturn(dataFiles);
         Mockito.when(value.getDeleteFiles()).thenReturn(Collections.emptyList());
+        Mockito.when(value.isAccountingComplete()).thenReturn(true);
         MetaCacheSizeEstimate estimate = IcebergCacheSizeEstimator.estimateManifestEntry(key, value);
         Assert.assertTrue(estimate.getIncompleteReason(), estimate.isComplete());
         return estimate.getBytes();
@@ -1032,6 +1218,33 @@ public class IcebergExternalMetaCacheTest {
         metadata = TableMetadata.buildFrom(metadata).discardChanges()
                 .withMetadataLocation(metadataLocation).build();
         return new BaseTable(new StaticTableOperations(metadata, null), "db.tbl");
+    }
+
+    private org.apache.iceberg.DataFile dataFileWithMetrics(int index) {
+        Map<Integer, Long> columnSizes = IntStream.range(0, 8).boxed()
+                .collect(Collectors.toMap(column -> column, column -> (long) index + column));
+        Map<Integer, Long> valueCounts = new java.util.HashMap<>(columnSizes);
+        Map<Integer, Long> nullCounts = new java.util.HashMap<>(columnSizes);
+        Map<Integer, Long> nanCounts = new java.util.HashMap<>(columnSizes);
+        Map<Integer, ByteBuffer> lowerBounds = IntStream.range(0, 8).boxed()
+                .collect(Collectors.toMap(column -> column, column -> ByteBuffer.allocate(32)));
+        Map<Integer, ByteBuffer> upperBounds = IntStream.range(0, 8).boxed()
+                .collect(Collectors.toMap(column -> column, column -> ByteBuffer.allocate(32)));
+        Metrics metrics = new Metrics(
+                100L, columnSizes, valueCounts, nullCounts, nanCounts, lowerBounds, upperBounds);
+        return DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath("/data/jol-" + index + ".parquet")
+                .withFileSizeInBytes(1024L)
+                .withMetrics(metrics)
+                .build();
+    }
+
+    private org.apache.iceberg.DataFile dataFileWithPathPayload(int pathLength) {
+        return DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath("/data/" + repeatedCharacter('x', pathLength) + ".parquet")
+                .withFileSizeInBytes(1024L)
+                .withRecordCount(1L)
+                .build();
     }
 
     private Table tableWithMetadata(TableMetadata metadata) {

@@ -21,12 +21,14 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.metacache.EstimatorCalibrationAssertions;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
 import org.apache.doris.datasource.metacache.paimon.PaimonLatestSnapshotProjectionLoader;
@@ -51,6 +53,8 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.StreamTableCommit;
 import org.apache.paimon.table.sink.StreamTableWrite;
+import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.IntType;
@@ -64,12 +68,15 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class PaimonExternalMetaCacheTest {
     @Rule
@@ -147,6 +154,28 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testSnapshotFormulaAgainstJolOwnedGraph() throws Exception {
+        FileStoreTable table = newPartitionedTable("jol_snapshot", Collections.emptyMap());
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        PaimonSnapshotEntryKey key = new PaimonSnapshotEntryKey(
+                mapping, 1L, table.schema().id(), 1L);
+        PaimonSnapshotCacheValue empty = snapshotValueWithRealPartitions(table, 0, 16);
+        PaimonSnapshotCacheValue populated = snapshotValueWithRealPartitions(table, 32, 16);
+        PaimonSnapshotCacheValue shortTail = snapshotValueWithRealPartitions(table, 1, 16);
+        PaimonSnapshotCacheValue longTail = snapshotValueWithRealPartitions(table, 1, 4096);
+
+        long emptyEstimate = empty.prepareForCachePublication(key).getBytes();
+        long populatedEstimate = populated.prepareForCachePublication(key).getBytes();
+        long shortTailEstimate = shortTail.prepareForCachePublication(key).getBytes();
+        long longTailEstimate = longTail.prepareForCachePublication(key).getBytes();
+
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "paimon snapshot partitions", emptyEstimate, populatedEstimate, empty, populated);
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "paimon long-tail partition", shortTailEstimate, longTailEstimate, shortTail, longTail);
+    }
+
+    @Test
     public void testSnapshotWeightEntryAndPrecomputedEstimate() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
@@ -198,18 +227,84 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
-    public void testSnapshotHitReusesFenceCapturedByTableGeneration() {
+    public void testReplacingTableGenerationRetiresSnapshotAndSchemaProjection() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
         try {
             long catalogId = 1L;
             cache.initCatalog(catalogId, Collections.emptyMap());
+            NameMapping mapping = new NameMapping(catalogId, "db", "tbl", "db", "tbl");
+            PaimonTableCacheValue first = new PaimonTableCacheValue(Mockito.mock(Table.class));
+            PaimonTableCacheValue second = new PaimonTableCacheValue(Mockito.mock(Table.class));
+            org.apache.doris.datasource.metacache.MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
+                    cache.entry(catalogId, PaimonExternalMetaCache.ENTRY_TABLE,
+                            NameMapping.class, PaimonTableCacheValue.class);
+            tables.put(mapping, first);
+            PaimonSnapshotEntryKey oldSnapshotKey = new PaimonSnapshotEntryKey(
+                    mapping, 1L, 2L, first.getGeneration());
+            org.apache.doris.datasource.metacache.MetaCacheEntry<
+                    PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> snapshots = cache.entry(
+                    catalogId, PaimonExternalMetaCache.ENTRY_SNAPSHOT,
+                    PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class);
+            snapshots.put(oldSnapshotKey, new PaimonSnapshotCacheValue(
+                    PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, 2L, first.getPaimonTable())));
+            PaimonSchemaCacheKey oldSchemaKey = new PaimonSchemaCacheKey(
+                    mapping, first.getGeneration(), 2L);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<PaimonSchemaCacheKey, SchemaCacheValue> schemas =
+                    cache.entry(catalogId, PaimonExternalMetaCache.ENTRY_SCHEMA,
+                            PaimonSchemaCacheKey.class, SchemaCacheValue.class);
+            schemas.put(oldSchemaKey, new SchemaCacheValue(Collections.emptyList()));
+
+            // Simulate expiry/invalidation before the next table generation is published.
+            tables.invalidateKey(mapping);
+            tables.put(mapping, second);
+
+            Assert.assertNull(snapshots.peekIfPresent(oldSnapshotKey));
+            Assert.assertNull(schemas.peekIfPresent(oldSchemaKey));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testSnapshotHitRefreshesFenceWithoutReloadingProjection() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.doReturn(catalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(1L), Mockito.any());
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalog(1L);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                return task.call();
+            }
+        });
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            long catalogId = 1L;
+            cache.initCatalog(catalogId, Collections.emptyMap());
             NameMapping mapping = new NameMapping(catalogId, "db", "tbl", "remote_db", "remote_tbl");
             FileStoreTable table = Mockito.mock(FileStoreTable.class);
-            PaimonSnapshot fence = new PaimonSnapshot(7L, 3L, table);
+            FileStoreTable pinnedTable = Mockito.mock(FileStoreTable.class);
+            Snapshot latestSnapshot = Mockito.mock(Snapshot.class);
+            SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
+            TableSchema latestSchema = Mockito.mock(TableSchema.class);
+            Mockito.when(table.copyWithLatestSchema()).thenReturn(table);
+            Mockito.when(table.latestSnapshot()).thenReturn(Optional.of(latestSnapshot));
+            Mockito.when(latestSnapshot.id()).thenReturn(7L);
+            Mockito.when(table.schemaManager()).thenReturn(schemaManager);
+            Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
+            Mockito.when(latestSchema.id()).thenReturn(3L);
+            Mockito.when(table.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(pinnedTable);
+            PaimonSnapshot fence = new PaimonSnapshot(7L, 3L, pinnedTable);
             PaimonSnapshotCacheValue snapshotValue = new PaimonSnapshotCacheValue(
                     PaimonPartitionInfo.EMPTY, fence);
-            PaimonTableCacheValue tableValue = new PaimonTableCacheValue(table, snapshotValue);
+            PaimonTableCacheValue tableValue = new PaimonTableCacheValue(table);
             PaimonSnapshotEntryKey key = PaimonSnapshotEntryKey.of(
                     mapping, fence, tableValue.getGeneration());
             cache.entry(catalogId, PaimonExternalMetaCache.ENTRY_TABLE,
@@ -221,10 +316,119 @@ public class PaimonExternalMetaCacheTest {
 
             Assert.assertSame(snapshotValue, cache.getSnapshotCache(dorisTable));
             Assert.assertSame(snapshotValue, cache.getSnapshotCache(dorisTable));
-            Assert.assertSame(snapshotValue, cache.loadLatestSnapshotFence(dorisTable));
-            Assert.assertSame(snapshotValue, cache.loadLatestSnapshotFence(dorisTable));
+            Assert.assertEquals(7L, cache.loadLatestSnapshotFence(dorisTable).getSnapshot().getSnapshotId());
+            Assert.assertEquals(7L, cache.loadLatestSnapshotFence(dorisTable).getSnapshot().getSnapshotId());
 
-            Mockito.verifyNoInteractions(table);
+            Mockito.verify(table, Mockito.times(4)).copyWithLatestSchema();
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testContextualSnapshotAndSchemaMissesRunAuthenticated() {
+        AtomicInteger authenticationDepth = new AtomicInteger();
+        ExecutionAuthenticator authenticator = new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                authenticationDepth.incrementAndGet();
+                try {
+                    return task.call();
+                } finally {
+                    authenticationDepth.decrementAndGet();
+                }
+            }
+        };
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.doReturn(catalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(1L), Mockito.any());
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalog(1L);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(authenticator);
+        Mockito.doReturn(database).when(catalog).getDbNullable("db");
+        Mockito.when(database.getTableNullable("tbl")).thenReturn(externalTable);
+        Mockito.doReturn(Optional.of(database)).when(catalog).getDb("db");
+        Mockito.doReturn(Optional.of(externalTable)).when(database).getTable("tbl");
+        Mockito.doAnswer(invocation -> {
+            Assert.assertTrue("schema history must be read under authentication",
+                    authenticationDepth.get() > 0);
+            Column partitionColumn = new Column("part", Type.INT);
+            return new PaimonSchemaCacheValue(
+                    Collections.singletonList(partitionColumn),
+                    Collections.singletonList(partitionColumn), null);
+        }).when(externalTable).loadSchemaForCache(Mockito.any(), Mockito.anyLong());
+
+        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable latestSchemaTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable fenceTable = Mockito.mock(FileStoreTable.class);
+        FileStoreTable snapshotTable = Mockito.mock(FileStoreTable.class);
+        Snapshot latestSnapshot = Mockito.mock(Snapshot.class);
+        SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
+        TableSchema latestSchema = Mockito.mock(TableSchema.class);
+        ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class);
+        TableScan tableScan = Mockito.mock(TableScan.class);
+        Mockito.when(baseTable.copyWithLatestSchema()).thenAnswer(invocation -> {
+            Assert.assertTrue("snapshot fence must be read under authentication",
+                    authenticationDepth.get() > 0);
+            return latestSchemaTable;
+        });
+        Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(latestSnapshot));
+        Mockito.when(latestSnapshot.id()).thenReturn(7L);
+        Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
+        Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
+        Mockito.when(latestSchema.id()).thenReturn(3L);
+        Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(fenceTable);
+        Mockito.when(fenceTable.copyWithoutTimeTravel(Mockito.anyMap())).thenAnswer(invocation -> {
+            Assert.assertTrue("snapshot pinning must run under authentication",
+                    authenticationDepth.get() > 0);
+            return snapshotTable;
+        });
+        Mockito.when(snapshotTable.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(snapshotTable.newReadBuilder()).thenAnswer(invocation -> {
+            Assert.assertTrue("partition enumeration must run under authentication",
+                    authenticationDepth.get() > 0);
+            return readBuilder;
+        });
+        Mockito.when(readBuilder.newScan()).thenReturn(tableScan);
+        Mockito.when(tableScan.listPartitionEntries()).thenAnswer(invocation -> {
+            Assert.assertTrue("partition manifest access must run under authentication",
+                    authenticationDepth.get() > 0);
+            return Collections.emptyList();
+        });
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            cache.initCatalog(1L, Collections.emptyMap());
+            NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+            PaimonTableCacheValue first = new PaimonTableCacheValue(baseTable);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
+                    cache.entry(1L, PaimonExternalMetaCache.ENTRY_TABLE,
+                            NameMapping.class, PaimonTableCacheValue.class);
+            tables.put(mapping, first);
+            ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+
+            PaimonSnapshotCacheValue snapshot = cache.getSnapshotCache(dorisTable);
+
+            Assert.assertEquals(7L, snapshot.getSnapshot().getSnapshotId());
+            Assert.assertEquals(0, authenticationDepth.get());
+
+            PaimonTableCacheValue second = new PaimonTableCacheValue(baseTable);
+            tables.put(mapping, second);
+            PaimonSchemaCacheKey staleKey = new PaimonSchemaCacheKey(
+                    mapping, first.getGeneration(), 99L);
+            cache.getPaimonSchemaCacheValue(mapping, 99L, first.getGeneration(), baseTable);
+            Assert.assertNull("a concurrent old-generation schema load must not repopulate the cache",
+                    cache.entry(1L, PaimonExternalMetaCache.ENTRY_SCHEMA,
+                            PaimonSchemaCacheKey.class, SchemaCacheValue.class).peekIfPresent(staleKey));
+            Assert.assertEquals(0, authenticationDepth.get());
         } finally {
             cache.close();
             executor.shutdownNow();
@@ -313,7 +517,7 @@ public class PaimonExternalMetaCacheTest {
     public void testLatestSnapshotUsesLatestSchemaForPinnedRead() {
         PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
                 new PaimonPartitionInfoLoader(),
-                (nameMapping, schemaId) -> new PaimonSchemaCacheValue(
+                (nameMapping, schemaId, tableGeneration, retainedTable) -> new PaimonSchemaCacheValue(
                         Collections.emptyList(), Collections.emptyList(), null));
         NameMapping nameMapping = new NameMapping(1L, "db", "table", "remote_db", "remote_table");
         FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
@@ -353,7 +557,7 @@ public class PaimonExternalMetaCacheTest {
                 .thenReturn(PaimonPartitionInfo.EMPTY);
         PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
                 partitionLoader,
-                (nameMapping, schemaId) -> new PaimonSchemaCacheValue(
+                (nameMapping, schemaId, tableGeneration, retainedTable) -> new PaimonSchemaCacheValue(
                         Collections.emptyList(), Collections.emptyList(), null));
         NameMapping nameMapping = new NameMapping(1L, "db", "table", "remote_db", "remote_table");
         FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
@@ -393,7 +597,7 @@ public class PaimonExternalMetaCacheTest {
         PaimonPartitionInfoLoader partitionLoader = Mockito.mock(PaimonPartitionInfoLoader.class);
         PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
                 partitionLoader,
-                (nameMapping, schemaId) -> {
+                (nameMapping, schemaId, tableGeneration, retainedTable) -> {
                     throw new AssertionError("a version-only fence must not load schema metadata");
                 });
         NameMapping nameMapping = new NameMapping(1L, "db", "table", "remote_db", "remote_table");
@@ -427,7 +631,7 @@ public class PaimonExternalMetaCacheTest {
                 .thenReturn(PaimonPartitionInfo.EMPTY);
         PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
                 partitionLoader,
-                (nameMapping, schemaId) -> new PaimonSchemaCacheValue(
+                (nameMapping, schemaId, tableGeneration, retainedTable) -> new PaimonSchemaCacheValue(
                         Collections.emptyList(), Collections.emptyList(), null));
         NameMapping nameMapping = new NameMapping(1L, "db", "table", "remote_db", "remote_table");
         FileStoreTable captured = Mockito.mock(FileStoreTable.class);
@@ -464,7 +668,7 @@ public class PaimonExternalMetaCacheTest {
                 table, Collections.singletonMap(CoreOptions.SCAN_TAG_NAME.key(), "stable"));
         PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
                 new PaimonPartitionInfoLoader(),
-                (nameMapping, schemaId) -> new PaimonSchemaCacheValue(
+                (nameMapping, schemaId, tableGeneration, retainedTable) -> new PaimonSchemaCacheValue(
                         Collections.emptyList(), Collections.emptyList(), null));
 
         PaimonSnapshotCacheValue value = loader.load(
@@ -614,6 +818,24 @@ public class PaimonExternalMetaCacheTest {
         MetaCacheSizeEstimate estimate = value.prepareForCachePublication(key);
         Assert.assertTrue(estimate.getIncompleteReason(), estimate.isComplete());
         return estimate.getBytes();
+    }
+
+    private PaimonSnapshotCacheValue snapshotValueWithRealPartitions(
+            FileStoreTable table, int partitionCount, int valueLength) {
+        Map<String, org.apache.doris.catalog.PartitionItem> partitionItems = new HashMap<>();
+        Map<String, org.apache.paimon.partition.Partition> partitions = new HashMap<>();
+        for (int index = 0; index < partitionCount; index++) {
+            String value = "p" + index + repeatedCharacter('x', valueLength);
+            String name = "part=" + value;
+            partitionItems.put(name, new org.apache.doris.catalog.ListPartitionItem(
+                    new ArrayList<>()));
+            partitions.put(name, new org.apache.paimon.partition.Partition(
+                    Collections.singletonMap("part", value),
+                    100L, 1024L, 1L, 1L, 1, true));
+        }
+        PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(partitionItems, partitions);
+        return new PaimonSnapshotCacheValue(
+                partitionInfo, new PaimonSnapshot(1L, table.schema().id(), table));
     }
 
     @SuppressWarnings("unchecked")

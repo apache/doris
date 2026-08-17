@@ -648,7 +648,15 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                         // Only legacy validators publish a tentative candidate. Detached validators
                         // leave the live CatalogProperty untouched while concurrent initialization runs.
                         if (oldProperties != null && tentativelyMutated) {
-                            ((ExternalCatalog) catalog).rollBackCatalogProps(oldProperties);
+                            Env currentEnv = Env.getCurrentEnv();
+                            ExternalMetaCacheMgr cacheMgr = currentEnv == null
+                                    ? null : currentEnv.getExtMetaCacheMgr();
+                            if (cacheMgr == null) {
+                                ((ExternalCatalog) catalog).rollBackCatalogProps(oldProperties);
+                            } else {
+                                cacheMgr.rollbackCatalogProperties(
+                                        (ExternalCatalog) catalog, oldProperties);
+                            }
                         }
                         if (validationException instanceof DdlException) {
                             throw (DdlException) validationException;

@@ -209,8 +209,9 @@ public class ExternalMetaCacheMgr {
                 logMissingCatalogSkip(catalogId, "prepareCatalog");
                 return;
             }
-            validateCatalogCachePropertiesForRuntime(catalogProperties);
-            routeCatalogEngines(catalogId, cache -> cache.initCatalog(catalogId, catalogProperties));
+            Map<String, String> runtimeProperties = sanitizeCatalogCachePropertiesForRuntime(
+                    catalogId, catalogProperties);
+            routeCatalogEngines(catalogId, cache -> cache.initCatalog(catalogId, runtimeProperties));
         } finally {
             lifecycleLock.unlock();
         }
@@ -254,7 +255,7 @@ public class ExternalMetaCacheMgr {
         Map<String, String> safeCatalogProperties = catalogProperties == null
                 ? Maps.newHashMap()
                 : Maps.newHashMap(catalogProperties);
-        validateCatalogCachePropertiesForRuntime(safeCatalogProperties);
+        safeCatalogProperties = sanitizeCatalogCachePropertiesForRuntime(catalogId, safeCatalogProperties);
         targetCache.initCatalog(catalogId, safeCatalogProperties);
     }
 
@@ -264,9 +265,17 @@ public class ExternalMetaCacheMgr {
         cacheRegistry.allCaches().forEach(cache -> cache.validateCatalogProperties(catalogProperties));
     }
 
-    private void validateCatalogCachePropertiesForRuntime(Map<String, String> catalogProperties) {
-        budgetManager.parseCatalogMaxWeight(catalogProperties);
-        validateCatalogCachePropertyNamespaces(catalogProperties);
+    private Map<String, String> sanitizeCatalogCachePropertiesForRuntime(
+            long catalogId, Map<String, String> catalogProperties) {
+        Map<String, String> sanitized = Maps.newHashMap(catalogProperties);
+        try {
+            budgetManager.parseCatalogMaxWeight(sanitized);
+        } catch (IllegalArgumentException e) {
+            sanitized.remove(ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY);
+            LOG.warn("Ignoring invalid persisted external metadata cache property '{}' for catalog {}: {}",
+                    ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY, catalogId, e.getMessage());
+        }
+        return sanitized;
     }
 
     private void validateCatalogCachePropertyNamespaces(Map<String, String> catalogProperties) {
@@ -329,6 +338,21 @@ public class ExternalMetaCacheMgr {
         try {
             routeCatalogEngines(catalogId, cache -> safeInvalidate(
                     cache, catalogId, "removeCatalog",
+                    () -> cache.invalidateCatalog(catalogId)));
+        } finally {
+            lifecycleLock.unlock();
+        }
+    }
+
+    /** Restore catalog properties and retire any group initialized from the rejected candidate atomically. */
+    public void rollbackCatalogProperties(ExternalCatalog catalog, Map<String, String> oldProperties) {
+        long catalogId = catalog.getId();
+        Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
+        lifecycleLock.lock();
+        try {
+            catalog.rollBackCatalogProps(oldProperties);
+            routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                    cache, catalogId, "rollbackCatalogProperties",
                     () -> cache.invalidateCatalog(catalogId)));
         } finally {
             lifecycleLock.unlock();

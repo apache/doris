@@ -44,9 +44,6 @@ import java.util.Optional;
 public class IcebergSysExternalTable extends ExternalTable {
     private final IcebergExternalTable sourceTable;
     private final String sysTableType;
-    private volatile Table sysIcebergTable;
-    private volatile List<Column> fullSchema;
-    private volatile SchemaCacheValue schemaCacheValue;
 
     public IcebergSysExternalTable(IcebergExternalTable sourceTable, String sysTableType) {
         super(generateSysTableId(sourceTable.getId(), sysTableType),
@@ -100,24 +97,19 @@ public class IcebergSysExternalTable extends ExternalTable {
     }
 
     public Table getSysIcebergTable() {
-        if (sysIcebergTable == null) {
-            synchronized (this) {
-                if (sysIcebergTable == null) {
-                    Table baseTable = sourceTable.getIcebergTable();
-                    MetadataTableType tableType = MetadataTableType.from(sysTableType);
-                    if (tableType == null) {
-                        throw new IllegalArgumentException("Unknown iceberg system table type: " + sysTableType);
-                    }
-                    sysIcebergTable = MetadataTableUtils.createMetadataTableInstance(baseTable, tableType);
-                }
-            }
+        Table baseTable = IcebergUtils.getQueryScopedIcebergTable(sourceTable);
+        MetadataTableType tableType = MetadataTableType.from(sysTableType);
+        if (tableType == null) {
+            throw new IllegalArgumentException("Unknown iceberg system table type: " + sysTableType);
         }
-        return sysIcebergTable;
+        // Metadata tables capture their base operations. Keep them statement-local so exact
+        // previousFiles/history state and stale-generation retry never leak into this table object.
+        return MetadataTableUtils.createMetadataTableInstance(baseTable, tableType);
     }
 
     @Override
     public List<Column> getFullSchema() {
-        return getOrCreateSchemaCacheValue().getSchema();
+        return loadSchemaCacheValue().getSchema();
     }
 
     @Override
@@ -156,12 +148,12 @@ public class IcebergSysExternalTable extends ExternalTable {
 
     @Override
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
-        return Optional.of(getOrCreateSchemaCacheValue());
+        return Optional.of(loadSchemaCacheValue());
     }
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        return Optional.of(getOrCreateSchemaCacheValue());
+        return Optional.of(loadSchemaCacheValue());
     }
 
     @Override
@@ -178,19 +170,12 @@ public class IcebergSysExternalTable extends ExternalTable {
         return sourceTableId ^ (sysTableType.hashCode() * 31L);
     }
 
-    private SchemaCacheValue getOrCreateSchemaCacheValue() {
-        if (schemaCacheValue == null) {
-            synchronized (this) {
-                if (schemaCacheValue == null) {
-                    if (fullSchema == null) {
-                        fullSchema = IcebergUtils.parseSchema(getSysIcebergTable().schema(),
-                                getCatalog().getEnableMappingVarbinary(),
-                                getCatalog().getEnableMappingTimestampTz());
-                    }
-                    schemaCacheValue = new SchemaCacheValue(fullSchema);
-                }
-            }
-        }
-        return schemaCacheValue;
+    private SchemaCacheValue loadSchemaCacheValue() {
+        // Metadata-table schemas may change after source schema or partition-spec evolution.
+        // Resolve the schema from the same latest-generation path instead of permanently pairing
+        // this long-lived system-table object with its first observed generation.
+        return new SchemaCacheValue(IcebergUtils.parseSchema(getSysIcebergTable().schema(),
+                getCatalog().getEnableMappingVarbinary(),
+                getCatalog().getEnableMappingTimestampTz()));
     }
 }

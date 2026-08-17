@@ -53,6 +53,7 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
+import javax.annotation.Nullable;
 
 /**
  * Iceberg engine implementation of {@link AbstractExternalMetaCache}.
@@ -103,7 +104,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         tableEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_TABLE, NameMapping.class, IcebergTableCacheValue.class,
                 this::loadTableCacheValue, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping))
-                .withSizeEstimator(this::prepareTableForCachePublication));
+                .withSizeEstimator(this::prepareTableForCachePublication)
+                .withReplacementListener(this::retireTableGeneration));
         snapshotEntry = registerEntry(MetaCacheEntryDef.contextualOnly(ENTRY_SNAPSHOT,
                 IcebergSnapshotEntryKey.class, IcebergSnapshotCacheValue.class, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(IcebergSnapshotEntryKey::getNameMapping))
@@ -128,27 +130,16 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
 
     public Table getWritableIcebergTable(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
-        IcebergTableCacheValue tableValue =
-                tableEntry.get(nameMapping.getCtlId()).get(nameMapping);
         CatalogIf catalog = getCatalog(nameMapping.getCtlId());
         if (catalog == null) {
             throw new RuntimeException("Cannot find catalog " + nameMapping.getCtlId()
                     + " when loading a writable Iceberg table");
         }
         IcebergMetadataOps ops = resolveMetadataOps(catalog);
-        Table liveTable = executeAuthenticated(catalog, () -> ops.loadTable(
+        // DDL/actions must start from the live catalog generation. DML that was planned against a
+        // retained read generation wraps this live table separately in IcebergTransaction.
+        return executeAuthenticated(catalog, () -> ops.loadTable(
                 nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
-        try {
-            return tableValue.getWritableIcebergTable(liveTable);
-        } catch (IcebergSnapshotCacheValue.StaleMetadataException e) {
-            MetaCacheEntry<NameMapping, IcebergTableCacheValue> entry =
-                    tableEntry.get(nameMapping.getCtlId());
-            entry.invalidateKeyIfSame(nameMapping, tableValue);
-            IcebergTableCacheValue refreshedValue = entry.get(nameMapping);
-            Table refreshedLiveTable = executeAuthenticated(catalog, () -> ops.loadTable(
-                    nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
-            return refreshedValue.getWritableIcebergTable(refreshedLiveTable);
-        }
     }
 
     Table getQueryScopedIcebergTable(ExternalTable dorisTable) {
@@ -157,12 +148,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 tableEntry.get(nameMapping.getCtlId());
         IcebergTableCacheValue tableValue =
                 entry.get(nameMapping);
-        try {
-            return createQueryTable(nameMapping, tableValue);
-        } catch (IcebergSnapshotCacheValue.StaleMetadataException e) {
-            entry.invalidateKeyIfSame(nameMapping, tableValue);
-            return createQueryTable(nameMapping, entry.get(nameMapping));
-        }
+        return createQueryTable(nameMapping, tableValue);
     }
 
     private Table createQueryTable(
@@ -199,18 +185,26 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 snapshotEntry.get(nameMapping.getCtlId());
         boolean isolateForQueries = tableValue.isQueryIsolationPrepared()
                 || entry.isWeightBounded();
-        return entry.get(key, ignored -> executeAuthenticated(nameMapping.getCtlId(), () -> {
-            Table projectionTable = isolateForQueries
-                    ? tableValue.newQueryScopedTable() : tableValue.getIcebergTable();
-            IcebergSnapshotCacheValue value = loadSnapshotProjection(
-                    dorisTable, projectionTable,
-                    tableValue.getRetainedIcebergTable(),
-                    tableValue.getRetainedCurrentSnapshotJson(), isolateForQueries);
-            if (entry.isWeightBounded()) {
-                value.prepareForCachePublication(key);
-            }
-            return value;
-        }));
+        IcebergSnapshotCacheValue snapshotValue = entry.get(key,
+                ignored -> executeAuthenticated(nameMapping.getCtlId(), () -> {
+                    Table projectionTable = isolateForQueries
+                            ? tableValue.newQueryScopedTable() : tableValue.getIcebergTable();
+                    IcebergSnapshotCacheValue value = loadSnapshotProjection(
+                            dorisTable, projectionTable,
+                            tableValue.getRetainedIcebergTable(),
+                            tableValue.getRetainedCurrentSnapshotJson(), isolateForQueries);
+                    if (entry.isWeightBounded()) {
+                        value.prepareForCachePublication(key);
+                    }
+                    return value;
+                }));
+        IcebergTableCacheValue currentTable = tableEntry.get(nameMapping.getCtlId()).peekIfPresent(nameMapping);
+        if (currentTable != null && !tableValue.isSamePhysicalGeneration(currentTable)) {
+            // A query may have captured the previous table immediately before refresh publication.
+            // It can use that immutable value, but must not republish an unreachable old projection.
+            entry.invalidateKeyIfSame(key, snapshotValue);
+        }
+        return snapshotValue;
     }
 
     public List<Snapshot> getSnapshotList(ExternalTable dorisTable) {
@@ -226,8 +220,31 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     public IcebergSchemaCacheValue getIcebergSchemaCacheValue(NameMapping nameMapping, long schemaId) {
-        IcebergSchemaCacheKey key = new IcebergSchemaCacheKey(nameMapping, schemaId);
-        SchemaCacheValue schemaCacheValue = schemaEntry.get(nameMapping.getCtlId()).get(key);
+        IcebergTableCacheValue tableValue = tableEntry.get(nameMapping.getCtlId()).get(nameMapping);
+        return getIcebergSchemaCacheValue(nameMapping, schemaId, tableValue.getRetainedIcebergTable());
+    }
+
+    IcebergSchemaCacheValue getIcebergSchemaCacheValue(
+            NameMapping nameMapping, long schemaId, Table retainedTable) {
+        Optional<IcebergSnapshotEntryKey> generation = IcebergSnapshotEntryKey.tryCreate(nameMapping, retainedTable);
+        if (!generation.isPresent()) {
+            return (IcebergSchemaCacheValue) loadSchemaCacheValue(
+                    new IcebergSchemaCacheKey(nameMapping, schemaId), retainedTable);
+        }
+        IcebergSchemaCacheKey key = new IcebergSchemaCacheKey(
+                nameMapping, generation.get().getTableUuid(), schemaId);
+        MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> entry = schemaEntry.get(nameMapping.getCtlId());
+        SchemaCacheValue schemaCacheValue = entry
+                .get(key, ignored -> loadSchemaCacheValue(key, retainedTable));
+        IcebergTableCacheValue currentTable = tableEntry.get(nameMapping.getCtlId()).peekIfPresent(nameMapping);
+        if (currentTable != null) {
+            Optional<IcebergSnapshotEntryKey> currentGeneration = IcebergSnapshotEntryKey.tryCreate(
+                    nameMapping, currentTable.getRetainedIcebergTable());
+            if (!currentGeneration.isPresent()
+                    || !currentGeneration.get().getTableUuid().equals(generation.get().getTableUuid())) {
+                entry.invalidateKeyIfSame(key, schemaCacheValue);
+            }
+        }
         return (IcebergSchemaCacheValue) schemaCacheValue;
     }
 
@@ -244,7 +261,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             cacheHitRecorder.accept(hit);
         }
         return manifestEntry.get(key,
-                ignored -> loadManifestCacheValue(manifest, icebergTable, key.getContent()));
+                ignored -> loadManifestCacheValue(
+                        manifest, icebergTable, key.getContent(), manifestEntry.isWeightBounded()));
     }
 
     @Override
@@ -269,8 +287,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         IcebergMetadataOps ops = resolveMetadataOps(catalog);
         return executeAuthenticated(catalog, () -> {
             Table table = ops.loadTable(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
-            IcebergTableCacheValue value = new IcebergTableCacheValue(
-                    table, ((ExternalCatalog) catalog).getExecutionAuthenticator());
+            IcebergTableCacheValue value = new IcebergTableCacheValue(table);
             MetaCacheEntry<NameMapping, IcebergTableCacheValue> currentEntry =
                     tableEntry.getIfInitialized(nameMapping.getCtlId());
             if (currentEntry != null && currentEntry.isWeightBounded()) {
@@ -300,7 +317,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private ManifestCacheValue loadManifestCacheValue(org.apache.iceberg.ManifestFile manifest, Table icebergTable,
-            ManifestContent content) {
+            ManifestContent content, boolean accountRetainedSize) {
         if (manifest == null || icebergTable == null) {
             String manifestPath = manifest == null ? "null" : manifest.path();
             throw new CacheException("Manifest cache loader context is missing for %s",
@@ -308,9 +325,9 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         }
         try {
             if (content == ManifestContent.DELETES) {
-                return loadDeleteFiles(manifest, icebergTable);
+                return loadDeleteFiles(manifest, icebergTable, accountRetainedSize);
             }
-            return loadDataFiles(manifest, icebergTable);
+            return loadDataFiles(manifest, icebergTable, accountRetainedSize);
         } catch (IOException e) {
             throw new CacheException("Failed to read manifest %s", e, manifest.path());
         }
@@ -322,6 +339,38 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                 new CacheException("failed to load iceberg schema cache value for: %s.%s.%s, schemaId: %s",
                         null, key.getNameMapping().getCtlId(), key.getNameMapping().getLocalDbName(),
                         key.getNameMapping().getLocalTblName(), key.getSchemaId()));
+    }
+
+    private SchemaCacheValue loadSchemaCacheValue(IcebergSchemaCacheKey key, Table retainedTable) {
+        ExternalTable dorisTable = findExternalTable(key.getNameMapping(), ENGINE);
+        dorisTable.setUpdateTime(System.currentTimeMillis());
+        boolean isView = dorisTable instanceof IcebergExternalTable
+                && ((IcebergExternalTable) dorisTable).isView();
+        return IcebergUtils.loadSchemaCacheValue(
+                dorisTable, key.getSchemaId(), isView, retainedTable).orElseThrow(() ->
+                new CacheException("failed to load iceberg schema cache value for: %s.%s.%s, schemaId: %s",
+                        null, key.getNameMapping().getCtlId(), key.getNameMapping().getLocalDbName(),
+                        key.getNameMapping().getLocalTblName(), key.getSchemaId()));
+    }
+
+    private void retireTableGeneration(NameMapping nameMapping,
+            @Nullable IcebergTableCacheValue previousValue, IcebergTableCacheValue currentValue) {
+        if (previousValue != null && previousValue.isSamePhysicalGeneration(currentValue)) {
+            return;
+        }
+        MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> snapshots =
+                snapshotEntry.getIfInitialized(nameMapping.getCtlId());
+        if (snapshots != null) {
+            snapshots.invalidateIf(key -> key.getNameMapping().equals(nameMapping)
+                    && !key.belongsTo(currentValue));
+        }
+        Optional<String> currentUuid = currentValue.getTableUuid();
+        MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> schemas =
+                schemaEntry.getIfInitialized(nameMapping.getCtlId());
+        if (schemas != null) {
+            schemas.invalidateIf(key -> key.getNameMapping().equals(nameMapping)
+                    && !key.getTableUuid().equals(currentUuid));
+        }
     }
 
     private IcebergSnapshotCacheValue loadSnapshotProjection(
@@ -393,9 +442,10 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         return compatibility;
     }
 
-    private ManifestCacheValue loadDataFiles(org.apache.iceberg.ManifestFile manifest, Table table)
+    private ManifestCacheValue loadDataFiles(
+            org.apache.iceberg.ManifestFile manifest, Table table, boolean accountRetainedSize)
             throws IOException {
-        ManifestCacheValue.Builder builder = ManifestCacheValue.dataFilesBuilder();
+        ManifestCacheValue.Builder builder = ManifestCacheValue.dataFilesBuilder(accountRetainedSize);
         try (ManifestReader<org.apache.iceberg.DataFile> reader = ManifestFiles.read(manifest, table.io())) {
             for (org.apache.iceberg.DataFile dataFile : reader) {
                 builder.addDataFile(dataFile.copy());
@@ -404,9 +454,10 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         return builder.build();
     }
 
-    private ManifestCacheValue loadDeleteFiles(org.apache.iceberg.ManifestFile manifest, Table table)
+    private ManifestCacheValue loadDeleteFiles(
+            org.apache.iceberg.ManifestFile manifest, Table table, boolean accountRetainedSize)
             throws IOException {
-        ManifestCacheValue.Builder builder = ManifestCacheValue.deleteFilesBuilder();
+        ManifestCacheValue.Builder builder = ManifestCacheValue.deleteFilesBuilder(accountRetainedSize);
         try (ManifestReader<org.apache.iceberg.DeleteFile> reader = ManifestFiles.readDeleteManifest(manifest,
                 table.io(), table.specs())) {
             for (org.apache.iceberg.DeleteFile deleteFile : reader) {

@@ -27,6 +27,8 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheValue;
 
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -47,6 +49,8 @@ import java.util.function.Predicate;
  * to initialize a catalog explicitly before accessing entries.
  */
 public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
+    private static final Logger LOG = LogManager.getLogger(AbstractExternalMetaCache.class);
+
     protected static CacheSpec defaultEntryCacheSpec() {
         return CacheSpec.of(
                 true,
@@ -106,6 +110,40 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
             }
             Map<String, String> safeCatalogProperties = CacheSpec.applyCompatibilityMap(
                     catalogProperties, catalogPropertyCompatibilityMap());
+            safeCatalogProperties = CacheSpec.sanitizeEnginePropertiesForRuntime(
+                    safeCatalogProperties, engine, metaCacheEntryDefs,
+                    warning -> LOG.warn("{} (engine={}, catalog={})", warning, engine, catalogId));
+            try {
+                budgetManager.parseCatalogMaxWeight(safeCatalogProperties);
+            } catch (IllegalArgumentException e) {
+                safeCatalogProperties.remove(ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY);
+                LOG.warn("Ignoring invalid persisted external metadata cache property '{}' "
+                                + "for engine {}, catalog {}: {}",
+                        ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY,
+                        engine, catalogId, e.getMessage());
+            }
+            OptionalLong runtimeCatalogMaxWeight = budgetManager.parseCatalogMaxWeight(safeCatalogProperties);
+            for (MetaCacheEntryDef<?, ?> entryDef : metaCacheEntryDefs.values()) {
+                if (entryDef.getSizeEstimator() == null) {
+                    continue;
+                }
+                String maxWeightKey = CacheSpec.metaCacheKeyPrefix(engine)
+                        + entryDef.getName() + ".max-weight";
+                if (!safeCatalogProperties.containsKey(maxWeightKey)) {
+                    continue;
+                }
+                CacheSpec cacheSpec = CacheSpec.fromProperties(
+                        safeCatalogProperties, engine, entryDef.getName(), entryDef.getDefaultCacheSpec());
+                try {
+                    budgetManager.validateCatalogEntryHierarchy(
+                            runtimeCatalogMaxWeight, cacheSpec.getMaxWeight());
+                } catch (IllegalArgumentException e) {
+                    safeCatalogProperties.remove(maxWeightKey);
+                    LOG.warn("Ignoring invalid persisted external metadata cache property '{}' "
+                                    + "for engine {}, catalog {}: {}",
+                            maxWeightKey, engine, catalogId, e.getMessage());
+                }
+            }
             validateMappedCatalogProperties(safeCatalogProperties, false);
             catalogEntries.put(catalogId, buildCatalogEntryGroup(catalogId, safeCatalogProperties));
         }
@@ -368,7 +406,7 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
                     wrapSchemaValidator(entryDef.getLoader(), entryDef.getValueType()),
                     cacheSpec,
                     refreshExecutor, entryDef.isAutoRefresh(), entryDef.isContextualOnly(),
-                    entryDef.getSizeEstimator(), entryBudget);
+                    entryDef.getSizeEstimator(), entryBudget, entryDef.getReplacementListener());
         } catch (RuntimeException | Error e) {
             if (entryBudget != null) {
                 entryBudget.close();

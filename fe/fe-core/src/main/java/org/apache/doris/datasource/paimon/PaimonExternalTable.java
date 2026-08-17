@@ -490,6 +490,14 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         return loadSchema(table.schemaManager().schema(schemaId));
     }
 
+    PaimonSchemaCacheValue loadSchemaForCache(Table retainedTable, long schemaId) {
+        if (!(retainedTable instanceof DataTable)) {
+            throw new CacheException("retained paimon table does not expose schema history: %s",
+                    null, retainedTable == null ? "null" : retainedTable.getClass().getName());
+        }
+        return loadSchema((DataTable) retainedTable, schemaId);
+    }
+
     private PaimonSchemaCacheValue loadSchema(TableSchema tableSchema) {
         List<DataField> columns = tableSchema.fields();
         List<Column> dorisColumns = Lists.newArrayListWithCapacity(columns.size());

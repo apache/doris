@@ -64,6 +64,11 @@ public class PaimonUtils {
 
     public static PaimonSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable,
             PaimonSnapshotCacheValue snapshotValue) {
+        if (snapshotValue.getTableGeneration() > 0L) {
+            return paimonExternalMetaCache(dorisTable).getPaimonSchemaCacheValue(
+                    dorisTable.getOrBuildNameMapping(), snapshotValue.getSnapshot().getSchemaId(),
+                    snapshotValue.getTableGeneration(), snapshotValue.getSnapshot().getTable());
+        }
         return getSchemaCacheValue(dorisTable, snapshotValue.getSnapshot().getSchemaId());
     }
 

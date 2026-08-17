@@ -41,14 +41,17 @@ public class ManifestCacheValue {
     private final long dataFileMetricEntryCount;
     private final long deleteFileMetricEntryCount;
     private final long retainedPayloadBytes;
+    private final boolean accountingComplete;
 
     private ManifestCacheValue(List<DataFile> dataFiles, List<DeleteFile> deleteFiles,
-            long dataFileMetricEntryCount, long deleteFileMetricEntryCount, long retainedPayloadBytes) {
+            long dataFileMetricEntryCount, long deleteFileMetricEntryCount, long retainedPayloadBytes,
+            boolean accountingComplete) {
         this.dataFiles = ImmutableList.copyOf(dataFiles);
         this.deleteFiles = ImmutableList.copyOf(deleteFiles);
         this.dataFileMetricEntryCount = dataFileMetricEntryCount;
         this.deleteFileMetricEntryCount = deleteFileMetricEntryCount;
         this.retainedPayloadBytes = retainedPayloadBytes;
+        this.accountingComplete = accountingComplete;
     }
 
     public static ManifestCacheValue forDataFiles(List<DataFile> dataFiles) {
@@ -68,11 +71,19 @@ public class ManifestCacheValue {
     }
 
     public static Builder dataFilesBuilder() {
-        return new Builder(true);
+        return dataFilesBuilder(true);
+    }
+
+    public static Builder dataFilesBuilder(boolean accountRetainedSize) {
+        return new Builder(true, accountRetainedSize);
     }
 
     public static Builder deleteFilesBuilder() {
-        return new Builder(false);
+        return deleteFilesBuilder(true);
+    }
+
+    public static Builder deleteFilesBuilder(boolean accountRetainedSize) {
+        return new Builder(false, accountRetainedSize);
     }
 
     public List<DataFile> getDataFiles() {
@@ -95,16 +106,24 @@ public class ManifestCacheValue {
         return retainedPayloadBytes;
     }
 
+    public boolean isAccountingComplete() {
+        return accountingComplete;
+    }
+
     /** Accumulates retained-size counters in the manifest reader's existing file loop. */
     public static final class Builder {
         private final boolean dataContent;
+        private final boolean accountRetainedSize;
         private final List<DataFile> dataFiles = new ArrayList<>();
         private final List<DeleteFile> deleteFiles = new ArrayList<>();
         private long metricEntryCount;
         private long retainedPayloadBytes;
+        private boolean accountingComplete;
 
-        private Builder(boolean dataContent) {
+        private Builder(boolean dataContent, boolean accountRetainedSize) {
             this.dataContent = dataContent;
+            this.accountRetainedSize = accountRetainedSize;
+            this.accountingComplete = accountRetainedSize;
         }
 
         public void addDataFile(DataFile file) {
@@ -112,7 +131,7 @@ public class ManifestCacheValue {
                 throw new IllegalStateException("delete manifest builder cannot accept a data file");
             }
             dataFiles.add(file);
-            account(file);
+            accountSafely(file);
         }
 
         public void addDeleteFile(DeleteFile file) {
@@ -120,14 +139,30 @@ public class ManifestCacheValue {
                 throw new IllegalStateException("data manifest builder cannot accept a delete file");
             }
             deleteFiles.add(file);
-            account(file);
+            accountSafely(file);
         }
 
         public ManifestCacheValue build() {
             return new ManifestCacheValue(dataFiles, deleteFiles,
                     dataContent ? metricEntryCount : 0L,
                     dataContent ? 0L : metricEntryCount,
-                    retainedPayloadBytes);
+                    retainedPayloadBytes, accountingComplete);
+        }
+
+        private void accountSafely(ContentFile<?> file) {
+            if (!accountRetainedSize || !accountingComplete) {
+                return;
+            }
+            try {
+                account(file);
+            } catch (RuntimeException e) {
+                // A new or third-party ContentFile implementation must not turn optional cache
+                // accounting into a manifest-read failure. Keep the files for the current query
+                // and mark the value incomplete so weighted admission rejects it.
+                metricEntryCount = 0L;
+                retainedPayloadBytes = 0L;
+                accountingComplete = false;
+            }
         }
 
         private void account(ContentFile<?> file) {

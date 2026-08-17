@@ -23,12 +23,14 @@ import org.apache.commons.lang3.math.NumberUtils;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -39,7 +41,8 @@ import java.util.regex.Pattern;
  * <ul>
  *   <li>enable=false disables cache</li>
  *   <li>ttlSecond=0 disables cache, ttlSecond=-1 means no expiration</li>
- *   <li>capacity=0 disables cache; capacity is count-based</li>
+ *   <li>capacity=0 disables cache; otherwise capacity is the count limit only when max-weight is absent</li>
+ *   <li>when max-weight is present, Caffeine uses the weight limit instead of the positive capacity</li>
  * </ul>
  */
 public final class CacheSpec {
@@ -266,6 +269,31 @@ public final class CacheSpec {
             }
         }
         validateEngineProperties(properties, engine, entryDefs.keySet(), weightedEntries);
+    }
+
+    /**
+     * Ignore invalid persisted cache options during image/replay initialization.
+     * New CREATE/ALTER statements still use {@link #validateEngineProperties} and fail strictly.
+     */
+    static Map<String, String> sanitizeEnginePropertiesForRuntime(
+            Map<String, String> properties, String engine,
+            Map<String, MetaCacheEntryDef<?, ?>> entryDefs, Consumer<String> warningConsumer) {
+        Map<String, String> sanitized = new HashMap<>(properties);
+        String enginePrefix = metaCacheKeyPrefix(engine);
+        for (Map.Entry<String, String> property : properties.entrySet()) {
+            String key = property.getKey();
+            if (key == null || !key.startsWith(enginePrefix)) {
+                continue;
+            }
+            try {
+                validateEngineProperties(Collections.singletonMap(key, property.getValue()), engine, entryDefs);
+            } catch (IllegalArgumentException e) {
+                sanitized.remove(key);
+                warningConsumer.accept("Ignoring invalid persisted external metadata cache property '"
+                        + key + "': " + e.getMessage());
+            }
+        }
+        return sanitized;
     }
 
     public static void validateEngineProperties(Map<String, String> properties, String engine,

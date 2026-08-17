@@ -33,6 +33,7 @@ import mockit.Mock;
 import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -61,20 +62,22 @@ public class ExternalMetaCacheRouteResolverTest {
     public void testCatalogCachePropertiesRejectUnknownEngineEntryAndAliasNamespace() {
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
         Map<String, String> properties = new HashMap<>();
+        HMSExternalCatalog catalog = new HMSExternalCatalog(
+                1L, "hms", null, Collections.emptyMap(), "");
 
         properties.put("meta.cache.hvie.partition_values.capacity", "10");
         Assert.assertThrows(IllegalArgumentException.class,
-                () -> metaCacheMgr.prepareCatalogByEngine(1L, "hive", properties));
+                () -> metaCacheMgr.validateCatalogCacheProperties(catalog, properties));
         properties.clear();
 
         properties.put("meta.cache.hms.partition_values.capacity", "10");
         Assert.assertThrows(IllegalArgumentException.class,
-                () -> metaCacheMgr.prepareCatalogByEngine(1L, "hive", properties));
+                () -> metaCacheMgr.validateCatalogCacheProperties(catalog, properties));
         properties.clear();
 
         properties.put("meta.cache.hive.partiton_values.capacity", "10");
         Assert.assertThrows(IllegalArgumentException.class,
-                () -> metaCacheMgr.prepareCatalogByEngine(1L, "hive", properties));
+                () -> metaCacheMgr.validateCatalogCacheProperties(catalog, properties));
     }
 
     @Test
@@ -88,6 +91,20 @@ public class ExternalMetaCacheRouteResolverTest {
         IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
                 () -> metaCacheMgr.validateCatalogCacheProperties(catalog, properties));
         Assert.assertTrue(exception.getMessage().contains("not supported by catalog type"));
+    }
+
+    @Test
+    public void testRuntimePreparationIgnoresInvalidPersistedCacheProperties() {
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        Map<String, String> properties = new HashMap<>();
+        properties.put("meta.cache.max-weight", "1.5GB");
+        properties.put("meta.cache.hive.partition_values.enable", "1");
+        properties.put("meta.cache.hive.partiton_values.capacity", "10");
+
+        metaCacheMgr.prepareCatalogByEngine(101L, "hive", properties);
+
+        Assert.assertFalse(metaCacheMgr.getCatalogCacheStats(101L).isEmpty());
+        metaCacheMgr.removeCatalog(101L);
     }
 
     @Test
@@ -201,6 +218,29 @@ public class ExternalMetaCacheRouteResolverTest {
             releaseInitialization.countDown();
             workers.shutdownNow();
         }
+    }
+
+    @Test
+    public void testRollbackRetiresGroupInitializedFromRejectedCandidate() throws Exception {
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache hudi = new RecordingExternalMetaCache(
+                "hudi", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache iceberg = new RecordingExternalMetaCache(
+                "iceberg", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive, hudi, iceberg);
+        long catalogId = 14L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+        Map<String, String> oldProperties = Collections.singletonMap("generation", "old");
+
+        metaCacheMgr.rollbackCatalogProperties(catalog, oldProperties);
+
+        Mockito.verify(catalog).rollBackCatalogProps(oldProperties);
+        Assert.assertFalse(hive.isCatalogInitialized(catalogId));
+        Assert.assertEquals(1, hive.invalidateCatalogCalls);
     }
 
     @Test

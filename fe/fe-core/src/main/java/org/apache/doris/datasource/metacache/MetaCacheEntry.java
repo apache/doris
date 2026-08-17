@@ -60,6 +60,7 @@ public class MetaCacheEntry<K, V> {
     private static final int LOAD_LOCK_STRIPES = 128;
     private static final int LOCAL_EVICTION_BATCH_SIZE = 16;
     private static final int REMOVAL_CLEANUP_BATCH_SIZE = 256;
+    private static final long WEIGHT_REJECT_LOG_INTERVAL_MS = TimeUnit.MINUTES.toMillis(1L);
     // Direct Caffeine callbacks must not wait for admissionLock. A daemon drains one coalesced
     // generation map per physical entry after callbacks return; cleanup tasks never capture values.
     private static final ExecutorService REMOVAL_CLEANUP_EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
@@ -83,9 +84,12 @@ public class MetaCacheEntry<K, V> {
     private final MetaCacheSizeEstimator<K, V> sizeEstimator;
     @Nullable
     private final EntryBudget entryBudget;
+    @Nullable
+    private final MetaCacheEntryReplacementListener<K, V> replacementListener;
     private final boolean weightBounded;
-    // Estimator-backed entries use the same generation-fenced refresh protocol even before a
-    // max-weight is configured. This keeps event ordering stable when weight governance is toggled.
+    // Entries with publication-time work use the same generation-fenced refresh protocol even
+    // before a max-weight is configured. This keeps estimation and dependency retirement on every
+    // load/refresh path instead of letting Caffeine publish values behind those hooks.
     private final boolean generationFencedRefresh;
     // Keep the loading cache for refreshAfterWrite and the legacy sync-load path when the feature is disabled.
     private final LoadingCache<K, V> loadingData;
@@ -122,6 +126,7 @@ public class MetaCacheEntry<K, V> {
     private final AtomicLong localEvictionCount = new AtomicLong(0L);
     private final AtomicLong localEvictionWeight = new AtomicLong(0L);
     private final AtomicReference<String> lastWeightRejectReason = new AtomicReference<>("");
+    private final AtomicLong lastWeightRejectLogTimeMs = new AtomicLong(0L);
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor) {
@@ -141,6 +146,14 @@ public class MetaCacheEntry<K, V> {
     public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
             @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator, @Nullable EntryBudget entryBudget) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                sizeEstimator, entryBudget, null);
+    }
+
+    public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
+            @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator, @Nullable EntryBudget entryBudget,
+            @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener) {
         this.name = name;
         if (contextualOnly) {
             if (loader != null) {
@@ -158,10 +171,15 @@ public class MetaCacheEntry<K, V> {
         this.refreshExecutor = Objects.requireNonNull(refreshExecutor, "refreshExecutor can not be null");
         this.sizeEstimator = sizeEstimator;
         this.entryBudget = entryBudget;
+        this.replacementListener = replacementListener;
         this.weightBounded = this.cacheSpec.isWeightBounded();
-        this.generationFencedRefresh = autoRefresh && sizeEstimator != null;
+        this.generationFencedRefresh = autoRefresh
+                && (sizeEstimator != null || replacementListener != null);
         if (weightBounded && (sizeEstimator == null || entryBudget == null)) {
             throw new IllegalArgumentException("weighted cache entry requires both estimator and budget: " + name);
+        }
+        if (weightBounded) {
+            entryBudget.setReclaimer(this::reclaimForPeer);
         }
         this.effectiveEnabled = this.cacheSpec.isCacheEnabled();
         OptionalLong expireAfterAccessSec =
@@ -245,9 +263,9 @@ public class MetaCacheEntry<K, V> {
 
     /**
      * Fence loads and refreshes that started before an event, but only while the expected value is
-     * still current. Estimator-backed entries retain the known-good value and advance the key's
-     * mutation epoch. Other count-based entries must invalidate because their legacy Caffeine-managed
-     * refresh path does not participate in that generation protocol.
+     * still current. Publication-managed entries retain the known-good value and advance the key's
+     * mutation epoch. Other count-based entries must invalidate because their legacy
+     * Caffeine-managed refresh path does not participate in that generation protocol.
      */
     public boolean fenceInFlightLoadIfSame(K key, V expectedCurrent) {
         Objects.requireNonNull(expectedCurrent, "expectedCurrent can not be null");
@@ -327,6 +345,9 @@ public class MetaCacheEntry<K, V> {
             if (record != null && refreshRecords.get(key) == record
                     && data.asMap().get(key) == newValue) {
                 record.published = true;
+            }
+            if (result.get() == ReplaceResult.REPLACED && data.asMap().get(key) == newValue) {
+                notifyReplacement(key, expectedCurrent, newValue);
             }
             return result.get();
         }
@@ -478,7 +499,8 @@ public class MetaCacheEntry<K, V> {
                 failureCount,
                 totalLoadTime,
                 totalLoadCount == 0 ? 0D : (double) totalLoadTime / totalLoadCount,
-                saturatedAdd(cacheStats.evictionCount(), localEvictionCount.get()),
+                MetaCacheWeightUtils.saturatedAdd(
+                        cacheStats.evictionCount(), localEvictionCount.get()),
                 invalidateCount.get(),
                 lastLoadSuccessTimeMs.get(),
                 lastLoadFailureTimeMs.get(),
@@ -486,7 +508,8 @@ public class MetaCacheEntry<K, V> {
                 weightBounded,
                 weightBounded ? cacheSpec.getMaxWeight().getAsLong() : -1L,
                 weightBounded ? entryBudget.getUsedWeight() : -1L,
-                weightBounded ? saturatedAdd(cacheStats.evictionWeight(), localEvictionWeight.get()) : -1L,
+                weightBounded ? MetaCacheWeightUtils.saturatedAdd(
+                        cacheStats.evictionWeight(), localEvictionWeight.get()) : -1L,
                 weightBounded ? weightAdmissionRejectedCount.get() : -1L,
                 weightBounded ? entryBudget.getCatalogMaxWeight() : -1L,
                 weightBounded ? entryBudget.getCatalogUsedWeight() : -1L,
@@ -573,6 +596,7 @@ public class MetaCacheEntry<K, V> {
                     data.put(key, value);
                     if (reservations.get(key) == newRecord && data.asMap().get(key) == value) {
                         newRecord.published = true;
+                        notifyReplacement(key, null, value);
                     }
                     return AdmissionResult.ADMITTED;
                 } catch (RuntimeException | Error e) {
@@ -604,6 +628,9 @@ public class MetaCacheEntry<K, V> {
                 if (retained && reservedWeight != newWeight && !newRecord.reservation.tryResize(newWeight)) {
                     throw new IllegalStateException("failed to release cache replacement reservation delta");
                 }
+                if (retained) {
+                    notifyReplacement(key, oldValue, value);
+                }
                 return AdmissionResult.ADMITTED;
             } catch (RuntimeException | Error e) {
                 if (reservations.replace(key, newRecord, previousRecord)) {
@@ -627,6 +654,7 @@ public class MetaCacheEntry<K, V> {
         while (!reservation.isPresent()) {
             int evicted = evictLocalColdest(incomingKey, LOCAL_EVICTION_BATCH_SIZE);
             if (evicted == 0) {
+                entryBudget.requestPeerReclaim(bytes);
                 break;
             }
             reservation = entryBudget.tryReserve(bytes);
@@ -644,6 +672,7 @@ public class MetaCacheEntry<K, V> {
         while (true) {
             int evicted = evictLocalColdest(incomingKey, LOCAL_EVICTION_BATCH_SIZE);
             if (evicted == 0) {
+                entryBudget.requestPeerReclaim(Math.max(0L, newBytes - reservation.getBytes()));
                 return false;
             }
             if (reservation.tryResize(newBytes)) {
@@ -675,6 +704,21 @@ public class MetaCacheEntry<K, V> {
             }
         }
         return evicted;
+    }
+
+    private long reclaimForPeer(long targetBytes) {
+        if (targetBytes <= 0L || closed.get()) {
+            return 0L;
+        }
+        synchronized (admissionLock) {
+            long before = entryBudget.getUsedWeight();
+            long reclaimed = 0L;
+            while (reclaimed < targetBytes
+                    && evictLocalColdest(null, LOCAL_EVICTION_BATCH_SIZE) > 0) {
+                reclaimed = Math.max(0L, before - entryBudget.getUsedWeight());
+            }
+            return reclaimed;
+        }
     }
 
     private int weigh(K key, V value) {
@@ -829,6 +873,7 @@ public class MetaCacheEntry<K, V> {
     }
 
     private void putNonWeightedValue(K key, V value) {
+        V previousValue = data.asMap().get(key);
         RefreshRecord previous = refreshRecords.get(key);
         RefreshRecord next = publishRefreshRecord(key);
         try {
@@ -836,6 +881,9 @@ public class MetaCacheEntry<K, V> {
             data.put(key, value);
             if (next != null && refreshRecords.get(key) == next && data.asMap().get(key) == value) {
                 next.published = true;
+            }
+            if (data.asMap().get(key) == value) {
+                notifyReplacement(key, previousValue, value);
             }
         } catch (RuntimeException | Error e) {
             if (next != null) {
@@ -859,13 +907,35 @@ public class MetaCacheEntry<K, V> {
         return record;
     }
 
+    private void notifyReplacement(K key, @Nullable V previousValue, V currentValue) {
+        if (replacementListener == null || previousValue == currentValue) {
+            return;
+        }
+        try {
+            replacementListener.onReplacement(key, previousValue, currentValue);
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to retire dependencies after replacing external metadata cache entry {}", name, e);
+        }
+    }
+
     private long nextReservationGeneration() {
         return reservationGeneration.incrementAndGet();
     }
 
     private void rejectWeight(String reason) {
         weightAdmissionRejectedCount.incrementAndGet();
-        lastWeightRejectReason.set(reason == null || reason.isEmpty() ? "unknown" : reason);
+        String normalizedReason = reason == null || reason.isEmpty() ? "unknown" : reason;
+        lastWeightRejectReason.set(normalizedReason);
+        long now = System.currentTimeMillis();
+        long previous = lastWeightRejectLogTimeMs.get();
+        if (now - previous >= WEIGHT_REJECT_LOG_INTERVAL_MS
+                && lastWeightRejectLogTimeMs.compareAndSet(previous, now)) {
+            LOG.warn("Rejected external metadata cache admission for entry {}: reason={}, entryUsed={}, "
+                            + "entryMax={}, catalogUsed={}, catalogMax={}, globalUsed={}, globalMax={}",
+                    name, normalizedReason, entryBudget.getUsedWeight(), entryBudget.getEffectiveMaxWeight(),
+                    entryBudget.getCatalogUsedWeight(), entryBudget.getCatalogMaxWeight(),
+                    entryBudget.getGlobalUsedWeight(), entryBudget.getGlobalMaxWeight());
+        }
     }
 
     private void maybeRefreshManagedValue(K key, V currentValue) {
@@ -916,6 +986,9 @@ public class MetaCacheEntry<K, V> {
                         advanceKeyMutation(key);
                         putNonWeightedValue(key, refreshed);
                     }
+                } catch (RuntimeException e) {
+                    LOG.warn("Failed to refresh external metadata cache entry {} for key {}; "
+                            + "retaining the previous value", name, key, e);
                 } finally {
                     endKeyMutation(key, expectedMutation);
                     refreshesInFlight.remove(key);
@@ -947,13 +1020,16 @@ public class MetaCacheEntry<K, V> {
                     }
                     V refreshed = loadAndTrack(key, this::applyDefaultLoader);
                     if (refreshed != null && isKeyMutationCurrent(key, expectedMutation)) {
-                        AdmissionResult result = admitWeightedValue(
+                        admitWeightedValue(
                                 key, refreshed, null, false, expectedMutation,
                                 expectedReservationGeneration, true);
-                        if (result == AdmissionResult.REJECTED) {
-                            invalidateKeyIfReservationGeneration(key, expectedReservationGeneration);
-                        }
+                        // Admission rejection leaves the already reserved, known-good generation
+                        // in place. A larger refresh must not turn a transient quota shortage into
+                        // a forced cache miss for every subsequent reader.
                     }
+                } catch (RuntimeException e) {
+                    LOG.warn("Failed to refresh external metadata cache entry {} for key {}; "
+                            + "retaining the previous value", name, key, e);
                 } finally {
                     endKeyMutation(key, expectedMutation);
                     refreshesInFlight.remove(key);
@@ -973,21 +1049,6 @@ public class MetaCacheEntry<K, V> {
         ReservationRecord record = reservations.get(key);
         return record != null && record.generation == expectedReservationGeneration
                 && record.published && data.asMap().get(key) != null;
-    }
-
-    private void invalidateKeyIfReservationGeneration(K key, long expectedReservationGeneration) {
-        synchronized (admissionLock) {
-            ReservationRecord record = reservations.get(key);
-            if (record == null || record.generation != expectedReservationGeneration) {
-                return;
-            }
-            V current = data.asMap().get(key);
-            if (current != null && data.asMap().remove(key, current)) {
-                advanceKeyMutation(key);
-                releaseReservation(key, expectedReservationGeneration);
-                invalidateCount.incrementAndGet();
-            }
-        }
     }
 
     // Read the config dynamically so existing cache entries follow runtime config updates.
@@ -1242,10 +1303,6 @@ public class MetaCacheEntry<K, V> {
             default:
                 return ReplaceResult.DISABLED;
         }
-    }
-
-    private static long saturatedAdd(long left, long right) {
-        return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
     }
 
     private enum AdmissionResult {

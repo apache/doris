@@ -17,27 +17,19 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimator;
 import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.iceberg.BaseTable;
-import org.apache.iceberg.DataFile;
-import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.HistoryEntry;
-import org.apache.iceberg.ManifestFile;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotParser;
 import org.apache.iceberg.SnapshotRef;
-import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
-import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.exceptions.CommitFailedException;
@@ -138,14 +130,16 @@ public class IcebergSnapshotCacheValue {
 
     MetaCacheSizeEstimate prepareForCachePublication(IcebergSnapshotEntryKey key) {
         if (sizeEstimate == null) {
-            if (retainedCurrentSnapshotJson == null) {
-                retainedCurrentSnapshotJson = icebergTable
-                        .map(IcebergSnapshotCacheValue::retainCurrentSnapshotJson).orElse(null);
-            }
-            retainedTablePayloadBytes = icebergTable
-                    .map(IcebergCacheSizeEstimator::retainedTablePayloadBytes).orElse(0L);
             sizeEstimate = MetaCacheSizeEstimator.estimateSafely("iceberg_snapshot_preparation_failed",
-                    () -> IcebergCacheSizeEstimator.estimateSnapshotEntry(key, this));
+                    () -> {
+                        if (retainedCurrentSnapshotJson == null) {
+                            retainedCurrentSnapshotJson = icebergTable
+                                    .map(IcebergSnapshotCacheValue::retainCurrentSnapshotJson).orElse(null);
+                        }
+                        retainedTablePayloadBytes = icebergTable
+                                .map(IcebergCacheSizeEstimator::retainedTablePayloadBytes).orElse(0L);
+                        return IcebergCacheSizeEstimator.estimateSnapshotEntry(key, this);
+                    });
             if (sizeEstimate.isComplete()) {
                 icebergTable = icebergTable.map(
                         IcebergSnapshotCacheValue::retainNonGrowingGeneration);
@@ -177,10 +171,6 @@ public class IcebergSnapshotCacheValue {
     }
 
     static Table retainTableGeneration(Table table) {
-        return retainTableGeneration(table, null);
-    }
-
-    static Table retainTableGeneration(Table table, ExecutionAuthenticator authenticator) {
         if (!(table instanceof HasTableOperations) || isFrozenGeneration(table)) {
             return table;
         }
@@ -188,46 +178,21 @@ public class IcebergSnapshotCacheValue {
         // Capture current() exactly once so every projection derived from the returned table sees
         // one metadata generation even when the shared catalog handle refreshes concurrently.
         TableOperations frozenOperations = new FrozenTableOperations(
-                operations, operations.current(), authenticator);
+                operations, operations.current(), false);
         return tableWithOperations(table, frozenOperations);
     }
 
     static Table retainNonGrowingGeneration(Table table) {
-        if (!isFrozenGeneration(table)) {
+        if (!isFrozenGeneration(table) || isNonGrowingGeneration(table)) {
             return table;
         }
         TableOperations retainedOperations = ((HasTableOperations) table).operations();
-        TableMetadata source = retainedOperations.current();
-        if (source.schemas().isEmpty() || source.specs().isEmpty()
-                || source.sortOrders().isEmpty()) {
-            return table;
-        }
-        TableMetadata.Builder builder = TableMetadata.buildFromEmpty(source.formatVersion());
-        if (source.uuid() != null) {
-            builder.assignUUID(source.uuid());
-        }
-        for (Schema schema : source.schemas()) {
-            builder.addSchema(schema);
-        }
-        builder.setCurrentSchema(source.currentSchemaId());
-        for (PartitionSpec spec : source.specs()) {
-            builder.addPartitionSpec(spec);
-        }
-        builder.setDefaultPartitionSpec(source.defaultSpecId());
-        for (SortOrder sortOrder : source.sortOrders()) {
-            builder.addSortOrder(sortOrder);
-        }
-        builder.setDefaultSortOrder(source.defaultSortOrderId());
-        builder.setLocation(source.location());
-        builder.setProperties(source.properties());
-        if (source.currentSnapshot() != null) {
-            builder.setBranchSnapshot(
-                    new NonGrowingSnapshot(source.currentSnapshot()), SnapshotRef.MAIN_BRANCH);
-        }
-        TableMetadata retainedMetadata = builder.discardChanges()
-                .withMetadataLocation(source.metadataFileLocation()).build();
+        // Do not rebuild parsed metadata with Iceberg's write-side Builder. Builder validation and
+        // ID reuse rules are intentionally stricter than metadata parsing and can reject legal
+        // upgraded tables or renumber sparse/equivalent schema histories. The frozen metadata is
+        // never exposed after query isolation; each caller receives exact query-local operations.
         return tableWithOperations(table, new FrozenTableOperations(
-                retainedOperations, retainedMetadata));
+                retainedOperations, retainedOperations.current(), true));
     }
 
     static String retainCurrentSnapshotJson(Table table) {
@@ -275,8 +240,7 @@ public class IcebergSnapshotCacheValue {
         return current;
     }
 
-    static Table createWritableTable(
-            Table retainedTable, Table liveTable, boolean reloadRetainedMetadata) {
+    static Table createWritableTable(Table retainedTable, Table liveTable) {
         if (!isFrozenGeneration(retainedTable)) {
             return retainedTable;
         }
@@ -286,43 +250,16 @@ public class IcebergSnapshotCacheValue {
                     "Iceberg commit table must provide writable table operations");
         }
         TableOperations retainedOperations = ((HasTableOperations) retainedTable).operations();
-        TableMetadata retainedMetadata = reloadRetainedMetadata
-                ? loadQueryMetadata(retainedOperations) : retainedOperations.current();
+        TableMetadata retainedMetadata = retainedOperations.current();
         TableOperations liveOperations = unwrapRetainedTableOperations(
                 ((HasTableOperations) liveTable).operations());
         return tableWithOperations(retainedTable,
                 new WritableTableOperations(liveOperations, retainedMetadata));
     }
 
-    static Table createWritableTable(Table retainedTable, Table liveTable) {
-        return createWritableTable(retainedTable, liveTable,
-                isNonGrowingGeneration(retainedTable));
-    }
-
-    private static boolean isNonGrowingGeneration(Table table) {
+    static boolean isNonGrowingGeneration(Table table) {
         return isFrozenGeneration(table)
                 && ((FrozenTableOperations) ((HasTableOperations) table).operations()).nonGrowing;
-    }
-
-    private static TableMetadata loadQueryMetadata(TableOperations retainedOperations) {
-        TableMetadata retainedMetadata = retainedOperations.current();
-        TableOperations serviceOperations = unwrapRetainedTableOperations(retainedOperations);
-        String metadataLocation = retainedMetadata.metadataFileLocation();
-        if (metadataLocation != null && !metadataLocation.isEmpty() && serviceOperations.io() != null) {
-            ExecutionAuthenticator authenticator = retainedOperations instanceof FrozenTableOperations
-                    ? ((FrozenTableOperations) retainedOperations).authenticator : null;
-            try {
-                return authenticator == null
-                        ? TableMetadataParser.read(serviceOperations.io(), metadataLocation)
-                        : authenticator.execute(
-                                () -> TableMetadataParser.read(serviceOperations.io(), metadataLocation));
-            } catch (Exception e) {
-                throw new StaleMetadataException(
-                        "Iceberg metadata generation is no longer readable: " + metadataLocation, e);
-            }
-        }
-        throw new IllegalStateException(
-                "Iceberg query-local metadata requires a stable metadata location and FileIO");
     }
 
     private static Table tableWithOperations(Table table, TableOperations operations) {
@@ -377,26 +314,14 @@ public class IcebergSnapshotCacheValue {
         private final FileIO fileIO;
         private final EncryptionManager encryptionManager;
         private final LocationProvider locationProvider;
-        private final ExecutionAuthenticator authenticator;
         private final boolean nonGrowing;
 
-        private FrozenTableOperations(TableOperations source, TableMetadata metadata) {
-            this(source, metadata, source instanceof FrozenTableOperations
-                    ? ((FrozenTableOperations) source).authenticator : null, true);
-        }
-
         private FrozenTableOperations(TableOperations source, TableMetadata metadata,
-                ExecutionAuthenticator authenticator) {
-            this(source, metadata, authenticator, false);
-        }
-
-        private FrozenTableOperations(TableOperations source, TableMetadata metadata,
-                ExecutionAuthenticator authenticator, boolean nonGrowing) {
+                boolean nonGrowing) {
             this.metadata = metadata;
             this.fileIO = source.io();
             this.encryptionManager = source.encryption();
             this.locationProvider = source.locationProvider();
-            this.authenticator = authenticator;
             this.nonGrowing = nonGrowing;
         }
 
@@ -489,19 +414,39 @@ public class IcebergSnapshotCacheValue {
         }
     }
 
+    /** Query-local operations expose exact retained metadata without shared lazy table state. */
+    private static final class QueryScopedTableOperations extends RetainedTableOperations {
+        private QueryScopedTableOperations(TableOperations retainedOperations) {
+            super(retainedOperations, retainedOperations.current());
+        }
+
+        @Override
+        public void commit(TableMetadata base, TableMetadata metadata) {
+            throw new UnsupportedOperationException("Query-scoped Iceberg table is read-only");
+        }
+    }
+
     /** A per-caller view whose Iceberg lazy snapshot state is never written into the cache value. */
     private static final class QueryScopedTable extends BaseTable {
-        private final TableOperations retainedOperations;
+        private final QueryScopedTableOperations queryOperations;
         private final Snapshot currentSnapshot;
-        private TableMetadata queryMetadata;
+        private final Map<Long, Snapshot> querySnapshots = new HashMap<>();
 
         private QueryScopedTable(TableOperations retainedOperations, String name,
                 org.apache.iceberg.metrics.MetricsReporter reporter, String currentSnapshotJson) {
-            super(retainedOperations, name, reporter == null
+            this(new QueryScopedTableOperations(retainedOperations), name, reporter, currentSnapshotJson);
+        }
+
+        private QueryScopedTable(QueryScopedTableOperations queryOperations, String name,
+                org.apache.iceberg.metrics.MetricsReporter reporter, String currentSnapshotJson) {
+            super(queryOperations, name, reporter == null
                     ? org.apache.iceberg.metrics.LoggingMetricsReporter.instance() : reporter);
-            this.retainedOperations = retainedOperations;
+            this.queryOperations = queryOperations;
             this.currentSnapshot = currentSnapshotJson == null
                     ? null : SnapshotParser.fromJson(currentSnapshotJson);
+            if (currentSnapshot != null) {
+                querySnapshots.put(currentSnapshot.snapshotId(), currentSnapshot);
+            }
         }
 
         @Override
@@ -514,12 +459,16 @@ public class IcebergSnapshotCacheValue {
             if (currentSnapshot != null && currentSnapshot.snapshotId() == snapshotId) {
                 return currentSnapshot;
             }
-            return queryMetadata().snapshot(snapshotId);
+            return copyForQuery(queryMetadata().snapshot(snapshotId));
         }
 
         @Override
         public Iterable<Snapshot> snapshots() {
-            return queryMetadata().snapshots();
+            ImmutableList.Builder<Snapshot> snapshots = ImmutableList.builder();
+            for (Snapshot snapshot : queryMetadata().snapshots()) {
+                snapshots.add(copyForQuery(snapshot));
+            }
+            return snapshots.build();
         }
 
         @Override
@@ -543,132 +492,15 @@ public class IcebergSnapshotCacheValue {
         }
 
         private synchronized TableMetadata queryMetadata() {
-            if (queryMetadata == null) {
-                queryMetadata = loadQueryMetadata(retainedOperations);
+            return queryOperations.current();
+        }
+
+        private synchronized Snapshot copyForQuery(Snapshot snapshot) {
+            if (snapshot == null) {
+                return null;
             }
-            return queryMetadata;
-        }
-    }
-
-    static final class StaleMetadataException extends RuntimeException {
-        private StaleMetadataException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
-
-    /** Scalar-only snapshot retained by the cache-owned metadata generation. */
-    private static final class NonGrowingSnapshot implements Snapshot {
-        private final long sequenceNumber;
-        private final long snapshotId;
-        private final Long parentId;
-        private final long timestampMillis;
-        private final Integer schemaId;
-        private final Long firstRowId;
-        private final Long addedRows;
-
-        private NonGrowingSnapshot(Snapshot snapshot) {
-            this.sequenceNumber = snapshot.sequenceNumber();
-            this.snapshotId = snapshot.snapshotId();
-            this.parentId = snapshot.parentId();
-            this.timestampMillis = snapshot.timestampMillis();
-            this.schemaId = snapshot.schemaId();
-            this.firstRowId = snapshot.firstRowId();
-            this.addedRows = snapshot.addedRows();
-        }
-
-        @Override
-        public long sequenceNumber() {
-            return sequenceNumber;
-        }
-
-        @Override
-        public long snapshotId() {
-            return snapshotId;
-        }
-
-        @Override
-        public Long parentId() {
-            return parentId;
-        }
-
-        @Override
-        public long timestampMillis() {
-            return timestampMillis;
-        }
-
-        @Override
-        public List<ManifestFile> allManifests(FileIO fileIO) {
-            throw queryScopedSnapshotRequired();
-        }
-
-        @Override
-        public List<ManifestFile> dataManifests(FileIO fileIO) {
-            throw queryScopedSnapshotRequired();
-        }
-
-        @Override
-        public List<ManifestFile> deleteManifests(FileIO fileIO) {
-            throw queryScopedSnapshotRequired();
-        }
-
-        @Override
-        public String operation() {
-            return null;
-        }
-
-        @Override
-        public Map<String, String> summary() {
-            return Collections.emptyMap();
-        }
-
-        @Override
-        public Iterable<DataFile> addedDataFiles(FileIO fileIO) {
-            throw queryScopedSnapshotRequired();
-        }
-
-        @Override
-        public Iterable<DataFile> removedDataFiles(FileIO fileIO) {
-            throw queryScopedSnapshotRequired();
-        }
-
-        @Override
-        public Iterable<DeleteFile> addedDeleteFiles(FileIO fileIO) {
-            throw queryScopedSnapshotRequired();
-        }
-
-        @Override
-        public Iterable<DeleteFile> removedDeleteFiles(FileIO fileIO) {
-            throw queryScopedSnapshotRequired();
-        }
-
-        @Override
-        public String manifestListLocation() {
-            return null;
-        }
-
-        @Override
-        public Integer schemaId() {
-            return schemaId;
-        }
-
-        @Override
-        public Long firstRowId() {
-            return firstRowId;
-        }
-
-        @Override
-        public Long addedRows() {
-            return addedRows;
-        }
-
-        @Override
-        public String keyId() {
-            return null;
-        }
-
-        private UnsupportedOperationException queryScopedSnapshotRequired() {
-            return new UnsupportedOperationException(
-                    "Cache-owned Iceberg snapshots cannot materialize manifests or files");
+            return querySnapshots.computeIfAbsent(snapshot.snapshotId(), ignored ->
+                    SnapshotParser.fromJson(SnapshotParser.toJson(snapshot, false)));
         }
     }
 

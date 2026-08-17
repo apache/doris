@@ -24,20 +24,22 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Cache value for a Paimon table handle. Snapshot projections use a separate cache entry so this
- * value cannot grow after admission through a memoized supplier.
+ * value cannot grow after admission.
  */
 public class PaimonTableCacheValue {
     private static final AtomicLong NEXT_GENERATION = new AtomicLong();
 
     private final Table paimonTable;
-    private final PaimonSnapshotCacheValue latestSnapshotFence;
     private final long generation;
 
-    public PaimonTableCacheValue(Table paimonTable, PaimonSnapshotCacheValue latestSnapshotFence) {
+    public PaimonTableCacheValue(Table paimonTable) {
         this.paimonTable = paimonTable;
-        this.latestSnapshotFence = Objects.requireNonNull(
-                latestSnapshotFence, "latestSnapshotFence can not be null");
         this.generation = NEXT_GENERATION.incrementAndGet();
+    }
+
+    public PaimonTableCacheValue(Table paimonTable, PaimonSnapshotCacheValue ignoredFence) {
+        this(paimonTable);
+        Objects.requireNonNull(ignoredFence, "latestSnapshotFence can not be null");
     }
 
     public Table getPaimonTable() {
@@ -48,7 +50,4 @@ public class PaimonTableCacheValue {
         return generation;
     }
 
-    public PaimonSnapshotCacheValue getLatestSnapshotFence() {
-        return latestSnapshotFence;
-    }
 }

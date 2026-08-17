@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.metacache;
 
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Objects;
@@ -27,6 +29,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * Catalog scoped entry container.
  */
 public class CatalogEntryGroup {
+    private static final Logger LOG = LogManager.getLogger(CatalogEntryGroup.class);
+
     private final Map<String, MetaCacheEntry<?, ?>> entries = new ConcurrentHashMap<>();
 
     public MetaCacheEntry<?, ?> get(String entryName) {
@@ -48,7 +52,14 @@ public class CatalogEntryGroup {
     }
 
     public void close() {
-        entries.values().forEach(MetaCacheEntry::close);
+        entries.forEach((name, entry) -> {
+            try {
+                entry.close();
+            } catch (RuntimeException e) {
+                LOG.error("Failed to close external metadata cache entry {}; continuing group retirement",
+                        name, e);
+            }
+        });
         // Keep the closed entries reachable from this retired group. A query may have captured the
         // group immediately before its catalog is removed; returning a closed entry lets that query
         // serve an uncached load instead of spuriously observing an uninitialized entry. The group

@@ -42,6 +42,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class MetaCacheEntryTest {
 
@@ -389,6 +390,73 @@ public class MetaCacheEntryTest {
             entry.close();
             refreshExecutor.shutdown();
             Assert.assertTrue(refreshExecutor.awaitTermination(3L, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void testWeightedFirstPublicationInvokesReplacementListener() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExternalMetaCacheBudgetManager manager =
+                new ExternalMetaCacheBudgetManager(OptionalLong.of(1_000L));
+        ExternalMetaCacheBudgetManager.EntryBudget budget = manager.createEntryBudget(
+                1L, "test", "publication", OptionalLong.empty(), OptionalLong.empty());
+        AtomicInteger publications = new AtomicInteger();
+        AtomicReference<byte[]> previous = new AtomicReference<>();
+        byte[] value = new byte[10];
+        MetaCacheEntry<String, byte[]> entry = new MetaCacheEntry<>(
+                "publication", key -> value,
+                CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 10L, 1_000L),
+                refreshExecutor, false, false,
+                (key, loaded) -> MetaCacheSizeEstimate.complete(loaded.length), budget,
+                (key, oldValue, currentValue) -> {
+                    publications.incrementAndGet();
+                    previous.set(oldValue);
+                    Assert.assertSame(value, currentValue);
+                });
+        try {
+            entry.put("k", value);
+
+            Assert.assertEquals(1, publications.get());
+            Assert.assertNull(previous.get());
+        } finally {
+            entry.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testCountEntryLoadAndRefreshInvokeReplacementListener() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        AtomicInteger loads = new AtomicInteger();
+        AtomicInteger publications = new AtomicInteger();
+        AtomicReference<Integer> refreshPrevious = new AtomicReference<>();
+        AtomicReference<Integer> refreshCurrent = new AtomicReference<>();
+        MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                "publication", key -> loads.incrementAndGet(),
+                CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                refreshExecutor, true, false, null, null,
+                (key, previousValue, currentValue) -> {
+                    publications.incrementAndGet();
+                    if (previousValue != null) {
+                        refreshPrevious.set(previousValue);
+                        refreshCurrent.set(currentValue);
+                    }
+                });
+        try {
+            Assert.assertEquals(Integer.valueOf(1), entry.get("k"));
+            Assert.assertEquals(1, publications.get());
+
+            entry.triggerRefreshForTest("k");
+            refreshExecutor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
+
+            Assert.assertEquals(Integer.valueOf(2), entry.peekIfPresent("k"));
+            Assert.assertEquals(2, loads.get());
+            Assert.assertEquals(2, publications.get());
+            Assert.assertEquals(Integer.valueOf(1), refreshPrevious.get());
+            Assert.assertEquals(Integer.valueOf(2), refreshCurrent.get());
+        } finally {
+            entry.close();
+            refreshExecutor.shutdownNow();
         }
     }
 
@@ -1576,6 +1644,98 @@ public class MetaCacheEntryTest {
             Assert.assertEquals(0L, manager.getGlobalUsedWeight());
         } finally {
             entry.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRejectedWeightedRefreshRetainsPreviousValue() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExternalMetaCacheBudgetManager manager = new ExternalMetaCacheBudgetManager(OptionalLong.of(600L));
+        ExternalMetaCacheBudgetManager.EntryBudget budget = manager.createEntryBudget(
+                1L, "test", "refresh-reject", OptionalLong.empty(), OptionalLong.empty());
+        byte[] current = new byte[1];
+        MetaCacheEntry<String, byte[]> entry = new MetaCacheEntry<>(
+                "refresh-reject", key -> new byte[100],
+                CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 10L, 600L),
+                refreshExecutor, true, false,
+                (key, value) -> MetaCacheSizeEstimate.complete(value.length), budget);
+        try {
+            entry.put("k", current);
+            entry.triggerRefreshForTest("k");
+            refreshExecutor.submit(() -> { }).get(3L, TimeUnit.SECONDS);
+
+            Assert.assertSame(current, entry.peekIfPresent("k"));
+            Assert.assertEquals(accountedWeight(1L), manager.getGlobalUsedWeight());
+            Assert.assertEquals(1L, entry.stats().getWeightAdmissionRejectedCount());
+        } finally {
+            entry.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRefreshFailureRetainsPreviousValueAndExecutorThread() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        String current = new String("current");
+        MetaCacheEntry<String, String> entry = new MetaCacheEntry<>(
+                "refresh-failure", key -> {
+                    throw new IllegalStateException("temporary metastore failure");
+                }, CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                refreshExecutor, true, false,
+                (key, value) -> MetaCacheSizeEstimate.complete(value.length()), null);
+        try {
+            entry.put("k", current);
+            entry.triggerRefreshForTest("k");
+            AtomicBoolean executorStillAlive = new AtomicBoolean();
+            refreshExecutor.submit(() -> executorStillAlive.set(true)).get(3L, TimeUnit.SECONDS);
+
+            Assert.assertSame(current, entry.peekIfPresent("k"));
+            Assert.assertTrue(executorStillAlive.get());
+            Assert.assertEquals(1L, entry.stats().getLoadFailureCount());
+        } finally {
+            entry.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testPeerReclamationPreventsGlobalBudgetStarvation() throws Exception {
+        long valueWeight = accountedWeight(1L);
+        ExternalMetaCacheBudgetManager manager =
+                new ExternalMetaCacheBudgetManager(OptionalLong.of(2L * valueWeight));
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExternalMetaCacheBudgetManager.EntryBudget firstBudget = manager.createEntryBudget(
+                1L, "test", "first", OptionalLong.empty(), OptionalLong.empty());
+        ExternalMetaCacheBudgetManager.EntryBudget secondBudget = manager.createEntryBudget(
+                2L, "test", "second", OptionalLong.empty(), OptionalLong.empty());
+        MetaCacheEntry<String, byte[]> first = new MetaCacheEntry<>(
+                "first", key -> new byte[1],
+                CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 10L, 2L * valueWeight),
+                refreshExecutor, false, false,
+                (key, value) -> MetaCacheSizeEstimate.complete(value.length), firstBudget);
+        MetaCacheEntry<String, byte[]> second = new MetaCacheEntry<>(
+                "second", key -> new byte[1],
+                CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 10L, 2L * valueWeight),
+                refreshExecutor, false, false,
+                (key, value) -> MetaCacheSizeEstimate.complete(value.length), secondBudget);
+        try {
+            first.put("a", new byte[1]);
+            first.put("b", new byte[1]);
+            second.put("c", new byte[1]);
+            Assert.assertNull(second.peekIfPresent("c"));
+
+            long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(3L);
+            while (manager.getGlobalUsedWeight() > valueWeight && System.nanoTime() < deadlineNanos) {
+                Thread.sleep(10L);
+            }
+            second.put("c", new byte[1]);
+
+            Assert.assertNotNull(second.peekIfPresent("c"));
+            Assert.assertTrue(manager.getGlobalUsedWeight() <= 2L * valueWeight);
+        } finally {
+            first.close();
+            second.close();
             refreshExecutor.shutdownNow();
         }
     }

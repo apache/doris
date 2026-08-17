@@ -23,11 +23,21 @@ import org.apache.doris.datasource.SchemaCacheKey;
 import com.google.common.base.Objects;
 
 public class PaimonSchemaCacheKey extends SchemaCacheKey {
+    private final long tableGeneration;
     private final long schemaId;
 
     public PaimonSchemaCacheKey(NameMapping nameMapping, long schemaId) {
+        this(nameMapping, 0L, schemaId);
+    }
+
+    public PaimonSchemaCacheKey(NameMapping nameMapping, long tableGeneration, long schemaId) {
         super(nameMapping);
+        this.tableGeneration = tableGeneration;
         this.schemaId = schemaId;
+    }
+
+    public long getTableGeneration() {
+        return tableGeneration;
     }
 
     public long getSchemaId() {
@@ -46,11 +56,11 @@ public class PaimonSchemaCacheKey extends SchemaCacheKey {
             return false;
         }
         PaimonSchemaCacheKey that = (PaimonSchemaCacheKey) o;
-        return schemaId == that.schemaId;
+        return tableGeneration == that.tableGeneration && schemaId == that.schemaId;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(super.hashCode(), schemaId);
+        return Objects.hashCode(super.hashCode(), tableGeneration, schemaId);
     }
 }

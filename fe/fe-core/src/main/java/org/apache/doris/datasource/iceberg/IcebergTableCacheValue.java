@@ -17,15 +17,19 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimator;
 
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+
+import java.util.Objects;
+import java.util.Optional;
 
 public class IcebergTableCacheValue {
-    private Table icebergTable;
+    private volatile Table icebergTable;
     private String retainedCurrentSnapshotJson;
     private volatile boolean queryIsolationPrepared;
     private long retainedTablePayloadBytes;
@@ -35,30 +39,29 @@ public class IcebergTableCacheValue {
         this.icebergTable = IcebergSnapshotCacheValue.retainTableGeneration(icebergTable);
     }
 
-    IcebergTableCacheValue(Table icebergTable, ExecutionAuthenticator authenticator) {
-        this.icebergTable = IcebergSnapshotCacheValue.retainTableGeneration(
-                icebergTable, authenticator);
-    }
-
     public Table getIcebergTable() {
-        return queryIsolationPrepared
+        Table retainedTable = icebergTable;
+        return queryIsolationPrepared || IcebergSnapshotCacheValue.isNonGrowingGeneration(retainedTable)
                 ? IcebergSnapshotCacheValue.createQueryScopedTable(
-                        icebergTable, retainedCurrentSnapshotJson)
-                : icebergTable;
+                        retainedTable, retainedCurrentSnapshotJson)
+                : retainedTable;
     }
 
     public Table getWritableIcebergTable(Table liveTable) {
-        return IcebergSnapshotCacheValue.createWritableTable(
-                icebergTable, liveTable, queryIsolationPrepared);
+        Table retainedTable = icebergTable;
+        return IcebergSnapshotCacheValue.createWritableTable(retainedTable, liveTable);
     }
 
-    MetaCacheSizeEstimate prepareForCachePublication(NameMapping key) {
+    synchronized MetaCacheSizeEstimate prepareForCachePublication(NameMapping key) {
         if (sizeEstimate == null) {
-            retainedCurrentSnapshotJson =
-                    IcebergSnapshotCacheValue.retainCurrentSnapshotJson(icebergTable);
-            retainedTablePayloadBytes = IcebergCacheSizeEstimator.retainedTablePayloadBytes(icebergTable);
             sizeEstimate = MetaCacheSizeEstimator.estimateSafely("iceberg_table_preparation_failed",
-                    () -> IcebergCacheSizeEstimator.estimateTableEntry(key, this));
+                    () -> {
+                        retainedCurrentSnapshotJson =
+                                IcebergSnapshotCacheValue.retainCurrentSnapshotJson(icebergTable);
+                        retainedTablePayloadBytes =
+                                IcebergCacheSizeEstimator.retainedTablePayloadBytes(icebergTable);
+                        return IcebergCacheSizeEstimator.estimateTableEntry(key, this);
+                    });
             if (sizeEstimate.isComplete()) {
                 icebergTable = IcebergSnapshotCacheValue.retainNonGrowingGeneration(icebergTable);
                 queryIsolationPrepared = true;
@@ -78,6 +81,12 @@ public class IcebergTableCacheValue {
 
     synchronized Table newQueryScopedTable() {
         if (!queryIsolationPrepared) {
+            // A failed optional size preparation must only reject weighted cache admission. Do not
+            // repeat the same unsupported metadata access on the query path and turn it into a
+            // table-load failure; this value is not retained by the weighted cache in that case.
+            if (sizeEstimate != null && !sizeEstimate.isComplete()) {
+                return icebergTable;
+            }
             retainedCurrentSnapshotJson =
                     IcebergSnapshotCacheValue.retainCurrentSnapshotJson(icebergTable);
             icebergTable = IcebergSnapshotCacheValue.retainNonGrowingGeneration(icebergTable);
@@ -102,5 +111,28 @@ public class IcebergTableCacheValue {
     long getRetainedCurrentSnapshotPayloadBytes() {
         return IcebergSnapshotCacheValue.retainedSnapshotJsonBytes(
                 retainedCurrentSnapshotJson);
+    }
+
+    Optional<String> getTableUuid() {
+        TableMetadata metadata = retainedMetadata();
+        return metadata == null || metadata.uuid() == null || metadata.uuid().isEmpty()
+                ? Optional.empty() : Optional.of(metadata.uuid());
+    }
+
+    boolean isSamePhysicalGeneration(IcebergTableCacheValue other) {
+        if (other == null) {
+            return false;
+        }
+        TableMetadata left = retainedMetadata();
+        TableMetadata right = other.retainedMetadata();
+        return left != null && right != null
+                && Objects.equals(left.uuid(), right.uuid())
+                && Objects.equals(left.metadataFileLocation(), right.metadataFileLocation());
+    }
+
+    private TableMetadata retainedMetadata() {
+        Table retainedTable = icebergTable;
+        return retainedTable instanceof HasTableOperations
+                ? ((HasTableOperations) retainedTable).operations().current() : null;
     }
 }

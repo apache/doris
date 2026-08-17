@@ -107,7 +107,7 @@ public class PaimonExternalTableTest {
 
         PaimonLatestSnapshotProjectionLoader loader = new PaimonLatestSnapshotProjectionLoader(
                 Mockito.mock(PaimonPartitionInfoLoader.class),
-                (nameMapping, schemaId) -> new PaimonSchemaCacheValue(
+                (nameMapping, schemaId, tableGeneration, retainedTable) -> new PaimonSchemaCacheValue(
                         Collections.emptyList(), Collections.emptyList(), null));
         NameMapping nameMapping = new NameMapping(1L, "db", "table", "db", "table");
         Mockito.doAnswer(ignored -> new PaimonMvccSnapshot(

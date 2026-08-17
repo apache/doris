@@ -24,17 +24,21 @@ import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.PartitionStatisticsFile;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.StatisticsFile;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.encryption.EncryptedKey;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
 import java.nio.ByteBuffer;
 import java.util.Map;
 
-/** Constant-time retained-weight formulas for Iceberg cache entries. */
+/** Publication-time retained-weight formulas for Iceberg cache entries. */
 final class IcebergCacheSizeEstimator {
     private static final long KEY_BASE_BYTES = 128L;
     private static final long TABLE_BASE_BYTES = 16L * 1024L;
@@ -47,6 +51,13 @@ final class IcebergCacheSizeEstimator {
     private static final long SORT_FIELD_BYTES = 256L;
     private static final long TABLE_PROPERTY_BYTES = 256L;
     private static final long CURRENT_SNAPSHOT_BYTES = 512L;
+    private static final long HISTORICAL_SNAPSHOT_BYTES = 1024L;
+    private static final long SNAPSHOT_LOG_ENTRY_BYTES = 64L;
+    private static final long METADATA_LOG_ENTRY_BYTES = 128L;
+    private static final long SNAPSHOT_REF_BYTES = 128L;
+    private static final long STATISTICS_FILE_BYTES = 512L;
+    private static final long PARTITION_STATISTICS_FILE_BYTES = 256L;
+    private static final long ENCRYPTED_KEY_BYTES = 256L;
     private static final long PARTITION_BYTES = 512L;
     private static final long PARTITION_ALIAS_BYTES = 256L;
     private static final long NAME_MAPPING_ENTRY_BYTES = 256L;
@@ -110,6 +121,9 @@ final class IcebergCacheSizeEstimator {
 
     static MetaCacheSizeEstimate estimateManifestEntry(
             IcebergManifestEntryKey key, ManifestCacheValue value) {
+        if (!value.isAccountingComplete()) {
+            return MetaCacheSizeEstimate.incomplete("iceberg_manifest_accounting_incomplete");
+        }
         long bytes = MetaCacheWeightUtils.saturatedAdd(
                 MANIFEST_ENTRY_BASE_BYTES,
                 MetaCacheWeightUtils.estimatedStringBytes(key.getManifestPath()));
@@ -189,8 +203,43 @@ final class IcebergCacheSizeEstimator {
             bytes = addString(bytes, property.getKey());
             bytes = addString(bytes, property.getValue());
         }
+        for (Snapshot snapshot : metadata.snapshots()) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, HISTORICAL_SNAPSHOT_BYTES);
+            bytes = addString(bytes, snapshot.operation());
+            bytes = addString(bytes, snapshot.manifestListLocation());
+            bytes = addStringMap(bytes, snapshot.summary(), TABLE_PROPERTY_BYTES);
+        }
+        bytes = addCount(bytes, metadata.snapshotLog().size(), SNAPSHOT_LOG_ENTRY_BYTES);
+        for (TableMetadata.MetadataLogEntry previousFile : metadata.previousFiles()) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, METADATA_LOG_ENTRY_BYTES);
+            bytes = addString(bytes, previousFile.file());
+        }
+        bytes = addCount(bytes, metadata.refs().size(), SNAPSHOT_REF_BYTES);
+        for (String refName : metadata.refs().keySet()) {
+            bytes = addString(bytes, refName);
+        }
+        for (StatisticsFile statisticsFile : metadata.statisticsFiles()) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, STATISTICS_FILE_BYTES);
+            bytes = addString(bytes, statisticsFile.path());
+            bytes = addCount(bytes, statisticsFile.blobMetadata().size(), TABLE_PROPERTY_BYTES);
+        }
+        for (PartitionStatisticsFile statisticsFile : metadata.partitionStatisticsFiles()) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, PARTITION_STATISTICS_FILE_BYTES);
+            bytes = addString(bytes, statisticsFile.path());
+        }
+        for (EncryptedKey encryptedKey : metadata.encryptionKeys()) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, ENCRYPTED_KEY_BYTES);
+            bytes = addString(bytes, encryptedKey.keyId());
+            bytes = addString(bytes, encryptedKey.encryptedById());
+            bytes = addBufferPayload(bytes, encryptedKey.encryptedKeyMetadata());
+            bytes = addStringMap(bytes, encryptedKey.properties(), TABLE_PROPERTY_BYTES);
+        }
         bytes = addString(bytes, metadata.uuid());
         return bytes;
+    }
+
+    private static long addBufferPayload(long bytes, ByteBuffer buffer) {
+        return buffer == null ? bytes : MetaCacheWeightUtils.saturatedAdd(bytes, buffer.capacity());
     }
 
     private static long addFieldPayload(long bytes, Types.NestedField field, boolean nested) {

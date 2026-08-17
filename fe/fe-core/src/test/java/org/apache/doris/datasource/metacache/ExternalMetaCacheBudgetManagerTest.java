@@ -35,6 +35,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExternalMetaCacheBudgetManagerTest {
 
@@ -174,6 +175,105 @@ public class ExternalMetaCacheBudgetManagerTest {
         replacementReservation.release();
         replacement.close();
         Assert.assertEquals(0L, manager.getGlobalUsedWeight());
+    }
+
+    @Test
+    public void testCloseForceReleasesOutstandingAccounting() {
+        ExternalMetaCacheBudgetManager manager = manager(100L);
+        EntryBudget staleBudget = manager.createEntryBudget(
+                1L, "hive", "partition_values", OptionalLong.empty(), OptionalLong.empty());
+        AdmissionReservation staleReservation = staleBudget.tryReserve(40L).get();
+
+        staleBudget.close();
+
+        Assert.assertEquals(0L, manager.getGlobalUsedWeight());
+        staleReservation.release();
+        Assert.assertFalse(staleReservation.isActive());
+        EntryBudget replacement = manager.createEntryBudget(
+                1L, "hive", "partition_values", OptionalLong.empty(), OptionalLong.empty());
+        replacement.close();
+    }
+
+    @Test
+    public void testPeerReclaimCoalescesConcurrentMissesToLargestAdmission() throws Exception {
+        ExternalMetaCacheBudgetManager manager = manager(100L);
+        EntryBudget owner = manager.createEntryBudget(
+                1L, "iceberg", "snapshot", OptionalLong.empty(), OptionalLong.empty());
+        EntryBudget requester = manager.createEntryBudget(
+                2L, "hive", "partition_values", OptionalLong.empty(), OptionalLong.empty());
+        AdmissionReservation reservation = owner.tryReserve(100L).get();
+        CountDownLatch firstReclaimStarted = new CountDownLatch(1);
+        CountDownLatch releaseFirstReclaim = new CountDownLatch(1);
+        CountDownLatch secondReclaimFinished = new CountDownLatch(1);
+        AtomicInteger invocation = new AtomicInteger();
+        List<Long> targets = Collections.synchronizedList(new ArrayList<>());
+        owner.setReclaimer(target -> {
+            targets.add(target);
+            if (invocation.getAndIncrement() == 0) {
+                firstReclaimStarted.countDown();
+                await(releaseFirstReclaim);
+            } else {
+                secondReclaimFinished.countDown();
+            }
+            return 0L;
+        });
+        try {
+            requester.requestPeerReclaim(10L);
+            Assert.assertTrue(firstReclaimStarted.await(3L, TimeUnit.SECONDS));
+
+            requester.requestPeerReclaim(10L);
+            requester.requestPeerReclaim(20L);
+            requester.requestPeerReclaim(15L);
+            releaseFirstReclaim.countDown();
+
+            Assert.assertTrue(secondReclaimFinished.await(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(2, targets.size());
+            Assert.assertEquals(Long.valueOf(10L), targets.get(0));
+            Assert.assertEquals(Long.valueOf(20L), targets.get(1));
+        } finally {
+            releaseFirstReclaim.countDown();
+            reservation.release();
+            owner.close();
+            requester.close();
+        }
+    }
+
+    @Test
+    public void testCatalogOnlyDeficitReclaimsSiblingWithoutTouchingOtherCatalog() throws Exception {
+        ExternalMetaCacheBudgetManager manager = manager(200L);
+        EntryBudget sibling = manager.createEntryBudget(
+                1L, "iceberg", "snapshot", OptionalLong.of(100L), OptionalLong.empty());
+        EntryBudget requester = manager.createEntryBudget(
+                1L, "hive", "partition_values", OptionalLong.of(100L), OptionalLong.empty());
+        EntryBudget otherCatalog = manager.createEntryBudget(
+                2L, "paimon", "snapshot", OptionalLong.of(100L), OptionalLong.empty());
+        AdmissionReservation siblingReservation = sibling.tryReserve(100L).get();
+        AdmissionReservation otherReservation = otherCatalog.tryReserve(50L).get();
+        CountDownLatch siblingReclaimed = new CountDownLatch(1);
+        AtomicInteger otherCatalogReclaims = new AtomicInteger();
+        sibling.setReclaimer(target -> {
+            siblingReservation.release();
+            siblingReclaimed.countDown();
+            return 100L;
+        });
+        otherCatalog.setReclaimer(target -> {
+            otherCatalogReclaims.incrementAndGet();
+            return 0L;
+        });
+        try {
+            requester.requestPeerReclaim(20L);
+
+            Assert.assertTrue(siblingReclaimed.await(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(0, otherCatalogReclaims.get());
+            Assert.assertEquals(0L, sibling.getUsedWeight());
+            Assert.assertEquals(50L, manager.getGlobalUsedWeight());
+        } finally {
+            siblingReservation.release();
+            otherReservation.release();
+            sibling.close();
+            requester.close();
+            otherCatalog.close();
+        }
     }
 
     private static ExternalMetaCacheBudgetManager manager(long maxWeight) {

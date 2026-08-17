@@ -35,6 +35,7 @@ import org.apache.paimon.table.Table;
 
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import javax.annotation.Nullable;
 
 /**
  * Paimon engine implementation of {@link AbstractExternalMetaCache}.
@@ -79,7 +80,8 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
                 new PaimonPartitionInfoLoader(), this::getPaimonSchemaCacheValue);
         tableEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_TABLE, NameMapping.class, PaimonTableCacheValue.class,
                 this::loadTableCacheValue, defaultEntryCacheSpec(),
-                MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping)));
+                MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping))
+                .withReplacementListener(this::retireTableGeneration));
         snapshotEntry = registerEntry(MetaCacheEntryDef.contextualOnly(ENTRY_SNAPSHOT,
                 PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(PaimonSnapshotEntryKey::getNameMapping))
@@ -101,45 +103,75 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
     public PaimonSnapshotCacheValue getSnapshotCache(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         PaimonTableCacheValue tableValue = tableEntry.get(nameMapping.getCtlId()).get(nameMapping);
-        PaimonSnapshot fence = tableValue.getLatestSnapshotFence().getSnapshot();
+        PaimonSnapshot fence = loadLatestSnapshotFence(nameMapping, tableValue.getPaimonTable()).getSnapshot();
         PaimonSnapshotEntryKey key = PaimonSnapshotEntryKey.of(
                 nameMapping, fence, tableValue.getGeneration());
         MetaCacheEntry<PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> entry =
                 snapshotEntry.get(nameMapping.getCtlId());
-        return entry.get(key, ignored -> latestSnapshotProjectionLoader.loadAtFence(nameMapping, fence));
+        PaimonSnapshotCacheValue snapshotValue = entry.get(key,
+                ignored -> executeAuthenticated(nameMapping,
+                        () -> latestSnapshotProjectionLoader.loadAtFence(
+                                nameMapping, fence, tableValue.getGeneration())));
+        PaimonTableCacheValue currentTable = tableEntry.get(nameMapping.getCtlId()).peekIfPresent(nameMapping);
+        if (currentTable != null && currentTable.getGeneration() != tableValue.getGeneration()) {
+            entry.invalidateKeyIfSame(key, snapshotValue);
+        }
+        return snapshotValue;
     }
 
     public PaimonSnapshotCacheValue loadSnapshotProjection(ExternalTable dorisTable, Table effectiveTable) {
-        return latestSnapshotProjectionLoader.load(dorisTable.getOrBuildNameMapping(), effectiveTable);
+        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        return executeAuthenticated(nameMapping,
+                () -> latestSnapshotProjectionLoader.load(nameMapping, effectiveTable));
     }
 
     public PaimonSnapshotCacheValue loadLatestSnapshotFence(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
-        return tableEntry.get(nameMapping.getCtlId()).get(nameMapping).getLatestSnapshotFence();
+        PaimonTableCacheValue tableValue = tableEntry.get(nameMapping.getCtlId()).get(nameMapping);
+        return loadLatestSnapshotFence(nameMapping, tableValue.getPaimonTable());
     }
 
     public PaimonSnapshotCacheValue loadSnapshotAtFence(
             ExternalTable dorisTable, PaimonSnapshot fence) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
-        return latestSnapshotProjectionLoader.loadAtFence(nameMapping, fence);
+        return executeAuthenticated(nameMapping,
+                () -> latestSnapshotProjectionLoader.loadAtFence(nameMapping, fence));
     }
 
     public PaimonSnapshotCacheValue loadSnapshotAtFence(
             ExternalTable dorisTable, Table effectiveTable, PaimonSnapshot fence) {
-        return latestSnapshotProjectionLoader.loadEffectiveAtFence(
-                dorisTable.getOrBuildNameMapping(), effectiveTable, fence);
+        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
+        return executeAuthenticated(nameMapping,
+                () -> latestSnapshotProjectionLoader.loadEffectiveAtFence(
+                        nameMapping, effectiveTable, fence));
     }
 
     public PaimonSchemaCacheValue getPaimonSchemaCacheValue(NameMapping nameMapping, long schemaId) {
-        SchemaCacheValue schemaCacheValue = schemaEntry.get(nameMapping.getCtlId())
-                .get(new PaimonSchemaCacheKey(nameMapping, schemaId));
+        PaimonTableCacheValue tableValue = tableEntry.get(nameMapping.getCtlId()).get(nameMapping);
+        return getPaimonSchemaCacheValue(
+                nameMapping, schemaId, tableValue.getGeneration(), tableValue.getPaimonTable());
+    }
+
+    PaimonSchemaCacheValue getPaimonSchemaCacheValue(
+            NameMapping nameMapping, long schemaId, long tableGeneration, Table retainedTable) {
+        PaimonSchemaCacheKey key = new PaimonSchemaCacheKey(nameMapping, tableGeneration, schemaId);
+        if (tableGeneration <= 0L) {
+            return (PaimonSchemaCacheValue) executeAuthenticated(nameMapping,
+                    () -> loadSchemaCacheValue(key, retainedTable));
+        }
+        MetaCacheEntry<PaimonSchemaCacheKey, SchemaCacheValue> entry = schemaEntry.get(nameMapping.getCtlId());
+        SchemaCacheValue schemaCacheValue = entry.get(key,
+                ignored -> executeAuthenticated(nameMapping,
+                        () -> loadSchemaCacheValue(key, retainedTable)));
+        PaimonTableCacheValue currentTable = tableEntry.get(nameMapping.getCtlId()).peekIfPresent(nameMapping);
+        if (currentTable != null && currentTable.getGeneration() != tableGeneration) {
+            entry.invalidateKeyIfSame(key, schemaCacheValue);
+        }
         return (PaimonSchemaCacheValue) schemaCacheValue;
     }
 
     private PaimonTableCacheValue loadTableCacheValue(NameMapping nameMapping) {
-        Table paimonTable = tableLoader.load(nameMapping);
-        PaimonSnapshotCacheValue fence = latestSnapshotProjectionLoader.loadFence(nameMapping, paimonTable);
-        return new PaimonTableCacheValue(paimonTable, fence);
+        return new PaimonTableCacheValue(tableLoader.load(nameMapping));
     }
 
     private SchemaCacheValue loadSchemaCacheValue(PaimonSchemaCacheKey key) {
@@ -148,6 +180,40 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
                 new CacheException("failed to load paimon schema cache value for: %s.%s.%s, schemaId: %s",
                         null, key.getNameMapping().getCtlId(), key.getNameMapping().getLocalDbName(),
                         key.getNameMapping().getLocalTblName(), key.getSchemaId()));
+    }
+
+    private SchemaCacheValue loadSchemaCacheValue(PaimonSchemaCacheKey key, Table retainedTable) {
+        ExternalTable dorisTable = findExternalTable(key.getNameMapping(), ENGINE);
+        if (!(dorisTable instanceof PaimonExternalTable)) {
+            return loadSchemaCacheValue(key);
+        }
+        dorisTable.setUpdateTime(System.currentTimeMillis());
+        return ((PaimonExternalTable) dorisTable).loadSchemaForCache(retainedTable, key.getSchemaId());
+    }
+
+    private PaimonSnapshotCacheValue loadLatestSnapshotFence(NameMapping nameMapping, Table retainedTable) {
+        return executeAuthenticated(nameMapping,
+                () -> latestSnapshotProjectionLoader.loadFence(nameMapping, retainedTable));
+    }
+
+    private <T> T executeAuthenticated(NameMapping nameMapping, java.util.concurrent.Callable<T> task) {
+        return tableLoader.executeAuthenticated(nameMapping, task);
+    }
+
+    private void retireTableGeneration(NameMapping nameMapping,
+            @Nullable PaimonTableCacheValue previousValue, PaimonTableCacheValue currentValue) {
+        MetaCacheEntry<PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> snapshots =
+                snapshotEntry.getIfInitialized(nameMapping.getCtlId());
+        if (snapshots != null) {
+            snapshots.invalidateIf(key -> key.getNameMapping().equals(nameMapping)
+                    && key.getTableGeneration() != currentValue.getGeneration());
+        }
+        MetaCacheEntry<PaimonSchemaCacheKey, SchemaCacheValue> schemas =
+                schemaEntry.getIfInitialized(nameMapping.getCtlId());
+        if (schemas != null) {
+            schemas.invalidateIf(key -> key.getNameMapping().equals(nameMapping)
+                    && key.getTableGeneration() != currentValue.getGeneration());
+        }
     }
 
     @Override

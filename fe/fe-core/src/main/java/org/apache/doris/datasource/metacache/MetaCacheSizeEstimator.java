@@ -23,10 +23,11 @@ import java.util.function.Supplier;
 /**
  * Supplies the admission weight of one key/value pair.
  *
- * <p>The callback runs after load and before admission. Implementations must use already available
- * shape counters and constant-time collection sizes; they must not walk object graphs, perform IO,
- * materialize lazy SDK state, or copy payloads. Caffeine's weigher reads only the admitted
- * reservation record, so cache hits and eviction remain O(1).
+ * <p>The callback runs once after load and before admission. Implementations may linearly count
+ * loader-owned collections needed to cover skewed payloads, but must not recursively reflect over
+ * arbitrary object graphs, perform additional IO, materialize lazy SDK state, or copy payloads
+ * solely to estimate weight. Caffeine's weigher reads only the admitted reservation record, so
+ * cache hits and eviction remain O(1).
  */
 @FunctionalInterface
 public interface MetaCacheSizeEstimator<K, V> {

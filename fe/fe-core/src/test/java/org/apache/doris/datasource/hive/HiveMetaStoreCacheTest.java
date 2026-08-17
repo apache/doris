@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.metacache.EstimatorCalibrationAssertions;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
 
@@ -245,6 +246,27 @@ public class HiveMetaStoreCacheTest {
                 "cache publication must not rewrite common catalog partition objects");
     }
 
+    @Test
+    public void testPartitionValuesFormulaAgainstJolOwnedGraph() throws Exception {
+        List<Type> types = Collections.singletonList(Type.STRING);
+        HiveExternalMetaCache.PartitionValueCacheKey key = new HiveExternalMetaCache.PartitionValueCacheKey(
+                NameMapping.createForTest("db", "tbl"), types);
+        HiveExternalMetaCache.HivePartitionValues empty = realPartitionValues(types, 0, 16);
+        HiveExternalMetaCache.HivePartitionValues populated = realPartitionValues(types, 32, 16);
+        HiveExternalMetaCache.HivePartitionValues shortTail = realPartitionValues(types, 1, 16);
+        HiveExternalMetaCache.HivePartitionValues longTail = realPartitionValues(types, 1, 4096);
+
+        long emptyEstimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(key, empty).getBytes();
+        long populatedEstimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(key, populated).getBytes();
+        long shortTailEstimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(key, shortTail).getBytes();
+        long longTailEstimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(key, longTail).getBytes();
+
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "hive partition values", emptyEstimate, populatedEstimate, empty, populated);
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "hive long-tail partition", shortTailEstimate, longTailEstimate, shortTail, longTail);
+    }
+
     private void putCache(
             MetaCacheEntry<HiveExternalMetaCache.FileCacheKey, HiveExternalMetaCache.FileCacheValue> fileCache,
             MetaCacheEntry<HiveExternalMetaCache.PartitionCacheKey, HivePartition> partitionCache,
@@ -289,6 +311,26 @@ public class HiveMetaStoreCacheTest {
         MetaCacheSizeEstimate estimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(key, values);
         Assertions.assertTrue(estimate.isComplete(), estimate.getIncompleteReason());
         return estimate.getBytes();
+    }
+
+    private HiveExternalMetaCache.HivePartitionValues realPartitionValues(
+            List<Type> types, int partitionCount, int valueLength) throws Exception {
+        Map<Long, PartitionItem> items = new HashMap<>();
+        HashBiMap<String, Long> names = HashBiMap.create();
+        Map<Long, List<String>> values = new HashMap<>();
+        for (int index = 0; index < partitionCount; index++) {
+            String value = "p" + index + String.join("", Collections.nCopies(valueLength, "x"));
+            long id = index + 1L;
+            PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(
+                    Collections.singletonList(new PartitionValue(value)), types, true);
+            items.put(id, new ListPartitionItem(Collections.singletonList(partitionKey)));
+            names.put("p=" + value, id);
+            values.put(id, Collections.singletonList(value));
+        }
+        HiveExternalMetaCache.HivePartitionValues result =
+                new HiveExternalMetaCache.HivePartitionValues(items, names, values);
+        result.sealForPublication();
+        return result;
     }
 
     @SuppressWarnings("unchecked")

@@ -91,6 +91,14 @@ public final class IcebergSnapshotEntryKey {
         return defaultSpecId;
     }
 
+    boolean belongsTo(IcebergTableCacheValue tableValue) {
+        Optional<IcebergSnapshotEntryKey> generation = tryCreate(
+                nameMapping, tableValue.getRetainedIcebergTable());
+        return generation.isPresent()
+                && tableUuid.equals(generation.get().tableUuid)
+                && metadataFileLocation.equals(generation.get().metadataFileLocation);
+    }
+
     @Override
     public boolean equals(Object object) {
         if (this == object) {

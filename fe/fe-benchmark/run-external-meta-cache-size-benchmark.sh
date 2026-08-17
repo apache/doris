@@ -33,7 +33,10 @@ trap 'rm -f "${CLASSPATH_FILE}"' EXIT
         -Dmdep.outputFile="${CLASSPATH_FILE}"
 )
 
-REACTOR_CLASSES=$(find "${FE_DIR}" -type d -path '*/target/classes' -printf '%p:')
+REACTOR_CLASSES=
+while IFS= read -r -d '' CLASSES_DIR; do
+    REACTOR_CLASSES+="${CLASSES_DIR}:"
+done < <(find "${FE_DIR}" -type d -path '*/target/classes' -print0)
 DEPENDENCY_CLASSES=$(tr -d '\n' < "${CLASSPATH_FILE}")
 BENCHMARK_FILTER=${BENCHMARK_FILTER:-'HivePartitionValuesSizeBenchmark|IcebergCacheSizeBenchmark|PaimonCacheSizeBenchmark|MetaCacheSoftValueBenchmark'}
 

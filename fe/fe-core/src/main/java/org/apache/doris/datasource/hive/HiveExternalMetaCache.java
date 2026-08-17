@@ -756,8 +756,10 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 Map<Long, PartitionItem> addedItems = new HashMap<>();
                 for (String partitionName : partitionNames) {
                     if (allNames.containsKey(partitionName)) {
-                        LOG.info("addPartitionsCache partitionName:[{}] has exist in table:[{}]",
-                                partitionName, localTblName);
+                        if (attempt == 0) {
+                            LOG.info("addPartitionsCache partitionName:[{}] has exist in table:[{}]",
+                                    partitionName, localTblName);
+                        }
                         continue;
                     }
                     long partitionId = Util.genIdByName(

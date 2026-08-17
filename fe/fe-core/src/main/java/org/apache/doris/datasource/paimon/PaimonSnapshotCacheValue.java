@@ -25,18 +25,25 @@ public class PaimonSnapshotCacheValue {
     private final PaimonPartitionInfo partitionInfo;
     private final PaimonSnapshot snapshot;
     private final boolean schemaFromSnapshotTable;
+    private final long tableGeneration;
     private long retainedTablePayloadBytes;
     private MetaCacheSizeEstimate sizeEstimate;
 
     public PaimonSnapshotCacheValue(PaimonPartitionInfo partitionInfo, PaimonSnapshot snapshot) {
-        this(partitionInfo, snapshot, false);
+        this(partitionInfo, snapshot, false, 0L);
     }
 
     public PaimonSnapshotCacheValue(PaimonPartitionInfo partitionInfo, PaimonSnapshot snapshot,
             boolean schemaFromSnapshotTable) {
+        this(partitionInfo, snapshot, schemaFromSnapshotTable, 0L);
+    }
+
+    public PaimonSnapshotCacheValue(PaimonPartitionInfo partitionInfo, PaimonSnapshot snapshot,
+            boolean schemaFromSnapshotTable, long tableGeneration) {
         this.partitionInfo = partitionInfo;
         this.snapshot = snapshot;
         this.schemaFromSnapshotTable = schemaFromSnapshotTable;
+        this.tableGeneration = tableGeneration;
     }
 
     public PaimonPartitionInfo getPartitionInfo() {
@@ -51,15 +58,22 @@ public class PaimonSnapshotCacheValue {
         return schemaFromSnapshotTable;
     }
 
+    public long getTableGeneration() {
+        return tableGeneration;
+    }
+
     long getRetainedTablePayloadBytes() {
         return retainedTablePayloadBytes;
     }
 
     MetaCacheSizeEstimate prepareForCachePublication(PaimonSnapshotEntryKey key) {
         if (sizeEstimate == null) {
-            retainedTablePayloadBytes = PaimonCacheSizeEstimator.retainedTablePayloadBytes(snapshot.getTable());
             sizeEstimate = MetaCacheSizeEstimator.estimateSafely("paimon_snapshot_preparation_failed",
-                    () -> PaimonCacheSizeEstimator.estimateSnapshotEntry(key, this));
+                    () -> {
+                        retainedTablePayloadBytes =
+                                PaimonCacheSizeEstimator.retainedTablePayloadBytes(snapshot.getTable());
+                        return PaimonCacheSizeEstimator.estimateSnapshotEntry(key, this);
+                    });
         }
         return sizeEstimate;
     }

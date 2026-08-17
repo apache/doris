@@ -18,6 +18,9 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -44,5 +47,30 @@ public class IcebergSysExternalTableTest {
         IcebergSysExternalTable dataFiles = new IcebergSysExternalTable(
                 sourceTable, MetadataTableType.DATA_FILES.name());
         Assertions.assertTrue(dataFiles.supportsSnapshotSelection());
+    }
+
+    @Test
+    public void testMetadataSchemaReloadsAfterSourceEvolution() {
+        IcebergExternalTable sourceTable = Mockito.mock(IcebergExternalTable.class);
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        Mockito.when(sourceTable.getId()).thenReturn(1L);
+        Mockito.when(sourceTable.getName()).thenReturn("table");
+        Mockito.when(sourceTable.getRemoteName()).thenReturn("table");
+        Mockito.when(sourceTable.getCatalog()).thenReturn(catalog);
+        Mockito.when(sourceTable.getDatabase()).thenReturn(Mockito.mock(IcebergExternalDatabase.class));
+        Table firstGeneration = Mockito.mock(Table.class);
+        Table evolvedGeneration = Mockito.mock(Table.class);
+        Mockito.when(firstGeneration.schema()).thenReturn(new Schema(
+                Types.NestedField.required(1, "file_path", Types.StringType.get())));
+        Mockito.when(evolvedGeneration.schema()).thenReturn(new Schema(
+                Types.NestedField.required(1, "file_path", Types.StringType.get()),
+                Types.NestedField.optional(2, "evolved_partition", Types.StringType.get())));
+        IcebergSysExternalTable sysTable = Mockito.spy(new IcebergSysExternalTable(
+                sourceTable, MetadataTableType.PARTITIONS.name()));
+        Mockito.doReturn(firstGeneration, evolvedGeneration).when(sysTable).getSysIcebergTable();
+
+        Assertions.assertEquals(1, sysTable.getFullSchema().size());
+        Assertions.assertEquals(2, sysTable.getFullSchema().size());
+        Mockito.verify(sysTable, Mockito.times(2)).getSysIcebergTable();
     }
 }

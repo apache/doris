@@ -1058,6 +1058,10 @@ public class IcebergUtils {
         return icebergExternalMetaCache(dorisTable).getIcebergTable(dorisTable);
     }
 
+    public static Table getQueryScopedIcebergTable(ExternalTable dorisTable) {
+        return icebergExternalMetaCache(dorisTable).getQueryScopedIcebergTable(dorisTable);
+    }
+
     public static Table getWritableIcebergTable(ExternalTable dorisTable) {
         return icebergExternalMetaCache(dorisTable).getWritableIcebergTable(dorisTable);
     }
@@ -1721,6 +1725,12 @@ public class IcebergUtils {
                 .getIcebergSchemaCacheValue(dorisTable.getOrBuildNameMapping(), schemaId);
     }
 
+    static IcebergSchemaCacheValue getSchemaCacheValue(
+            ExternalTable dorisTable, long schemaId, Table retainedTable) {
+        return icebergExternalMetaCache(dorisTable).getIcebergSchemaCacheValue(
+                dorisTable.getOrBuildNameMapping(), schemaId, retainedTable);
+    }
+
     public static IcebergSnapshot getLatestIcebergSnapshot(Table table) {
         Snapshot snapshot = table.currentSnapshot();
         long snapshotId = snapshot == null ? IcebergUtils.UNKNOWN_SNAPSHOT_ID : snapshot.snapshotId();
@@ -1758,7 +1768,8 @@ public class IcebergUtils {
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         long retainedPayloadBytes = 0L;
 
-        List<Column> partitionColumns = IcebergUtils.getSchemaCacheValue(dorisTable, schemaId).getPartitionColumns();
+        List<Column> partitionColumns = IcebergUtils.getSchemaCacheValue(
+                dorisTable, schemaId, table).getPartitionColumns();
         for (IcebergPartition partition : icebergPartitions) {
             nameToPartition.put(partition.getPartitionName(), partition);
             retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(
@@ -1996,7 +2007,10 @@ public class IcebergUtils {
     }
 
     public static IcebergSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, IcebergSnapshotCacheValue sv) {
-        return getSchemaCacheValue(dorisTable, sv.getSnapshot().getSchemaId());
+        Optional<Table> retainedTable = sv.getRetainedIcebergTable();
+        return retainedTable.isPresent()
+                ? getSchemaCacheValue(dorisTable, sv.getSnapshot().getSchemaId(), retainedTable.get())
+                : getSchemaCacheValue(dorisTable, sv.getSnapshot().getSchemaId());
     }
 
     public static IcebergSnapshotCacheValue getLatestSnapshotCacheValue(ExternalTable dorisTable) {
@@ -2065,9 +2079,16 @@ public class IcebergUtils {
 
     public static Optional<SchemaCacheValue> loadSchemaCacheValue(
             ExternalTable dorisTable, long schemaId, boolean isView) {
+        return loadSchemaCacheValue(dorisTable, schemaId, isView, null);
+    }
+
+    public static Optional<SchemaCacheValue> loadSchemaCacheValue(
+            ExternalTable dorisTable, long schemaId, boolean isView, Table retainedTable) {
         return isView
                 ? loadViewSchemaCacheValue(dorisTable, schemaId)
-                : loadTableSchemaCacheValue(dorisTable, schemaId);
+                : retainedTable == null
+                        ? loadTableSchemaCacheValue(dorisTable, schemaId)
+                        : Optional.of(buildTableSchemaCacheValue(dorisTable, schemaId, retainedTable));
     }
 
     private static Optional<SchemaCacheValue> loadViewSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
