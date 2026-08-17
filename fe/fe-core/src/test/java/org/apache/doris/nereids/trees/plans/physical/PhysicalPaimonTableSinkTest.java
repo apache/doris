@@ -17,14 +17,29 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.nereids.properties.DistributionSpecPaimonTableSinkHashPartitioned;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
+
+import com.google.common.collect.ImmutableList;
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.VarCharType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -50,6 +65,136 @@ class PhysicalPaimonTableSinkTest {
         Assertions.assertTrue(PhysicalPaimonTableSink.requiresSingleWriter(
                 table(BucketMode.KEY_DYNAMIC, Collections.singletonList("id"),
                         Collections.emptyMap())));
+        Assertions.assertFalse(PhysicalPaimonTableSink.requiresSingleWriter(
+                table(BucketMode.BUCKET_UNAWARE, Collections.emptyList(),
+                        Collections.emptyMap())));
+    }
+
+    @Test
+    void testHashDynamicAlwaysRequiresSingleWriter() {
+        // HASH_DYNAMIC has no concurrent route in this change. Its SDK assigner option and
+        // route-field capabilities are deliberately not used to bypass GATHER.
+        Assertions.assertTrue(PhysicalPaimonTableSink.requiresSingleWriter(
+                table(BucketMode.HASH_DYNAMIC, Collections.singletonList("id"),
+                        Collections.singletonMap(
+                                CoreOptions.DYNAMIC_BUCKET_ASSIGNER_PARALLELISM.key(), "4"))));
+        Assertions.assertTrue(PhysicalPaimonTableSink.requiresSingleWriter(
+                table(BucketMode.HASH_DYNAMIC, Collections.singletonList("id"),
+                        Collections.emptyMap())));
+    }
+
+    @Test
+    void testSupportedFixedBucketBuildsPaimonIdentityDistribution() {
+        FileStoreTable table = fixedBucketTable(
+                ImmutableList.of(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "part", new VarCharType())),
+                Collections.singletonList("part"), Collections.emptyMap());
+        Slot id = new SlotReference("id", IntegerType.INSTANCE);
+        Slot part = new SlotReference("part", StringType.INSTANCE);
+
+        DistributionSpecPaimonTableSinkHashPartitioned spec
+                = PhysicalPaimonTableSink.buildFixedBucketDistributionSpec(
+                        table,
+                        ImmutableList.of(
+                                new Column("id", PrimitiveType.INT),
+                                new Column("part", PrimitiveType.STRING)),
+                        ImmutableList.of(id, part));
+
+        Assertions.assertNotNull(spec);
+        Assertions.assertEquals(4, spec.getNumBuckets());
+        Assertions.assertEquals(ImmutableList.of(part.getExprId(), id.getExprId()),
+                spec.getOutputColumnExprIds());
+        Assertions.assertEquals(Collections.singletonList(0), spec.getPartitionFieldIndexes());
+        Assertions.assertEquals(Collections.singletonList(1), spec.getBucketFieldIndexes());
+        Assertions.assertEquals(
+                DistributionSpecPaimonTableSinkHashPartitioned.WriterAssignment.IDENTITY,
+                spec.getWriterAssignment());
+    }
+
+    @Test
+    void testUnsupportedFixedBucketRouteFallsBack() {
+        FileStoreTable unsupportedType = fixedBucketTable(
+                Collections.singletonList(
+                        new DataField(0, "id", new ArrayType(new IntType()))),
+                Collections.emptyList(), Collections.emptyMap());
+        Assertions.assertNull(PhysicalPaimonTableSink.buildFixedBucketDistributionSpec(
+                unsupportedType,
+                Collections.singletonList(new Column("id", PrimitiveType.INT)),
+                Collections.singletonList(new SlotReference("id", IntegerType.INSTANCE))));
+        Assertions.assertTrue(PhysicalPaimonTableSink.requiresSingleWriter(unsupportedType));
+
+        FileStoreTable customBucket = fixedBucketTable(
+                Collections.singletonList(new DataField(0, "id", new IntType())),
+                Collections.emptyList(),
+                Collections.singletonMap(CoreOptions.BUCKET_FUNCTION_TYPE.key(), "mod"));
+        Assertions.assertNull(PhysicalPaimonTableSink.buildFixedBucketDistributionSpec(
+                customBucket,
+                Collections.singletonList(new Column("id", PrimitiveType.INT)),
+                Collections.singletonList(new SlotReference("id", IntegerType.INSTANCE))));
+        Assertions.assertTrue(PhysicalPaimonTableSink.requiresSingleWriter(customBucket));
+
+        FileStoreTable unsupportedPartitionType = fixedBucketTable(
+                ImmutableList.of(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "part", new ArrayType(new IntType()))),
+                Collections.singletonList("part"), Collections.emptyMap());
+        Assertions.assertNull(PhysicalPaimonTableSink.buildFixedBucketDistributionSpec(
+                unsupportedPartitionType,
+                ImmutableList.of(
+                        new Column("id", PrimitiveType.INT),
+                        new Column("part", org.apache.doris.nereids.types.ArrayType
+                                .of(IntegerType.INSTANCE).toCatalogDataType())),
+                ImmutableList.of(
+                        new SlotReference("id", IntegerType.INSTANCE),
+                        new SlotReference("part", org.apache.doris.nereids.types.ArrayType
+                                .of(IntegerType.INSTANCE)))));
+        Assertions.assertTrue(
+                PhysicalPaimonTableSink.requiresSingleWriter(unsupportedPartitionType));
+
+        FileStoreTable typeMismatch = fixedBucketTable(
+                Collections.singletonList(new DataField(0, "id", new IntType())),
+                Collections.emptyList(), Collections.emptyMap());
+        Assertions.assertNull(PhysicalPaimonTableSink.buildFixedBucketDistributionSpec(
+                typeMismatch,
+                Collections.singletonList(new Column("id", PrimitiveType.STRING)),
+                Collections.singletonList(new SlotReference("id", StringType.INSTANCE))));
+        Assertions.assertTrue(PhysicalPaimonTableSink.requiresSingleWriter(typeMismatch));
+
+        Assertions.assertNull(PhysicalPaimonTableSink.buildFixedBucketDistributionSpec(
+                typeMismatch,
+                Collections.singletonList(new Column("different_name", PrimitiveType.INT)),
+                Collections.singletonList(new SlotReference(
+                        "different_name", IntegerType.INSTANCE))));
+    }
+
+    @Test
+    void testDefaultedFixedBucketRouteFieldsFallBack() {
+        FileStoreTable defaultedBucketKey = fixedBucketTable(
+                Collections.singletonList(
+                        new DataField(0, "id", new IntType(), null, "1")),
+                Collections.emptyList(), Collections.emptyMap());
+        Assertions.assertNull(PhysicalPaimonTableSink.buildFixedBucketDistributionSpec(
+                defaultedBucketKey,
+                Collections.singletonList(new Column("id", PrimitiveType.INT)),
+                Collections.singletonList(new SlotReference("id", IntegerType.INSTANCE))));
+        Assertions.assertTrue(PhysicalPaimonTableSink.requiresSingleWriter(defaultedBucketKey));
+
+        FileStoreTable defaultedPartitionKey = fixedBucketTable(
+                ImmutableList.of(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "part", new VarCharType(VarCharType.MAX_LENGTH),
+                                null, "default-partition")),
+                Collections.singletonList("part"), Collections.emptyMap());
+        Assertions.assertNull(PhysicalPaimonTableSink.buildFixedBucketDistributionSpec(
+                defaultedPartitionKey,
+                ImmutableList.of(
+                        new Column("id", PrimitiveType.INT),
+                        new Column("part", PrimitiveType.STRING)),
+                ImmutableList.of(
+                        new SlotReference("id", IntegerType.INSTANCE),
+                        new SlotReference("part", StringType.INSTANCE))));
+        Assertions.assertTrue(PhysicalPaimonTableSink.requiresSingleWriter(defaultedPartitionKey));
     }
 
     private static FileStoreTable table(
@@ -58,6 +203,21 @@ class PhysicalPaimonTableSinkTest {
         Mockito.when(table.bucketMode()).thenReturn(bucketMode);
         Mockito.when(table.primaryKeys()).thenReturn(primaryKeys);
         Mockito.when(table.options()).thenReturn(options);
+        return table;
+    }
+
+    private static FileStoreTable fixedBucketTable(List<DataField> fields,
+            List<String> partitionKeys, Map<String, String> extraOptions) {
+        Map<String, String> options = new HashMap<>(extraOptions);
+        options.put(CoreOptions.BUCKET.key(), "4");
+        options.put(CoreOptions.BUCKET_KEY.key(), "id");
+        TableSchema schema = new TableSchema(
+                0L, fields, 0, partitionKeys, Collections.singletonList("id"), options, null);
+        FileStoreTable table = Mockito.mock(FileStoreTable.class);
+        Mockito.when(table.bucketMode()).thenReturn(BucketMode.HASH_FIXED);
+        Mockito.when(table.primaryKeys()).thenReturn(Collections.singletonList("id"));
+        Mockito.when(table.options()).thenReturn(options);
+        Mockito.when(table.schema()).thenReturn(schema);
         return table;
     }
 }

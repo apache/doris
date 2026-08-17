@@ -21,12 +21,12 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 
 import java.util.List;
 
-/** Hash Hive partition values and scale hot partitions across writers. */
-public final class DistributionSpecHiveTableSinkHashPartitioned
+/** Hash MaxCompute partition values using the legacy Hive ScaleWriter behavior. */
+public final class DistributionSpecMaxComputeTableSinkHashPartitioned
         extends DistributionSpecExternalTableSinkHashPartitioned {
 
-    /** Create a Hive ownership distribution from partition columns. */
-    public DistributionSpecHiveTableSinkHashPartitioned(List<ExprId> outputColumnExprIds) {
+    /** Create a MaxCompute ownership distribution from dynamic partition columns. */
+    public DistributionSpecMaxComputeTableSinkHashPartitioned(List<ExprId> outputColumnExprIds) {
         super(outputColumnExprIds);
     }
 
@@ -37,6 +37,9 @@ public final class DistributionSpecHiveTableSinkHashPartitioned
 
     @Override
     public WriterAssignment getWriterAssignment() {
+        // Keep the pre-refactoring behavior for external formats that have not yet defined
+        // their own writer-ownership contract. Only Hive and Iceberg are modeled explicitly
+        // in this phase.
         return WriterAssignment.SKEWED;
     }
 }

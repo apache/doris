@@ -17,6 +17,7 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.paimon.casting.DefaultValueRow;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
@@ -145,6 +146,26 @@ public class PaimonWriteSchemaTest {
 
         Assertions.assertEquals(9, tableRow.getInt(0));
         Assertions.assertTrue(tableRow.isNullAt(1));
+    }
+
+    @Test
+    public void testPaimonWriterDefaultsExplicitNullRouteFields() {
+        RowType tableType = new RowType(Arrays.asList(
+                new DataField(0, "bucket_key", new IntType(), null, "1"),
+                new DataField(1, "partition_key", new VarCharType(VarCharType.MAX_LENGTH),
+                        null, "default-partition")));
+        PaimonWriteSchema schema = PaimonWriteSchema.create(
+                tableType, new String[] {"bucket_key", "partition_key"});
+
+        InternalRow tableRow = schema.tableRow(new Object[] {null, null});
+        Assertions.assertTrue(tableRow.isNullAt(0));
+        Assertions.assertTrue(tableRow.isNullAt(1));
+
+        DefaultValueRow defaultValueRow = DefaultValueRow.create(tableType);
+        Assertions.assertNotNull(defaultValueRow);
+        InternalRow writerRow = defaultValueRow.replaceRow(tableRow);
+        Assertions.assertEquals(1, writerRow.getInt(0));
+        Assertions.assertEquals("default-partition", writerRow.getString(1).toString());
     }
 
     @Test

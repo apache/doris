@@ -45,11 +45,12 @@ enum TPartitionType {
   // used for shuffle data by parititon and tablet
   OLAP_TABLE_SINK_HASH_PARTITIONED = 6,
 
-  // used for shuffle data by hive parititon
-  HIVE_TABLE_SINK_HASH_PARTITIONED = 7,
+  // used for shuffle data by external table sink ownership key. BE execution
+  // versions before 12 reject this type because value 7 had different semantics.
+  EXTERNAL_TABLE_SINK_HASH_PARTITIONED = 7,
 
-  // used for hive unparititoned table
-  HIVE_TABLE_SINK_UNPARTITIONED = 8,
+  // adaptive writer distribution for external tables without an ownership key
+  EXTERNAL_TABLE_SINK_UNPARTITIONED = 8,
 
   // used for merge partitioning: insert by partition columns, delete by row_id
   MERGE_PARTITIONED = 9
@@ -109,6 +110,51 @@ struct TMergePartitionInfo {
   6: optional i32 partition_spec_id
 }
 
+// The routing algorithm implemented by an external table sink hash exchange.
+// Connector-specific FE distribution specs map to one of these algorithms.
+enum TExternalTableSinkHashAlgorithm {
+  DIRECT_HASH = 0,
+  ICEBERG_TRANSFORM = 1,
+
+  // Paimon HASH_FIXED routing using the default bucket function and
+  // ChannelComputer. The partition expressions carry their Doris types.
+  PAIMON_FIXED_BUCKET = 2
+}
+
+// Maps the logical partitions produced by the hash algorithm to Doris exchange writers.
+// IDENTITY preserves one-writer ownership; SKEWED retains ScaleWriter behavior for formats
+// which allow a hot partition to be written by multiple writers.
+enum TExternalTableSinkWriterAssignment {
+  IDENTITY = 0,
+  SKEWED = 1
+}
+
+// Minimal metadata for Paimon's stateless HASH_FIXED route. Field indexes refer
+// to TDataPartition.partition_exprs, not to physical Block column positions.
+struct TPaimonFixedBucketInfo {
+  1: required i32 num_buckets
+  2: required list<i32> partition_field_indexes
+  3: required list<i32> bucket_field_indexes
+}
+
+// Connector-independent routing metadata for an external table sink hash
+// exchange. Algorithm-specific fields are optional for protocol evolution, but
+// each algorithm validates the fields it requires before processing rows.
+struct TExternalTableSinkHashPartitionInfo {
+  1: required TExternalTableSinkHashAlgorithm algorithm
+
+  // Positional Iceberg transforms. Required by ICEBERG_TRANSFORM and must have
+  // the same size as partition_exprs.
+  2: optional list<string> partition_transforms
+
+  // Kept optional on the wire so a new BE can reject an old FE with a clear
+  // status instead of silently relying on the enum's default value.
+  3: optional TExternalTableSinkWriterAssignment writer_assignment
+
+  // Required only by PAIMON_FIXED_BUCKET.
+  4: optional TPaimonFixedBucketInfo paimon_fixed_bucket_info
+}
+
 // Specification of how a single logical data stream is partitioned.
 // This leaves out the parameters that determine the physical partition (for hash
 // partitions, the number of partitions; for range partitions, the partitions'
@@ -118,4 +164,5 @@ struct TDataPartition {
   2: optional list<Exprs.TExpr> partition_exprs
   3: optional list<TRangePartition> partition_infos
   4: optional TMergePartitionInfo merge_partition_info
+  5: optional TExternalTableSinkHashPartitionInfo external_table_sink_hash_partition_info
 }
