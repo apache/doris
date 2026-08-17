@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -613,6 +614,43 @@ bool VOlapTablePartitionParam::_part_contains(VOlapTablePartition* part,
     // now we only have to check (key >= part.left). the comparator(a,b) means a < b, so we use anti
     return part->start_key.second == -1 /* spj: start_key.second == -1 means only single partition*/
            || !comparator(key, std::tuple {part->start_key.first, part->start_key.second, false});
+}
+
+// identity: use the (single, integer) distribution column value itself modulo num_buckets.
+// bucket = null -> bucket 0; negative-safe modulo ((v % n) + n) % n.
+// Must stay bit-identical with FE HashDistributionPruner.
+uint32_t VOlapTablePartitionParam::_compute_tablet_index_for_identity(
+        Block* block, uint32_t row, const VOlapTablePartition& partition) const {
+    auto* slot_desc = _slots[_distributed_slot_locs[0]];
+    const auto& column = block->get_by_position(_distributed_slot_locs[0]).column;
+    auto val = column->get_data_at(row);
+    if (val.data == nullptr) {
+        return 0;
+    }
+    __int128 v = 0;
+    switch (slot_desc->type()->get_primitive_type()) {
+    case TYPE_TINYINT:
+        v = *reinterpret_cast<const int8_t*>(val.data);
+        break;
+    case TYPE_SMALLINT:
+        v = *reinterpret_cast<const int16_t*>(val.data);
+        break;
+    case TYPE_INT:
+        v = *reinterpret_cast<const int32_t*>(val.data);
+        break;
+    case TYPE_BIGINT:
+        v = *reinterpret_cast<const int64_t*>(val.data);
+        break;
+    case TYPE_LARGEINT:
+        memcpy(&v, val.data, sizeof(__int128));
+        break;
+    default:
+        LOG(WARNING) << "identity distribution on non-integer column, primitive_type="
+                     << slot_desc->type()->get_primitive_type();
+        return 0;
+    }
+    __int128 n = partition.num_buckets;
+    return cast_set<uint32_t>(((v % n) + n) % n);
 }
 
 // insert value into _partition_block's column

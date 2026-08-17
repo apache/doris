@@ -741,6 +741,13 @@ public class CreateTableInfo {
             // validate distribution descriptor
             distribution.updateCols(columns.get(0).getName());
             distribution.validate(columnMap, keysType);
+            if (distribution.isHash()) {
+                try {
+                    distribution.updateHashType(PropertyAnalyzer.analyzeDistributionHashType(properties));
+                } catch (Exception e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+            }
 
             // validate key set.
             if (!distribution.isHash()) {

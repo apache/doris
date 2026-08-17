@@ -1488,6 +1488,8 @@ struct TLocalExchangeNode {
   //    `TPipelineFragmentParams.total_instances`, and mapping global instance index to local instance by
   //    `TPipelineFragmentParams.shuffle_idx_to_instance_idx`
   2: optional list<Exprs.TExpr> distribute_expr_lists
+  // storage bucketing hash for BUCKET_HASH_SHUFFLE; !__isset means CRC32 (legacy)
+  3: optional Types.TDistributionHashType distribution_hash_type = Types.TDistributionHashType.CRC32
 }
 
 struct TOlapRewriteNode {

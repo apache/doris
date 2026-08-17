@@ -248,24 +248,31 @@ public:
             std::map<VOlapTablePartition*, int64_t>* partition_tablets_buffer = nullptr) const {
         std::function<uint32_t(Block*, uint32_t, const VOlapTablePartition&)> compute_function;
         if (!_distributed_slot_locs.empty()) {
-            //TODO: refactor by saving the hash values. then we can calculate in columnwise.
-            compute_function = [this](Block* block, uint32_t row,
-                                      const VOlapTablePartition& partition) -> uint32_t {
-                uint32_t hash_val = 0;
-                for (unsigned short _distributed_slot_loc : _distributed_slot_locs) {
-                    auto* slot_desc = _slots[_distributed_slot_loc];
-                    auto& column = block->get_by_position(_distributed_slot_loc).column;
-                    auto val = column->get_data_at(row);
-                    if (val.data != nullptr) {
-                        hash_val = RawValue::zlib_crc32(val.data, val.size,
-                                                        slot_desc->type()->get_primitive_type(),
-                                                        hash_val);
-                    } else {
-                        hash_val = HashUtil::zlib_crc_hash_null(hash_val);
+            if (_t_param.distribution_hash_type == TDistributionHashType::IDENTITY) {
+                compute_function = [this](Block* block, uint32_t row,
+                                          const VOlapTablePartition& partition) -> uint32_t {
+                    return _compute_tablet_index_for_identity(block, row, partition);
+                };
+            } else {
+                //TODO: refactor by saving the hash values. then we can calculate in columnwise.
+                compute_function = [this](Block* block, uint32_t row,
+                                          const VOlapTablePartition& partition) -> uint32_t {
+                    uint32_t hash_val = 0;
+                    for (unsigned short _distributed_slot_loc : _distributed_slot_locs) {
+                        auto* slot_desc = _slots[_distributed_slot_loc];
+                        auto& column = block->get_by_position(_distributed_slot_loc).column;
+                        auto val = column->get_data_at(row);
+                        if (val.data != nullptr) {
+                            hash_val = RawValue::zlib_crc32(val.data, val.size,
+                                                            slot_desc->type()->get_primitive_type(),
+                                                            hash_val);
+                        } else {
+                            hash_val = HashUtil::zlib_crc_hash_null(hash_val);
+                        }
                     }
-                }
-                return cast_set<uint32_t>(hash_val % partition.num_buckets);
-            };
+                    return cast_set<uint32_t>(hash_val % partition.num_buckets);
+                };
+            }
         } else { // random distribution
             compute_function = [](Block* block, uint32_t row,
                                   const VOlapTablePartition& partition) -> uint32_t {
@@ -330,6 +337,9 @@ private:
 
     // check if this partition contain this key
     bool _part_contains(VOlapTablePartition* part, BlockRowWithIndicator key) const;
+
+    uint32_t _compute_tablet_index_for_identity(Block* block, uint32_t row,
+                                                const VOlapTablePartition& partition) const;
 
     // this partition only valid in this schema
     std::shared_ptr<OlapTableSchemaParam> _schema;

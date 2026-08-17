@@ -85,6 +85,9 @@ public:
                                const std::map<int, int>& shuffle_id_to_instance_idx)
             : Base(operator_id, tnode, dest_id),
               _type(tnode.local_exchange_node.partition_type),
+              _distribution_hash_type(tnode.local_exchange_node.__isset.distribution_hash_type
+                                              ? tnode.local_exchange_node.distribution_hash_type
+                                              : TDistributionHashType::CRC32),
               _num_partitions(num_partitions),
               _texprs(tnode.local_exchange_node.distribute_expr_lists),
               _partitioned_exprs_num(tnode.local_exchange_node.distribute_expr_lists.size()),
@@ -135,6 +138,7 @@ private:
     Status _create_partitioner(RuntimeState* state, int bucket_count);
 
     TLocalPartitionType::type _type;
+    const TDistributionHashType::type _distribution_hash_type = TDistributionHashType::CRC32;
     const int _num_partitions;
     const std::vector<TExpr>& _texprs;
     const size_t _partitioned_exprs_num;

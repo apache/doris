@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.util.Utils;
@@ -54,6 +55,10 @@ public class DistributionSpecHash extends DistributionSpec {
     private final Set<Long> partitionIds;
     private final long selectedIndexId;
 
+    // storage bucketing hash function of the NATURAL side; only equal hashType tables may share
+    // a distribution (colocate / bucket-shuffle). Non-bucketing specs default to CRC32.
+    private final HashDistributionInfo.HashType hashType;
+
     /**
      * Use for no need set table related attributes.
      */
@@ -69,11 +74,17 @@ public class DistributionSpecHash extends DistributionSpec {
         this(orderedShuffledColumns, shuffleType, tableId, -1L, partitionIds);
     }
 
+    public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType, long tableId,
+            long selectedIndexId, Set<Long> partitionIds) {
+        this(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds,
+                HashDistributionInfo.HashType.CRC32);
+    }
+
     /**
      * Normal constructor.
      */
     public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType,
-            long tableId, long selectedIndexId, Set<Long> partitionIds) {
+            long tableId, long selectedIndexId, Set<Long> partitionIds, HashDistributionInfo.HashType hashType) {
         this.orderedShuffledColumns = ImmutableList.copyOf(
                 Objects.requireNonNull(orderedShuffledColumns, "orderedShuffledColumns should not null"));
         this.shuffleType = Objects.requireNonNull(shuffleType, "shuffleType should not null");
@@ -81,6 +92,7 @@ public class DistributionSpecHash extends DistributionSpec {
                 Objects.requireNonNull(partitionIds, "partitionIds should not null"));
         this.tableId = tableId;
         this.selectedIndexId = selectedIndexId;
+        this.hashType = Objects.requireNonNull(hashType, "hashType should not null");
         ImmutableList.Builder<Set<ExprId>> equivalenceExprIdsBuilder
                 = ImmutableList.builderWithExpectedSize(orderedShuffledColumns.size());
         ImmutableMap.Builder<ExprId, Integer> exprIdToEquivalenceSetBuilder
@@ -101,7 +113,14 @@ public class DistributionSpecHash extends DistributionSpec {
             long tableId, Set<Long> partitionIds, List<Set<ExprId>> equivalenceExprIds,
             Map<ExprId, Integer> exprIdToEquivalenceSet) {
         this(orderedShuffledColumns, shuffleType, tableId, -1L, partitionIds,
-                equivalenceExprIds, exprIdToEquivalenceSet);
+                equivalenceExprIds, exprIdToEquivalenceSet, HashDistributionInfo.HashType.CRC32);
+    }
+
+    public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType, long tableId,
+            long selectedIndexId, Set<Long> partitionIds, List<Set<ExprId>> equivalenceExprIds,
+            Map<ExprId, Integer> exprIdToEquivalenceSet) {
+        this(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds, equivalenceExprIds,
+                exprIdToEquivalenceSet, HashDistributionInfo.HashType.CRC32);
     }
 
     /**
@@ -109,12 +128,13 @@ public class DistributionSpecHash extends DistributionSpec {
      */
     public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType, long tableId,
             long selectedIndexId, Set<Long> partitionIds, List<Set<ExprId>> equivalenceExprIds,
-            Map<ExprId, Integer> exprIdToEquivalenceSet) {
+            Map<ExprId, Integer> exprIdToEquivalenceSet, HashDistributionInfo.HashType hashType) {
         this.orderedShuffledColumns = ImmutableList.copyOf(Objects.requireNonNull(orderedShuffledColumns,
                 "orderedShuffledColumns should not null"));
         this.shuffleType = Objects.requireNonNull(shuffleType, "shuffleType should not null");
         this.tableId = tableId;
         this.selectedIndexId = selectedIndexId;
+        this.hashType = Objects.requireNonNull(hashType, "hashType should not null");
         this.partitionIds = ImmutableSet.copyOf(
                 Objects.requireNonNull(partitionIds, "partitionIds should not null"));
         this.equivalenceExprIds = ImmutableList.copyOf(
@@ -140,7 +160,7 @@ public class DistributionSpecHash extends DistributionSpec {
         exprIdToEquivalenceSet.putAll(right.getExprIdToEquivalenceSet());
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType,
                 left.getTableId(), left.getSelectedIndexId(), left.getPartitionIds(), equivalenceExprIds.build(),
-                exprIdToEquivalenceSet.buildKeepingLast());
+                exprIdToEquivalenceSet.buildKeepingLast(), left.getHashType());
     }
 
     static DistributionSpecHash merge(DistributionSpecHash left, DistributionSpecHash right) {
@@ -161,6 +181,10 @@ public class DistributionSpecHash extends DistributionSpec {
 
     public long getSelectedIndexId() {
         return selectedIndexId;
+    }
+
+    public HashDistributionInfo.HashType getHashType() {
+        return hashType;
     }
 
     public Set<Long> getPartitionIds() {
@@ -202,6 +226,7 @@ public class DistributionSpecHash extends DistributionSpec {
             return containsSatisfy(requiredHash.getOrderedShuffledColumns());
         }
         return requiredHash.getShuffleType() == this.getShuffleType()
+                && this.hashType == requiredHash.hashType
                 && equalsSatisfy(requiredHash.getOrderedShuffledColumns());
     }
 
@@ -229,12 +254,12 @@ public class DistributionSpecHash extends DistributionSpec {
 
     public DistributionSpecHash withShuffleType(ShuffleType shuffleType) {
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds,
-                equivalenceExprIds, exprIdToEquivalenceSet);
+                equivalenceExprIds, exprIdToEquivalenceSet, hashType);
     }
 
     public DistributionSpecHash withShuffleTypeAndForbidColocateJoin(ShuffleType shuffleType) {
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType, -1, -1, partitionIds,
-                equivalenceExprIds, exprIdToEquivalenceSet);
+                equivalenceExprIds, exprIdToEquivalenceSet, hashType);
     }
 
     /**
@@ -266,7 +291,7 @@ public class DistributionSpecHash extends DistributionSpec {
         }
         return new DistributionSpecHash(ImmutableList.copyOf(prunedOrderedColumns),
                 shuffleType, tableId, selectedIndexId, partitionIds, equivBuilder.build(),
-                mapBuilder.buildKeepingLast());
+                mapBuilder.buildKeepingLast(), hashType);
     }
 
     /**
@@ -304,7 +329,7 @@ public class DistributionSpecHash extends DistributionSpec {
             }
         }
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds,
-                equivalenceExprIds, exprIdToEquivalenceSet);
+                equivalenceExprIds, exprIdToEquivalenceSet, hashType);
     }
 
     @Override
@@ -313,12 +338,13 @@ public class DistributionSpecHash extends DistributionSpec {
             return false;
         }
         DistributionSpecHash that = (DistributionSpecHash) o;
-        return shuffleType == that.shuffleType && orderedShuffledColumns.equals(that.orderedShuffledColumns);
+        return shuffleType == that.shuffleType && hashType == that.hashType
+                && orderedShuffledColumns.equals(that.orderedShuffledColumns);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(shuffleType, orderedShuffledColumns);
+        return Objects.hash(shuffleType, hashType, orderedShuffledColumns);
     }
 
     @Override
@@ -326,6 +352,7 @@ public class DistributionSpecHash extends DistributionSpec {
         return Utils.toSqlString("DistributionSpecHash",
                 "orderedShuffledColumns", orderedShuffledColumns,
                 "shuffleType", shuffleType,
+                "hashType", hashType,
                 "tableId", tableId,
                 "selectedIndexId", selectedIndexId,
                 "partitionIds", partitionIds,

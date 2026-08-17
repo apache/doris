@@ -275,5 +275,146 @@ TEST(TabletSinkHashPartitionerTest, OlapTabletFinderRoundRobinEveryBatch) {
         EXPECT_EQ(tablet_index[0], 0);
     }
 }
+
+// identity distribution_hash_type: bucket = ((v % n) + n) % n, bit-identical with FE pruning.
+TEST(TabletSinkHashPartitionerTest, IdentityBucketingModsValueByNumBuckets) {
+    OperatorContext ctx;
+    constexpr int32_t num_buckets = 8;
+
+    TOlapTableSchemaParam tschema;
+    TTupleId tablet_sink_tuple_id = 0;
+    int64_t schema_index_id = 0;
+    sink_test_utils::build_desc_tbl_and_schema(ctx, tschema, tablet_sink_tuple_id, schema_index_id,
+                                               false);
+
+    auto schema = std::make_shared<OlapTableSchemaParam>();
+    auto st = schema->init(tschema);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto tpartition = sink_test_utils::build_single_col_partition_param(
+            schema_index_id, num_buckets, TDistributionHashType::IDENTITY);
+    auto vpartition = std::make_unique<VOlapTablePartitionParam>(schema, tpartition);
+    st = vpartition->init();
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    OlapTabletFinder finder(vpartition.get(),
+                            OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW);
+
+    // 3 -> 3, 8 -> 0, 100 -> 4, 999 -> 7, -1 -> 7, -8 -> 0.
+    auto block = ColumnHelper::create_block<DataTypeInt32>({3, 8, 100, 999, -1, -8});
+    std::vector<VOlapTablePartition*> partitions(block.rows(), nullptr);
+    std::vector<uint32_t> tablet_index(block.rows(), 0);
+    std::vector<bool> skip(block.rows(), false);
+
+    st = finder.find_tablets(&ctx.state, &block, cast_set<int>(block.rows()), partitions,
+                             tablet_index, skip, nullptr);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(tablet_index[0], 3u);
+    EXPECT_EQ(tablet_index[1], 0u);
+    EXPECT_EQ(tablet_index[2], 4u);
+    EXPECT_EQ(tablet_index[3], 7u);
+    EXPECT_EQ(tablet_index[4], 7u); // -1 negative-safe -> 7
+    EXPECT_EQ(tablet_index[5], 0u); // -8 negative-safe -> 0
+}
+
+// identity with a null distribution value falls into bucket 0 (FE/BE write the same rule).
+TEST(TabletSinkHashPartitionerTest, IdentityNullGoesToBucketZero) {
+    OperatorContext ctx;
+    constexpr int32_t num_buckets = 8;
+
+    TOlapTableSchemaParam tschema;
+    TTupleId tablet_sink_tuple_id = 0;
+    int64_t schema_index_id = 0;
+    // nullable distribution column
+    sink_test_utils::build_desc_tbl_and_schema(ctx, tschema, tablet_sink_tuple_id, schema_index_id,
+                                               true);
+
+    auto schema = std::make_shared<OlapTableSchemaParam>();
+    auto st = schema->init(tschema);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto tpartition = sink_test_utils::build_single_col_partition_param(
+            schema_index_id, num_buckets, TDistributionHashType::IDENTITY);
+    auto vpartition = std::make_unique<VOlapTablePartitionParam>(schema, tpartition);
+    st = vpartition->init();
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    OlapTabletFinder finder(vpartition.get(),
+                            OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW);
+
+    // row 0 null -> bucket 0; row 1 = 300 -> 300 % 8 = 4
+    auto block = ColumnHelper::create_nullable_block<DataTypeInt32>({0, 300}, {1, 0});
+    std::vector<VOlapTablePartition*> partitions(block.rows(), nullptr);
+    std::vector<uint32_t> tablet_index(block.rows(), 0);
+    std::vector<bool> skip(block.rows(), false);
+
+    st = finder.find_tablets(&ctx.state, &block, cast_set<int>(block.rows()), partitions,
+                             tablet_index, skip, nullptr);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_EQ(tablet_index[0], 0u); // null -> 0
+    EXPECT_EQ(tablet_index[1], 4u); // 300 % 8 = 4
+}
+
+// crc32 (default) must NOT collapse to value % n; guards the two branches from being swapped.
+TEST(TabletSinkHashPartitionerTest, Crc32DiffersFromIdentity) {
+    OperatorContext ctx;
+    constexpr int32_t num_buckets = 8;
+
+    TOlapTableSchemaParam tschema;
+    TTupleId tablet_sink_tuple_id = 0;
+    int64_t schema_index_id = 0;
+    sink_test_utils::build_desc_tbl_and_schema(ctx, tschema, tablet_sink_tuple_id, schema_index_id,
+                                               false);
+
+    auto schema = std::make_shared<OlapTableSchemaParam>();
+    auto st = schema->init(tschema);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    std::vector<int32_t> values = {3, 8, 100, 999, 5, 6, 7, 12};
+
+    auto identity_param = sink_test_utils::build_single_col_partition_param(
+            schema_index_id, num_buckets, TDistributionHashType::IDENTITY);
+    auto identity_part = std::make_unique<VOlapTablePartitionParam>(schema, identity_param);
+    ASSERT_TRUE(identity_part->init().ok());
+    OlapTabletFinder identity_finder(identity_part.get(),
+                                     OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW);
+    auto block1 = ColumnHelper::create_block<DataTypeInt32>(values);
+    std::vector<VOlapTablePartition*> parts1(block1.rows(), nullptr);
+    std::vector<uint32_t> identity_index(block1.rows(), 0);
+    std::vector<bool> skip1(block1.rows(), false);
+    ASSERT_TRUE(identity_finder
+                        .find_tablets(&ctx.state, &block1, cast_set<int>(block1.rows()), parts1,
+                                      identity_index, skip1, nullptr)
+                        .ok());
+
+    auto crc32_param = sink_test_utils::build_single_col_partition_param(
+            schema_index_id, num_buckets, TDistributionHashType::CRC32);
+    auto crc32_part = std::make_unique<VOlapTablePartitionParam>(schema, crc32_param);
+    ASSERT_TRUE(crc32_part->init().ok());
+    OlapTabletFinder crc32_finder(crc32_part.get(),
+                                  OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW);
+    auto block2 = ColumnHelper::create_block<DataTypeInt32>(values);
+    std::vector<VOlapTablePartition*> parts2(block2.rows(), nullptr);
+    std::vector<uint32_t> crc32_index(block2.rows(), 0);
+    std::vector<bool> skip2(block2.rows(), false);
+    ASSERT_TRUE(crc32_finder
+                        .find_tablets(&ctx.state, &block2, cast_set<int>(block2.rows()), parts2,
+                                      crc32_index, skip2, nullptr)
+                        .ok());
+
+    // identity locates value % n; crc32 must differ for at least one row.
+    for (size_t i = 0; i < values.size(); i++) {
+        EXPECT_EQ(identity_index[i],
+                  static_cast<uint32_t>(((values[i] % num_buckets) + num_buckets) % num_buckets));
+    }
+    bool differs = false;
+    for (size_t i = 0; i < values.size(); i++) {
+        if (crc32_index[i] != identity_index[i]) {
+            differs = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(differs);
+}
 } // anonymous namespace
 } // namespace doris

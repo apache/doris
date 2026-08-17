@@ -3981,6 +3981,14 @@ public class Env {
             sb.append(colocateTable).append("\"");
         }
 
+        // distribution hash type (only emit when non-default to keep output stable)
+        DistributionInfo defaultDistInfo = olapTable.getDefaultDistributionInfo();
+        if (defaultDistInfo instanceof HashDistributionInfo
+                && ((HashDistributionInfo) defaultDistInfo).getHashType() != HashDistributionInfo.HashType.CRC32) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_HASH_TYPE).append("\" = \"");
+            sb.append(((HashDistributionInfo) defaultDistInfo).getHashType().name().toLowerCase()).append("\"");
+        }
+
         // dynamic partition
         if (olapTable.dynamicPartitionExists()) {
             sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().getProperties(replicaAlloc));

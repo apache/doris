@@ -250,6 +250,7 @@ private:
     TTupleId _output_tuple_id = -1;
 
     TPartitionType::type _part_type;
+    const TDistributionHashType::type _distribution_hash_type = TDistributionHashType::CRC32;
 
     // serialized batches for broadcasting; we need two so we can write
     // one while the other one is still being sent

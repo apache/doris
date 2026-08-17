@@ -222,6 +222,42 @@ inline TOlapTableLocationParam build_location_param() {
     return location;
 }
 
+// A single range partition [-1000, 1000) with `num_buckets` tablets (ids 300, 301, ...),
+// bucketed by the integer column "c1" using the given distribution hash type. The range spans
+// negatives so identity's negative-safe modulo can be exercised end-to-end. For identity,
+// tablet_index for a row is ((value % num_buckets) + num_buckets) % num_buckets, bit-identical
+// with FE pruning.
+inline TOlapTablePartitionParam build_single_col_partition_param(
+        int64_t schema_index_id, int32_t num_buckets, TDistributionHashType::type hash_type) {
+    TOlapTablePartitionParam param;
+    param.db_id = 1;
+    param.table_id = 2;
+    param.version = 0;
+
+    param.__set_partition_type(TPartitionType::RANGE_PARTITIONED);
+    param.__set_partition_columns({"c1"});
+    param.__set_distributed_columns({"c1"});
+    param.__set_distribution_hash_type(hash_type);
+
+    TOlapTablePartition p1;
+    p1.id = 1;
+    p1.num_buckets = num_buckets;
+    p1.__set_is_mutable(true);
+    {
+        TOlapTableIndexTablets index_tablets;
+        index_tablets.index_id = schema_index_id;
+        for (int32_t i = 0; i < num_buckets; i++) {
+            index_tablets.tablets.push_back(300 + i);
+        }
+        p1.indexes = {index_tablets};
+    }
+    p1.__set_start_keys({make_int_literal(-1000)});
+    p1.__set_end_keys({make_int_literal(1000)});
+
+    param.partitions = {p1};
+    return param;
+}
+
 } // namespace sink_test_utils
 
 } // namespace doris

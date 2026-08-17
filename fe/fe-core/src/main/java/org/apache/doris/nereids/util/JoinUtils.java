@@ -262,6 +262,9 @@ public class JoinUtils {
                 || rightHashSpec.getShuffleType() != ShuffleType.NATURAL) {
             return false;
         }
+        if (leftHashSpec.getHashType() != rightHashSpec.getHashType()) {
+            return false;
+        }
 
         final long leftTableId = leftHashSpec.getTableId();
         final long rightTableId = rightHashSpec.getTableId();

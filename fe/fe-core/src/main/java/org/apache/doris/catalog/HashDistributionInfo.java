@@ -33,26 +33,56 @@ import java.util.Objects;
  * Hash Distribution Info.
  */
 public class HashDistributionInfo extends DistributionInfo {
+
+    /**
+     * Hash function type used by HASH distribution to map rows to buckets.
+     *
+     * CRC32 (legacy behavior) is the default for backward compatibility.
+     */
+    public enum HashType {
+        CRC32, IDENTITY;
+    }
+
     @SerializedName(value = "distributionColumns")
     private List<Column> distributionColumns;
+
+    @SerializedName(value = "hashType")
+    private HashType hashType;
 
     public HashDistributionInfo() {
         super();
         this.distributionColumns = new ArrayList<Column>();
+        this.hashType = HashType.CRC32;
     }
 
     public HashDistributionInfo(int bucketNum, List<Column> distributionColumns) {
         super(DistributionInfoType.HASH, bucketNum);
         this.distributionColumns = distributionColumns;
+        this.hashType = HashType.CRC32;
     }
 
     public HashDistributionInfo(int bucketNum, boolean autoBucket, List<Column> distributionColumns) {
         super(DistributionInfoType.HASH, bucketNum, autoBucket);
         this.distributionColumns = distributionColumns;
+        this.hashType = HashType.CRC32;
+    }
+
+    public HashDistributionInfo(int bucketNum, boolean autoBucket, List<Column> distributionColumns,
+            HashType hashType) {
+        super(DistributionInfoType.HASH, bucketNum, autoBucket);
+        this.distributionColumns = distributionColumns;
+        this.hashType = hashType;
     }
 
     public List<Column> getDistributionColumns() {
         return distributionColumns;
+    }
+
+    // null-safe defense against old versions persisted before hashType existed.
+    public HashType getHashType() {
+        return hashType == null
+                ? HashType.CRC32
+                : hashType;
     }
 
     public static void checkDistributionColumnType(String columnName, Type type) throws DdlException {
@@ -101,12 +131,12 @@ public class HashDistributionInfo extends DistributionInfo {
             return false;
         }
         HashDistributionInfo that = (HashDistributionInfo) o;
-        return bucketNum == that.bucketNum && sameDistributionColumns(that);
+        return bucketNum == that.bucketNum && sameDistributionColumns(that) && getHashType() == that.getHashType();
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), distributionColumns, bucketNum);
+        return Objects.hash(super.hashCode(), distributionColumns, bucketNum, getHashType());
     }
 
     @Override
@@ -115,7 +145,8 @@ public class HashDistributionInfo extends DistributionInfo {
         for (Column col : distributionColumns) {
             distriColNames.add(col.getName());
         }
-        DistributionDesc distributionDesc = new HashDistributionDesc(bucketNum, autoBucket, distriColNames);
+        DistributionDesc distributionDesc
+                = new HashDistributionDesc(bucketNum, autoBucket, distriColNames, getHashType());
         return distributionDesc;
     }
 
@@ -168,5 +199,9 @@ public class HashDistributionInfo extends DistributionInfo {
 
     public void setDistributionColumns(List<Column> column) {
         this.distributionColumns = column;
+    }
+
+    public void setHashType(HashType hashType) {
+        this.hashType = hashType;
     }
 }

@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
@@ -117,6 +118,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
+    // hash function type when distribution_type is "HASH"
+    public static final String PROPERTIES_DISTRIBUTION_HASH_TYPE = "distribution_hash_type";
     public static final String PROPERTIES_SEND_CLEAR_ALTER_TASK = "send_clear_alter_tasks";
     /*
      * for upgrade alpha rowset to beta rowset, valid value: v1, v2
@@ -790,6 +793,25 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_COLOCATE_WITH);
         }
         return colocateGroup;
+    }
+
+    // analyze the hash function type of table; defaults to CRC32
+    public static HashDistributionInfo.HashType analyzeDistributionHashType(Map<String, String> properties)
+            throws AnalysisException {
+        HashDistributionInfo.HashType hashType = HashDistributionInfo.HashType.CRC32;
+        if (properties != null && properties.containsKey(PROPERTIES_DISTRIBUTION_HASH_TYPE)) {
+            String value = properties.get(PROPERTIES_DISTRIBUTION_HASH_TYPE);
+            properties.remove(PROPERTIES_DISTRIBUTION_HASH_TYPE);
+            if (value.equalsIgnoreCase("crc32")) {
+                hashType = HashDistributionInfo.HashType.CRC32;
+            } else if (value.equalsIgnoreCase("identity")) {
+                hashType = HashDistributionInfo.HashType.IDENTITY;
+            } else {
+                throw new AnalysisException("Invalid " + PROPERTIES_DISTRIBUTION_HASH_TYPE + ": " + value
+                        + ". Supported values are 'crc32' and 'identity'.");
+            }
+        }
+        return hashType;
     }
 
     public static long analyzeTimeout(Map<String, String> properties, long defaultTimeout) throws AnalysisException {

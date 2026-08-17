@@ -191,4 +191,25 @@ private:
     }
 };
 
+// Bucket-shuffle repartitioner for tables bucketed with the identity hash. The (single, integer)
+// distribution column value is taken modulo the bucket count (== _partition_count == channel count),
+// so the row lands on the channel matching its storage bucket.
+// Must stay bit-identical with FE HashDistributionPruner and BE tablet_info.cpp::_compute_tablet_index_for_identity:
+// bucket = ((int128(v) % n) + n) % n, NULL -> 0.
+class IdentityHashPartitioner : public Crc32HashPartitioner<ShuffleChannelIds> {
+public:
+    IdentityHashPartitioner(int partition_count)
+            : Crc32HashPartitioner<ShuffleChannelIds>(partition_count) {}
+
+    Status clone(RuntimeState* state, std::unique_ptr<PartitionerBase>& partitioner) override;
+
+private:
+    void _do_hash(const ColumnPtr& column, HashValType* __restrict result, int idx) const override;
+
+    void _initialize_hash_vals(size_t rows) const override {
+        _hash_vals.resize(rows);
+        std::ranges::fill(_hash_vals, 0);
+    }
+};
+
 } // namespace doris

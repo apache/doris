@@ -18,9 +18,11 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HashDistributionInfo.HashType;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.Config;
 
@@ -62,12 +64,20 @@ public class HashDistributionPruner implements DistributionPruner {
 
     private boolean isBaseIndexSelected;
 
+    private final HashType hashType;
+
     public HashDistributionPruner(List<Column> schema, List<Long> bucketsList, List<Column> columns,
             Map<String, PartitionColumnFilter> filters, int hashMod, boolean isBaseIndexSelected) {
+        this(schema, bucketsList, columns, filters, hashMod, isBaseIndexSelected, HashType.CRC32);
+    }
+
+    public HashDistributionPruner(List<Column> schema, List<Long> bucketsList, List<Column> columns,
+            Map<String, PartitionColumnFilter> filters, int hashMod, boolean isBaseIndexSelected, HashType hashType) {
         this.bucketsList = bucketsList;
         this.distributionColumns = columns;
         this.hashMod = hashMod;
         this.isBaseIndexSelected = isBaseIndexSelected;
+        this.hashType = hashType;
         if (isBaseIndexSelected) {
             this.distributionColumnFilters = filters;
         } else {
@@ -90,8 +100,27 @@ public class HashDistributionPruner implements DistributionPruner {
     public Collection<Long> prune(int columnId, PartitionKey hashKey, int complex) {
         if (columnId == distributionColumns.size()) {
             // compute Hash Key
-            long hashValue = hashKey.getHashValue();
-            return Lists.newArrayList(bucketsList.get((int) ((hashValue & 0xffffffff) % hashMod)));
+            int bucket;
+            if (hashType == HashType.IDENTITY) {
+                // Must stay bit-identical with BE find_tablets.
+                // identity: single integer column, value itself modulo hashMod;
+                // null -> bucket 0; negative-safe modulo. Use BigInteger to match BE's
+                // full-width (up to int128 for LARGEINT) modulo exactly.
+                LiteralExpr key = hashKey.getKeys().get(0);
+                if (key.isNullLiteral()) {
+                    bucket = 0;
+                } else {
+                    java.math.BigInteger v = (key instanceof LargeIntLiteral)
+                            ? ((LargeIntLiteral) key).getRealValue()
+                            : java.math.BigInteger.valueOf(key.getLongValue());
+                    java.math.BigInteger n = java.math.BigInteger.valueOf(hashMod);
+                    bucket = v.mod(n).intValue();
+                }
+            } else {
+                long hashValue = hashKey.getHashValue();
+                bucket = (int) ((hashValue & 0xffffffff) % hashMod);
+            }
+            return Lists.newArrayList(bucketsList.get(bucket));
         }
         Column keyColumn = distributionColumns.get(columnId);
         PartitionColumnFilter filter = distributionColumnFilters.get(keyColumn.getName());

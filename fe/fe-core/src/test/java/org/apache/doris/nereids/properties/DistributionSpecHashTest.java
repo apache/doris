@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.catalog.HashDistributionInfo.HashType;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 
@@ -386,5 +387,91 @@ public class DistributionSpecHashTest {
 
         Assertions.assertFalse(bucketed1.satisfy(bucketed2));
         Assertions.assertFalse(bucketed2.satisfy(bucketed1));
+    }
+
+    // Two NATURAL specs identical except for hashType must be unequal and hash differently, so the
+    // memo (which keys PhysicalProperties on DistributionSpecHash) never collapses a crc32 and an
+    // identity distribution into the same group entry and mis-shares their enforcer/cost.
+    @Test
+    public void testEqualsAndHashCodeConsiderHashType() {
+        DistributionSpecHash crc32 = naturalSpec(HashType.CRC32);
+        DistributionSpecHash crc32Same = naturalSpec(HashType.CRC32);
+        DistributionSpecHash identity = naturalSpec(HashType.IDENTITY);
+
+        Assertions.assertEquals(crc32, crc32Same);
+        Assertions.assertEquals(crc32.hashCode(), crc32Same.hashCode());
+        Assertions.assertNotEquals(crc32, identity);
+        Assertions.assertNotEquals(crc32.hashCode(), identity.hashCode());
+    }
+
+    // satisfy()'s equal branch (NATURAL/STORAGE_BUCKETED/EXECUTION_BUCKETED target) must reject a
+    // provider whose hashType differs, otherwise a crc32-bucketed child would be wrongly accepted as
+    // satisfying an identity NATURAL requirement (and vice versa) and skip the needed reshuffle.
+    @Test
+    public void testSatisfyEqualBranchChecksHashType() {
+        DistributionSpecHash crc32Provider = naturalSpec(HashType.CRC32);
+        DistributionSpecHash crc32Required = naturalSpec(HashType.CRC32);
+        DistributionSpecHash identityRequired = naturalSpec(HashType.IDENTITY);
+
+        Assertions.assertTrue(crc32Provider.satisfy(crc32Required));
+        Assertions.assertFalse(crc32Provider.satisfy(identityRequired));
+
+        DistributionSpecHash identityProvider = naturalSpec(HashType.IDENTITY);
+        Assertions.assertTrue(identityProvider.satisfy(identityRequired));
+        Assertions.assertFalse(identityProvider.satisfy(crc32Required));
+    }
+
+    // The REQUIRE branch is hashType-agnostic: execution shuffle is always crc32, and a REQUIRE spec
+    // defaults to CRC32. An identity NATURAL/bucketed provider must still satisfy a plain REQUIRE so
+    // identity single-table plans are not broken.
+    @Test
+    public void testSatisfyRequireBranchIgnoresHashType() {
+        DistributionSpecHash require = new DistributionSpecHash(
+                Lists.newArrayList(new ExprId(1), new ExprId(2)),
+                ShuffleType.REQUIRE,
+                1,
+                Sets.newHashSet(1L),
+                Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
+                requireMap()
+        );
+
+        DistributionSpecHash naturalIdentity = new DistributionSpecHash(
+                Lists.newArrayList(new ExprId(1), new ExprId(2)),
+                ShuffleType.NATURAL,
+                1,
+                -1L,
+                Sets.newHashSet(1L),
+                Lists.newArrayList(Sets.newHashSet(new ExprId(1)), Sets.newHashSet(new ExprId(2))),
+                requireMap(),
+                HashType.IDENTITY
+        );
+
+        Assertions.assertTrue(naturalIdentity.satisfy(require));
+    }
+
+    private Map<ExprId, Integer> requireMap() {
+        Map<ExprId, Integer> map = Maps.newHashMap();
+        map.put(new ExprId(1), 0);
+        map.put(new ExprId(2), 1);
+        return map;
+    }
+
+    private DistributionSpecHash naturalSpec(HashType hashType) {
+        Map<ExprId, Integer> map = Maps.newHashMap();
+        map.put(new ExprId(0), 0);
+        map.put(new ExprId(1), 0);
+        map.put(new ExprId(2), 1);
+        map.put(new ExprId(3), 1);
+        return new DistributionSpecHash(
+                Lists.newArrayList(new ExprId(0), new ExprId(2)),
+                ShuffleType.NATURAL,
+                0,
+                -1L,
+                Sets.newHashSet(0L),
+                Lists.newArrayList(Sets.newHashSet(new ExprId(0), new ExprId(1)),
+                                Sets.newHashSet(new ExprId(2), new ExprId(3))),
+                map,
+                hashType
+        );
     }
 }

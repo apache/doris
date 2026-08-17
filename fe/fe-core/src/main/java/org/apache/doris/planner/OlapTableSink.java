@@ -69,6 +69,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
+import org.apache.doris.thrift.TDistributionHashType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TNodeInfo;
@@ -486,6 +487,14 @@ public class OlapTableSink extends DataSink {
                 }
             }
         }
+    }
+
+    private TDistributionHashType getTDistributionHashType(DistributionInfo distInfo) {
+        if (distInfo instanceof HashDistributionInfo
+                && ((HashDistributionInfo) distInfo).getHashType() == HashDistributionInfo.HashType.IDENTITY) {
+            return TDistributionHashType.IDENTITY;
+        }
+        return TDistributionHashType.CRC32;
     }
 
     private List<String> getDistColumns(DistributionInfo distInfo) throws UserException {
@@ -976,6 +985,7 @@ public class OlapTableSink extends DataSink {
         partitionParam.setTableId(table.getId());
         partitionParam.setVersion(0);
         partitionParam.setPartitionType(partType.toThrift());
+        partitionParam.setDistributionHashType(getTDistributionHashType(table.getDefaultDistributionInfo()));
 
         // create shadow partition for empty auto partition table. only use in this load.
         if (enableAutomaticPartition && partitionIds.isEmpty()) {

@@ -1645,6 +1645,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                                 + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
                                 + ((HashDistributionInfo) defaultDistributionInfo).getDistributionColumns());
                     }
+                    // New partition inherits the table's hash type, otherwise BE would bucket rows with one
+                    // hash function while FE prunes with another, making the data unreadable.
+                    hashDistributionInfo.setHashType(((HashDistributionInfo) defaultDistributionInfo).getHashType());
                 } else if (distributionInfo.getType() == DistributionInfoType.RANDOM) {
                     RandomDistributionInfo randomDistributionInfo = (RandomDistributionInfo) distributionInfo;
                     if (randomDistributionInfo.getBucketNum() <= 0) {

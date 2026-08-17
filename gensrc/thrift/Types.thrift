@@ -790,6 +790,12 @@ struct TColumnGroup {
     2: required list<i32> columns_in_group
 }
 
+// hash function type used by HASH distribution to map rows to buckets.
+enum TDistributionHashType {
+    CRC32 = 0,
+    IDENTITY = 1
+}
+
 const i32 TSNAPSHOT_REQ_VERSION1 = 3; // corresponding to alpha rowset
 const i32 TSNAPSHOT_REQ_VERSION2 = 4; // corresponding to beta rowset
 // the snapshot request should always set prefer snapshot version to TPREFER_SNAPSHOT_REQ_VERSION
