@@ -46,12 +46,14 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.collections4.CollectionUtils;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -153,6 +155,11 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         ConnectContext connectContext = cascadesContext.getConnectContext();
         AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
+        // An exemption the engine keeps for itself rather than offering to the authorization source: the two
+        // literal accounts root@'%' and admin@'%' - not everyone holding ADMIN_PRIV - are subject to no row
+        // filter and no column mask, whichever source governs the table. It predates the plugin contract and
+        // is documented as an engine-reserved exemption in fe-authorization/README.md, alongside the two the
+        // manager applies; a source is never asked, so it cannot grant these accounts a policy of its own.
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
             return RelatedPolicy.NO_POLICY;
         }
@@ -178,11 +185,19 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         StatementContext statementContext = cascadesContext.getStatementContext();
         Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
         boolean hasDataMask = false;
+        // One question for the whole relation rather than one per column: that is what the contract offers
+        // and why - a source answering over the network would otherwise be reached once per column.
+        Set<String> outputColumns = new LinkedHashSet<>();
         for (Slot slot : logicalPlan.getOutput()) {
-            Optional<DataMaskSpec> dataMaskPolicy = accessManager.evalDataMaskPolicy(
-                    currentUserIdentity, ctlName, dbName, tableName, slot.getName());
+            outputColumns.add(slot.getName());
+        }
+        Map<String, DataMaskSpec> masksByColumn = accessManager.evalDataMaskPolicies(
+                currentUserIdentity, ctlName, dbName, tableName, outputColumns);
+        for (Slot slot : logicalPlan.getOutput()) {
+            Optional<DataMaskSpec> dataMaskPolicy = Optional.ofNullable(
+                    masksByColumn.get(slot.getName().toLowerCase()));
             if (dataMaskPolicy.isPresent()) {
-                Expression unboundExpr = nereidsParser.parseExpression(dataMaskPolicy.get().getMaskSql());
+                Expression unboundExpr = parsePolicyExpression(nereidsParser, dataMaskPolicy.get().getMaskSql());
                 Expression childOfAlias
                         = unboundExpr instanceof UnboundAlias ? unboundExpr.child(0) : unboundExpr;
                 Alias alias = new Alias(
@@ -207,9 +222,28 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         }
 
         return new RelatedPolicy(
-                Optional.ofNullable(CollectionUtils.isEmpty(rowPolicies) ? null : mergeRowPolicy(rowPolicies)),
+                Optional.ofNullable(CollectionUtils.isEmpty(rowPolicies)
+                        ? null : mergeRowPolicy(rowPolicies, nereidsParser)),
                 hasDataMask ? Optional.of(dataMasks.build()) : Optional.empty()
         );
+    }
+
+    /**
+     * Parses text a security policy is made of, under the mode such text is written in rather than the
+     * caller's.
+     *
+     * <p>The caller here is the very user the policy restricts, and {@code sql_mode} is theirs to set with no
+     * privilege at all. See {@link SqlModeHelper#MODE_FOR_POLICY_TEXT}.
+     *
+     * <p>The result is not cached across statements, and cannot be here: what the planner holds is the SQL
+     * text a source handed over, not the source's own object, so a cache would have to be keyed by that text
+     * and would outlive the policy it came from. A predicate containing a subquery could not be shared
+     * anyway - the {@code RelationId} and {@code ExprId} inside come from the statement's own generator. A
+     * built-in row policy therefore pays one parse per governed relation per query, where before this
+     * contract it paid none; a source reached over the network was always going to hand over text.
+     */
+    private static Expression parsePolicyExpression(NereidsParser parser, String sql) {
+        return SqlModeHelper.withSqlMode(SqlModeHelper.MODE_FOR_POLICY_TEXT, () -> parser.parseExpression(sql));
     }
 
     private RelatedPolicy findPolicyByMvRefresh(Map<TableIf, Set<Expression>> mvRefreshPredicates,
@@ -222,14 +256,13 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         return RelatedPolicy.NO_POLICY;
     }
 
-    private Expression mergeRowPolicy(List<RowFilterSpec> policies) {
+    private Expression mergeRowPolicy(List<RowFilterSpec> policies, NereidsParser nereidsParser) {
         List<Expression> orList = new ArrayList<>();
         List<Expression> andList = new ArrayList<>();
-        NereidsParser nereidsParser = new NereidsParser();
         for (RowFilterSpec policy : policies) {
             // The authorization source hands us the predicate as SQL text - the form both a Ranger policy and
             // a CREATE ROW POLICY statement natively have - and parsing it is the engine's job.
-            Expression wherePredicate = nereidsParser.parseExpression(policy.getFilterSql());
+            Expression wherePredicate = parsePolicyExpression(nereidsParser, policy.getFilterSql());
             switch (policy.getMergeType()) {
                 case PERMISSIVE:
                     orList.add(wherePredicate);
