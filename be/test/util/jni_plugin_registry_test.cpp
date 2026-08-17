@@ -112,7 +112,7 @@ TEST_F(PluginRefTableTest, EveryPairIsClaimedOnce) {
 // knows whether any plugin was ever loaded - the guard moved here when the class loader that
 // used to answer this went away.
 TEST(PluginRegistryTest, CleanUdfCacheIsSilentWhenNoPluginWasEverLoaded) {
-    EXPECT_TRUE(PluginRegistry::clean_udf_cache("f(INT)").ok());
+    EXPECT_TRUE(PluginRegistry::clean_udf_cache(4242, "f(INT)").ok());
 }
 
 // A BE that reads no Java table format runs with no JVM at all. Everything else reaches Java

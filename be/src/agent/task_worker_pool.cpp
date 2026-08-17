@@ -2585,7 +2585,12 @@ void clean_udf_cache_callback(const TAgentTaskRequest& req) {
     const auto& clean_req = req.clean_udf_cache_req;
 
     if (doris::config::enable_java_support) {
-        static_cast<void>(Jni::PluginRegistry::clean_udf_cache(clean_req.function_signature));
+        // The id, not just the signature: it is what the java-udf plugin keys its compiled
+        // classes by, because the signature carries no database and FE renders a variadic one
+        // differently here than on the requests that execute the function.
+        static_cast<void>(Jni::PluginRegistry::clean_udf_cache(
+                clean_req.__isset.function_id ? clean_req.function_id : 0,
+                clean_req.function_signature));
     }
 
     if (clean_req.__isset.function_id && clean_req.function_id > 0) {

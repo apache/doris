@@ -47,7 +47,7 @@ Status PluginRegistry::_init_registry() {
     RETURN_IF_ERROR(_registry.cls.get_static_method(
             env, "createUdfExecutor", "(Ljava/lang/String;Ljava/lang/String;[B)Ljava/lang/Object;",
             &_registry.create_udf_executor));
-    RETURN_IF_ERROR(_registry.cls.get_static_method(env, "cleanUdfCache", "(Ljava/lang/String;)V",
+    RETURN_IF_ERROR(_registry.cls.get_static_method(env, "cleanUdfCache", "(JLjava/lang/String;)V",
                                                     &_registry.clean_udf_cache));
     RETURN_IF_ERROR(_registry.cls.get_static_method(env, "pluginStatusJson", "()Ljava/lang/String;",
                                                     &_registry.plugin_status_json));
@@ -189,7 +189,7 @@ Status PluginRegistry::create_udf_executor(JNIEnv* env, const PluginRef& ref,
     return Util::get_object_class(env, *executor, executor_class);
 }
 
-Status PluginRegistry::clean_udf_cache(const std::string& function_signature) {
+Status PluginRegistry::clean_udf_cache(int64_t function_id, const std::string& function_signature) {
     if (!_registry_ready) {
         return Status::OK();
     }
@@ -202,6 +202,7 @@ Status PluginRegistry::clean_udf_cache(const std::string& function_signature) {
     LocalString signature;
     RETURN_IF_ERROR(LocalString::new_string(env, function_signature.c_str(), &signature));
     return registry->cls.call_static_void_method(env, registry->clean_udf_cache)
+            .with_arg(static_cast<jlong>(function_id))
             .with_arg(signature)
             .call();
 }
