@@ -339,6 +339,11 @@ public class JdbcJniScanner extends JniScanner {
     }
 
     private void initializeClassLoaderAndDataSource() {
+        // Before the driver classes are loaded, because that is when they read these. Both
+        // properties this sets are there to keep a driver's own cleanup thread from pinning the
+        // classloader that loaded it - which matters more now than it did, not less: every plugin
+        // has a classloader of its own, and a driver thread holding one keeps a whole plugin alive.
+        typeHandler.setSystemProperties();
         this.classLoader = JdbcDriverUtils.driverClassLoader(jdbcDriverUrl, getClass().getClassLoader());
         // Must set thread context classloader BEFORE creating HikariDataSource,
         // because HikariCP's setDriverClassName() loads the driver class from

@@ -73,9 +73,9 @@ public abstract class JniScanner {
 
     /**
      * Table schema of a table-valued function source (for example an avro file), serialized the way
-     * BE expects it. Plugins normally build the string with the {@code TableSchema} helper in the
-     * plugin toolkit rather than by hand; the SPI keeps it a {@code String} so that no JSON library
-     * has to live on the SPI boundary.
+     * BE expects it. It stays a {@code String} on the SPI boundary so that no JSON library has to
+     * live there; a plugin serializes it with whatever it already ships. Only a scanner behind a
+     * schema-inferring TVF implements this at all - the default is to refuse.
      */
     protected String parseTableSchema() throws UnsupportedOperationException {
         throw new UnsupportedOperationException();
@@ -120,9 +120,13 @@ public abstract class JniScanner {
             int numRows;
             try {
                 numRows = getNext();
-            } catch (IOException e) {
+            } catch (Throwable t) {
+                // Throwable, not IOException: a scanner is free to throw a RuntimeException - most
+                // table format libraries do - and the contract BE relies on is that the table is
+                // gone whenever this method does not hand back an address. BE's close() retries
+                // releaseTable() as a backstop, but that is a backstop and not the contract.
                 releaseTable();
-                throw e;
+                throw t;
             }
             if (numRows == 0) {
                 releaseTable();

@@ -84,8 +84,8 @@ close()
 
 `getNextBatchMeta()` returning **0 is end of stream, not an error and not an address**. By the time
 it returns 0 the vector table has already been released, so BE must not dereference anything from
-the previous batch afterwards. The same applies when the scan throws: the table is released before
-the exception propagates.
+the previous batch afterwards. The same applies when the scan throws, whatever it throws: the table
+is released before the exception propagates.
 
 ---
 
@@ -162,8 +162,7 @@ What a column contributes, and how many words (`ColumnType.metaSize()`):
 | struct | 2 + children | nullMap address, then each child recursively |
 
 The word count in the table includes the const-flag slot that `metaSize()` accounts for, which is
-why it is one more than the number of addresses listed. A null address means "no null map" (the
-column has no nulls) — it is not an error.
+why it is one more than the number of addresses listed.
 
 ### The two directions do not use the same layout
 
@@ -171,9 +170,17 @@ The table above is the **writer** direction: C++ builds the meta array in
 `JniDataBridge::_fill_column_meta`, which writes the const flag, and Java reads it in
 `VectorColumn`'s readable constructor, which reads the const flag.
 
+In that direction a null address means "no null map" (the column has no nulls) and is not an error;
+`JniDataBridge::_fill_column_meta` writes one for a column that is not nullable.
+
 The **scanner** direction omits that word. `VectorColumn.updateMeta` writes only the addresses, and
 `JniDataBridge::fill_column` reads only the addresses. Each direction is self-consistent, so both
 work, but they are not the same layout and `metaSize()` describes only the first of them.
+
+A scanner always writes a real null map address. 0 is not "no null map" here: `fill_column` reads
+the first word of an unsupported column as the marker that produces
+`Unsupported type ... in java side`, so a 0 written by a scanner fails the query with that message
+whatever the type actually was.
 
 The practical consequence: **a meta address obtained from a writable `VectorTable` cannot be read
 back by `VectorTable.createReadableTable`**. Doing so shifts every column by one word, so the const
