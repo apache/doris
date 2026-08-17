@@ -246,6 +246,12 @@ public abstract class AuthorizedResource {
             this.database = Objects.requireNonNull(database, "database is required");
             this.table = Objects.requireNonNull(table, "table is required");
             Objects.requireNonNull(columns, "columns is required");
+            if (columns.isEmpty()) {
+                // Not a harmless edge case, for the same reason an empty AccessRequirement is not: every
+                // source decides these by walking the columns and refusing on the first one it must, so a
+                // question about no columns is a loop with nothing in it - answered yes, by all four of them.
+                throw new IllegalArgumentException("a question about columns must name at least one column");
+            }
             // Insertion order is kept: a denial names the first column that failed, and a set that reorders
             // would make which column is reported depend on hashing.
             this.columns = Collections.unmodifiableSet(new LinkedHashSet<>(columns));

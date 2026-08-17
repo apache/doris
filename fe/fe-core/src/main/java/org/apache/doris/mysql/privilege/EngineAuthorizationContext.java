@@ -77,7 +77,11 @@ public class EngineAuthorizationContext implements AuthorizationContext {
             // question from the same policies. Same verdict, twice the evaluations.
             return false;
         }
+        // Under the circumstances of the check this source is answering, not whatever connection happens to be
+        // on the thread: the source that governs instance scope may decide from the client address, and this
+        // question is about the same statement. A check can reach here before its connection is installed on
+        // the thread - the HTTP cookie path does - where the thread holds another request's, or none.
         return manager.decide(AccessTranslation.userIdentityOf(subject), AuthorizedResource.global(),
-                requirement);
+                requirement, manager.contextOfCheckInFlight());
     }
 }

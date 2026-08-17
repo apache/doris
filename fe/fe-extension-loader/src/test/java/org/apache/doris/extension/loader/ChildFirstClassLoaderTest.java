@@ -28,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.List;
 
 class ChildFirstClassLoaderTest {
 
@@ -48,21 +49,42 @@ class ChildFirstClassLoaderTest {
      *
      * <p>It works because {@link ChildFirstClassLoader} overrides only the plural {@code getResources}; the
      * singular one keeps the JDK's parent-first search. Overriding that one too, for symmetry with the class
-     * loading policy, is the change this test exists to fail.
+     * loading policy, is the change this test exists to fail - so both lookups are asked for a name that
+     * exists on <em>both</em> sides, where the two orders give different answers, and the assertions name
+     * which side each one has to come from.
      */
     @Test
     void configurationFileOnlyTheFeHasIsVisibleToAPlugin() throws IOException {
         Path feConf = Files.createDirectory(tempDir.resolve("conf"));
         Files.write(feConf.resolve("probe-plugin-security.xml"),
                 "<configuration/>".getBytes(StandardCharsets.UTF_8));
+        // A resource of the same name inside the plugin, so that "child-first" and "parent-first" are two
+        // different answers here rather than the same one. With the plugin side empty, both lookups fall back
+        // to the parent and both assertions hold whatever this classloader does with either of them.
         Path pluginJars = Files.createDirectory(tempDir.resolve("plugin"));
+        Files.write(pluginJars.resolve("probe-plugin-security.xml"),
+                "<configuration><!--plugin--></configuration>".getBytes(StandardCharsets.UTF_8));
+        Files.write(feConf.resolve("probe-fe-only.xml"), "<configuration/>".getBytes(StandardCharsets.UTF_8));
 
         try (URLClassLoader fe = new URLClassLoader(new URL[] {feConf.toUri().toURL()}, null);
                 ChildFirstClassLoader plugin = new ChildFirstClassLoader(
                         new URL[] {pluginJars.toUri().toURL()}, fe, Collections.emptyList())) {
-            Assertions.assertNotNull(plugin.getResource("probe-plugin-security.xml"),
+            URL singular = plugin.getResource("probe-plugin-security.xml");
+            Assertions.assertNotNull(singular,
                     "a plugin can no longer read a configuration file out of the FE's conf directory");
-            Assertions.assertTrue(plugin.getResources("probe-plugin-security.xml").hasMoreElements(),
+            Assertions.assertEquals(feConf.resolve("probe-plugin-security.xml").toUri().toURL(), singular,
+                    "the singular getResource() no longer searches the parent first, so a plugin bundling a"
+                            + " file of the same name now shadows the one in the FE's conf directory - which"
+                            + " is where a plugin's own configuration is expected to live");
+
+            List<URL> plural = Collections.list(plugin.getResources("probe-plugin-security.xml"));
+            Assertions.assertEquals(
+                    Collections.singletonList(pluginJars.resolve("probe-plugin-security.xml").toUri().toURL()),
+                    plural,
+                    "the plural getResources() is no longer child-first, so a service-registration file in the"
+                            + " FE now leaks into the plugin's view of its own");
+
+            Assertions.assertTrue(plugin.getResources("probe-fe-only.xml").hasMoreElements(),
                     "the child-first plural lookup lost its fall-back to the parent");
         }
     }

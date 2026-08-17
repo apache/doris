@@ -1746,6 +1746,13 @@ download_ranger_artifacts() {
     local url_prefix="https://${s3BucketName}.${s3Endpoint}/regression/docker/ranger-plugins"
     local name
 
+    # --retry-all-errors needs curl >= 7.71; under `set -eo pipefail` an older curl rejects the flag and
+    # aborts start_ranger outright, so it is only passed when this curl knows it.
+    local retry_all_errors=()
+    if curl --help all 2>/dev/null | grep -q -- '--retry-all-errors'; then
+        retry_all_errors=(--retry-all-errors)
+    fi
+
     mkdir -p "${dest}"
     for name in ranger-servicedef-doris.json \
         mysql-connector-java-8.0.25.jar \
@@ -1755,7 +1762,7 @@ download_ranger_artifacts() {
             continue
         fi
         echo "downloading ${url_prefix}/${name}"
-        curl -fsSL --retry 10 --retry-all-errors --retry-delay 5 \
+        curl -fsSL --retry 10 "${retry_all_errors[@]}" --retry-delay 5 \
             --connect-timeout 30 --speed-limit 1024 --speed-time 120 \
             -o "${dest}/${name}.part" "${url_prefix}/${name}"
         mv "${dest}/${name}.part" "${dest}/${name}"

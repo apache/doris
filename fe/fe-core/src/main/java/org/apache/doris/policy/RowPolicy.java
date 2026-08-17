@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.qe.SqlModeHelper;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -220,10 +221,15 @@ public class RowPolicy extends Policy {
     private CreatePolicyCommand parseCreateStatement() throws AnalysisException {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = getOriginStmt();
+        // Under the mode a security policy's text is read under rather than the caller's: getFilterSql() can
+        // reach here on the thread of the very user this policy restricts, and sql_mode is theirs to set with
+        // no privilege at all. See SqlModeHelper#MODE_FOR_POLICY_TEXT.
         if (stmtIdx <= 0) {
-            return (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+            return SqlModeHelper.withSqlMode(SqlModeHelper.MODE_FOR_POLICY_TEXT,
+                    () -> (CreatePolicyCommand) nereidsParser.parseSingle(sql));
         }
-        List<Pair<LogicalPlan, StatementContext>> statements = nereidsParser.parseMultiple(sql);
+        List<Pair<LogicalPlan, StatementContext>> statements = SqlModeHelper.withSqlMode(
+                SqlModeHelper.MODE_FOR_POLICY_TEXT, () -> nereidsParser.parseMultiple(sql));
         if (stmtIdx >= statements.size()) {
             throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "]: statement " + stmtIdx
                     + " of " + statements.size() + " in " + sql);

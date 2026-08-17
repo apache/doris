@@ -44,10 +44,20 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 /**
  * What the Ranger-backed authorization sources have in common: they answer out of a Ranger service's
- * policies, and they honour whoever governs instance scope.
+ * policies, they honour whoever governs instance scope, and they stop answering the moment they are closed.
+ *
+ * <p>Both halves of that last part live here rather than in each source, because both are the same rule read
+ * twice: an answer this source cannot stand behind is never given. A closed controller refuses instead of
+ * answering ({@link #markClosed}, {@link #whileOpen} and friends), and a Ranger plugin that has no answer to
+ * give - its policy engine not yet initialized, or being cleaned up - is a refusal too, not an empty policy
+ * set. Getting the second one wrong is silent: the engine reads "no row filter, no column mask" as licence to
+ * read the table whole and in the clear.
  */
 public abstract class RangerAccessController implements AuthorizationPlugin {
     private static final Logger LOG = LogManager.getLogger(RangerAccessController.class);
@@ -64,10 +74,119 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
     private final AuthorizationContext context;
     private final boolean deferToGlobalScopeAuthority;
 
+    /**
+     * Guards the Ranger plugin against a check that is still in flight when this controller is taken away.
+     *
+     * <p>The manager hands a controller out without holding a lock and closes it outside every lock -
+     * deliberately, so that a slow plugin close never blocks unrelated DDL - so a query can be holding this
+     * controller while another thread closes it. Under the read lock the plugin stays alive until that check
+     * finishes; once the write lock has been taken nothing reaches the plugin from here at all, and every
+     * path refuses rather than answers - including the two data policy paths, where refusing means throwing.
+     */
+    private final ReentrantReadWriteLock lifecycleLock = new ReentrantReadWriteLock();
+    private volatile boolean closed;
+
     protected RangerAccessController(Map<String, String> properties, AuthorizationContext context) {
         this.context = Objects.requireNonNull(context, "authorization context is required");
         this.deferToGlobalScopeAuthority = deferenceFrom(properties);
     }
+
+    /**
+     * Fences this controller off, so that nothing reaches the Ranger plugin through it from here on.
+     *
+     * <p>Whatever stops the plugin has to run after this returns rather than inside it: {@code cleanup()}
+     * stops the policy refresher by interrupting it and joining without a timeout, so with the write lock held
+     * over an unreachable Ranger admin every check on this source would queue behind the whole REST timeout -
+     * a {@link ReentrantReadWriteLock} is not fair, and a reader arriving after a waiting writer waits too.
+     *
+     * @return whether this call is the one that closed it; false when it was closed already
+     */
+    protected final boolean markClosed() {
+        lifecycleLock.writeLock().lock();
+        try {
+            if (closed) {
+                return false;
+            }
+            closed = true;
+            return true;
+        } finally {
+            lifecycleLock.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Answers {@code question} with the Ranger plugin held alive, and refuses once this controller is closed.
+     *
+     * <p>Refusing is throwing, because the callers are the two data policy methods and their empty answers -
+     * no row filter, no column mask - mean "this source defines no policy", which the engine acts on by
+     * reading the table unfiltered and unmasked. A source that cannot answer must not say that.
+     */
+    protected final <T> T whileOpen(Supplier<T> question) {
+        lifecycleLock.readLock().lock();
+        try {
+            if (closed) {
+                throw new IllegalStateException("authorization source " + name() + " has been closed; it"
+                        + " cannot say which row filters or column masks apply");
+            }
+            return question.get();
+        } finally {
+            lifecycleLock.readLock().unlock();
+        }
+    }
+
+    /** As {@link #whileOpen}, for a check answered with a verdict: a closed controller grants nothing. */
+    protected final boolean decideWhileOpen(BooleanSupplier check) {
+        lifecycleLock.readLock().lock();
+        try {
+            if (closed) {
+                LOG.warn("Refusing a check against authorization source {}: it has been closed.", name());
+                return false;
+            }
+            return check.getAsBoolean();
+        } finally {
+            lifecycleLock.readLock().unlock();
+        }
+    }
+
+    /** As {@link #decideWhileOpen}, for a check that refuses by throwing and names what it refused. */
+    protected final void checkWhileOpen(AuthorizedResource resource, PluginCheck check)
+            throws AccessDeniedException {
+        lifecycleLock.readLock().lock();
+        try {
+            if (closed) {
+                throw AccessDeniedException.withMessage("authorization source " + name()
+                        + " has been closed", resource, name());
+            }
+            check.run();
+        } finally {
+            lifecycleLock.readLock().unlock();
+        }
+    }
+
+    /** One check inside this source; refusing is the only thing it may fail with. */
+    @FunctionalInterface
+    protected interface PluginCheck {
+        void run() throws AccessDeniedException;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Final so that the fence is on every path in, not only on the ones that reach the Ranger plugin: a
+     * check can be granted without the plugin being asked at all - by deference to whoever governs instance
+     * scope - and a closed source must not grant that either. The places inside that do reach the plugin are
+     * fenced as well, because they are also reached from a cascade that may be part way down when this
+     * controller is closed; the read lock is reentrant, so paying for it twice costs nothing.
+     */
+    @Override
+    public final void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
+            AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
+        checkWhileOpen(resource, () -> checkPrivilegeInternal(subject, resource, requirement, context));
+    }
+
+    /** What this Ranger service decides about {@code resource}, asked only while this source is open. */
+    protected abstract void checkPrivilegeInternal(AuthorizedSubject subject, AuthorizedResource resource,
+            AccessRequirement requirement, AccessContext context) throws AccessDeniedException;
 
     /** What this source may ask the engine. */
     protected AuthorizationContext getContext() {
@@ -167,6 +286,11 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
     @Override
     public List<RowFilterSpec> getRowFilters(AuthorizedSubject subject, AuthorizedResource.Table table,
             AccessContext context) {
+        return whileOpen(() -> evalRowFilterPolicies(subject, table));
+    }
+
+    private List<RowFilterSpec> evalRowFilterPolicies(AuthorizedSubject subject,
+            AuthorizedResource.Table table) {
         RangerAccessResourceImpl resource = createResource(table.getCatalog(), table.getDatabase(),
                 table.getTable());
         RangerAccessRequestImpl request = createRequest(subject);
@@ -182,7 +306,7 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
             LOG.debug("ranger response: {}", policy);
         }
         if (policy == null) {
-            return res;
+            throw noAnswerFrom(request);
         }
         String filterExpr = policy.getFilterExpr();
         if (StringUtils.isEmpty(filterExpr)) {
@@ -196,13 +320,29 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
     @Override
     public Map<String, DataMaskSpec> getDataMasks(AuthorizedSubject subject, AuthorizedResource.Table table,
             Set<String> columns, AccessContext context) {
-        Map<String, DataMaskSpec> masks = new HashMap<>();
-        for (String column : columns) {
-            // One request per column: a masking policy in Ranger is written against a column, and the plugin
-            // evaluates them one resource at a time.
-            evalDataMaskPolicy(subject, table, column).ifPresent(mask -> masks.put(column, mask));
-        }
-        return masks;
+        return whileOpen(() -> {
+            Map<String, DataMaskSpec> masks = new HashMap<>();
+            for (String column : columns) {
+                // One request per column: a masking policy in Ranger is written against a column, and the
+                // plugin evaluates them one resource at a time.
+                evalDataMaskPolicy(subject, table, column).ifPresent(mask -> masks.put(column, mask));
+            }
+            return masks;
+        });
+    }
+
+    /**
+     * The Ranger plugin had no answer at all, which is not the same as "no policy applies here".
+     *
+     * <p>{@code RangerBasePlugin} answers null when its policy engine cannot answer - it has not downloaded
+     * the service's policies yet, or it is being cleaned up. Reading that as "no row filter, no column mask"
+     * would hand back an unfiltered, unmasked read of a table Ranger governs, and nothing anywhere would say
+     * so; the privilege path in {@link #checkRequestResult} reads the same null the same way and refuses.
+     */
+    private IllegalStateException noAnswerFrom(RangerAccessRequestImpl request) {
+        return new IllegalStateException("the Ranger policy engine of authorization source " + name()
+                + " has no answer for " + request.getResource().getAsString() + "; please check your ranger"
+                + " config and make sure the policy engine is initialized");
     }
 
     private Optional<DataMaskSpec> evalDataMaskPolicy(AuthorizedSubject subject, AuthorizedResource.Table table,
@@ -221,7 +361,7 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
             LOG.debug("ranger response: {}", policy);
         }
         if (policy == null) {
-            return Optional.empty();
+            throw noAnswerFrom(request);
         }
         String maskType = policy.getMaskType();
         if (StringUtils.isEmpty(maskType)) {

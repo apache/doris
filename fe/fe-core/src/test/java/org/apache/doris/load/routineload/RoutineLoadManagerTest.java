@@ -953,6 +953,63 @@ public class RoutineLoadManagerTest {
     }
 
     /**
+     * Creating a multi table job needs LOAD on the database: it names no table, so there is no table-level
+     * grant that could stand for it.
+     *
+     * <p>The table-level grant is allowed here on purpose, and the job still has to be refused: asking for a
+     * table privilege on a job with no table is a check against the empty string, which is not a table anybody
+     * grants on - and refusing on the database-scoped code is what makes the error name the database instead of
+     * reporting {@code for table 'db1'}.
+     */
+    @Test
+    public void testCreatingAMultiTableJobNeedsTheDatabaseLevelGrant() throws Exception {
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Env env = Mockito.mock(Env.class);
+
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), "topic1");
+        customProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), "http://127.0.0.1:8080");
+        LoadSeparator loadSeparator = new LoadSeparator(",");
+        Map<String, LoadProperty> loadPropertyMap = new HashMap<>();
+        loadPropertyMap.put(loadSeparator.getClass().getName(), loadSeparator);
+        // No table named: that is what makes it a multi table job.
+        CreateRoutineLoadInfo multiTableInfo = new CreateRoutineLoadInfo(new LabelNameInfo("db1", "job1"), "",
+                loadPropertyMap, properties, LoadDataSourceType.KAFKA.name(), customProperties,
+                LoadTask.MergeType.APPEND, "");
+        Assert.assertTrue(multiTableInfo.isMultiTable());
+        // Resolved by checkDBTable(), which needs a real catalog; the check under test only reads it.
+        Deencapsulation.setField(multiTableInfo, "dbName", "db1");
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            ctxStatic.when(ConnectContext::get).thenReturn(connectContext);
+            mockSessionVariable(connectContext);
+            Mockito.when(connectContext.getState()).thenReturn(new org.apache.doris.qe.QueryState());
+            Mockito.when(connectContext.getQualifiedUser()).thenReturn("user1");
+            Mockito.when(connectContext.getRemoteIP()).thenReturn("192.168.1.1");
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            // Held on the table, and deliberately not on the database.
+            Mockito.when(accessManager.checkTblPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.nullable(String.class),
+                    Mockito.any(PrivPredicate.class))).thenReturn(true);
+            Mockito.when(accessManager.checkDbPriv(Mockito.nullable(ConnectContext.class), Mockito.anyString(),
+                    Mockito.anyString(), Mockito.eq(PrivPredicate.LOAD))).thenReturn(false);
+
+            RoutineLoadManager routineLoadManager = new RoutineLoadManager();
+            AnalysisException refused = Assert.assertThrows(AnalysisException.class,
+                    () -> routineLoadManager.createRoutineLoadJob(multiTableInfo, connectContext));
+            Assert.assertTrue("the refusal must name the database, not a table nobody granted on: "
+                    + refused.getMessage(), refused.getMessage().contains("database 'db1'"));
+            Mockito.verify(accessManager).checkDbPriv(Mockito.nullable(ConnectContext.class),
+                    Mockito.anyString(), Mockito.anyString(), Mockito.eq(PrivPredicate.LOAD));
+        }
+    }
+
+    /**
      * A multi table job names no table, so LOAD has to be held on the database or above.
      *
      * <p>Three places check a job's privileges - the create path, {@code checkPrivAndGetJob()} behind

@@ -60,6 +60,14 @@ import java.util.Set;
  * questions it did not think about rather than a hole; the two data-policy methods are the exception, and
  * their empty default means "this source defines no policy", which is not the same as allowing anything.</p>
  *
+ * <p><b>A source that cannot answer must not answer emptily.</b> The engine acts on "no row filter, no column
+ * mask" by planning the query without either, so a plugin whose policies are unreachable - not downloaded yet,
+ * a service that cannot be reached, a plugin being shut down - has to make the statement fail rather than say
+ * it imposes nothing. These two methods declare no exception, so that is any unchecked one; the engine lets it
+ * out to the statement and the SQL cache treats it as a reason to invalidate rather than to serve. The
+ * Ranger-backed sources do exactly this, in
+ * {@code org.apache.doris.catalog.authorizer.ranger.RangerAccessController}.</p>
+ *
  * <h2>What is asked, and how often</h2>
  *
  * <p>The engine asks about a whole requirement - a set of actions plus whether one of them or all of them are
@@ -137,7 +145,8 @@ public interface AuthorizationPlugin extends Plugin {
      * <p>Each filter is a SQL predicate in Doris dialect; the engine parses it, type-checks it and plans it
      * as a filter over the table, combining several of them as each one's merge type says. Returning no
      * filter is not a decision about access - whether the table may be read at all was settled by {@link
-     * #checkPrivilege}.</p>
+     * #checkPrivilege} - but it <em>is</em> a decision that the whole table may be read: a source that cannot
+     * reach its policies has to throw rather than return empty. See "Refusing" above.</p>
      */
     default List<RowFilterSpec> getRowFilters(AuthorizedSubject subject, AuthorizedResource.Table table,
             AccessContext context) {
@@ -151,6 +160,9 @@ public interface AuthorizationPlugin extends Plugin {
      *
      * <p>Asked about all the columns at once because a source that answers over the network would otherwise
      * be asked once per column of every table in the statement.</p>
+     *
+     * <p>An absent entry says the column is read as it is stored, so a source that cannot reach its policies
+     * has to throw rather than answer with an incomplete map. See "Refusing" above.</p>
      */
     default Map<String, DataMaskSpec> getDataMasks(AuthorizedSubject subject, AuthorizedResource.Table table,
             Set<String> columns, AccessContext context) {
