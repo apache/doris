@@ -63,6 +63,10 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
     private Expr expr;
     @SerializedName("pi")
     private List<BaseColInfo> pctInfos = Lists.newArrayList();
+    // true when user explicitly wrote date_trunc(...) in PARTITION BY, false when inferred from column definition.
+    // Defaults to true for backward compatibility with existing persisted MVs.
+    @SerializedName("use")
+    private boolean userSpecifiedExpr = true;
 
     public MTMVPartitionInfo() {
         this.pctInfos = Lists.newArrayList();
@@ -134,6 +138,14 @@ public class MTMVPartitionInfo implements GsonPostProcessable {
 
     public void setExpr(Expr expr) {
         this.expr = expr;
+    }
+
+    public boolean isUserSpecifiedExpr() {
+        return userSpecifiedExpr;
+    }
+
+    public void setUserSpecifiedExpr(boolean userSpecifiedExpr) {
+        this.userSpecifiedExpr = userSpecifiedExpr;
     }
 
     /**

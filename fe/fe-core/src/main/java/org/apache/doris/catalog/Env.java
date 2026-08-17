@@ -3893,7 +3893,8 @@ public class Env {
             return;
         }
         sb.append("\n").append("PARTITION BY (");
-        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE
+                || !mvPartitionInfo.isUserSpecifiedExpr()) {
             sb.append("`" + mvPartitionInfo.getPartitionCol() + "`");
         } else {
             sb.append(MTMVPartitionExprFactory.getExprService(mvPartitionInfo.getExpr()).toSql(mvPartitionInfo));
