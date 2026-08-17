@@ -503,7 +503,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         Expression child = cast.child();
         DataType dataType = cast.getDataType();
         if (!CheckCast.check(child.getDataType(), dataType, SessionVariable.enableStrictCast())) {
-            return cast;
+            throw new AnalysisException("cannot cast " + child.getDataType().toSql()
+                    + " to " + dataType.toSql());
         }
         // todo: process other null case
         if (child.isNullLiteral()) {

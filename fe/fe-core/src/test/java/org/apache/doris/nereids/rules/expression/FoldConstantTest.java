@@ -279,7 +279,9 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(rewritten, expected);
 
         Cast unsupportedCast = new Cast(new BigIntLiteral(20240229112233L), TimeStampTzType.of(6));
-        Assertions.assertEquals(unsupportedCast, executor.rewrite(unsupportedCast, context));
+        AnalysisException exception = Assertions.assertThrows(
+                AnalysisException.class, () -> executor.rewrite(unsupportedCast, context));
+        Assertions.assertEquals("cannot cast BIGINT to TIMESTAMPTZ(6)", exception.getMessage());
     }
 
     @Test
