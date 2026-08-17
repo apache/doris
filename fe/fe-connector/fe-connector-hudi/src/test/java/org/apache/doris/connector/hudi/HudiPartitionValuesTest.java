@@ -40,7 +40,7 @@ public class HudiPartitionValuesTest {
         // paths like "2024/01" with NO "col=" prefix. The old split-on-'=' logic dropped every prefix-less
         // fragment, so the value map was EMPTY -> BE returned NULL partition columns on a plain snapshot read.
         Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
-                "2024/01", Arrays.asList("year", "month"));
+                "2024/01", Arrays.asList("year", "month"), false);
 
         Assertions.assertEquals(2, values.size(), "both positional fragments must map to their columns");
         Assertions.assertEquals("2024", values.get("year"));
@@ -50,20 +50,33 @@ public class HudiPartitionValuesTest {
     @Test
     public void hiveStylePathStripsColumnPrefix() {
         Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
-                "year=2024/month=01", Arrays.asList("year", "month"));
+                "year=2024/month=01", Arrays.asList("year", "month"), true);
 
         Assertions.assertEquals("2024", values.get("year"));
         Assertions.assertEquals("01", values.get("month"));
     }
 
     @Test
-    public void mixedPrefixedAndPositionalFragments() {
-        // Legacy decides per fragment (startsWith "col=" or not), so a mixed path must resolve each side.
+    public void hiveStylePrefixMatchesCanonicalPartitionNameCaseInsensitively() {
+        // The handle canonicalizes Hudi partition slots to lower-case, but an existing hive-style storage path
+        // may still carry the original mixed-case key. Strip that prefix case-insensitively and keep the map key
+        // canonical so columns_from_path byte-matches the Doris slot/schema dictionary.
         Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
-                "year=2024/01", Arrays.asList("year", "month"));
+                "City=Beijing/DT=2026-08-03", Arrays.asList("city", "dt"), true);
 
-        Assertions.assertEquals("2024", values.get("year"), "prefixed fragment strips the col= prefix");
-        Assertions.assertEquals("01", values.get("month"), "prefix-less fragment maps positionally");
+        Assertions.assertEquals("Beijing", values.get("city"));
+        Assertions.assertEquals("2026-08-03", values.get("dt"));
+    }
+
+    @Test
+    public void positionalValueContainingEqualsIsPreserved() {
+        // The default positional layout permits '=' as literal data when URL encoding is disabled. Layout must
+        // come from table config; a case-insensitive prefix guess would corrupt City=Beijing into Beijing.
+        Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
+                "City=Beijing/2026-08-03", Arrays.asList("city", "dt"), false);
+
+        Assertions.assertEquals("City=Beijing", values.get("city"));
+        Assertions.assertEquals("2026-08-03", values.get("dt"));
     }
 
     @Test
@@ -71,7 +84,7 @@ public class HudiPartitionValuesTest {
         // Legacy unescaped every value via Hive's FileUtils.unescapePathName; %20 -> space, %2F -> slash. A
         // partition value with an escaped char would otherwise reach BE literally (wrong value).
         Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
-                "dt=2024-01-01%2012%3A00%3A00", Collections.singletonList("dt"));
+                "dt=2024-01-01%2012%3A00%3A00", Collections.singletonList("dt"), true);
 
         Assertions.assertEquals("2024-01-01 12:00:00", values.get("dt"), "escaped chars must be decoded");
     }
@@ -81,7 +94,7 @@ public class HudiPartitionValuesTest {
         // Single partition column, path has more '/' fragments than columns: legacy maps the WHOLE path to the
         // single column (after stripping an optional "col=" prefix), not throw.
         Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
-                "2024/01/01", Collections.singletonList("dt"));
+                "2024/01/01", Collections.singletonList("dt"), false);
 
         Assertions.assertEquals(1, values.size());
         Assertions.assertEquals("2024/01/01", values.get("dt"), "whole path maps to the single column");
@@ -90,7 +103,7 @@ public class HudiPartitionValuesTest {
     @Test
     public void singleColumnStripsPrefixInWholePathFallback() {
         Map<String, String> values = HudiScanPlanProvider.parsePartitionValues(
-                "dt=2024/01/01", Collections.singletonList("dt"));
+                "dt=2024/01/01", Collections.singletonList("dt"), true);
 
         Assertions.assertEquals("2024/01/01", values.get("dt"),
                 "the leading col= prefix is stripped before the whole-path fallback");
@@ -102,7 +115,7 @@ public class HudiPartitionValuesTest {
         // producing a partial/wrong value map. Fail loud, matching legacy.
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> HudiScanPlanProvider.parsePartitionValues(
-                        "2024/01/extra", Arrays.asList("year", "month")));
+                        "2024/01/extra", Arrays.asList("year", "month"), false));
         Assertions.assertTrue(ex.getMessage().contains("2024/01/extra"),
                 "the failure must name the offending partition path");
     }
@@ -119,6 +132,15 @@ public class HudiPartitionValuesTest {
 
         Assertions.assertEquals("US:CA", values.get("code"), "colon-escaped value must be decoded");
         Assertions.assertEquals("a/b", values.get("kind"), "slash-escaped value must be decoded");
+    }
+
+    @Test
+    public void parsePartitionNameCanonicalizesMixedCaseHmsKey() {
+        Map<String, String> values = HudiConnectorMetadata.parsePartitionName(
+                "City=BeiJing", Collections.singletonList("city"));
+
+        Assertions.assertEquals("BeiJing", values.get("city"));
+        Assertions.assertFalse(values.containsKey("City"));
     }
 
     @Test
@@ -147,8 +169,8 @@ public class HudiPartitionValuesTest {
         // Unpartitioned tables reach here with an empty key list and an empty path; the result must be empty
         // (no spurious partition column).
         Assertions.assertTrue(
-                HudiScanPlanProvider.parsePartitionValues("", Collections.emptyList()).isEmpty());
+                HudiScanPlanProvider.parsePartitionValues("", Collections.emptyList(), false).isEmpty());
         Assertions.assertTrue(
-                HudiScanPlanProvider.parsePartitionValues("", null).isEmpty());
+                HudiScanPlanProvider.parsePartitionValues("", null, false).isEmpty());
     }
 }

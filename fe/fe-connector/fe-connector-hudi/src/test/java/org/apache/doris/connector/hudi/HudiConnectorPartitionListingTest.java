@@ -33,7 +33,6 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -144,7 +143,7 @@ public class HudiConnectorPartitionListingTest {
         // Hudi's DEFAULT layout is positional "2024/01" with NO "col=" prefix. Rendering MUST inject the keys
         // so the generic re-parse yields exactly partKeys.size() values (else checkState throws -> the
         // partition is dropped -> silent UNPARTITIONED degrade).
-        String name = render("2024/01", YEAR_MONTH);
+        String name = render("2024/01", YEAR_MONTH, false);
         Assertions.assertEquals("year=2024/month=01", name);
         assertRoundTrips(name, YEAR_MONTH, Arrays.asList("2024", "01"));
     }
@@ -152,14 +151,14 @@ public class HudiConnectorPartitionListingTest {
     @Test
     public void singleColumnPositionalPathRendersOneSegment() {
         // Single partition column with a bare value: size 1, not 0.
-        String name = render("2024", Collections.singletonList("dt"));
+        String name = render("2024", Collections.singletonList("dt"), false);
         Assertions.assertEquals("dt=2024", name);
         assertRoundTrips(name, Collections.singletonList("dt"), Collections.singletonList("2024"));
     }
 
     @Test
     public void hiveStylePathIsRenderedIdempotently() {
-        String name = render("year=2024/month=01", YEAR_MONTH);
+        String name = render("year=2024/month=01", YEAR_MONTH, true);
         Assertions.assertEquals("year=2024/month=01", name);
         assertRoundTrips(name, YEAR_MONTH, Arrays.asList("2024", "01"));
     }
@@ -170,8 +169,8 @@ public class HudiConnectorPartitionListingTest {
         // back to it. (Space is not in Hive's escape set, so the rendered value carries a literal space.)
         List<String> dt = Collections.singletonList("dt");
         Assertions.assertEquals("a b",
-                HudiScanPlanProvider.parsePartitionValues("dt=a%20b", dt).get("dt"));
-        String name = render("dt=a%20b", dt);
+                HudiScanPlanProvider.parsePartitionValues("dt=a%20b", dt, true).get("dt"));
+        String name = render("dt=a%20b", dt, true);
         Assertions.assertEquals("dt=a b", name);
         assertRoundTrips(name, dt, Collections.singletonList("a b"));
     }
@@ -183,8 +182,8 @@ public class HudiConnectorPartitionListingTest {
         // '/', HiveUtil.toPartitionValues would truncate it to "2024". Escaping to "%2F" makes it round-trip.
         List<String> dt = Collections.singletonList("dt");
         Assertions.assertEquals("2024/01/02",
-                HudiScanPlanProvider.parsePartitionValues("2024/01/02", dt).get("dt"));
-        String name = render("2024/01/02", dt);
+                HudiScanPlanProvider.parsePartitionValues("2024/01/02", dt, false).get("dt"));
+        String name = render("2024/01/02", dt, false);
         Assertions.assertEquals("dt=2024%2F01%2F02", name);
         assertRoundTrips(name, dt, Collections.singletonList("2024/01/02"));
     }
@@ -194,8 +193,8 @@ public class HudiConnectorPartitionListingTest {
         // Two distinct single-column slash paths must render distinct names AND re-parse to distinct values —
         // else the generic model collapses them onto one partition key, corrupting MTMV per-partition tracking.
         List<String> dt = Collections.singletonList("dt");
-        String a = render("2024/01/02", dt);
-        String b = render("2024/03/04", dt);
+        String a = render("2024/01/02", dt, false);
+        String b = render("2024/03/04", dt, false);
         Assertions.assertNotEquals(a, b);
         assertRoundTrips(a, dt, Collections.singletonList("2024/01/02"));
         assertRoundTrips(b, dt, Collections.singletonList("2024/03/04"));
@@ -207,7 +206,7 @@ public class HudiConnectorPartitionListingTest {
     public void buildPartitionInfosStampsLastModifiedAndValues() {
         // The caller converts the instant to epoch millis; this method only passes it through.
         List<ConnectorPartitionInfo> infos = HudiConnectorMetadata.buildPartitionInfos(
-                Arrays.asList("2024/01", "2024/02"), YEAR_MONTH, 1704110400000L);
+                Arrays.asList("2024/01", "2024/02"), YEAR_MONTH, 1704110400000L, false);
 
         Assertions.assertEquals(2, infos.size());
         ConnectorPartitionInfo first = infos.get(0);
@@ -227,8 +226,8 @@ public class HudiConnectorPartitionListingTest {
     @Test
     public void listPartitionNamesMatchesListPartitions() {
         HudiConnectorMetadata md = metadata(false,
-                new RecordingHmsClient(null), stub(new AbstractMap.SimpleImmutableEntry<>(
-                        99L, Arrays.asList("2024/01", "2024/02"))));
+                new RecordingHmsClient(null), stub(new HudiConnectorMetadata.PartitionListing(
+                        99L, Arrays.asList("2024/01", "2024/02"), false)));
         ConnectorTableHandle handle = partitioned();
 
         List<String> names = md.listPartitionNames(null, handle);
@@ -271,7 +270,8 @@ public class HudiConnectorPartitionListingTest {
         // (the prune-to-zero guard), stamped with the metaClient instant — NOT return zero partitions.
         RecordingHmsClient hms = new RecordingHmsClient(Collections.emptyList());
         HudiConnectorMetadata md = metadata(true, hms,
-                stub(new AbstractMap.SimpleImmutableEntry<>(5L, Collections.singletonList("2024/01"))));
+                stub(new HudiConnectorMetadata.PartitionListing(
+                        5L, Collections.singletonList("2024/01"), false)));
 
         List<ConnectorPartitionInfo> parts = md.listPartitions(null, partitioned(), Optional.empty());
 
@@ -285,7 +285,8 @@ public class HudiConnectorPartitionListingTest {
     public void nonHiveSyncTableNeverConsultsHms() {
         RecordingHmsClient hms = new RecordingHmsClient(null); // throws if listPartitionNames is called
         HudiConnectorMetadata md = metadata(false, hms,
-                stub(new AbstractMap.SimpleImmutableEntry<>(88L, Collections.singletonList("2024/01"))));
+                stub(new HudiConnectorMetadata.PartitionListing(
+                        88L, Collections.singletonList("2024/01"), false)));
 
         List<ConnectorPartitionInfo> parts = md.listPartitions(null, partitioned(), Optional.empty());
 
@@ -364,9 +365,10 @@ public class HudiConnectorPartitionListingTest {
     }
 
     /** Renders the hive-style name for a raw partition path the way buildPartitionInfos does (parse then render). */
-    private static String render(String rawPath, List<String> partKeys) {
+    private static String render(String rawPath, List<String> partKeys, boolean hiveStylePartitioning) {
         return HudiScanPlanProvider.renderHiveStylePartitionName(
-                partKeys, HudiScanPlanProvider.parsePartitionValues(rawPath, partKeys));
+                partKeys, HudiScanPlanProvider.parsePartitionValues(
+                        rawPath, partKeys, hiveStylePartitioning));
     }
 
     /** Asserts the rendered name re-parses (fe-core-style) to exactly the expected values, correct arity. */

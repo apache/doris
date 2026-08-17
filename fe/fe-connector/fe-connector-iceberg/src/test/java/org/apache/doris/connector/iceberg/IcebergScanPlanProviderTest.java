@@ -143,6 +143,32 @@ public class IcebergScanPlanProviderTest {
         return builder.build();
     }
 
+    private static Table retainedIdentityFileAfterCurrentSpecBecomesUnpartitioned(String name) {
+        PartitionSpec oldSpec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable(name, PART_SCHEMA, oldSpec,
+                Collections.singletonMap("format-version", "2"));
+        table.newAppend()
+                .appendFile(dataFile(oldSpec, "s3://b/db/" + name + "/p=7/f.parquet", 512, null, "p=7"))
+                .commit();
+        table.updateSpec().removeField("p").commit();
+        Assertions.assertFalse(table.spec().isPartitioned(), "the current spec must be unpartitioned");
+        return table;
+    }
+
+    private static Table currentUnpartitionedFileAfterSpecEvolution(String name) {
+        PartitionSpec oldSpec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable(name, PART_SCHEMA, oldSpec,
+                Collections.singletonMap("format-version", "2"));
+        table.updateSpec().removeField("p").commit();
+        PartitionSpec currentSpec = table.spec();
+        Assertions.assertFalse(currentSpec.isPartitioned(), "the current spec must be unpartitioned");
+        Assertions.assertNotEquals(oldSpec.specId(), currentSpec.specId(), "spec evolution must allocate a new id");
+        table.newAppend()
+                .appendFile(dataFile(currentSpec, "s3://b/db/" + name + "/f.parquet", 512, null, null))
+                .commit();
+        return table;
+    }
+
     /** Run a range's BE-param population end-to-end (the generic node pre-sets table_format_type). */
     private static TFileRangeDesc populate(ConnectorScanRange range) {
         TTableFormatFileDesc formatDesc = new TTableFormatFileDesc();
@@ -1245,6 +1271,58 @@ public class IcebergScanPlanProviderTest {
 
         Assertions.assertTrue(props.containsKey("iceberg.schema_evolution"));
         Assertions.assertEquals("p", props.get("path_partition_keys"));
+    }
+
+    @Test
+    public void getScanNodePropertiesUnderPinAlignsMixedCasePartitionWithFullSchemaDict() throws Exception {
+        // S1 uses "City". The current schema later renames that SAME field id to "CITY". A scan pinned to S1
+        // must resolve every carrier from S1: full dictionary, path_partition_keys, and the eager/streaming
+        // per-file columns_from_path key. Otherwise BE exact-matches a "City" slot against a latest "CITY" key
+        // and drops the manifest value; an imported file without the physical partition column then yields NULL.
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "K1", Types.IntegerType.get()),
+                Types.NestedField.required(2, "City", Types.StringType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("City").build();
+        Table table = createTable("mixed_case_partition", schema, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec,
+                        "s3://b/db/mixed_case_partition/City=Beijing/data.parquet",
+                        1024, null, "City=Beijing"))
+                .commit();
+        long snapshotId = table.currentSnapshot().snapshotId();
+        long schemaId = table.currentSnapshot().schemaId();
+        table.updateSchema().renameColumn("City", "CITY").commit();
+        Assertions.assertNotNull(table.schema().findField("CITY"));
+        IcebergScanPlanProvider provider = providerOver(table);
+        IcebergTableHandle pinned = new IcebergTableHandle("db1", "mixed_case_partition")
+                .withSnapshot(snapshotId, null, schemaId);
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, pinned, Collections.emptyList(), Optional.empty());
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+        List<String> fieldNames = new ArrayList<>();
+        for (TFieldPtr ptr : params.getHistorySchemaInfo().get(0).getRootField().getFields()) {
+            fieldNames.add(ptr.getFieldPtr().getName());
+        }
+
+        Assertions.assertEquals("City", props.get("path_partition_keys"));
+        Assertions.assertTrue(fieldNames.contains("K1"));
+        Assertions.assertTrue(fieldNames.contains("City"));
+        Assertions.assertFalse(fieldNames.contains("city"));
+        Assertions.assertFalse(fieldNames.contains("CITY"));
+
+        List<ConnectorScanRange> eager = provider.planScan(emptySession(),
+                ConnectorScanRequest.builder(pinned, Collections.emptyList()).build());
+        TFileRangeDesc eagerDesc = populate(eager.get(0));
+        Assertions.assertEquals(Collections.singletonList("City"), eagerDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("Beijing"), eagerDesc.getColumnsFromPath());
+
+        List<ConnectorScanRange> streaming = drain(provider.streamSplits(
+                emptySession(), pinned, Collections.emptyList(), Optional.empty(), -1L));
+        TFileRangeDesc streamingDesc = populate(streaming.get(0));
+        Assertions.assertEquals(Collections.singletonList("City"), streamingDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("Beijing"), streamingDesc.getColumnsFromPath());
     }
 
     // --- T06 [D-065]: getScanNodeProperties sys-handle guard (skip dict + path_partition_keys) ---
@@ -3300,6 +3378,84 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(1, capped.size(), "max_file_split_num=1 must collapse to one whole-file range");
         Assertions.assertEquals(0L, capped.get(0).getStart());
         Assertions.assertEquals(96 * mb, capped.get(0).getLength());
+    }
+
+    @Test
+    public void planScanUsesRetainedDataFilesPartitionSpec() {
+        // A current unpartitioned spec does not erase partition data from retained files written by an old
+        // identity spec. The eager path must classify partition presence from dataFile.specId(), otherwise p is
+        // still advertised as a path partition key but this range omits columns_from_path and BE materializes
+        // NULL/default instead of the manifest value.
+        Table table = retainedIdentityFileAfterCurrentSpecBecomesUnpartitioned("old_spec_eager");
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        new IcebergTableHandle("db1", "old_spec_eager"), Collections.emptyList())
+                .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        ConnectorScanRange range = ranges.get(0);
+        Assertions.assertEquals(Collections.singletonMap("p", "7"), range.getPartitionValues());
+        Assertions.assertTrue(range.isPartitionBearing());
+        Assertions.assertTrue(populate(range).getTableFormatParams().getIcebergParams().isSetPartitionSpecId());
+    }
+
+    @Test
+    public void streamSplitsUsesRetainedDataFilesPartitionSpec() throws IOException {
+        // The lazy streaming source shares buildRangeForTask with eager planning and must make the same per-file
+        // spec decision; a scan-level current-spec flag would drop p only on this path as well.
+        Table table = retainedIdentityFileAfterCurrentSpecBecomesUnpartitioned("old_spec_streaming");
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = drain(provider.streamSplits(emptySession(),
+                new IcebergTableHandle("db1", "old_spec_streaming"),
+                Collections.emptyList(), Optional.empty(), -1L));
+
+        Assertions.assertEquals(1, ranges.size());
+        ConnectorScanRange range = ranges.get(0);
+        Assertions.assertEquals(Collections.singletonMap("p", "7"), range.getPartitionValues());
+        Assertions.assertTrue(range.isPartitionBearing());
+        Assertions.assertTrue(populate(range).getTableFormatParams().getIcebergParams().isSetPartitionSpecId());
+    }
+
+    @Test
+    public void planScanCarriesCurrentUnpartitionedFileSpecIdForRowId() {
+        Table table = currentUnpartitionedFileAfterSpecEvolution("new_unpartitioned_eager");
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(
+                        new IcebergTableHandle("db1", "new_unpartitioned_eager"), Collections.emptyList())
+                        .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        ConnectorScanRange range = ranges.get(0);
+        Assertions.assertTrue(range.getPartitionValues().isEmpty());
+        TIcebergFileDesc params = populate(range).getTableFormatParams().getIcebergParams();
+        Assertions.assertEquals(table.spec().specId(), params.getPartitionSpecId());
+        Assertions.assertFalse(params.isSetPartitionDataJson());
+    }
+
+    @Test
+    public void streamSplitsCarriesCurrentUnpartitionedFileSpecIdForRowId() throws IOException {
+        Table table = currentUnpartitionedFileAfterSpecEvolution("new_unpartitioned_streaming");
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = drain(provider.streamSplits(emptySession(),
+                new IcebergTableHandle("db1", "new_unpartitioned_streaming"),
+                Collections.emptyList(), Optional.empty(), -1L));
+
+        Assertions.assertEquals(1, ranges.size());
+        ConnectorScanRange range = ranges.get(0);
+        Assertions.assertTrue(range.getPartitionValues().isEmpty());
+        TIcebergFileDesc params = populate(range).getTableFormatParams().getIcebergParams();
+        Assertions.assertEquals(table.spec().specId(), params.getPartitionSpecId());
+        Assertions.assertFalse(params.isSetPartitionDataJson());
     }
 
     @Test

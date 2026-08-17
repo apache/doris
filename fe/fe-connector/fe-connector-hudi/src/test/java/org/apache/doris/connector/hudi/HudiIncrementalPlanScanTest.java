@@ -17,7 +17,11 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.hms.HmsPartitionInfo;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
@@ -30,6 +34,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 /**
@@ -67,7 +73,10 @@ public class HudiIncrementalPlanScanTest {
         fallback.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 fallback, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
+                Collections.emptyList(), Collections.emptyList(), () -> {
+                    throw new AssertionError("fallback must not resolve partition values");
+                },
+                UnaryOperator.identity());
         Assertions.assertFalse(result.isPresent(),
                 "fallbackFullTableScan must signal degrade to the snapshot scan (Optional.empty)");
     }
@@ -85,10 +94,123 @@ public class HudiIncrementalPlanScanTest {
         cow.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 cow, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
+                Collections.emptyList(), Collections.emptyList(), hiveStyleResolver(YEAR_MONTH),
+                UnaryOperator.identity());
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(1, result.get().size());
         Assertions.assertSame(native1, result.get().get(0), "COW ranges must be the relation's collectSplits output");
+    }
+
+    @Test
+    public void cowEmptySplitListDoesNotResolvePartitionValues() {
+        FakeRelation cow = new FakeRelation();
+        cow.collectFileSlicesThrows = true;
+        Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
+                cow, true, false, BASE_PATH, INPUT_FORMAT, SERDE,
+                Collections.emptyList(), Collections.emptyList(), () -> {
+                    throw new AssertionError("an empty COW window must not resolve partition values");
+                }, UnaryOperator.identity());
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertTrue(result.get().isEmpty());
+    }
+
+    @Test
+    public void cowIncrementalCanonicalPartitionKeyReachesBeRangeCarrier() {
+        // The real COW relation receives the canonical table-config field list through this interface. Model its
+        // write-stat path parse here and continue through populateRangeParams: a raw on-disk "City=" prefix must
+        // still produce the Doris/Hudi canonical "city" key that BE exact-matches against the tuple slot.
+        FakeRelation cow = new FakeRelation();
+        cow.rawCowPath = "s3://b/t/City=Beijing/f1.parquet";
+        cow.rawCowPartitionPath = "City=Beijing";
+        Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
+                cow, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
+                Collections.emptyList(), Collections.emptyList(),
+                hiveStyleResolver(Collections.singletonList("city")),
+                UnaryOperator.identity());
+
+        HudiScanRange range = (HudiScanRange) result.orElseThrow(AssertionError::new).get(0);
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        range.populateRangeParams(new TTableFormatFileDesc(), rangeDesc);
+        Assertions.assertEquals(Collections.singletonList("city"), rangeDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("Beijing"), rangeDesc.getColumnsFromPath());
+    }
+
+    @Test
+    public void legacyHiveSyncWithoutTableConfigPartitionFieldsUsesExtractorLogicalValueForCowAndMor() {
+        HmsPartitionInfo hmsPartition = new HmsPartitionInfo(
+                Collections.singletonList("2024-03-15"), "s3://b/t/2024/03/15",
+                null, null, null, Collections.emptyMap());
+        HudiScanPlanProvider.PartitionScanInfo partition = HudiScanPlanProvider.hmsPartitionScanInfo(
+                BASE_PATH, Collections.singletonList("event_date"), hmsPartition);
+        Supplier<Function<String, Map<String, String>>> resolver =
+                () -> HudiScanPlanProvider.incrementalPartitionValueResolver(
+                        Collections.emptyList(), Collections.singletonList("event_date"),
+                        true, false, () -> Optional.of(Collections.singletonList(partition)));
+
+        FakeRelation cow = new FakeRelation();
+        cow.rawCowPath = "s3://b/t/2024/03/15/f1.parquet";
+        cow.rawCowPartitionPath = "2024/03/15";
+        HudiScanRange cowRange = (HudiScanRange) HudiScanPlanProvider.incrementalRanges(
+                cow, true, false, BASE_PATH, INPUT_FORMAT, SERDE,
+                Collections.emptyList(), Collections.emptyList(), resolver, UnaryOperator.identity())
+                .orElseThrow(AssertionError::new).get(0);
+
+        FakeRelation mor = new FakeRelation();
+        mor.fileSlices = Collections.singletonList(baseOnlySlice(
+                "2024/03/15", "s3://b/t/2024/03/15/f1.parquet"));
+        HudiScanRange morRange = (HudiScanRange) HudiScanPlanProvider.incrementalRanges(
+                mor, false, true, BASE_PATH, INPUT_FORMAT, SERDE,
+                Collections.emptyList(), Collections.emptyList(), resolver, UnaryOperator.identity())
+                .orElseThrow(AssertionError::new).get(0);
+
+        Map<String, String> expected = Collections.singletonMap("event_date", "2024-03-15");
+        Assertions.assertEquals(expected, cowRange.getPartitionValues());
+        Assertions.assertEquals(expected, morRange.getPartitionValues());
+    }
+
+    @Test
+    public void legacyPhysicalLayoutWithoutTableConfigPartitionFieldsUsesHandleKeysForCowAndMor() {
+        Supplier<Function<String, Map<String, String>>> resolver =
+                () -> HudiScanPlanProvider.incrementalPartitionValueResolver(
+                        Collections.emptyList(), Collections.singletonList("event_date"),
+                        false, false, () -> {
+                            throw new AssertionError("non-Hive-Sync planning must not read HMS partitions");
+                        });
+
+        FakeRelation cow = new FakeRelation();
+        cow.rawCowPath = "s3://b/t/2024-03-15/f1.parquet";
+        cow.rawCowPartitionPath = "2024-03-15";
+        HudiScanRange cowRange = (HudiScanRange) HudiScanPlanProvider.incrementalRanges(
+                cow, true, false, BASE_PATH, INPUT_FORMAT, SERDE,
+                Collections.emptyList(), Collections.emptyList(), resolver, UnaryOperator.identity())
+                .orElseThrow(AssertionError::new).get(0);
+
+        FakeRelation mor = new FakeRelation();
+        mor.fileSlices = Collections.singletonList(baseOnlySlice(
+                "2024-03-15", "s3://b/t/2024-03-15/f1.parquet"));
+        HudiScanRange morRange = (HudiScanRange) HudiScanPlanProvider.incrementalRanges(
+                mor, false, true, BASE_PATH, INPUT_FORMAT, SERDE,
+                Collections.emptyList(), Collections.emptyList(), resolver, UnaryOperator.identity())
+                .orElseThrow(AssertionError::new).get(0);
+
+        Map<String, String> expected = Collections.singletonMap("event_date", "2024-03-15");
+        Assertions.assertEquals(expected, cowRange.getPartitionValues());
+        Assertions.assertEquals(expected, morRange.getPartitionValues());
+    }
+
+    @Test
+    public void hiveSyncIncrementalRejectsUnknownPhysicalPartition() {
+        HudiScanPlanProvider.PartitionScanInfo partition = HudiScanPlanProvider.hmsPartitionScanInfo(
+                BASE_PATH, Collections.singletonList("event_date"), new HmsPartitionInfo(
+                        Collections.singletonList("2024-03-15"), "s3://b/t/2024/03/15",
+                        null, null, null, Collections.emptyMap()));
+        Function<String, Map<String, String>> resolver = HudiScanPlanProvider.exactPartitionValueResolver(
+                Collections.singletonList(partition));
+
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> resolver.apply("2024/03/16"));
+        Assertions.assertTrue(error.getMessage().contains("missing from Hive Sync metadata"));
     }
 
     @Test
@@ -102,7 +224,8 @@ public class HudiIncrementalPlanScanTest {
         cow.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 cow, /*isCow*/ true, /*forceJni*/ true, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
+                Collections.emptyList(), Collections.emptyList(), hiveStyleResolver(YEAR_MONTH),
+                UnaryOperator.identity());
         Assertions.assertTrue(result.isPresent());
         Assertions.assertSame(native1, result.get().get(0),
                 "COW incremental must stay native even under force_jni (never call collectFileSlices)");
@@ -123,7 +246,8 @@ public class HudiIncrementalPlanScanTest {
         mor.collectSplitsThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 mor, /*isCow*/ false, /*forceJni*/ true, BASE_PATH, INPUT_FORMAT, SERDE,
-                Arrays.asList("c1"), Arrays.asList("int"), YEAR_MONTH, UnaryOperator.identity());
+                Arrays.asList("c1"), Arrays.asList("int"), hiveStyleResolver(YEAR_MONTH),
+                UnaryOperator.identity());
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(1, result.get().size());
         HudiScanRange range = (HudiScanRange) result.get().get(0);
@@ -145,7 +269,9 @@ public class HudiIncrementalPlanScanTest {
         mor.collectSplitsThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 mor, /*isCow*/ false, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH, UnaryOperator.identity());
+                Collections.emptyList(), Collections.emptyList(), () -> {
+                    throw new AssertionError("an empty MOR window must not resolve partition values");
+                }, UnaryOperator.identity());
         Assertions.assertTrue(result.isPresent());
         Assertions.assertTrue(result.get().isEmpty());
     }
@@ -159,7 +285,7 @@ public class HudiIncrementalPlanScanTest {
         FileSlice slice = baseOnlySlice("year=2024/month=01",
                 "s3://b/t/year=2024/month=01/fileid-1_0_20240101000000.parquet");
         Map<String, String> partValues = HudiScanPlanProvider.parsePartitionValues(
-                slice.getPartitionPath(), YEAR_MONTH);
+                slice.getPartitionPath(), YEAR_MONTH, true);
         HudiScanRange range = HudiScanPlanProvider.buildMorRange(slice, partValues, END_TS, /*forceJni*/ true,
                 BASE_PATH, INPUT_FORMAT, SERDE, Arrays.asList("c1"), Arrays.asList("int"), p -> 7L,
                 UnaryOperator.identity());
@@ -198,7 +324,7 @@ public class HudiIncrementalPlanScanTest {
         cow.collectFileSlicesThrows = true;
         Optional<List<ConnectorScanRange>> result = HudiScanPlanProvider.incrementalRanges(
                 cow, /*isCow*/ true, /*forceJni*/ false, BASE_PATH, INPUT_FORMAT, SERDE,
-                Collections.emptyList(), Collections.emptyList(), YEAR_MONTH,
+                Collections.emptyList(), Collections.emptyList(), hiveStyleResolver(YEAR_MONTH),
                 s -> s.replace("s3a://", "s3://"));
         Assertions.assertTrue(result.isPresent());
         HudiScanRange range = (HudiScanRange) result.get().get(0);
@@ -230,6 +356,10 @@ public class HudiIncrementalPlanScanTest {
         return slice;
     }
 
+    private static Supplier<Function<String, Map<String, String>>> hiveStyleResolver(List<String> fields) {
+        return () -> path -> HudiScanPlanProvider.parsePartitionValues(path, fields, true);
+    }
+
     /** A recording fake {@link IncrementalRelation}: canned outputs, throws on the shape it should not serve. */
     private static final class FakeRelation implements IncrementalRelation {
         private List<HudiScanRange> splits = new ArrayList<>();
@@ -242,6 +372,7 @@ public class HudiIncrementalPlanScanTest {
         // stands in for the real COWIncrementalRelation.collectSplits (which needs a live metaClient), letting the
         // test verify incrementalRanges THREADS its normalizer into the COW collectSplits call.
         private String rawCowPath;
+        private String rawCowPartitionPath;
 
         @Override
         public List<FileSlice> collectFileSlices() {
@@ -252,13 +383,19 @@ public class HudiIncrementalPlanScanTest {
         }
 
         @Override
-        public List<HudiScanRange> collectSplits(UnaryOperator<String> nativePathNormalizer) {
+        public List<HudiScanRange> collectSplits(
+                Function<String, Map<String, String>> partitionValueResolver,
+                UnaryOperator<String> nativePathNormalizer) {
             if (collectSplitsThrows) {
                 throw new UnsupportedOperationException("collectSplits must not be called on this route");
             }
             if (rawCowPath != null) {
-                return Collections.singletonList(new HudiScanRange.Builder()
-                        .path(nativePathNormalizer.apply(rawCowPath)).fileFormat("parquet").build());
+                HudiScanRange.Builder builder = new HudiScanRange.Builder()
+                        .path(nativePathNormalizer.apply(rawCowPath)).fileFormat("parquet");
+                if (rawCowPartitionPath != null) {
+                    builder.partitionValues(partitionValueResolver.apply(rawCowPartitionPath));
+                }
+                return Collections.singletonList(builder.build());
             }
             return splits;
         }

@@ -165,7 +165,7 @@ public class IcebergPartitionUtilsTest {
                 .build();
         Table table = tableWith(schema, spec);
 
-        List<String> cols = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        List<String> cols = IcebergPartitionUtils.getIdentityPartitionColumns(table, schema);
 
         // Only the two identity columns, CASE-PRESERVED (#65094 read-path alignment), in spec order; the
         // bucket(id) transform is excluded. MUTATION: including non-identity transforms -> "id_bucket"/"id"
@@ -191,7 +191,7 @@ public class IcebergPartitionUtilsTest {
         table.updateSpec().removeField("payload").addField("int_col").commit();
         Assertions.assertEquals(2, table.specs().size());
 
-        List<String> cols = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        List<String> cols = IcebergPartitionUtils.getIdentityPartitionColumns(table, table.schema());
 
         // Both specs contribute, in first-seen (spec id) order. MUTATION: iterating table.spec() instead of
         // table.specs() -> ["int_col"] -> red. MUTATION: dropping the LinkedHashSet dedup -> duplicates -> red.
@@ -209,13 +209,12 @@ public class IcebergPartitionUtilsTest {
                 .identity("P")
                 .bucket("id", 4)
                 .build();
-        Table table = tableWith(schema, spec);
         PartitionData pd = new PartitionData(spec.partitionType());
         pd.set(0, 7);          // P = 7  (identity)
         pd.set(1, 2);          // id_bucket = 2 (non-identity -> skipped)
 
         Map<String, String> info =
-                IcebergPartitionUtils.getIdentityPartitionInfoMap(pd, spec, table, ZoneOffset.UTC);
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(pd, spec, schema, ZoneOffset.UTC);
 
         // Only the identity column survives, key CASE-PRESERVED (#65094 read-path alignment). MUTATION:
         // emitting id_bucket -> size 2 -> red. MUTATION: re-lowercasing the key -> "p" != "P" -> red.
@@ -228,12 +227,11 @@ public class IcebergPartitionUtilsTest {
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
                 Types.NestedField.optional(2, "p", Types.IntegerType.get()));
         PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
-        Table table = tableWith(schema, spec);
         PartitionData pd = new PartitionData(spec.partitionType());
         pd.set(0, null);       // genuine null partition value
 
         Map<String, String> info =
-                IcebergPartitionUtils.getIdentityPartitionInfoMap(pd, spec, table, ZoneOffset.UTC);
+                IcebergPartitionUtils.getIdentityPartitionInfoMap(pd, spec, schema, ZoneOffset.UTC);
 
         Assertions.assertTrue(info.containsKey("p"));
         Assertions.assertNull(info.get("p"));

@@ -482,6 +482,12 @@ Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
             }
         } else if (desc.category == ColumnCategory::PARTITION_KEY) {
             bool has_partition_value = partition_col_names.contains(desc.name);
+            if (!ctx->table_info_node->has_children_column(desc.name)) {
+                return Status::InternalError(
+                        "Iceberg schema mapping is missing partition column '{}'; the schema info "
+                        "from FE is inconsistent with the scan tuple (file: {})",
+                        desc.name, ctx->range->path);
+            }
             bool exists_in_file = ctx->table_info_node->children_column_exists(desc.name);
             if (!has_partition_value || exists_in_file) {
                 // Keep PARTITION_KEY category stable for scan planning, but still read
@@ -881,6 +887,12 @@ Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
             }
         } else if (desc.category == ColumnCategory::PARTITION_KEY) {
             bool has_partition_value = partition_col_names.contains(desc.name);
+            if (!ctx->table_info_node->has_children_column(desc.name)) {
+                return Status::InternalError(
+                        "Iceberg schema mapping is missing partition column '{}'; the schema info "
+                        "from FE is inconsistent with the scan tuple (file: {})",
+                        desc.name, ctx->range->path);
+            }
             bool exists_in_file = ctx->table_info_node->children_column_exists(desc.name);
             if (!has_partition_value || exists_in_file) {
                 ctx->column_names.push_back(desc.name);

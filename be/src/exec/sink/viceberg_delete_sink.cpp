@@ -701,8 +701,8 @@ Status VIcebergDeleteSink::_write_deletion_vector_files(
         commit_data.__set_content_offset(blob.content_offset);
         commit_data.__set_content_size_in_bytes(blob.content_size_in_bytes);
         commit_data.__set_referenced_data_file_path(blob.referenced_data_file);
-        if (blob.partition_spec_id != 0 || !blob.partition_data_json.empty()) {
-            commit_data.__set_partition_spec_id(blob.partition_spec_id);
+        commit_data.__set_partition_spec_id(blob.partition_spec_id);
+        if (!blob.partition_data_json.empty()) {
             commit_data.__set_partition_data_json(blob.partition_data_json);
         }
 

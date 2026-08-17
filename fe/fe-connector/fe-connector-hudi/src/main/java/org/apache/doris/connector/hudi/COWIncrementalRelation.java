@@ -31,18 +31,17 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineUtils;
 import org.apache.hudi.common.table.timeline.TimelineUtils.HollowCommitHandling;
-import org.apache.hudi.common.util.Option;
 import org.apache.hudi.storage.StoragePath;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
@@ -53,8 +52,8 @@ import java.util.stream.Collectors;
  * here, see {@link IncrementalRelation}) and the split type re-homed from fe-core {@code HudiSplit} to
  * {@link HudiScanRange}. Everything from the archived-flag computation onward is byte-faithful to legacy.
  *
- * <p>{@link #collectSplits()} yields native ranges directly (COW has only base files); {@link #collectFileSlices()}
- * is unsupported (the MOR shape).
+ * <p>{@link #collectSplits(Function, UnaryOperator)} yields native ranges directly (COW has only base files);
+ * {@link #collectFileSlices()} is unsupported (the MOR shape).
  */
 final class COWIncrementalRelation implements IncrementalRelation {
 
@@ -183,17 +182,14 @@ final class COWIncrementalRelation implements IncrementalRelation {
     }
 
     @Override
-    public List<HudiScanRange> collectSplits(UnaryOperator<String> nativePathNormalizer) {
+    public List<HudiScanRange> collectSplits(
+            Function<String, Map<String, String>> partitionValueResolver,
+            UnaryOperator<String> nativePathNormalizer) {
         IncrementalRelation.checkNotFullTableScan(fullTableScan);
         if (filteredRegularFullPaths.isEmpty() && filteredMetaBootstrapFullPaths.isEmpty()) {
             return Collections.emptyList();
         }
         List<HudiScanRange> splits = new ArrayList<>();
-        // Partition-column NAMES come from the hudi table config (byte-faithful to legacy COW:212), NOT the
-        // HMS-sourced handle.partitionKeyNames the snapshot path uses; the two coincide for hive-synced tables.
-        Option<String[]> partitionColumns = metaClient.getTableConfig().getPartitionFields();
-        List<String> partitionNames = partitionColumns.isPresent() ? Arrays.asList(partitionColumns.get())
-                : Collections.emptyList();
 
         Consumer<String> generatorSplit = baseFile -> {
             HoodieWriteStat stat = fileToWriteStat.get(baseFile);
@@ -206,8 +202,7 @@ final class COWIncrementalRelation implements IncrementalRelation {
                     .length(stat.getFileSizeInBytes())
                     .fileSize(stat.getFileSizeInBytes())
                     .fileFormat(HudiScanPlanProvider.detectFileFormat(baseFile))
-                    .partitionValues(
-                            HudiScanPlanProvider.parsePartitionValues(stat.getPartitionPath(), partitionNames))
+                    .partitionValues(partitionValueResolver.apply(stat.getPartitionPath()))
                     .build());
         };
 

@@ -21,6 +21,8 @@ import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.junit.jupiter.api.Assertions;
@@ -83,6 +85,25 @@ public class HudiTableTypeTest {
     public void testUnknownWhenNoHudiSignal() {
         Assertions.assertEquals("UNKNOWN",
                 detect("org.apache.hadoop.mapred.TextInputFormat", Collections.emptyMap()));
+    }
+
+    @Test
+    public void mixedCaseHmsPartitionNameUsesHudiLowerCaseConvention() {
+        HmsTableInfo info = HmsTableInfo.builder()
+                .dbName("db").tableName("t")
+                .location("s3://b/t")
+                .inputFormat("org.apache.hudi.hadoop.HoodieParquetInputFormat")
+                .partitionKeys(Collections.singletonList(
+                        new ConnectorColumn("City", ConnectorType.of("STRING"), "", true, null)))
+                .build();
+        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+                new FakeHmsClient(info), HudiTestProperties.minimal(), new DirectHudiMetaClientExecutor());
+
+        HudiTableHandle handle = (HudiTableHandle) metadata.getTableHandle(null, "db", "t").orElseThrow();
+
+        // Avro-derived slots and history_schema_info are both lower-case. The handle drives
+        // path_partition_keys, column classification, and columns_from_path, so it must use the same key.
+        Assertions.assertEquals(Collections.singletonList("city"), handle.getPartitionKeyNames());
     }
 
     /**

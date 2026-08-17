@@ -78,11 +78,11 @@ public class IcebergSchemaUtilsTest {
     }
 
     /** Build the dictionary for the given requested column names and return the single (-1) entry. */
-    private static TSchema dict(Table table, String... requestedLowerNames) {
+    private static TSchema dict(Table table, String... requestedNames) {
         // Mirror the production path (encodeSchemaEvolutionProp): thread the PRECISE isPresent() as
         // hasNameMapping (#65784), so a present-but-empty mapping is still authoritative.
         Optional<Map<Integer, List<String>>> nameMapping = IcebergSchemaUtils.extractNameMapping(table);
-        return IcebergSchemaUtils.buildCurrentSchema(table.schema(), Arrays.asList(requestedLowerNames),
+        return IcebergSchemaUtils.buildCurrentSchema(table.schema(), Arrays.asList(requestedNames),
                 nameMapping.orElse(Collections.emptyMap()), nameMapping.isPresent(), false);
     }
 
@@ -129,7 +129,7 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertEquals(-1L, params.getHistorySchemaInfo().get(0).getSchemaId());
     }
 
-    // --- top-level: iceberg field ids + lowercased names keyed off the requested columns ---
+    // --- top-level: iceberg field ids + names keyed off the requested columns ---
 
     @Test
     public void topLevelFieldsCarryIcebergFieldIdsAndLowercasedNames() {
@@ -255,7 +255,7 @@ public class IcebergSchemaUtilsTest {
     @Test
     public void emptyRequestedFallsBackToAllColumns() {
         // A count-only scan (no projected slots) / a table with no column handles yields an empty requested list;
-        // the dictionary then carries all top-level columns (lowercased) so it is still a valid superset. MUTATION:
+        // the dictionary then carries all top-level columns so it is still a valid superset. MUTATION:
         // return an empty root struct -> BE has no table entry -> red.
         Table table = createTable("t1", SCHEMA);
         Map<String, TField> fields = topFields(dict(table /* no requested names */));
@@ -264,6 +264,26 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertEquals(1, fields.get("id").getId());
         Assertions.assertEquals(2, fields.get("name").getId());
         Assertions.assertEquals(3, fields.get("extra").getId());
+    }
+
+    @Test
+    public void emptyRequestedPreservesMixedCaseTopLevelNames() {
+        // Snapshot-pinned and Top-N lazy scans request the full schema by passing an empty list. Their Doris slots
+        // and path_partition_keys keep the Iceberg top-level case, so this fallback must do the same. Lowercasing
+        // only this branch makes a mixed-case partition slot ("City") miss the dictionary key ("city") and used
+        // to abort BE in StructNode::children_column_exists.
+        Schema mixed = new Schema(
+                Types.NestedField.required(7, "ID", Types.IntegerType.get()),
+                Types.NestedField.optional(9, "City", Types.StringType.get()));
+        Table table = createTable("mixed_full_schema", mixed);
+
+        Map<String, TField> fields = topFields(dict(table /* no requested names */));
+
+        Assertions.assertEquals(2, fields.size());
+        Assertions.assertEquals(table.schema().findField("ID").fieldId(), fields.get("ID").getId());
+        Assertions.assertEquals(table.schema().findField("City").fieldId(), fields.get("City").getId());
+        Assertions.assertFalse(fields.containsKey("id"));
+        Assertions.assertFalse(fields.containsKey("city"));
     }
 
     @Test
@@ -395,6 +415,18 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertEquals(32, nested.get(1).getFieldPtr().getId());
         Assertions.assertEquals("key", nested.get(0).getFieldPtr().getName());
         Assertions.assertEquals("key", nested.get(1).getFieldPtr().getName());
+    }
+
+    @Test
+    public void equalityCarrierPreservesMixedCaseTopLevelNames() throws Exception {
+        Table table = createTable("mixed_equality_carrier", SCHEMA);
+        List<Types.NestedField> fields = Collections.singletonList(
+                Types.NestedField.optional(10, "City", Types.StringType.get()));
+
+        TStructField root = decode(IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
+                table, fields, false, false, false)).getHistorySchemaInfo().get(0).getRootField();
+
+        Assertions.assertEquals("City", root.getFields().get(0).getFieldPtr().getName());
     }
 
     @Test

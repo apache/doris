@@ -935,6 +935,16 @@ schema::external::TFieldPtr make_external_struct_field(
     return field_ptr;
 }
 
+schema::external::TSchema make_single_int_external_schema(const std::string& name,
+                                                          int32_t field_id) {
+    schema::external::TStructField root_field;
+    root_field.__set_fields({make_external_int_field(name, field_id, std::nullopt)});
+    schema::external::TSchema schema;
+    schema.__set_schema_id(-1);
+    schema.__set_root_field(std::move(root_field));
+    return schema;
+}
+
 class IcebergReaderTestHelper : public IcebergTableReader {
 public:
     using IcebergTableReader::_is_fully_dictionary_encoded;
@@ -1401,6 +1411,172 @@ protected:
     std::unordered_map<std::string, uint32_t> delete_file_col_name_to_block_idx = {{"file_path", 0},
                                                                                    {"pos", 1}};
 };
+
+TEST_F(IcebergReaderTest, mixed_case_partition_schema_mismatch_returns_error_for_parquet) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_parquet_mixed_case_partition_schema_mismatch_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto data_file = (test_dir / "data.parquet").string();
+    write_iceberg_int_equality_delete_parquet_file(data_file, "City", 2, 1);
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    scan_params.__set_current_schema_id(-1);
+    // Models the bad SPI plan: the scan tuple/path key is "City", while the full-schema fallback
+    // registered only the lower-cased table-side key "city".
+    scan_params.__set_history_schema_info({make_single_int_external_schema("city", 2)});
+    TFileRangeDesc scan_range;
+    scan_range.__set_path(data_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_columns_from_path_keys({"City"});
+    scan_range.__set_columns_from_path({"Beijing"});
+    scan_range.__set_columns_from_path_is_null({false});
+
+    ObjectPool object_pool;
+    DescriptorTbl* descriptor_table = nullptr;
+    const TupleDescriptor* tuple_descriptor = nullptr;
+    ASSERT_TRUE(create_single_int_tuple_descriptor(&object_pool, "City", 2, &descriptor_table,
+                                                   &tuple_descriptor)
+                        .ok());
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergParquetReader reader(&kv_cache, &profile, scan_params, scan_range, 1024, &timezone_obj,
+                                &io_ctx, &runtime_state, cache.get());
+    io::FileReaderSPtr file_reader;
+    ASSERT_TRUE(io::global_local_filesystem()->open_file(data_file, &file_reader).ok());
+    reader.set_file_reader(file_reader);
+
+    std::vector<ColumnDescriptor> column_descriptors(1);
+    column_descriptors[0].name = "City";
+    column_descriptors[0].category = ColumnCategory::PARTITION_KEY;
+    std::unordered_map<std::string, uint32_t> block_positions = {{"City", 0}};
+    ParquetInitContext context;
+    context.column_descs = &column_descriptors;
+    context.col_name_to_block_idx = &block_positions;
+    context.tuple_descriptor = tuple_descriptor;
+    context.params = &scan_params;
+    context.range = &scan_range;
+
+    const auto status = reader.init_reader(&context);
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("missing partition column 'City'"), std::string::npos)
+            << status;
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST_F(IcebergReaderTest, mixed_case_partition_schema_mismatch_returns_error_for_orc) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_orc_mixed_case_partition_schema_mismatch_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto data_file = (test_dir / "data.orc").string();
+    write_iceberg_int_orc_file(data_file, "City", 2, {1});
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    scan_params.__set_current_schema_id(-1);
+    scan_params.__set_history_schema_info({make_single_int_external_schema("city", 2)});
+    TFileRangeDesc scan_range;
+    scan_range.__set_path(data_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_columns_from_path_keys({"City"});
+    scan_range.__set_columns_from_path({"Beijing"});
+    scan_range.__set_columns_from_path_is_null({false});
+
+    ObjectPool object_pool;
+    DescriptorTbl* descriptor_table = nullptr;
+    const TupleDescriptor* tuple_descriptor = nullptr;
+    ASSERT_TRUE(create_single_int_tuple_descriptor(&object_pool, "City", 2, &descriptor_table,
+                                                   &tuple_descriptor)
+                        .ok());
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    runtime_state.set_timezone("UTC");
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergOrcReader reader(&kv_cache, &profile, &runtime_state, scan_params, scan_range, 1024,
+                            "UTC", &io_ctx, cache.get());
+
+    std::vector<ColumnDescriptor> column_descriptors(1);
+    column_descriptors[0].name = "City";
+    column_descriptors[0].category = ColumnCategory::PARTITION_KEY;
+    std::unordered_map<std::string, uint32_t> block_positions = {{"City", 0}};
+    OrcInitContext context;
+    context.column_descs = &column_descriptors;
+    context.col_name_to_block_idx = &block_positions;
+    context.tuple_descriptor = tuple_descriptor;
+    context.params = &scan_params;
+    context.range = &scan_range;
+
+    const auto status = reader.init_reader(&context);
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("missing partition column 'City'"), std::string::npos)
+            << status;
+    std::filesystem::remove_all(test_dir);
+}
+
+TEST_F(IcebergReaderTest, mixed_case_regular_schema_mismatch_returns_error_for_orc) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_iceberg_orc_mixed_case_regular_schema_mismatch_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+    const auto data_file = (test_dir / "data.orc").string();
+    write_iceberg_int_orc_file(data_file, "City", 2, {1});
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_file_type(TFileType::FILE_LOCAL);
+    scan_params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    scan_params.__set_current_schema_id(-1);
+    scan_params.__set_history_schema_info({make_single_int_external_schema("city", 2)});
+    TFileRangeDesc scan_range;
+    scan_range.__set_path(data_file);
+    scan_range.__set_start_offset(0);
+    scan_range.__set_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+    scan_range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(data_file)));
+
+    ObjectPool object_pool;
+    DescriptorTbl* descriptor_table = nullptr;
+    const TupleDescriptor* tuple_descriptor = nullptr;
+    ASSERT_TRUE(create_single_int_tuple_descriptor(&object_pool, "City", 2, &descriptor_table,
+                                                   &tuple_descriptor)
+                        .ok());
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState runtime_state {TQueryOptions(), TQueryGlobals()};
+    runtime_state.set_timezone("UTC");
+    io::IOContext io_ctx;
+    ShardedKVCache kv_cache(8);
+    IcebergOrcReader reader(&kv_cache, &profile, &runtime_state, scan_params, scan_range, 1024,
+                            "UTC", &io_ctx, cache.get());
+
+    std::vector<ColumnDescriptor> column_descriptors(1);
+    column_descriptors[0].name = "City";
+    column_descriptors[0].category = ColumnCategory::REGULAR;
+    std::unordered_map<std::string, uint32_t> block_positions = {{"City", 0}};
+    OrcInitContext context;
+    context.column_descs = &column_descriptors;
+    context.col_name_to_block_idx = &block_positions;
+    context.tuple_descriptor = tuple_descriptor;
+    context.params = &scan_params;
+    context.range = &scan_range;
+
+    const auto status = reader.init_reader(&context);
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("missing projected column 'City'"), std::string::npos)
+            << status;
+    std::filesystem::remove_all(test_dir);
+}
 
 TEST_F(IcebergReaderTest, detects_fully_dictionary_encoded_parquet_column) {
     tparquet::ColumnMetaData column_metadata;

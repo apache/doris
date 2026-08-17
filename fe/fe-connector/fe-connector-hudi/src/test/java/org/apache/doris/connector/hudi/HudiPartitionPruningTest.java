@@ -22,6 +22,7 @@ import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
@@ -31,19 +32,30 @@ import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import org.apache.hudi.common.model.HoodieBaseFile;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.stream.Collectors;
 
 /**
  * Tests {@link HudiConnectorMetadata#applyFilter} partition pruning (P3-T05).
@@ -57,6 +69,7 @@ import java.util.concurrent.Callable;
  *   <li>predicates on non-partition columns (or range predicates) never prune;</li>
  *   <li>when no partition predicate applies, the handle is left untouched
  *       ({@code Optional.empty()}) so scan planning falls back to Hudi's own listing;</li>
+ *   <li>Hive Sync keeps metastore locations and extractor-produced logical values separate;</li>
  *   <li>a predicate that matches every / no partition is handled correctly.</li>
  * </ul>
  * A test that passed against the old stub (which always returned all partitions)
@@ -170,7 +183,8 @@ public class HudiPartitionPruningTest {
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
                 new FakeHmsClient(PARTITIONS),                 // HMS hive-style names -- must NOT be used here
                 HudiTestProperties.minimal(),                  // use_hive_sync_partition=false -> non-hive-sync
-                new StubMetaClientExecutor(Arrays.asList("2024/01", "2024/02", "2023/12")));
+                new StubMetaClientExecutor(new AbstractMap.SimpleImmutableEntry<>(
+                        false, Arrays.asList("2024/01", "2024/02", "2023/12"))));
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyFilter(null, partitionedHandle(), new ConnectorFilterConstraint(eq("year", "2024")));
         Assertions.assertTrue(result.isPresent());
@@ -178,18 +192,224 @@ public class HudiPartitionPruningTest {
     }
 
     @Test
-    public void testHiveSyncBranchPrunesHmsNames() {
-        // use_hive_sync_partition=true: partitions are registered in HMS and the hive-style name IS the relative
-        // storage layout, so applyFilter prunes the HMS names directly (no Hudi metadata listing / stub unused).
+    public void testHiveSyncMapsHmsMatchesToHiveStylePhysicalPaths() {
+        // When the physical Hudi layout is also hive-style, the HMS location preserves that same exact path.
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
                 new FakeHmsClient(PARTITIONS),
                 HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
-                new StubMetaClientExecutor(Collections.emptyList()));
+                new StubMetaClientExecutor(new AbstractMap.SimpleImmutableEntry<>(true, PARTITIONS)));
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyFilter(null, partitionedHandle(), new ConnectorFilterConstraint(eq("year", "2024")));
         Assertions.assertTrue(result.isPresent());
         Assertions.assertEquals(
-                Arrays.asList("year=2024/month=01", "year=2024/month=02"), prunedPaths(result));
+                Arrays.asList("s3://b/t/year=2024/month=01", "s3://b/t/year=2024/month=02"),
+                prunedPartitions(result).stream()
+                        .map(HmsPartitionInfo::getLocation)
+                        .collect(Collectors.toList()));
+    }
+
+    @Test
+    public void testHiveSyncFailsWhenMatchedPartitionMetadataIsMissing() {
+        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+                new FakeHmsClient(PARTITIONS, Collections.emptyMap()),
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
+                new StubMetaClientExecutor(null));
+
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata.applyFilter(null, partitionedHandle(),
+                        new ConnectorFilterConstraint(and(eq("year", "2024"), eq("month", "01")))));
+        Assertions.assertTrue(error.getMessage().contains("returned 0 of 1 matched partitions"));
+    }
+
+    @Test
+    public void testHiveSyncExtractorKeepsPhysicalPathAndLogicalValue() {
+        // SinglePartPartitionValueExtractor can register physical "2024/03/15" as logical
+        // event_date=2024-03-15. Matching the logical HMS value back against a positional path is invalid: the
+        // slash and hyphen forms intentionally differ. The HMS location must drive FileSystemView, while its
+        // ordered value must drive columns_from_path.
+        List<String> hmsPartitionNames = Arrays.asList(
+                "event_date=2024-03-15", "event_date=2024-03-16");
+        Map<String, HmsPartitionInfo> partitionsByName = new HashMap<>();
+        partitionsByName.put("event_date=2024-03-15", hmsPartition(
+                Collections.singletonList("2024-03-15"), "s3://b/t/2024/03/15"));
+        partitionsByName.put("event_date=2024-03-16", hmsPartition(
+                Collections.singletonList("2024-03-16"), "s3://b/t/2024/03/16"));
+        HudiConnectorMetadata metadata = new HudiConnectorMetadata(
+                new FakeHmsClient(hmsPartitionNames, partitionsByName),
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
+                new FailingMetaClientExecutor());
+        HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(Collections.singletonList("event_date"))
+                .build();
+
+        Optional<FilterApplicationResult<ConnectorTableHandle>> result = metadata.applyFilter(
+                null, handle, new ConnectorFilterConstraint(eq("event_date", "2024-03-15")));
+        Assertions.assertTrue(result.isPresent());
+        HudiTableHandle prunedHandle = (HudiTableHandle) result.get().getHandle();
+        Assertions.assertEquals(1, prunedHandle.getPrunedPartitions().size());
+        HudiScanPlanProvider.PartitionScanInfo partition = HudiScanPlanProvider.hmsPartitionScanInfo(
+                prunedHandle.getBasePath(), prunedHandle.getPartitionKeyNames(),
+                prunedHandle.getPrunedPartitions().get(0));
+        Assertions.assertEquals("2024/03/15", partition.getPartitionPath());
+        Assertions.assertEquals(Collections.singletonMap("event_date", "2024-03-15"),
+                partition.getPartitionValues());
+
+        List<String> lookupPaths = new ArrayList<>();
+        List<ConnectorScanRange> ranges = HudiScanPlanProvider.buildCowSnapshotRanges(
+                partition.getPartitionPath(), "20240101120000", partition.getPartitionValues(), null,
+                path -> path, (lookupPath, instant) -> {
+                    lookupPaths.add(lookupPath);
+                    return "2024/03/15".equals(lookupPath)
+                            ? Collections.singletonList(new HoodieBaseFile(
+                                    "s3://b/t/2024/03/15/fileid-1_0_20240101000000.parquet")).stream()
+                            : Collections.<HoodieBaseFile>emptyList().stream();
+                });
+
+        Assertions.assertEquals(Collections.singletonList("2024/03/15"), lookupPaths);
+        Assertions.assertEquals(1, ranges.size());
+        HudiScanRange range = (HudiScanRange) ranges.get(0);
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        range.populateRangeParams(new TTableFormatFileDesc(), rangeDesc);
+        Assertions.assertEquals(Collections.singletonList("event_date"), rangeDesc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("2024-03-15"), rangeDesc.getColumnsFromPath());
+    }
+
+    @Test
+    public void testUnprunedHiveSyncScanUsesExtractorLocationsAndValues() {
+        List<String> names = Arrays.asList("event_date=2024-03-15", "event_date=2024-03-16");
+        Map<String, HmsPartitionInfo> partitionsByName = new HashMap<>();
+        partitionsByName.put(names.get(0), hmsPartition(
+                Collections.singletonList("2024-03-15"), "s3://b/t/2024/03/15"));
+        partitionsByName.put(names.get(1), hmsPartition(
+                Collections.singletonList("2024-03-16"), "s3://b/t/2024/03/16"));
+        FakeHmsClient hmsClient = new FakeHmsClient(names, partitionsByName);
+        Map<String, String> properties = HudiTestProperties.minimalMap();
+        properties.put(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true");
+        HudiScanPlanProvider provider = new HudiScanPlanProvider(properties, null, () -> hmsClient);
+        HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(Collections.singletonList("event_date"))
+                .build();
+
+        List<HudiScanPlanProvider.PartitionScanInfo> partitions =
+                provider.resolvePartitions(handle, null, false);
+
+        Assertions.assertEquals(Arrays.asList("2024/03/15", "2024/03/16"), partitions.stream()
+                .map(HudiScanPlanProvider.PartitionScanInfo::getPartitionPath)
+                .collect(Collectors.toList()));
+        Assertions.assertEquals(Arrays.asList("2024-03-15", "2024-03-16"), partitions.stream()
+                .map(partition -> partition.getPartitionValues().get("event_date"))
+                .collect(Collectors.toList()));
+    }
+
+    @Test
+    public void testUnprunedHiveSyncRejectsDuplicatePhysicalLocation() {
+        List<String> names = Arrays.asList("event_date=2024-03-15", "event_date=2024-03-16");
+        Map<String, HmsPartitionInfo> partitionsByName = new HashMap<>();
+        partitionsByName.put(names.get(0), hmsPartition(
+                Collections.singletonList("2024-03-15"), "s3://b/t/2024/03"));
+        partitionsByName.put(names.get(1), hmsPartition(
+                Collections.singletonList("2024-03-16"), "s3://b/t/2024/03"));
+        Map<String, String> properties = HudiTestProperties.minimalMap();
+        properties.put(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true");
+        HudiScanPlanProvider provider = new HudiScanPlanProvider(
+                properties, null, () -> new FakeHmsClient(names, partitionsByName));
+        HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(Collections.singletonList("event_date"))
+                .build();
+
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.resolvePartitions(handle, null, false));
+        Assertions.assertTrue(error.getMessage().contains(
+                "Multiple Hudi Hive Sync partitions point to 2024/03"));
+    }
+
+    @Test
+    public void testPrunedHiveSyncRejectsDuplicatePhysicalLocation() {
+        HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(Collections.singletonList("event_date"))
+                .prunedPartitions(Arrays.asList(
+                        hmsPartition(Collections.singletonList("2024-03-15"), "s3://b/t/2024/03"),
+                        hmsPartition(Collections.singletonList("2024-03-16"), "s3://b/t/2024/03")))
+                .build();
+        HudiScanPlanProvider provider = new HudiScanPlanProvider(
+                HudiTestProperties.minimalMap(), null,
+                () -> {
+                    throw new AssertionError("pruned partitions must not access HMS");
+                });
+
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.resolvePartitions(handle, null, false));
+        Assertions.assertTrue(error.getMessage().contains(
+                "Multiple Hudi Hive Sync partitions point to 2024/03"));
+    }
+
+    @Test
+    public void testHandleWithHiveSyncPartitionsIsSerializable() throws Exception {
+        HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
+                .partitionKeyNames(Collections.singletonList("event_date"))
+                .prunedPartitions(Collections.singletonList(hmsPartition(
+                        Collections.singletonList("2024-03-15"), "s3://b/t/2024/03/15")))
+                .build();
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ObjectOutputStream output = new ObjectOutputStream(bytes)) {
+            output.writeObject(handle);
+        }
+
+        HudiTableHandle restored;
+        try (ObjectInputStream input = new ObjectInputStream(
+                new ByteArrayInputStream(bytes.toByteArray()))) {
+            restored = (HudiTableHandle) input.readObject();
+        }
+        Assertions.assertEquals(handle.getPrunedPartitions(), restored.getPrunedPartitions());
+    }
+
+    @Test
+    public void testHiveSyncRejectsSiblingPartitionLocation() {
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> HudiScanPlanProvider.hmsPartitionScanInfo(
+                        "s3://b/table", Collections.singletonList("dt"),
+                        hmsPartition(Collections.singletonList("2024-03-15"),
+                                "s3://b/table_backup/dt=2024-03-15")));
+        Assertions.assertTrue(error.getMessage().contains("does not belong to table base path"));
+    }
+
+    @Test
+    public void testHiveSyncRejectsDifferentStorageAuthority() {
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> HudiScanPlanProvider.hmsPartitionScanInfo(
+                        "s3://bucket-a/table", Collections.singletonList("dt"),
+                        hmsPartition(Collections.singletonList("2024-03-15"),
+                                "s3://bucket-b/table/dt=2024-03-15")));
+        Assertions.assertTrue(error.getMessage().contains("does not belong to table base path"));
+    }
+
+    @Test
+    public void testHiveSyncRejectsIncompatibleStorageSchemeWithSameAuthority() {
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> HudiScanPlanProvider.hmsPartitionScanInfo(
+                        "s3://bucket/table", Collections.singletonList("dt"),
+                        hmsPartition(Collections.singletonList("2024-03-15"),
+                                "hdfs://bucket/table/dt=2024-03-15")));
+        Assertions.assertTrue(error.getMessage().contains("does not belong to table base path"));
+    }
+
+    @Test
+    public void testHiveSyncRejectsIncompatibleStorageSchemeWithoutAuthority() {
+        DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                () -> HudiScanPlanProvider.hmsPartitionScanInfo(
+                        "file:///warehouse/table", Collections.singletonList("dt"),
+                        hmsPartition(Collections.singletonList("2024-03-15"),
+                                "hdfs:///warehouse/table/dt=2024-03-15")));
+        Assertions.assertTrue(error.getMessage().contains("does not belong to table base path"));
+    }
+
+    @Test
+    public void testHiveSyncAcceptsS3SchemeAliases() {
+        HudiScanPlanProvider.PartitionScanInfo partition = HudiScanPlanProvider.hmsPartitionScanInfo(
+                "s3a://bucket/table", Collections.singletonList("dt"),
+                hmsPartition(Collections.singletonList("2024-03-15"),
+                        "s3://bucket/table/dt=2024-03-15"));
+        Assertions.assertEquals("dt=2024-03-15", partition.getPartitionPath());
     }
 
     @Test
@@ -201,7 +421,7 @@ public class HudiPartitionPruningTest {
                 HudiConnectorMetadata.prunePartitionPaths(
                         Arrays.asList("2024/01", "2024/02", "2023/12"),
                         PART_KEYS,
-                        Collections.singletonMap("year", Collections.singletonList("2024"))));
+                        Collections.singletonMap("year", Collections.singletonList("2024")), false));
     }
 
     @Test
@@ -210,7 +430,8 @@ public class HudiPartitionPruningTest {
         // hiveDateTimeString -- String.valueOf(LocalDate) = "2024-01-01" already matches the stored DATE value.
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
                 new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
-                new StubMetaClientExecutor(Arrays.asList("2024-01-01", "2024-01-02")));
+                new StubMetaClientExecutor(new AbstractMap.SimpleImmutableEntry<>(
+                        false, Arrays.asList("2024-01-01", "2024-01-02"))));
         HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
                 .partitionKeyNames(Collections.singletonList("dt"))
                 .build();
@@ -236,7 +457,8 @@ public class HudiPartitionPruningTest {
         // empty -> red.
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
                 new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
-                new StubMetaClientExecutor(Arrays.asList("1", "2")));
+                new StubMetaClientExecutor(new AbstractMap.SimpleImmutableEntry<>(
+                        false, Arrays.asList("1", "2"))));
         HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
                 .partitionKeyNames(Collections.singletonList("d"))
                 .build();
@@ -258,7 +480,7 @@ public class HudiPartitionPruningTest {
         // hive-style names here parse the same via parsePartitionValues, so the pruning assertions are unchanged.
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
                 new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
-                new StubMetaClientExecutor(PARTITIONS));
+                new StubMetaClientExecutor(new AbstractMap.SimpleImmutableEntry<>(true, PARTITIONS)));
         return metadata.applyFilter(null, handle, new ConnectorFilterConstraint(expr));
     }
 
@@ -271,6 +493,15 @@ public class HudiPartitionPruningTest {
     @SuppressWarnings("unchecked")
     private List<String> prunedPaths(Optional<FilterApplicationResult<ConnectorTableHandle>> result) {
         return ((HudiTableHandle) result.get().getHandle()).getPrunedPartitionPaths();
+    }
+
+    private List<HmsPartitionInfo> prunedPartitions(
+            Optional<FilterApplicationResult<ConnectorTableHandle>> result) {
+        return ((HudiTableHandle) result.get().getHandle()).getPrunedPartitions();
+    }
+
+    private static HmsPartitionInfo hmsPartition(List<String> values, String location) {
+        return new HmsPartitionInfo(values, location, null, null, null, Collections.emptyMap());
     }
 
     private static ConnectorColumnRef colRef(String name) {
@@ -303,9 +534,28 @@ public class HudiPartitionPruningTest {
      */
     private static final class FakeHmsClient implements HmsClient {
         private final List<String> partitionNames;
+        private final Map<String, HmsPartitionInfo> partitionsByName;
 
         FakeHmsClient(List<String> partitionNames) {
+            this(partitionNames, defaultPartitions(partitionNames));
+        }
+
+        FakeHmsClient(List<String> partitionNames, Map<String, HmsPartitionInfo> partitionsByName) {
             this.partitionNames = partitionNames;
+            this.partitionsByName = partitionsByName;
+        }
+
+        private static Map<String, HmsPartitionInfo> defaultPartitions(List<String> partitionNames) {
+            Map<String, HmsPartitionInfo> partitions = new HashMap<>();
+            for (String partitionName : partitionNames) {
+                List<String> values = new ArrayList<>();
+                for (String fragment : partitionName.split("/")) {
+                    values.add(HudiScanPlanProvider.unescapePathName(
+                            fragment.substring(fragment.indexOf('=') + 1)));
+                }
+                partitions.put(partitionName, hmsPartition(values, "s3://b/t/" + partitionName));
+            }
+            return partitions;
         }
 
         @Override
@@ -346,7 +596,14 @@ public class HudiPartitionPruningTest {
         @Override
         public List<HmsPartitionInfo> getPartitions(String dbName, String tableName,
                 List<String> partNames) {
-            throw new UnsupportedOperationException();
+            List<HmsPartitionInfo> result = new ArrayList<>(partNames.size());
+            for (String partName : partNames) {
+                HmsPartitionInfo partition = partitionsByName.get(partName);
+                if (partition != null) {
+                    result.add(partition);
+                }
+            }
+            return result;
         }
 
         @Override
@@ -375,6 +632,13 @@ public class HudiPartitionPruningTest {
         @Override
         public <T> T execute(Callable<T> action) {
             return (T) canned;
+        }
+    }
+
+    private static final class FailingMetaClientExecutor implements HudiMetaClientExecutor {
+        @Override
+        public <T> T execute(Callable<T> action) {
+            throw new AssertionError("Hive Sync must not list Hudi partition paths");
         }
     }
 }

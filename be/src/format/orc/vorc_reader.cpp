@@ -509,6 +509,15 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
         _fill_missing_cols.clear();
         _fill_missing_defaults.clear();
         for (const auto& col_name : _table_column_names) {
+            // A projected column absent from the table-side schema tree is an FE/BE schema-contract
+            // violation, not a column missing from this data file. Return an error for this query instead
+            // of aborting the BE through children_column_exists (or children.at in a release build).
+            if (!_table_info_node_ptr->has_children_column(col_name)) {
+                return Status::InternalError(
+                        "schema mapping is missing projected column '{}'; the schema info from FE "
+                        "is inconsistent with the scan projection (file: {})",
+                        col_name, _scan_range.path);
+            }
             if (!_table_info_node_ptr->children_column_exists(col_name)) {
                 _fill_missing_cols.insert(col_name);
             }

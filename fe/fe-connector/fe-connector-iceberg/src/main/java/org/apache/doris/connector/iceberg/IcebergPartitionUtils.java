@@ -33,6 +33,7 @@ import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
@@ -119,14 +120,14 @@ final class IcebergPartitionUtils {
      * excluded from the file-decode set (the CI #968880 double-fill guard). Non-identity transforms
      * (bucket/truncate/year/month/...) are excluded.
      */
-    static List<String> getIdentityPartitionColumns(Table table) {
+    static List<String> getIdentityPartitionColumns(Table table, Schema scanSchema) {
         LinkedHashSet<String> partitionColumns = new LinkedHashSet<>();
         for (PartitionSpec spec : table.specs().values()) {
             for (PartitionField partitionField : spec.fields()) {
                 if (!partitionField.transform().isIdentity()) {
                     continue;
                 }
-                String columnName = table.schema().findColumnName(partitionField.sourceId());
+                String columnName = scanSchema.findColumnName(partitionField.sourceId());
                 if (columnName != null) {
                     partitionColumns.add(columnName);
                 }
@@ -141,7 +142,7 @@ final class IcebergPartitionUtils {
      * (LinkedHashMap, spec field order). Mirrors legacy {@code IcebergUtils.getIdentityPartitionInfoMap}.
      */
     static Map<String, String> getIdentityPartitionInfoMap(PartitionData partitionData,
-            PartitionSpec partitionSpec, Table table, ZoneId zone) {
+            PartitionSpec partitionSpec, Schema scanSchema, ZoneId zone) {
         Map<String, String> partitionInfoMap = new LinkedHashMap<>();
         List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
         List<PartitionField> partitionFields = partitionSpec.fields();
@@ -159,7 +160,7 @@ final class IcebergPartitionUtils {
                 continue;
             }
 
-            String columnName = table.schema().findColumnName(partitionField.sourceId());
+            String columnName = scanSchema.findColumnName(partitionField.sourceId());
             if (columnName == null) {
                 continue;
             }
