@@ -265,8 +265,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             return join;
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+        boolean ignoreBloomFilter = shouldIgnoreBloomFilterForShuffleJoin(join, ctx);
         List<TRuntimeFilterType> legalTypes = RuntimeFilterTypeHelper.getSupportedRuntimeFilterTypes().stream()
                 .filter(type -> ctx.getSessionVariable().allowedRuntimeFilterType(type))
+                .filter(type -> !ignoreBloomFilter || !isBloomFilter(type))
                 .collect(Collectors.toList());
 
         List<Expression> hashJoinConjuncts = join.getHashJoinConjuncts();
@@ -294,6 +296,30 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             }
         }
         return join;
+    }
+
+    private boolean shouldIgnoreBloomFilterForShuffleJoin(
+            PhysicalHashJoin<? extends Plan, ? extends Plan> join, RuntimeFilterContext ctx) {
+        if (!ctx.getSessionVariable().isEnableIgnoreRuntimeFilterForLargeShuffleJoin()) {
+            return false;
+        }
+        Join.ShuffleType shuffleType = join.shuffleType();
+        if (shuffleType != Join.ShuffleType.shuffle
+                && shuffleType != Join.ShuffleType.bucketShuffle
+                && shuffleType != Join.ShuffleType.shuffleBucket) {
+            return false;
+        }
+        long maxBuildRowCount = ctx.getSessionVariable().runtimeFilterMaxBuildRowCount;
+        if (maxBuildRowCount <= 0) {
+            return false;
+        }
+        AbstractPlan buildSide = (AbstractPlan) join.right();
+        double buildRowCount = buildSide.getStats() == null ? -1 : buildSide.getStats().getRowCount();
+        return buildRowCount <= 0 || buildRowCount > maxBuildRowCount;
+    }
+
+    private boolean isBloomFilter(TRuntimeFilterType type) {
+        return type == TRuntimeFilterType.BLOOM || type == TRuntimeFilterType.IN_OR_BLOOM;
     }
 
     /**

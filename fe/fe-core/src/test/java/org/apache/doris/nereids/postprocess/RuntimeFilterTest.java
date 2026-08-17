@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -49,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
@@ -59,6 +61,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class RuntimeFilterTest extends SSBTestBase {
@@ -80,6 +83,39 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertEquals(1, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
                 Pair.of("c_custkey", "lo_custkey")));
+    }
+
+    @Test
+    public void testIgnoreRuntimeFilterForLargeShuffleJoin() {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        long originalMaxBuildRowCount = sessionVariable.runtimeFilterMaxBuildRowCount;
+        boolean originalEnableIgnore = sessionVariable.isEnableIgnoreRuntimeFilterForLargeShuffleJoin();
+        String shuffleSql = "SELECT * FROM lineorder JOIN [shuffle] customer"
+                + " ON c_custkey = lo_custkey";
+        String broadcastSql = "SELECT * FROM lineorder JOIN [broadcast] customer"
+                + " ON c_custkey = lo_custkey";
+        Consumer<PhysicalPlan> setLargeBuildSide = plan -> {
+            PhysicalHashJoin<?, ?> join = (PhysicalHashJoin<?, ?>) plan.collect(PhysicalHashJoin.class::isInstance)
+                    .iterator().next();
+            AbstractPlan buildSide = (AbstractPlan) join.right();
+            buildSide.setStatistics(buildSide.getStats().withRowCount(2));
+        };
+        try {
+            sessionVariable.runtimeFilterMaxBuildRowCount = 1;
+
+            sessionVariable.setEnableIgnoreRuntimeFilterForLargeShuffleJoin(false);
+            Assertions.assertEquals(1, getRuntimeFilters(shuffleSql, setLargeBuildSide).get().size());
+
+            sessionVariable.setEnableIgnoreRuntimeFilterForLargeShuffleJoin(true);
+            Assertions.assertEquals(0, getRuntimeFilters(shuffleSql, setLargeBuildSide).get().size());
+            Assertions.assertEquals(1, getRuntimeFilters(broadcastSql, setLargeBuildSide).get().size());
+
+            sessionVariable.runtimeFilterMaxBuildRowCount = 0;
+            Assertions.assertEquals(1, getRuntimeFilters(shuffleSql, setLargeBuildSide).get().size());
+        } finally {
+            sessionVariable.runtimeFilterMaxBuildRowCount = originalMaxBuildRowCount;
+            sessionVariable.setEnableIgnoreRuntimeFilterForLargeShuffleJoin(originalEnableIgnore);
+        }
     }
 
     @Test
@@ -333,11 +369,16 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) {
+        return getRuntimeFilters(sql, plan -> { });
+    }
+
+    private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql, Consumer<PhysicalPlan> beforePostProcess) {
         PlanChecker checker = PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
                 .optimize();
         PhysicalPlan plan = checker.getBestPlanTree();
+        beforePostProcess.accept(plan);
         plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
         System.out.println(plan.treeString());
         new PhysicalPlanTranslator(new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);

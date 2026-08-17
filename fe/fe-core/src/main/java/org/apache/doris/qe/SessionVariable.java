@@ -266,6 +266,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SYNC_RUNTIME_FILTER_SIZE = "enable_sync_runtime_filter_size";
     public static final String RUNTIME_FILTER_TREE_PUBLISH_MAX_SEND_BYTES =
             "runtime_filter_tree_publish_max_send_bytes";
+    public static final String ENABLE_IGNORE_RUNTIME_FILTER_FOR_LARGE_SHUFFLE_JOIN =
+            "enable_ignore_runtime_filter_for_large_shuffle_join";
 
     public static final String ENABLE_PARALLEL_RESULT_SINK = "enable_parallel_result_sink";
 
@@ -1769,6 +1771,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = "runtime_filter_max_build_row_count", needForward = true, fuzzy = false)
     public long runtimeFilterMaxBuildRowCount = 64L * 1024L * 1024L;
+
+    @VariableMgr.VarAttr(name = ENABLE_IGNORE_RUNTIME_FILTER_FOR_LARGE_SHUFFLE_JOIN, needForward = true,
+            description = {"是否忽略 build 侧行数未知或超过 runtime_filter_max_build_row_count 的 shuffle join Bloom Filter",
+                    "Whether to ignore Bloom filters for shuffle joins whose build-side row count is unknown or "
+                            + "exceeds runtime_filter_max_build_row_count"})
+    private boolean enableIgnoreRuntimeFilterForLargeShuffleJoin = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
     private boolean enableParallelResultSink = true;
@@ -4795,6 +4803,15 @@ public class SessionVariable implements Serializable, Writable {
 
     public long getRuntimeFilterTreePublishMaxSendBytes() {
         return runtimeFilterTreePublishMaxSendBytes;
+    }
+
+    public boolean isEnableIgnoreRuntimeFilterForLargeShuffleJoin() {
+        return enableIgnoreRuntimeFilterForLargeShuffleJoin;
+    }
+
+    public void setEnableIgnoreRuntimeFilterForLargeShuffleJoin(
+            boolean enableIgnoreRuntimeFilterForLargeShuffleJoin) {
+        this.enableIgnoreRuntimeFilterForLargeShuffleJoin = enableIgnoreRuntimeFilterForLargeShuffleJoin;
     }
 
     public void setEnableLocalShuffle(boolean enableLocalShuffle) {
