@@ -35,11 +35,14 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Convert an inner join to a left semi join when the inner join is only used as an
- * existence filter. Three conditions must be satisfied at the same time:
+ * Convert an inner join to a semi join when the inner join is only used as an
+ * existence filter. The output side of the join (the side whose columns are consumed
+ * above the join) becomes the probe side of the semi join: a left semi join when the
+ * output side is the left child, a right semi join when it is the right child. Three
+ * conditions must be satisfied at the same time:
  *
- * 1. The right side columns of the join do not leak: every column referenced above the
- *    join comes from the left side, i.e. the right side is only used in the join
+ * 1. The other side columns of the join do not leak: every column referenced above the
+ *    join comes from the output side, i.e. the other side is only used in the join
  *    conditions. (the "existence filter" property)
  * 2. All join conditions are equal conjuncts: hashJoinConjuncts is not empty and
  *    otherJoinConjuncts is empty, so the join is a pure equi-join.
@@ -61,30 +64,43 @@ import java.util.stream.Collectors;
  *   on a1.lot_id = a5.lot_id and a1.ope_no = a5.ope_no and ...
  * </pre>
  *
- * The conversion avoids row multiplication (the output row count stays the left side
- * cardinality instead of being multiplied by the average number of right side matches),
- * and lets the right side be scanned/broadcast with only the join key columns.
+ * and symmetrically, when only the right side columns are consumed above the join:
+ * <pre>
+ *   select distinct a5.* from a1, a5
+ *   where a1.lot_id = a5.lot_id and a1.ope_no = a5.ope_no and ...
+ *   ======>
+ *   select distinct a5.* from a1 right semi join a5
+ *   on a1.lot_id = a5.lot_id and a1.ope_no = a5.ope_no and ...
+ * </pre>
+ *
+ * The conversion avoids row multiplication (the output row count stays the output side
+ * cardinality instead of being multiplied by the average number of other side matches),
+ * and lets the other side be scanned/broadcast with only the join key columns.
  */
 public class ConvertInnerJoinToSemiJoin implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
-        return ImmutableList.of(
-                // Aggregate -> InnerJoin
-                logicalAggregate(innerLogicalJoin()
-                        .when(this::canConvertToSemiJoin))
-                        .when(this::isDistinctLikeAggregate)
-                        .when(agg -> rightColumnsDoNotLeak(agg.child(), agg.getInputSlots()))
-                        .thenApply(ctx -> convert(ctx.root, ctx.root.child()))
-                        .toRule(RuleType.CONVERT_INNER_JOIN_TO_SEMI_JOIN),
-                // Aggregate -> Project -> InnerJoin, where the project is a pure slot projection
-                logicalAggregate(logicalProject(innerLogicalJoin()
-                        .when(this::canConvertToSemiJoin))
-                        .when(Project::isAllSlots))
-                        .when(this::isDistinctLikeAggregate)
-                        .when(agg -> rightColumnsDoNotLeak(agg.child().child(), agg.child().getInputSlots()))
-                        .thenApply(ctx -> convert(ctx.root, ctx.root.child(), ctx.root.child().child()))
-                        .toRule(RuleType.CONVERT_INNER_JOIN_TO_SEMI_JOIN)
-        );
+        ImmutableList.Builder<Rule> rules = ImmutableList.builder();
+        for (boolean outputSideIsLeft : new boolean[] {true, false}) {
+            JoinType semiJoinType = outputSideIsLeft ? JoinType.LEFT_SEMI_JOIN : JoinType.RIGHT_SEMI_JOIN;
+            // Aggregate -> InnerJoin
+            rules.add(logicalAggregate(innerLogicalJoin()
+                    .when(this::canConvertToSemiJoin))
+                    .when(this::isDistinctLikeAggregate)
+                    .when(agg -> columnsDoNotLeak(agg.child(), outputSideIsLeft, agg.getInputSlots()))
+                    .thenApply(ctx -> convert(ctx.root, ctx.root.child(), semiJoinType))
+                    .toRule(RuleType.CONVERT_INNER_JOIN_TO_SEMI_JOIN));
+            // Aggregate -> Project -> InnerJoin, where the project is a pure slot projection
+            rules.add(logicalAggregate(logicalProject(innerLogicalJoin()
+                    .when(this::canConvertToSemiJoin))
+                    .when(Project::isAllSlots))
+                    .when(this::isDistinctLikeAggregate)
+                    .when(agg -> columnsDoNotLeak(agg.child().child(), outputSideIsLeft,
+                            agg.child().getInputSlots()))
+                    .thenApply(ctx -> convert(ctx.root, ctx.root.child(), ctx.root.child().child(), semiJoinType))
+                    .toRule(RuleType.CONVERT_INNER_JOIN_TO_SEMI_JOIN));
+        }
+        return rules.build();
     }
 
     /**
@@ -114,21 +130,22 @@ public class ConvertInnerJoinToSemiJoin implements RewriteRuleFactory {
     }
 
     /**
-     * Condition 1: the right side columns of the join do not leak above the join, i.e.
-     * every column consumed above the join comes from the left side, so the right side
-     * is only used in the join conditions (an existence filter).
+     * Condition 1: the output side of the join keeps every column consumed above the
+     * join, i.e. the other side is only used in the join conditions (an existence
+     * filter). The output side stays the probe side of the semi join.
      */
-    private boolean rightColumnsDoNotLeak(LogicalJoin<?, ?> join, Set<Slot> consumedSlots) {
-        return join.left().getOutputSet().containsAll(consumedSlots);
+    private boolean columnsDoNotLeak(LogicalJoin<?, ?> join, boolean outputSideIsLeft, Set<Slot> consumedSlots) {
+        return (outputSideIsLeft ? join.left() : join.right()).getOutputSet().containsAll(consumedSlots);
     }
 
     /** Aggregate -> Join */
-    private Plan convert(LogicalAggregate<?> agg, LogicalJoin<?, ?> join) {
-        return agg.withChildren(join.withJoinType(JoinType.LEFT_SEMI_JOIN));
+    private Plan convert(LogicalAggregate<?> agg, LogicalJoin<?, ?> join, JoinType semiJoinType) {
+        return agg.withChildren(join.withJoinType(semiJoinType));
     }
 
     /** Aggregate -> Project -> Join */
-    private Plan convert(LogicalAggregate<?> agg, LogicalProject<?> project, LogicalJoin<?, ?> join) {
-        return agg.withChildren(project.withChildren(join.withJoinType(JoinType.LEFT_SEMI_JOIN)));
+    private Plan convert(LogicalAggregate<?> agg, LogicalProject<?> project, LogicalJoin<?, ?> join,
+            JoinType semiJoinType) {
+        return agg.withChildren(project.withChildren(join.withJoinType(semiJoinType)));
     }
 }

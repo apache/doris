@@ -127,4 +127,53 @@ class ConvertInnerJoinToSemiJoinTest extends TestWithFeService implements MemoPa
                 .anyMatches(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN))
                 .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.INNER_JOIN));
     }
+
+    // select distinct t2.id2 from t1 join t2 on t1.id1 = t2.id2
+    // t1's columns are not used above the join, the join keys are equal conjuncts,
+    // and the DISTINCT aggregate dedups the output, so the inner join acts as an
+    // existence filter on t2: inner join -> right semi join
+    @Test
+    void testConvertInnerJoinToRightSemiJoin() throws Exception {
+        PlanChecker.from(connectContext)
+                .analyze("select distinct t2.id2 from t1 join t2 on t1.id1 = t2.id2")
+                .rewrite()
+                .anyMatches(logicalJoin().when(j -> j.getJoinType() == JoinType.RIGHT_SEMI_JOIN))
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.INNER_JOIN));
+    }
+
+    // symmetric of testConvertWithProjectBetweenAggregateAndJoin: the DISTINCT aggregate
+    // consumes several right side columns, column pruning inserts an all-slot project
+    // between the aggregate and the join; the join below the all-slot project must
+    // become a right semi join
+    @Test
+    void testConvertToRightSemiJoinWithProjectBetweenAggregateAndJoin() throws Exception {
+        PlanChecker.from(connectContext)
+                .analyze("select distinct t2.id2, t2.v2 from t1 join t2 on t1.id1 = t2.id2")
+                .rewrite()
+                .matches(logicalAggregate(logicalProject(logicalJoin()
+                        .when(j -> j.getJoinType() == JoinType.RIGHT_SEMI_JOIN))
+                        .when(Project::isAllSlots)))
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.INNER_JOIN));
+    }
+
+    // the left side columns leak above the join, so t1 is not an existence filter:
+    // keep inner join, neither left nor right semi join
+    @Test
+    void testNotConvertToRightSemiJoinWhenLeftSideColumnsUsed() throws Exception {
+        PlanChecker.from(connectContext)
+                .analyze("select distinct t1.id1, t2.id2 from t1 join t2 on t1.id1 = t2.id2")
+                .rewrite()
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN))
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.RIGHT_SEMI_JOIN));
+    }
+
+    // the right side variant also covers the null-safe equal case
+    @Test
+    void testConvertToRightSemiJoinWithNullSafeEqual() throws Exception {
+        PlanChecker.from(connectContext)
+                .analyze("select distinct t2.id2 from t1 join t2 on t1.id1 <=> t2.id2")
+                .rewrite()
+                .anyMatches(logicalJoin().when(j -> j.getJoinType() == JoinType.RIGHT_SEMI_JOIN))
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.INNER_JOIN));
+    }
 }
