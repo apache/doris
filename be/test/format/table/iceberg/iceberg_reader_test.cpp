@@ -888,6 +888,22 @@ protected:
                                                                                    {"pos", 1}};
 };
 
+TEST_F(IcebergReaderTest, v1_materializes_non_finite_initial_defaults) {
+    schema::external::TField field;
+    field.__set_name("value");
+    field.__set_id(1);
+    field.__set_is_optional(false);
+    field.__set_initial_default_value("NaN");
+
+    ColumnPtr column;
+    ASSERT_TRUE(iceberg::create_initial_default_column(field, std::make_shared<DataTypeFloat32>(),
+                                                       &column)
+                        .ok());
+    Field value;
+    column->get(0, value);
+    EXPECT_TRUE(std::isnan(value.get<TYPE_FLOAT>()));
+}
+
 TEST_F(IcebergReaderTest, detects_fully_dictionary_encoded_parquet_column) {
     tparquet::ColumnMetaData column_metadata;
     column_metadata.type = tparquet::Type::BYTE_ARRAY;

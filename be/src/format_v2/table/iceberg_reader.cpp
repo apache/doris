@@ -416,6 +416,10 @@ static Status build_v2_json_scalar_default(const format::ColumnDefinition& field
         *result = Field::create_field<TYPE_STRING>(std::move(serialized_value));
         return Status::OK();
     }
+    if (doris::iceberg::detail::parse_non_finite_default(primitive_type, serialized_value,
+                                                         result)) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(doris::iceberg::detail::normalize_timestamp_for_doris(primitive_type, timezone,
                                                                           &serialized_value));
     RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(serialized_value, *result));
@@ -505,6 +509,10 @@ static Status build_v2_initial_default_field(const format::ColumnDefinition& fie
     }
 
     std::string serialized_value = *field.initial_default_value;
+    if (doris::iceberg::detail::parse_non_finite_default(primitive_type, serialized_value,
+                                                         result)) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(doris::iceberg::detail::normalize_timestamp_for_doris(primitive_type, timezone,
                                                                           &serialized_value));
     RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(serialized_value, *result));
@@ -526,8 +534,8 @@ static Status build_initial_default_literal(const format::ColumnDefinition& tabl
     return Status::OK();
 }
 
-static Status build_initial_default_exprs(format::ColumnDefinition* column,
-                                          const cctz::time_zone* timezone) {
+Status prepare_iceberg_initial_default_exprs(format::ColumnDefinition* column,
+                                             const cctz::time_zone* timezone) {
     DORIS_CHECK(column != nullptr);
     if (column->initial_default_value.has_value()) {
         VExprSPtr literal;
@@ -535,7 +543,7 @@ static Status build_initial_default_exprs(format::ColumnDefinition* column,
         column->default_expr = VExprContext::create_shared(std::move(literal));
     }
     for (auto& child : column->children) {
-        RETURN_IF_ERROR(build_initial_default_exprs(&child, timezone));
+        RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&child, timezone));
     }
     return Status::OK();
 }
@@ -850,7 +858,7 @@ Status IcebergTableReader::annotate_projected_column(const TFileScanSlotInfo& sl
     auto& schema_column = *context->schema_column;
     const cctz::time_zone* timezone =
             context->runtime_state == nullptr ? nullptr : &context->runtime_state->timezone_obj();
-    RETURN_IF_ERROR(build_initial_default_exprs(&schema_column, timezone));
+    RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&schema_column, timezone));
     column->initial_default_value = schema_column.initial_default_value;
     column->initial_default_value_is_base64 = schema_column.initial_default_value_is_base64;
     column->is_optional = schema_column.is_optional;

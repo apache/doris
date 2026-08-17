@@ -42,6 +42,10 @@ struct FileSystemProperties;
 
 namespace doris::format::iceberg {
 
+// Position-delete row projection also needs the typed defaults used by ordinary data scans.
+Status prepare_iceberg_initial_default_exprs(format::ColumnDefinition* column,
+                                             const cctz::time_zone* timezone = nullptr);
+
 // Iceberg table-level reader.
 // It reuses TableReader for split orchestration, dynamic partition pruning and table-block
 // finalization, while composing a FileReader for physical data-file reads instead of inheriting
