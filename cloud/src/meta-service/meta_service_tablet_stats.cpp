@@ -171,6 +171,30 @@ void merge_tablet_stats(TabletStatsPB& stats, const TabletStats& detached_stats)
     stats.set_segment_size(stats.segment_size() + detached_stats.segment_size);
 }
 
+void copy_last_active_cluster_info(const TabletStatsPB& source, TabletStatsPB& target) {
+    if (!source.has_last_active_cluster_id()) {
+        return;
+    }
+
+    target.set_last_active_cluster_id(source.last_active_cluster_id());
+    if (source.has_last_active_time_ms()) {
+        target.set_last_active_time_ms(source.last_active_time_ms());
+    } else {
+        target.clear_last_active_time_ms();
+    }
+    if (source.has_last_active_cluster_status()) {
+        target.set_last_active_cluster_status(source.last_active_cluster_status());
+    } else {
+        target.clear_last_active_cluster_status();
+    }
+    if (source.has_last_active_cluster_status_mtime_ms()) {
+        target.set_last_active_cluster_status_mtime_ms(
+                source.last_active_cluster_status_mtime_ms());
+    } else {
+        target.clear_last_active_cluster_status_mtime_ms();
+    }
+}
+
 void detach_tablet_stats(const TabletStatsPB& stats, TabletStats& detached_stats) {
     detached_stats.data_size = stats.data_size();
     detached_stats.num_rows = stats.num_rows();
@@ -200,21 +224,29 @@ void internal_get_load_tablet_stats(MetaServiceCode& code, std::string& msg,
     // Try to read existing versioned tablet stats
     TxnErrorCode err =
             meta_reader.get_tablet_load_stats(txn, tablet_id, &stats, &versionstamp, snapshot);
-    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        // If versioned stats doesn't exist, read from single version
+    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get versioned tablet stats, err={}", err);
+        LOG(WARNING) << msg << " tablet_id=" << tablet_id;
+        return;
+    }
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND || !stats.has_last_active_cluster_id()) {
+        bool versioned_stats_not_found = err == TxnErrorCode::TXN_KEY_NOT_FOUND;
+        // If versioned stats doesn't exist or lacks active cluster info, read from single version.
         TabletStatsPB compact_stats;
         TabletStats detached_stats;
         internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, compact_stats,
                                   detached_stats, snapshot);
         if (code == MetaServiceCode::OK) {
-            // Only the detached stats are valid for load tablet stats.
-            merge_tablet_stats(stats, detached_stats);
+            if (versioned_stats_not_found) {
+                // Only the detached stats are valid for load tablet stats.
+                merge_tablet_stats(stats, detached_stats);
+            }
+            copy_last_active_cluster_info(compact_stats, stats);
+        } else if (!versioned_stats_not_found && code == MetaServiceCode::TABLET_NOT_FOUND) {
+            code = MetaServiceCode::OK;
+            msg.clear();
         }
-    } else if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to get versioned tablet stats, err={}", err);
-        LOG(WARNING) << msg << " tablet_id=" << tablet_id;
-        return;
     }
 }
 
@@ -251,16 +283,17 @@ void internal_get_load_tablet_stats_batch(
         (*tablet_stats)[tablet_id] = stats;
     }
 
-    // For tablets not found in versioned stats, fall back to single version detached stats
+    // For tablets without complete versioned load stats, fall back to single version stats.
     std::vector<int64_t> fallback_tablet_ids;
     for (int64_t tablet_id : tablet_ids) {
-        if (!versioned_stats.contains(tablet_id)) {
+        auto it = versioned_stats.find(tablet_id);
+        if (it == versioned_stats.end() || !it->second.has_last_active_cluster_id()) {
             fallback_tablet_ids.push_back(tablet_id);
         }
     }
 
     if (!fallback_tablet_ids.empty()) {
-        LOG(INFO) << "fallback to single version detached stats for " << fallback_tablet_ids.size()
+        LOG(INFO) << "fallback to single version tablet stats for " << fallback_tablet_ids.size()
                   << " tablets";
 
         // Fall back to single version for each tablet
@@ -270,21 +303,29 @@ void internal_get_load_tablet_stats_batch(
                 continue;
             }
             const TabletIndexPB& tablet_idx = it->second;
+            bool versioned_stats_not_found = !versioned_stats.contains(tablet_id);
 
             TabletStatsPB compact_stats;
             TabletStats detached_stats;
             internal_get_tablet_stats(code, msg, txn, instance_id, tablet_idx, compact_stats,
                                       detached_stats, snapshot);
             if (code != MetaServiceCode::OK) {
+                if (!versioned_stats_not_found && code == MetaServiceCode::TABLET_NOT_FOUND) {
+                    code = MetaServiceCode::OK;
+                    msg.clear();
+                    continue;
+                }
                 LOG(WARNING) << "failed to get detached tablet stats for fallback, tablet_id="
                              << tablet_id << " code=" << code << " msg=" << msg;
                 return;
             }
 
-            // Only the detached stats are valid for load tablet stats.
-            TabletStatsPB stats_pb;
-            merge_tablet_stats(stats_pb, detached_stats);
-            (*tablet_stats)[tablet_id] = std::move(stats_pb);
+            auto& stats_pb = (*tablet_stats)[tablet_id];
+            if (versioned_stats_not_found) {
+                // Only the detached stats are valid for load tablet stats.
+                merge_tablet_stats(stats_pb, detached_stats);
+            }
+            copy_last_active_cluster_info(compact_stats, stats_pb);
         }
     }
 }

@@ -1067,6 +1067,110 @@ TEST(MetaServiceVersionedReadTest, GetRowsetMetas) {
     LOG(INFO) << "GetRowsetMetas test completed successfully";
 }
 
+static void create_and_commit_rowset_with_cluster(MetaServiceProxy* service, int64_t db_id,
+                                                  int64_t table_id, int64_t partition_id,
+                                                  int64_t tablet_id,
+                                                  const std::string& cluster_id) {
+    brpc::Controller cntl;
+    BeginTxnRequest begin_req;
+    BeginTxnResponse begin_res;
+    begin_req.set_cloud_unique_id("test_cloud_unique_id");
+    auto* txn_info = begin_req.mutable_txn_info();
+    txn_info->set_db_id(db_id);
+    txn_info->set_label("get_rowset_last_active_cluster");
+    txn_info->add_table_ids(table_id);
+    txn_info->set_timeout_ms(36000);
+    txn_info->set_load_cluster_id(cluster_id);
+    service->begin_txn(&cntl, &begin_req, &begin_res, nullptr);
+    ASSERT_EQ(begin_res.status().code(), MetaServiceCode::OK) << begin_res.status().msg();
+
+    auto rowset = create_rowset(begin_res.txn_id(), tablet_id, partition_id, 2, 100);
+    CreateRowsetResponse rowset_res;
+    prepare_rowset(service, rowset, rowset_res);
+    ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK) << rowset_res.status().msg();
+    commit_rowset(service, rowset, rowset_res);
+    ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK) << rowset_res.status().msg();
+
+    CommitTxnRequest commit_req;
+    CommitTxnResponse commit_res;
+    commit_req.set_cloud_unique_id("test_cloud_unique_id");
+    commit_req.set_db_id(db_id);
+    commit_req.set_txn_id(begin_res.txn_id());
+    service->commit_txn(&cntl, &commit_req, &commit_res, nullptr);
+    ASSERT_EQ(commit_res.status().code(), MetaServiceCode::OK) << commit_res.status().msg();
+}
+
+static GetRowsetResponse get_rowsets(MetaServiceProxy* service, int64_t db_id, int64_t table_id,
+                                     int64_t index_id, int64_t partition_id, int64_t tablet_id) {
+    brpc::Controller cntl;
+    GetRowsetRequest req;
+    GetRowsetResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    auto* idx = req.mutable_idx();
+    idx->set_db_id(db_id);
+    idx->set_table_id(table_id);
+    idx->set_index_id(index_id);
+    idx->set_partition_id(partition_id);
+    idx->set_tablet_id(tablet_id);
+    req.set_start_version(0);
+    req.set_end_version(-1);
+    req.set_base_compaction_cnt(0);
+    req.set_cumulative_compaction_cnt(0);
+    req.set_cumulative_point(2);
+    service->get_rowset(&cntl, &req, &res, nullptr);
+    return res;
+}
+
+static void clear_versioned_last_active_cluster(MetaServiceProxy* service,
+                                                const std::string& instance_id, int64_t tablet_id) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key = versioned::tablet_load_stats_key({instance_id, tablet_id});
+    Versionstamp versionstamp;
+    std::string value;
+    ASSERT_EQ(versioned_get(txn.get(), key, &versionstamp, &value), TxnErrorCode::TXN_OK);
+    TabletStatsPB load_stats;
+    ASSERT_TRUE(load_stats.ParseFromString(value));
+    load_stats.clear_last_active_cluster_id();
+    load_stats.clear_last_active_time_ms();
+    versioned_put(txn.get(), key, load_stats.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+static void expect_last_active_cluster(const GetRowsetResponse& response,
+                                       const std::string& cluster_id, bool expect_time) {
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK) << response.status().msg();
+    ASSERT_TRUE(response.stats().has_last_active_cluster_id());
+    EXPECT_EQ(response.stats().last_active_cluster_id(), cluster_id);
+    if (expect_time) {
+        EXPECT_TRUE(response.stats().has_last_active_time_ms());
+    }
+}
+
+TEST(MetaServiceVersionedReadTest, GetRowsetReturnsLastActiveCluster) {
+    auto service = get_meta_service(false);
+    std::string instance_id = "get_rowset_last_active_cluster_instance";
+    std::string cluster_id = "write_cluster_id";
+    constexpr int64_t db_id = 1;
+    constexpr int64_t table_id = 2;
+    constexpr int64_t index_id = 3;
+    constexpr int64_t partition_id = 4;
+    constexpr int64_t tablet_id = 5;
+
+    MOCK_GET_INSTANCE_ID(instance_id);
+    create_and_refresh_instance(service.get(), instance_id);
+    create_tablet(service.get(), table_id, index_id, partition_id, tablet_id);
+    create_and_commit_rowset_with_cluster(service.get(), db_id, table_id, partition_id, tablet_id,
+                                          cluster_id);
+
+    auto response = get_rowsets(service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+    expect_last_active_cluster(response, cluster_id, true);
+
+    clear_versioned_last_active_cluster(service.get(), instance_id, tablet_id);
+    response = get_rowsets(service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+    expect_last_active_cluster(response, cluster_id, false);
+}
+
 TEST(MetaServiceVersionedReadTest, UpdateTablet) {
     auto service = get_meta_service(false);
     std::string instance_id = "test_cloud_instance_id";

@@ -3341,6 +3341,14 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                 LOG(WARNING) << msg;
                 return;
             }
+
+            TabletStatsPB load_stats;
+            internal_get_load_tablet_stats(code, msg, reader, txn.get(), instance_id, idx,
+                                           load_stats);
+            if (code != MetaServiceCode::OK) {
+                return;
+            }
+            copy_last_active_cluster_info(load_stats, tablet_stat);
         }
         VLOG_DEBUG << "tablet_id=" << tablet_id << " stats=" << proto_to_json(tablet_stat);
 
