@@ -231,10 +231,6 @@ set_tcmalloc_heap_limit() {
 
 # set_tcmalloc_heap_limit || exit 1
 
-## set hdfs3 conf
-if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
-    export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
-fi
 
 # check java version and choose correct JAVA_OPTS
 java_version="$(
