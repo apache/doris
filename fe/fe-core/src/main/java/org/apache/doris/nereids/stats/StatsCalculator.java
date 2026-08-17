@@ -481,6 +481,106 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return tableMeta != null && tableMeta.userInjected;
     }
 
+    // The minimum and maximum ratio between the actual row count and the estimated row count,
+    // beyond which the estimated stats is considered unreliable and the calibration ratio is clamped.
+    private static final double MIN_CALIBRATION_RATIO = 0.5;
+    private static final double MAX_CALIBRATION_RATIO = 2.0;
+    // If the ndv of a column is close to the estimated row count, the column is considered
+    // structurally tied to the row count, such as the group by key or unique key column.
+    private static final double SATURATED_NDV_RATIO = 0.99;
+
+    /**
+     * Check whether the estimated stats of the materialized view can be calibrated by its accurate
+     * actual row count. The calibration is enabled by session variable, and the actual row count
+     * should be trustworthy: the row count is injected by user, or the row count is reported by BE
+     * or analyzed.
+     */
+    private boolean canCalibrateStatsByActualRowCount(OlapScan olapScan, double estimatedRowCount,
+            double actualRowCount) {
+        if (estimatedRowCount <= 0 || actualRowCount <= 0) {
+            return false;
+        }
+        if (connectContext == null || !connectContext.getSessionVariable().isEnableMaterializedViewStatsCalibration()) {
+            return false;
+        }
+        if (isRegisteredRowCount(olapScan)) {
+            // the injected row count is high confidence, such as analyze table with user specified row count
+            return true;
+        }
+        // the actual row count is trustworthy when the row count is reported by BE or analyzed,
+        // the raw row count is -1 only when the row count is neither reported by BE nor analyzed
+        return getOlapTableRowCount(olapScan) > 0;
+    }
+
+    /**
+     * Calibrate the estimated stats of the materialized view by its accurate actual row count.
+     * The row count is corrected to the actual value, and the column stats are calibrated by the
+     * ratio between the actual row count and the estimated row count while keeping the internal
+     * consistency of the estimated stats:
+     * 1. group by key column: if the ndv is saturated in the estimate (close to the estimated row
+     *    count, e.g. single group by key), the ndv follows the actual row count, otherwise keep the
+     *    estimated ndv and only clamp it by the actual row count.
+     * 2. aggregate function output column: keep the estimated ndv and only clamp it by the actual
+     *    row count, because the ndv of aggregate function output has no row scaling semantics.
+     * 3. passthrough column: if the ndv is saturated in the estimate, the ndv scales with the row
+     *    count by the clamped ratio, otherwise keep the estimated ndv and only clamp it.
+     * The numNulls scales with the row count by the clamped ratio, and the avgSizeByte/min/max are
+     * kept unchanged. A deep copy of the estimated stats is returned to avoid polluting the shared
+     * stats registered in the statement context.
+     */
+    private Statistics calibrateStatsByActualRowCount(OlapScan olapScan, Statistics derivedStats,
+            double estimatedRowCount, double actualRowCount) {
+        double ratio = actualRowCount / estimatedRowCount;
+        double clampedRatio = Math.max(MIN_CALIBRATION_RATIO, Math.min(MAX_CALIBRATION_RATIO, ratio));
+        Pair<Set<Expression>, Set<Expression>> columnClassification = ConnectContext.get().getStatementContext()
+                .getMaterializedViewColumnClassification(((Relation) olapScan).getRelationId());
+        Set<Expression> groupByKeySlots = columnClassification == null
+                ? Collections.emptySet() : columnClassification.key();
+        Set<Expression> aggFunctionOutputSlots = columnClassification == null
+                ? Collections.emptySet() : columnClassification.value();
+        Map<Expression, ColumnStatistic> calibratedColumnStats = new HashMap<>();
+        double saturatedThreshold = estimatedRowCount * SATURATED_NDV_RATIO;
+        for (Map.Entry<Expression, ColumnStatistic> entry : derivedStats.columnStatistics().entrySet()) {
+            Expression expression = entry.getKey();
+            ColumnStatistic columnStatistic = entry.getValue();
+            if (columnStatistic.isUnKnown()) {
+                calibratedColumnStats.put(expression, columnStatistic);
+                continue;
+            }
+            double ndv;
+            if (aggFunctionOutputSlots.contains(expression)) {
+                // aggregate function output, the ndv has no row scaling semantics, never scale it
+                ndv = Math.min(columnStatistic.ndv, actualRowCount);
+            } else if (groupByKeySlots.contains(expression)) {
+                // group by key, the ndv is structurally tied to the output row count
+                // in single group by key case, otherwise keep the estimated ndv
+                ndv = columnStatistic.ndv >= saturatedThreshold
+                        ? actualRowCount : Math.min(columnStatistic.ndv, actualRowCount);
+            } else if (columnStatistic.ndv >= saturatedThreshold) {
+                // passthrough high cardinality column, the ndv scales with the row count
+                ndv = Math.min(columnStatistic.ndv * clampedRatio, actualRowCount);
+            } else {
+                // passthrough low cardinality or filter reduced column, keep the estimated ndv
+                ndv = Math.min(columnStatistic.ndv, actualRowCount);
+            }
+            ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
+            columnStatisticBuilder.setNdv(ndv);
+            columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls * clampedRatio, actualRowCount));
+            calibratedColumnStats.put(expression, columnStatisticBuilder.build());
+        }
+        // fill the missing columns with UNKNOWN stats
+        for (Slot slot : ((Relation) olapScan).getOutput()) {
+            if (calibratedColumnStats.get(slot) == null) {
+                calibratedColumnStats.put(slot,
+                        new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN, actualRowCount).build());
+            }
+        }
+        Statistics calibratedStats = new Statistics(actualRowCount, derivedStats.getWidthInJoinCluster(),
+                calibratedColumnStats, derivedStats.getDeltaRowCount(), derivedStats.isFromHbo());
+        calibratedStats.normalizeColumnStatistics(actualRowCount);
+        return calibratedStats;
+    }
+
     /**
      * if the table is not analyzed and BE does not report row count, return -1
      */
@@ -545,17 +645,27 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
                 LOG.info("computeOlapScan optStats is {}, selectedPartitionsRowCount is {}", optStats.get(),
                         selectedPartitionsRowCount);
+                Statistics derivedStats = optStats.get();
+                double estimatedRowCount = derivedStats.getRowCount();
+                // Calibrate the estimated stats of the mv by its accurate actual row count, the calibrated
+                // stats keep the internal consistency of the estimated stats, such as the ndv and the
+                // selectivity of the operators above the mv scan.
+                if (canCalibrateStatsByActualRowCount(olapScan, estimatedRowCount, selectedPartitionsRowCount)) {
+                    return calibrateStatsByActualRowCount(olapScan, derivedStats, estimatedRowCount,
+                            selectedPartitionsRowCount);
+                }
                 // if estimated mv rowCount is more than actual row count, fall back to base table stats
-                if (selectedPartitionsRowCount >= optStats.get().getRowCount()) {
-                    Statistics derivedStats = optStats.get();
-                    double derivedRowCount = derivedStats.getRowCount();
+                if (selectedPartitionsRowCount >= estimatedRowCount) {
+                    // use a deep copy to avoid polluting the shared stats registered in the statement context
+                    Statistics copiedStats = new Statistics(derivedStats);
+                    double derivedRowCount = copiedStats.getRowCount();
                     for (Slot slot : ((Relation) olapScan).getOutput()) {
-                        if (derivedStats.findColumnStatistics(slot) == null) {
-                            derivedStats.addColumnStats(slot,
+                        if (copiedStats.findColumnStatistics(slot) == null) {
+                            copiedStats.addColumnStats(slot,
                                     new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN, derivedRowCount).build());
                         }
                     }
-                    return derivedStats;
+                    return copiedStats;
                 }
             }
         }

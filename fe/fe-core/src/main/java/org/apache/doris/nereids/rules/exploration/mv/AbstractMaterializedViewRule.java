@@ -486,6 +486,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         if (materializationPlanStatistics.isPresent() && materializationPlanStatistics.get().key() != null) {
             cascadesContext.getStatementContext().addStatistics(materializationPlanStatistics.get().key(),
                     materializationPlanStatistics.get().value());
+            Pair<Set<Expression>, Set<Expression>> columnClassification = context.getColumnClassification(
+                    cascadesContext);
+            cascadesContext.getStatementContext().addMaterializedViewColumnClassification(
+                    materializationPlanStatistics.get().key(), columnClassification.key(), columnClassification.value());
         }
     }
 

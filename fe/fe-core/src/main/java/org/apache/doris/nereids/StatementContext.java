@@ -271,6 +271,13 @@ public class StatementContext implements Closeable {
     // form this map
     private final Map<RelationId, Statistics> relationIdToStatisticsMap = new LinkedHashMap<>();
 
+    // Record the column classification of materialized view scan output columns by relation id,
+    // the key of pair is the set of group-by key slots in mv scan output, the value of pair is the
+    // set of aggregate function output slots in mv scan output. This is used to calibrate the
+    // estimated stats of materialized view by its actual row count.
+    private final Map<RelationId, Pair<Set<Expression>, Set<Expression>>> relationIdToMvColumnClassificationMap
+            = new LinkedHashMap<>();
+
     // Indicates the query is short-circuited in both plan and execution phase,
     // typically
     // for high speed/concurrency point queries
@@ -922,6 +929,31 @@ public class StatementContext implements Closeable {
         if (id instanceof RelationId) {
             this.relationIdToStatisticsMap.put((RelationId) id, statistics);
         }
+    }
+
+    /**
+     * Register the column classification of materialized view scan output columns by relation id,
+     * which is used to calibrate the estimated stats of materialized view by its actual row count.
+     * The key of pair is the set of group-by key slots in mv scan output, the value of pair is the
+     * set of aggregate function output slots in mv scan output.
+     */
+    public void addMaterializedViewColumnClassification(Id id,
+            Set<Expression> groupByKeySlots, Set<Expression> aggFunctionOutputSlots) {
+        if (id instanceof RelationId) {
+            this.relationIdToMvColumnClassificationMap.put((RelationId) id,
+                    Pair.of(groupByKeySlots, aggFunctionOutputSlots));
+        }
+    }
+
+    /**
+     * Get the column classification of materialized view scan output columns by relation id,
+     * return null if not registered.
+     */
+    public Pair<Set<Expression>, Set<Expression>> getMaterializedViewColumnClassification(Id id) {
+        if (id instanceof RelationId) {
+            return this.relationIdToMvColumnClassificationMap.get((RelationId) id);
+        }
+        return null;
     }
 
     /**
