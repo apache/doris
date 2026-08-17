@@ -23,10 +23,8 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#include <map>
 #include <mutex>
 #include <optional>
-#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
@@ -518,34 +516,12 @@ void import_unshredded_variant_range(const ParquetColumnSchema& schema, const Co
     appender.append(std::span<const VariantRef>(encoded_rows));
 }
 
-struct DirectSeekAccounting {
-    int64_t container_index_builds = 0;
-    int64_t container_index_hits = 0;
-};
-
-struct DirectResidualSeekResult : DirectSeekAccounting {
+struct DirectResidualSeekResult {
     ColumnPtr column;
     int64_t rows = 0;
     int64_t selected_value_bytes = 0;
-};
-
-struct DirectResidualRawPath {
-    DorisVector<StringRef> values;
-    DorisVector<uint8_t> nulls;
-
-    size_t byte_size() const {
-        return values.size() * sizeof(StringRef) + nulls.size() * sizeof(uint8_t);
-    }
-
-    size_t allocated_bytes() const {
-        return values.capacity() * sizeof(StringRef) + nulls.capacity() * sizeof(uint8_t);
-    }
-};
-
-struct DirectResidualMultiSeekResult : DirectSeekAccounting {
-    std::map<std::string, DirectResidualRawPath, std::less<>> paths;
-    DirectResidualSeekResult requested_path;
-    int64_t root_rows = 0;
+    int64_t container_index_builds = 0;
+    int64_t container_index_hits = 0;
 };
 
 struct DirectSeekContainerKey {
@@ -577,7 +553,7 @@ public:
         bool cache_hit;
     };
 
-    Lookup find_or_build(VariantRef value, size_t path_position, DirectSeekAccounting& result,
+    Lookup find_or_build(VariantRef value, size_t path_position, DirectResidualSeekResult& result,
                          std::optional<VariantContainerLookup>& uncached_lookup) {
         const DirectSeekContainerKey key {.metadata_data = value.metadata.data,
                                           .metadata_size = value.metadata.size,
@@ -857,211 +833,6 @@ DirectResidualSeekResult seek_unshredded_variant_path(
     return result;
 }
 
-DirectResidualMultiSeekResult seek_unshredded_variant_paths(
-        const ParquetColumnSchema& schema, const IColumn& physical, size_t value_index,
-        const UnshreddedMetadataCache& metadata_cache, DirectSeekContainerCache& container_cache,
-        std::span<const std::string_view> paths, std::string_view requested_path) {
-    DORIS_CHECK_GT(paths.size(), 1);
-    DORIS_CHECK(std::ranges::is_sorted(paths));
-    DORIS_CHECK(std::adjacent_find(paths.begin(), paths.end()) == paths.end());
-    const auto requested = std::lower_bound(
-            paths.begin(), paths.end(), requested_path,
-            [](std::string_view left, std::string_view right) { return left < right; });
-    DORIS_CHECK(requested != paths.end() && *requested == requested_path);
-    const size_t requested_path_index = static_cast<size_t>(requested - paths.begin());
-
-    const auto* outer_nullable = check_and_get_column<ColumnNullable>(physical);
-    const IColumn& wrapper =
-            outer_nullable == nullptr ? physical : outer_nullable->get_nested_column();
-    const auto& structure = assert_cast<const ColumnStruct&>(wrapper);
-    if (structure.tuple_size() != schema.children.size()) {
-        throw Exception(ErrorCode::CORRUPTION, "Parquet Variant {} physical field count mismatch",
-                        schema.name);
-    }
-
-    DORIS_CHECK_EQ(metadata_cache.row_metadata_ids.size(), physical.size());
-    if (!metadata_cache.metadatas.empty() &&
-        paths.size() > std::numeric_limits<size_t>::max() / metadata_cache.metadatas.size()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Parquet Variant direct-seek path cache size overflows size_t");
-    }
-    DorisVector<int64_t> object_ids(metadata_cache.metadatas.size() * paths.size(), -1);
-    for (size_t metadata_id = 0; metadata_id < metadata_cache.metadatas.size(); ++metadata_id) {
-        for (size_t path_index = 0; path_index < paths.size(); ++path_index) {
-            const auto& path = paths[path_index];
-            object_ids[metadata_id * paths.size() + path_index] =
-                    metadata_cache.metadatas[metadata_id].find_key({path.data(), path.size()});
-        }
-    }
-
-    std::vector<DirectResidualRawPath> selected_paths(paths.size());
-    for (auto& selected : selected_paths) {
-        selected.values.reserve(physical.size());
-        selected.nulls.reserve(physical.size());
-    }
-
-    container_cache.reserve(physical.size());
-    DirectResidualMultiSeekResult result;
-    DORIS_CHECK_LE(physical.size(), static_cast<size_t>(std::numeric_limits<int64_t>::max()));
-    result.root_rows = static_cast<int64_t>(physical.size());
-    result.requested_path.rows = result.root_rows;
-    VariantBatchBuilder requested_builder(
-            VariantBatchBuilder::ReserveHint {.rows = physical.size()});
-    auto requested_nulls = ColumnUInt8::create();
-    requested_nulls->reserve(physical.size());
-
-    auto add_requested_bytes = [&](size_t bytes) {
-        DORIS_CHECK_LE(bytes, static_cast<size_t>(std::numeric_limits<int64_t>::max() -
-                                                  result.requested_path.selected_value_bytes));
-        result.requested_path.selected_value_bytes += static_cast<int64_t>(bytes);
-    };
-
-    auto append_missing = [&](size_t path_index) {
-        selected_paths[path_index].values.emplace_back();
-        selected_paths[path_index].nulls.push_back(1);
-        if (path_index == requested_path_index) {
-            auto output_row = requested_builder.begin_row();
-            output_row.add_null();
-            output_row.finish();
-            requested_nulls->insert_value(1);
-            add_requested_bytes(VARIANT_NULL_VALUE.size());
-        }
-    };
-    auto append_all_missing = [&]() {
-        for (size_t path_index = 0; path_index < paths.size(); ++path_index) {
-            append_missing(path_index);
-        }
-    };
-
-    constexpr size_t MULTI_FIND_THRESHOLD = 4;
-    DorisVector<VariantRef> row_selected(paths.size());
-    DorisVector<uint8_t> row_found(paths.size(), 0);
-
-    for (size_t row = 0; row < physical.size(); ++row) {
-        if (outer_nullable != nullptr && outer_nullable->get_null_map_data()[row] != 0) {
-            append_all_missing();
-            continue;
-        }
-
-        const uint32_t metadata_id = metadata_cache.row_metadata_ids[row];
-        DORIS_CHECK_NE(metadata_id, UnshreddedMetadataCache::NO_METADATA);
-        DORIS_CHECK_LT(metadata_id, metadata_cache.metadatas.size());
-        const VariantMetadataRef metadata = metadata_cache.metadatas[metadata_id];
-        const Cell value_cell = cell_at(structure.get_column(value_index), row);
-        if (value_cell.is_null) {
-            append_all_missing();
-            continue;
-        }
-
-        VariantRef root {.metadata = metadata, .value = value_cell.column->get_data_at(row)};
-        // Metadata and scalar payloads follow the spec-valid input contract. Container tables are
-        // still parsed through bounded lookup state before the multi-path pass dereferences them.
-        const VariantBasicType basic_type = root.basic_type();
-        std::optional<DirectSeekContainerCache::Lookup> container;
-        std::optional<VariantContainerLookup> uncached_container;
-        if (basic_type == VariantBasicType::OBJECT || basic_type == VariantBasicType::ARRAY) {
-            // One bounded root lookup serves every requested field for this row. Build it for an
-            // array as well, even though all planned top-level object paths will return missing.
-            container = container_cache.find_or_build(root, 0, result, uncached_container);
-        }
-
-        const bool use_multi_find =
-                basic_type == VariantBasicType::OBJECT && paths.size() > MULTI_FIND_THRESHOLD;
-        if (use_multi_find) {
-            container->value->object_find_raw_many_by_id(
-                    std::span<const int64_t>(object_ids.data() + metadata_id * paths.size(),
-                                             paths.size()),
-                    std::span<VariantRef>(row_selected.data(), row_selected.size()),
-                    std::span<uint8_t>(row_found.data(), row_found.size()));
-        }
-
-        for (size_t path_index = 0; path_index < paths.size(); ++path_index) {
-            VariantRef selected;
-            const int64_t field_id = object_ids[metadata_id * paths.size() + path_index];
-            const bool found = use_multi_find ? row_found[path_index] != 0
-                                              : basic_type == VariantBasicType::OBJECT &&
-                                                        container->value->object_find_raw_by_id(
-                                                                field_id, &selected);
-            if (!found) {
-                append_missing(path_index);
-                continue;
-            }
-            if (use_multi_find) {
-                selected = row_selected[path_index];
-            }
-            // Only the exact interval is retained here. Defer payload validation and owning output
-            // construction until the expression actually requests this path, preserving lazy
-            // corruption semantics for short-circuited branches.
-            selected_paths[path_index].values.push_back(selected.value);
-            selected_paths[path_index].nulls.push_back(0);
-            if (path_index == requested_path_index) {
-                validate_variant_payload(selected, 1);
-                auto output_row = requested_builder.begin_row();
-                output_row.add_value(selected);
-                output_row.finish();
-                requested_nulls->insert_value(0);
-                add_requested_bytes(selected.value.size);
-            }
-        }
-    }
-
-    for (size_t path_index = 0; path_index < paths.size(); ++path_index) {
-        const auto [unused, inserted] = result.paths.emplace(std::string(paths[path_index]),
-                                                             std::move(selected_paths[path_index]));
-        static_cast<void>(unused);
-        DORIS_CHECK(inserted);
-    }
-    auto requested_values = ColumnVariantV2::create();
-    requested_values->insert_encoded_batch(requested_builder.finish_batch());
-    result.requested_path.column =
-            ColumnNullable::create(std::move(requested_values), std::move(requested_nulls));
-    return result;
-}
-
-DirectResidualSeekResult materialize_unshredded_variant_path(
-        const DirectResidualRawPath& selected, const UnshreddedMetadataCache& metadata_cache) {
-    DORIS_CHECK_EQ(selected.values.size(), selected.nulls.size());
-    DORIS_CHECK_EQ(selected.values.size(), metadata_cache.row_metadata_ids.size());
-    DORIS_CHECK_LE(selected.values.size(),
-                   static_cast<size_t>(std::numeric_limits<int64_t>::max()));
-
-    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = selected.values.size()});
-    auto nulls = ColumnUInt8::create();
-    nulls->reserve(selected.values.size());
-    DirectResidualSeekResult result;
-    result.rows = static_cast<int64_t>(selected.values.size());
-
-    auto add_selected_bytes = [&](size_t bytes) {
-        DORIS_CHECK_LE(bytes, static_cast<size_t>(std::numeric_limits<int64_t>::max() -
-                                                  result.selected_value_bytes));
-        result.selected_value_bytes += static_cast<int64_t>(bytes);
-    };
-    for (size_t row = 0; row < selected.values.size(); ++row) {
-        auto output_row = builder.begin_row();
-        if (selected.nulls[row] != 0) {
-            output_row.add_null();
-            nulls->insert_value(1);
-            add_selected_bytes(VARIANT_NULL_VALUE.size());
-        } else {
-            const uint32_t metadata_id = metadata_cache.row_metadata_ids[row];
-            DORIS_CHECK_NE(metadata_id, UnshreddedMetadataCache::NO_METADATA);
-            DORIS_CHECK_LT(metadata_id, metadata_cache.metadatas.size());
-            VariantRef value {.metadata = metadata_cache.metadatas[metadata_id],
-                              .value = selected.values[row]};
-            validate_variant_payload(value, 1);
-            output_row.add_value(value);
-            nulls->insert_value(0);
-            add_selected_bytes(value.value.size);
-        }
-        output_row.finish();
-    }
-
-    auto values = ColumnVariantV2::create();
-    values->insert_encoded_batch(builder.finish_batch());
-    result.column = ColumnNullable::create(std::move(values), std::move(nulls));
-    return result;
-}
-
 ColumnVariantV2::MutablePtr encode_variant_column(
         const ParquetColumnSchema& schema, const IColumn& physical, bool require_metadata = true,
         const ParquetColumnReaderProfile* profile = nullptr) {
@@ -1325,27 +1096,24 @@ bool same_shredded_schema(const ParquetColumnSchema& left, const ParquetColumnSc
 void append_compatible_column(IColumn& output, const IColumn& converted);
 void validate_compatible_column(const IColumn& output, const IColumn& converted);
 
-constexpr size_t MAX_DIRECT_SEEK_MULTI_PATHS = 64;
-constexpr size_t MAX_DIRECT_SEEK_MULTI_PATH_CELLS = 512 * 1024;
-
-std::vector<std::string_view> planned_top_level_direct_seek_paths(
-        const format::VariantAccessPaths& access_paths) {
-    // Bound retained row-by-path slices independently from the container lookup cache. Sixty-four
-    // paths cover the 50-path benchmark while keeping one 8K-row state's borrowed table near 8 MiB.
-    if (access_paths.size() < 2 || access_paths.size() > MAX_DIRECT_SEEK_MULTI_PATHS) {
-        return {};
+bool has_multiple_unique_variant_access_paths(const format::VariantAccessPaths& access_paths) {
+    if (access_paths.size() < 2) {
+        return false;
     }
-    std::vector<std::string_view> result;
-    result.reserve(access_paths.size());
-    for (const auto& path : access_paths) {
-        if (path.size() != 1) {
-            return {};
+    for (size_t index = 1; index < access_paths.size(); ++index) {
+        if (access_paths[index] != access_paths.front()) {
+            return true;
         }
-        result.emplace_back(path.front());
     }
-    std::ranges::sort(result);
-    result.erase(std::unique(result.begin(), result.end()), result.end());
-    return result.size() < 2 ? std::vector<std::string_view> {} : result;
+    return false;
+}
+
+bool same_variant_access_paths(const std::shared_ptr<const format::VariantAccessPaths>& left,
+                               const std::shared_ptr<const format::VariantAccessPaths>& right) {
+    if (!left || !right) {
+        return !left && !right;
+    }
+    return *left == *right;
 }
 
 class ParquetVariantShreddedState final : public VariantShreddedState {
@@ -1359,10 +1127,9 @@ public:
               _complete(complete),
               _profile(profile),
               _variant_access_paths(std::move(variant_access_paths)),
-              _planned_direct_seek_paths(
-                      _variant_access_paths == nullptr
-                              ? std::vector<std::string_view> {}
-                              : planned_top_level_direct_seek_paths(*_variant_access_paths)) {
+              _has_multiple_variant_access_paths(
+                      _variant_access_paths != nullptr &&
+                      has_multiple_unique_variant_access_paths(*_variant_access_paths)) {
         DORIS_CHECK(_schema != nullptr && static_cast<bool>(_physical));
         const ColumnPtr wrapper = unwrap_nullable(_physical);
         const auto* structure = check_and_get_column<ColumnStruct>(*wrapper);
@@ -1376,8 +1143,7 @@ public:
     size_t byte_size() const override {
         std::lock_guard lock(_materialization_lock);
         return _physical->byte_size() + (_materialized ? _materialized->byte_size() : 0) +
-               (_serialized ? _serialized->byte_size() : 0) +
-               direct_seek_result_bytes(/*allocated=*/false);
+               (_serialized ? _serialized->byte_size() : 0);
     }
     size_t allocated_bytes() const override {
         std::lock_guard lock(_materialization_lock);
@@ -1385,8 +1151,7 @@ public:
                (_materialized ? _materialized->allocated_bytes() : 0) +
                (_serialized ? _serialized->allocated_bytes() : 0) +
                (_unshredded_metadata_cache ? _unshredded_metadata_cache->allocated_bytes() : 0) +
-               _direct_seek_container_cache.allocated_bytes() +
-               direct_seek_result_bytes(/*allocated=*/true);
+               _direct_seek_container_cache.allocated_bytes();
     }
     void sanity_check() const override { _physical->sanity_check(); }
 
@@ -1423,7 +1188,8 @@ public:
     bool try_append(const VariantShreddedState& source) override {
         const auto* parquet_source = dynamic_cast<const ParquetVariantShreddedState*>(&source);
         if (parquet_source == nullptr || _complete != parquet_source->_complete ||
-            _planned_direct_seek_paths != parquet_source->_planned_direct_seek_paths ||
+            !same_variant_access_paths(_variant_access_paths,
+                                       parquet_source->_variant_access_paths) ||
             !same_shredded_schema(*_schema, *parquet_source->_schema)) {
             return false;
         }
@@ -1436,10 +1202,6 @@ public:
         _serialized.reset();
         _unshredded_metadata_cache.reset();
         _direct_seek_container_cache.reset();
-        _direct_seek_multi_path_values.clear();
-        _direct_seek_multi_path_results.clear();
-        _direct_seek_multi_path_selected_bytes.clear();
-        _direct_seek_multi_path_values_ready = false;
         return true;
     }
 
@@ -1623,21 +1385,6 @@ public:
     }
 
 private:
-    size_t direct_seek_result_bytes(bool allocated) const {
-        size_t bytes = 0;
-        for (const auto& [path, column] : _direct_seek_multi_path_results) {
-            bytes += allocated ? path.capacity() : path.size();
-            bytes += allocated ? column->allocated_bytes() : column->byte_size();
-        }
-        bytes += _direct_seek_multi_path_selected_bytes.size() *
-                 sizeof(decltype(_direct_seek_multi_path_selected_bytes)::value_type);
-        for (const auto& [path, selected] : _direct_seek_multi_path_values) {
-            bytes += allocated ? path.capacity() : path.size();
-            bytes += allocated ? selected.allocated_bytes() : selected.byte_size();
-        }
-        return bytes;
-    }
-
     std::optional<ColumnPtr> find_unshredded_normalized_value(
             std::span<const VariantShreddedPathSegment> path) const {
         if (!_complete) {
@@ -1648,108 +1395,12 @@ private:
             return std::nullopt;
         }
 
-        std::optional<std::string_view> planned_key;
-        if (path.size() == 1 && path.front().kind == VariantShreddedPathSegment::Kind::OBJECT_KEY &&
-            !_planned_direct_seek_paths.empty() &&
-            _physical->size() <=
-                    MAX_DIRECT_SEEK_MULTI_PATH_CELLS / _planned_direct_seek_paths.size()) {
-            planned_key.emplace(path.front().key.data == nullptr ? "" : path.front().key.data,
-                                path.front().key.size);
-            const auto planned = std::lower_bound(
-                    _planned_direct_seek_paths.begin(), _planned_direct_seek_paths.end(),
-                    *planned_key,
-                    [](std::string_view left, std::string_view right) { return left < right; });
-            if (planned == _planned_direct_seek_paths.end() || *planned != *planned_key) {
-                planned_key.reset();
-            }
-        }
-
-        if (planned_key.has_value()) {
-            DirectResidualMultiSeekResult root_result;
-            DirectResidualSeekResult path_result;
-            ColumnPtr column;
-            int64_t selected_value_bytes = 0;
-            bool built_root = false;
-            bool built_path = false;
-            {
-                std::lock_guard lock(_materialization_lock);
-                if (!_direct_seek_multi_path_values_ready) {
-                    // Root/container validation and exact child-interval lookup run once for the
-                    // complete planned set. Child payloads remain opaque until requested below.
-                    SCOPED_TIMER(_profile.variant_direct_residual_seek_time.get());
-                    if (!_unshredded_metadata_cache) {
-                        _unshredded_metadata_cache = build_unshredded_metadata_cache(
-                                *_schema, *_physical, indices->first);
-                    }
-                    root_result = seek_unshredded_variant_paths(
-                            *_schema, *_physical, indices->second, *_unshredded_metadata_cache,
-                            _direct_seek_container_cache,
-                            std::span<const std::string_view>(_planned_direct_seek_paths),
-                            *planned_key);
-                    path_result = std::move(root_result.requested_path);
-                    _direct_seek_multi_path_values = std::move(root_result.paths);
-                    const auto requested_values = _direct_seek_multi_path_values.find(*planned_key);
-                    DORIS_CHECK(requested_values != _direct_seek_multi_path_values.end());
-                    _direct_seek_multi_path_values.erase(requested_values);
-                    const auto [unused, inserted] = _direct_seek_multi_path_results.emplace(
-                            std::string(*planned_key), std::move(path_result.column));
-                    static_cast<void>(unused);
-                    DORIS_CHECK(inserted);
-                    const auto [unused_bytes, inserted_bytes] =
-                            _direct_seek_multi_path_selected_bytes.emplace(
-                                    std::string(*planned_key), path_result.selected_value_bytes);
-                    static_cast<void>(unused_bytes);
-                    DORIS_CHECK(inserted_bytes);
-                    _direct_seek_multi_path_values_ready = true;
-                    built_root = true;
-                    built_path = true;
-                }
-                auto found = _direct_seek_multi_path_results.find(*planned_key);
-                if (found == _direct_seek_multi_path_results.end()) {
-                    // Preserve selected-branch corruption semantics: only the path that reached an
-                    // executing expression is recursively validated and rebuilt as an owning value.
-                    SCOPED_TIMER(_profile.variant_direct_residual_seek_time.get());
-                    const auto selected = _direct_seek_multi_path_values.find(*planned_key);
-                    DORIS_CHECK(selected != _direct_seek_multi_path_values.end());
-                    const std::string selected_key = selected->first;
-                    path_result = materialize_unshredded_variant_path(selected->second,
-                                                                      *_unshredded_metadata_cache);
-                    _direct_seek_multi_path_values.erase(selected);
-                    const auto [inserted, was_inserted] = _direct_seek_multi_path_results.emplace(
-                            selected_key, std::move(path_result.column));
-                    DORIS_CHECK(was_inserted);
-                    const auto [unused_bytes, inserted_bytes] =
-                            _direct_seek_multi_path_selected_bytes.emplace(
-                                    selected_key, path_result.selected_value_bytes);
-                    static_cast<void>(unused_bytes);
-                    DORIS_CHECK(inserted_bytes);
-                    found = inserted;
-                    built_path = true;
-                }
-                column = found->second;
-                const auto bytes = _direct_seek_multi_path_selected_bytes.find(*planned_key);
-                DORIS_CHECK(bytes != _direct_seek_multi_path_selected_bytes.end());
-                selected_value_bytes = bytes->second;
-            }
-            if (built_root) {
-                update_counter(_profile.variant_direct_residual_seek_container_index_builds,
-                               root_result.container_index_builds);
-                update_counter(_profile.variant_direct_residual_seek_container_index_hits,
-                               root_result.container_index_hits);
-                update_counter(_profile.variant_direct_residual_seek_multi_path_batches, 1);
-                update_counter(_profile.variant_direct_residual_seek_multi_path_root_rows,
-                               root_result.root_rows);
-            }
-            DORIS_CHECK_LE(_physical->size(),
-                           static_cast<size_t>(std::numeric_limits<int64_t>::max()));
-            update_counter(_profile.variant_direct_residual_seek_rows,
-                           static_cast<int64_t>(_physical->size()));
-            update_counter(_profile.variant_direct_residual_seek_bytes, selected_value_bytes);
-            if (built_path) {
-                update_counter(_profile.variant_direct_residual_seek_multi_path_path_rows,
-                               path_result.rows);
-            }
-            return column;
+        if (_has_multiple_variant_access_paths) {
+            // Direct seek wins for one selected path, but the current owning-result contract still
+            // validates and re-encodes every leaf independently. Benchmarks show that two or more
+            // unique paths cost more than importing the unshredded root once. Returning no direct
+            // match makes the encoded fallback materialize and cache that root for all consumers.
+            return std::nullopt;
         }
 
         DirectResidualSeekResult result;
@@ -1792,12 +1443,7 @@ private:
     mutable std::shared_ptr<const UnshreddedMetadataCache> _unshredded_metadata_cache;
     mutable DirectSeekContainerCache _direct_seek_container_cache;
     std::shared_ptr<const format::VariantAccessPaths> _variant_access_paths;
-    std::vector<std::string_view> _planned_direct_seek_paths;
-    mutable std::map<std::string, DirectResidualRawPath, std::less<>>
-            _direct_seek_multi_path_values;
-    mutable std::map<std::string, ColumnPtr, std::less<>> _direct_seek_multi_path_results;
-    mutable std::map<std::string, int64_t, std::less<>> _direct_seek_multi_path_selected_bytes;
-    mutable bool _direct_seek_multi_path_values_ready = false;
+    bool _has_multiple_variant_access_paths = false;
 };
 
 MutableColumnPtr build_variant_column(

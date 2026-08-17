@@ -4198,10 +4198,6 @@ TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredStructOutputProjection)
     EXPECT_EQ(request.local_positions.at(LocalColumnId(0)), LocalIndex(0));
     EXPECT_EQ(request.non_predicate_position(LocalColumnId(0)), LocalIndex(1));
     EXPECT_TRUE(request.is_predicate_only(LocalColumnId(0)));
-    EXPECT_EQ(request.variant_access_paths.at(LocalColumnId(0)),
-              (VariantAccessPaths {{"typed_col"}}));
-    EXPECT_EQ(request.predicate_variant_access_paths.at(LocalColumnId(0)),
-              (VariantAccessPaths {{"typed_col"}}));
 }
 
 TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredVariantRootProjection) {
@@ -4235,6 +4231,10 @@ TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredVariantRootProjection) 
     EXPECT_EQ(request.local_positions.at(LocalColumnId(0)), LocalIndex(0));
     EXPECT_EQ(request.non_predicate_position(LocalColumnId(0)), LocalIndex(1));
     EXPECT_TRUE(request.is_predicate_only(LocalColumnId(0)));
+    EXPECT_EQ(request.variant_access_paths.at(LocalColumnId(0)),
+              (VariantAccessPaths {{"typed_col"}}));
+    EXPECT_EQ(request.predicate_variant_access_paths.at(LocalColumnId(0)),
+              (VariantAccessPaths {{"typed_col"}}));
 }
 
 TEST(ColumnMapperTest, NestedVariantAccessPathProjectsPhysicalTypedLeaf) {

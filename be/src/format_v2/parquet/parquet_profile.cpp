@@ -129,12 +129,6 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "VariantDirectResidualSeekContainerIndexBuilds", TUnit::UNIT, parquet_profile);
     variant_direct_residual_seek_container_index_hits = add_persistent_counter(
             profile, "VariantDirectResidualSeekContainerIndexHits", TUnit::UNIT, parquet_profile);
-    variant_direct_residual_seek_multi_path_batches = add_persistent_counter(
-            profile, "VariantDirectResidualSeekMultiPathBatches", TUnit::UNIT, parquet_profile);
-    variant_direct_residual_seek_multi_path_root_rows = add_persistent_counter(
-            profile, "VariantDirectResidualSeekMultiPathRootRows", TUnit::UNIT, parquet_profile);
-    variant_direct_residual_seek_multi_path_path_rows = add_persistent_counter(
-            profile, "VariantDirectResidualSeekMultiPathPathRows", TUnit::UNIT, parquet_profile);
     variant_direct_leaf_rows =
             add_persistent_counter(profile, "VariantDirectLeafRows", TUnit::UNIT, parquet_profile);
     variant_direct_leaf_path_misses = add_persistent_counter(profile, "VariantDirectLeafPathMisses",
@@ -384,12 +378,6 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
                     variant_direct_residual_seek_container_index_builds,
             .variant_direct_residual_seek_container_index_hits =
                     variant_direct_residual_seek_container_index_hits,
-            .variant_direct_residual_seek_multi_path_batches =
-                    variant_direct_residual_seek_multi_path_batches,
-            .variant_direct_residual_seek_multi_path_root_rows =
-                    variant_direct_residual_seek_multi_path_root_rows,
-            .variant_direct_residual_seek_multi_path_path_rows =
-                    variant_direct_residual_seek_multi_path_path_rows,
             .variant_direct_leaf_rows = variant_direct_leaf_rows,
             .variant_direct_leaf_path_misses = variant_direct_leaf_path_misses,
             .variant_direct_leaf_residual_fallbacks = variant_direct_leaf_residual_fallbacks,

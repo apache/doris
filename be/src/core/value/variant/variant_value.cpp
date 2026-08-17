@@ -572,28 +572,6 @@ bool VariantContainerLookup::object_find_by_id(int64_t field_id, VariantRef* out
     if (allocated_offset_index_bytes != nullptr) {
         *allocated_offset_index_bytes = 0;
     }
-    VariantRef selected;
-    if (!object_find_raw_by_id(field_id, &selected)) {
-        return false;
-    }
-    const size_t encoded_size = selected.value_size();
-    if (encoded_size != selected.value.size) {
-        throw Exception(ErrorCode::CORRUPTION,
-                        "Invalid Variant object child bounds: interval has {} bytes for encoded "
-                        "size {}",
-                        selected.value.size, encoded_size);
-    }
-    // Promotion is a reusable optimization, not part of validating this selected child. Commit it
-    // only after the borrowed-table path has proved the exact boundary so an exception cannot
-    // retain bytes that the caller never gets a chance to account.
-    if (allocated_offset_index_bytes != nullptr) {
-        *allocated_offset_index_bytes = _promote_object_offset_index(maximum_offset_index_bytes);
-    }
-    *out = selected;
-    return true;
-}
-
-bool VariantContainerLookup::object_find_raw_by_id(int64_t field_id, VariantRef* out) const {
     if (out == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant object lookup output is null");
     }
@@ -602,6 +580,8 @@ bool VariantContainerLookup::object_find_raw_by_id(int64_t field_id, VariantRef*
                         "Variant object lookup used with non-object basic type {}",
                         static_cast<uint8_t>(_basic_type));
     }
+    const VariantRef::ContainerLayout layout = _value._container_layout(VariantBasicType::OBJECT);
+
     if (field_id < 0) {
         return false;
     }
@@ -609,98 +589,14 @@ bool VariantContainerLookup::object_find_raw_by_id(int64_t field_id, VariantRef*
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant object field id {} exceeds uint32",
                         field_id);
     }
-
-    const VariantRef::ContainerLayout layout = _value._container_layout(VariantBasicType::OBJECT);
+    VariantRef selected;
     uint32_t selected_index = 0;
-    if (!_value._object_index_by_id(layout, static_cast<uint32_t>(field_id), &selected_index)) {
+    if (!_value._object_find_by_id(layout, static_cast<uint32_t>(field_id), &selected,
+                                   &selected_index)) {
         return false;
     }
-    *out = _object_raw_value_at(layout, selected_index);
-    return true;
-}
-
-void VariantContainerLookup::object_find_raw_many_by_id(std::span<const int64_t> field_ids,
-                                                        std::span<VariantRef> out,
-                                                        std::span<uint8_t> found) const {
-    if (field_ids.size() != out.size() || field_ids.size() != found.size()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant object multi-lookup sizes differ: ids={}, output={}, found={}",
-                        field_ids.size(), out.size(), found.size());
-    }
-    if (_basic_type != VariantBasicType::OBJECT) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant object lookup used with non-object basic type {}",
-                        static_cast<uint8_t>(_basic_type));
-    }
-    std::ranges::fill(found, 0);
-    if (field_ids.empty()) {
-        return;
-    }
-
-    const VariantRef::ContainerLayout layout = _value._container_layout(VariantBasicType::OBJECT);
-    StringRef previous_target_key;
-    uint32_t previous_target_id = 0;
-    bool has_previous_target = false;
-    for (const int64_t field_id : field_ids) {
-        if (field_id < 0) {
-            continue;
-        }
-        if (field_id > std::numeric_limits<uint32_t>::max()) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT,
-                            "Variant object field id {} exceeds uint32", field_id);
-        }
-        const auto target_id = static_cast<uint32_t>(field_id);
-        if (_value.metadata.sorted_strings()) {
-            if (has_previous_target && previous_target_id >= target_id) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "Variant object multi-lookup ids are not strictly ordered");
-            }
-            previous_target_id = target_id;
-        } else {
-            const StringRef target_key = _value.metadata.key_at(target_id);
-            if (has_previous_target && previous_target_key.compare(target_key) >= 0) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "Variant object multi-lookup keys are not strictly ordered");
-            }
-            previous_target_key = target_key;
-        }
-        has_previous_target = true;
-    }
-
-    size_t request_index = 0;
-    auto advance_missing = [&]() {
-        while (request_index < field_ids.size() && field_ids[request_index] < 0) {
-            ++request_index;
-        }
-    };
-    advance_missing();
-    for (uint32_t object_index = 0;
-         object_index < layout.count && request_index < field_ids.size();) {
-        const auto target_id = static_cast<uint32_t>(field_ids[request_index]);
-        const uint32_t object_field_id = _value._object_field_id(layout, object_index);
-        const int comparison =
-                _value.metadata.sorted_strings()
-                        ? (object_field_id > target_id) - (object_field_id < target_id)
-                        : _value.metadata.key_at(object_field_id)
-                                  .compare(_value.metadata.key_at(target_id));
-        if (comparison < 0) {
-            ++object_index;
-        } else if (comparison > 0) {
-            ++request_index;
-            advance_missing();
-        } else {
-            out[request_index] = _object_raw_value_at(layout, object_index);
-            found[request_index] = 1;
-            ++object_index;
-            ++request_index;
-            advance_missing();
-        }
-    }
-}
-
-VariantRef VariantContainerLookup::_object_raw_value_at(const VariantRef::ContainerLayout& layout,
-                                                        uint32_t selected_index) const {
-    const uint32_t selected_offset = _value._container_offset(layout, selected_index);
+    const auto selected_offset =
+            static_cast<uint32_t>(selected.value.data - (_value.value.data + layout.values_offset));
     uint32_t next_offset = layout.values_size;
     if (_object_offsets_in_field_order) {
         next_offset = _value._container_offset(layout, selected_index + 1);
@@ -723,14 +619,19 @@ VariantRef VariantContainerLookup::_object_raw_value_at(const VariantRef::Contai
             }
         }
     }
-    if (next_offset <= selected_offset || next_offset > layout.values_size) {
+    if (selected.value.size != next_offset - selected_offset) {
         throw Exception(ErrorCode::CORRUPTION,
-                        "Invalid Variant object child interval [{}, {}) for values size {}",
-                        selected_offset, next_offset, layout.values_size);
+                        "Invalid Variant object child bounds [{}, {}) for child size {}",
+                        selected_offset, next_offset, selected.value.size);
     }
-    return {.metadata = _value.metadata,
-            .value = {_value.value.data + layout.values_offset + selected_offset,
-                      next_offset - selected_offset}};
+    // Promotion is a reusable optimization, not part of validating this selected child. Commit it
+    // only after the borrowed-table path has proved the exact boundary so an exception cannot
+    // retain bytes that the caller never gets a chance to account.
+    if (allocated_offset_index_bytes != nullptr) {
+        *allocated_offset_index_bytes = _promote_object_offset_index(maximum_offset_index_bytes);
+    }
+    *out = selected;
+    return true;
 }
 
 bool VariantContainerLookup::array_find(int64_t index, VariantRef* out) const {
@@ -755,22 +656,6 @@ bool VariantContainerLookup::array_find(int64_t index, VariantRef* out) const {
 
 bool VariantRef::_object_find_by_id(const ContainerLayout& layout, uint32_t field_id,
                                     VariantRef* out, uint32_t* index_out) const {
-    uint32_t index = 0;
-    if (!_object_index_by_id(layout, field_id, &index)) {
-        return false;
-    }
-    *out = _container_value_at(layout, index, false);
-    if (index_out != nullptr) {
-        *index_out = index;
-    }
-    return true;
-}
-
-bool VariantRef::_object_index_by_id(const ContainerLayout& layout, uint32_t field_id,
-                                     uint32_t* index_out) const {
-    if (index_out == nullptr) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant object index output is null");
-    }
     const StringRef target_key = metadata.key_at(field_id);
     uint32_t begin = 0;
     uint32_t end = layout.count;
@@ -789,12 +674,18 @@ bool VariantRef::_object_index_by_id(const ContainerLayout& layout, uint32_t fie
     if (begin == layout.count || _object_field_id(layout, begin) != field_id) {
         if (!metadata.sorted_strings() && begin < layout.count &&
             metadata.key_at(_object_field_id(layout, begin)) == target_key) {
-            *index_out = begin;
+            *out = _container_value_at(layout, begin, false);
+            if (index_out != nullptr) {
+                *index_out = begin;
+            }
             return true;
         }
         return false;
     }
-    *index_out = begin;
+    *out = _container_value_at(layout, begin, false);
+    if (index_out != nullptr) {
+        *index_out = begin;
+    }
     return true;
 }
 

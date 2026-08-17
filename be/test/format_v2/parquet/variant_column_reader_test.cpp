@@ -957,7 +957,7 @@ TEST(VariantColumnReaderTest, DirectlySeeksUnshreddedObjectAndArrayPaths) {
     EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 0);
 }
 
-TEST(VariantColumnReaderTest, ReusesOneTraversalForPlannedTopLevelPaths) {
+TEST(VariantColumnReaderTest, MultiplePlannedPathsFallBackToFullMaterialization) {
     VariantBatchBuilder builder;
     {
         auto row = builder.begin_row();
@@ -1004,8 +1004,8 @@ TEST(VariantColumnReaderTest, ReusesOneTraversalForPlannedTopLevelPaths) {
     plan.schema = &schema;
     plan.contains_variant = true;
     plan.variant_state_schema = create_variant_state_schema(schema, nullptr);
-    // The request boundary may merge the same logical path more than once. The state owns a
-    // sorted unique plan and discovers both child intervals when either path is first requested.
+    // Duplicate requests still represent only two unique paths. More than one unique path uses one
+    // cached full-root materialization instead of independently re-encoding every selected leaf.
     plan.variant_access_paths = std::make_shared<const format::VariantAccessPaths>(
             format::VariantAccessPaths {{"b"}, {"a"}, {"b"}});
 
@@ -1040,7 +1040,8 @@ TEST(VariantColumnReaderTest, ReusesOneTraversalForPlannedTopLevelPaths) {
     EXPECT_EQ(b_values.get_value_ref(0).get_int(), 10);
     EXPECT_TRUE(b_values.get_value_ref(1).is_null());
     EXPECT_EQ(b_values.get_value_ref(2).get_int(), 30);
-    EXPECT_EQ(b_values.get_value_ref(0).metadata.dict_size(), 0);
+    EXPECT_EQ(b_values.get_value_ref(0).metadata.dict_size(),
+              batch.value_at(0).metadata.dict_size());
 
     const ColumnPtr a_result = extract(*output, StringRef("a"));
     const auto& a_nullable = assert_cast<const ColumnNullable&>(*a_result);
@@ -1048,24 +1049,19 @@ TEST(VariantColumnReaderTest, ReusesOneTraversalForPlannedTopLevelPaths) {
     const auto& a_values = assert_cast<const ColumnVariantV2&>(a_nullable.get_nested_column());
     EXPECT_EQ(a_values.get_value_ref(0).get_int(), 1);
     EXPECT_EQ(a_values.get_value_ref(1).get_int(), 2);
-    // Repeated expression use serves the same owning result without another path materialization.
+    // Repeated expression use reads the same cached materialized root.
     const ColumnPtr repeated_b_result = extract(*output, StringRef("b"));
     EXPECT_EQ(assert_cast<const ColumnNullable&>(*repeated_b_result).get_null_map_data(),
               (NullMap {0, 0, 0}));
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathBatches")->value(), 1);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathRootRows")->value(),
-              3);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathPathRows")->value(),
-              6);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 9);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 0);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value(),
-              3);
+              0);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexHits")->value(),
               0);
-    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 3);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 3);
 
-    // A compatible append changes every physical row address. It must discard both the lookup and
-    // result caches, then rebuild one traversal over the complete four-row state.
+    // A compatible append invalidates the cached full root and rebuilds it over all four rows.
     ASSERT_TRUE(materialize_variant_columns(plan, unshredded_physical({batch.value_at(3)}), output,
                                             profile)
                         .ok());
@@ -1078,16 +1074,13 @@ TEST(VariantColumnReaderTest, ReusesOneTraversalForPlannedTopLevelPaths) {
     const ColumnPtr appended_a_result = extract(*output, StringRef("a"));
     const auto& appended_a_nullable = assert_cast<const ColumnNullable&>(*appended_a_result);
     EXPECT_EQ(appended_a_nullable.get_null_map_data(), (NullMap {0, 0, 1, 0}));
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathBatches")->value(), 2);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathRootRows")->value(),
-              7);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathPathRows")->value(),
-              14);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 17);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 0);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value(),
-              7);
+              0);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexHits")->value(),
               0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 7);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 7);
 
     const IColumn::Filter keep {1, 0, 0, 1};
     const ColumnPtr filtered = output->filter(keep, 2);
@@ -1098,17 +1091,14 @@ TEST(VariantColumnReaderTest, ReusesOneTraversalForPlannedTopLevelPaths) {
             assert_cast<const ColumnVariantV2&>(filtered_a_nullable.get_nested_column());
     EXPECT_EQ(filtered_a_values.get_value_ref(0).get_int(), 1);
     EXPECT_EQ(filtered_a_values.get_value_ref(1).get_int(), 4);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathBatches")->value(), 3);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathRootRows")->value(),
-              9);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathPathRows")->value(),
-              16);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 19);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 0);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value(),
-              9);
+              0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 9);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 9);
 }
 
-TEST(VariantColumnReaderTest, ResolvesWidePlannedPathSetWithOneObjectMergeScan) {
+TEST(VariantColumnReaderTest, ManyPlannedPathsUseOneFullMaterialization) {
     constexpr size_t PATH_COUNT = 6;
     VariantBatchBuilder builder;
     auto row = builder.begin_row();
@@ -1165,15 +1155,13 @@ TEST(VariantColumnReaderTest, ResolvesWidePlannedPathSetWithOneObjectMergeScan) 
         const ColumnPtr result = extract(missing);
         EXPECT_EQ(assert_cast<const ColumnNullable&>(*result).get_null_map_data(), (NullMap {1}));
     }
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathBatches")->value(), 1);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathRootRows")->value(),
-              1);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathPathRows")->value(),
-              PATH_COUNT + 2);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 0);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value(),
-              1);
+              0);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexHits")->value(),
               0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 1);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 1);
 }
 
 TEST(VariantColumnReaderTest, DirectSeekHandlesDistinctMetadataAcrossAppendedBatches) {
@@ -1291,16 +1279,9 @@ TEST(VariantColumnReaderTest, DirectSeekValidatesOnlyTheSelectedUnshreddedBranch
     RuntimeProfile runtime_profile("unshredded-direct-residual-validation");
     ParquetProfile parquet_profile;
     parquet_profile.init(&runtime_profile);
-    auto schema = unshredded_schema();
-    VariantMaterializationNode plan;
-    plan.schema = &schema;
-    plan.contains_variant = true;
-    plan.variant_state_schema = create_variant_state_schema(schema, nullptr);
-    plan.variant_access_paths = std::make_shared<const format::VariantAccessPaths>(
-            format::VariantAccessPaths {{"bad"}, {"good"}});
     auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
-    ASSERT_TRUE(materialize_variant_columns(plan, unshredded_physical({corrupt}), output,
-                                            parquet_profile.column_reader_profile())
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), unshredded_physical({corrupt}),
+                                         output, parquet_profile.column_reader_profile())
                         .ok());
     const auto& nullable = assert_cast<const ColumnNullable&>(*output);
     const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
@@ -1318,11 +1299,6 @@ TEST(VariantColumnReaderTest, DirectSeekValidatesOnlyTheSelectedUnshreddedBranch
             assert_cast<const ColumnNullable&>(*good_result).get_nested_column());
     EXPECT_EQ(good_values.get_value_ref(0).get_int(), 7);
     EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathRootRows")->value(),
-              1);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekMultiPathPathRows")->value(),
-              1);
-
     ColumnPtr bad_result;
     const Status bad_status = extract(StringRef("bad"), &bad_result);
     EXPECT_FALSE(bad_status.ok());
