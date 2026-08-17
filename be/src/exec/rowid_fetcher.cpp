@@ -501,7 +501,10 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
         for (int x = 0; x < slots.size(); ++x) {
             std::vector<segment_v2::rowid_t> row_ids {
                     static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
-            MutableColumnPtr column = result_block.get_by_position(x).column->assert_mutable();
+            // The scoped mutation republishes a potentially replaced V2 column when the reader
+            // transfers ownership of its first assembled batch.
+            auto column_guard = result_block.mutate_column_scoped(x);
+            MutableColumnPtr& column = column_guard.mutable_column();
             IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
                                       .rowset_id = rowset_id,
                                       .segment_id = row_loc.segment_id(),

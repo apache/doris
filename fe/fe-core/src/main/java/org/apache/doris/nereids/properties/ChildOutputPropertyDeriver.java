@@ -31,10 +31,10 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -233,15 +234,27 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             PhysicalHashAggregate<? extends Plan> agg, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
         PhysicalProperties childOutputProperty = childrenOutputProperties.get(0);
-        if (childOutputProperty.getNaturalDistributionMappingSpec().isPresent()) {
-            return computeAggregateOutputProperties(agg, childOutputProperty)
-                    .withOrderSpec(new OrderSpec());
-        }
         switch (agg.getAggPhase()) {
             case LOCAL:
             case GLOBAL:
             case DISTINCT_LOCAL:
             case DISTINCT_GLOBAL:
+                // Bucketed hash agg fusion: when the one-phase GLOBAL aggregate
+                // will be fused with its distribute child into BucketedAggregationNode,
+                // the output is NOT hash-distributed (256-bucket internal hash is
+                // not shuffle-compatible). Advertise ANY to prevent parent operators
+                // from incorrectly skipping exchanges.
+                if (agg.getAggPhase().isGlobal()
+                        && agg.getAggMode() == AggMode.INPUT_TO_RESULT
+                        && AggregateUtils.isBucketedHashAggEnabled(
+                            agg.getGroupByExpressions().size())
+                        && isShuffleCompatible(childOutputProperty.getDistributionSpec())) {
+                    return PhysicalProperties.ANY;
+                }
+                if (childOutputProperty.getNaturalDistributionMappingSpec().isPresent()) {
+                    return computeAggregateOutputProperties(agg, childOutputProperty)
+                            .withOrderSpec(new OrderSpec());
+                }
                 return new PhysicalProperties(childOutputProperty.getDistributionSpec());
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
@@ -278,16 +291,18 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         return new PhysicalProperties(distributionSpec, properties.getOrderSpec());
     }
 
-    @Override
-    public PhysicalProperties visitPhysicalBucketedHashAggregate(
-            PhysicalBucketedHashAggregate<? extends Plan> agg, PlanContext context) {
-        Preconditions.checkState(childrenOutputProperties.size() == 1);
-        // Although bucketed agg internally re-distributes data into 256 buckets by
-        // group-by keys (so the output is "complete" per group), we cannot claim
-        // EXECUTION_BUCKETED distribution because the 256-bucket hash function differs
-        // from the shuffle hash function. Downstream operators expecting shuffle-compatible
-        // distribution would be incorrect. Preserve distribution ANY.
-        return PhysicalProperties.ANY;
+    /**
+     * Returns true if the child's distribution is a shuffle-compatible hash that the
+     * bucketed fusion pattern produces (ShuffleType.REQUIRE).  EXECUTION_BUCKETED is
+     * used by CTE dedup and colocate-join patterns — those should NOT be treated as
+     * bucketed-fusion output because their hash functions ARE shuffle-compatible.
+     */
+    private static boolean isShuffleCompatible(DistributionSpec distSpec) {
+        if (!(distSpec instanceof DistributionSpecHash)) {
+            return false;
+        }
+        DistributionSpecHash hashSpec = (DistributionSpecHash) distSpec;
+        return hashSpec.getShuffleType() == ShuffleType.REQUIRE;
     }
 
     @Override

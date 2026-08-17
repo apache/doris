@@ -64,6 +64,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.NestedColumnPrunable;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableCollection;
@@ -669,6 +670,10 @@ public class SlotTypeReplacer extends DefaultPlanRewriter<Void> {
                         break;
                     }
                 }
+            } else if (type instanceof VariantType) {
+                // Variant object keys are data, not Iceberg schema field IDs. Replacing them with
+                // the root ID destroys the physical shredding path before it reaches the scanner.
+                return;
             } else {
                 originPath.set(index, String.valueOf(column.getUniqueId()));
             }

@@ -2,6 +2,9 @@
 -- !sql --
 16
 
+-- !typed_array --
+2017-01-01	6afef581285b6608bf80d5a4e46cf839	["a", "b", "c"]
+
 -- !sql --
 2019-01-01	a648a447b8f71522f11632eba4b4adde	{"inventors":["p", "q", "r", "s", "t"]}
 

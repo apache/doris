@@ -27,6 +27,46 @@
 
 namespace doris {
 
+void ReservedMemoryToken::release() {
+    if (_bytes == 0 && _untracked_bytes == 0) {
+        return;
+    }
+    // A queued item may be discarded after an async failure; its reservation still needs full rollback.
+    GlobalMemoryArbitrator::shrink_process_reserved(_bytes + _untracked_bytes);
+    _limiter_tracker->shrink_reserved(_bytes + _untracked_bytes);
+    _limiter_tracker->release(_bytes);
+    if (auto wg = _wg_wptr.lock()) {
+        wg->sub_wg_refresh_interval_memory_growth(_bytes);
+    }
+    _bytes = 0;
+    _untracked_bytes = 0;
+}
+
+ReservedMemoryToken ThreadMemTrackerMgr::take_reserved_memory() {
+    CHECK(init());
+    if (_reserved_mem == 0) {
+        return {};
+    }
+    ReservedMemoryToken token(_limiter_tracker_sptr, _wg_wptr, _reserved_mem, _untracked_mem);
+    // Accounting remains reserved globally; only its thread-local ownership moves into the token.
+    _reserved_mem = 0;
+    _untracked_mem = 0;
+    return token;
+}
+
+void ThreadMemTrackerMgr::adopt_reserved_memory(ReservedMemoryToken&& token) {
+    CHECK(init());
+    if (token._bytes == 0 && token._untracked_bytes == 0) {
+        return;
+    }
+    flush_untracked_mem();
+    CHECK(token._limiter_tracker == _limiter_tracker_sptr);
+    _reserved_mem += token._bytes;
+    _untracked_mem += token._untracked_bytes;
+    token._bytes = 0;
+    token._untracked_bytes = 0;
+}
+
 void ThreadMemTrackerMgr::attach_limiter_tracker(
         const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
     DCHECK(mem_tracker);

@@ -4152,13 +4152,13 @@ public class InternalCatalog implements CatalogIf<Database> {
                         .withBaseTable(baseTable)
                         .build();
                 newStream.setComment(createStreamInfo.getComment());
-                // check base table type is supported for stream
-                baseTable.checkAsTableStreamBaseTable(newStream.getStreamScanType());
                 try {
                     setTableStreamProperties(newStream, properties);
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage(), e);
                 }
+                // check base table type is supported for stream
+                baseTable.checkAsTableStreamBaseTable(newStream.getStreamScanType());
                 if (properties != null && !properties.isEmpty()) {
                     // before here, all properties should be checked
                     throw new DdlException("Unknown properties: " + properties);

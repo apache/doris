@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <iterator>
 #include <random>
+#include <ranges>
 #include <shared_mutex>
 
 #include "cloud/cloud_tablet.h"

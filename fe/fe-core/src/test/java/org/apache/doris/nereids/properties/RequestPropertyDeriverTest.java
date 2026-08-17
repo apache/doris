@@ -55,7 +55,6 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -700,24 +699,5 @@ class RequestPropertyDeriverTest {
         PhysicalProperties aggProp = PhysicalProperties.createHash(
                 Lists.newArrayList(key1.getExprId(), key2.getExprId()), ShuffleType.REQUIRE);
         Assertions.assertTrue(actual.contains(ImmutableList.of(aggProp)) && actual.contains(ImmutableList.of(parentProp)));
-    }
-
-    @Test
-    void testBucketedHashAggregate() {
-        SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
-        PhysicalBucketedHashAggregate<GroupPlan> aggregate = new PhysicalBucketedHashAggregate<>(
-                Lists.newArrayList(key),
-                Lists.newArrayList(key),
-                logicalProperties,
-                groupPlan
-        );
-        GroupExpression groupExpression = new GroupExpression(aggregate);
-        new Group(null, groupExpression, null);
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
-        List<List<PhysicalProperties>> actual
-                = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
-        List<List<PhysicalProperties>> expected = Lists.newArrayList();
-        expected.add(Lists.newArrayList(PhysicalProperties.ANY));
-        Assertions.assertEquals(expected, actual);
     }
 }

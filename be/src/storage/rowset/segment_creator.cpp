@@ -71,7 +71,8 @@ segment_v2::TransformExecContext make_transform_exec_context(RowsetWriterContext
             .rowset_ctx = &context,
             .rowset_id = context.rowset_id,
             .segment_id = segment_id,
-            .derived_column = {}};
+            .derived_column = {},
+            .partial_update_stats = {}};
 }
 
 } // namespace
@@ -118,6 +119,12 @@ Status SegmentFlusher::transform_block(Block* block, int32_t segment_id,
     auto transform_ctx = make_transform_exec_context(_context, segment_id);
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             segment_v2::build_transform_chain(_context).apply(transform_ctx, block));
+    // fold the fill stages' probe counters into the flusher totals; the horizontal
+    // writer no longer sees partial-update rows
+    _num_rows_updated += transform_ctx.partial_update_stats.num_rows_updated;
+    _num_rows_deleted += transform_ctx.partial_update_stats.num_rows_deleted;
+    _num_rows_new_added += transform_ctx.partial_update_stats.num_rows_new_added;
+    _num_rows_filtered += transform_ctx.partial_update_stats.num_rows_filtered;
     *derived_column = std::move(transform_ctx.derived_column);
     return Status::OK();
 }
@@ -166,7 +173,7 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
     RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
 
     IndexFileWriterPtr index_file_writer;
-    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, &index_file_writer));
     }
 
@@ -191,7 +198,7 @@ Status SegmentFlusher::_create_segment_writer(std::unique_ptr<segment_v2::Segmen
                 _context.data_dir, writer_options, index_file_writer.get());
     }
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
-    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
     }
     auto s = writer->init();
@@ -210,7 +217,7 @@ Status SegmentFlusher::_create_segment_writer(
     RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, segment_file_writer));
 
     IndexFileWriterPtr index_file_writer;
-    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(_context.file_writer_creator->create(segment_id, &index_file_writer));
     }
 
@@ -227,7 +234,7 @@ Status SegmentFlusher::_create_segment_writer(
             segment_file_writer.get(), segment_id, _context.tablet_schema, _context.tablet,
             _context.data_dir, writer_options, index_file_writer.get());
     RETURN_IF_ERROR(_seg_files.add(segment_id, std::move(segment_file_writer)));
-    if (_context.tablet_schema->has_inverted_index() || _context.tablet_schema->has_ann_index()) {
+    if (_context.tablet_schema->has_inverted_or_ann_index()) {
         RETURN_IF_ERROR(_idx_files.add(segment_id, std::move(index_file_writer)));
     }
     auto s = writer->init();
@@ -330,10 +337,6 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     total_timer.start();
 
     uint32_t row_num = writer->num_rows_written();
-    _num_rows_updated += writer->num_rows_updated();
-    _num_rows_deleted += writer->num_rows_deleted();
-    _num_rows_new_added += writer->num_rows_new_added();
-    _num_rows_filtered += writer->num_rows_filtered();
 
     if (row_num == 0) {
         return Status::OK();
@@ -447,7 +450,9 @@ Status SegmentCreator::add_block(const Block* block) {
         segment_v2::DerivedColumn derived_column;
         RETURN_IF_ERROR(
                 _segment_flusher.transform_block(shared_block, /*segment_id=*/-1, &derived_column));
-        return segment_v2::materialize_derived_columns(derived_column, shared_block);
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                segment_v2::materialize_derived_columns(derived_column, shared_block));
+        return Status::OK();
     };
 
     if (_flush_writer == nullptr) {

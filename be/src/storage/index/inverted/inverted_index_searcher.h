@@ -21,7 +21,18 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
+// CLucene is third-party code and is not clean under -Wconversion (which
+// -Wshorten-64-to-32 belongs to). Whether its first expansion lands inside
+// someone else's suppressed region depends on include order, so suppress it
+// deliberately here (same pattern as inverted_index_common_impl.h).
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wconversion"
+#endif
 #include <CLucene.h> // IWYU pragma: keep
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif

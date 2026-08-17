@@ -199,6 +199,11 @@ public:
 
     void set_cloud_warm_up_manager(std::unique_ptr<CloudWarmUpManager> manager);
     void init_calc_delete_bitmap_executor_for_UT();
+
+    std::vector<CloudTabletSPtr> generate_cloud_compaction_tasks_for_test(
+            CompactionType compaction_type, bool check_score) {
+        return _generate_cloud_compaction_tasks(compaction_type, check_score);
+    }
 #endif
 
 private:

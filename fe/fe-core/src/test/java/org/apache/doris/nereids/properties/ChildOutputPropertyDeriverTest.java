@@ -926,23 +926,31 @@ class ChildOutputPropertyDeriverTest {
         SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
         SlotReference extra = new SlotReference("extra", IntegerType.INSTANCE);
         DistributionSpecHash childHash = naturalHashWithMapping(k1, k2, d1);
-        for (AggPhase phase : AggPhase.values()) {
-            AggregateParam aggregateParam = new AggregateParam(phase, AggMode.INPUT_TO_RESULT);
-            PhysicalHashAggregate<GroupPlan> distinctAggregate = new PhysicalHashAggregate<>(
-                    ImmutableList.of(d1, k2),
-                    ImmutableList.of(k2, d1, new Alias(
-                            new AggregateExpression(new MultiDistinctCount(extra), aggregateParam), "distinct_count")),
-                    aggregateParam,
-                    true,
-                    logicalProperties,
-                    false,
-                    groupPlan);
+        ConnectContext connectContext = ConnectContext.get();
+        boolean originalEnableBucketedHashAgg = connectContext.getSessionVariable().enableBucketedHashAgg;
+        try {
+            connectContext.getSessionVariable().enableBucketedHashAgg = false;
+            for (AggPhase phase : AggPhase.values()) {
+                AggregateParam aggregateParam = new AggregateParam(phase, AggMode.INPUT_TO_RESULT);
+                PhysicalHashAggregate<GroupPlan> distinctAggregate = new PhysicalHashAggregate<>(
+                        ImmutableList.of(d1, k2),
+                        ImmutableList.of(k2, d1, new Alias(
+                                new AggregateExpression(
+                                        new MultiDistinctCount(extra), aggregateParam), "distinct_count")),
+                        aggregateParam,
+                        true,
+                        logicalProperties,
+                        false,
+                        groupPlan);
 
-            PhysicalProperties output = deriveAggregateProperties(distinctAggregate, childHash);
+                PhysicalProperties output = deriveAggregateProperties(distinctAggregate, childHash);
 
-            Assertions.assertTrue(output.getNaturalDistributionMappingSpec().isPresent(), phase.toString());
-            Assertions.assertFalse(output.getNaturalDistributionMappingSpec()
-                    .get().getDistributionMappings().isEmpty(), phase.toString());
+                Assertions.assertTrue(output.getNaturalDistributionMappingSpec().isPresent(), phase.toString());
+                Assertions.assertFalse(output.getNaturalDistributionMappingSpec()
+                        .get().getDistributionMappings().isEmpty(), phase.toString());
+            }
+        } finally {
+            connectContext.getSessionVariable().enableBucketedHashAgg = originalEnableBucketedHashAgg;
         }
     }
 
@@ -964,9 +972,15 @@ class ChildOutputPropertyDeriverTest {
         PhysicalProperties redistributedChild = new PhysicalProperties(
                 new DistributionSpecHash(ImmutableList.of(d1.getExprId()), ShuffleType.REQUIRE));
 
-        PhysicalProperties output = deriveAggregateProperties(distinctAggregate, redistributedChild);
-
-        Assertions.assertFalse(output.getNaturalDistributionMappingSpec().isPresent());
+        ConnectContext connectContext = ConnectContext.get();
+        boolean originalEnableBucketedHashAgg = connectContext.getSessionVariable().enableBucketedHashAgg;
+        try {
+            connectContext.getSessionVariable().enableBucketedHashAgg = false;
+            PhysicalProperties output = deriveAggregateProperties(distinctAggregate, redistributedChild);
+            Assertions.assertFalse(output.getNaturalDistributionMappingSpec().isPresent());
+        } finally {
+            connectContext.getSessionVariable().enableBucketedHashAgg = originalEnableBucketedHashAgg;
+        }
     }
 
     @Test

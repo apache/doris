@@ -258,4 +258,10 @@ std::unique_ptr<PageReader<IN_COLLECTION, OFFSET_INDEX>> create_page_reader(
             reader, io_ctx, offset, length, total_rows, metadata, ctx, offset_index);
 }
 
+/// Instantiated once in vparquet_page_reader.cpp; suppresses per-TU implicit instantiation.
+extern template class PageReader<true, true>;
+extern template class PageReader<true, false>;
+extern template class PageReader<false, true>;
+extern template class PageReader<false, false>;
+
 } // namespace doris

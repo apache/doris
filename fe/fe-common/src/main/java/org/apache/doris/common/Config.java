@@ -132,6 +132,12 @@ public class Config extends ConfigBase {
             + "`DORIS_LOCAL_RESOURCE_GROUP` environment variable. An empty string " + "means unset.")
     public static String local_resource_group = "";
 
+    @ConfField(mutable = false,
+            description = "Whether to enable replica filtering based on location resource tags. If disabled, "
+                    + "invalid compute groups are still rejected, but replicas are no longer filtered by the "
+                    + "user's location resource tag.")
+    public static boolean enable_resource_tag_location_check = true;
+
     @ConfField(mutable = true, masterOnly = false,
             description = "PreparedStatement stmtId starting position, used for testing only")
     public static long prepared_stmt_start_id = -1;
@@ -318,9 +324,25 @@ public class Config extends ConfigBase {
             + "BDBJE. The connection is abandoned if the clock skew is larger than this value.")
     public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
-    @ConfField(mutable = true, description = "Whether to enable "
-            + "authentication for all HTTP " + "interfaces", varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_all_http_auth = false;
+    @ConfField(description = "Whether to enable authentication for all HTTP interfaces. On by default. "
+            + "While it is off, some HTTP interfaces (for example parts of the metadata, statistics "
+            + "and admin surface) serve requests without checking the caller's privileges, and a few "
+            + "(statistics and import endpoints) without any credentials at all. "
+            + "This config is deliberately NOT mutable: turning authentication off must be a recorded, "
+            + "on-disk decision in fe.conf that survives a restart, not a runtime command. "
+            + "Upgrade note: a cluster upgrading from a version where this defaulted to false may have "
+            + "callers that poll those interfaces anonymously (monitoring, metrics scrapers, ops "
+            + "scripts, health probes); those callers will start getting 401 until they present "
+            + "credentials. The fix is to give them credentials -- setting this back to false in "
+            + "fe.conf is a temporary migration aid that leaves those interfaces unauthenticated. "
+            + "Also check fe_custom.conf when upgrading: it is read after fe.conf and overwrites it, "
+            + "and in releases where this flag was mutable an 'ADMIN SET FRONTEND CONFIG' with "
+            + "persist=true could have written false into it. Making the flag non-mutable does not "
+            + "remove or migrate such a value, so a cluster can look clean in fe.conf and still start "
+            + "with authentication off; delete the entry from fe_custom.conf to pick up the new default. "
+            + "Security scanning and penetration testing must never be run with this off.",
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_all_http_auth = true;
 
     @ConfField(description = "Whether to enable FE unified TLS configuration. When enabled, protocols not listed in "
             + "tls_excluded_protocols will use TLS implementation.")
@@ -635,11 +657,6 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = "Whether to enable stream load profile")
     public static boolean enable_stream_load_profile = false;
-
-    @ConfField(mutable = true, masterOnly = true, description = "Whether to enable writing to a single replica for "
-            + "stream load and broker load.",
-            varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_single_replica_load = false;
 
     @ConfField(mutable = true, masterOnly = true, description = "Shuffle will not be enabled for DUPLICATE KEY tables "
             + "if their tablet count is lower than this number",
@@ -971,6 +988,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long tablet_schedule_high_priority_second = 30 * 60;
+
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Whether optional backend selection policies may participate in repair clone source "
+                    + "selection. The default policy is a no-op and does not change repair behavior.")
+    public static boolean enable_repair_source_backend_selection = true;
 
     /**
      * publish version queue's size in be, report it to fe,
@@ -1969,7 +1991,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 11;
+    public static int max_be_exec_version = 12;
 
     /**
      * Min data version of backends serialize block.
@@ -3541,6 +3563,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Whether to allow the use of inverted index v1 for "
             + "variant.")
     public static boolean enable_inverted_index_v1_for_variant = false;
+
+    @ConfField(mutable = true, description = "Whether to enable ColumnVariantV2 for Variant execution and storage.")
+    public static boolean enable_variant_v2 = false;
 
     @ConfField(mutable = true, description = "Prometheus output table dimension metric count limit.")
     public static int prom_output_table_metrics_limit = 10000;

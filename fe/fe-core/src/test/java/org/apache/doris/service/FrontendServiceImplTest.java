@@ -20,9 +20,11 @@ package org.apache.doris.service;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -60,6 +62,7 @@ import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTableStatus;
+import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.WriteBlockAllocatingTransaction;
@@ -340,6 +343,54 @@ public class FrontendServiceImplTest extends TestWithFeService {
         Assertions.assertEquals(partition.getStatus().getStatusCode(), TStatusCode.OK);
         Partition p20230807 = table.getPartition("p20230807000000");
         Assertions.assertNotNull(p20230807);
+    }
+
+    @Test
+    public void testCreatePartitionWithRowBinlog() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.partition_range_with_row_binlog(\n"
+                + "    event_day DATETIME NOT NULL,\n"
+                + "    site_id INT,\n"
+                + "    city_code VARCHAR(100)\n"
+                + ")\n"
+                + "DUPLICATE KEY(event_day, site_id, city_code)\n"
+                + "AUTO PARTITION BY RANGE (date_trunc(event_day, 'day')) ()\n"
+                + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
+                + "PROPERTIES(\"replication_num\" = \"1\", \"binlog.enable\" = \"true\", "
+                + "\"binlog.format\" = \"ROW\");";
+        createTable(createOlapTblStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_with_row_binlog");
+        TNullableStringLiteral start = new TNullableStringLiteral();
+        start.setValue("2023-08-09 00:00:00");
+        TCreatePartitionRequest request = new TCreatePartitionRequest();
+        request.setDbId(db.getId());
+        request.setTableId(table.getId());
+        request.setPartitionValues(Collections.singletonList(Collections.singletonList(start)));
+
+        TCreatePartitionResult result = new FrontendServiceImpl(exeEnv).createPartition(request);
+
+        Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
+        Assertions.assertEquals(1, result.getPartitionsSize());
+        Assertions.assertEquals(table.getIndexNumber(), result.getPartitions().get(0).getIndexesSize());
+
+        Partition createdPartition = table.getPartition("p20230809000000");
+        Assertions.assertNotNull(createdPartition);
+        MaterializedIndex rowBinlogIndex = createdPartition
+                .getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true).stream()
+                .filter(MaterializedIndex::isRowBinlog)
+                .findFirst()
+                .orElseThrow();
+        Assertions.assertEquals(createdPartition.getBaseIndex().getTablets().size() * 2,
+                result.getTabletsSize());
+        for (Tablet rowBinlogTablet : rowBinlogIndex.getTablets()) {
+            TTabletLocation location = result.getTablets().stream()
+                    .filter(tablet -> tablet.getTabletId() == rowBinlogTablet.getId())
+                    .findFirst()
+                    .orElseThrow();
+            Assertions.assertTrue(location.isSetBaseTabletId());
+            Assertions.assertEquals(rowBinlogTablet.getRowBinlogBaseTabletId(), location.getBaseTabletId());
+        }
     }
 
     @Test

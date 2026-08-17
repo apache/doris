@@ -38,11 +38,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.BaseAnalysisTask.AnalyzeSampleAlgorithm;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -141,7 +143,11 @@ public class OlapAnalysisTaskTest {
 
         OlapAnalysisTask olapAnalysisTask = Mockito.spy(new OlapAnalysisTask());
         Mockito.doReturn(new ResultRow(Lists.newArrayList("1", "2"))).when(olapAnalysisTask).collectMinMax();
-        Mockito.doNothing().when(olapAnalysisTask).getSampleParams(ArgumentMatchers.any(), ArgumentMatchers.anyLong());
+        Mockito.doNothing().when(olapAnalysisTask).getSampleParams(ArgumentMatchers.any(),
+                ArgumentMatchers.anyLong(), ArgumentMatchers.any());
+        Mockito.doReturn(new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
+                Pair.of(Lists.newArrayList(1L, 2L), 100L)))
+                .when(olapAnalysisTask).getSampleCollectInfo(ArgumentMatchers.anyLong());
         Mockito.doReturn(true).when(olapAnalysisTask).useLinearAnalyzeTemplate();
         Mockito.doAnswer(inv -> {
             String sql = inv.getArgument(0);
@@ -191,7 +197,10 @@ public class OlapAnalysisTaskTest {
                     + "t2) SELECT * FROM cte2 CROSS JOIN cte3", sql);
             return null;
         }).when(olapAnalysisTask).runQuery(ArgumentMatchers.anyString());
-        Mockito.doReturn(false).when(olapAnalysisTask).useLinearAnalyzeTemplate();
+        // Second run: the DUJ1 algorithm is chosen, so the DUJ1 template must be used.
+        Mockito.doReturn(new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1,
+                Pair.of(Lists.newArrayList(1L, 2L), 100L)))
+                .when(olapAnalysisTask).getSampleCollectInfo(ArgumentMatchers.anyLong());
         olapAnalysisTask.doSample();
     }
 
@@ -285,11 +294,6 @@ public class OlapAnalysisTaskTest {
         Assertions.assertTrue(task.useLinearAnalyzeTemplate());
 
         task.setPartitionColumnSampleTooManyRows(false);
-        task.setScanFullTable(true);
-        Assertions.assertTrue(task.useLinearAnalyzeTemplate());
-
-        task.setScanFullTable(false);
-        task.setPartitionColumnSampleTooManyRows(false);
         OlapAnalysisTask spyTask = Mockito.spy(task);
         Mockito.doReturn(true).when(spyTask).isSingleUniqueKey();
         Assertions.assertTrue(spyTask.useLinearAnalyzeTemplate());
@@ -303,22 +307,45 @@ public class OlapAnalysisTaskTest {
         Mockito.doReturn(Pair.of(Lists.newArrayList(1L, 2L), 100L)).when(task).getSampleTablets();
         Mockito.doReturn(false).when(task).needLimit();
         Mockito.doReturn(false).when(task).useLinearAnalyzeTemplate();
+        Mockito.doReturn(false).when(task).isSingleUniqueKey();
 
         OlapTable mockTable = Mockito.mock(OlapTable.class);
         Mockito.when(mockTable.getKeysType()).thenReturn(KeysType.DUP_KEYS);
         task.col = new Column("testColumn", Type.INT, true, null, null, "");
         task.setTable(mockTable);
-        task.getSampleParams(params, 10);
-        Assertions.assertTrue(task.scanFullTable());
+        // FULL algorithm: scan the full table and fill LINEAR-style params (raw column reference).
+        task.getSampleParams(params, 10,
+                new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.FULL, null));
         Assertions.assertEquals("1", params.get("scaleFactor"));
         Assertions.assertEquals("", params.get("sampleHints"));
+        Assertions.assertEquals("(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)",
+                params.get("rowCount2"));
         Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
         Assertions.assertNull(params.get("preAggHint"));
         Assertions.assertEquals("COUNT(1)", params.get("rowCount"));
         params.clear();
 
-        task.getSampleParams(params, 10000);
-        Assertions.assertEquals("10000", params.get("rowCount"));
+        // LINEAR algorithm with sample tablets.
+        task.getSampleParams(params, 10000,
+                new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
+        Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
+        Assertions.assertEquals("(SELECT COUNT(1) FROM cte1 WHERE `${colName}` IS NOT NULL)",
+                params.get("rowCount2"));
+        Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
+        params.clear();
+
+        // DUJ1 algorithm with sample tablets: rowCount2 and ndvFunction must reference the cte1
+        // output columns (col_value/count), not the raw column name, otherwise the DUJ1 SQL
+        // fails with "Unknown column".
+        task.getSampleParams(params, 10000,
+                new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
+        Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
+        Assertions.assertEquals("(SELECT SUM(`count`) FROM cte1 WHERE `col_value` IS NOT NULL)",
+                params.get("rowCount2"));
+        Assertions.assertTrue(params.get("ndvFunction").contains("`t1`.`col_value`"),
+                "DUJ1 ndvFunction must reference cte1 output, got: " + params.get("ndvFunction"));
         params.clear();
 
         OlapTable mockTable2 = Mockito.mock(OlapTable.class);
@@ -330,7 +357,9 @@ public class OlapAnalysisTaskTest {
         Mockito.doReturn(false).when(task).useLinearAnalyzeTemplate();
         task.col = new Column("testColumn", Type.INT, false, null, null, "");
         task.setTable(mockTable2);
-        task.getSampleParams(params, 1000);
+        task.getSampleParams(params, 1000,
+                new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("10.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("SUM(`t1`.`count`) * COUNT(`t1`.`col_value`) / (SUM(`t1`.`count`) - SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) + SUM(IF(`t1`.`count` = 1 and `t1`.`col_value` is not null, 1, 0)) * SUM(`t1`.`count`) / 1000)", params.get("ndvFunction"));
@@ -349,7 +378,9 @@ public class OlapAnalysisTaskTest {
         Mockito.doReturn(false).when(task).useLinearAnalyzeTemplate();
         task.col = new Column("testColumn", Type.INT, false, null, null, "");
         task.setTable(mockTable3);
-        task.getSampleParams(params, 1000);
+        task.getSampleParams(params, 1000,
+                new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("/*+PREAGGOPEN*/", params.get("preAggHint"));
         params.clear();
 
@@ -363,7 +394,9 @@ public class OlapAnalysisTaskTest {
         Mockito.doReturn(false).when(task).useLinearAnalyzeTemplate();
         task.col = new Column("testColumn", Type.INT, false, null, null, "");
         task.setTable(mockTable4);
-        task.getSampleParams(params, 1000);
+        task.getSampleParams(params, 1000,
+                new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertNull(params.get("preAggHint"));
         params.clear();
 
@@ -377,7 +410,9 @@ public class OlapAnalysisTaskTest {
         Mockito.when(mockTable5.getKeysType()).thenReturn(KeysType.DUP_KEYS);
         task.col = new Column("test", PrimitiveType.INT);
         task.setTable(mockTable5);
-        task.getSampleParams(params, 1000);
+        task.getSampleParams(params, 1000,
+                new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("10.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("ROUND(NDV(`${colName}`) * ${scaleFactor})", params.get("ndvFunction"));
@@ -393,7 +428,9 @@ public class OlapAnalysisTaskTest {
         Mockito.when(mockTable6.getKeysType()).thenReturn(KeysType.DUP_KEYS);
         task.col = new Column("test", PrimitiveType.INT);
         task.setTable(mockTable6);
-        task.getSampleParams(params, 1000);
+        task.getSampleParams(params, 1000,
+                new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("10.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("1000", params.get("ndvFunction"));
@@ -409,7 +446,9 @@ public class OlapAnalysisTaskTest {
         Mockito.when(mockTable7.getKeysType()).thenReturn(KeysType.DUP_KEYS);
         task.col = new Column("test", PrimitiveType.INT);
         task.setTable(mockTable7);
-        task.getSampleParams(params, 1000);
+        task.getSampleParams(params, 1000,
+                new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("20.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("1000", params.get("ndvFunction"));
@@ -428,11 +467,43 @@ public class OlapAnalysisTaskTest {
             true, null, null, null);
         task.setKeyColumnSampleTooManyRows(true);
         task.setTable(mockTable8);
-        task.getSampleParams(params, 2000000000);
+        task.getSampleParams(params, 2000000000,
+                new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
+                        Pair.of(Lists.newArrayList(1L, 2L), 100L)));
         Assertions.assertEquals("2.0", params.get("scaleFactor"));
         Assertions.assertEquals("TABLET(1, 2)", params.get("sampleHints"));
         Assertions.assertEquals("2000000000", params.get("ndvFunction"));
         Assertions.assertEquals("limit 1000000000", params.get("limit"));
+    }
+
+    @Test
+    public void testGetSampleCollectInfo() {
+        // tableRowCount <= sample rows -> full table scan.
+        OlapAnalysisTask task = Mockito.spy(new OlapAnalysisTask());
+        Mockito.doReturn(100L).when(task).getSampleRows();
+        Mockito.doReturn(false).when(task).useLinearAnalyzeTemplate();
+        OlapAnalysisTask.SampleCollectInfo info = task.getSampleCollectInfo(10);
+        Assertions.assertEquals(AnalyzeSampleAlgorithm.FULL, info.algorithm);
+
+        // tableRowCount > sample rows -> sample tablets, and useLinearAnalyzeTemplate decides.
+        Mockito.doReturn(Pair.of(Lists.newArrayList(1L, 2L), 100L)).when(task).getSampleTablets();
+        Mockito.doReturn(true).when(task).useLinearAnalyzeTemplate();
+        info = task.getSampleCollectInfo(10000);
+        Assertions.assertEquals(AnalyzeSampleAlgorithm.LINEAR, info.algorithm);
+
+        // sample tablets contain too few rows -> fall back to full table scan.
+        Mockito.doReturn(Pair.of(Lists.newArrayList(1L, 2L), 10L)).when(task).getSampleTablets();
+        info = task.getSampleCollectInfo(10000);
+        Assertions.assertEquals(AnalyzeSampleAlgorithm.FULL, info.algorithm);
+
+        // Debug point useDUJ1Template forces DUJ1 even when the row count would normally
+        // fall back to a full table scan, so tests are not affected by BE row count timing.
+        try (MockedStatic<DebugPointUtil> mocked = Mockito.mockStatic(DebugPointUtil.class)) {
+            mocked.when(() -> DebugPointUtil.isEnable("OlapAnalysisTask.useDUJ1Template")).thenReturn(true);
+            Mockito.doReturn(Pair.of(Lists.newArrayList(1L, 2L), 10L)).when(task).getSampleTablets();
+            info = task.getSampleCollectInfo(10000);
+            Assertions.assertEquals(AnalyzeSampleAlgorithm.DUJ1, info.algorithm);
+        }
     }
 
     @Test
@@ -885,7 +956,8 @@ public class OlapAnalysisTaskTest {
 
         OlapAnalysisTask task = Mockito.spy(new OlapAnalysisTask());
         Mockito.doReturn(new ResultRow(Lists.newArrayList("1", "2"))).when(task).collectMinMax();
-        Mockito.doNothing().when(task).getSampleParams(ArgumentMatchers.any(), ArgumentMatchers.anyLong());
+        Mockito.doNothing().when(task).getSampleParams(ArgumentMatchers.any(), ArgumentMatchers.anyLong(),
+                ArgumentMatchers.any());
         Mockito.doAnswer(invocation -> {
             String sql = invocation.getArgument(0);
             Assertions.assertTrue(sql.contains("as `hot_value`"), sql);
@@ -908,9 +980,13 @@ public class OlapAnalysisTaskTest {
         task.db = databaseIf;
         task.tableSample = new TableSample(false, 100L);
 
-        Mockito.doReturn(true).when(task).useLinearAnalyzeTemplate();
+        Mockito.doReturn(new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.LINEAR,
+                Pair.of(Lists.newArrayList(1L, 2L), 100L)))
+                .when(task).getSampleCollectInfo(Mockito.anyLong());
         task.doSample();
-        Mockito.doReturn(false).when(task).useLinearAnalyzeTemplate();
+        Mockito.doReturn(new OlapAnalysisTask.SampleCollectInfo(AnalyzeSampleAlgorithm.DUJ1,
+                Pair.of(Lists.newArrayList(1L, 2L), 100L)))
+                .when(task).getSampleCollectInfo(Mockito.anyLong());
         task.doSample();
     }
 

@@ -348,4 +348,22 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
     return Status::OK();
 }
 
+/// Instantiated once in data_type_number_serde.cpp; suppresses per-TU implicit instantiation.
+extern template class DataTypeNumberSerDe<TYPE_BOOLEAN>;
+extern template class DataTypeNumberSerDe<TYPE_TINYINT>;
+extern template class DataTypeNumberSerDe<TYPE_SMALLINT>;
+extern template class DataTypeNumberSerDe<TYPE_INT>;
+extern template class DataTypeNumberSerDe<TYPE_BIGINT>;
+extern template class DataTypeNumberSerDe<TYPE_LARGEINT>;
+extern template class DataTypeNumberSerDe<TYPE_FLOAT>;
+extern template class DataTypeNumberSerDe<TYPE_DOUBLE>;
+extern template class DataTypeNumberSerDe<TYPE_DATE>;
+extern template class DataTypeNumberSerDe<TYPE_DATEV2>;
+extern template class DataTypeNumberSerDe<TYPE_DATETIME>;
+extern template class DataTypeNumberSerDe<TYPE_DATETIMEV2>;
+extern template class DataTypeNumberSerDe<TYPE_IPV4>;
+extern template class DataTypeNumberSerDe<TYPE_IPV6>;
+extern template class DataTypeNumberSerDe<TYPE_TIMEV2>;
+extern template class DataTypeNumberSerDe<TYPE_TIMESTAMPTZ>;
+
 } // namespace doris

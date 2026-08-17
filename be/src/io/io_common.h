@@ -19,6 +19,9 @@
 
 #include <gen_cpp/Types_types.h>
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <set>
 #include <string>
 
@@ -78,12 +81,17 @@ struct FileCacheStatistics {
     int64_t inverted_index_bytes_read_from_local = 0;
     int64_t inverted_index_bytes_read_from_remote = 0;
     int64_t inverted_index_bytes_read_from_peer = 0;
+    int64_t inverted_index_remote_physical_read_bytes = 0;
+    int64_t inverted_index_bytes_write_into_cache = 0;
     int64_t inverted_index_local_io_timer = 0;
     int64_t inverted_index_remote_io_timer = 0;
     int64_t inverted_index_peer_io_timer = 0;
     int64_t inverted_index_io_timer = 0;
     int64_t inverted_index_write_cache_io_timer = 0;
-    int64_t inverted_index_bytes_write_into_cache = 0;
+    int64_t inverted_index_request_bytes = 0;
+    int64_t inverted_index_read_bytes = 0;
+    int64_t inverted_index_range_read_count = 0;
+    int64_t inverted_index_serial_read_rounds = 0;
 
     int64_t segment_footer_index_num_local_io_total = 0;
     int64_t segment_footer_index_num_remote_io_total = 0;
@@ -139,12 +147,18 @@ struct FileCacheStatistics {
         inverted_index_bytes_read_from_local += other.inverted_index_bytes_read_from_local;
         inverted_index_bytes_read_from_remote += other.inverted_index_bytes_read_from_remote;
         inverted_index_bytes_read_from_peer += other.inverted_index_bytes_read_from_peer;
+        inverted_index_remote_physical_read_bytes +=
+                other.inverted_index_remote_physical_read_bytes;
         inverted_index_local_io_timer += other.inverted_index_local_io_timer;
         inverted_index_remote_io_timer += other.inverted_index_remote_io_timer;
         inverted_index_peer_io_timer += other.inverted_index_peer_io_timer;
         inverted_index_io_timer += other.inverted_index_io_timer;
         inverted_index_write_cache_io_timer += other.inverted_index_write_cache_io_timer;
         inverted_index_bytes_write_into_cache += other.inverted_index_bytes_write_into_cache;
+        inverted_index_request_bytes += other.inverted_index_request_bytes;
+        inverted_index_read_bytes += other.inverted_index_read_bytes;
+        inverted_index_range_read_count += other.inverted_index_range_read_count;
+        inverted_index_serial_read_rounds += other.inverted_index_serial_read_rounds;
 
         segment_footer_index_num_local_io_total += other.segment_footer_index_num_local_io_total;
         segment_footer_index_num_remote_io_total += other.segment_footer_index_num_remote_io_total;
@@ -211,6 +225,12 @@ struct IOContext {
     // if true, bypass peer read / peer-vs-S3 race and read directly from remote storage
     bool bypass_peer_read {false};
     FileCacheMissPolicy file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
+    // From session variable inverted_index_snii_read_no_write_file_cache: SNII index
+    // reads of this query take REMOTE_ONLY_ON_MISS (hit served, miss reads remote
+    // and skips the cache write-back). Carried down to the SNII adapter, which is
+    // the sole place that turns it into a file_cache_miss_policy -- keeping CLucene
+    // index reads and data reads on the normal write-back path.
+    bool inverted_index_snii_read_no_write_file_cache = false;
     RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr; // Ref
 };
 

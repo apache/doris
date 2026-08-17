@@ -30,6 +30,7 @@
 #include <fstream> // IWYU pragma: keep
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -650,10 +651,6 @@ DEFINE_Int32(webserver_num_workers, "128");
 DEFINE_mInt32(async_reply_timeout_s, "60");
 DEFINE_Validator(async_reply_timeout_s, [](const int config) -> bool { return config >= 3; });
 
-DEFINE_Bool(enable_single_replica_load, "true");
-// Number of download workers for single replica load
-DEFINE_Int32(single_replica_load_download_num_workers, "64");
-
 // Used for mini Load. mini load data file will be removed after this time.
 DEFINE_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
@@ -695,7 +692,6 @@ DEFINE_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
-DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
 DEFINE_mBool(enable_stream_load_record, "false");
@@ -1301,6 +1297,25 @@ DEFINE_Int32(inverted_index_query_cache_shards, "256");
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
 
+namespace {
+
+bool valid_common_grams_cost_ratio(int32_t value) {
+    return value >= 0 && value <= 100;
+}
+
+bool valid_common_grams_verify_factor(int32_t value) {
+    return value >= 0;
+}
+
+} // namespace
+
+DEFINE_mBool(enable_common_grams_query_plan, "false");
+DEFINE_mBool(enable_common_grams_index_build, "true");
+DEFINE_mInt32(common_grams_plan_cost_ratio_percent, "85");
+DEFINE_Validator(common_grams_plan_cost_ratio_percent, valid_common_grams_cost_ratio);
+DEFINE_mInt32(common_grams_position_verify_factor, "0");
+DEFINE_Validator(common_grams_position_verify_factor, valid_common_grams_verify_factor);
+
 // condition cache limit
 DEFINE_Int16(condition_cache_limit, "512");
 
@@ -1314,6 +1329,69 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
+// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
+// regions. Freq bytes serve ONLY BM25 scoring, which the Doris integration
+// does not reach yet (scoring_query has no production caller), so the default
+// drops them (textbench: -2.2 GB index). Scoring-config indexes always write
+// freq regardless. Applies at segment build (write side only); existing
+// segments keep whatever layout they were written with (self-describing).
+DEFINE_mBool(snii_positions_index_write_freq, "false");
+// G16-h: zstd levels for the SNII dict-block compression and the .prx window
+// auto mode. Level 9 (vs the historical 3) shrinks the two largest compressed
+// sections -- textbench: index -457 MB (0.918x -> 0.891x V3) -- for an import
+// CPU cost inside the run-to-run variance band; zstd decode speed does not
+// depend on the level, and warm/cold benches measured no query change.
+// Write side only; segments self-describe their compression.
+// Default 3 since the all-level-3 evaluation (2026-07-11, 4 corpora): vs
+// level 9 the settled index grows only +0.6%..+6.3% (whole table
+// +0.3%..+1.9%) while import index CPU drops 17-24% and full-compaction CPU
+// 8-24%; settled cold-query latency is unchanged (interleaved A/B). The
+// delta+varint-encoded payloads are high-entropy, so level 9's extra search
+// buys almost no ratio. Raise only for size-critical deployments.
+DEFINE_mInt32(snii_dict_block_zstd_level, "3");
+DEFINE_mInt32(snii_prx_zstd_level, "3");
+// Patch C prx tiering: zstd level for the prx region of DIRECT-LOAD segments
+// only (stream/broker load, see IndexColumnWriter::set_direct_load). Inert at
+// the defaults (both levels 3); it exists for size-critical deployments that
+// RAISE snii_prx_zstd_level (e.g. 9) and still want cheap loads: compaction
+// rewrites every segment at snii_prx_zstd_level, so SETTLED data (and the
+// cold-query path over it) is unaffected by the load tier -- measured -290s
+// (httplogs) / -204s (agentlogs) of import index CPU at 3 vs 9. Same clamp
+// [3, 19]. Read at index flush like snii_prx_zstd_level (a mid-load change
+// lands on in-flight segments); the direct-load BIT itself is captured once.
+DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
+// G16-d: target SNII dict block size in bytes; 0 uses the format default
+// (64 KiB). Larger blocks compress better under the per-block zstd (the dict
+// is the dominant physical section on high-cardinality corpora) at the cost
+// of a larger fetch+decompress unit per cold dict-block miss. Write side
+// only; the block size is self-described by the on-disk directory.
+DEFINE_mInt32(snii_target_dict_block_bytes, "0");
+// SNII's index-build share of the process memory limit, as a percent -- the
+// index-build analogue of load_process_max_memory_limit_percent. Once live SNII
+// index-build memory crosses this share, the largest reclaimable posting arenas
+// are asked to spill early. Derived from the process limit rather than an
+// absolute number so it scales with the BE. Only the RECLAIMABLE population
+// counts against it: index-merge compaction charges the same observation
+// tracker but registers no spillable writer, so its bytes are excluded from the
+// comparison (its own hard reservation cap bounds them instead).
+//
+// 0 disables SNII's OWN share trigger; the process-level backstops (system
+// available memory below its warning water mark, process usage above the soft
+// limit) still apply. The share is deliberately well below those backstops so
+// SNII sheds its own memory before the global valve -- the global valve trips
+// late by design and would be a worse trigger than none. The derived share is
+// floored at four times inverted_index_ram_buffer_size so a small BE is not
+// permanently over it the moment two writers exist.
+DEFINE_mInt32(snii_index_build_max_memory_limit_percent, "10");
+// Minimum reclaimable posting-arena bytes before a G09 forced spill is honored
+// (and before a writer is eligible as a spill victim): forced spills reclaim
+// ONLY the arena, so smaller triggers cut tiny runs for near-zero relief.
+// Default 64 MiB.
+DEFINE_mInt64(snii_forced_spill_min_arena_bytes, "67108864");
+// Max spill-run files one SNII writer accumulates before its runs are
+// merge-compacted into one (bounds the k-way merge fan-in and its open fds;
+// every run is held open for the whole merge). 0 = uncapped. Default 64.
+DEFINE_mInt32(snii_spill_max_run_files_per_buffer, "64");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
@@ -2275,6 +2353,33 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         return Status::OK();                                                                       \
     }
 
+namespace {
+
+// UPDATE_FIELD invokes registered validators before assigning the candidate value. Validate the two
+// mutable planner coefficients explicitly so their startup and runtime constraints stay identical.
+Status validate_common_grams_runtime_config(const std::string& field, const std::string& value) {
+    bool (*validator)(int32_t) = nullptr;
+    if (field == "common_grams_plan_cost_ratio_percent") {
+        validator = valid_common_grams_cost_ratio;
+    } else if (field == "common_grams_position_verify_factor") {
+        validator = valid_common_grams_verify_factor;
+    } else {
+        return Status::OK();
+    }
+
+    int32_t candidate = 0;
+    if (!convert(value, candidate)) {
+        return Status::OK();
+    }
+    if (!validator(candidate)) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("validate {}={} failed", field,
+                                                                 candidate);
+    }
+    return Status::OK();
+}
+
+} // namespace
+
 // write config to be_custom.conf
 // the caller need to make sure that the given config is valid
 Status persist_config(const std::string& field, const std::string& value) {
@@ -2304,6 +2409,8 @@ Status set_config(const std::string& field, const std::string& value, bool need_
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(
                 "'{}' is not support to modify", field);
     }
+
+    RETURN_IF_ERROR(validate_common_grams_runtime_config(field, value));
 
     UPDATE_FIELD(it->second, value, bool, need_persist);
     UPDATE_FIELD(it->second, value, int16_t, need_persist);

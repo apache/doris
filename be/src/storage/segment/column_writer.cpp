@@ -565,6 +565,12 @@ Status ScalarColumnWriter::init() {
                 RETURN_IF_ERROR(IndexColumnWriter::create(
                         get_column(), &_inverted_index_builders[i], _opts.index_file_writer,
                         _opts.inverted_indexes[i]));
+                // After create() (which runs the writer's init()) and before any
+                // value lands: forward the write type UNCONDITIONALLY so SNII
+                // can select its PRX zstd level -- and the
+                // documented "forwarded to every created IndexColumnWriter"
+                // contract holds for both values.
+                _inverted_index_builders[i]->set_direct_load(_opts.is_direct_load);
             }
         } while (false);
     }
@@ -1056,6 +1062,9 @@ Status ArrayColumnWriter::init() {
             RETURN_IF_ERROR(IndexColumnWriter::create(get_column(), &_inverted_index_writer,
                                                       _opts.index_file_writer,
                                                       _opts.inverted_indexes[0]));
+            // Same unconditional forwarding as the scalar path: after
+            // create()/init(), before any array value is added.
+            _inverted_index_writer->set_direct_load(_opts.is_direct_load);
         }
     }
     if (_opts.need_ann_index) {
@@ -1351,8 +1360,9 @@ Status VariantColumnWriter::init() {
 }
 
 Status VariantColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
+    RETURN_IF_ERROR(_impl->append_data(ptr, num_rows));
     _next_rowid += num_rows;
-    return _impl->append_data(ptr, num_rows);
+    return Status::OK();
 }
 
 uint64_t VariantColumnWriter::estimate_buffer_size() {
@@ -1382,7 +1392,9 @@ Status VariantColumnWriter::write_bloom_filter_index() {
 
 Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
                                             size_t num_rows) {
-    return _impl->append_nullable(null_map, ptr, num_rows);
+    RETURN_IF_ERROR(_impl->append_nullable(null_map, ptr, num_rows));
+    _next_rowid += num_rows;
+    return Status::OK();
 }
 
 } // namespace doris::segment_v2

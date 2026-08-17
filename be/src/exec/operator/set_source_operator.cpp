@@ -21,6 +21,7 @@
 #include <type_traits>
 
 #include "common/status.h"
+#include "exec/common/set_utils.h"
 #include "exec/operator/operator.h"
 #include "runtime/runtime_profile.h"
 

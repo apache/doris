@@ -18,6 +18,7 @@
 package org.apache.doris.service.arrowflight.sessions;
 
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
@@ -59,8 +60,9 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
         final FlightTokenDetails flightTokenDetails = flightTokenManager.validateToken(peerIdentity);
         if (flightTokenDetails.getCreatedSession()) {
             flightTokenManager.invalidateToken(peerIdentity);
-            throw new IllegalArgumentException("UserSession expire after access, try reconnect, bearer token: "
-                    + peerIdentity + ", a peerIdentity(bearer token) can only create a ConnectContext once. "
+            throw new IllegalArgumentException("UserSession expire after access, try reconnect, bearer token id: "
+                    + TokenMasker.tokenId(peerIdentity)
+                    + ", a peerIdentity(bearer token) can only create a ConnectContext once. "
                     + "if ConnectContext is deleted without operation for a long time, it needs to be reconnected "
                     + "(at the same time obtain a new bearer token).");
         }

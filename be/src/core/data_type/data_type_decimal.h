@@ -526,4 +526,11 @@ static_assert(!has_original_precision_and_scale<DataTypeDecimal64>);
 static_assert(!has_original_precision_and_scale<DataTypeDecimal128>);
 static_assert(!has_original_precision_and_scale<DataTypeDecimal256>);
 
+/// Instantiated once in data_type_decimal.cpp; suppresses per-TU implicit instantiation.
+extern template class DataTypeDecimal<TYPE_DECIMAL32>;
+extern template class DataTypeDecimal<TYPE_DECIMAL64>;
+extern template class DataTypeDecimal<TYPE_DECIMALV2>;
+extern template class DataTypeDecimal<TYPE_DECIMAL128I>;
+extern template class DataTypeDecimal<TYPE_DECIMAL256>;
+
 } // namespace doris

@@ -2093,8 +2093,13 @@ bool logical_field_equal(const Field& current, const Field& golden) {
         return logical_field_vector_equal(current.get<TYPE_STRUCT>(), golden.get<TYPE_STRUCT>());
     case TYPE_MAP:
         return logical_field_vector_equal(current.get<TYPE_MAP>(), golden.get<TYPE_MAP>());
-    case TYPE_VARIANT:
-        return logical_variant_equal(current.get<TYPE_VARIANT>(), golden.get<TYPE_VARIANT>());
+    case TYPE_VARIANT: {
+        const auto& current_variant = current.get<TYPE_VARIANT>();
+        const auto& golden_variant = golden.get<TYPE_VARIANT>();
+        DORIS_CHECK(current_variant.is_legacy());
+        DORIS_CHECK(golden_variant.is_legacy());
+        return logical_variant_equal(current_variant.legacy_map(), golden_variant.legacy_map());
+    }
     case TYPE_JSONB: {
         const auto& current_jsonb = current.get<TYPE_JSONB>();
         const auto& golden_jsonb = golden.get<TYPE_JSONB>();

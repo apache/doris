@@ -41,6 +41,7 @@ class VDirectInPredicate final : public VExpr {
         std::once_flag materialize_once;
         Status materialization_status;
         bool zonemap_materialized = false;
+        bool seg_filter_contains_nan = false;
         std::vector<Field> seg_filter_values;
         Field seg_filter_min;
         Field seg_filter_max;
@@ -101,7 +102,8 @@ public:
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
         return expr_zonemap::eval_in_zonemap(
                 ctx, get_child(0), false, _pruning_state->seg_filter_values,
-                _pruning_state->seg_filter_min, _pruning_state->seg_filter_max);
+                _pruning_state->seg_filter_contains_nan, _pruning_state->seg_filter_min,
+                _pruning_state->seg_filter_max);
     }
 
     bool can_evaluate_zonemap_filter() const override {
@@ -329,6 +331,7 @@ private:
                 return;
             }
             pruning_state->seg_filter_values = std::move(materialized.values);
+            pruning_state->seg_filter_contains_nan = materialized.contains_nan;
             pruning_state->seg_filter_min = std::move(materialized.min_value);
             pruning_state->seg_filter_max = std::move(materialized.max_value);
             pruning_state->zonemap_materialized = true;

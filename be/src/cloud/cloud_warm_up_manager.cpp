@@ -118,12 +118,7 @@ bvar::Adder<int64_t> g_file_cache_warm_up_job_num("file_cache_warm_up_job_num");
 bvar::LatencyRecorder g_file_cache_warm_up_rowset_wait_for_compaction_latency(
         "file_cache_warm_up_rowset_wait_for_compaction_latency");
 
-// Per-job windowed metrics for source BE
-// bvar::Window enforces MAX_SECONDS_LIMIT = 3600, so the longest window is 1h.
-static constexpr int WINDOW_5M = 300;
-static constexpr int WINDOW_30M = 1800;
-static constexpr int WINDOW_1H = 3600;
-
+// Per-job windowed metrics for source BE (window spans shared via bvar_windowed_adder.h)
 MBvarWindowedAdder g_warmup_ed_requested_segment_num("warmup_ed_requested_segment_num", {"job_id"},
                                                      {WINDOW_5M, WINDOW_30M, WINDOW_1H}, false);
 MBvarWindowedAdder g_warmup_ed_requested_segment_size("warmup_ed_requested_segment_size",
@@ -380,7 +375,7 @@ void CloudWarmUpManager::handle_jobs() {
                                     tablet_id);
                         }
                     } else {
-                        if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
+                        if (schema_ptr->has_inverted_or_ann_index()) {
                             auto idx_path =
                                     storage_resource.value()->remote_idx_v2_path(*rs, seg_id);
                             file_size = idx_file_info.has_index_size() ? idx_file_info.index_size()
@@ -853,7 +848,7 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table
             g_file_cache_event_driven_warm_up_requested_segment_size << seg_size;
             g_warmup_ed_requested_segment_size.put({job_id_str}, seg_size);
 
-            if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
+            if (schema_ptr->has_inverted_or_ann_index()) {
                 if (idx_version == InvertedIndexStorageFormatPB::V1) {
                     auto&& inverted_index_info =
                             rs_meta.inverted_index_file_info(cast_set<int>(segment_id));

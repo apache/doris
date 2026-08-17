@@ -132,4 +132,8 @@ private:
     bool _batch_split_mode = false;
 };
 
+/// Instantiated once in scan_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class ScanOperatorX<FileScanLocalState>;
+extern template class ScanLocalState<FileScanLocalState>;
+
 } // namespace doris

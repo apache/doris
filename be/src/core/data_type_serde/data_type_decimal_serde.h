@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
+#include "core/column/column_decimal.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
@@ -32,8 +33,6 @@
 
 namespace doris {
 
-template <PrimitiveType T>
-class ColumnDecimal;
 class Arena;
 
 template <PrimitiveType T>
@@ -218,5 +217,12 @@ Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValu
     }
     return Status::OK();
 }
+
+/// Instantiated once in data_type_decimal_serde.cpp; suppresses per-TU implicit instantiation.
+extern template class DataTypeDecimalSerDe<TYPE_DECIMAL32>;
+extern template class DataTypeDecimalSerDe<TYPE_DECIMAL64>;
+extern template class DataTypeDecimalSerDe<TYPE_DECIMAL128I>;
+extern template class DataTypeDecimalSerDe<TYPE_DECIMALV2>;
+extern template class DataTypeDecimalSerDe<TYPE_DECIMAL256>;
 
 } // namespace doris

@@ -295,6 +295,8 @@ public class HiveWritePlanProvider implements ConnectorWritePlanProvider {
         // Hadoop config (BE-canonical static creds; hive has no vended overlay).
         tSink.setHadoopConfig(buildHadoopConfig());
 
+        // New coordinators publish Azure's exact staged block IDs after BE writers finish.
+        tSink.setSupportsDeferredAzureMultipart(true);
         tSink.setOverwrite(handle.isOverwrite());
         return tSink;
     }
