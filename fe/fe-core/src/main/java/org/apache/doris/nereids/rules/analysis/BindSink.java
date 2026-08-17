@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -101,6 +102,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.RowTtlFeatureGate;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -396,9 +398,13 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> generatedColumns = Lists.newArrayList();
         List<Column> materializedViewColumn = Lists.newArrayList();
         List<Column> shadowColumns = Lists.newArrayList();
+        List<Column> rowTtlColumns = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
         for (Column column : targetSchema) {
-            if (column.isGeneratedColumn()) {
+            if (column.isTtlColumn()) {
+                rowTtlColumns.add(column);
+                continue;
+            } else if (column.isGeneratedColumn()) {
                 generatedColumns.add(column);
                 continue;
             } else if (column.isMaterializedViewColumn()) {
@@ -500,6 +506,50 @@ public class BindSink implements AnalysisRuleFactory {
                     }
                 }
             }
+        }
+        if (!rowTtlColumns.isEmpty()) {
+            try {
+                RowTtlFeatureGate.ensureReadyForUse();
+            } catch (org.apache.doris.common.DdlException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+        }
+        for (Column ttlColumn : rowTtlColumns) {
+            Preconditions.checkState(table instanceof OlapTable);
+            OlapTable olapTable = (OlapTable) table;
+            String rowTtlCol = olapTable.getRowTtlCol();
+            if (rowTtlCol == null) {
+                throw new AnalysisException(PropertyAnalyzer.ROW_TTL_DIRECT_NOT_SUPPORTED);
+            }
+            Column sourceColumn = olapTable.getColumn(rowTtlCol);
+            if (sourceColumn == null) {
+                throw new AnalysisException("row ttl column does not exist: " + rowTtlCol);
+            }
+            if (sourceColumn.isGeneratedColumn()) {
+                throw new AnalysisException("row ttl column does not support generated columns: " + rowTtlCol);
+            }
+            if (!sourceColumn.getType().getPrimitiveType().isDateLikeType()) {
+                throw new AnalysisException("row ttl column only supports DATE/DATETIME types: " + rowTtlCol);
+            }
+            olapTable.getRowTtlTimeZoneOffsetSeconds()
+                    .orElseThrow(() -> new AnalysisException(
+                            "row ttl time zone is missing from table " + olapTable.getName()));
+            NamedExpression source = columnToOutput.get(rowTtlCol);
+            if (source == null) {
+                // Existing rows keep the stored source time. SegmentWriter fills new keys from
+                // the source column default.
+                Preconditions.checkState(isPartialUpdate);
+                continue;
+            }
+            Preconditions.checkState(source instanceof Alias);
+            // The TTL column is projected alongside the source alias, so it must use the alias
+            // child instead of referring to a sibling output slot.
+            Expression sourceExpression = ((Alias) source).child();
+            Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
+                    sourceExpression, DataType.fromCatalogType(ttlColumn.getType())), ttlColumn.getName());
+            columnToOutput.put(ttlColumn.getName(), output);
+            columnToReplaced.put(ttlColumn.getName(), output.toSlot());
+            replaceMap.put(output.toSlot(), output.child());
         }
         // the generated columns can use all ordinary columns,
         // if processed in upper for loop, will lead to not found slot error

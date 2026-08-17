@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -80,6 +81,18 @@ public class MTMVUtil {
                     .getCatalogOrAnalysisException(baseTableInfo.getCtlName())
                     .getDbOrAnalysisException(baseTableInfo.getDbName())
                     .getTableOrAnalysisException(baseTableInfo.getTableName());
+        }
+    }
+
+    /** Reject time-dependent row TTL inputs from asynchronous materialization. */
+    public static void checkNoRowTtlBaseTable(MTMVRelation relation) throws AnalysisException {
+        for (BaseTableInfo baseTableInfo : relation.getBaseTables()) {
+            TableIf table = getTable(baseTableInfo);
+            if (table instanceof OlapTable && ((OlapTable) table).hasRowTtl()) {
+                throw new AnalysisException(
+                        "asynchronous materialized views do not support base tables with row ttl: "
+                                + table.getName());
+            }
         }
     }
 

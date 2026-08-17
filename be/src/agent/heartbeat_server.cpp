@@ -52,6 +52,10 @@ class TProcessor;
 
 namespace doris {
 
+namespace {
+constexpr int64_t ROW_TTL_NODE_FEATURE = 1L << 0;
+} // namespace
+
 HeartbeatServer::HeartbeatServer(ClusterInfo* cluster_info)
         : _engine(ExecEnv::GetInstance()->storage_engine()),
           _cluster_info(cluster_info),
@@ -95,6 +99,7 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_fragment_last_active_time(
                 get_fragment_last_active_time());
         heartbeat_result.backend_info.__set_be_mem(MemInfo::physical_mem());
+        heartbeat_result.backend_info.__set_node_feature_flags(ROW_TTL_NODE_FEATURE);
     }
     watch.stop();
     if (watch.elapsed_time() > 1000L * 1000L * 1000L) {

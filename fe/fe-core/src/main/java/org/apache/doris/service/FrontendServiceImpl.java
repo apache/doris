@@ -147,6 +147,8 @@ import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.query.QueryStats;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
+import org.apache.doris.system.NodeFeature;
+import org.apache.doris.system.RowTtlFeatureGate;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.tablefunction.MetadataGenerator;
@@ -334,6 +336,7 @@ import org.apache.doris.transaction.WriteBlockAllocatingTransaction;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -3325,6 +3328,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setArrowFlightSqlPort(Config.arrow_flight_sql_port);
                 result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
                 result.setLocalResourceGroup(Config.local_resource_group);
+                result.setNodeFeatureFlags(NodeFeature.CURRENT_FEATURE_FLAGS);
                 result.setLastStartupTime(exeEnv.getStartupTime());
                 result.setProcessUUID(exeEnv.getProcessUUID());
                 if (exeEnv.getDiskInfos() != null) {
@@ -4661,6 +4665,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         OlapTable olapTable = (OlapTable) table;
+        if (olapTable.hasRowTtl()) {
+            needUseCache = false;
+            try {
+                RowTtlFeatureGate.ensureReadyForUse();
+            } catch (DdlException e) {
+                errorStatus.setErrorMsgs(Lists.newArrayList(e.getMessage()));
+                result.setStatus(errorStatus);
+                return result;
+            }
+        }
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         ArrayList<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
         for (int i = 0; i < request.partitionValues.size(); i++) {
@@ -4813,7 +4827,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     LOG.warn("send create partition error status: {}", result);
                     return result;
                 }
+                bePathsMap = filterRowTtlBackendPaths(olapTable, bePathsMap);
                 if (bePathsMap.keySet().size() < quorum) {
+                    if (olapTable.hasRowTtl()) {
+                        errorStatus.setErrorMsgs(Lists.newArrayList(
+                                "Row TTL auto partition has no capability-compatible replica quorum"));
+                        result.setStatus(errorStatus);
+                        return result;
+                    }
                     LOG.warn("auto go quorum exception");
                 }
                 partitionTablets.add(tabletSnapshot.createLocation(
@@ -4914,6 +4935,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         OlapTable olapTable = (OlapTable) table;
+        if (olapTable.hasRowTtl()) {
+            try {
+                RowTtlFeatureGate.ensureReadyForUse();
+            } catch (DdlException e) {
+                errorStatus.setErrorMsgs(Lists.newArrayList(e.getMessage()));
+                result.setStatus(errorStatus);
+                return result;
+            }
+        }
         // Cache tablet location only when needed:
         // 1. From a requirement perspective: Only multi-instance ingestion may trigger inconsistent replica
         //    distribution issues due to concurrent replacePartition RPCs.
@@ -4944,6 +4974,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     txnId = coordinator.getTxnId();
                 }
             }
+        }
+
+        if (olapTable.hasRowTtl()) {
+            needUseCache = false;
         }
 
         if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.DisableCache")) {
@@ -5147,7 +5181,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     LOG.warn("send replace partition error status: {}", result);
                     return result;
                 }
+                bePathsMap = filterRowTtlBackendPaths(olapTable, bePathsMap);
                 if (bePathsMap.keySet().size() < quorum) {
+                    if (olapTable.hasRowTtl()) {
+                        errorStatus.setErrorMsgs(Lists.newArrayList(
+                                "Row TTL replaced partition has no capability-compatible replica quorum"));
+                        result.setStatus(errorStatus);
+                        return result;
+                    }
                     LOG.warn("auto go quorum exception");
                 }
                 partitionTablets.add(tabletSnapshot.createLocation(
@@ -5213,6 +5254,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.debug("send replace partition result: {}", result);
         }
         return result;
+    }
+
+    private static Multimap<Long, Long> filterRowTtlBackendPaths(
+            OlapTable olapTable, Multimap<Long, Long> backendPaths) {
+        if (!olapTable.hasRowTtl()) {
+            return backendPaths;
+        }
+        Multimap<Long, Long> compatiblePaths = ArrayListMultimap.create();
+        for (Map.Entry<Long, Long> entry : backendPaths.entries()) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(entry.getKey());
+            if (backend != null && !backend.isNodeFeatureIncompatible()
+                    && backend.supportsNodeFeature(NodeFeature.ROW_TTL)) {
+                compatiblePaths.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return compatiblePaths;
     }
 
     private static final class PartitionResultSnapshot {

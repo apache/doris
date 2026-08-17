@@ -21,24 +21,34 @@ import org.apache.doris.backup.BackupJobInfo.BackupIndexInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.persist.EditLog;
@@ -61,6 +71,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.Adler32;
@@ -297,5 +308,103 @@ public class RestoreJobTest {
         Partition localPart = remoteTbl.getPartition(partName);
         Assert.assertEquals(localPart.getVisibleVersion(), visibleVersion);
         Assert.assertEquals(localPart.getNextVersion(), visibleVersion + 1);
+    }
+
+    @Test
+    public void testRowTtlRestorePolicyComparesModeDurationAndType() {
+        OlapTable noTtl = createRowTtlTable("no_ttl", null, null, -1, null, null, false);
+        OlapTable sameNoTtl = createRowTtlTable("same_no_ttl", null, null, -1, null, null, false);
+        Assert.assertTrue(noTtl.checkRowTtlPolicyCompatibleForRestore(sameNoTtl).ok());
+
+        OlapTable direct = createRowTtlTable("direct", null, Type.BIGINT, -1, null, null, true);
+        OlapTable sameDirect = createRowTtlTable("same_direct", null, Type.BIGINT, -1, null, null, true);
+        OlapTable disabledDirect = createRowTtlTable(
+                "disabled_direct", null, Type.BIGINT, -1, null, null, true);
+        disabledDirect.getTableProperty().modifyTableProperties(
+                PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL, "false");
+        Assert.assertTrue(direct.checkRowTtlPolicyCompatibleForRestore(sameDirect).ok());
+        Assert.assertFalse(noTtl.checkRowTtlPolicyCompatibleForRestore(direct).ok());
+        Assert.assertFalse(direct.checkRowTtlPolicyCompatibleForRestore(disabledDirect).ok());
+
+        OlapTable temporal = createRowTtlTable("temporal", "event_time",
+                ScalarType.createDatetimeV2Type(6), 2, "1 day", "+08:00", true);
+        OlapTable differentDuration = createRowTtlTable("different_duration", "event_time",
+                ScalarType.createDatetimeV2Type(6), 2, "2 days", "+08:00", true);
+        OlapTable differentType = createRowTtlTable("different_type", "event_time",
+                ScalarType.createDateV2Type(), 2, "1 day", "+08:00", true);
+        Assert.assertFalse(direct.checkRowTtlPolicyCompatibleForRestore(temporal).ok());
+        Assert.assertFalse(temporal.checkRowTtlPolicyCompatibleForRestore(differentDuration).ok());
+        Assert.assertFalse(temporal.checkRowTtlPolicyCompatibleForRestore(differentType).ok());
+    }
+
+    @Test
+    public void testRowTtlRestorePolicyComparesSourceNameAndUniqueId() {
+        OlapTable temporal = createRowTtlTable("temporal", "event_time",
+                ScalarType.createDatetimeV2Type(6), 2, "1 day", "+08:00", true);
+        OlapTable samePolicy = createRowTtlTable("same_policy", "event_time",
+                ScalarType.createDatetimeV2Type(6), 2, "1 day", "+08:00", true);
+        OlapTable differentName = createRowTtlTable("different_name", "created_at",
+                ScalarType.createDatetimeV2Type(6), 2, "1 day", "+08:00", true);
+        OlapTable differentUniqueId = createRowTtlTable("different_unique_id", "event_time",
+                ScalarType.createDatetimeV2Type(6), 3, "1 day", "+08:00", true);
+
+        Assert.assertTrue(temporal.checkRowTtlPolicyCompatibleForRestore(samePolicy).ok());
+        Assert.assertFalse(temporal.checkRowTtlPolicyCompatibleForRestore(differentName).ok());
+        Assert.assertFalse(temporal.checkRowTtlPolicyCompatibleForRestore(differentUniqueId).ok());
+    }
+
+    @Test
+    public void testRowTtlRestorePolicyPreservesTimeZonePresence() {
+        OlapTable dateWithoutOffset = createRowTtlTable("date_without_offset", "event_date",
+                ScalarType.createDateV2Type(), 2, "1 day", null, true);
+        OlapTable dateWithUtc = createRowTtlTable("date_with_utc", "event_date",
+                ScalarType.createDateV2Type(), 2, "1 day", "+00:00", true);
+        Assert.assertFalse(dateWithoutOffset.checkRowTtlPolicyCompatibleForRestore(dateWithUtc).ok());
+
+        OlapTable dateTimeWithoutOffset = createRowTtlTable("datetime_without_offset", "event_time",
+                ScalarType.createDatetimeV2Type(6), 2, "1 day", null, true);
+        OlapTable dateTimeWithUtc = createRowTtlTable("datetime_with_utc", "event_time",
+                ScalarType.createDatetimeV2Type(6), 2, "1 day", "+00:00", true);
+        Assert.assertFalse(dateTimeWithoutOffset.checkRowTtlPolicyCompatibleForRestore(dateTimeWithUtc).ok());
+
+        OlapTable timestampWithoutOffset = createRowTtlTable("timestamp_without_offset", "event_time",
+                ScalarType.createTimeStampTzType(6), 2, "1 day", null, true);
+        OlapTable timestampWithUtc = createRowTtlTable("timestamp_with_utc", "event_time",
+                ScalarType.createTimeStampTzType(6), 2, "1 day", "+00:00", true);
+        Assert.assertTrue(timestampWithoutOffset.checkRowTtlPolicyCompatibleForRestore(timestampWithUtc).ok());
+    }
+
+    private OlapTable createRowTtlTable(String tableName, String sourceName, Type ttlType,
+            int sourceUniqueId, String duration, String timeZone, boolean withTtl) {
+        List<Column> schema = Lists.newArrayList();
+        schema.add(new Column("k", ScalarType.createType(PrimitiveType.INT), true,
+                null, false, null, "", true, 1));
+        if (withTtl && sourceName != null) {
+            schema.add(new Column(sourceName, ttlType, false, AggregateType.NONE,
+                    true, null, "", true, sourceUniqueId));
+        }
+        if (withTtl) {
+            schema.add(new Column(Column.TTL_COL, ttlType, false, AggregateType.NONE,
+                    true, "row ttl", false, 100));
+        }
+
+        OlapTable table = new OlapTable(id.getAndIncrement(), tableName, schema, KeysType.DUP_KEYS,
+                new SinglePartitionInfo(), new RandomDistributionInfo(1));
+        Map<String, String> properties = Maps.newHashMap();
+        if (withTtl) {
+            properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL, "true");
+            if (sourceName != null) {
+                properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_TTL_COL, sourceName);
+                properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_TTL, duration);
+                if (timeZone != null) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                            + PropertyAnalyzer.PROPERTIES_TTL_TIME_ZONE, timeZone);
+                }
+            }
+        }
+        table.setTableProperty(new TableProperty(properties));
+        return table;
     }
 }

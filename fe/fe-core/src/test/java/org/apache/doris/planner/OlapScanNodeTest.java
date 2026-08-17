@@ -29,6 +29,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
@@ -37,6 +38,7 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TOlapScanNode;
 import org.apache.doris.thrift.TPartitionBoundary;
 
@@ -57,6 +59,27 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class OlapScanNodeTest {
+    @Test
+    public void testRowTtlScanRejectsIncompatibleBackendAtPlacement() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Backend backend = Mockito.mock(Backend.class);
+        Mockito.when(table.hasRowTtl()).thenReturn(true);
+        Mockito.when(backend.isNodeFeatureIncompatible()).thenReturn(true);
+        Assert.assertFalse(OlapScanNode.isBackendCompatibleForScan(table, backend));
+
+        Mockito.when(backend.isNodeFeatureIncompatible()).thenReturn(false);
+        Assert.assertTrue(OlapScanNode.isBackendCompatibleForScan(table, backend));
+        Mockito.when(table.hasRowTtl()).thenReturn(false);
+        Mockito.when(backend.isNodeFeatureIncompatible()).thenReturn(true);
+        Assert.assertTrue(OlapScanNode.isBackendCompatibleForScan(table, backend));
+
+        OlapTable originTable = Mockito.mock(OlapTable.class);
+        OlapTableWrapper wrapper = Mockito.mock(OlapTableWrapper.class);
+        Mockito.when(wrapper.getOriginTable()).thenReturn(originTable);
+        Mockito.when(originTable.hasRowTtl()).thenReturn(true);
+        Assert.assertFalse(OlapScanNode.isBackendCompatibleForScan(wrapper, backend));
+    }
+
     // columnA in (1) hashmode=3
     @Test
     public void testHashDistributionOneUser() throws AnalysisException {

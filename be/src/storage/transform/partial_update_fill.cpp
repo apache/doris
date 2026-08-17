@@ -27,6 +27,7 @@
 #include "storage/mow/historical_row_fetcher.h"
 #include "storage/mow/key_probe.h"
 #include "storage/partial_update_info.h"
+#include "storage/row_ttl.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/base_tablet.h"
@@ -153,6 +154,10 @@ Status FixedPartialUpdateFillStage::apply(TransformExecContext& ctx, Block* bloc
     RETURN_IF_ERROR(fetcher.fill_missing_columns(schema, full_block, use_default_or_null_flag,
                                                  has_default_or_nullable,
                                                  /*segment_start_pos=*/0, block));
+    if (schema.has_ttl_col() && info.row_ttl_source_cid() >= 0) {
+        RETURN_IF_ERROR(copy_row_ttl_source(&full_block, schema, info.row_ttl_source_cid(),
+                                            use_default_or_null_flag, /*row_pos=*/0));
+    }
 
     // 5. swap in the full-width block; downstream it looks like a plain upsert
     block->swap(full_block);

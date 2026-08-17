@@ -45,7 +45,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.GlobRegexUtil;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -1229,6 +1228,136 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return null;
     }
 
+    public boolean hasRowTtl() {
+        return getTtlColumn() != null;
+    }
+
+    public Column getTtlColumn() {
+        return getColumn(Column.TTL_COL);
+    }
+
+    public String getRowTtlCol() {
+        return tableProperty == null ? null : tableProperty.getRowTtlCol();
+    }
+
+    public long getRowTtlDurationMicros() {
+        return tableProperty == null ? -1 : tableProperty.getRowTtlDurationMicros();
+    }
+
+    public Optional<Integer> getRowTtlTimeZoneOffsetSeconds() {
+        Optional<Integer> persistedOffset = tableProperty == null
+                ? Optional.empty() : tableProperty.getRowTtlTimeZoneOffsetSeconds();
+        if (persistedOffset.isPresent()) {
+            return persistedOffset;
+        }
+        String rowTtlCol = getRowTtlCol();
+        Column sourceColumn = rowTtlCol == null ? null : getColumn(rowTtlCol);
+        if (sourceColumn != null && sourceColumn.getType().isTimeStampTz()) {
+            // TIMESTAMPTZ is an absolute instant. Legacy tables without the new property are UTC by definition.
+            return Optional.of(0);
+        }
+        return Optional.empty();
+    }
+
+    public boolean isLegacyDirectRowTtl() {
+        return hasRowTtl() && getRowTtlCol() == null;
+    }
+
+    private enum RowTtlMode {
+        NONE,
+        DIRECT,
+        TEMPORAL
+    }
+
+    private RowTtlMode getRowTtlMode() {
+        if (!hasRowTtl()) {
+            return RowTtlMode.NONE;
+        }
+        return isLegacyDirectRowTtl() ? RowTtlMode.DIRECT : RowTtlMode.TEMPORAL;
+    }
+
+    /**
+     * Check whether this table and a restored table use the same row TTL policy.
+     *
+     * <p>The ordinary table signature covers the physical columns, but not the table properties
+     * that determine how the hidden row TTL column is interpreted. A restore into an existing
+     * table must therefore compare those properties separately before reusing its tablets.</p>
+     */
+    public Status checkRowTtlPolicyCompatibleForRestore(OlapTable restoredTable) {
+        boolean localEnabled = tableProperty != null && tableProperty.getEnableRowTtl();
+        boolean restoredEnabled = restoredTable.tableProperty != null
+                && restoredTable.tableProperty.getEnableRowTtl();
+        if (localEnabled != restoredEnabled) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "enable flag differs: local=" + localEnabled + ", restored=" + restoredEnabled);
+        }
+
+        RowTtlMode localMode = getRowTtlMode();
+        RowTtlMode restoredMode = restoredTable.getRowTtlMode();
+        if (localMode != restoredMode) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "mode differs: local=" + localMode + ", restored=" + restoredMode);
+        }
+        if (localMode == RowTtlMode.NONE) {
+            return Status.OK;
+        }
+
+        Column localTtlColumn = getTtlColumn();
+        Column restoredTtlColumn = restoredTable.getTtlColumn();
+        if (!Objects.equals(localTtlColumn.getType(), restoredTtlColumn.getType())) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "hidden column type differs: local=" + localTtlColumn.getType()
+                            + ", restored=" + restoredTtlColumn.getType());
+        }
+        if (localMode == RowTtlMode.DIRECT) {
+            return Status.OK;
+        }
+
+        long localDurationMicros = getRowTtlDurationMicros();
+        long restoredDurationMicros = restoredTable.getRowTtlDurationMicros();
+        if (localDurationMicros != restoredDurationMicros) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "duration differs: local=" + localDurationMicros
+                            + ", restored=" + restoredDurationMicros);
+        }
+
+        Column localSourceColumn = getColumn(getRowTtlCol());
+        Column restoredSourceColumn = restoredTable.getColumn(restoredTable.getRowTtlCol());
+        if (localSourceColumn == null || restoredSourceColumn == null) {
+            return rowTtlPolicyMismatch(restoredTable, "source column is missing");
+        }
+        if (!localSourceColumn.getName().equalsIgnoreCase(restoredSourceColumn.getName())) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "source column name differs: local=" + localSourceColumn.getName()
+                            + ", restored=" + restoredSourceColumn.getName());
+        }
+        if (localSourceColumn.getUniqueId() != restoredSourceColumn.getUniqueId()) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "source column unique id differs: local=" + localSourceColumn.getUniqueId()
+                            + ", restored=" + restoredSourceColumn.getUniqueId());
+        }
+        if (!Objects.equals(localSourceColumn.getType(), restoredSourceColumn.getType())) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "source column type differs: local=" + localSourceColumn.getType()
+                            + ", restored=" + restoredSourceColumn.getType());
+        }
+
+        Optional<Integer> localOffsetSeconds = getRowTtlTimeZoneOffsetSeconds();
+        Optional<Integer> restoredOffsetSeconds = restoredTable.getRowTtlTimeZoneOffsetSeconds();
+        if (!localOffsetSeconds.equals(restoredOffsetSeconds)) {
+            return rowTtlPolicyMismatch(restoredTable,
+                    "time zone offset differs: local=" + localOffsetSeconds
+                            + ", restored=" + restoredOffsetSeconds);
+        }
+        return Status.OK;
+    }
+
+    private Status rowTtlPolicyMismatch(OlapTable restoredTable, String reason) {
+        return new Status(ErrCode.COMMON_ERROR,
+                "Row TTL policy is incompatible between local table " + getName()
+                        + " and restored table " + restoredTable.getName() + ": " + reason);
+    }
+
     // schemaHash
     public Map<Long, Integer> getIndexIdToSchemaHash() {
         Map<Long, Integer> result = Maps.newHashMap();
@@ -2132,6 +2261,14 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
         rebuildFullSchema();
 
+        // Older catalogs did not persist the explicit switch. The physical hidden column is the
+        // authoritative compatibility marker; persist the recovered switch for SHOW CREATE.
+        if (hasRowTtl() && !getOrCreatTableProperty().getProperties()
+                .containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL)) {
+            getOrCreatTableProperty().modifyTableProperties(
+                    PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL, "true");
+        }
+
         if (tableProperty != null && tableProperty.hasInvalidDynamicPartition()) {
             LOG.warn("Table [{}-{}] has incomplete dynamic partition properties {}, "
                     + "treat it as a non-dynamic-partition table.",
@@ -2140,7 +2277,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public OlapTable selectiveCopy(Collection<String> reservedPartitions, IndexExtState extState, boolean isForBackup) {
-        OlapTable copied = DeepCopy.copy(this, OlapTable.class, FeConstants.meta_version);
+        OlapTable copied = DeepCopy.copy(this, OlapTable.class,
+                Env.getCurrentEnv().getEffectiveMetaVersion());
         if (copied == null) {
             LOG.warn("failed to copy olap table: " + getName());
             return null;
@@ -3226,14 +3364,22 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      * Validate that the table supports flexible partial update.
      * Checks the following constraints:
      * 1. Must be MoW unique key table
-     * 2. Must have skip_bitmap column
-     * 3. Must have light_schema_change enabled
-     * 4. Cannot have variant columns
+     * 2. Every materialized index must have a skip_bitmap column
+     * 3. Must have skip_bitmap column
+     * 4. Must have light_schema_change enabled
+     * 5. Cannot have variant columns
      * @throws UserException if any constraint is not satisfied
      */
     public void validateForFlexiblePartialUpdate() throws UserException {
         if (!getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Flexible partial update is only supported in unique table MoW");
+        }
+        boolean hasIndexWithoutSkipBitmap = getIndexIdListExceptBaseIndex().stream()
+                .map(indexId -> getSchemaByIndexId(indexId, true))
+                .anyMatch(schema -> schema.stream().noneMatch(Column::isSkipBitmapColumn));
+        if (hasIndexWithoutSkipBitmap) {
+            throw new UserException("Flexible partial update requires every materialized index"
+                    + " to contain the skip bitmap hidden column.");
         }
         if (!hasSkipBitmapColumn()) {
             throw new UserException("Flexible partial update can only support table with skip bitmap hidden column."
@@ -4176,6 +4322,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public void checkAsTableStreamBaseTable(BaseTableStream.StreamScanType streamScanType) throws DdlException {
+        if (hasRowTtl()) {
+            throw new DdlException("CREATE STREAM is not supported on tables with row TTL. Table "
+                    + getQualifiedName() + ".");
+        }
         if (!needRowBinlog()) {
             throw new DdlException("Base Olap table " + getQualifiedName()
                     + " need to enable row binlog for table stream");

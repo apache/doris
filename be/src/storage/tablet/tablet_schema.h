@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -522,6 +523,18 @@ public:
     int32_t skip_bitmap_col_idx() const { return _skip_bitmap_col_idx; }
     bool is_tso_enabled() const { return _commit_tso_col_idx != -1 || _binlog_tso_col_idx != -1; }
     int32_t commit_tso_col_idx() const { return _commit_tso_col_idx; }
+    bool has_ttl_col() const { return _ttl_col_idx != -1; }
+    int32_t ttl_col_idx() const { return _ttl_col_idx; }
+    int64_t row_ttl_duration_us() const { return _row_ttl_duration_us; }
+    void set_row_ttl_duration_us(int64_t duration_us) { _row_ttl_duration_us = duration_us; }
+    bool has_row_ttl_time_zone_offset_seconds() const {
+        return _row_ttl_time_zone_offset_seconds.has_value();
+    }
+    int32_t row_ttl_time_zone_offset_seconds() const;
+    void set_row_ttl_time_zone_offset_seconds(int32_t offset_seconds) {
+        _row_ttl_time_zone_offset_seconds = offset_seconds;
+    }
+    void clear_row_ttl_time_zone_offset_seconds() { _row_ttl_time_zone_offset_seconds.reset(); }
     int32_t binlog_tso_col_idx() const { return _binlog_tso_col_idx; }
     int32_t binlog_lsn_col_idx() const { return _binlog_lsn_col_idx; }
     int32_t binlog_op_col_idx() const { return _binlog_op_col_idx; }
@@ -825,6 +838,9 @@ private:
     int32_t _version_col_idx = -1;
     int32_t _skip_bitmap_col_idx = -1;
     int32_t _commit_tso_col_idx = -1;
+    int32_t _ttl_col_idx = -1;
+    int64_t _row_ttl_duration_us = -1;
+    std::optional<int32_t> _row_ttl_time_zone_offset_seconds;
     int32_t _binlog_tso_col_idx = -1;
     int32_t _binlog_lsn_col_idx = -1;
     int32_t _binlog_op_col_idx = -1;

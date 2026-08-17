@@ -66,6 +66,7 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.List;
 import java.util.Map;
@@ -119,6 +120,16 @@ public class InternalCatalogTest {
         Assert.assertNull(partitionInfo.getItem(newPartitionId));
         Assert.assertNull(partitionInfo.getDataProperty(newPartitionId));
         Assert.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, partitionInfo.getReplicaAllocation(newPartitionId));
+    }
+
+    @Test
+    public void testRejectCreatingPartitionForLegacyDirectRowTtlTable() {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.isLegacyDirectRowTtl()).thenReturn(true);
+
+        DdlException exception = Assert.assertThrows(DdlException.class,
+                () -> new LegacyDirectGuardInternalCatalog().createPartitionForTest(table));
+        Assert.assertTrue(exception.getMessage().contains("direct row ttl is not supported"));
     }
 
     private AddPartitionOp createAddPartitionOp() {
@@ -214,6 +225,13 @@ public class InternalCatalogTest {
 
         public long getCommittedPartitionId() {
             return committedPartitionId;
+        }
+    }
+
+    private static class LegacyDirectGuardInternalCatalog extends InternalCatalog {
+        private void createPartitionForTest(OlapTable table) throws DdlException {
+            createPartitionWithIndices(0, table, 0, null, null, null, null, null,
+                    null, null, null, false, null, null, null, null, false);
         }
     }
 

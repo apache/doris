@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -29,6 +30,7 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -177,6 +179,32 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
         Assert.assertEquals(Lists.newArrayList(ptwoName), result);
+    }
+
+    @Test
+    public void testRowTtlBaseTableMarksSchemaChange() throws AnalysisException {
+        String message = "asynchronous materialized views do not support base tables with row ttl";
+        MTMVStatus status = Mockito.mock(MTMVStatus.class);
+        Mockito.when(status.getState()).thenReturn(MTMVState.NORMAL);
+        Mockito.when(mtmv.getStatus()).thenReturn(status);
+        Mockito.when(mtmv.getQualifiedDbName()).thenReturn("db1");
+        Mockito.when(mtmv.getName()).thenReturn("mv1");
+        mtmvUtilStatic.when(() -> MTMVUtil.checkNoRowTtlBaseTable(relation))
+                .thenThrow(new AnalysisException(message));
+
+        Env env = Mockito.mock(Env.class);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            MTMVTask task = new MTMVTask(mtmv, relation,
+                    new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+
+            AnalysisException exception = Assert.assertThrows(
+                    AnalysisException.class, task::checkNoRowTtlBaseTable);
+            Assert.assertEquals(message, exception.getDetailMessage());
+            Mockito.verify(env).alterMTMVStatus(Mockito.any(), Mockito.argThat(newStatus ->
+                    MTMVState.SCHEMA_CHANGE.equals(newStatus.getState())
+                            && exception.getMessage().equals(newStatus.getSchemaChangeDetail())));
+        }
     }
 
     @Test

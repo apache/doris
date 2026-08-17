@@ -546,6 +546,11 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                     if (tabletHealth.status == TabletStatus.UNRECOVERABLE) {
                                         continue;
                                     }
+                                    if (olapTable.isLegacyDirectRowTtl()) {
+                                        LOG.debug("skip repairing read-only legacy direct row TTL tablet {}",
+                                                tablet.getId());
+                                        continue;
+                                    }
 
                                     if (!tablet.readyToBeRepaired(infoService, Priority.NORMAL)) {
                                         counter.tabletNotReady++;

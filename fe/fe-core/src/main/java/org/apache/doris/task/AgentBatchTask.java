@@ -17,13 +17,17 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThriftUtils;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.NodeFeature;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TAgentTaskRequest;
@@ -182,6 +186,11 @@ public class AgentBatchTask implements Runnable {
                     continue;
                 }
                 List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
+                if ((backend.isNodeFeatureIncompatible()
+                        || !backend.supportsNodeFeature(NodeFeature.ROW_TTL))
+                        && tasks.stream().anyMatch(AgentBatchTask::isRowTtlTask)) {
+                    throw new IllegalStateException("backend " + backendId + " does not support Row TTL");
+                }
                 // create AgentClient
                 String host = FeConstants.runningUnitTest ? "127.0.0.1" : backend.getHost();
                 address = new TNetworkAddress(host, backend.getBePort());
@@ -232,6 +241,27 @@ public class AgentBatchTask implements Runnable {
                 }
             }
         } // end for backend
+    }
+
+    static boolean isRowTtlTask(AgentTask task) {
+        if (task.isRowTtlTask()) {
+            return true;
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(task.getDbId());
+        if (db == null) {
+            return false;
+        }
+        Table table = db.getTableNullable(task.getTableId());
+        if (!(table instanceof OlapTable)) {
+            return false;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        olapTable.readLock();
+        try {
+            return olapTable.hasRowTtl();
+        } finally {
+            olapTable.readUnlock();
+        }
     }
 
     private static void submitTasks(long backendId,

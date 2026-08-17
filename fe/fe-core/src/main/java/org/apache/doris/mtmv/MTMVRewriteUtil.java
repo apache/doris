@@ -59,6 +59,12 @@ public class MTMVRewriteUtil {
         if (mtmvRelation == null) {
             return res;
         }
+        try {
+            MTMVUtil.checkNoRowTtlBaseTable(mtmvRelation);
+        } catch (AnalysisException e) {
+            LOG.warn("exclude asynchronous materialized view {} from rewrite", mtmv.getName(), e);
+            return res;
+        }
         // check mv is normal
         if (!mtmv.canBeCandidate()) {
             return res;

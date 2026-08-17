@@ -1048,7 +1048,7 @@ public class ReportHandler extends Daemon {
                             // in this case, it means data is lost.
                             // should generate a create replica request to BE to create a replica forcibly.
                             if (replicas.size() == 1) {
-                                if (Config.recover_with_empty_tablet) {
+                                if (canRecoverWithEmptyTablet(olapTable)) {
                                     // only create this task if force recovery is true
                                     LOG.warn("tablet {} has only one replica {} on backend {}"
                                                     + " and it is lost. create an empty replica to recover it",
@@ -1089,7 +1089,9 @@ public class ReportHandler extends Daemon {
                                             olapTable.storagePageSize(), olapTable.getTDEAlgorithm(),
                                             olapTable.storageDictPageSize(),
                                             olapTable.getColumnSeqMapping(),
-                                            olapTable.getVerticalCompactionNumColumnsPerGroup());
+                                            olapTable.getVerticalCompactionNumColumnsPerGroup(),
+                                            olapTable.getRowTtlDurationMicros(),
+                                            olapTable.getRowTtlTimeZoneOffsetSeconds());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());
@@ -1170,6 +1172,10 @@ public class ReportHandler extends Daemon {
             AgentTaskQueue.addBatchTask(createReplicaBatchTask);
             AgentTaskExecutor.submit(createReplicaBatchTask);
         }
+    }
+
+    static boolean canRecoverWithEmptyTablet(OlapTable olapTable) {
+        return Config.recover_with_empty_tablet && !olapTable.isLegacyDirectRowTtl();
     }
 
     private static void deleteFromBackend(Map<Long, TTablet> backendTablets,

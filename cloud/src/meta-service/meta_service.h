@@ -168,6 +168,11 @@ public:
                                  GetTableStreamOffsetResponse* response,
                                  ::google::protobuf::Closure* done) override;
 
+    void get_meta_service_capability(::google::protobuf::RpcController* controller,
+                                     const GetMetaServiceCapabilityRequest* request,
+                                     GetMetaServiceCapabilityResponse* response,
+                                     ::google::protobuf::Closure* done) override;
+
     void batch_get_version(::google::protobuf::RpcController* controller,
                            const GetVersionRequest* request, GetVersionResponse* response,
                            ::google::protobuf::Closure* done);
@@ -176,9 +181,19 @@ public:
                         const CreateTabletsRequest* request, CreateTabletsResponse* response,
                         ::google::protobuf::Closure* done) override;
 
+    void create_tablets_row_ttl(::google::protobuf::RpcController* controller,
+                                const CreateTabletsRequest* request,
+                                CreateTabletsResponse* response,
+                                ::google::protobuf::Closure* done) override;
+
     void update_tablet(::google::protobuf::RpcController* controller,
                        const UpdateTabletRequest* request, UpdateTabletResponse* response,
                        ::google::protobuf::Closure* done) override;
+
+    void update_tablet_row_ttl(::google::protobuf::RpcController* controller,
+                               const UpdateTabletRequest* request,
+                               UpdateTabletResponse* response,
+                               ::google::protobuf::Closure* done) override;
 
     void get_tablet(::google::protobuf::RpcController* controller, const GetTabletRequest* request,
                     GetTabletResponse* response, ::google::protobuf::Closure* done) override;
@@ -190,6 +205,11 @@ public:
     void commit_rowset(::google::protobuf::RpcController* controller,
                        const CreateRowsetRequest* request, CreateRowsetResponse* response,
                        ::google::protobuf::Closure* done) override;
+
+    void commit_rowset_row_ttl(::google::protobuf::RpcController* controller,
+                               const CreateRowsetRequest* request,
+                               CreateRowsetResponse* response,
+                               ::google::protobuf::Closure* done) override;
 
     void update_tmp_rowset(::google::protobuf::RpcController* controller,
                            const CreateRowsetRequest* request, CreateRowsetResponse* response,
@@ -231,9 +251,19 @@ public:
                              const RestoreJobRequest* request, RestoreJobResponse* response,
                              ::google::protobuf::Closure* done) override;
 
+    void prepare_restore_job_row_ttl(::google::protobuf::RpcController* controller,
+                                     const RestoreJobRequest* request,
+                                     RestoreJobResponse* response,
+                                     ::google::protobuf::Closure* done) override;
+
     void commit_restore_job(::google::protobuf::RpcController* controller,
                             const RestoreJobRequest* request, RestoreJobResponse* response,
                             ::google::protobuf::Closure* done) override;
+
+    void commit_restore_job_row_ttl(::google::protobuf::RpcController* controller,
+                                    const RestoreJobRequest* request,
+                                    RestoreJobResponse* response,
+                                    ::google::protobuf::Closure* done) override;
 
     void finish_restore_job(::google::protobuf::RpcController* controller,
                             const RestoreJobRequest* request, RestoreJobResponse* response,
@@ -439,6 +469,31 @@ public:
             const std::string& instance_id, bool& finished, std::string& reason);
 
 private:
+    void create_tablets_impl(::google::protobuf::RpcController* controller,
+                             const CreateTabletsRequest* request,
+                             CreateTabletsResponse* response,
+                             ::google::protobuf::Closure* done, bool row_ttl_rpc);
+
+    void update_tablet_impl(::google::protobuf::RpcController* controller,
+                            const UpdateTabletRequest* request,
+                            UpdateTabletResponse* response,
+                            ::google::protobuf::Closure* done, bool row_ttl_rpc);
+
+    void commit_rowset_impl(::google::protobuf::RpcController* controller,
+                            const CreateRowsetRequest* request,
+                            CreateRowsetResponse* response,
+                            ::google::protobuf::Closure* done, bool row_ttl_rpc);
+
+    void prepare_restore_job_impl(::google::protobuf::RpcController* controller,
+                                  const RestoreJobRequest* request,
+                                  RestoreJobResponse* response,
+                                  ::google::protobuf::Closure* done, bool row_ttl_rpc);
+
+    void commit_restore_job_impl(::google::protobuf::RpcController* controller,
+                                 const RestoreJobRequest* request,
+                                 RestoreJobResponse* response,
+                                 ::google::protobuf::Closure* done, bool row_ttl_rpc);
+
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
             std::function<std::pair<MetaServiceCode, std::string>(Transaction*, InstanceInfoPB*)>
@@ -655,16 +710,38 @@ public:
                   done);
     }
 
+    void get_meta_service_capability(::google::protobuf::RpcController* controller,
+                                     const GetMetaServiceCapabilityRequest* request,
+                                     GetMetaServiceCapabilityResponse* response,
+                                     ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::get_meta_service_capability, controller, request, response,
+                  done);
+    }
+
     void create_tablets(::google::protobuf::RpcController* controller,
                         const CreateTabletsRequest* request, CreateTabletsResponse* response,
                         ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::create_tablets, controller, request, response, done);
     }
 
+    void create_tablets_row_ttl(::google::protobuf::RpcController* controller,
+                                const CreateTabletsRequest* request,
+                                CreateTabletsResponse* response,
+                                ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::create_tablets_row_ttl, controller, request, response, done);
+    }
+
     void update_tablet(::google::protobuf::RpcController* controller,
                        const UpdateTabletRequest* request, UpdateTabletResponse* response,
                        ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::update_tablet, controller, request, response, done);
+    }
+
+    void update_tablet_row_ttl(::google::protobuf::RpcController* controller,
+                               const UpdateTabletRequest* request,
+                               UpdateTabletResponse* response,
+                               ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::update_tablet_row_ttl, controller, request, response, done);
     }
 
     void get_tablet(::google::protobuf::RpcController* controller, const GetTabletRequest* request,
@@ -682,6 +759,13 @@ public:
                        const CreateRowsetRequest* request, CreateRowsetResponse* response,
                        ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::commit_rowset, controller, request, response, done);
+    }
+
+    void commit_rowset_row_ttl(::google::protobuf::RpcController* controller,
+                               const CreateRowsetRequest* request,
+                               CreateRowsetResponse* response,
+                               ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::commit_rowset_row_ttl, controller, request, response, done);
     }
 
     void update_tmp_rowset(::google::protobuf::RpcController* controller,
@@ -747,10 +831,26 @@ public:
         call_impl(&cloud::MetaService::prepare_restore_job, controller, request, response, done);
     }
 
+    void prepare_restore_job_row_ttl(::google::protobuf::RpcController* controller,
+                                     const RestoreJobRequest* request,
+                                     RestoreJobResponse* response,
+                                     ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::prepare_restore_job_row_ttl, controller, request, response,
+                  done);
+    }
+
     void commit_restore_job(::google::protobuf::RpcController* controller,
                             const RestoreJobRequest* request, RestoreJobResponse* response,
                             ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::commit_restore_job, controller, request, response, done);
+    }
+
+    void commit_restore_job_row_ttl(::google::protobuf::RpcController* controller,
+                                    const RestoreJobRequest* request,
+                                    RestoreJobResponse* response,
+                                    ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::commit_restore_job_row_ttl, controller, request, response,
+                  done);
     }
 
     void finish_restore_job(::google::protobuf::RpcController* controller,

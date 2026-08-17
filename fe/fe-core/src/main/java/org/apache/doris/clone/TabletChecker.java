@@ -363,6 +363,7 @@ public class TabletChecker extends MasterDaemon {
         }
         boolean prioPartIsHealthy = true;
         boolean isUniqKeyMergeOnWrite = tbl.isUniqKeyMergeOnWrite();
+        boolean isLegacyDirectRowTtl = tbl.isLegacyDirectRowTtl();
         /*
          * Tablet in SHADOW index can not be repaired of balanced
          */
@@ -386,6 +387,10 @@ public class TabletChecker extends MasterDaemon {
                     // This tablet is not recoverable, do not set it into tablet scheduler
                     // all UNRECOVERABLE tablet can be seen from "show proc '/statistic'"
                     counter.unhealthyTabletNum++;
+                    continue;
+                } else if (isLegacyDirectRowTtl) {
+                    counter.unhealthyTabletNum++;
+                    LOG.debug("skip repairing read-only legacy direct row TTL tablet {}", tablet.getId());
                     continue;
                 } else if (isInPrios) {
                     tabletHealth.priority = TabletSchedCtx.Priority.VERY_HIGH;

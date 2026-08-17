@@ -445,8 +445,10 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
             UpdatePartitionMetaParam param) throws UserException {
         List<Long> tabletIds = new ArrayList<>();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        boolean hasRowTtl;
         olapTable.readLock();
         try {
+            hasRowTtl = olapTable.hasRowTtl();
             Partition partition = olapTable.getPartition(partitionName);
             if (partition == null) {
                 throw new DdlException(
@@ -537,7 +539,9 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
 
             Cloud.UpdateTabletResponse response;
             try {
-                response = MetaServiceProxy.getInstance().updateTablet(updateTabletReq);
+                response = hasRowTtl
+                        ? MetaServiceProxy.getInstance().updateTabletRowTtl(updateTabletReq)
+                        : MetaServiceProxy.getInstance().updateTablet(updateTabletReq);
             } catch (Exception e) {
                 LOG.warn("updateTablet Exception:", e);
                 throw new UserException(e.getMessage());

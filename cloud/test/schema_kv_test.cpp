@@ -337,6 +337,261 @@ TEST(DetachSchemaKVTest, PutSchemaKvTest) {
     }
 }
 
+TEST(DetachSchemaKVTest, PutSchemaKvValidatesRowTtlPolicyInRelease) {
+    config::meta_schema_value_version = 1;
+    auto meta_service = get_meta_service();
+
+    constexpr int64_t index_id = 14321;
+    constexpr int32_t schema_version = 7;
+    const std::string key = meta_schema_key({instance_id, index_id, schema_version});
+    const std::string versioned_key =
+            versioned::meta_schema_key({instance_id, index_id, schema_version});
+    doris::TabletSchemaCloudPB schema;
+    fill_schema(&schema, schema_version);
+    schema.mutable_column()->SwapElements(0, schema.column_size() - 1);
+    schema.mutable_column(0)->set_name("__DORIS_TTL_COL__");
+    schema.mutable_column(0)->set_type("DATETIMEV2");
+    schema.set_ttl_col_idx(0);
+    schema.set_row_ttl_duration_us(10);
+    schema.set_row_ttl_time_zone_offset_seconds(3600);
+    const int32_t first_column_id = schema.column(0).unique_id();
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    put_schema_kv(code, msg, txn.get(), key, schema);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    put_versioned_schema_kv(code, msg, txn.get(), versioned_key, schema);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto expect_incompatible = [&](const doris::TabletSchemaCloudPB& incoming) {
+        std::unique_ptr<Transaction> check_txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&check_txn), TxnErrorCode::TXN_OK);
+        MetaServiceCode check_code = MetaServiceCode::OK;
+        std::string check_msg;
+        put_schema_kv(check_code, check_msg, check_txn.get(), key, incoming);
+        EXPECT_EQ(check_code, MetaServiceCode::INVALID_ARGUMENT) << check_msg;
+        check_code = MetaServiceCode::OK;
+        check_msg.clear();
+        put_versioned_schema_kv(check_code, check_msg, check_txn.get(), versioned_key, incoming);
+        EXPECT_EQ(check_code, MetaServiceCode::INVALID_ARGUMENT) << check_msg;
+    };
+
+    doris::TabletSchemaCloudPB incompatible = schema;
+    incompatible.set_row_ttl_duration_us(11);
+    expect_incompatible(incompatible);
+    incompatible = schema;
+    incompatible.clear_row_ttl_duration_us();
+    expect_incompatible(incompatible);
+    incompatible = schema;
+    incompatible.set_ttl_col_idx(1);
+    expect_incompatible(incompatible);
+    incompatible = schema;
+    incompatible.clear_row_ttl_time_zone_offset_seconds();
+    expect_incompatible(incompatible);
+    EXPECT_EQ(schema.column(0).unique_id(), first_column_id);
+
+    doris::TabletSchemaCloudPB reordered = schema;
+    reordered.mutable_column()->SwapElements(0, 1);
+    reordered.set_ttl_col_idx(1);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    code = MetaServiceCode::OK;
+    msg.clear();
+    put_schema_kv(code, msg, txn.get(), key, reordered);
+    EXPECT_EQ(code, MetaServiceCode::OK) << msg;
+    put_versioned_schema_kv(code, msg, txn.get(), versioned_key, reordered);
+    EXPECT_EQ(code, MetaServiceCode::OK) << msg;
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    ValueBuf buf;
+    ASSERT_EQ(cloud::blob_get(txn.get(), key, &buf), TxnErrorCode::TXN_OK);
+    doris::TabletSchemaCloudPB saved_schema;
+    ASSERT_TRUE(buf.to_pb(&saved_schema));
+    EXPECT_EQ(saved_schema.row_ttl_duration_us(), 10);
+    EXPECT_EQ(saved_schema.row_ttl_time_zone_offset_seconds(), 3600);
+    ASSERT_EQ(document_get(txn.get(), versioned_key, &saved_schema), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(saved_schema.row_ttl_duration_us(), 10);
+    EXPECT_EQ(saved_schema.row_ttl_time_zone_offset_seconds(), 3600);
+
+    constexpr int32_t timestamp_schema_version = 8;
+    const std::string timestamp_key =
+            meta_schema_key({instance_id, index_id, timestamp_schema_version});
+    const std::string timestamp_versioned_key =
+            versioned::meta_schema_key({instance_id, index_id, timestamp_schema_version});
+    doris::TabletSchemaCloudPB timestamp_schema;
+    fill_schema(&timestamp_schema, timestamp_schema_version);
+    timestamp_schema.mutable_column(0)->set_name("__DORIS_TTL_COL__");
+    timestamp_schema.mutable_column(0)->set_type("TIMESTAMPTZ");
+    timestamp_schema.set_ttl_col_idx(0);
+    timestamp_schema.set_row_ttl_duration_us(10);
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    code = MetaServiceCode::OK;
+    msg.clear();
+    put_schema_kv(code, msg, txn.get(), timestamp_key, timestamp_schema);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    put_versioned_schema_kv(code, msg, txn.get(), timestamp_versioned_key, timestamp_schema);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    timestamp_schema.set_row_ttl_time_zone_offset_seconds(0);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    code = MetaServiceCode::OK;
+    msg.clear();
+    put_schema_kv(code, msg, txn.get(), timestamp_key, timestamp_schema);
+    EXPECT_EQ(code, MetaServiceCode::OK) << msg;
+    put_versioned_schema_kv(code, msg, txn.get(), timestamp_versioned_key, timestamp_schema);
+    EXPECT_EQ(code, MetaServiceCode::OK) << msg;
+
+    constexpr int32_t legacy_schema_version = 10;
+    const std::string legacy_key = meta_schema_key({instance_id, index_id, legacy_schema_version});
+    const std::string legacy_versioned_key =
+            versioned::meta_schema_key({instance_id, index_id, legacy_schema_version});
+    doris::TabletSchemaCloudPB legacy_schema;
+    fill_schema(&legacy_schema, legacy_schema_version);
+    legacy_schema.mutable_column(0)->set_name("__DORIS_TTL_COL__");
+    legacy_schema.mutable_column(0)->set_type("DATETIMEV2");
+    legacy_schema.set_row_ttl_duration_us(10);
+    legacy_schema.set_row_ttl_time_zone_offset_seconds(3600);
+    ASSERT_FALSE(legacy_schema.has_ttl_col_idx());
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    code = MetaServiceCode::OK;
+    msg.clear();
+    put_schema_kv(code, msg, txn.get(), legacy_key, legacy_schema);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    put_versioned_schema_kv(code, msg, txn.get(), legacy_versioned_key, legacy_schema);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto expect_legacy_incompatible = [&](const doris::TabletSchemaCloudPB& incoming) {
+        std::unique_ptr<Transaction> check_txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&check_txn), TxnErrorCode::TXN_OK);
+        MetaServiceCode check_code = MetaServiceCode::OK;
+        std::string check_msg;
+        put_schema_kv(check_code, check_msg, check_txn.get(), legacy_key, incoming);
+        EXPECT_EQ(check_code, MetaServiceCode::INVALID_ARGUMENT) << check_msg;
+        check_code = MetaServiceCode::OK;
+        check_msg.clear();
+        put_versioned_schema_kv(check_code, check_msg, check_txn.get(), legacy_versioned_key,
+                                incoming);
+        EXPECT_EQ(check_code, MetaServiceCode::INVALID_ARGUMENT) << check_msg;
+    };
+    doris::TabletSchemaCloudPB incompatible_legacy = legacy_schema;
+    incompatible_legacy.set_row_ttl_duration_us(11);
+    expect_legacy_incompatible(incompatible_legacy);
+    incompatible_legacy = legacy_schema;
+    incompatible_legacy.set_row_ttl_time_zone_offset_seconds(7200);
+    expect_legacy_incompatible(incompatible_legacy);
+
+    doris::TabletSchemaCloudPB invalid_schema = legacy_schema;
+    invalid_schema.set_schema_version(11);
+    invalid_schema.set_ttl_col_idx(1);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    code = MetaServiceCode::OK;
+    msg.clear();
+    put_schema_kv(code, msg, txn.get(),
+                  meta_schema_key({instance_id, index_id, invalid_schema.schema_version()}),
+                  invalid_schema);
+    EXPECT_EQ(code, MetaServiceCode::INVALID_ARGUMENT) << msg;
+
+    invalid_schema = legacy_schema;
+    invalid_schema.set_schema_version(12);
+    invalid_schema.mutable_column(1)->set_name("__DORIS_TTL_COL__");
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    code = MetaServiceCode::OK;
+    msg.clear();
+    put_schema_kv(code, msg, txn.get(),
+                  meta_schema_key({instance_id, index_id, invalid_schema.schema_version()}),
+                  invalid_schema);
+    EXPECT_EQ(code, MetaServiceCode::INVALID_ARGUMENT) << msg;
+
+    doris::TabletSchemaCloudPB incomplete_legacy_schema = legacy_schema;
+    incomplete_legacy_schema.set_schema_version(13);
+    incomplete_legacy_schema.clear_row_ttl_duration_us();
+    incomplete_legacy_schema.clear_row_ttl_time_zone_offset_seconds();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    code = MetaServiceCode::OK;
+    msg.clear();
+    put_schema_kv(code, msg, txn.get(),
+                  meta_schema_key(
+                          {instance_id, index_id, incomplete_legacy_schema.schema_version()}),
+                  incomplete_legacy_schema);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    put_versioned_schema_kv(
+            code, msg, txn.get(),
+            versioned::meta_schema_key(
+                    {instance_id, index_id, incomplete_legacy_schema.schema_version()}),
+            incomplete_legacy_schema);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    // Loading this legacy schema in a new BE infers the hidden column index and serializes the
+    // unknown duration as -1. It must remain compatible so ordinary compaction can publish while
+    // TTL GC stays disabled.
+    doris::TabletSchemaCloudPB rewritten_legacy_schema = incomplete_legacy_schema;
+    rewritten_legacy_schema.set_ttl_col_idx(0);
+    rewritten_legacy_schema.set_row_ttl_duration_us(-1);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    code = MetaServiceCode::OK;
+    msg.clear();
+    put_schema_kv(code, msg, txn.get(),
+                  meta_schema_key(
+                          {instance_id, index_id, rewritten_legacy_schema.schema_version()}),
+                  rewritten_legacy_schema);
+    EXPECT_EQ(code, MetaServiceCode::OK) << msg;
+    put_versioned_schema_kv(
+            code, msg, txn.get(),
+            versioned::meta_schema_key(
+                    {instance_id, index_id, rewritten_legacy_schema.schema_version()}),
+            rewritten_legacy_schema);
+    EXPECT_EQ(code, MetaServiceCode::OK) << msg;
+
+    doris::TabletSchemaCloudPB invalid_negative_duration = incomplete_legacy_schema;
+    invalid_negative_duration.set_schema_version(14);
+    invalid_negative_duration.set_row_ttl_duration_us(-2);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    code = MetaServiceCode::OK;
+    msg.clear();
+    put_schema_kv(
+            code, msg, txn.get(),
+            meta_schema_key(
+                    {instance_id, index_id, invalid_negative_duration.schema_version()}),
+            invalid_negative_duration);
+    EXPECT_EQ(code, MetaServiceCode::INVALID_ARGUMENT) << msg;
+
+    constexpr int32_t non_ttl_schema_version = 9;
+    const std::string non_ttl_key =
+            meta_schema_key({instance_id, index_id, non_ttl_schema_version});
+    const std::string non_ttl_versioned_key =
+            versioned::meta_schema_key({instance_id, index_id, non_ttl_schema_version});
+    doris::TabletSchemaCloudPB non_ttl_schema;
+    fill_schema(&non_ttl_schema, non_ttl_schema_version);
+    non_ttl_schema.set_row_ttl_duration_us(10);
+    non_ttl_schema.set_row_ttl_time_zone_offset_seconds(3600);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    code = MetaServiceCode::OK;
+    msg.clear();
+    put_schema_kv(code, msg, txn.get(), non_ttl_key, non_ttl_schema);
+    EXPECT_EQ(code, MetaServiceCode::INVALID_ARGUMENT) << msg;
+    code = MetaServiceCode::OK;
+    msg.clear();
+    put_versioned_schema_kv(code, msg, txn.get(), non_ttl_versioned_key, non_ttl_schema);
+    EXPECT_EQ(code, MetaServiceCode::INVALID_ARGUMENT) << msg;
+
+    non_ttl_schema.clear_row_ttl_duration_us();
+    non_ttl_schema.clear_row_ttl_time_zone_offset_seconds();
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    code = MetaServiceCode::OK;
+    msg.clear();
+    put_schema_kv(code, msg, txn.get(), non_ttl_key, non_ttl_schema);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    put_versioned_schema_kv(code, msg, txn.get(), non_ttl_versioned_key, non_ttl_schema);
+    ASSERT_EQ(code, MetaServiceCode::OK) << msg;
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
 static void begin_txn(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
                       int64_t table_id, int64_t& txn_id) {
     brpc::Controller cntl;

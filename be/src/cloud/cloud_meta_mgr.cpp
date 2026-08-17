@@ -47,6 +47,7 @@
 #include "cloud/cloud_ms_rpc_rate_limiters.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "cloud/delete_bitmap_file_reader.h"
@@ -67,6 +68,7 @@
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_meta.h"
+#include "storage/utils.h"
 #include "util/client_cache.h"
 #include "util/client_connection_provider.h"
 #include "util/network_util.h"
@@ -476,6 +478,43 @@ using MetaServiceMethod = void (MetaService_Stub::*)(::google::protobuf::RpcCont
                                                      const Request*, Response*,
                                                      ::google::protobuf::Closure*);
 
+MetaServiceMethod<CreateRowsetRequest, CreateRowsetResponse> select_commit_rowset_method(
+        bool has_row_ttl) {
+    return has_row_ttl ? &MetaService_Stub::commit_rowset_row_ttl
+                       : &MetaService_Stub::commit_rowset;
+}
+
+MetaServiceMethod<RestoreJobRequest, RestoreJobResponse> select_prepare_restore_job_method(
+        bool has_row_ttl) {
+    return has_row_ttl ? &MetaService_Stub::prepare_restore_job_row_ttl
+                       : &MetaService_Stub::prepare_restore_job;
+}
+
+MetaServiceMethod<RestoreJobRequest, RestoreJobResponse> select_commit_restore_job_method(
+        bool has_row_ttl) {
+    return has_row_ttl ? &MetaService_Stub::commit_restore_job_row_ttl
+                       : &MetaService_Stub::commit_restore_job;
+}
+
+template <typename Request, typename Response>
+RowTtlMetaServiceRpc get_row_ttl_rpc(MetaServiceMethod<Request, Response> method) {
+    if constexpr (std::is_same_v<Request, CreateRowsetRequest> &&
+                  std::is_same_v<Response, CreateRowsetResponse>) {
+        if (method == &MetaService_Stub::commit_rowset_row_ttl) {
+            return RowTtlMetaServiceRpc::COMMIT_ROWSET;
+        }
+    } else if constexpr (std::is_same_v<Request, RestoreJobRequest> &&
+                         std::is_same_v<Response, RestoreJobResponse>) {
+        if (method == &MetaService_Stub::prepare_restore_job_row_ttl) {
+            return RowTtlMetaServiceRpc::PREPARE_RESTORE_JOB;
+        }
+        if (method == &MetaService_Stub::commit_restore_job_row_ttl) {
+            return RowTtlMetaServiceRpc::COMMIT_RESTORE_JOB;
+        }
+    }
+    return RowTtlMetaServiceRpc::NONE;
+}
+
 template <typename Request, typename Response>
 void call_ms(MetaService_Stub* stub, MetaServiceMethod<Request, Response> method,
              brpc::Controller* cntl, const Request& req, Response* res) {
@@ -550,13 +589,10 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
     std::default_random_engine rng = make_random_engine();
     std::uniform_int_distribution<uint32_t> u(20, 200);
     std::uniform_int_distribution<uint32_t> u2(500, 1000);
-    MetaServiceProxy* proxy;
-    RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
+    MetaServiceProxy* proxy = nullptr;
+    [[maybe_unused]] auto row_ttl_rpc = get_row_ttl_rpc(method);
 
     while (true) {
-        std::shared_ptr<MetaService_Stub> stub;
-        RETURN_IF_ERROR(proxy->get(&stub));
-
         // Apply rate limiting (both host-level and table-level)
         apply_rate_limit(rpc, rate_limit_ctx);
         TEST_SYNC_POINT_CALLBACK("retry_rpc::after_rate_limit", &rpc);
@@ -571,7 +607,17 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
         cntl.set_max_retry(kBrpcRetryTimes);
         res->Clear();
         int error_code = 0;
-        call_ms(stub.get(), method, &cntl, req, res);
+        bool skip_rpc = false;
+        TEST_SYNC_POINT_CALLBACK("CloudMetaMgr::retry_row_ttl_rpc.before_rpc", &row_ttl_rpc, &cntl,
+                                 res->mutable_status(), &skip_rpc);
+        if (!skip_rpc) {
+            if (proxy == nullptr) {
+                RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
+            }
+            std::shared_ptr<MetaService_Stub> stub;
+            RETURN_IF_ERROR(proxy->get(&stub));
+            call_ms(stub.get(), method, &cntl, req, res);
+        }
 
         // Record QPS statistics for all RPCs sent to MS (success or failure)
         record_rpc_qps(rpc, rate_limit_ctx);
@@ -579,7 +625,9 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
         if (cntl.Failed()) [[unlikely]] {
             error_msg = cntl.ErrorText();
             error_code = cntl.ErrorCode();
-            proxy->set_unhealthy();
+            if (proxy != nullptr) {
+                proxy->set_unhealthy();
+            }
         } else if (res->status().code() == MetaServiceCode::OK) {
             return Status::OK();
         } else if (res->status().code() == MetaServiceCode::INVALID_ARGUMENT) {
@@ -613,12 +661,35 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
         duration_ms = retry_times <= 100 ? u(rng) : u2(rng);
         LOG(WARNING) << "failed to " << op_name << debug_info(req) << " retry_times=" << retry_times
                      << " sleep=" << duration_ms << "ms : " << cntl.ErrorText();
-        bthread_usleep(duration_ms * 1000);
+        if (!skip_rpc) {
+            bthread_usleep(duration_ms * 1000);
+        }
     }
     return Status::RpcError("failed to {}: rpc timeout, last msg={}", op_name, error_msg);
 }
 
 } // namespace
+
+Status retry_row_ttl_meta_service_rpc_for_test(RowTtlMetaServiceRpc rpc) {
+    if (rpc == RowTtlMetaServiceRpc::COMMIT_ROWSET) {
+        CreateRowsetRequest req;
+        CreateRowsetResponse resp;
+        return retry_rpc(MetaServiceRPC::COMMIT_ROWSET, req, &resp,
+                         select_commit_rowset_method(true));
+    }
+
+    RestoreJobRequest req;
+    RestoreJobResponse resp;
+    if (rpc == RowTtlMetaServiceRpc::PREPARE_RESTORE_JOB) {
+        return retry_rpc(MetaServiceRPC::PREPARE_RESTORE_JOB, req, &resp,
+                         select_prepare_restore_job_method(true));
+    }
+    if (rpc == RowTtlMetaServiceRpc::COMMIT_RESTORE_JOB) {
+        return retry_rpc(MetaServiceRPC::COMMIT_RESTORE_JOB, req, &resp,
+                         select_commit_restore_job_method(true));
+    }
+    return Status::InvalidArgument("not a Row TTL Meta Service RPC");
+}
 
 Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta) {
     VLOG_DEBUG << "send GetTabletRequest, tablet_id: " << tablet_id;
@@ -1560,8 +1631,20 @@ Status CloudMetaMgr::do_commit_rowset(RowsetMeta& rs_meta, const std::string& jo
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
+    CloudTabletSPtr tablet = DORIS_TRY(ExecEnv::GetInstance()
+                                               ->storage_engine()
+                                               .to_cloud()
+                                               .tablet_mgr()
+                                               .get_tablet(rs_meta.tablet_id()));
+    if (tablet == nullptr) {
+        return Status::Error<TABLE_NOT_FOUND>("failed to get tablet. tablet={}",
+                                              rs_meta.tablet_id());
+    }
+    DORIS_CHECK(tablet->tablet_schema() != nullptr);
+    const bool has_row_ttl = tablet->tablet_schema()->has_ttl_col();
+    auto commit_rowset_method = select_commit_rowset_method(has_row_ttl);
     Status st =
-            retry_rpc(MetaServiceRPC::COMMIT_ROWSET, req, &resp, &MetaService_Stub::commit_rowset,
+            retry_rpc(MetaServiceRPC::COMMIT_ROWSET, req, &resp, commit_rowset_method,
                       {
                               .host_limiters = host_level_ms_rpc_rate_limiters_,
                               .backpressure_handler = ms_backpressure_handler_,
@@ -1821,9 +1904,33 @@ Status CloudMetaMgr::prepare_restore_job(const TabletMetaPB& tablet_meta) {
     req.set_expiration(config::snapshot_expire_time_sec);
     req.set_action(RestoreJobRequest::PREPARE);
 
+    auto schema_has_row_ttl = [](const auto& schema) {
+        return (schema.has_ttl_col_idx() && schema.ttl_col_idx() != -1) ||
+               std::ranges::any_of(schema.column(),
+                                   [](const auto& column) { return column.name() == TTL_COL; });
+    };
+    const bool source_has_row_ttl =
+            (tablet_meta.has_schema() && schema_has_row_ttl(tablet_meta.schema())) ||
+            std::ranges::any_of(tablet_meta.rs_metas(), [&](const auto& rowset_meta) {
+                return rowset_meta.has_tablet_schema() &&
+                       schema_has_row_ttl(rowset_meta.tablet_schema());
+            });
+    CloudTabletSPtr target_tablet =
+            DORIS_TRY(ExecEnv::GetInstance()
+                              ->storage_engine()
+                              .to_cloud()
+                              .tablet_mgr()
+                              .get_tablet(tablet_meta.tablet_id()));
+    if (target_tablet == nullptr) {
+        return Status::Error<TABLE_NOT_FOUND>("failed to get tablet. tablet={}",
+                                              tablet_meta.tablet_id());
+    }
+    DORIS_CHECK(target_tablet->tablet_schema() != nullptr);
+    const bool has_row_ttl = source_has_row_ttl || target_tablet->tablet_schema()->has_ttl_col();
     doris_tablet_meta_to_cloud(req.mutable_tablet_meta(), std::move(tablet_meta));
+    auto prepare_restore_method = select_prepare_restore_job_method(has_row_ttl);
     return retry_rpc(MetaServiceRPC::PREPARE_RESTORE_JOB, req, &resp,
-                     &MetaService_Stub::prepare_restore_job,
+                     prepare_restore_method,
                      {
                              .host_limiters = host_level_ms_rpc_rate_limiters_,
                              .backpressure_handler = ms_backpressure_handler_,
@@ -1839,8 +1946,16 @@ Status CloudMetaMgr::commit_restore_job(const int64_t tablet_id) {
     req.set_action(RestoreJobRequest::COMMIT);
     req.set_store_version(config::delete_bitmap_store_write_version);
 
+    CloudTabletSPtr tablet = DORIS_TRY(
+            ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_mgr().get_tablet(tablet_id));
+    if (tablet == nullptr) {
+        return Status::Error<TABLE_NOT_FOUND>("failed to get tablet. tablet={}", tablet_id);
+    }
+    DORIS_CHECK(tablet->tablet_schema() != nullptr);
+    const bool has_row_ttl = tablet->tablet_schema()->has_ttl_col();
+    auto commit_restore_method = select_commit_restore_job_method(has_row_ttl);
     return retry_rpc(MetaServiceRPC::COMMIT_RESTORE_JOB, req, &resp,
-                     &MetaService_Stub::commit_restore_job,
+                     commit_restore_method,
                      {
                              .host_limiters = host_level_ms_rpc_rate_limiters_,
                              .backpressure_handler = ms_backpressure_handler_,

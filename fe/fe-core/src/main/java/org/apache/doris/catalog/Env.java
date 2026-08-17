@@ -207,6 +207,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.RenamePartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -377,6 +378,7 @@ public class Env {
     protected String imageDir;
 
     private MetaContext metaContext;
+    private final Object rowTtlActivationLock = new Object();
     private long epoch = 0;
 
     // Lock to perform atomic modification on map like 'idToDb' and 'fullNameToDb'.
@@ -1074,9 +1076,41 @@ public class Env {
     // use this to get correct env's journal version
     public static int getCurrentEnvJournalVersion() {
         if (MetaContext.get() == null) {
-            return FeMetaVersion.VERSION_CURRENT;
+            return getCurrentEnv().getEffectiveMetaVersion();
         }
         return MetaContext.get().getMetaVersion();
+    }
+
+    public int getEffectiveMetaVersion() {
+        int version = metaContext.getMetaVersion();
+        return version == 0 ? FeMetaVersion.VERSION_CURRENT : version;
+    }
+
+    public boolean isRowTtlActivated() {
+        return getEffectiveMetaVersion() >= FeMetaVersion.VERSION_ROW_TTL_ACTIVATION;
+    }
+
+    /** Update the Env-owned version and any distinct replay thread context from the same journal record. */
+    public void setMetaVersionForReplay(int version) {
+        metaContext.setMetaVersion(version);
+        MetaContext replayContext = MetaContext.get();
+        if (replayContext != null && replayContext != metaContext) {
+            replayContext.setMetaVersion(version);
+        }
+    }
+
+    /** Persist the irreversible Row TTL metadata barrier before publishing any Row TTL metadata. */
+    public void activateRowTtlMetaVersion() throws DdlException {
+        synchronized (rowTtlActivationLock) {
+            if (isRowTtlActivated()) {
+                return;
+            }
+            if (!isMaster()) {
+                throw new DdlException("Row TTL metadata can only be activated by the master FE");
+            }
+            editLog.logMetaVersion(FeMetaVersion.VERSION_ROW_TTL_ACTIVATION);
+            metaContext.setMetaVersion(FeMetaVersion.VERSION_ROW_TTL_ACTIVATION);
+        }
     }
 
     public static final boolean isCheckpointThread() {
@@ -1766,11 +1800,11 @@ public class Env {
             }
 
             // Log meta_version
-            long journalVersion = MetaContext.get().getMetaVersion();
+            long journalVersion = getEffectiveMetaVersion();
             if (journalVersion < FeConstants.meta_version) {
                 toMasterProgress = "log meta version";
                 editLog.logMetaVersion(FeConstants.meta_version);
-                MetaContext.get().setMetaVersion(FeConstants.meta_version);
+                setMetaVersionForReplay(FeConstants.meta_version);
             }
 
             // Log the first frontend
@@ -1962,6 +1996,7 @@ public class Env {
             }
         }
 
+        checkRowTtlActivationBarrier();
         auth.rectifyPrivs();
         catalogMgr.registerCatalogRefreshListener(this);
         // MTMV needs to be compatible with old metadata, and during the compatibility process,
@@ -1973,6 +2008,27 @@ public class Env {
             LOG.warn("compatibleMTMV failed", t);
         }
         return true;
+    }
+
+    private void checkRowTtlActivationBarrier() {
+        if (isRowTtlActivated()) {
+            return;
+        }
+        for (Database database : getInternalCatalog().getDbs()) {
+            for (Table table : database.getTables()) {
+                if (table instanceof OlapTable && ((OlapTable) table).hasRowTtl()) {
+                    throw new IllegalStateException("Row TTL table " + table.getQualifiedName()
+                            + " exists without metadata activation version "
+                            + FeMetaVersion.VERSION_ROW_TTL_ACTIVATION
+                            + "; upgrade the whole cluster and recreate or restore the table");
+                }
+            }
+        }
+        if (getRecycleBin().containsRowTtlTable()) {
+            throw new IllegalStateException("Recycled Row TTL metadata exists without metadata activation version "
+                    + FeMetaVersion.VERSION_ROW_TTL_ACTIVATION
+                    + "; it cannot be silently adopted by an upgraded FE");
+        }
     }
 
     // start all daemon threads only running on Master
@@ -2398,15 +2454,20 @@ public class Env {
     }
 
     public long loadHeaderCOR1(DataInputStream dis, long checksum) throws IOException {
+        return loadHeaderCOR1(dis, checksum, FeMetaVersion.VERSION_MAX_SUPPORTED);
+    }
+
+    long loadHeaderCOR1(DataInputStream dis, long checksum, int maximumSupportedVersion) throws IOException {
         int journalVersion = dis.readInt();
-        if (journalVersion > FeMetaVersion.VERSION_CURRENT) {
+        if (journalVersion > maximumSupportedVersion) {
             throw new IOException("The meta version of image is " + journalVersion
-                    + ", which is higher than FE current version " + FeMetaVersion.VERSION_CURRENT
+                    + ", which is higher than FE maximum supported version "
+                    + maximumSupportedVersion
                     + ". Please upgrade your cluster to the latest version first.");
         }
 
         long newChecksum = checksum ^ journalVersion;
-        MetaContext.get().setMetaVersion(journalVersion);
+        setMetaVersionForReplay(journalVersion);
 
         long replayedJournalId = dis.readLong();
         newChecksum ^= replayedJournalId;
@@ -2792,8 +2853,9 @@ public class Env {
 
     public long saveHeader(CountingDataOutputStream dos, long replayedJournalId, long checksum) throws IOException {
         // Write meta version
-        checksum ^= FeConstants.meta_version;
-        dos.writeInt(FeConstants.meta_version);
+        int effectiveMetaVersion = getEffectiveMetaVersion();
+        checksum ^= effectiveMetaVersion;
+        dos.writeInt(effectiveMetaVersion);
 
         // Write replayed journal id
         checksum ^= replayedJournalId;
@@ -4054,6 +4116,54 @@ public class Env {
         if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
             sb.append(olapTable.getStoragePolicy()).append("\"");
+        }
+
+        // row ttl
+        if (olapTable.hasRowTtl()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL).append("\" = \"true\"");
+
+            Column ttlColumn = Preconditions.checkNotNull(olapTable.getTtlColumn(),
+                    "Row TTL hidden column is missing from table %s", olapTable.getName());
+            if (!ttlColumn.getType().getPrimitiveType().isDateLikeType()) {
+                Preconditions.checkState(ttlColumn.getType().getPrimitiveType() == PrimitiveType.BIGINT
+                                && olapTable.isLegacyDirectRowTtl(),
+                        "Unsupported Row TTL hidden column or properties in table %s", olapTable.getName());
+            } else {
+                TableProperty tableProperty = Preconditions.checkNotNull(olapTable.getTableProperty(),
+                        "Row TTL properties are missing from table %s", olapTable.getName());
+                Map<String, String> properties = tableProperty.getProperties();
+                String ttlColProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_TTL_COL;
+                String ttlProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_TTL;
+                String ttlTimeZoneProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_TTL_TIME_ZONE;
+                String ttlCol = properties.get(ttlColProperty);
+                String ttl = properties.get(ttlProperty);
+                String ttlTimeZone = properties.get(ttlTimeZoneProperty);
+
+                Preconditions.checkState(!Strings.isNullOrEmpty(ttlCol),
+                        "Row TTL source column property is missing from table %s", olapTable.getName());
+                Column sourceColumn = Preconditions.checkNotNull(olapTable.getColumn(ttlCol),
+                        "Row TTL source column %s is missing from table %s", ttlCol, olapTable.getName());
+                Preconditions.checkState(sourceColumn.getType().equals(ttlColumn.getType()),
+                        "Row TTL source and hidden column types differ in table %s", olapTable.getName());
+                Preconditions.checkState(!Strings.isNullOrEmpty(ttl) && olapTable.getRowTtlDurationMicros() >= 0,
+                        "Row TTL duration property is missing or invalid in table %s", olapTable.getName());
+                Preconditions.checkState(olapTable.getRowTtlTimeZoneOffsetSeconds().isPresent(),
+                        "Row TTL time zone property is missing or invalid in table %s", olapTable.getName());
+                if (ttlTimeZone == null) {
+                    Preconditions.checkState(sourceColumn.getType().isTimeStampTz(),
+                            "Row TTL time zone property is missing from table %s", olapTable.getName());
+                    ttlTimeZone = "+00:00";
+                }
+
+                sb.append(",\n\"").append(ttlColProperty).append("\" = ")
+                        .append(SqlLiteralUtils.quoteStringLiteral(ttlCol));
+                sb.append(",\n\"").append(ttlProperty).append("\" = \"").append(ttl).append("\"");
+                sb.append(",\n\"").append(ttlTimeZoneProperty).append("\" = \"")
+                        .append(ttlTimeZone).append("\"");
+            }
         }
 
         // sequence type

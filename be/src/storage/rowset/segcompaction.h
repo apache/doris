@@ -83,6 +83,7 @@ private:
                                      OlapReaderStatistics* stat, RowSourcesBuffer& row_sources_buf,
                                      bool is_key, std::vector<uint32_t>& return_columns,
                                      std::vector<uint32_t>& key_group_cluster_key_idxes,
+                                     int64_t row_ttl_gc_now_us,
                                      std::unique_ptr<VerticalBlockReader>* reader);
     std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint32_t begin,
                                                                             uint32_t end);

@@ -652,6 +652,67 @@ public class CreateTableInfo {
                 }
             }
 
+            boolean enableRowTtl;
+            String rowTtlCol;
+            try {
+                enableRowTtl = PropertyAnalyzer.analyzeEnableRowTtl(properties, keysType);
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL)) {
+                    properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL,
+                            Boolean.toString(enableRowTtl));
+                }
+                rowTtlCol = PropertyAnalyzer.analyzeRowTtlCol(properties, keysType);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+            if (enableRowTtl) {
+                long durationMicros;
+                try {
+                    durationMicros = PropertyAnalyzer.analyzeRowTtlDurationMicros(properties);
+                } catch (org.apache.doris.common.AnalysisException e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+                properties.put(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                                + PropertyAnalyzer.PROPERTIES_TTL,
+                        Long.toString(durationMicros / 1_000_000L));
+                ColumnDefinition sourceColumn = columnMap.get(rowTtlCol);
+                if (sourceColumn == null) {
+                    throw new AnalysisException("row ttl column does not exist: " + rowTtlCol);
+                }
+                if (sourceColumn.getGeneratedColumnDesc().isPresent()) {
+                    throw new AnalysisException(
+                            "row ttl column does not support generated columns: " + rowTtlCol);
+                }
+                if (sourceColumn.isKey()) {
+                    throw new AnalysisException("row ttl column must be a value column: " + rowTtlCol);
+                }
+                if (!sourceColumn.getType().isDateLikeType()) {
+                    throw new AnalysisException("row ttl column only supports DATE/DATETIME types: " + rowTtlCol);
+                }
+                DataType ttlColumnType = sourceColumn.getType();
+                String rowTtlTimeZone;
+                try {
+                    rowTtlTimeZone = PropertyAnalyzer.analyzeRowTtlTimeZone(properties);
+                } catch (org.apache.doris.common.AnalysisException e) {
+                    throw new AnalysisException(e.getMessage(), e.getCause());
+                }
+                String timeZoneProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_TTL_TIME_ZONE;
+                if (sourceColumn.getType().isTimeStampTzType()) {
+                    if (rowTtlTimeZone == null) {
+                        properties.put(timeZoneProperty, "+00:00");
+                    } else if (!rowTtlTimeZone.equals("+00:00")) {
+                        throw new AnalysisException(
+                                "TIMESTAMPTZ row ttl column only supports +00:00 time zone");
+                    }
+                } else if (rowTtlTimeZone == null) {
+                    throw new AnalysisException(timeZoneProperty
+                            + " is required for DATE/DATETIME row ttl columns");
+                }
+                AggregateType ttlAggregateType = keysType == KeysType.DUP_KEYS
+                        ? AggregateType.NONE : AggregateType.REPLACE;
+                columns.add(ColumnDefinition.newTtlColumnDefinition(ttlColumnType, ttlAggregateType));
+            }
+
             // add hidden column
             // do not add delete sign column when table has seq mapping
             if (keysType.equals(KeysType.UNIQUE_KEYS) && !PropertyAnalyzer.hasSeqMapping(properties)) {

@@ -661,7 +661,9 @@ Status CompactionMixin::execute_compact() {
     int64_t profile_start_time_ms = UnixMillis();
     uint32_t checksum_before;
     uint32_t checksum_after;
-    bool enable_compaction_checksum = config::enable_compaction_checksum;
+    bool enable_compaction_checksum =
+            config::enable_compaction_checksum &&
+            EngineChecksumTask::is_supported(*_tablet->tablet_schema());
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_before);
@@ -1445,9 +1447,13 @@ Status CompactionMixin::modify_rowsets() {
                 &output_rowset_delete_bitmap);
         if (missed_rows) {
             missed_rows_size = missed_rows->size();
-            std::size_t merged_missed_rows_size = _stats.merged_rows;
+            // missed_rows only contains delete-bitmap rows without an output rowid mapping.
+            // Rows removed later by the delete-sign/TTL visibility filter are not part of it.
+            std::size_t expected_missed_rows_size = _stats.merged_rows;
+            int64_t cluster_key_filtered_rows = 0;
             if (!_tablet->tablet_meta()->tablet_schema()->cluster_key_uids().empty()) {
-                merged_missed_rows_size += _stats.filtered_rows;
+                cluster_key_filtered_rows = _stats.filtered_rows;
+                expected_missed_rows_size += cluster_key_filtered_rows;
             }
 
             // Suppose a heavy schema change process on BE converting tablet A to tablet B.
@@ -1473,11 +1479,12 @@ Status CompactionMixin::modify_rowsets() {
             }
 
             if (_tablet->tablet_state() == TABLET_RUNNING &&
-                merged_missed_rows_size != missed_rows_size && need_to_check_missed_rows) {
+                expected_missed_rows_size != missed_rows_size && need_to_check_missed_rows) {
                 std::stringstream ss;
-                ss << "cumulative compaction: the merged rows(" << _stats.merged_rows
-                   << "), filtered rows(" << _stats.filtered_rows
-                   << ") is not equal to missed rows(" << missed_rows_size
+                ss << "cumulative compaction: expected missed rows(" << expected_missed_rows_size
+                   << ") from merged rows(" << _stats.merged_rows
+                   << ") and cluster key filtered rows(" << cluster_key_filtered_rows
+                   << "), but found missed rows(" << missed_rows_size
                    << ") in rowid conversion, tablet_id: " << _tablet->tablet_id()
                    << ", table_id:" << _tablet->table_id();
                 if (missed_rows_size == 0) {
@@ -1493,12 +1500,7 @@ Status CompactionMixin::modify_rowsets() {
                     }
                     ss << ", version[0-" << version.second + 1 << "]";
                 }
-                std::string err_msg = fmt::format(
-                        "cumulative compaction: the merged rows({}), filtered rows({})"
-                        " is not equal to missed rows({}) in rowid conversion,"
-                        " tablet_id: {}, table_id:{}",
-                        _stats.merged_rows, _stats.filtered_rows, missed_rows_size,
-                        _tablet->tablet_id(), _tablet->table_id());
+                std::string err_msg = ss.str();
                 LOG(WARNING) << err_msg;
                 if (config::enable_mow_compaction_correctness_check_core) {
                     CHECK(false) << err_msg;

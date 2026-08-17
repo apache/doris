@@ -48,6 +48,7 @@
 #include "rate-limiter/rate_limiter.h"
 #include "recycler/util.h"
 #include "resource-manager/resource_manager.h"
+#include "snapshot/snapshot_manager.h"
 
 namespace doris::cloud {
 
@@ -71,6 +72,15 @@ extern void get_tablet_stats(MetaServiceProxy* meta_service, int64_t table_id, i
 extern void create_and_commit_rowset(MetaServiceProxy* meta_service, int64_t table_id,
                                      int64_t index_id, int64_t partition_id, int64_t tablet_id,
                                      int64_t txn_id);
+extern void put_row_ttl_capable_meta_service_registry(MetaServiceProxy* meta_service);
+extern void create_row_ttl_tablet(MetaServiceProxy* meta_service, int64_t table_id,
+                                  int64_t index_id, int64_t partition_id, int64_t tablet_id,
+                                  int32_t schema_version, int64_t duration_us);
+extern RestoreJobRequest make_row_ttl_restore_request(int64_t table_id, int64_t index_id,
+                                                      int64_t partition_id, int64_t tablet_id,
+                                                      int32_t schema_version,
+                                                      int64_t duration_us,
+                                                      int64_t rowset_version);
 
 void insert_compact_rowset(Transaction* txn, std::string instance_id, int64_t tablet_id,
                            int64_t partition_id, int64_t start_version, int64_t end_version,
@@ -168,6 +178,162 @@ static void create_and_refresh_instance(MetaServiceProxy* service, std::string i
         ret->second = true;                                                        \
     });                                                                            \
     SyncPoint::get_instance()->enable_processing();
+
+TEST(MetaServiceVersionedReadTest, RestoreChecksActiveVersionedRowTtlPolicyBeforeMutation) {
+    auto meta_service = get_meta_service(false);
+    const std::string instance_id = "versioned_restore_row_ttl_instance";
+    MOCK_GET_INSTANCE_ID(instance_id);
+    const bool original_write_schema_kv = config::write_schema_kv;
+    DORIS_CLOUD_DEFER {
+        config::write_schema_kv = original_write_schema_kv;
+    };
+    config::write_schema_kv = true;
+    create_and_refresh_instance(meta_service.get(), instance_id);
+    put_row_ttl_capable_meta_service_registry(meta_service.get());
+
+    constexpr int64_t table_id = 27001;
+    constexpr int64_t index_id = 27002;
+    constexpr int64_t partition_id = 27003;
+    constexpr int64_t tablet_id = 27004;
+    constexpr int32_t target_schema_version = 9;
+    constexpr int32_t source_schema_version = 10;
+    ASSERT_NO_FATAL_FAILURE(create_row_ttl_tablet(meta_service.get(), table_id, index_id,
+                                                  partition_id, tablet_id,
+                                                  target_schema_version, 10));
+
+    RestoreJobRequest prepare_request = make_row_ttl_restore_request(
+            table_id, index_id, partition_id, tablet_id, source_schema_version, 11, 2);
+    RestoreJobResponse prepare_response;
+    brpc::Controller cntl;
+    meta_service->prepare_restore_job_row_ttl(&cntl, &prepare_request, &prepare_response, nullptr);
+    ASSERT_EQ(prepare_response.status().code(), MetaServiceCode::OK)
+            << prepare_response.status().msg();
+
+    RestoreJobRequest commit_request;
+    RestoreJobResponse commit_response;
+    commit_request.set_tablet_id(tablet_id);
+    commit_request.set_action(RestoreJobRequest::COMMIT);
+    meta_service->commit_restore_job_row_ttl(&cntl, &commit_request, &commit_response, nullptr);
+    EXPECT_EQ(commit_response.status().code(), MetaServiceCode::INVALID_ARGUMENT)
+            << commit_response.status().msg();
+    EXPECT_NE(commit_response.status().msg().find("row ttl duration differs"),
+              std::string::npos);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string value;
+    EXPECT_EQ(txn->get(meta_rowset_key({instance_id, tablet_id, 2}), &value),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    doris::RowsetMetaCloudPB versioned_rowset;
+    EXPECT_EQ(versioned::document_get(
+                      txn.get(),
+                      versioned::meta_rowset_load_key({instance_id, tablet_id, 2}),
+                      &versioned_rowset, nullptr),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    doris::TabletMetaCloudPB active_tablet;
+    ASSERT_EQ(versioned::document_get(
+                      txn.get(),
+                      versioned::meta_tablet_key({instance_id, tablet_id}),
+                      &active_tablet, nullptr),
+              TxnErrorCode::TXN_OK);
+    EXPECT_EQ(active_tablet.schema_version(), target_schema_version);
+    ASSERT_EQ(txn->get(job_restore_tablet_key({instance_id, tablet_id}), &value),
+              TxnErrorCode::TXN_OK);
+    RestoreJobCloudPB restore_job;
+    ASSERT_TRUE(restore_job.ParseFromString(value));
+    EXPECT_EQ(restore_job.state(), RestoreJobCloudPB::PREPARED);
+}
+
+TEST(MetaServiceVersionedReadTest, RestoreChecksRowTtlPolicyThroughCloneChain) {
+    auto meta_service = get_meta_service(false);
+    const std::string parent_instance_id = "row_ttl_restore_clone_parent";
+    const std::string child_instance_id = "row_ttl_restore_clone_child";
+    std::string request_instance_id = parent_instance_id;
+    MOCK_GET_INSTANCE_ID(request_instance_id);
+    const bool original_write_schema_kv = config::write_schema_kv;
+    DORIS_CLOUD_DEFER {
+        config::write_schema_kv = original_write_schema_kv;
+    };
+    config::write_schema_kv = true;
+
+    InstanceInfoPB parent_instance;
+    parent_instance.set_instance_id(parent_instance_id);
+    parent_instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
+    InstanceInfoPB child_instance;
+    child_instance.set_instance_id(child_instance_id);
+    child_instance.set_multi_version_status(MULTI_VERSION_READ_WRITE);
+    child_instance.set_source_instance_id(parent_instance_id);
+    child_instance.set_source_snapshot_id(
+            SnapshotManager::serialize_snapshot_id(Versionstamp::max()));
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key(parent_instance_id), parent_instance.SerializeAsString());
+    txn->put(instance_key(child_instance_id), child_instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    meta_service->resource_mgr()->refresh_instance(parent_instance_id);
+    meta_service->resource_mgr()->refresh_instance(child_instance_id);
+    ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(parent_instance_id));
+    ASSERT_TRUE(meta_service->resource_mgr()->is_version_write_enabled(child_instance_id));
+    put_row_ttl_capable_meta_service_registry(meta_service.get());
+
+    constexpr int64_t table_id = 28001;
+    constexpr int64_t index_id = 28002;
+    constexpr int64_t partition_id = 28003;
+    constexpr int64_t tablet_id = 28004;
+    constexpr int32_t target_schema_version = 9;
+    constexpr int32_t source_schema_version = 10;
+    ASSERT_NO_FATAL_FAILURE(create_row_ttl_tablet(meta_service.get(), table_id, index_id,
+                                                  partition_id, tablet_id,
+                                                  target_schema_version, 10));
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string tablet_index_value;
+    ASSERT_EQ(txn->get(meta_tablet_idx_key({parent_instance_id, tablet_id}), &tablet_index_value),
+              TxnErrorCode::TXN_OK);
+    txn->put(meta_tablet_idx_key({child_instance_id, tablet_id}), tablet_index_value);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    request_instance_id = child_instance_id;
+    RestoreJobRequest prepare_request = make_row_ttl_restore_request(
+            table_id, index_id, partition_id, tablet_id, source_schema_version, 11, 2);
+    RestoreJobResponse prepare_response;
+    brpc::Controller cntl;
+    meta_service->prepare_restore_job_row_ttl(&cntl, &prepare_request, &prepare_response, nullptr);
+    ASSERT_EQ(prepare_response.status().code(), MetaServiceCode::OK)
+            << prepare_response.status().msg();
+
+    RestoreJobRequest commit_request;
+    RestoreJobResponse commit_response;
+    commit_request.set_tablet_id(tablet_id);
+    commit_request.set_action(RestoreJobRequest::COMMIT);
+    meta_service->commit_restore_job_row_ttl(&cntl, &commit_request, &commit_response, nullptr);
+    EXPECT_EQ(commit_response.status().code(), MetaServiceCode::INVALID_ARGUMENT)
+            << commit_response.status().msg();
+    EXPECT_NE(commit_response.status().msg().find("row ttl duration differs"),
+              std::string::npos);
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string value;
+    EXPECT_EQ(txn->get(meta_rowset_key({child_instance_id, tablet_id, 2}), &value),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    doris::RowsetMetaCloudPB child_rowset;
+    EXPECT_EQ(versioned::document_get(
+                      txn.get(),
+                      versioned::meta_rowset_load_key({child_instance_id, tablet_id, 2}),
+                      &child_rowset, nullptr),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    doris::TabletMetaCloudPB child_tablet;
+    EXPECT_EQ(versioned::document_get(
+                      txn.get(),
+                      versioned::meta_tablet_key({child_instance_id, tablet_id}),
+                      &child_tablet, nullptr),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    ASSERT_EQ(txn->get(job_restore_tablet_key({child_instance_id, tablet_id}), &value),
+              TxnErrorCode::TXN_OK);
+    RestoreJobCloudPB restore_job;
+    ASSERT_TRUE(restore_job.ParseFromString(value));
+    EXPECT_EQ(restore_job.state(), RestoreJobCloudPB::PREPARED);
+}
 
 TEST(MetaServiceVersionedReadTest, CommitTxn) {
     auto meta_service = get_meta_service(false);

@@ -37,6 +37,7 @@
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/pb_helper.h"
+#include "storage/row_ttl.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -128,6 +129,9 @@ Status CloudSnapshotMgr::convert_rowsets(
         CloudTabletSPtr& target_tablet, StorageResource& storage_resource,
         std::unordered_map<std::string, std::string>& file_mapping) {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    RETURN_IF_ERROR(
+            check_row_ttl_restore_tablet_meta_compatible(in, *target_tablet->tablet_schema()));
+
     // deep copy
     *out = in;
 

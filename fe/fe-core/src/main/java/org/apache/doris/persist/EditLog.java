@@ -50,7 +50,7 @@ import org.apache.doris.cloud.persist.CloudMetaSyncPoint;
 import org.apache.doris.cloud.persist.UpdateCloudReplicaInfo;
 import org.apache.doris.cloud.snapshot.SnapshotState;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -90,7 +90,6 @@ import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -696,15 +695,17 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_META_VERSION: {
-                    String versionString = ((Text) journal.getData()).toString();
-                    int version = Integer.parseInt(versionString);
-                    if (version > FeConstants.meta_version) {
+                    int version = parseMetaVersionForReplay(journal);
+                    try {
+                        validateMetaVersionForReplay(version, FeMetaVersion.VERSION_MAX_SUPPORTED);
+                    } catch (UnsupportedOperationException e) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
-                                        + "please update FeConstants.meta_version and restart.", version,
-                                FeConstants.meta_version);
+                                        + "please upgrade FE and restart.", version,
+                                FeMetaVersion.VERSION_MAX_SUPPORTED);
                         System.exit(-1);
+                        return;
                     }
-                    MetaContext.get().setMetaVersion(version);
+                    env.setMetaVersionForReplay(version);
                     break;
                 }
                 case OperationType.OP_CREATE_CLUSTER: {
@@ -1536,6 +1537,21 @@ public class EditLog {
             } else {
                 LOG.warn("Skip replay Operation Type {} due to exception, log id: {}", opCode, logId, e);
             }
+        }
+    }
+
+    static int parseMetaVersionForReplay(JournalEntity journal) {
+        return Integer.parseInt(((Text) journal.getData()).toString());
+    }
+
+    static boolean isMetaVersionSupportedForReplay(int version, int maximumSupportedVersion) {
+        return version <= maximumSupportedVersion;
+    }
+
+    static void validateMetaVersionForReplay(int version, int maximumSupportedVersion) {
+        if (!isMetaVersionSupportedForReplay(version, maximumSupportedVersion)) {
+            throw new UnsupportedOperationException("Meta version " + version
+                    + " exceeds maximum supported version " + maximumSupportedVersion);
         }
     }
 

@@ -1024,8 +1024,14 @@ message ServiceRegistryPB {
 
         // Support FQDN
         optional string host = 7;
+        optional uint64 feature_flags = 8;
     }
     repeated Item items = 1;
+}
+
+enum MetaServiceFeature {
+    META_SERVICE_FEATURE_NONE = 0;
+    META_SERVICE_FEATURE_ROW_TTL = 1;
 }
 
 // A special message, to test the message splitting logic.
@@ -2399,6 +2405,16 @@ message UpdatePackedFileInfoResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
+message GetMetaServiceCapabilityRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional string request_ip = 2;
+}
+
+message GetMetaServiceCapabilityResponse {
+    optional MetaServiceResponseStatus status = 1;
+    optional uint64 feature_flags = 2;
+}
+
 service MetaService {
     rpc begin_txn(BeginTxnRequest) returns (BeginTxnResponse);
     rpc precommit_txn(PrecommitTxnRequest) returns (PrecommitTxnResponse);
@@ -2417,16 +2433,22 @@ service MetaService {
 
     rpc get_version(GetVersionRequest) returns (GetVersionResponse);
     rpc get_table_stream_offset(GetTableStreamOffsetRequest) returns (GetTableStreamOffsetResponse);
+    rpc get_meta_service_capability(GetMetaServiceCapabilityRequest) returns (GetMetaServiceCapabilityResponse);
     rpc create_tablets(CreateTabletsRequest) returns (CreateTabletsResponse);
+    rpc create_tablets_row_ttl(CreateTabletsRequest) returns (CreateTabletsResponse);
     rpc update_tablet(UpdateTabletRequest) returns (UpdateTabletResponse);
+    rpc update_tablet_row_ttl(UpdateTabletRequest) returns (UpdateTabletResponse);
 
     rpc prepare_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
+    rpc prepare_restore_job_row_ttl(RestoreJobRequest) returns (RestoreJobResponse);
     rpc commit_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
+    rpc commit_restore_job_row_ttl(RestoreJobRequest) returns (RestoreJobResponse);
     rpc finish_restore_job(RestoreJobRequest) returns (RestoreJobResponse);
 
     rpc get_tablet(GetTabletRequest) returns (GetTabletResponse);
     rpc prepare_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
     rpc commit_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
+    rpc commit_rowset_row_ttl(CreateRowsetRequest) returns (CreateRowsetResponse);
     rpc update_tmp_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
     rpc get_rowset(GetRowsetRequest) returns (GetRowsetResponse);
     rpc get_schema_dict(GetSchemaDictRequest) returns (GetSchemaDictResponse);

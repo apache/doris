@@ -529,6 +529,13 @@ public class TabletScheduler extends MasterDaemon {
         tbl.writeLockOrException(new SchedException(Status.UNRECOVERABLE,
                     "table " + tbl.getName() + " does not exist"));
         try {
+            tabletCtx.setIsRowTtl(tbl.hasRowTtl());
+            boolean isLegacyDirectRowTtl = tbl.isLegacyDirectRowTtl();
+            tabletCtx.setIsLegacyDirectRowTtl(isLegacyDirectRowTtl);
+            if (isLegacyDirectRowTtl) {
+                throw new SchedException(Status.UNRECOVERABLE,
+                        TabletSchedCtx.LEGACY_DIRECT_ROW_TTL_REPLICA_ERROR);
+            }
             long tabletId = tabletCtx.getTabletId();
 
             boolean isColocateTable = colocateTableIndex.isColocateTable(tbl.getId());
@@ -1737,6 +1744,10 @@ public class TabletScheduler extends MasterDaemon {
         }
 
         if (tabletHealth.status == TabletStatus.HEALTHY || tabletHealth.status == TabletStatus.UNRECOVERABLE) {
+            return;
+        }
+        if (table.isLegacyDirectRowTtl()) {
+            LOG.debug("skip scheduling read-only legacy direct row TTL tablet {}", tablet.getId());
             return;
         }
 

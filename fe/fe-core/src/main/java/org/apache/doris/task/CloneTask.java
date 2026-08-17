@@ -43,10 +43,18 @@ public class CloneTask extends AgentTask {
     private int timeoutS;
 
     private int taskVersion = VERSION_1;
+    private final boolean rowTtlTask;
 
     public CloneTask(TBackend destBackend, long backendId, long dbId, long tableId, long partitionId,
             long indexId, long tabletId, long replicaId, int schemaHash, List<TBackend> srcBackends,
             TStorageMedium storageMedium, long visibleVersion, int timeoutS) {
+        this(destBackend, backendId, dbId, tableId, partitionId, indexId, tabletId, replicaId,
+                schemaHash, srcBackends, storageMedium, visibleVersion, timeoutS, false);
+    }
+
+    public CloneTask(TBackend destBackend, long backendId, long dbId, long tableId, long partitionId,
+            long indexId, long tabletId, long replicaId, int schemaHash, List<TBackend> srcBackends,
+            TStorageMedium storageMedium, long visibleVersion, int timeoutS, boolean rowTtlTask) {
         super(null, backendId, TTaskType.CLONE, dbId, tableId, partitionId, indexId, tabletId);
         this.destBackend = destBackend;
         this.replicaId = replicaId;
@@ -55,6 +63,7 @@ public class CloneTask extends AgentTask {
         this.storageMedium = storageMedium;
         this.visibleVersion = visibleVersion;
         this.timeoutS = timeoutS;
+        this.rowTtlTask = rowTtlTask;
     }
 
     public int getSchemaHash() {
@@ -77,6 +86,11 @@ public class CloneTask extends AgentTask {
 
     public int getTaskVersion() {
         return taskVersion;
+    }
+
+    @Override
+    public boolean isRowTtlTask() {
+        return rowTtlTask;
     }
 
     public TCloneReq toThrift() {

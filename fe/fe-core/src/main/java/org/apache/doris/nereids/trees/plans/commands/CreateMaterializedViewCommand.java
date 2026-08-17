@@ -274,6 +274,11 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
         @Override
         public Plan visitLogicalOlapScan(LogicalOlapScan olapScan, ValidateContext validateContext) {
             OlapTable olapTable = olapScan.getTable();
+            if (olapTable.hasRowTtl()) {
+                throw new AnalysisException(
+                        "synchronous materialized views do not support tables with row ttl: "
+                                + olapTable.getName());
+            }
             if (olapTable.isTemporary()) {
                 throw new AnalysisException("do not support create materialized view on temporary table");
             }

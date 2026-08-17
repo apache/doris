@@ -40,9 +40,6 @@ using namespace google::protobuf;
 // note that reserved fields are not considered
 bool have_same_fields(const google::protobuf::Descriptor* desc1,
                       const google::protobuf::Descriptor* desc2) {
-    if (desc1->field_count() != desc2->field_count()) {
-        return false;
-    }
     std::set<std::string> fields1;
     for (int i = 0; i < desc1->field_count(); ++i) {
         fields1.insert(desc1->field(i)->name());
@@ -51,6 +48,8 @@ bool have_same_fields(const google::protobuf::Descriptor* desc1,
     for (int i = 0; i < desc2->field_count(); ++i) {
         fields2.insert(desc2->field(i)->name());
     }
+    fields1.erase("legacy_row_ttl_duration_seconds");
+    fields2.erase("legacy_row_ttl_duration_seconds");
     return fields1 == fields2;
 }
 
@@ -189,7 +188,8 @@ auto set_diff = [](auto a, auto b) {
 // be inter-converted
 TEST(PbConvert, ensure_identical_fields) {
     EXPECT_EQ(RowsetMetaPB::GetDescriptor()->field_count(), RowsetMetaCloudPB::GetDescriptor()->field_count());
-    EXPECT_EQ(TabletSchemaPB::GetDescriptor()->field_count(), TabletSchemaCloudPB::GetDescriptor()->field_count());
+    EXPECT_EQ(TabletSchemaPB::GetDescriptor()->field_count(),
+              TabletSchemaCloudPB::GetDescriptor()->field_count() + 1);
     EXPECT_EQ(TabletMetaPB::GetDescriptor()->field_count(), TabletMetaCloudPB::GetDescriptor()->field_count());
 
     EXPECT_TRUE(have_same_fields(RowsetMetaPB::GetDescriptor(), RowsetMetaCloudPB::GetDescriptor()));
@@ -233,6 +233,7 @@ TEST(PbConvert, ensure_all_fields_converted_correctly) {
     set_all_fields_to_default(&tablet_schema);
     auto tablet_schema_set_fields = get_set_fields(tablet_schema);
     EXPECT_EQ(tablet_schema_set_fields.size(), TabletSchemaPB::GetDescriptor()->field_count()) << print(tablet_schema_set_fields);
+    tablet_schema_set_fields.erase("legacy_row_ttl_duration_seconds");
 
     TabletSchemaCloudPB tablet_schema_cloud;
     set_all_fields_to_default(&tablet_schema_cloud);
@@ -288,6 +289,42 @@ TEST(PbConvert, ensure_all_fields_converted_correctly) {
         << "\n diff=" << print(set_diff(tablet_meta_cloud_set_fields, tablet_meta_out_set_fields));
 }
 
+TEST(PbConvert, row_ttl_time_zone_offset_seconds_presence) {
+    TabletSchemaPB tablet_schema;
+    TabletSchemaCloudPB tablet_schema_cloud;
+    doris_tablet_schema_to_cloud(&tablet_schema_cloud, tablet_schema);
+    EXPECT_FALSE(tablet_schema_cloud.has_row_ttl_time_zone_offset_seconds());
+
+    tablet_schema.set_row_ttl_time_zone_offset_seconds(0);
+    doris_tablet_schema_to_cloud(&tablet_schema_cloud, tablet_schema);
+    ASSERT_TRUE(tablet_schema_cloud.has_row_ttl_time_zone_offset_seconds());
+    EXPECT_EQ(tablet_schema_cloud.row_ttl_time_zone_offset_seconds(), 0);
+
+    TabletSchemaPB tablet_schema_moved;
+    tablet_schema_moved.set_row_ttl_time_zone_offset_seconds(28'800);
+    TabletSchemaCloudPB tablet_schema_cloud_moved =
+            doris_tablet_schema_to_cloud(std::move(tablet_schema_moved));
+    ASSERT_TRUE(tablet_schema_cloud_moved.has_row_ttl_time_zone_offset_seconds());
+    EXPECT_EQ(tablet_schema_cloud_moved.row_ttl_time_zone_offset_seconds(), 28'800);
+
+    TabletSchemaPB tablet_schema_out;
+    TabletSchemaCloudPB tablet_schema_cloud_in;
+    cloud_tablet_schema_to_doris(&tablet_schema_out, tablet_schema_cloud_in);
+    EXPECT_FALSE(tablet_schema_out.has_row_ttl_time_zone_offset_seconds());
+
+    tablet_schema_cloud_in.set_row_ttl_time_zone_offset_seconds(-28'800);
+    cloud_tablet_schema_to_doris(&tablet_schema_out, tablet_schema_cloud_in);
+    ASSERT_TRUE(tablet_schema_out.has_row_ttl_time_zone_offset_seconds());
+    EXPECT_EQ(tablet_schema_out.row_ttl_time_zone_offset_seconds(), -28'800);
+
+    TabletSchemaCloudPB tablet_schema_cloud_moved_in;
+    tablet_schema_cloud_moved_in.set_row_ttl_time_zone_offset_seconds(0);
+    TabletSchemaPB tablet_schema_moved_out =
+            cloud_tablet_schema_to_doris(std::move(tablet_schema_cloud_moved_in));
+    ASSERT_TRUE(tablet_schema_moved_out.has_row_ttl_time_zone_offset_seconds());
+    EXPECT_EQ(tablet_schema_moved_out.row_ttl_time_zone_offset_seconds(), 0);
+}
+
 TEST(PbConvert, test_rvalue_overloads) {
     // rowset meta
     RowsetMetaPB rs;
@@ -321,6 +358,7 @@ TEST(PbConvert, test_rvalue_overloads) {
     TabletSchemaPB tablet_schema;
     set_all_fields_to_default(&tablet_schema);
     auto tablet_schema_set_fields = get_set_fields(tablet_schema);
+    tablet_schema_set_fields.erase("legacy_row_ttl_duration_seconds");
 
     TabletSchemaCloudPB tablet_schema_cloud;
     set_all_fields_to_default(&tablet_schema_cloud);
@@ -410,6 +448,7 @@ TEST(PbConvert, test_return_value_overloads) {
     set_all_fields_to_default(&tablet_schema);
     auto tablet_schema_set_fields = get_set_fields(tablet_schema);
     EXPECT_EQ(tablet_schema_set_fields.size(), TabletSchemaPB::GetDescriptor()->field_count());
+    tablet_schema_set_fields.erase("legacy_row_ttl_duration_seconds");
 
     TabletSchemaCloudPB tablet_schema_cloud;
     set_all_fields_to_default(&tablet_schema_cloud);

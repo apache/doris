@@ -77,6 +77,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
     reader_params.read_row_binlog = tablet->is_row_binlog_tablet();
+    reader_params.row_ttl_gc_now_us = UnixMicros();
 
     TabletReadSource read_source;
     read_source.rs_splits.reserve(src_rowset_readers.size());
@@ -221,6 +222,21 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
             }
         }
     }
+    if (tablet_schema.has_ttl_col()) {
+        int32_t ttl_col_idx = tablet_schema.ttl_col_idx();
+        if (key_columns.end() == std::find(key_columns.begin(), key_columns.end(), ttl_col_idx)) {
+            auto delete_sign_position =
+                    std::find(key_columns.begin(), key_columns.end(), delete_sign_idx);
+            const auto ttl_group_position =
+                    cast_set<uint32_t>(std::distance(key_columns.begin(), delete_sign_position));
+            key_columns.insert(delete_sign_position, ttl_col_idx);
+            for (auto& cluster_key_position : *key_group_cluster_key_idxes) {
+                if (cluster_key_position >= ttl_group_position) {
+                    ++cluster_key_position;
+                }
+            }
+        }
+    }
     VLOG_NOTICE << "sequence_col_idx=" << sequence_col_idx
                 << ", delete_sign_idx=" << delete_sign_idx;
     // for duplicate no keys
@@ -253,9 +269,9 @@ Status Merger::vertical_compact_one_group(
         bool is_key, const std::vector<uint32_t>& column_group, RowSourcesBuffer* row_source_buf,
         const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
         RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment, Statistics* stats_output,
-        std::vector<uint32_t> key_group_cluster_key_idxes, int64_t batch_size,
-        CompactionSampleInfo* sample_info, VerticalCompactionContextStats* context_stats,
-        bool enable_sparse_optimization) {
+        std::vector<uint32_t> key_group_cluster_key_idxes, int64_t row_ttl_gc_now_us,
+        int64_t batch_size, CompactionSampleInfo* sample_info,
+        VerticalCompactionContextStats* context_stats, bool enable_sparse_optimization) {
     // build tablet reader
     VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
     VerticalBlockReader reader(row_source_buf, context_stats);
@@ -265,6 +281,7 @@ Status Merger::vertical_compact_one_group(
     reader_params.tablet = tablet;
     reader_params.reader_type = reader_type;
     reader_params.read_row_binlog = tablet->is_row_binlog_tablet();
+    reader_params.row_ttl_gc_now_us = row_ttl_gc_now_us;
     reader_params.enable_sparse_optimization = enable_sparse_optimization;
 
     TabletReadSource read_source;
@@ -378,7 +395,8 @@ Status Merger::vertical_compact_one_group(
                                        "failed to read next block when merging rowsets of tablet " +
                                                std::to_string(tablet_id));
         if (!block.rows()) {
-            break;
+            block.clear_column_data();
+            continue;
         }
         RETURN_NOT_OK_STATUS_WITH_WARN(dst_segment_writer.append_block(&block, 0, block.rows()),
                                        "failed to write block when merging rowsets of tablet " +
@@ -571,6 +589,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
 
     RowSourcesBuffer row_sources_buf(tablet->tablet_id(), dst_rowset_writer->context().tablet_path,
                                      reader_type);
+    const int64_t row_ttl_gc_now_us = UnixMicros();
     Merger::Statistics total_stats;
     if (stats_output != nullptr) {
         total_stats.rowid_conversion = stats_output->rowid_conversion;
@@ -714,8 +733,8 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
         Status st = vertical_compact_one_group(
                 tablet, reader_type, tablet_schema, is_key, column_groups[i], &row_sources_buf,
                 src_rowset_readers, dst_rowset_writer, max_rows_per_segment, group_stats_ptr,
-                key_group_cluster_key_idxes, batch_size, &sample_info, &context_stats,
-                enable_sparse_optimization);
+                key_group_cluster_key_idxes, row_ttl_gc_now_us, batch_size, &sample_info,
+                &context_stats, enable_sparse_optimization);
         {
             std::unique_lock<std::mutex> lock(sample_info_lock);
             sample_infos[i] = sample_info;

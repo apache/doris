@@ -17,9 +17,12 @@
 
 #include "cloud/cloud_meta_mgr.h"
 
+#include <brpc/controller.h>
+#include <brpc/errno.pb.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <limits>
@@ -29,6 +32,7 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "cpp/sync_point.h"
 #include "load/stream_load/stream_load_context.h"
 #include "storage/olap_common.h"
@@ -95,6 +99,88 @@ TEST_F(CloudMetaMgrTest, response_status_returns_undefined_without_any_code) {
 
     status.set_code(MetaServiceCode::OK);
     EXPECT_EQ(get_response_code(status), MetaServiceCode::OK);
+}
+
+TEST_F(CloudMetaMgrTest, row_ttl_rpc_retries_unimplemented_without_generic_fallback) {
+    constexpr std::array row_ttl_rpcs = {
+            RowTtlMetaServiceRpc::COMMIT_ROWSET,
+            RowTtlMetaServiceRpc::PREPARE_RESTORE_JOB,
+            RowTtlMetaServiceRpc::COMMIT_RESTORE_JOB,
+    };
+    auto* sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    RowTtlMetaServiceRpc expected_rpc = RowTtlMetaServiceRpc::NONE;
+    int attempts = 0;
+    bool used_another_method = false;
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "CloudMetaMgr::retry_row_ttl_rpc.before_rpc",
+            [&](auto&& args) {
+                auto* actual_rpc = try_any_cast<RowTtlMetaServiceRpc*>(args[0]);
+                auto* cntl = try_any_cast<brpc::Controller*>(args[1]);
+                auto* skip_rpc = try_any_cast<bool*>(args[3]);
+                used_another_method |= *actual_rpc != expected_rpc;
+                ++attempts;
+                cntl->SetFailed(brpc::ENOMETHOD, "UNIMPLEMENTED");
+                *skip_rpc = true;
+            },
+            &guard);
+
+    for (auto rpc : row_ttl_rpcs) {
+        expected_rpc = rpc;
+        attempts = 0;
+        used_another_method = false;
+        auto status = retry_row_ttl_meta_service_rpc_for_test(rpc);
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(attempts, config::meta_service_rpc_retry_times + 1);
+        EXPECT_FALSE(used_another_method);
+    }
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+}
+
+TEST_F(CloudMetaMgrTest, row_ttl_rpc_uses_special_method_on_success) {
+    constexpr std::array row_ttl_rpcs = {
+            RowTtlMetaServiceRpc::COMMIT_ROWSET,
+            RowTtlMetaServiceRpc::PREPARE_RESTORE_JOB,
+            RowTtlMetaServiceRpc::COMMIT_RESTORE_JOB,
+    };
+    auto* sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    RowTtlMetaServiceRpc expected_rpc = RowTtlMetaServiceRpc::NONE;
+    int attempts = 0;
+    bool used_another_method = false;
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "CloudMetaMgr::retry_row_ttl_rpc.before_rpc",
+            [&](auto&& args) {
+                auto* actual_rpc = try_any_cast<RowTtlMetaServiceRpc*>(args[0]);
+                auto* response_status = try_any_cast<MetaServiceResponseStatus*>(args[2]);
+                auto* skip_rpc = try_any_cast<bool*>(args[3]);
+                used_another_method |= *actual_rpc != expected_rpc;
+                ++attempts;
+                response_status->set_code(MetaServiceCode::OK);
+                *skip_rpc = true;
+            },
+            &guard);
+
+    for (auto rpc : row_ttl_rpcs) {
+        expected_rpc = rpc;
+        attempts = 0;
+        used_another_method = false;
+        auto status = retry_row_ttl_meta_service_rpc_for_test(rpc);
+        EXPECT_TRUE(status.ok()) << status;
+        EXPECT_EQ(attempts, 1);
+        EXPECT_FALSE(used_another_method);
+    }
+
+    sp->disable_processing();
+    sp->clear_all_call_backs();
 }
 
 static AbortTxnRequest get_abort_txn_request(CloudMetaMgr* meta_mgr, const StreamLoadContext& ctx) {

@@ -318,6 +318,9 @@ public class CacheAnalyzer {
             long externalCacheableSize = 0;
             for (ScanNode scanNode : scanNodes) {
                 if (scanNode instanceof OlapScanNode) {
+                    if (((OlapScanNode) scanNode).getOlapTable().hasRowTtl()) {
+                        return Collections.emptyList();
+                    }
                     olapScanNodeSize++;
                 } else if (isExternalCacheableScanNode(scanNode)) {
                     externalCacheableSize++;

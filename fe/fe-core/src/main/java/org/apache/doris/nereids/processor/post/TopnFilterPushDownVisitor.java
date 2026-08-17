@@ -261,6 +261,10 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     }
 
     private boolean supportPhysicalRelations(PhysicalRelation relation) {
+        if (relation instanceof PhysicalOlapScan
+                && ((PhysicalOlapScan) relation).getTable().hasRowTtl()) {
+            return false;
+        }
         return relation instanceof PhysicalOlapScan
                 || relation instanceof PhysicalOdbcScan
                 || relation instanceof PhysicalFileScan

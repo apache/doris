@@ -30,6 +30,7 @@ import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
@@ -894,6 +895,17 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testRejectSchemaChangeOnLegacyDirectRowTtlTable() {
+        OlapTable olapTable = Mockito.mock(OlapTable.class);
+        Mockito.when(olapTable.isLegacyDirectRowTtl()).thenReturn(true);
+
+        Exception exception = Assertions.assertThrows(Exception.class,
+                () -> new SchemaChangeHandler().process("ALTER TABLE ttl_table ADD COLUMN v2 INT",
+                        Lists.newArrayList(), Mockito.mock(Database.class), olapTable));
+        Assertions.assertTrue(exception.getMessage().contains(PropertyAnalyzer.ROW_TTL_DIRECT_NOT_SUPPORTED));
+    }
+
+    @Test
     public void testRowBinlogSchemaChangeKeepsHiddenKeyColumn() throws Exception {
         SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
         List<Column> rowBinlogSchema = Lists.newArrayList();
@@ -1360,6 +1372,25 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
         }
         alterJobs = Env.getCurrentEnv().getSchemaChangeHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
+    }
+
+    @Test
+    public void testRejectAddSequenceMappingForRowTtl() throws Exception {
+        createTable("CREATE TABLE test.sc_row_ttl_sequence_mapping ("
+                + "k BIGINT, event_time DATETIMEV2(6), v VARCHAR(20)) "
+                + "UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true', "
+                + "'enable_unique_key_merge_on_write' = 'false', 'function_column.enable_row_ttl' = 'true', "
+                + "'function_column.ttl_col' = 'event_time', 'function_column.ttl' = '1 day', "
+                + "'function_column.ttl_time_zone' = '+08:00')");
+
+        Exception exception = Assertions.assertThrows(Exception.class,
+                () -> alterTable("ALTER TABLE test.sc_row_ttl_sequence_mapping "
+                        + "ADD COLUMN (sequence_time BIGINT, extra VARCHAR(20)) "
+                        + "PROPERTIES ('sequence_mapping.sequence_time' = 'extra')",
+                        connectContext));
+        Assertions.assertTrue(exception.getMessage()
+                .contains(PropertyAnalyzer.ROW_TTL_SEQUENCE_COLUMN_CONFLICT));
     }
 
 }

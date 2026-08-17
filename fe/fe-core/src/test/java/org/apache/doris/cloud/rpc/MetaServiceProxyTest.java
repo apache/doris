@@ -26,6 +26,7 @@ import com.google.common.util.concurrent.SettableFuture;
 import com.google.protobuf.DescriptorProtos;
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.DynamicMessage;
+import io.grpc.Status;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -215,6 +216,47 @@ public class MetaServiceProxyTest {
         Assert.assertEquals(Cloud.MetaServiceCode.OK, result.getStatus().getCode());
         Assert.assertEquals(2, callCount.get());
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
+    }
+
+    @Test
+    public void testUnimplementedRetriesOnlyForRowTtlMethods() {
+        Config.meta_service_rpc_retry_cnt = 3;
+        MetaServiceProxy proxy = new MetaServiceProxy();
+        MetaServiceClient client = mockNormalClient();
+        putClient(proxy, client);
+        MetaServiceProxy.MetaServiceClientWrapper wrapper = Deencapsulation.getField(proxy, "w");
+
+        String[] rowTtlMethods = {
+                "getMetaServiceCapability",
+                "createTabletsRowTtl",
+                "updateTabletRowTtl",
+                "commitRowsetRowTtl",
+                "prepareRestoreJobRowTtl",
+                "commitRestoreJobRowTtl"
+        };
+        for (String methodName : rowTtlMethods) {
+            AtomicInteger callCount = new AtomicInteger();
+            try {
+                wrapper.<Cloud.GetVersionResponse>executeRequest(methodName, (ignored) -> {
+                    callCount.incrementAndGet();
+                    throw Status.UNIMPLEMENTED.asRuntimeException();
+                }, Cloud.GetVersionResponse::getStatus);
+                Assert.fail("should throw RpcException");
+            } catch (RpcException expected) {
+                Assert.assertEquals(3, callCount.get());
+            }
+        }
+
+        AtomicInteger genericCallCount = new AtomicInteger();
+        try {
+            wrapper.<Cloud.GetVersionResponse>executeRequest("createTablets", (ignored) -> {
+                genericCallCount.incrementAndGet();
+                throw Status.UNIMPLEMENTED.asRuntimeException();
+            }, Cloud.GetVersionResponse::getStatus);
+            Assert.fail("should throw RpcException");
+        } catch (RpcException expected) {
+            Assert.assertEquals(1, genericCallCount.get());
+        }
     }
 
     @Test

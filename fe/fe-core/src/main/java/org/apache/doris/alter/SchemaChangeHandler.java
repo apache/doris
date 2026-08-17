@@ -2315,6 +2315,9 @@ public class SchemaChangeHandler extends AlterHandler {
     public void process(String rawSql, List<AlterOp> alterOps, Database db,
                         OlapTable olapTable)
             throws UserException {
+        if (olapTable.isLegacyDirectRowTtl()) {
+            throw new DdlException(PropertyAnalyzer.ROW_TTL_DIRECT_NOT_SUPPORTED);
+        }
         olapTable.writeLockOrDdlException();
         try {
             olapTable.checkNormalStateForAlter();
@@ -2382,6 +2385,9 @@ public class SchemaChangeHandler extends AlterHandler {
                                     entry -> entry.getKey().startsWith(PropertyAnalyzer.PROPERTIES_SEQUENCE_MAPPING))
                             .forEach(entry -> sequenceMappingSettings.put(entry.getKey(), entry.getValue()));
                 }
+            }
+            if (olapTable.hasRowTtl() && !sequenceMappingSettings.isEmpty()) {
+                throw new DdlException(PropertyAnalyzer.ROW_TTL_SEQUENCE_COLUMN_CONFLICT);
             }
 
             for (AlterOp alterOp : alterOps) {

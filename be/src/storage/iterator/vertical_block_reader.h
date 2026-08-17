@@ -116,7 +116,9 @@ private:
 
     RowSourcesBuffer* _row_sources_buffer;
     VerticalCompactionContextStats* _context_stats;
-    ColumnPtr _delete_filter_column;
+    bool _filter_delete_sign = false;
+    bool _filter_row_ttl = false;
+    int64_t _row_ttl_now_us = 0;
 
     // for agg mode
     std::vector<AggregateFunctionPtr> _agg_functions;

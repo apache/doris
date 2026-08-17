@@ -46,6 +46,7 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.rpc.TCustomProtocolFactory;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.RowTtlFeatureGate;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -151,6 +152,9 @@ public class PointQueryExecutor implements CoordInterface {
             StatementContext statementContext) throws Exception {
         Preconditions.checkNotNull(preparedStmtCtx.shortCircuitQueryContext);
         ShortCircuitQueryContext shortCircuitQueryContext = preparedStmtCtx.shortCircuitQueryContext.get();
+        if (shortCircuitQueryContext.tbl.hasRowTtl()) {
+            RowTtlFeatureGate.ensureReadyForUse();
+        }
         // update conjuncts
         Map<String, Expr> colNameToConjunct = Maps.newHashMap();
         for (Entry<PlaceholderId, SlotReference> entry : statementContext.getIdToComparisonSlot().entrySet()) {
