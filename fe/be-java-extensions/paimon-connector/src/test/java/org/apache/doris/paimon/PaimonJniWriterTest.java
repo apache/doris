@@ -18,13 +18,19 @@
 package org.apache.doris.paimon;
 
 import org.apache.arrow.memory.OutOfMemoryException;
+import org.apache.paimon.memory.MemoryOwner;
+import org.apache.paimon.memory.MemoryPoolFactory;
+import org.apache.paimon.memory.MemorySegment;
+import org.apache.paimon.memory.MemorySegmentPool;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
 public class PaimonJniWriterTest {
 
@@ -87,6 +93,67 @@ public class PaimonJniWriterTest {
                 IllegalArgumentException.class,
                 () -> new DorisMemorySegmentPool(32 * 1024, 64 * 1024, 1L));
         Assertions.assertTrue(exception.getMessage().contains("at least one page"));
+    }
+
+    @Test
+    public void testManagedMemoryPoolWaitsOnlyAfterPaimonPreemption() {
+        int pageSize = 64 * 1024;
+        List<Boolean> waitModes = new ArrayList<>();
+        DorisMemorySegmentPool pool = new DorisMemorySegmentPool(
+                2L * pageSize, pageSize, 1L,
+                (manager, bytes, waitForMemory) -> {
+                    waitModes.add(waitForMemory);
+                    return waitForMemory ? ByteBuffer.allocateDirect(bytes) : null;
+                });
+        MemoryPoolFactory factory = new MemoryPoolFactory(pool);
+
+        class TestMemoryOwner implements MemoryOwner {
+            private final long occupancy;
+            private MemorySegmentPool memoryPool;
+            private boolean flushed;
+
+            private TestMemoryOwner(long occupancy) {
+                this.occupancy = occupancy;
+            }
+
+            @Override
+            public void setMemoryPool(MemorySegmentPool memoryPool) {
+                this.memoryPool = memoryPool;
+            }
+
+            @Override
+            public long memoryOccupancy() {
+                return occupancy;
+            }
+
+            @Override
+            public void flushMemory() {
+                flushed = true;
+            }
+        }
+
+        TestMemoryOwner requestor = new TestMemoryOwner(0);
+        TestMemoryOwner preempted = new TestMemoryOwner(pageSize);
+        factory.addOwners(List.of(requestor, preempted));
+        factory.notifyNewOwner(requestor);
+
+        MemorySegment segment = requestor.memoryPool.nextSegment();
+        Assertions.assertNull(segment);
+        Assertions.assertTrue(preempted.flushed);
+        Assertions.assertEquals(1, factory.bufferPreemptCount());
+        Assertions.assertEquals(List.of(false, false), waitModes);
+
+        pool.waitForMemoryIfNeeded();
+        Assertions.assertEquals(List.of(false, false, true), waitModes);
+
+        segment = requestor.memoryPool.nextSegment();
+        Assertions.assertNotNull(segment);
+        Assertions.assertEquals(1, requestor.memoryPool.freePages());
+
+        requestor.memoryPool.returnAll(Collections.singletonList(segment));
+        Assertions.assertEquals(2, requestor.memoryPool.freePages());
+        Assertions.assertSame(segment, requestor.memoryPool.nextSegment());
+        Assertions.assertEquals(List.of(false, false, true), waitModes);
     }
 
     @Test

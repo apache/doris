@@ -56,13 +56,18 @@ public:
     /// Register the static JNI callback used by PaimonJniWriter.
     static Status register_natives(JNIEnv* env, jclass writer_class);
 
-    /// Allocate one native page and return it as a direct ByteBuffer.
+    /// Try to allocate one native page and return it as a direct ByteBuffer.
     ///
-    /// On failure this method leaves no accounting entry behind and reports
-    /// the error through the JNI environment.  The returned buffer remains
-    /// valid until the manager is destroyed (or allocation of that page is
-    /// rolled back because NewDirectByteBuffer failed).
-    jobject allocate_page(JNIEnv* env, jint bytes);
+    /// If wait_for_memory is false, reservation pressure returns null without
+    /// raising a JNI exception so Paimon can run its normal owner-preemption
+    /// and spill paths. Java requests blocking allocation only at a safe write
+    /// boundary after those paths complete. Workload-group or process pressure
+    /// then waits until memory is available or the query is cancelled, while a
+    /// query hard-limit failure is reported immediately. Other failures leave
+    /// no accounting entry behind and are reported through the JNI environment.
+    /// The returned buffer remains valid until the manager is destroyed (or
+    /// allocation of that page is rolled back because NewDirectByteBuffer failed).
+    jobject allocate_page(JNIEnv* env, jint bytes, bool wait_for_memory);
 
     /// Return the immutable per-writer native page budget in bytes.
     int64_t memory_limit() const;

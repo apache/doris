@@ -102,6 +102,7 @@ public class PaimonJniWriter {
     private final PaimonCommitCodec commitCodec = new PaimonCommitCodec();
 
     private BufferAllocator allocator;
+    private DorisMemorySegmentPool memorySegmentPool;
     private PreExecutionAuthenticator preExecutionAuthenticator;
     private PaimonArrowConverter arrowConverter;
 
@@ -300,6 +301,7 @@ public class PaimonJniWriter {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             return preExecutionAuthenticator.execute(() -> {
                 try {
+                    memorySegmentPool.waitForMemoryIfNeeded();
                     List<CommitMessage> messages = prepareCommitMessages();
                     if (messages.isEmpty()) {
                         LOG.info("PaimonJniWriter prepareCommit: empty");
@@ -400,9 +402,8 @@ public class PaimonJniWriter {
                 memoryPoolLimitBytes, coreOptions.writeBufferSize(), pageSize);
         allocator = new RootAllocator(budget.arrowHeadroomBytes);
         arrowMemoryLimitBytes = budget.arrowHeadroomBytes;
-        DorisMemorySegmentPool memorySegmentPool =
-                new DorisMemorySegmentPool(
-                        budget.paimonPageBudgetBytes, pageSize, nativeMemoryManager);
+        memorySegmentPool = new DorisMemorySegmentPool(
+                budget.paimonPageBudgetBytes, pageSize, nativeMemoryManager);
         MemoryPoolFactory memoryPoolFactory = new MemoryPoolFactory(memorySegmentPool);
         writer.withMemoryPoolFactory(memoryPoolFactory);
         paimonPageMemoryLimitBytes = memoryPoolFactory.totalBufferSize();
@@ -529,6 +530,7 @@ public class PaimonJniWriter {
     }
 
     private void writeRow(InternalRow row) throws Exception {
+        memorySegmentPool.waitForMemoryIfNeeded();
         if (!fullCompactionChangelog) {
             writer.write(row);
             return;
@@ -538,6 +540,7 @@ public class PaimonJniWriter {
     }
 
     private void writeRow(InternalRow row, int bucket) throws Exception {
+        memorySegmentPool.waitForMemoryIfNeeded();
         if (!fullCompactionChangelog) {
             writer.write(row, bucket);
             return;
@@ -794,7 +797,8 @@ public class PaimonJniWriter {
         }
     }
 
-    static native ByteBuffer allocatePaimonMemoryPage(long nativeMemoryManager, int bytes);
+    static native ByteBuffer allocatePaimonMemoryPage(
+            long nativeMemoryManager, int bytes, boolean waitForMemory);
 
     private static class PartitionBucket {
         private final BinaryRow partition;
