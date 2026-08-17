@@ -270,6 +270,56 @@ public class PaimonScanPlanProviderTest {
         }
     }
 
+    @Test
+    public void planScanPushesLimitIntoPaimonSplitPlanning(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "limited");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("pt", DataTypes.INT())
+                    .partitionKeys("pt")
+                    .primaryKey("id", "pt")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 1));
+                write.write(GenericRow.of(2, 2));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "limited", Collections.emptyList(), Collections.emptyList());
+            ConnectorSession session = sessionWithProps(Collections.emptyMap());
+
+            List<ConnectorScanRange> unlimited = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle, Collections.emptyList()).build());
+            List<ConnectorScanRange> limited = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle, Collections.emptyList()).limit(1).build());
+            List<ConnectorScanRange> oversized = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle, Collections.emptyList())
+                            .limit((long) Integer.MAX_VALUE + 1)
+                            .build());
+
+            Assertions.assertTrue(unlimited.size() >= 2,
+                    "fixture must plan at least one split for each partition");
+            Assertions.assertEquals(1, limited.size(),
+                    "LIMIT 1 must let Paimon stop split planning after enough rows are covered");
+            Assertions.assertEquals(unlimited.size(), oversized.size(),
+                    "a Doris limit wider than Paimon's int must not be narrowed during split planning");
+        }
+    }
+
     /** Builds a native-eligible RawFile (parquet suffix). The numeric fields are irrelevant to the
      * native-vs-JNI routing decision under test, only the path suffix matters. */
     private static RawFile parquetRawFile(String path) {

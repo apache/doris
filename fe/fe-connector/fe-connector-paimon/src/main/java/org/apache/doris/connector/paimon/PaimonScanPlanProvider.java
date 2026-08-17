@@ -475,14 +475,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * The scan entry. Of everything on the request, paimon consumes the handle, the columns, the filter and
-     * the no-grouping {@code COUNT(*)} signal (FIX-COUNT-PUSHDOWN, which lets a split answer from its
-     * precomputed merged row count); the row limit and the pruned partition set are not consumed by the
-     * paimon read path — it is predicate-driven and re-plans through the SDK from the filter.
+     * the row limit, and the no-grouping {@code COUNT(*)} signal (FIX-COUNT-PUSHDOWN, which lets a split
+     * answer from its precomputed merged row count); the pruned partition set is not consumed by the paimon
+     * read path — it is predicate-driven and re-plans through the SDK from the filter.
      */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         return planScanInternal(session, request.getTableHandle(), request.getColumns(),
-                request.getFilter(), request.isCountPushdown());
+                request.getFilter(), request.getLimit(), request.isCountPushdown());
     }
 
     /**
@@ -593,6 +593,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter,
+            long limit,
             boolean countPushdown) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
@@ -663,6 +664,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
         if (projected.length > 0) {
             readBuilder.withProjection(projected);
+        }
+        if (limit > 0 && limit <= Integer.MAX_VALUE) {
+            // Paimon's limit is an int and may prune whole splits; never narrow a larger Doris limit,
+            // because doing so could omit rows before the engine applies its authoritative long limit.
+            readBuilder.withLimit((int) limit);
         }
         TableScan scan = readBuilder.newScan();
         // FIX-SCAN-METRICS: attach a metric registry so scan.plan() records its ScanMetrics (manifest cache
