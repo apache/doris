@@ -11,8 +11,9 @@ PhysicalResultSink
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF1 o_orderkey->l_orderkey
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
+----------------------hashAgg[GLOBAL]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
 ----------------------hashJoin[LEFT_SEMI_JOIN colocated] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=() build RFs:RF0 l_orderkey->o_orderkey
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[orders] apply RFs: RF0 RF2
