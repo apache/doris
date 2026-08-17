@@ -36,6 +36,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "common/config.h"
@@ -235,6 +236,16 @@ std::vector<OutRow> drain(BlockReader& reader, Status (BlockReader::*fn)(Block*,
     return result;
 }
 
+void expect_out_rows(const std::vector<OutRow>& actual, const std::vector<OutRow>& expected) {
+    ASSERT_EQ(actual.size(), expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        SCOPED_TRACE(i);
+        EXPECT_EQ(actual[i].key, expected[i].key);
+        EXPECT_EQ(actual[i].val, expected[i].val);
+        EXPECT_EQ(actual[i].op, expected[i].op);
+    }
+}
+
 } // namespace
 
 class BlockReaderChangeNextBlockTest : public testing::Test {
@@ -337,30 +348,157 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatesReturningToOriginalAreSkip
     EXPECT_TRUE(out.empty());
 }
 
+// Exercise long operation chains where intermediate rows repeatedly change existence and value.
+// MIN_DELTA must preserve only the net state transition across the whole key window.
+TEST_F(BlockReaderChangeNextBlockTest, MinDeltaComplexOperationChains) {
+    struct TestCase {
+        std::string_view name;
+        std::vector<Row> rows;
+        std::vector<OutRow> expected;
+        size_t batch_size;
+    };
+    const std::vector<TestCase> test_cases = {
+            {
+                    "insert_delete_reinsert_update_back_delete",
+                    {
+                            {1, 1, 0, 1, 1, ROW_BINLOG_APPEND},
+                            {1, 1, 1, 2, 2, ROW_BINLOG_DELETE},
+                            {1, 1, 0, 3, 3, ROW_BINLOG_APPEND},
+                            {1, 2, 1, 4, 4, ROW_BINLOG_UPDATE},
+                            {1, 3, 2, 5, 5, ROW_BINLOG_UPDATE},
+                            {1, 1, 3, 6, 6, ROW_BINLOG_UPDATE},
+                            {1, 1, 1, 7, 7, ROW_BINLOG_DELETE},
+                    },
+                    {},
+                    1,
+            },
+            {
+                    "existing_row_delete_reinsert_and_return_to_original",
+                    {
+                            {1, 2, 1, 1, 1, ROW_BINLOG_UPDATE},
+                            {1, 2, 2, 2, 2, ROW_BINLOG_DELETE},
+                            {1, 2, 0, 3, 3, ROW_BINLOG_APPEND},
+                            {1, 3, 2, 4, 4, ROW_BINLOG_UPDATE},
+                            {1, 1, 3, 5, 5, ROW_BINLOG_UPDATE},
+                    },
+                    {},
+                    2,
+            },
+            {
+                    "existing_row_delete_reinsert_and_finish_changed",
+                    {
+                            {1, 2, 1, 1, 1, ROW_BINLOG_UPDATE},
+                            {1, 2, 2, 2, 2, ROW_BINLOG_DELETE},
+                            {1, 2, 0, 3, 3, ROW_BINLOG_APPEND},
+                            {1, 3, 2, 4, 4, ROW_BINLOG_UPDATE},
+                            {1, 4, 3, 5, 5, ROW_BINLOG_UPDATE},
+                    },
+                    {
+                            {1, 1, binlog::STREAM_CHANGE_UPDATE_BEFORE},
+                            {1, 4, binlog::STREAM_CHANGE_UPDATE_AFTER},
+                    },
+                    1,
+            },
+            {
+                    "new_row_temporarily_deleted_but_finishes_present",
+                    {
+                            {1, 1, 0, 1, 1, ROW_BINLOG_APPEND},
+                            {1, 2, 1, 2, 2, ROW_BINLOG_UPDATE},
+                            {1, 2, 2, 3, 3, ROW_BINLOG_DELETE},
+                            {1, 5, 0, 4, 4, ROW_BINLOG_APPEND},
+                            {1, 6, 5, 5, 5, ROW_BINLOG_UPDATE},
+                    },
+                    {
+                            {1, 6, binlog::STREAM_CHANGE_INSERT},
+                    },
+                    1,
+            },
+            {
+                    "existing_row_temporarily_reinserted_but_finishes_deleted",
+                    {
+                            {1, 2, 1, 1, 1, ROW_BINLOG_UPDATE},
+                            {1, 2, 2, 2, 2, ROW_BINLOG_DELETE},
+                            {1, 3, 0, 3, 3, ROW_BINLOG_APPEND},
+                            {1, 4, 3, 4, 4, ROW_BINLOG_UPDATE},
+                            {1, 4, 4, 5, 5, ROW_BINLOG_DELETE},
+                    },
+                    {
+                            {1, 1, binlog::STREAM_CHANGE_DELETE},
+                    },
+                    1,
+            },
+            {
+                    "delete_reinsert_update_and_return_to_original",
+                    {
+                            {1, 1, 1, 1, 1, ROW_BINLOG_DELETE},
+                            {1, 1, 0, 2, 2, ROW_BINLOG_APPEND},
+                            {1, 2, 1, 3, 3, ROW_BINLOG_UPDATE},
+                            {1, 1, 2, 4, 4, ROW_BINLOG_UPDATE},
+                    },
+                    {},
+                    1,
+            },
+    };
+
+    for (const auto& test_case : test_cases) {
+        SCOPED_TRACE(test_case.name);
+        auto source = make_source_block(test_case.rows);
+        BlockReader reader;
+        configure_reader(reader, source, test_case.batch_size);
+
+        auto out = drain(reader, &BlockReader::_min_delta_next_block);
+        expect_out_rows(out, test_case.expected);
+    }
+}
+
 // Build a source block with a second value column that is present in the physical MIN_DELTA
 // projection but absent from the SQL output projection.
-std::shared_ptr<Block> make_two_value_source_block(int64_t val1, int64_t before_val1, int64_t val2,
-                                                   int64_t before_val2) {
+struct TwoValueRow {
+    int64_t key;
+    int64_t val1;
+    int64_t val2;
+    int64_t before_val1;
+    int64_t before_val2;
+    int64_t tso;
+    int64_t lsn;
+    int64_t op;
+};
+
+std::shared_ptr<Block> make_two_value_source_block(const std::vector<TwoValueRow>& rows) {
     auto block = std::make_shared<Block>();
     auto type = std::make_shared<DataTypeInt64>();
-    auto add = [&](int64_t value, const std::string& name) {
-        auto column = ColumnInt64::create();
-        column->insert_value(value);
-        block->insert({std::move(column), type, name});
-    };
-    add(1, "key");
-    add(val1, "val");
-    add(val2, "val2");
-    add(before_val1, binlog::build_before_column_name("val"));
-    add(before_val2, binlog::build_before_column_name("val2"));
-    add(1, BINLOG_TSO_COL);
-    add(1, BINLOG_LSN_COL);
-    add(ROW_BINLOG_UPDATE, BINLOG_OP_COL);
+    auto key_col = ColumnInt64::create();
+    auto val1_col = ColumnInt64::create();
+    auto val2_col = ColumnInt64::create();
+    auto before_val1_col = ColumnInt64::create();
+    auto before_val2_col = ColumnInt64::create();
+    auto tso_col = ColumnInt64::create();
+    auto lsn_col = ColumnInt64::create();
+    auto op_col = ColumnInt64::create();
+    for (const auto& row : rows) {
+        key_col->insert_value(row.key);
+        val1_col->insert_value(row.val1);
+        val2_col->insert_value(row.val2);
+        before_val1_col->insert_value(row.before_val1);
+        before_val2_col->insert_value(row.before_val2);
+        tso_col->insert_value(row.tso);
+        lsn_col->insert_value(row.lsn);
+        op_col->insert_value(row.op);
+    }
+    block->insert({std::move(key_col), type, "key"});
+    block->insert({std::move(val1_col), type, "val"});
+    block->insert({std::move(val2_col), type, "val2"});
+    block->insert({std::move(before_val1_col), type, binlog::build_before_column_name("val")});
+    block->insert({std::move(before_val2_col), type, binlog::build_before_column_name("val2")});
+    block->insert({std::move(tso_col), type, BINLOG_TSO_COL});
+    block->insert({std::move(lsn_col), type, BINLOG_LSN_COL});
+    block->insert({std::move(op_col), type, BINLOG_OP_COL});
     return block;
 }
 
-void configure_two_value_reader(BlockReader& reader, std::shared_ptr<Block> source) {
-    configure_reader(reader, source, 16);
+void configure_two_value_reader(BlockReader& reader, std::shared_ptr<Block> source,
+                                size_t batch_size = 16) {
+    configure_reader(reader, source, batch_size);
     // Return key/val1/before-val1/meta only. val2 and before-val2 remain available internally
     // at physical positions 2 and 4, with no target output position.
     reader._normal_columns_idx = {0, 1, 3, 5, 6, 7};
@@ -368,8 +506,10 @@ void configure_two_value_reader(BlockReader& reader, std::shared_ptr<Block> sour
 }
 
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpUpdateComparesAllValueColumns) {
-    auto source = make_two_value_source_block(/*val1=*/20, /*before_val1=*/20, /*val2=*/30,
-                                              /*before_val2=*/30);
+    auto source = make_two_value_source_block({
+            {/*key=*/1, /*val1=*/20, /*val2=*/30, /*before_val1=*/20, /*before_val2=*/30,
+             /*tso=*/1, /*lsn=*/1, ROW_BINLOG_UPDATE},
+    });
     BlockReader reader;
     configure_two_value_reader(reader, source);
 
@@ -378,8 +518,10 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpUpdateComparesAllValueColumns
 }
 
 TEST_F(BlockReaderChangeNextBlockTest, MinDeltaRetainsChangeInUnprojectedValueColumn) {
-    auto source = make_two_value_source_block(/*val1=*/20, /*before_val1=*/20, /*val2=*/31,
-                                              /*before_val2=*/30);
+    auto source = make_two_value_source_block({
+            {/*key=*/1, /*val1=*/20, /*val2=*/31, /*before_val1=*/20, /*before_val2=*/30,
+             /*tso=*/1, /*lsn=*/1, ROW_BINLOG_UPDATE},
+    });
     BlockReader reader;
     configure_two_value_reader(reader, source);
 
@@ -389,6 +531,28 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaRetainsChangeInUnprojectedValueCo
     EXPECT_EQ(out[1].op, binlog::STREAM_CHANGE_UPDATE_AFTER);
     EXPECT_EQ(out[0].val, 20);
     EXPECT_EQ(out[1].val, 20);
+}
+
+// key 1 changes both columns several times and returns to its complete original row image, so it
+// disappears. key 2 returns only the projected value column to its original value while the hidden
+// value column remains changed, so its UPDATE pair must survive. batch_size=1 also forces the pair
+// through the pending-row path after the skipped key.
+TEST_F(BlockReaderChangeNextBlockTest, MinDeltaComplexMultiColumnChains) {
+    auto source = make_two_value_source_block({
+            {1, 11, 100, 10, 100, 1, 1, ROW_BINLOG_UPDATE},
+            {1, 11, 101, 11, 100, 2, 2, ROW_BINLOG_UPDATE},
+            {1, 10, 100, 11, 101, 3, 3, ROW_BINLOG_UPDATE},
+            {2, 21, 200, 20, 200, 4, 4, ROW_BINLOG_UPDATE},
+            {2, 20, 201, 21, 200, 5, 5, ROW_BINLOG_UPDATE},
+    });
+    BlockReader reader;
+    configure_two_value_reader(reader, source, /*batch_size=*/1);
+
+    auto out = drain(reader, &BlockReader::_min_delta_next_block);
+    expect_out_rows(out, {
+                                 {2, 20, binlog::STREAM_CHANGE_UPDATE_BEFORE},
+                                 {2, 20, binlog::STREAM_CHANGE_UPDATE_AFTER},
+                         });
 }
 
 // Multiple distinct keys, each in its own group, are folded independently.
