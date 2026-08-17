@@ -31,6 +31,7 @@ import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
@@ -43,6 +44,8 @@ import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.utframe.TestWithFeService;
@@ -62,6 +65,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class ConstraintTest extends TestWithFeService implements PlanPatternMatchSupported {
 
@@ -142,6 +146,49 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
                 logicalOlapScan().when(o -> getConstraintMgr()
                         .getConstraints(tableNameInfoOf(o.getTable())).isEmpty()));
+    }
+
+    @Test
+    void constraintJournalWaitHappensAfterTableUnlock() throws Exception {
+        Env env = Env.getCurrentEnv();
+        EditLog originalEditLog = env.getEditLog();
+        EditLog blockedEditLog = Mockito.mock(EditLog.class);
+        EditLog.EditLogItem logItem = Mockito.mock(EditLog.EditLogItem.class);
+        TableIf table = Env.getCurrentInternalCatalog()
+                .getDbOrDdlException("test").getTableOrDdlException("t1");
+        AtomicInteger submitted = new AtomicInteger();
+        Mockito.when(blockedEditLog.submitEdit(
+                        Mockito.anyShort(), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    short op = invocation.getArgument(0);
+                    Assertions.assertTrue(op == OperationType.OP_ADD_CONSTRAINT
+                            || op == OperationType.OP_DROP_CONSTRAINT);
+                    Assertions.assertTrue(table.isWriteLockHeldByCurrentThread());
+                    submitted.incrementAndGet();
+                    return logItem;
+                });
+        Mockito.when(logItem.await()).thenAnswer(invocation -> {
+            Assertions.assertFalse(table.isWriteLockHeldByCurrentThread());
+            return 1L;
+        });
+
+        Deencapsulation.setField(env, "editLog", blockedEditLog);
+        try {
+            ((AddConstraintCommand) new NereidsParser().parseSingle(
+                    "alter table t1 add constraint journal_pk primary key (k1)"))
+                    .run(connectContext, null);
+            ((DropConstraintCommand) new NereidsParser().parseSingle(
+                    "alter table t1 drop constraint journal_pk"))
+                    .run(connectContext, null);
+        } finally {
+            Deencapsulation.setField(env, "editLog", originalEditLog);
+            getConstraintMgr().dropConstraint(
+                    new TableNameInfo("internal", "test", "t1"),
+                    "journal_pk", true);
+        }
+
+        Assertions.assertEquals(2, submitted.get());
+        Mockito.verify(logItem, Mockito.times(2)).await();
     }
 
     @Test

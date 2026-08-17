@@ -56,6 +56,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -485,6 +486,48 @@ class ConstraintPersistTest extends TestWithFeService implements PlanPatternMatc
                 + "drop constraint no_cache_pk");
         Assertions.assertNull(
                 manager.getConstraint(tableNameInfo, "no_cache_pk"));
+    }
+
+    @Test
+    void externalDropUsesPersistedCanonicalNameWithoutMetadataCache() throws Exception {
+        Config.edit_log_type = "local";
+        FeConstants.runningUnitTest = true;
+        createCatalog("create catalog extCaseNoCache properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"use_meta_cache\" = \"false\",\n"
+                + "    \"lower_case_table_names\" = \"2\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\""
+                + ");");
+
+        TableNameInfo canonicalName =
+                new TableNameInfo("extCaseNoCache", "db1", "Table_A");
+        ConstraintManager manager = Env.getCurrentEnv().getConstraintManager();
+        manager.addConstraint(canonicalName, "case_pk",
+                new PrimaryKeyConstraint("case_pk", Set.of("a11")), true);
+
+        dropConstraint("alter table extCaseNoCache.db1.table_a "
+                + "drop constraint case_pk");
+
+        Assertions.assertNull(manager.getConstraint(canonicalName, "case_pk"));
+
+        createCatalog("create catalog extLowerMetaNoCache properties(\n"
+                + "    \"type\" = \"test\",\n"
+                + "    \"use_meta_cache\" = \"false\",\n"
+                + "    \"lower_case_meta_names\" = \"true\",\n"
+                + "    \"catalog_provider.class\" "
+                + "= \"org.apache.doris.datasource.RefreshCatalogTest$RefreshCatalogProvider\""
+                + ");");
+        TableNameInfo lowerMetaCanonicalName =
+                new TableNameInfo("extLowerMetaNoCache", "db1", "table_a");
+        manager.addConstraint(lowerMetaCanonicalName, "lower_meta_pk",
+                new PrimaryKeyConstraint("lower_meta_pk", Set.of("a11")), true);
+
+        dropConstraint("alter table extLowerMetaNoCache.DB1.TABLE_A "
+                + "drop constraint lower_meta_pk");
+
+        Assertions.assertNull(
+                manager.getConstraint(lowerMetaCanonicalName, "lower_meta_pk"));
     }
 
     @Test

@@ -49,6 +49,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.OperationType;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -63,6 +64,7 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.InOrder;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -563,21 +565,43 @@ public class RestoreJobTest {
     }
 
     @Test
-    public void testAtomicRestoreWritesFinishedJournalUnderDatabaseLock() {
+    public void testAtomicRestoreAwaitsFinishedJournalAfterDatabaseUnlock() throws Exception {
         Mockito.when(env.getConstraintManager()).thenReturn(new ConstraintManager());
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
         jobInfo.backupOlapTableObjects.clear();
         Deencapsulation.setField(job, "isAtomicRestore", true);
+        Deencapsulation.setField(job, "isCleanTables", true);
         com.google.common.collect.Table<Long, Long, SnapshotInfo> snapshotInfos =
                 HashBasedTable.create();
         snapshotInfos.put(1L, 2L,
                 new SnapshotInfo(db.getId(), 3L, 4L, 5L, 2L,
                         1L, 6, "/snapshot", ImmutableList.of()));
         Deencapsulation.setField(job, "snapshotInfos", snapshotInfos);
-        Mockito.doAnswer(invocation -> {
-            Assert.assertTrue(db.isWriteLockHeldByCurrentThread());
-            return null;
-        }).when(editLog).logRestoreJob(job);
+        EditLog.EditLogItem cleanLogItem = Mockito.mock(EditLog.EditLogItem.class);
+        EditLog.EditLogItem logItem = Mockito.mock(EditLog.EditLogItem.class);
+        Mockito.when(catalog.dropTableWithoutCheckAndSubmit(
+                        Mockito.same(db), Mockito.any(Table.class),
+                        Mockito.anyBoolean(), Mockito.anyBoolean()))
+                .thenAnswer(invocation -> {
+                    Assert.assertTrue(db.isWriteLockHeldByCurrentThread());
+                    return cleanLogItem;
+                });
+        Mockito.when(editLog.submitEdit(
+                        Mockito.eq(OperationType.OP_RESTORE_JOB), Mockito.same(job)))
+                .thenAnswer(invocation -> {
+                    Assert.assertTrue(db.isWriteLockHeldByCurrentThread());
+                    return logItem;
+                });
+        Mockito.when(cleanLogItem.await()).thenAnswer(invocation -> {
+            Assert.assertFalse(db.isWriteLockHeldByCurrentThread());
+            return 1L;
+        });
+        Mockito.when(logItem.await()).thenAnswer(invocation -> {
+            Assert.assertFalse(db.isWriteLockHeldByCurrentThread());
+            Assert.assertNotEquals(RestoreJob.RestoreJobState.FINISHED,
+                    Deencapsulation.getField(job, "showState"));
+            return 1L;
+        });
 
         Status status;
         try (MockedStatic<AgentTaskExecutor> agentTaskExecutor =
@@ -594,6 +618,19 @@ public class RestoreJobTest {
         }
 
         Assert.assertTrue(status.ok());
-        Mockito.verify(editLog).logRestoreJob(job);
+        Assert.assertEquals(RestoreJob.RestoreJobState.FINISHED,
+                Deencapsulation.getField(job, "showState"));
+        Mockito.verify(catalog, Mockito.atLeastOnce()).dropTableWithoutCheckAndSubmit(
+                Mockito.same(db), Mockito.any(Table.class),
+                Mockito.anyBoolean(), Mockito.anyBoolean());
+        Mockito.verify(editLog).submitEdit(
+                OperationType.OP_RESTORE_JOB, job);
+        InOrder journalOrder = Mockito.inOrder(catalog, editLog, cleanLogItem, logItem);
+        journalOrder.verify(catalog, Mockito.atLeastOnce()).dropTableWithoutCheckAndSubmit(
+                Mockito.same(db), Mockito.any(Table.class),
+                Mockito.anyBoolean(), Mockito.anyBoolean());
+        journalOrder.verify(editLog).submitEdit(OperationType.OP_RESTORE_JOB, job);
+        journalOrder.verify(cleanLogItem, Mockito.atLeastOnce()).await();
+        journalOrder.verify(logItem).await();
     }
 }

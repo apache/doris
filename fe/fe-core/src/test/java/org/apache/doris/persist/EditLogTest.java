@@ -17,89 +17,68 @@
 
 package org.apache.doris.persist;
 
-import org.junit.Test;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.journal.Journal;
+import org.apache.doris.journal.JournalBatch;
 
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
+import org.junit.Assert;
+import org.junit.Test;
+import org.mockito.Mockito;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class EditLogTest {
-    private String meta = "editLogTestDir/";
-
-    public void mkdir() {
-        File dir = new File(meta);
-        if (!dir.exists()) {
-            dir.mkdir();
-        } else {
-            File[] files = dir.listFiles();
-            for (File file : files) {
-                if (file.isFile()) {
-                    file.delete();
-                }
-            }
-        }
-    }
-
-    public void addFiles(int image, int edit) {
-        File imageFile = new File(meta + "image." + image);
+    @Test
+    public void testTimestampUsesQueueWhenBatchEditLogDisabled() {
+        boolean original = Config.enable_batch_editlog;
         try {
-            imageFile.createNewFile();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+            Config.enable_batch_editlog = false;
+            Assert.assertTrue(EditLog.shouldUseQueue(OperationType.OP_TIMESTAMP));
+            Assert.assertTrue(EditLog.requiresDirectJournalWrite(OperationType.OP_TIMESTAMP));
+            Assert.assertTrue(EditLog.shouldUseQueue(OperationType.OP_ADD_CONSTRAINT));
+            Assert.assertFalse(EditLog.requiresDirectJournalWrite(OperationType.OP_ADD_CONSTRAINT));
 
-        for (int i = 1; i <= edit; i++) {
-            File editFile = new File(meta + "edits." + i);
-            try {
-                editFile.createNewFile();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-
-        File current = new File(meta + "edits");
-        try {
-            current.createNewFile();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        File version = new File(meta + "VERSION");
-        try {
-            version.createNewFile();
-            String line1 = "#Mon Feb 02 13:59:54 CST 2015\n";
-            String line2 = "clusterId=966271669";
-            FileWriter fw = new FileWriter(version);
-            fw.write(line1);
-            fw.write(line2);
-            fw.flush();
-            fw.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public void deleteDir() {
-        File dir = new File(meta);
-        if (dir.exists()) {
-            File[] files = dir.listFiles();
-            for (File file : files) {
-                if (file.isFile()) {
-                    file.delete();
-                }
-            }
-
-            dir.delete();
+            Config.enable_batch_editlog = true;
+            Assert.assertFalse(EditLog.shouldUseQueue(OperationType.OP_TIMESTAMP));
+            Assert.assertTrue(EditLog.shouldUseQueue(OperationType.OP_ADD_CONSTRAINT));
+        } finally {
+            Config.enable_batch_editlog = original;
         }
     }
 
     @Test
-    public void testWriteLog() throws IOException {
+    public void testQueuedTimestampSplitsJournalBatchInFifoOrder() throws Exception {
+        Journal journal = Mockito.mock(Journal.class);
+        AtomicLong nextLogId = new AtomicLong(10);
+        List<String> writes = new ArrayList<>();
+        Mockito.when(journal.write(Mockito.any(JournalBatch.class))).thenAnswer(invocation -> {
+            JournalBatch batch = invocation.getArgument(0);
+            List<JournalBatch.Entity> entities = batch.getJournalEntities();
+            writes.add("batch:" + entities.get(0).getOpCode());
+            return nextLogId.getAndAdd(entities.size());
+        });
+        Mockito.when(journal.write(
+                        Mockito.eq(OperationType.OP_TIMESTAMP), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    writes.add("timestamp");
+                    return nextLogId.getAndIncrement();
+                });
 
-    }
+        List<EditLog.EditLogItem> requests = List.of(
+                new EditLog.EditLogItem(OperationType.OP_ADD_CONSTRAINT, new Text("add")),
+                new EditLog.EditLogItem(OperationType.OP_TIMESTAMP, new Text("timestamp")),
+                new EditLog.EditLogItem(OperationType.OP_DROP_CONSTRAINT, new Text("drop")));
+        List<long[]> logIdNumPairs = EditLog.writeJournalBatch(journal, requests);
 
-    @Test
-    public void test() {
-
+        Assert.assertEquals(List.of(
+                "batch:" + OperationType.OP_ADD_CONSTRAINT,
+                "timestamp",
+                "batch:" + OperationType.OP_DROP_CONSTRAINT), writes);
+        Assert.assertArrayEquals(new long[]{10, 1}, logIdNumPairs.get(0));
+        Assert.assertArrayEquals(new long[]{11, 1}, logIdNumPairs.get(1));
+        Assert.assertArrayEquals(new long[]{12, 1}, logIdNumPairs.get(2));
     }
 }

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -65,6 +66,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -373,6 +375,41 @@ class RequestPropertyDeriverTest {
         List<List<PhysicalProperties>> expressionGroupByRequests = new RequestPropertyDeriver(
                 testConnectContext, parentProperties).getRequestChildrenPropertyList(expressionGroupBy);
         Assertions.assertEquals(ImmutableList.of(ImmutableList.of(originalRequest)), expressionGroupByRequests);
+    }
+
+    @Test
+    void testAggregateRemapsColocateMappingRequestThroughWideningVarcharCast() {
+        ConnectContext testConnectContext = MemoTestUtils.createConnectContext();
+        testConnectContext.getSessionVariable().enableColocateMappingConstraint = true;
+        SlotReference determinant = new SlotReference("determinant", new VarcharType(8));
+        Alias widenedOutput =
+                new Alias(new Cast(determinant, new VarcharType(32)), "widened_determinant");
+        AggregateParam aggregateParam =
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                Lists.newArrayList(determinant),
+                Lists.newArrayList(widenedOutput),
+                Optional.of(Lists.newArrayList(determinant)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+        GroupExpression groupExpression = new GroupExpression(aggregate);
+        new Group(null, groupExpression, null);
+        PhysicalProperties parentProperties = PhysicalProperties.createHash(
+                Lists.newArrayList(widenedOutput.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE);
+
+        List<List<PhysicalProperties>> requests = new RequestPropertyDeriver(
+                testConnectContext, parentProperties)
+                .getRequestChildrenPropertyList(groupExpression);
+
+        Assertions.assertEquals(
+                PhysicalProperties.createHash(
+                        Lists.newArrayList(determinant.getExprId()),
+                        ShuffleType.COLOCATE_MAPPING_REQUIRE),
+                requests.get(0).get(0));
     }
 
     @Test

@@ -30,6 +30,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.AlterConstraintLog;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
@@ -106,12 +108,16 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      */
     public void addConstraint(TableNameInfo tableNameInfo, String constraintName,
             Constraint constraint, boolean replay) {
-        addConstraint(tableNameInfo, constraintName, constraint, null, null, replay);
+        EditLog.EditLogItem logItem = addConstraint(
+                tableNameInfo, constraintName, constraint, null, null, replay);
+        awaitEditLog(logItem);
     }
 
-    private void addConstraint(TableNameInfo tableNameInfo, String constraintName,
-            Constraint constraint, TableIf resolvedTable, TableIf resolvedReferencedTable, boolean replay) {
+    private EditLog.EditLogItem addConstraint(TableNameInfo tableNameInfo, String constraintName,
+            Constraint constraint, TableIf resolvedTable, TableIf resolvedReferencedTable,
+            boolean replay) {
         String key = toKey(tableNameInfo);
+        EditLog.EditLogItem logItem = null;
         writeLock();
         try {
             TableIf table = null;
@@ -138,12 +144,13 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                 putTableLocalConstraint(table, constraintName, constraint);
             }
             if (!replay) {
-                logAddConstraint(tableNameInfo, constraint);
+                logItem = submitAddConstraint(tableNameInfo, constraint);
             }
             LOG.info("Added constraint {} on table {}", constraintName, key);
         } finally {
             writeUnlock();
         }
+        return logItem;
     }
 
     /**
@@ -153,9 +160,10 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      * existence was established by Nereids analysis before locking; internal table identities are
      * then revalidated before this method is called.</p>
      */
-    public void addConstraintWithResolvedTables(TableNameInfo tableNameInfo, String constraintName,
+    public EditLog.EditLogItem addConstraintWithResolvedTables(TableNameInfo tableNameInfo, String constraintName,
             Constraint constraint, TableIf table, TableIf referencedTable) {
-        addConstraint(tableNameInfo, constraintName, constraint, table, referencedTable, false);
+        return addConstraint(
+                tableNameInfo, constraintName, constraint, table, referencedTable, false);
     }
 
     /**
@@ -183,16 +191,22 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
      */
     public void dropConstraint(TableNameInfo tableNameInfo, String constraintName,
             boolean replay) {
-        dropConstraint(tableNameInfo, constraintName, null, replay);
+        EditLog.EditLogItem logItem =
+                dropConstraintInternal(tableNameInfo, constraintName, null, replay);
+        awaitEditLog(logItem);
     }
 
-    /**
-     * Drop a constraint only if its current cascade targets still match the authorized snapshot.
-     * A null snapshot keeps the replay and internal cleanup behavior unchanged.
-     */
-    public void dropConstraint(TableNameInfo tableNameInfo, String constraintName,
-            List<TableNameInfo> expectedCascadeDropTables, boolean replay) {
+    public EditLog.EditLogItem dropConstraintAndSubmit(TableNameInfo tableNameInfo,
+            String constraintName, List<TableNameInfo> expectedCascadeDropTables) {
+        return dropConstraintInternal(
+                tableNameInfo, constraintName, expectedCascadeDropTables, false);
+    }
+
+    private EditLog.EditLogItem dropConstraintInternal(TableNameInfo tableNameInfo,
+            String constraintName, List<TableNameInfo> expectedCascadeDropTables,
+            boolean replay) {
         String key = toKey(tableNameInfo);
+        EditLog.EditLogItem logItem = null;
         writeLock();
         try {
             Map<String, Constraint> tableConstraints = constraintsMap.get(key);
@@ -200,7 +214,7 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                 if (replay) {
                     LOG.warn("Constraint {} not found on table {} during replay, skipping",
                             constraintName, key);
-                    return;
+                    return null;
                 }
                 throw new AnalysisException(String.format(
                         "Unknown constraint %s on table %s.",
@@ -225,13 +239,14 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                 constraintsMap.remove(key);
             }
             if (!replay) {
-                logDropConstraint(tableNameInfo, constraint);
+                logItem = submitDropConstraint(tableNameInfo, constraint);
             }
             LOG.info("Dropped constraint {} from table {}",
                     constraintName, key);
         } finally {
             writeUnlock();
         }
+        return logItem;
     }
 
     private List<TableNameInfo> getCascadeDropTablesWithoutLock(Constraint constraint) {
@@ -282,6 +297,42 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
         } finally {
             readUnlock();
         }
+    }
+
+    /** Resolve the persisted spelling used by a case-insensitive external catalog. */
+    public TableNameInfo canonicalizeExternalTableName(TableNameInfo tableNameInfo,
+            String constraintName, boolean databaseCaseInsensitive, boolean tableCaseInsensitive) {
+        String requestedKey = toKey(tableNameInfo);
+        readLock();
+        try {
+            Map<String, Constraint> exactConstraints = constraintsMap.get(requestedKey);
+            if (exactConstraints != null && exactConstraints.containsKey(constraintName)) {
+                return tableNameInfo;
+            }
+            TableNameInfo matchedName = null;
+            for (Entry<String, Map<String, Constraint>> entry : constraintsMap.entrySet()) {
+                if (!entry.getValue().containsKey(constraintName)) {
+                    continue;
+                }
+                TableNameInfo storedName = new TableNameInfo(entry.getKey());
+                if (storedName.getCtl().equals(tableNameInfo.getCtl())
+                        && namesEqual(storedName.getDb(), tableNameInfo.getDb(), databaseCaseInsensitive)
+                        && namesEqual(storedName.getTbl(), tableNameInfo.getTbl(), tableCaseInsensitive)) {
+                    if (matchedName != null) {
+                        throw new AnalysisException(
+                                "Ambiguous constraint table name " + tableNameInfo);
+                    }
+                    matchedName = storedName;
+                }
+            }
+            return matchedName == null ? tableNameInfo : matchedName;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    private boolean namesEqual(String left, String right, boolean caseInsensitive) {
+        return caseInsensitive ? left.equalsIgnoreCase(right) : left.equals(right);
     }
 
     /** Returns all PrimaryKeyConstraints for the given table. */
@@ -405,12 +456,15 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
             readUnlock();
         }
         snapshot.forEach((tableKey, constraints) -> {
+            Map<String, Constraint> mappings = constraints.entrySet().stream()
+                    .filter(entry -> entry.getValue() instanceof DistributionMappingConstraint)
+                    .collect(Collectors.toMap(Entry::getKey, Entry::getValue));
+            if (mappings.isEmpty()) {
+                return;
+            }
             TableIf table = resolveTableIfPresent(new TableNameInfo(tableKey));
-            constraints.forEach((name, constraint) -> {
-                if (constraint instanceof DistributionMappingConstraint) {
-                    putTableLocalConstraint(table, name, constraint);
-                }
-            });
+            mappings.forEach((name, constraint) ->
+                    putTableLocalConstraint(table, name, constraint));
         });
     }
 
@@ -1127,11 +1181,24 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
 
     private void validateResolvedConstraint(TableNameInfo tableNameInfo, TableIf table,
             TableIf referencedTable, Constraint constraint) {
-        if (constraint instanceof ForeignKeyConstraint && referencedTable == null) {
-            throw new AnalysisException("Referenced table changed while adding constraint on "
-                    + tableNameInfo);
-        }
-        if (constraint instanceof DistributionMappingConstraint) {
+        if (constraint instanceof PrimaryKeyConstraint) {
+            validateColumnsExist(table,
+                    ((PrimaryKeyConstraint) constraint).getPrimaryKeyNames(),
+                    toKey(tableNameInfo));
+        } else if (constraint instanceof UniqueConstraint) {
+            validateColumnsExist(table,
+                    ((UniqueConstraint) constraint).getUniqueColumnNames(),
+                    toKey(tableNameInfo));
+        } else if (constraint instanceof ForeignKeyConstraint) {
+            if (referencedTable == null) {
+                throw new AnalysisException("Referenced table changed while adding constraint on "
+                        + tableNameInfo);
+            }
+            ForeignKeyConstraint foreignKey = (ForeignKeyConstraint) constraint;
+            validateColumnsExist(table, foreignKey.getForeignKeyNames(), toKey(tableNameInfo));
+            validateColumnsExist(referencedTable, foreignKey.getReferencedColumnNames(),
+                    toKey(foreignKey.getReferencedTableName()));
+        } else if (constraint instanceof DistributionMappingConstraint) {
             validateDistributionMappingConstraint(
                     tableNameInfo, table, (DistributionMappingConstraint) constraint);
         }
@@ -1285,17 +1352,25 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
 
     // ==================== EditLog integration ====================
 
-    private void logAddConstraint(TableNameInfo tableNameInfo,
+    private EditLog.EditLogItem submitAddConstraint(TableNameInfo tableNameInfo,
             Constraint constraint) {
         AlterConstraintLog log = new AlterConstraintLog(
                 constraint, tableNameInfo);
-        Env.getCurrentEnv().getEditLog().logAddConstraint(log);
+        return Env.getCurrentEnv().getEditLog()
+                .submitEdit(OperationType.OP_ADD_CONSTRAINT, log);
     }
 
-    private void logDropConstraint(TableNameInfo tableNameInfo,
+    private EditLog.EditLogItem submitDropConstraint(TableNameInfo tableNameInfo,
             Constraint constraint) {
         AlterConstraintLog log = new AlterConstraintLog(
                 constraint, tableNameInfo);
-        Env.getCurrentEnv().getEditLog().logDropConstraint(log);
+        return Env.getCurrentEnv().getEditLog()
+                .submitEdit(OperationType.OP_DROP_CONSTRAINT, log);
+    }
+
+    private void awaitEditLog(EditLog.EditLogItem logItem) {
+        if (logItem != null) {
+            logItem.await();
+        }
     }
 }

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -542,6 +543,12 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             ExprId childExprId;
             if (output instanceof Alias && ((Alias) output).child() instanceof SlotReference) {
                 childExprId = ((SlotReference) ((Alias) output).child()).getExprId();
+            } else if (output instanceof Alias && ((Alias) output).child() instanceof Cast
+                    && ((Alias) output).child().child(0) instanceof Slot
+                    && ChildOutputPropertyDeriver.isHashValuePreservingCast(
+                            ((Alias) output).child().child(0).getDataType(),
+                            ((Alias) output).child().getDataType())) {
+                childExprId = ((Slot) ((Alias) output).child().child(0)).getExprId();
             } else if (output instanceof SlotReference) {
                 childExprId = output.getExprId();
             } else {

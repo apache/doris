@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog.constraint;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -89,11 +90,12 @@ class ConstraintManagerTest {
     }
 
     @Test
-    void addWithResolvedTableDoesNotLoadSchemaUnderManagerLock() {
+    void addWithResolvedTableRevalidatesColumnsWithoutResolvingMetadata() {
         Env env = Mockito.mock(Env.class);
         EditLog editLog = Mockito.mock(EditLog.class);
         TableIf resolvedTable = Mockito.mock(TableIf.class);
         Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(resolvedTable.getColumn("k1")).thenReturn(Mockito.mock(Column.class));
         PrimaryKeyConstraint pk = newPk("pk", "k1");
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
@@ -102,7 +104,55 @@ class ConstraintManagerTest {
         }
 
         Assertions.assertSame(pk, mgr.getConstraint(T1, "pk"));
-        Mockito.verify(resolvedTable, Mockito.never()).getColumn(Mockito.anyString());
+        Mockito.verify(resolvedTable).getColumn("k1");
+        Mockito.verify(env).getEditLog();
+        Mockito.verifyNoMoreInteractions(env);
+    }
+
+    @Test
+    void addWithResolvedTableRejectsColumnRemovedAfterAnalysis() {
+        TableIf resolvedTable = Mockito.mock(TableIf.class);
+        PrimaryKeyConstraint pk = newPk("pk", "k1");
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> mgr.addConstraintWithResolvedTables(T1, "pk", pk, resolvedTable, null));
+        Assertions.assertNull(mgr.getConstraint(T1, "pk"));
+    }
+
+    @Test
+    void syncMappingsSkipsExternalNonMappingEntriesBeforeMetadataResolution() {
+        Env env = Mockito.mock(Env.class);
+        mgr.addConstraint(
+                new TableNameInfo("external", "db", "table"),
+                "pk", newPk("pk", "k1"), true);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mgr.syncDistributionMappingsToTables();
+        }
+
+        Mockito.verifyNoInteractions(env);
+    }
+
+    @Test
+    void canonicalizeExternalTableNameUsesPersistedSpelling() {
+        TableNameInfo canonical = new TableNameInfo("ExtCtl", "DbOne", "Table_A");
+        mgr.addConstraint(canonical, "pk", newPk("pk", "k1"), true);
+
+        Assertions.assertEquals(canonical,
+                mgr.canonicalizeExternalTableName(
+                        new TableNameInfo("ExtCtl", "dbone", "table_a"),
+                        "pk", true, true));
+        Assertions.assertEquals(
+                new TableNameInfo("ExtCtl", "dbone", "table_a"),
+                mgr.canonicalizeExternalTableName(
+                        new TableNameInfo("ExtCtl", "dbone", "table_a"),
+                        "pk", true, false));
+
+        TableNameInfo caseOnlyKey = new TableNameInfo("ExtCtl", "DbOne", "table_a");
+        mgr.addConstraint(caseOnlyKey, "other_pk", newPk("other_pk", "k1"), true);
+        Assertions.assertEquals(canonical,
+                mgr.canonicalizeExternalTableName(caseOnlyKey, "pk", true, true));
     }
 
     @Test
@@ -217,8 +267,8 @@ class ConstraintManagerTest {
         mgr.addConstraint(T3, "fk3", newFk("fk3", T1, "c1", "k1"), true);
 
         Assertions.assertThrows(AnalysisException.class,
-                () -> mgr.dropConstraint(
-                        T1, "pk", expectedCascadeDropTables, false));
+                () -> mgr.dropConstraintAndSubmit(
+                        T1, "pk", expectedCascadeDropTables));
 
         Assertions.assertNotNull(mgr.getConstraint(T1, "pk"));
         Assertions.assertNotNull(mgr.getConstraint(T2, "fk2"));

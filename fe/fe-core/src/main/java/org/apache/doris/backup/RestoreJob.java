@@ -71,6 +71,8 @@ import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.trees.plans.commands.BackupCommand;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.persist.ColocatePersistInfo;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.persist.gson.GsonUtilsBase;
@@ -2167,17 +2169,22 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
         com.google.common.collect.Table<Long, Long, SnapshotInfo> savedSnapshotInfos = snapshotInfos;
         Status status;
+        List<EditLog.EditLogItem> deferredJournalItems = Lists.newArrayList();
         if (!isAtomicRestore) {
-            status = finishAllTabletsCommitted(db, isReplay);
+            status = finishAllTabletsCommitted(db, isReplay, deferredJournalItems);
         } else {
             if (!db.writeLockIfExist()) {
                 return Status.OK;
             }
             try {
-                status = finishAllTabletsCommitted(db, isReplay);
+                status = finishAllTabletsCommitted(db, isReplay, deferredJournalItems);
             } finally {
                 db.writeUnlock();
             }
+        }
+        deferredJournalItems.forEach(EditLog.EditLogItem::await);
+        if (status.ok()) {
+            showState = RestoreJobState.FINISHED;
         }
         if (status.ok() && !isReplay) {
             releaseSnapshots(savedSnapshotInfos, true);
@@ -2185,7 +2192,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         return status;
     }
 
-    private Status finishAllTabletsCommitted(Database db, boolean isReplay) {
+    private Status finishAllTabletsCommitted(Database db, boolean isReplay,
+            List<EditLog.EditLogItem> deferredJournalItems) {
         // replace the origin tables in atomic.
         if (isAtomicRestore) {
             Status st = atomicReplaceOlapTables(db, isReplay);
@@ -2240,7 +2248,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // Drop the exists but non-restored table/partitions.
         if (isCleanTables || isCleanPartitions) {
-            Status st = dropAllNonRestoredTableAndPartitions(db);
+            Status st = dropAllNonRestoredTableAndPartitions(db, deferredJournalItems);
             if (!st.ok()) {
                 return st;
             }
@@ -2261,10 +2269,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
             finishedTime = System.currentTimeMillis();
             state = RestoreJobState.FINISHED;
-            env.getEditLog().logRestoreJob(this);
+            deferredJournalItems.add(env.getEditLog()
+                    .submitEdit(OperationType.OP_RESTORE_JOB, this));
         }
-        showState = RestoreJobState.FINISHED;
-
         LOG.info("job is finished. is replay: {}. {}", isReplay, this);
         return Status.OK;
     }
@@ -2297,7 +2304,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    private Status dropAllNonRestoredTableAndPartitions(Database db) {
+    private Status dropAllNonRestoredTableAndPartitions(
+            Database db, List<EditLog.EditLogItem> deferredJournalItems) {
         Set<String> restoredViews = jobInfo.newBackupObjects.views.stream()
                 .map(view -> restoreTargetName(view.name)).collect(Collectors.toSet());
         Map<String, BackupOlapTableInfo> restoredOlapTables =
@@ -2315,19 +2323,34 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     BackupOlapTableInfo backupTableInfo = restoredOlapTables.get(tableName);
                     if (tableType == TableType.OLAP && backupTableInfo != null) {
                         // drop the non restored partitions.
-                        dropNonRestoredPartitions(db, (OlapTable) table, backupTableInfo);
+                        dropNonRestoredPartitions(
+                                db, (OlapTable) table, backupTableInfo, deferredJournalItems);
                     } else if (isCleanTables) {
                         // otherwise drop the entire table.
                         LOG.info("drop non restored table {}, table id: {}. {}", tableName, tableId, this);
                         boolean isView = false;
                         boolean isForceDrop = false; // move this table into recyclebin.
-                        env.getInternalCatalog().dropTableWithoutCheck(db, table, isView, isForceDrop);
+                        if (isAtomicRestore) {
+                            deferredJournalItems.add(env.getInternalCatalog()
+                                    .dropTableWithoutCheckAndSubmit(
+                                            db, table, isView, isForceDrop));
+                        } else {
+                            env.getInternalCatalog().dropTableWithoutCheck(
+                                    db, table, isView, isForceDrop);
+                        }
                     }
                 } else if (tableType == TableType.VIEW && isCleanTables && !restoredViews.contains(tableName)) {
                     LOG.info("drop non restored view {}, table id: {}. {}", tableName, tableId, this);
                     boolean isView = false;
                     boolean isForceDrop = false; // move this view into recyclebin.
-                    env.getInternalCatalog().dropTableWithoutCheck(db, table, isView, isForceDrop);
+                    if (isAtomicRestore) {
+                        deferredJournalItems.add(env.getInternalCatalog()
+                                .dropTableWithoutCheckAndSubmit(
+                                        db, table, isView, isForceDrop));
+                    } else {
+                        env.getInternalCatalog().dropTableWithoutCheck(
+                                db, table, isView, isForceDrop);
+                    }
                 }
             }
             return Status.OK;
@@ -2338,7 +2361,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     private void dropNonRestoredPartitions(
-            Database db, OlapTable table, BackupOlapTableInfo backupTableInfo) throws DdlException {
+            Database db, OlapTable table, BackupOlapTableInfo backupTableInfo,
+            List<EditLog.EditLogItem> deferredJournalItems) throws DdlException {
         if (!isCleanPartitions || !table.writeLockIfExist()) {
             return;
         }
@@ -2356,7 +2380,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         partitionName, tableName, tableId, this);
                 boolean isTempPartition = false;
                 boolean isForceDrop = false; // move this partition into recyclebin.
-                catalog.dropPartitionWithoutCheck(db, table, partitionName, isTempPartition, isForceDrop);
+                if (isAtomicRestore) {
+                    deferredJournalItems.add(catalog.dropPartitionWithoutCheckAndSubmit(
+                            db, table, partitionName, isTempPartition, isForceDrop));
+                } else {
+                    catalog.dropPartitionWithoutCheck(
+                            db, table, partitionName, isTempPartition, isForceDrop);
+                }
             }
         } finally {
             table.writeUnlock();

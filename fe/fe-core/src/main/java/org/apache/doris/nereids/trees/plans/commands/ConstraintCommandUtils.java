@@ -155,10 +155,9 @@ final class ConstraintCommandUtils {
             }
         }
         lockOrder.sort(Comparator
-                .comparingLong((TableIf table) -> table.getDatabase().getId())
+                .comparingLong(TableIf::getId)
                 .thenComparing(table -> table.getDatabase().getCatalog().getName())
                 .thenComparing(table -> table.getDatabase().getFullName())
-                .thenComparingLong(TableIf::getId)
                 .thenComparing(TableIf::getName));
         MetaLockUtils.writeLockTables(lockOrder);
         return new LockedTables(tablesByName, lockOrder);

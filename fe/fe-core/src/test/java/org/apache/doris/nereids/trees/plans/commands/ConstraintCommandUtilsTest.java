@@ -128,19 +128,19 @@ class ConstraintCommandUtilsTest {
         Mockito.when(catalog.getDbOrDdlException("db2")).thenReturn(secondDatabase);
         Mockito.when(catalog.getDbNullable("db1")).thenReturn(firstDatabase);
         Mockito.when(catalog.getDbNullable("db2")).thenReturn(secondDatabase);
-        Mockito.when(firstDatabase.getId()).thenReturn(2L);
+        Mockito.when(firstDatabase.getId()).thenReturn(1L);
         Mockito.when(firstDatabase.getFullName()).thenReturn("db1");
         Mockito.when(firstDatabase.getCatalog()).thenReturn(catalog);
         Mockito.when(firstDatabase.getTableNullable("tbl1")).thenReturn(firstTable);
-        Mockito.when(secondDatabase.getId()).thenReturn(1L);
+        Mockito.when(secondDatabase.getId()).thenReturn(2L);
         Mockito.when(secondDatabase.getFullName()).thenReturn("db2");
         Mockito.when(secondDatabase.getCatalog()).thenReturn(catalog);
         Mockito.when(secondDatabase.getTableNullable("tbl2")).thenReturn(secondTable);
         Mockito.when(firstTable.getDatabase()).thenReturn(firstDatabase);
-        Mockito.when(firstTable.getId()).thenReturn(2L);
+        Mockito.when(firstTable.getId()).thenReturn(100L);
         Mockito.when(firstTable.getName()).thenReturn("tbl1");
         Mockito.when(secondTable.getDatabase()).thenReturn(secondDatabase);
-        Mockito.when(secondTable.getId()).thenReturn(1L);
+        Mockito.when(secondTable.getId()).thenReturn(50L);
         Mockito.when(secondTable.getName()).thenReturn("tbl2");
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {

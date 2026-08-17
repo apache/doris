@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -151,6 +152,7 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
             analyzedTables.add(analyzedReferencedTable);
         }
         List<MTMV> dependentMtmvs;
+        EditLog.EditLogItem logItem;
         try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
                 ConstraintCommandUtils.lockCurrentDatabases(
                         affectedTableInfos, externalCatalogSnapshots, analyzedTables);
@@ -173,13 +175,16 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
                 lockedTables.requireSame(referencedTableInfo, analyzedReferencedTable);
             }
             dependentMtmvs = MTMVUtil.getDependentMtmvsByConstraint(tableNameInfo, constraint);
-            Env.getCurrentEnv().getConstraintManager()
+            logItem = Env.getCurrentEnv().getConstraintManager()
                     .addConstraintWithResolvedTables(
                             tableNameInfo, name, constraint, currentTable, referencedTable);
             if (constraint instanceof DistributionMappingConstraint) {
                 Env.getCurrentEnv().getSqlCacheManager()
                         .invalidateAboutTableAndFencePublication(currentTable);
             }
+        }
+        if (logItem != null) {
+            logItem.await();
         }
         MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                 String.format("after add constraint %s on table %s",

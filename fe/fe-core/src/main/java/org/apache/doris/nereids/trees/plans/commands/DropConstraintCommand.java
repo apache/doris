@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -81,7 +82,23 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
         if (unresolvedCatalog instanceof ExternalCatalog) {
             // External PK/FK/UK constraints are authoritative in ConstraintManager. Avoid connector
             // schema loading so DROP works with cache disabled or session cache bypass.
-            tableNameInfo = unresolvedTableName;
+            ExternalCatalog externalCatalog = (ExternalCatalog) unresolvedCatalog;
+            unresolvedTableName = new TableNameInfo(
+                    externalCatalog.getName(), unresolvedTableName.getDb(), unresolvedTableName.getTbl());
+            boolean lowerCaseMetaNames =
+                    Boolean.parseBoolean(externalCatalog.getLowerCaseMetaNames());
+            tableNameInfo = !lowerCaseMetaNames
+                    && externalCatalog.getLowerCaseTableNames() == 0
+                    && externalCatalog.getLowerCaseDatabaseNames() == 0
+                    ? unresolvedTableName
+                    : Env.getCurrentEnv().getConstraintManager()
+                            .canonicalizeExternalTableName(
+                                    unresolvedTableName,
+                                    name,
+                                    lowerCaseMetaNames
+                                            || externalCatalog.getLowerCaseDatabaseNames() != 0,
+                                    lowerCaseMetaNames
+                                            || externalCatalog.getLowerCaseTableNames() != 0);
         } else {
             try {
                 TableIf table = extractTable(ctx, plan);
@@ -112,6 +129,7 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
 
         Constraint constraint;
         List<MTMV> dependentMtmvs;
+        EditLog.EditLogItem logItem;
         try (ConstraintCommandUtils.LockedDatabases lockedDatabases =
                 ConstraintCommandUtils.lockCurrentDatabases(
                         affectedTableInfos, externalCatalogSnapshots, List.of());
@@ -138,12 +156,15 @@ public class DropConstraintCommand extends Command implements ForwardWithSync {
             }
             dependentMtmvs = getDependentMtmvs(
                     tableNameInfo, constraint, cascadeDropTables);
-            Env.getCurrentEnv().getConstraintManager()
-                    .dropConstraint(tableNameInfo, name, cascadeDropTables, false);
+            logItem = Env.getCurrentEnv().getConstraintManager()
+                    .dropConstraintAndSubmit(tableNameInfo, name, cascadeDropTables);
             if (constraint instanceof DistributionMappingConstraint) {
                 Env.getCurrentEnv().getSqlCacheManager()
                         .invalidateAboutTableAndFencePublication(currentTable);
             }
+        }
+        if (logItem != null) {
+            logItem.await();
         }
         MTMVUtil.invalidateRewriteCachesBestEffort(dependentMtmvs,
                 String.format("after drop constraint %s on table %s", constraint.getName(), tableNameInfo));

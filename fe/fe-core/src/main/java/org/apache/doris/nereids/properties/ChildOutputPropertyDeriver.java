@@ -426,7 +426,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 if (child instanceof SlotReference) {
                     projections.put(((SlotReference) child).getExprId(), alias.getExprId());
                 } else if (child instanceof Cast && child.child(0) instanceof Slot
-                        && isSameHashValue(child.child(0).getDataType(), child.getDataType())) {
+                        && isHashValuePreservingCast(child.child(0).getDataType(), child.getDataType())) {
                     // cast(slot as varchar(10)) can do projection if slot is varchar(3)
                     projections.put(((Slot) child.child(0)).getExprId(), alias.getExprId());
                 } else {
@@ -842,7 +842,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         return new DistributionSpecHash(anotherSideOrderedExprIds, oneSideSpec.getShuffleType());
     }
 
-    private static boolean isSameHashValue(DataType originType, DataType castType) {
+    static boolean isHashValuePreservingCast(DataType originType, DataType castType) {
         if (originType.isStringLikeType() && (castType.isVarcharType() || castType.isStringType())
                 && (castType.width() >= originType.width() || castType.width() < 0)) {
             return true;
