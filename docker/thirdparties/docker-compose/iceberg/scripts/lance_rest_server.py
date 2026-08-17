@@ -94,8 +94,9 @@ def _storage_options(identifier: tuple[str, ...]) -> dict[str, str]:
             "secret_access_key": secret_key,
             "region": region,
             "virtual_hosted_style_request": "false",
-            # Lance refreshes expiring credentials against the namespace itself, so a client has
-            # to carry this through rather than drop it.
+            # A key Doris assigns no meaning to, kept here so the pass-through stays covered.
+            # The BE opens datasets with static options and never refreshes them, so this is
+            # only carried, not acted on; the expiry is far enough out that it never matters.
             "expires_at_millis": os.environ.get(
                 "LANCE_S3_EXPIRES_AT_MILLIS", "4102444800000"
             ),

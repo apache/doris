@@ -23,6 +23,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -62,30 +63,43 @@ public final class LanceStorageOptions {
     }
 
     /**
-     * The {@code aws_}-prefixed aliases of the options above, mapped to the spelling this class
-     * emits.
+     * Every spelling object_store accepts for the options above, mapped to the one this class emits.
      *
      * <p>object_store resolves an alias and its canonical name to one config key and keeps only one
-     * of the two values, chosen by hash order. So a namespace vending {@code aws_endpoint} while
-     * the catalog contributes {@code endpoint} does not override it - the two survive as separate
-     * entries and Lance later picks between them unpredictably. Renaming the vended aliases first
-     * makes the merge below decide, every time.
-     *
-     * <p>Only the prefixed aliases are renamed. Bare names such as {@code token} are ambiguous
-     * across providers - object_store reads it as an S3 session token but as a bearer token for
-     * Azure - and this class does not know which provider a dataset uses.
+     * of the two values, chosen by hash order. So a namespace vending {@code endpoint_url} while the
+     * catalog contributes {@code endpoint} does not override it - the two survive as separate
+     * entries, and the FE and the BE can each end up using a different one. Every accepted alias has
+     * to be recognized here, or that race simply moves to the spellings this table misses.
      */
-    private static final Map<String, String> VENDED_ALIASES = ImmutableMap.<String, String>builder()
+    private static final Map<String, String> CANONICAL_BY_ALIAS = ImmutableMap.<String, String>builder()
+            .put("access_key_id", "access_key_id")
             .put("aws_access_key_id", "access_key_id")
+            .put("secret_access_key", "secret_access_key")
             .put("aws_secret_access_key", "secret_access_key")
+            .put("session_token", "session_token")
             .put("aws_session_token", "session_token")
             .put("aws_token", "session_token")
+            .put("token", "session_token")
+            .put("endpoint", "endpoint")
+            .put("endpoint_url", "endpoint")
             .put("aws_endpoint", "endpoint")
             .put("aws_endpoint_url", "endpoint")
+            .put("region", "region")
             .put("aws_region", "region")
+            .put("virtual_hosted_style_request", "virtual_hosted_style_request")
             .put("aws_virtual_hosted_style_request", "virtual_hosted_style_request")
+            .put("allow_http", "allow_http")
             .put("aws_allow_http", "allow_http")
             .build();
+
+    /**
+     * Aliases that supersede the catalog's value but keep the spelling the namespace used.
+     *
+     * <p>{@code token} means an S3 session token to object_store's S3 parser but a bearer token to
+     * its Azure one, and this class does not know which provider a dataset uses. Renaming it would
+     * corrupt the Azure reading, so it is only used to decide which catalog entry it replaces.
+     */
+    private static final Set<String> AMBIGUOUS_ALIASES = ImmutableSet.of("token");
 
     /**
      * Options a namespace may not override, because they decide which data is read rather than how
@@ -123,8 +137,11 @@ public final class LanceStorageOptions {
         if (vendedOptions == null || vendedOptions.isEmpty()) {
             return result;
         }
+
+        Map<String, String> accepted = new HashMap<>();
+        Set<String> superseded = new HashSet<>();
         vendedOptions.forEach((key, value) -> {
-            if (key == null) {
+            if (key == null || value == null || value.isEmpty()) {
                 return;
             }
             String lowerCased = key.toLowerCase(Locale.ROOT);
@@ -133,8 +150,23 @@ public final class LanceStorageOptions {
                         + "would change which data is read", key);
                 return;
             }
-            putIfNotEmpty(result, VENDED_ALIASES.getOrDefault(lowerCased, key), value);
+            String canonical = CANONICAL_BY_ALIAS.get(lowerCased);
+            if (canonical != null) {
+                superseded.add(canonical);
+            }
+            accepted.put(canonical != null && !AMBIGUOUS_ALIASES.contains(lowerCased)
+                    ? canonical : key, value);
         });
+
+        // Drop the catalog's spelling of every option the namespace just supplied, so the two can
+        // never reach Lance as competing entries for one config key.
+        result.keySet().removeAll(superseded);
+        // allow_http describes the endpoint, so a vended endpoint invalidates a value derived from
+        // the catalog's. An explicitly vended allow_http is in `superseded` and survives.
+        if (superseded.contains("endpoint") && !superseded.contains("allow_http")) {
+            result.remove("allow_http");
+        }
+        result.putAll(accepted);
         return withDerivedAllowHttp(result);
     }
 

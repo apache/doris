@@ -115,6 +115,48 @@ public class LanceStorageOptionsTest {
         }
     }
 
+    /**
+     * object_store accepts four spellings of the endpoint and four of the session token. Any one
+     * this class fails to recognize reintroduces the race, so the whole equivalence class has to
+     * collapse onto a single entry.
+     */
+    @Test
+    public void testEveryAcceptedAliasCollapsesOntoOneEntry() {
+        for (String alias : new String[] {"endpoint", "endpoint_url", "aws_endpoint",
+                "aws_endpoint_url", "ENDPOINT", "AWS_Endpoint_Url"}) {
+            Map<String, String> vended = new HashMap<>();
+            vended.put(alias, "http://127.0.0.1:9000");
+
+            Map<String, String> merged = LanceStorageOptions.mergeVended(
+                    LanceStorageOptions.toLanceOptions(minioCatalogProperties()), vended);
+
+            long endpoints = merged.entrySet().stream()
+                    .filter(e -> e.getKey().toLowerCase(java.util.Locale.ROOT).contains("endpoint"))
+                    .count();
+            Assertions.assertEquals(1, endpoints, "alias " + alias + " left a competing entry");
+            Assertions.assertEquals("http://127.0.0.1:9000", merged.get("endpoint"),
+                    "alias " + alias + " did not win");
+        }
+    }
+
+    /**
+     * {@code token} is an S3 session token to object_store but a bearer token to its Azure parser,
+     * so it keeps the namespace's spelling - it still has to displace the catalog's entry though.
+     */
+    @Test
+    public void testAmbiguousAliasSupersedesWithoutBeingRenamed() {
+        Map<String, String> catalogProperties = minioCatalogProperties();
+        catalogProperties.put("AWS_TOKEN", "static-token");
+
+        Map<String, String> vended = new HashMap<>();
+        vended.put("token", "vended-token");
+
+        Map<String, String> merged = LanceStorageOptions.mergeVended(
+                LanceStorageOptions.toLanceOptions(catalogProperties), vended);
+        Assertions.assertEquals("vended-token", merged.get("token"));
+        Assertions.assertNull(merged.get("session_token"));
+    }
+
     @Test
     public void testVendedUnprefixedOptionsReplaceTheCatalogEntry() {
         Map<String, String> vended = new HashMap<>();
@@ -150,6 +192,25 @@ public class LanceStorageOptionsTest {
         vendedWithFlag.put("allow_http", "false");
         Assertions.assertEquals("false", LanceStorageOptions.mergeVended(
                 Collections.emptyMap(), vendedWithFlag).get("allow_http"));
+    }
+
+    /**
+     * The catalog's plain-HTTP endpoint derives allow_http. Replacing it with an HTTPS endpoint has
+     * to retract that, or the merged options keep permitting plain HTTP for an endpoint that never
+     * asked for it.
+     */
+    @Test
+    public void testAllowHttpIsRetractedWhenTheEndpointBecomesHttps() {
+        Map<String, String> catalogOptions =
+                LanceStorageOptions.toLanceOptions(minioCatalogProperties());
+        Assertions.assertEquals("true", catalogOptions.get("allow_http"));
+
+        Map<String, String> vended = new HashMap<>();
+        vended.put("endpoint", "https://s3.amazonaws.com");
+
+        Map<String, String> merged = LanceStorageOptions.mergeVended(catalogOptions, vended);
+        Assertions.assertEquals("https://s3.amazonaws.com", merged.get("endpoint"));
+        Assertions.assertNull(merged.get("allow_http"));
     }
 
     /**
