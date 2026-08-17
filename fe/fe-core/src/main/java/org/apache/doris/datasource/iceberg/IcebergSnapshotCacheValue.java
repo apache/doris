@@ -96,6 +96,11 @@ public class IcebergSnapshotCacheValue {
             for (Map.Entry<Integer, List<String>> entry : nameMapping.get().entrySet()) {
                 List<String> names = ImmutableList.copyOf(entry.getValue());
                 copy.put(entry.getKey(), names);
+                if (names.size() > 1) {
+                    // A field with several historical names keeps an element array per name.
+                    payloadBytes = MetaCacheWeightUtils.saturatedAdd(payloadBytes,
+                            MetaCacheWeightUtils.estimatedObjectArrayBytes(names.size()));
+                }
                 for (String name : names) {
                     payloadBytes = MetaCacheWeightUtils.saturatedAdd(payloadBytes,
                             MetaCacheWeightUtils.estimatedStringBytes(name));

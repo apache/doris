@@ -199,6 +199,26 @@ public final class MetaCacheWeightUtils {
         return alignedArrayBytes(OBJECT_ARRAY_BASE_BYTES, length, OBJECT_REFERENCE_BYTES);
     }
 
+    /**
+     * A java.util.HashMap holding {@code entries} mappings: the map object, its power-of-two
+     * table (allocated on the first put) and one node per entry; keys and values are separate.
+     */
+    public static long estimatedHashMapBytes(long entries) {
+        long bytes = estimatedObjectLayoutBytes(4L, 16L);
+        if (entries <= 0L) {
+            return bytes;
+        }
+        long capacity = 16L;
+        while (entries > capacity - capacity / 4L) {
+            capacity = saturatedMultiply(capacity, 2L);
+            if (capacity == Long.MAX_VALUE) {
+                break;
+            }
+        }
+        bytes = saturatedAdd(bytes, estimatedObjectArrayBytes(capacity));
+        return saturatedAdd(bytes, saturatedMultiply(entries, estimatedObjectLayoutBytes(3L, 4L)));
+    }
+
     /** Size of an object with a known field layout on the active VM. */
     public static long estimatedObjectLayoutBytes(long referenceFields, long primitiveBytes) {
         if (referenceFields < 0L || primitiveBytes < 0L) {

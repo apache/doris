@@ -35,6 +35,7 @@ import org.apache.iceberg.StatisticsFile;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.encryption.EncryptedKey;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.transforms.Transform;
 import org.apache.iceberg.transforms.UnknownTransform;
 import org.apache.iceberg.types.Type;
@@ -42,6 +43,7 @@ import org.apache.iceberg.types.Types;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -100,6 +102,14 @@ final class IcebergCacheSizeEstimator {
             MetaCacheWeightUtils.estimatedObjectLayoutBytes(0L, 4L);
     private static final long LONG_BYTES =
             MetaCacheWeightUtils.estimatedObjectLayoutBytes(0L, 8L);
+    // Literals.BaseLiteral: value plus the transient serialized-buffer slot.
+    private static final long LITERAL_BYTES =
+            MetaCacheWeightUtils.estimatedObjectLayoutBytes(2L, 0L);
+    // JDK 17 HeapByteBuffer: Buffer header fields, address, segment, hb and offset.
+    private static final long BYTE_BUFFER_BYTES = objectBytes(56L);
+    private static final long BIG_DECIMAL_BYTES = objectBytes(104L);
+    private static final long BOXED_DEFAULT_BYTES =
+            MetaCacheWeightUtils.estimatedObjectLayoutBytes(0L, 16L);
     private static final String TRUNCATE_TRANSFORM_PREFIX = "truncate[";
     // Truncate on a decimal source retains a BigInteger width (object plus one-int magnitude).
     private static final long TRUNCATE_WIDTH_BYTES = MetaCacheWeightUtils.saturatedAdd(
@@ -143,7 +153,11 @@ final class IcebergCacheSizeEstimator {
     // One retained IcebergPartition (value/transform ArrayLists) or one RangePartitionItem with a
     // single partition column plus its map entry; extra columns are charged by IcebergPartitionInfo.
     private static final long PARTITION_BYTES = objectBytes(680L);
-    private static final long PARTITION_ALIAS_BYTES = objectBytes(256L);
+    // Outer map entry and table share of one merged-overlap group; the alias set itself and its
+    // contents are charged by IcebergPartitionInfo per enclosed partition name.
+    private static final long PARTITION_ALIAS_BYTES = objectBytes(144L);
+    // One name-mapping field: map node, boxed id and list object; alias arrays and Strings are
+    // charged by IcebergSnapshotCacheValue when the mapping is copied.
     private static final long NAME_MAPPING_ENTRY_BYTES = objectBytes(256L);
     private static final long MANIFEST_ENTRY_BASE_BYTES = objectBytes(256L);
     private static final long DATA_FILE_BYTES = objectBytes(896L);
@@ -214,6 +228,11 @@ final class IcebergCacheSizeEstimator {
                 bytes, value.getRetainedNameMappingPayloadBytes());
 
         if (value.getRetainedIcebergTable().isPresent()) {
+            // The projection keeps its own reference to the frozen table generation. That graph
+            // is charged here as well as by the table entry that produced it: the two entries have
+            // independent lifetimes (TTL, weight eviction, soft collection) and either may outlive
+            // the other, so each must be able to carry the graph on its own. Budgets should be
+            // sized for the table metadata being counted once per dependent entry.
             Table table = value.getRetainedIcebergTable().get();
             MetaCacheSizeEstimate support = checkSupportedTable(table);
             if (!support.isComplete()) {
@@ -825,8 +844,8 @@ final class IcebergCacheSizeEstimator {
             bytes = addString(bytes, name);
         }
         bytes = addString(bytes, field.doc());
-        bytes = addDefaultPayload(bytes, field.initialDefault());
-        bytes = addDefaultPayload(bytes, field.writeDefault());
+        bytes = addDefaultPayload(bytes, field.initialDefaultLiteral());
+        bytes = addDefaultPayload(bytes, field.writeDefaultLiteral());
         boolean pushShortName = kind == FieldKind.STRUCT_FIELD || kind == FieldKind.MAP_KEY
                 || !field.type().isStructType();
         // Only fields nested through a chain of struct fields get accessors; anything below a
@@ -951,16 +970,33 @@ final class IcebergCacheSizeEstimator {
                 ? MetaCacheWeightUtils.saturatedMultiply(capacity, 2L) : capacity;
     }
 
-    private static long addDefaultPayload(long bytes, Object value) {
+    /**
+     * A v3 field default is retained as an Iceberg Literal wrapper (value plus a transient
+     * ByteBuffer slot) around its boxed or buffer value.
+     */
+    private static long addDefaultPayload(long bytes, Literal<?> literal) {
+        if (literal == null) {
+            return bytes;
+        }
+        bytes = MetaCacheWeightUtils.saturatedAdd(bytes, LITERAL_BYTES);
+        Object value = literal.value();
         if (value instanceof CharSequence) {
             return MetaCacheWeightUtils.saturatedAdd(bytes,
                     MetaCacheWeightUtils.estimatedCharSequenceBytes((CharSequence) value));
         } else if (value instanceof ByteBuffer) {
-            return MetaCacheWeightUtils.saturatedAdd(bytes, ((ByteBuffer) value).capacity());
+            return MetaCacheWeightUtils.saturatedAdd(bytes, MetaCacheWeightUtils.saturatedAdd(
+                    BYTE_BUFFER_BYTES,
+                    MetaCacheWeightUtils.estimatedByteArrayBytes(((ByteBuffer) value).capacity())));
         } else if (value instanceof byte[]) {
-            return MetaCacheWeightUtils.saturatedAdd(bytes, ((byte[]) value).length);
+            return MetaCacheWeightUtils.saturatedAdd(bytes,
+                    MetaCacheWeightUtils.estimatedByteArrayBytes(((byte[]) value).length));
+        } else if (value instanceof BigDecimal) {
+            return MetaCacheWeightUtils.saturatedAdd(bytes, BIG_DECIMAL_BYTES);
+        } else if (value == null || value instanceof Boolean) {
+            return bytes;
         }
-        return bytes;
+        // Boxed numbers, UUIDs and other small immutable values.
+        return MetaCacheWeightUtils.saturatedAdd(bytes, BOXED_DEFAULT_BYTES);
     }
 
     private static long addString(long bytes, String value) {

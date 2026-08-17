@@ -1009,6 +1009,39 @@ public class MetaCacheEntryTest {
     }
 
     @Test
+    public void testAutomaticEvictionTelemetryKeepsExactWeightAboveWeigherLimit() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        long hugeEstimate = 3L << 30; // above Caffeine's int weigher limit
+        ExternalMetaCacheBudgetManager manager = new ExternalMetaCacheBudgetManager(OptionalLong.of(8L << 30));
+        ExternalMetaCacheBudgetManager.EntryBudget budget = manager.createEntryBudget(
+                1L, "test", "huge-eviction", OptionalLong.empty(), OptionalLong.empty());
+        MetaCacheEntry<String, byte[]> entry = new MetaCacheEntry<>(
+                "huge-eviction", key -> new byte[1],
+                CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 10L, 8L << 30),
+                refreshExecutor, false, false,
+                (key, value) -> MetaCacheSizeEstimate.complete(hugeEstimate), budget);
+        try {
+            entry.put("k", new byte[1]);
+            Assert.assertEquals(accountedWeight(hugeEstimate), manager.getGlobalUsedWeight());
+            LoadingCache<String, byte[]> loadingCache = extractLoadingCache(entry);
+            Reference<?> valueReference = extractValueReference(loadingCache);
+
+            // A soft-value collection is an automatic eviction reported through Caffeine, whose
+            // weigher saw at most Integer.MAX_VALUE; the statistics must report the reservation.
+            valueReference.clear();
+            Assert.assertTrue(valueReference.enqueue());
+            loadingCache.cleanUp();
+            awaitGlobalWeight(manager, 0L);
+
+            Assert.assertEquals(accountedWeight(hugeEstimate), entry.stats().getEvictionWeight());
+            Assert.assertTrue(entry.stats().getEvictionWeight() > Integer.MAX_VALUE);
+        } finally {
+            entry.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testStrongQueryReferenceSurvivesSoftValueCollectionChecks() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         ExternalMetaCacheBudgetManager manager = new ExternalMetaCacheBudgetManager(OptionalLong.of(2_000L));

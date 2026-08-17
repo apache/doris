@@ -31,6 +31,9 @@ public class IcebergPartitionInfo {
     private static final long RANGE_KEY_EXTRA_COLUMN_BYTES =
             MetaCacheWeightUtils.estimatedObjectBytes(208L);
     private static final long RANGE_ENDPOINTS_PER_ITEM = 2L;
+    // A merged-overlap alias group is a HashSet of the enclosed physical partition names; the
+    // names themselves are shared with the partition maps.
+    private static final long HASH_SET_BYTES = MetaCacheWeightUtils.estimatedObjectLayoutBytes(1L, 0L);
 
     private final Map<String, PartitionItem> nameToPartitionItem;
     private final Map<String, IcebergPartition> nameToIcebergPartition;
@@ -50,7 +53,9 @@ public class IcebergPartitionInfo {
                                 Map<String, IcebergPartition> nameToIcebergPartition,
                                 Map<String, Set<String>> nameToIcebergPartitionNames) {
         this(nameToPartitionItem, nameToIcebergPartition, nameToIcebergPartitionNames,
-                retainedPayloadBytes(nameToIcebergPartition));
+                MetaCacheWeightUtils.saturatedAdd(
+                        retainedPayloadBytes(nameToIcebergPartition),
+                        partitionAliasBytes(nameToIcebergPartitionNames)));
     }
 
     public IcebergPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
@@ -96,6 +101,24 @@ public class IcebergPartitionInfo {
                         partition.getPartitionValues() == null
                                 ? 0 : partition.getPartitionValues().size()));
             }
+        }
+        return bytes;
+    }
+
+    /**
+     * Retained bytes of the merged-overlap alias sets: every group keeps one HashSet with one
+     * node per enclosed physical partition name (the estimator's per-group constant covers only
+     * the outer map entry and the empty set object).
+     */
+    static long partitionAliasBytes(Map<String, Set<String>> nameToIcebergPartitionNames) {
+        if (nameToIcebergPartitionNames == null) {
+            return 0L;
+        }
+        long bytes = 0L;
+        for (Set<String> aliases : nameToIcebergPartitionNames.values()) {
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes, HASH_SET_BYTES);
+            bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
+                    MetaCacheWeightUtils.estimatedHashMapBytes(aliases == null ? 0L : aliases.size()));
         }
         return bytes;
     }

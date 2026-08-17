@@ -55,7 +55,9 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.encryption.EncryptedKey;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
@@ -787,12 +789,41 @@ public class IcebergExternalMetaCacheTest {
     }
 
     private TableMetadata metadataWithAddedSchema(Schema schema) {
+        return metadataWithAddedSchema(schema, 2);
+    }
+
+    private TableMetadata metadataWithAddedSchema(Schema schema, int formatVersion) {
         Schema base = new Schema(0, Types.NestedField.optional(1, "base", Types.IntegerType.get()));
         TableMetadata metadata = TableMetadata.newTableMetadata(
-                base, PartitionSpec.unpartitioned(), "file:/warehouse/uncached-ids",
-                Collections.emptyMap());
+                base, PartitionSpec.unpartitioned(), SortOrder.unsorted(), "file:/warehouse/uncached-ids",
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, Integer.toString(formatVersion)));
         return TableMetadata.buildFrom(metadata).addSchema(schema)
                 .setCurrentSchema(schema.schemaId()).discardChanges().build();
+    }
+
+    @Test
+    public void testSchemaFormulaCountsFieldDefaultLiterals() {
+        // v3 field defaults are retained as Literal wrappers around boxed or String values.
+        assertRetainedPayloadDelta("defaulted fields",
+                metadataWithAddedSchema(new Schema(1, defaultedFields(1)), 3),
+                metadataWithAddedSchema(new Schema(1, defaultedFields(32)), 3), "jol-defaults");
+    }
+
+    private List<Types.NestedField> defaultedFields(int fieldCount) {
+        List<Types.NestedField> fields = new ArrayList<>();
+        for (int index = 0; index < fieldCount; index++) {
+            fields.add(Types.NestedField.optional("text_" + index).withId(10_000 + index)
+                    .ofType(Types.StringType.get())
+                    .withInitialDefault(Expressions.lit("initial_" + index))
+                    .withWriteDefault(Expressions.lit("write_" + index))
+                    .build());
+            fields.add(Types.NestedField.optional("number_" + index).withId(20_000 + index)
+                    .ofType(Types.LongType.get())
+                    .withInitialDefault(Expressions.lit(100_000L + index))
+                    .withWriteDefault(Expressions.lit(200_000L + index))
+                    .build());
+        }
+        return fields;
     }
 
     @Test
@@ -1361,6 +1392,41 @@ public class IcebergExternalMetaCacheTest {
         EstimatorCalibrationAssertions.assertConservativeDelta(
                 "iceberg wide snapshot partitions", populatedSnapshotEstimate, wideSnapshotEstimate,
                 populatedSnapshot, wideSnapshot);
+
+        // Overlapping physical partitions merge into one Doris partition that keeps every
+        // enclosed name in a HashSet; the weight follows the set cardinality, not the group count.
+        IcebergSnapshotCacheValue aliasedSnapshot = new IcebergSnapshotCacheValue(
+                realPartitionInfo(32, 1, true), new IcebergSnapshot(-1L, 0L));
+        long aliasedSnapshotEstimate = IcebergCacheSizeEstimator.estimateSnapshotEntry(
+                key, aliasedSnapshot).getBytes();
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "iceberg partition aliases", populatedSnapshotEstimate, aliasedSnapshotEstimate,
+                populatedSnapshot, aliasedSnapshot);
+
+        // A name mapping retains an element array per field once it has several historical names.
+        IcebergSnapshotCacheValue singleNames = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, 0L),
+                Optional.of(nameMappingWithAliases(32, 1)));
+        IcebergSnapshotCacheValue manyNames = new IcebergSnapshotCacheValue(
+                IcebergPartitionInfo.empty(), new IcebergSnapshot(-1L, 0L),
+                Optional.of(nameMappingWithAliases(32, 8)));
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "iceberg name mapping aliases",
+                IcebergCacheSizeEstimator.estimateSnapshotEntry(key, singleNames).getBytes(),
+                IcebergCacheSizeEstimator.estimateSnapshotEntry(key, manyNames).getBytes(),
+                singleNames, manyNames);
+    }
+
+    private Map<Integer, List<String>> nameMappingWithAliases(int fieldCount, int aliasesPerField) {
+        Map<Integer, List<String>> mapping = new java.util.HashMap<>();
+        for (int field = 0; field < fieldCount; field++) {
+            List<String> names = new ArrayList<>();
+            for (int alias = 0; alias < aliasesPerField; alias++) {
+                names.add("field_" + field + "_v" + alias);
+            }
+            mapping.put(1000 + field, names);
+        }
+        return mapping;
     }
 
     @Test
@@ -2031,6 +2097,11 @@ public class IcebergExternalMetaCacheTest {
 
     private IcebergPartitionInfo realPartitionInfo(int partitionCount, int partitionColumnCount)
             throws Exception {
+        return realPartitionInfo(partitionCount, partitionColumnCount, false);
+    }
+
+    private IcebergPartitionInfo realPartitionInfo(
+            int partitionCount, int partitionColumnCount, boolean mergeAllIntoFirst) throws Exception {
         Map<String, org.apache.doris.catalog.PartitionItem> partitionItems = new java.util.HashMap<>();
         Map<String, IcebergPartition> partitions = new java.util.HashMap<>();
         List<org.apache.doris.catalog.Column> partitionColumns = new ArrayList<>();
@@ -2052,8 +2123,12 @@ public class IcebergExternalMetaCacheTest {
             }
             partitions.put(name, new IcebergPartition(name, 0, 1L, 1L, 1L, 1L, 1L, values, transforms));
         }
-        return new IcebergPartitionInfo(
-                partitionItems, partitions, Collections.emptyMap());
+        Map<String, Set<String>> aliases = Collections.emptyMap();
+        if (mergeAllIntoFirst && partitionCount > 0) {
+            // mergeOverlapPartitions() shape: the surviving name owns a set of every enclosed name.
+            aliases = Collections.singletonMap("part=0", new java.util.HashSet<>(partitions.keySet()));
+        }
+        return new IcebergPartitionInfo(partitionItems, partitions, aliases);
     }
 
     private org.apache.iceberg.DataFile dataFileWithMetrics(int index) {

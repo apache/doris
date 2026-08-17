@@ -125,6 +125,11 @@ public class MetaCacheEntry<K, V> {
     private final AtomicLong weightAdmissionRejectedCount = new AtomicLong(0L);
     private final AtomicLong localEvictionCount = new AtomicLong(0L);
     private final AtomicLong localEvictionWeight = new AtomicLong(0L);
+    // Exact byte weight released by Caffeine-driven evictions (size, expiry, soft collection).
+    // Caffeine's own eviction weight is clamped to the int weigher, so it is not used for stats.
+    private final AtomicLong automaticEvictionWeight = new AtomicLong(0L);
+    // Generation reported evicted for a key, consumed by the fenced cleanup of that generation.
+    private final Map<K, Long> pendingEvictionGenerations = new ConcurrentHashMap<>();
     private final AtomicReference<String> lastWeightRejectReason = new AtomicReference<>("");
     private final AtomicLong lastWeightRejectLogTimeMs = new AtomicLong(0L);
     private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -453,12 +458,14 @@ public class MetaCacheEntry<K, V> {
                 reservations.values().forEach(record -> record.reservation.release());
                 reservations.clear();
                 pendingRemovalGenerations.clear();
+                pendingEvictionGenerations.clear();
                 invalidateCount.addAndGet(size);
             } else {
                 long size = data.estimatedSize();
                 data.invalidateAll();
                 refreshRecords.clear();
                 pendingRemovalGenerations.clear();
+                pendingEvictionGenerations.clear();
                 invalidateCount.addAndGet(size);
             }
         }
@@ -509,7 +516,7 @@ public class MetaCacheEntry<K, V> {
                 weightBounded ? cacheSpec.getMaxWeight().getAsLong() : -1L,
                 weightBounded ? entryBudget.getUsedWeight() : -1L,
                 weightBounded ? MetaCacheWeightUtils.saturatedAdd(
-                        cacheStats.evictionWeight(), localEvictionWeight.get()) : -1L,
+                        automaticEvictionWeight.get(), localEvictionWeight.get()) : -1L,
                 weightBounded ? weightAdmissionRejectedCount.get() : -1L,
                 weightBounded ? entryBudget.getCatalogMaxWeight() : -1L,
                 weightBounded ? entryBudget.getCatalogUsedWeight() : -1L,
@@ -570,6 +577,12 @@ public class MetaCacheEntry<K, V> {
                 return AdmissionResult.NOT_CURRENT;
             }
             if (oldValue == null && record != null) {
+                // The previous generation was already removed by Caffeine; if that removal was
+                // an eviction whose asynchronous cleanup has not run yet, account it here.
+                if (pendingEvictionGenerations.remove(key, record.generation)) {
+                    automaticEvictionWeight.accumulateAndGet(
+                            record.weight, MetaCacheWeightUtils::saturatedAdd);
+                }
                 reservations.remove(key, record);
                 record.reservation.release();
                 record = null;
@@ -752,6 +765,10 @@ public class MetaCacheEntry<K, V> {
                 if (weightBounded) {
                     ReservationRecord record = reservations.get(key);
                     if (record != null) {
+                        if (cause.wasEvicted()) {
+                            automaticEvictionWeight.accumulateAndGet(
+                                    record.weight, MetaCacheWeightUtils::saturatedAdd);
+                        }
                         releaseReservation(key, record.generation);
                     }
                 } else {
@@ -770,9 +787,13 @@ public class MetaCacheEntry<K, V> {
             if (closed.get()) {
                 return;
             }
+            if (cause.wasEvicted()) {
+                pendingEvictionGenerations.merge(key, ownerGeneration, Math::max);
+            }
             pendingRemovalGenerations.merge(key, ownerGeneration, Math::max);
             if (closed.get()) {
                 pendingRemovalGenerations.remove(key, ownerGeneration);
+                pendingEvictionGenerations.remove(key, ownerGeneration);
                 return;
             }
             scheduleRemovalCleanup();
@@ -808,12 +829,21 @@ public class MetaCacheEntry<K, V> {
                 if (!pendingRemovalGenerations.remove(key, generation)) {
                     continue;
                 }
+                boolean evicted = pendingEvictionGenerations.remove(key, generation);
+                if (!evicted) {
+                    // A newer generation superseded the evicted one; its eviction can no longer
+                    // be attributed, so drop the stale marker instead of retaining the key.
+                    pendingEvictionGenerations.remove(key);
+                }
                 try {
-                    cleanupRemovedReservation(key, generation);
+                    cleanupRemovedReservation(key, generation, evicted);
                 } catch (RuntimeException e) {
                     // Restore the generation for retry. The finally block requeues one bounded
                     // drain instead of permanently wedging this entry's scheduled flag.
                     pendingRemovalGenerations.merge(key, generation, Math::max);
+                    if (evicted) {
+                        pendingEvictionGenerations.merge(key, generation, Math::max);
+                    }
                     LOG.warn("Failed to clean a removal reservation for external metadata cache entry {}",
                             name, e);
                 }
@@ -828,7 +858,7 @@ public class MetaCacheEntry<K, V> {
         }
     }
 
-    private void cleanupRemovedReservation(K key, long expectedReservationGeneration) {
+    private void cleanupRemovedReservation(K key, long expectedReservationGeneration, boolean evicted) {
         beforeRemovalCleanupLockForTest(key);
         synchronized (admissionLock) {
             if (weightBounded) {
@@ -836,6 +866,11 @@ public class MetaCacheEntry<K, V> {
                 if (record != null && record.generation == expectedReservationGeneration
                         && data.asMap().get(key) == null
                         && reservations.remove(key, record)) {
+                    if (evicted) {
+                        // The exact reservation, not Caffeine's int-clamped weigher value.
+                        automaticEvictionWeight.accumulateAndGet(
+                                record.weight, MetaCacheWeightUtils::saturatedAdd);
+                    }
                     record.reservation.release();
                 }
             } else {
@@ -849,11 +884,13 @@ public class MetaCacheEntry<K, V> {
         afterRemovalCleanupForTest(key);
     }
 
-    private void releaseReservation(K key, long expectedGeneration) {
+    private boolean releaseReservation(K key, long expectedGeneration) {
         ReservationRecord record = reservations.get(key);
         if (record != null && record.generation == expectedGeneration && reservations.remove(key, record)) {
             record.reservation.release();
+            return true;
         }
+        return false;
     }
 
     private void releaseRefreshRecord(K key, long expectedGeneration) {

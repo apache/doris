@@ -1785,6 +1785,8 @@ public class IcebergUtils {
             nameToPartitionItem.put(partition.getPartitionName(), item);
         }
         Map<String, Set<String>> partitionNameMap = mergeOverlapPartitions(nameToPartitionItem);
+        retainedPayloadBytes = MetaCacheWeightUtils.saturatedAdd(
+                retainedPayloadBytes, IcebergPartitionInfo.partitionAliasBytes(partitionNameMap));
         return new IcebergPartitionInfo(
                 nameToPartitionItem, nameToPartition, partitionNameMap, retainedPayloadBytes);
     }

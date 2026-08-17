@@ -25,6 +25,7 @@
 namespace doris {
 class RuntimeState;
 class Block;
+class TFetchSchemaTableDataResult;
 
 class SchemaCatalogMetaCacheStatsScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaCatalogMetaCacheStatsScanner);
@@ -40,6 +41,7 @@ public:
 
 private:
     Status _get_meta_cache_from_fe();
+    Status _fetch_from_fe(size_t column_count, TFetchSchemaTableDataResult* result);
 
     TNetworkAddress _fe_addr;
 
