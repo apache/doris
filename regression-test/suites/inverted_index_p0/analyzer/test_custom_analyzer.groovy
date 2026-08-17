@@ -18,6 +18,7 @@
 import java.sql.SQLException
 
 suite("test_custom_analyzer", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def indexTbName1 = "test_custom_analyzer_1"
     def indexTbName2 = "test_custom_analyzer_2"
 
@@ -491,7 +492,7 @@ suite("test_custom_analyzer", "p0") {
         );
     """
 
-    sql """ insert into ${variantTableName} values(1, '{"string_1" : "FOO BAR", "string_2" : "FOO BAR", "string_3" : "FOO BAR"}'), (2, '{"string_3" : "FOO BAR"}'); """
+    sql """ insert into ${variantTableName} values(1, ${variantV2Function}('{"string_1" : "FOO BAR", "string_2" : "FOO BAR", "string_3" : "FOO BAR"}')), (2, ${variantV2Function}('{"string_3" : "FOO BAR"}')); """
 
     qt_sql """ select * from ${variantTableName} where cast(var['string_1'] as varchar) match_all 'FOO'; """
     qt_sql """ select * from ${variantTableName} where cast(var['string_1'] as varchar) match_all 'BAR'; """

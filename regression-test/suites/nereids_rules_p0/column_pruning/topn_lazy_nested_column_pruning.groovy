@@ -16,6 +16,7 @@
 // under the License.
 
 suite("topn_lazy_nested_column_pruning") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql """ set topn_lazy_materialization_threshold=1024; """
     sql """ DROP TABLE IF EXISTS tlncp_tbl """
     sql """
@@ -57,9 +58,9 @@ suite("topn_lazy_nested_column_pruning") {
 
 
     INSERT INTO vt VALUES
-        (1, 'aaa', '{"name": "张三", "age": 25}'),
-        (2, 'bbb', '{"name": "李四", "age": 30}'),
-        (3, 'ccc', '{"name": "王五", "age": 28, "city": "北京"}');
+        (1, 'aaa', ${variantV2Function}('{"name": "张三", "age": 25}')),
+        (2, 'bbb', ${variantV2Function}('{"name": "李四", "age": 30}')),
+        (3, 'ccc', ${variantV2Function}('{"name": "王五", "age": 28, "city": "北京"}'));
     """
 
     // =============================================
@@ -191,8 +192,8 @@ suite("topn_lazy_nested_column_pruning") {
     // =============================================
     sql """
         INSERT INTO vt VALUES
-            (4, 'ddd', '{"address": {"city": "上海", "zip": "200000"}}'),
-            (5, 'eee', '{"address": {"city": "北京", "zip": "100000"}}')
+            (4, 'ddd', ${variantV2Function}('{"address": {"city": "上海", "zip": "200000"}}')),
+            (5, 'eee', ${variantV2Function}('{"address": {"city": "北京", "zip": "100000"}}'))
     """
 
     // =============================================

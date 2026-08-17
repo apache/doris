@@ -16,6 +16,8 @@
 // under the License.
 
 suite("explode") {
+    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
     qt_explode """ select e1 from (select 1 k1) as t lateral view explode([1,2,3]) tmp1 as e1; """
     qt_explode_outer """ select e1 from (select 1 k1) as t lateral view explode_outer([1,2,3]) tmp1 as e1; """
 
@@ -161,7 +163,7 @@ suite("explode") {
     );
     """
 
-    sql """insert into array_test values( 1, [4,5,6], ["2","3"], '{"a": [4,5,6]}', '{"a": ["2","3"]}'),( 2, [14,15], ["2",null], '{"a": [14,15]}', '{"a": ["2",null]}'),( 3, [114,115,116], null, '{"a": [114,115,116]}','{"a": null}');"""
+    sql """insert into array_test values( 1, [4,5,6], ["2","3"], ${variantV2Function}('{"a": [4,5,6]}'), ${variantV2Function}('{"a": ["2","3"]}')),( 2, [14,15], ["2",null], ${variantV2Function}('{"a": [14,15]}'), ${variantV2Function}('{"a": ["2",null]}')),( 3, [114,115,116], null, ${variantV2Function}('{"a": [114,115,116]}'),${variantV2Function}('{"a": null}'));"""
 
 
     qt_test6 "select id,e1 from array_test as a lateral view explode(a.array_string) tmp1 as e1;"
@@ -178,12 +180,12 @@ suite("explode") {
     qt_test16 "select id,e1,e2,e3 from array_test as a lateral view explode_outer(a.array_string,a.array_int,a.array_int) tmp1 as e1,e2,e3;"
     qt_test17 "select id,e1,e2,e11,e12 from array_test as a lateral view explode_outer(a.array_int,a.array_string) tmp1 as e1,e2 lateral view explode_outer(a.array_int,a.array_string) tmp2 as e11,e12;"
 
-    qt_test18 "select id,e1 from array_test as a lateral view explode_variant_array(a.v_string['a']) tmp1 as e1;"
-    qt_test19 "select id,e1 from array_test as a lateral view explode_variant_array(a.v_int['a']) tmp1 as e1;"
-    qt_test20 "select id,e1,e2 from array_test as a lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp1 as e1,e2;"
-    qt_test21 "select id,e1,e2 from array_test as a lateral view explode_variant_array(a.v_string['a'],a.v_int['a']) tmp1 as e1,e2;"
-    qt_test22 "select id,e1,e2,e3 from array_test as a lateral view explode_variant_array(a.v_string['a'],a.v_int['a'],a.v_int['a']) tmp1 as e1,e2,e3;"
-    qt_test23 "select id,e1,e2,e11,e12 from array_test as a lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp1 as e1,e2 lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp2 as e11,e12;"
+    qt_test18 "select id,nullif(cast(e1 as string), 'null') from array_test as a lateral view explode_variant_array(a.v_string['a']) tmp1 as e1;"
+    qt_test19 "select id,nullif(cast(e1 as string), 'null') from array_test as a lateral view explode_variant_array(a.v_int['a']) tmp1 as e1;"
+    qt_test20 "select id,nullif(cast(e1 as string), 'null'),nullif(cast(e2 as string), 'null') from array_test as a lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp1 as e1,e2;"
+    qt_test21 "select id,nullif(cast(e1 as string), 'null'),nullif(cast(e2 as string), 'null') from array_test as a lateral view explode_variant_array(a.v_string['a'],a.v_int['a']) tmp1 as e1,e2;"
+    qt_test22 "select id,nullif(cast(e1 as string), 'null'),nullif(cast(e2 as string), 'null'),nullif(cast(e3 as string), 'null') from array_test as a lateral view explode_variant_array(a.v_string['a'],a.v_int['a'],a.v_int['a']) tmp1 as e1,e2,e3;"
+    qt_test23 "select id,nullif(cast(e1 as string), 'null'),nullif(cast(e2 as string), 'null'),nullif(cast(e11 as string), 'null'),nullif(cast(e12 as string), 'null') from array_test as a lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp1 as e1,e2 lateral view explode_variant_array(a.v_int['a'],a.v_string['a']) tmp2 as e11,e12;"
 
     sql "DROP TABLE IF EXISTS array_test2;"
     sql """

@@ -29,6 +29,7 @@ import java.sql.ResultSet
 import java.util.concurrent.CopyOnWriteArrayList
 
 suite("test_point_query") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def realDb = "regression_test_serving_p0"
@@ -608,7 +609,7 @@ suite("test_point_query") {
     );
     """
     sql """
-        INSERT INTO test_with_variant VALUES(1, '{"k1":"v1", "k2": 200}');
+        INSERT INTO test_with_variant VALUES(1, ${variantV2Function}('{"k1":"v1", "k2": 200}'));
     """
     qt_sql "select col2['k1'] from test_with_variant where col1=1"
 

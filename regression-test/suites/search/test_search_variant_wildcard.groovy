@@ -31,6 +31,7 @@
  * - WILDCARD searches '*ith', 'sm*th', 'sm?th' should also match but returned empty
  */
 suite("test_search_variant_wildcard", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def tableName = "test_search_variant_wildcard"
 
     sql """ set enable_match_without_inverted_index = false """
@@ -65,9 +66,9 @@ suite("test_search_variant_wildcard", "p0") {
     // Insert test data matching the reported scenario
     // string_8 = firstname, string_17 = lastname
     sql """INSERT INTO ${tableName} VALUES
-        (73095521135, '{"string_8": "John", "string_17": "Smith"}'),
-        (73095446198, '{"string_8": "Jane", "string_17": "Smithson"}'),
-        (73095754047, '{"string_8": "Michael David", "string_17": "Johnson"}')
+        (73095521135, ${variantV2Function}('{"string_8": "John", "string_17": "Smith"}')),
+        (73095446198, ${variantV2Function}('{"string_8": "Jane", "string_17": "Smithson"}')),
+        (73095754047, ${variantV2Function}('{"string_8": "Michael David", "string_17": "Johnson"}'))
     """
 
     sql "sync"

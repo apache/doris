@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_outfile_jsonb_and_variant", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
@@ -58,12 +59,12 @@ suite("test_outfile_jsonb_and_variant", "p0") {
 
     sql """
         INSERT INTO `${export_table_name}` values
-        (20220201,0, '{"k1": "100"}', '{"k1": "100"}'),
-        (20220201,1, '{"k1": "100", "k2": "123"}', '{"k1": "100", "k2": "123"}'),
-        (20220201,2, '{"k1": "100", "abc": "567"}', '{"k1": "100", "abc": "567"}'),
-        (20220201,3, '{"k1": "100", "k3": 123}', '{"k1": "100", "k3": 123}'),
-        (20220201,4, '{"k1": "100", "doris": "nereids"}', '{"k1": "100", "doris": "nereids"}'),
-        (20220201,5, '{"k1": "100", "doris": "pipeline"}', '{"k1": "100", "doris": "pipeline"}');
+        (20220201,0, '{"k1": "100"}', ${variantV2Function}('{"k1": "100"}')),
+        (20220201,1, '{"k1": "100", "k2": "123"}', ${variantV2Function}('{"k1": "100", "k2": "123"}')),
+        (20220201,2, '{"k1": "100", "abc": "567"}', ${variantV2Function}('{"k1": "100", "abc": "567"}')),
+        (20220201,3, '{"k1": "100", "k3": 123}', ${variantV2Function}('{"k1": "100", "k3": 123}')),
+        (20220201,4, '{"k1": "100", "doris": "nereids"}', ${variantV2Function}('{"k1": "100", "doris": "nereids"}')),
+        (20220201,5, '{"k1": "100", "doris": "pipeline"}', ${variantV2Function}('{"k1": "100", "doris": "pipeline"}'));
         """
 
     // parquet file format
