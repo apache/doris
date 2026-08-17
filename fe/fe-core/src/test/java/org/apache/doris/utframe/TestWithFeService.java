@@ -1013,6 +1013,7 @@ public abstract class TestWithFeService {
                     .setMaxValue(100)
                     .setIsUnknown(false)
                     .setUpdatedTime("")
+                    .setHotValues(new HashMap<>())
                     .build();
             map.put(e.getKey(), col);
         }

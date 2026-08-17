@@ -50,6 +50,10 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 # export REPOSITORY_URL=
 DORIS_THIRDPARTY_REPOSITORY_URL="${DORIS_THIRDPARTY_REPOSITORY_URL:-https://doris-thirdparty-repo.bj.bcebos.com/thirdparty}"
 
+DORIS_THIRDPARTY_VARS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=arrow-paimon-vars.sh
+. "${DORIS_THIRDPARTY_VARS_DIR}/arrow-paimon-vars.sh"
+
 #####################################################
 # Download url, filename and unpaced filename
 # of all thirdparties
@@ -135,7 +139,7 @@ BZIP_SOURCE=bzip2-1.0.8
 BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
 
 # lzo2
-LZO2_DOWNLOAD="https://fossies.org/linux/misc/lzo-2.10.tar.gz"
+LZO2_DOWNLOAD="https://www.oberhumer.com/opensource/lzo/download/lzo-2.10.tar.gz"
 LZO2_NAME=lzo-2.10.tar.gz
 LZO2_SOURCE=lzo-2.10
 LZO2_MD5SUM="39d3f3f9c55c87b1e5d6888e1420f4b5"
@@ -235,17 +239,11 @@ ZSTD_NAME=zstd-1.5.7.tar.gz
 ZSTD_SOURCE=zstd-1.5.7
 ZSTD_MD5SUM="780fc1896922b1bc52a4e90980cdda48"
 
-# brotli
-BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.9.tar.gz"
-BROTLI_NAME="brotli-1.0.9.tar.gz"
-BROTLI_SOURCE="brotli-1.0.9"
-BROTLI_MD5SUM="c2274f0c7af8470ad514637c35bcee7d"
-
 # flatbuffers
-FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v2.0.0.tar.gz"
-FLATBUFFERS_NAME=flatbuffers-2.0.0.tar.gz
-FLATBUFFERS_SOURCE=flatbuffers-2.0.0
-FLATBUFFERS_MD5SUM="a27992324c3cbf86dd888268a23d17bd"
+FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v23.5.26.tar.gz"
+FLATBUFFERS_NAME=flatbuffers-23.5.26.tar.gz
+FLATBUFFERS_SOURCE=flatbuffers-23.5.26
+FLATBUFFERS_MD5SUM="2ef00eaaa86ab5e9ad5eafe09c2e7b60"
 
 # c-ares
 CARES_DOWNLOAD="https://github.com/c-ares/c-ares/releases/download/cares-1_19_1/c-ares-1.19.1.tar.gz"
@@ -259,14 +257,6 @@ GRPC_DOWNLOAD="https://github.com/grpc/grpc/archive/refs/tags/v1.54.3.tar.gz"
 GRPC_NAME="grpc-v1.54.3.tar.gz"
 GRPC_SOURCE=grpc-1.54.3
 GRPC_MD5SUM="af00a2edeae0f02bb25917cc3473b7de"
-
-# arrow
-# Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet.
-# https://github.com/apache/doris/pull/51217
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/refs/tags/apache-arrow-17.0.0.tar.gz"
-ARROW_NAME="apache-arrow-17.0.0.tar.gz"
-ARROW_SOURCE="arrow-apache-arrow-17.0.0"
-ARROW_MD5SUM="ba18bf83e2164abd34b9ac4cb164f0f0"
 
 # Abseil
 ABSEIL_DOWNLOAD="https://github.com/abseil/abseil-cpp/releases/download/20250512.1/abseil-cpp-20250512.1.tar.gz"
@@ -428,13 +418,6 @@ BENCHMARK_NAME=benchmark-v1.8.0.tar.gz
 BENCHMARK_SOURCE=benchmark-1.8.0
 BENCHMARK_MD5SUM="8ddf8571d3f6198d37852bcbd964f817"
 
-# xsimd
-# for arrow-17.0.0, if arrow upgrade, this version may also need to be changed
-XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/refs/tags/13.0.0.tar.gz"
-XSIMD_NAME="13.0.0.tar.gz"
-XSIMD_SOURCE=xsimd-13.0.0
-XSIMD_MD5SUM="c661deb91836e82d3070f81032014fe6"
-
 # simdjson
 SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.11.6.tar.gz"
 SIMDJSON_NAME=simdjson-3.11.6.tar.gz
@@ -568,11 +551,11 @@ PUGIXML_NAME=pugixml-1.15.tar.gz
 PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
-# paimon-cpp
-PAIMON_CPP_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/paimon-cpp-0a4f4e2.tar.gz"
-PAIMON_CPP_NAME="paimon-cpp-0a4f4e2.tar.gz"
-PAIMON_CPP_SOURCE="doris-thirdparty-paimon-cpp-0a4f4e2"
-PAIMON_CPP_MD5SUM="b8599a0421dbf1ec05e2f1a481d64e87"
+# lance-c
+LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.6.tar.gz"
+LANCE_C_NAME="lance-c-v0.1.6.tar.gz"
+LANCE_C_SOURCE="lance-c-0.1.6"
+LANCE_C_MD5SUM="1599faa2532d9ce963db1188f7435a56"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -659,6 +642,7 @@ export TP_ARCHIVES=(
     'JUICEFS'
     'PUGIXML'
     'PAIMON_CPP'
+    'LANCE_C'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

@@ -51,23 +51,23 @@ suite("test_pruned_columns") {
     """
 
     qt_sql1 """
-        select b.id, array_map(x -> struct_element(map_values(x)[1], 'a'), struct_element(s, 'data')) from `tbl_test_pruned_columns` t join (select 1 id) b on t.id = b.id order by 1;
+        select b.id, array_map(x -> element_at(map_values(x)[1], 'a'), element_at(s, 'data')) from `tbl_test_pruned_columns` t join (select 1 id) b on t.id = b.id order by 1;
     """
 
     qt_sql2 """
-        select id, struct_element(s, 'city') from `tbl_test_pruned_columns` order by 1;
+        select id, element_at(s, 'city') from `tbl_test_pruned_columns` order by 1;
     """
 
     qt_sql3 """
-        select id, struct_element(s, 'data') from `tbl_test_pruned_columns` order by 1;
+        select id, element_at(s, 'data') from `tbl_test_pruned_columns` order by 1;
     """
 
     qt_sql4 """
-        select id, struct_element(s, 'data') from `tbl_test_pruned_columns` where struct_element(struct_element(s, 'data')[1][2], 'b') = 40 order by 1;
+        select id, element_at(s, 'data') from `tbl_test_pruned_columns` where element_at(element_at(s, 'data')[1][2], 'b') = 40 order by 1;
     """
 
     qt_sql5 """
-        select id, struct_element(s, 'city') from `tbl_test_pruned_columns` where struct_element(struct_element(s, 'data')[1][2], 'b') = 40 order by 1;
+        select id, element_at(s, 'city') from `tbl_test_pruned_columns` where element_at(element_at(s, 'data')[1][2], 'b') = 40 order by 1;
     """
 
     qt_sql5_1 """
@@ -98,11 +98,11 @@ suite("test_pruned_columns") {
     """
 
     qt_sql6 """
-        select count(struct_element(dynamic_attributes['theme_preference'], 'confidence_score')) from `tbl_test_pruned_columns_map`;
+        select count(element_at(dynamic_attributes['theme_preference'], 'confidence_score')) from `tbl_test_pruned_columns_map`;
     """
 
     qt_sql7 """
-        select struct_element(dynamic_attributes['theme_preference'], 'confidence_score') from `tbl_test_pruned_columns_map` order by id;
+        select element_at(dynamic_attributes['theme_preference'], 'confidence_score') from `tbl_test_pruned_columns_map` order by id;
     """
 
     // test light schema change with nested complex types
@@ -135,6 +135,6 @@ suite("test_pruned_columns") {
     """
 
     qt_sql8 """
-        select struct_element(element_at(arr_s, 1), 'z') as inner_z FROM nested_sc_tbl ORDER BY id;
+        select element_at(element_at(arr_s, 1), 'z') as inner_z FROM nested_sc_tbl ORDER BY id;
     """
 }

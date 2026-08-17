@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.type_change_origin`(
+drop table if exists `multi_catalog.type_change_origin`;
+
+create table `multi_catalog.type_change_origin`(
   `numeric_boolean` boolean, 
   `numeric_tinyint` tinyint, 
   `numeric_smallint` smallint, 
@@ -41,5 +43,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/multi_catalog/type_change_origin'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1712485085');
-
-msck repair table type_change_origin;

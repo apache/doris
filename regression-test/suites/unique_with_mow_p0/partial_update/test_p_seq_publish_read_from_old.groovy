@@ -38,7 +38,8 @@ suite("test_p_seq_publish_read_from_old") {
         "enable_unique_key_merge_on_write" = "true",
         "light_schema_change" = "true",
         "function_column.sequence_col" = "v1",
-        "store_row_column" = "false"); """
+        "store_row_column" = "false",
+        "disable_auto_compaction" = "true"); """
     sql """insert into ${tableName} values(1,100,1,1,1,1),(2,100,2,2,2,2),(3,100,3,3,3,3),(4,100,4,4,4,4);"""
     qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
 

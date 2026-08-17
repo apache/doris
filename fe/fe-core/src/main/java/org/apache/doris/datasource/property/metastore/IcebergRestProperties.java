@@ -81,6 +81,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.oauth2.token"},
             required = false,
+            sensitive = true,
             description = "The oauth2 token for the iceberg rest catalog service.")
     private String icebergRestOauth2Token;
 
@@ -115,6 +116,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             required = false,
             description = "Enable nested namespace for the iceberg rest catalog service.")
     private String icebergRestNestedNamespaceEnabled = "false";
+
+    @ConnectorProperty(names = {"iceberg.rest.view-enabled"},
+            required = false,
+            description = "Enable view operations for the iceberg rest catalog service.")
+    private String icebergRestViewEnabled = "true";
 
     @ConnectorProperty(names = {"iceberg.rest.case-insensitive-name-matching"},
             required = false,
@@ -369,6 +375,10 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     public boolean isIcebergRestNestedNamespaceEnabled() {
         return Boolean.parseBoolean(icebergRestNestedNamespaceEnabled);
+    }
+
+    public boolean isIcebergRestViewEnabled() {
+        return Boolean.parseBoolean(icebergRestViewEnabled);
     }
 
     public enum Security {

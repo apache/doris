@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.par_fields_in_file_parquet`(
+drop table if exists `multi_catalog.par_fields_in_file_parquet`;
+
+create table `multi_catalog.par_fields_in_file_parquet`(
   `id` int, 
   `name` string, 
   `value` double)

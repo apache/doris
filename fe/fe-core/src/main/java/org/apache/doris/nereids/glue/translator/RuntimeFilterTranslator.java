@@ -37,7 +37,6 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticalType;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -131,7 +130,7 @@ public class RuntimeFilterTranslator {
                 }
 
                 // adjust data type
-                if (!src.getType().equals(targetExpr.getType()) && filter.getType() != TRuntimeFilterType.BITMAP) {
+                if (!src.getType().equals(targetExpr.getType())) {
                     targetExpr = new CastExpr(src.getType(), targetExpr, null);
                 }
                 TupleId targetTupleId = targetSlotRef.getDesc().getParent().getId();
@@ -161,7 +160,6 @@ public class RuntimeFilterTranslator {
                     origFilter.addTarget(new RuntimeFilterTarget(
                             scanNode, targetExpr, true, isLocalTarget));
                 }
-                origFilter.setBitmapFilterNotIn(filter.isBitmapFilterNotIn());
                 origFilter.setBloomFilterSizeCalculatedByNdv(filter.isBloomFilterSizeCalculatedByNdv());
                 org.apache.doris.planner.RuntimeFilter finalizedFilter = finalize(origFilter);
                 scanNodeList.stream().filter(e -> e.getStatisticalType() == StatisticalType.CTE_SCAN_NODE)

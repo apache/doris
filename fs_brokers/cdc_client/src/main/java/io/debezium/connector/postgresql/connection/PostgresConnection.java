@@ -60,6 +60,7 @@ import java.util.regex.Pattern;
  * Copied from Flink Cdc 3.6.0
  *
  * <p>Line 820～854: modified getColumnValue method to fix FLINK-39748.
+ * <p>Line 699-703, 705-706: doReadTableColumn also matches SCHEMA_NAME (besides TABLE_NAME, FLINK-38965) to avoid Duplicate key from a decoy schema's same-named table.
  */
 public class PostgresConnection extends JdbcConnection {
 
@@ -695,8 +696,14 @@ public class PostgresConnection extends JdbcConnection {
         // - When querying 'user_sink', the pattern may also match 'userbsink' (due to '_')
         // - When querying 'user%data' (where % is literal), it may match 'user_test_data' (due to
         // '%')
+        // The schema name passed to getColumns is also a LIKE pattern, so a decoy schema
+        // (e.g. 'cdcXtest' matched by 'cdc_test' via '_') can return a same-named table whose
+        // TABLE_NAME still equals tableId.table(); compare the schema too, otherwise those
+        // columns merge with the real table's and collide on column name (Duplicate key).
+        final String resultSchemaName = columnMetadata.getString(2);
         final String resultTableName = columnMetadata.getString(3);
-        if (!tableId.table().equals(resultTableName)) {
+        if (!tableId.table().equals(resultTableName)
+                || (tableId.schema() != null && !tableId.schema().equals(resultSchemaName))) {
             return Optional.empty();
         }
 

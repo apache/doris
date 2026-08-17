@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.base.Preconditions;
-import org.apache.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -34,8 +33,6 @@ import java.util.Objects;
  * Literal for DecimalV3 Type
  */
 public class DecimalV3Literal extends FractionalLiteral {
-    private static final Logger logger = Logger.getLogger(Literal.class);
-
     private final BigDecimal value;
 
     public DecimalV3Literal(BigDecimal value) {
@@ -57,8 +54,6 @@ public class DecimalV3Literal extends FractionalLiteral {
         Objects.requireNonNull(value, "value not be null");
         checkPrecisionAndScale(precision, scale, value);
         BigDecimal adjustedValue = value.scale() < 0 ? value : value.setScale(scale, RoundingMode.HALF_UP);
-        logger.info("DecimalV3Literal orig bigDecimal: " + value
-                + ", targetType: " + dataType + ", result big decimal: " + adjustedValue);
         this.value = Objects.requireNonNull(adjustedValue);
     }
 

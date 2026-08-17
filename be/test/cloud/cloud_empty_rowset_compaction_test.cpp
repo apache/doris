@@ -123,7 +123,7 @@ public:
                                                      version2_meta, &version2_rowset);
         EXPECT_TRUE(status.ok());
         {
-            std::unique_lock<std::shared_mutex> lock(_tablet->get_header_lock());
+            std::unique_lock lock(_tablet->get_header_lock());
             _tablet->add_rowsets({version2_rowset}, false, lock, false);
         }
 

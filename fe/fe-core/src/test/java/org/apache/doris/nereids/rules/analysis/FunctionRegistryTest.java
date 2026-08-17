@@ -26,8 +26,10 @@ import org.apache.doris.nereids.trees.expressions.functions.BuiltinFunctionBuild
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariant;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -82,6 +84,25 @@ public class FunctionRegistryTest implements MemoPatternMatchSupported {
                             Assertions.assertInstanceOf(Substring.class, secondSubstring.getSource());
                             Assertions.assertEquals(1, ((Literal) secondSubstring.getPosition()).getValue());
                             Assertions.assertEquals(2, ((Literal) secondSubstring.getLength().get()).getValue());
+                            return true;
+                        })
+                );
+    }
+
+    @Test
+    public void testVariantParseFunctions() {
+        PlanChecker.from(connectContext)
+                .analyze("select parse_to_variant('{\"a\":1}'), try_parse_to_variant('{')")
+                .matches(
+                        logicalOneRowRelation().when(oneRowRelation -> {
+                            Expression fail = oneRowRelation.getProjects().get(0).child(0);
+                            Expression errorToNull = oneRowRelation.getProjects().get(1).child(0);
+                            Assertions.assertInstanceOf(ParseToVariant.class, fail);
+                            Assertions.assertInstanceOf(TryParseToVariant.class, errorToNull);
+                            Assertions.assertTrue(fail.getDataType().isVariantType());
+                            Assertions.assertTrue(errorToNull.getDataType().isVariantType());
+                            Assertions.assertFalse(fail.nullable());
+                            Assertions.assertTrue(errorToNull.nullable());
                             return true;
                         })
                 );

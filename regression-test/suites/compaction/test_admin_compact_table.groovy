@@ -45,7 +45,10 @@ suite("test_admin_compact_table", "p0") {
     """
 
     def tablets = sql_return_maparray "SHOW TABLETS FROM ${tableName}"
-    assertEquals(1, tablets.size())
+    // SHOW TABLETS returns one row per (tablet, replica); on a multi-replica
+    // cluster (e.g. force_olap_table_replication_num=3) BUCKETS 1 yields 3 rows.
+    // Assert on the distinct tablet count, then pick any replica below.
+    assertEquals(1, tablets.collect { it.TabletId }.unique().size())
     def tabletId = tablets[0].TabletId
     def backendId = tablets[0].BackendId
 

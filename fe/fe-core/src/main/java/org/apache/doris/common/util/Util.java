@@ -651,6 +651,16 @@ public class Util {
                 || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
     }
 
+    public static boolean isCasePreservingFormat(String formatName) {
+        return !Strings.isNullOrEmpty(formatName)
+                && isCasePreservingFormat(getFileFormatTypeFromName(formatName));
+    }
+
+    public static boolean isCasePreservingFormat(TFileFormatType fileFormatType) {
+        return fileFormatType == TFileFormatType.FORMAT_JSON
+                || fileFormatType == TFileFormatType.FORMAT_ARROW;
+    }
+
     public static void logAndThrowRuntimeException(Logger logger, String msg, Throwable e) {
         logger.warn(msg, e);
         throw new RuntimeException(msg, e);

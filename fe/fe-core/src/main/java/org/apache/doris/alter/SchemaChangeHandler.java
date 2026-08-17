@@ -2378,7 +2378,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
                 add(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
                 add(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE);
-                add(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
                 add(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
                 add(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
                 add(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD);
@@ -2405,13 +2404,6 @@ public class SchemaChangeHandler extends AlterHandler {
             partitions.addAll(olapTable.getPartitions());
         } finally {
             olapTable.readUnlock();
-        }
-
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)
-                && !(olapTable.getPartitionInfo().enableAutomaticPartition()
-                        && olapTable.getPartitionInfo().getType() == PartitionType.RANGE)) {
-            throw new UserException("Only AUTO RANGE PARTITION table could set "
-                    + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
         }
 
         String inMemory = properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY);
@@ -2485,7 +2477,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 && verticalCompactionNumColumnsPerGroup < 0
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
-                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE)
@@ -2496,17 +2487,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
             LOG.info("Properties already up-to-date");
             return;
-        }
-
-        String singleCompaction = properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION);
-        int enableSingleCompaction = -1; // < 0 means don't update
-        if (singleCompaction != null) {
-            enableSingleCompaction = Boolean.parseBoolean(singleCompaction) ? 1 : 0;
-        }
-
-        if (enableUniqueKeyMergeOnWrite && Boolean.parseBoolean(singleCompaction)) {
-            throw new UserException(
-                    "enable_single_replica_compaction property is not supported for merge-on-write table");
         }
 
         String enableMowLightDelete = properties.get(
@@ -2530,12 +2510,13 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
-                                    null, compactionPolicy, timeSeriesCompactionConfig, enableSingleCompaction, skip,
+                                    null, compactionPolicy, timeSeriesCompactionConfig, skip,
                                     disableAutoCompaction, verticalCompactionNumColumnsPerGroup);
         }
 
         olapTable.writeLockOrDdlException();
         try {
+            checkPartitionRetentionCount(olapTable, properties);
             Env.getCurrentEnv().modifyTableProperties(db, olapTable, properties);
         } finally {
             olapTable.writeUnlock();
@@ -2543,6 +2524,24 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // after modifyTableProperties, buildPartitionRetentionCount has been done.
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable, false);
+    }
+
+    protected void checkPartitionRetentionCount(OlapTable olapTable, Map<String, String> properties)
+            throws UserException {
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
+            return;
+        }
+        if (!(olapTable.getPartitionInfo().enableAutomaticPartition()
+                && olapTable.getPartitionInfo().getType() == PartitionType.RANGE)) {
+            throw new UserException("Only AUTO RANGE PARTITION table could set "
+                    + PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT);
+        }
+        // Dynamic partition creation and retention-count cleanup are mutually exclusive scheduler modes.
+        if (olapTable.dynamicPartitionExists()
+                && olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
+            throw new UserException("Can not use partition.retention_count and "
+                    + "dynamic_partition properties at the same time");
+        }
     }
 
     /**
@@ -2580,7 +2579,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (String partitionName : partitionNames) {
             try {
                 updatePartitionProperties(db, olapTable.getName(), partitionName,
-                        storagePolicyId, isInMemory, null, null, null, -1, -1, -1, -1);
+                        storagePolicyId, isInMemory, null, null, null, -1, -1, -1);
             } catch (Exception e) {
                 String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. "
                         + "The reason is [" + e.getMessage() + "]";
@@ -2596,7 +2595,7 @@ public class SchemaChangeHandler extends AlterHandler {
     public void updatePartitionProperties(Database db, String tableName, String partitionName, long storagePolicyId,
                                           int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
                                           Map<String, Long> timeSeriesCompactionConfig,
-                                          int enableSingleCompaction, int skipWriteIndexOnLoad,
+                                          int skipWriteIndexOnLoad,
                                           int disableAutoCompaction,
                                           int verticalCompactionNumColumnsPerGroup) throws UserException {
         // be id -> <tablet id,schemaHash>
@@ -2631,7 +2630,7 @@ public class SchemaChangeHandler extends AlterHandler {
             countDownLatch.addMark(kv.getKey(), kv.getValue());
             UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(kv.getKey(), kv.getValue(), isInMemory,
                                             storagePolicyId, binlogConfig, countDownLatch, compactionPolicy,
-                                            timeSeriesCompactionConfig, enableSingleCompaction, skipWriteIndexOnLoad,
+                                            timeSeriesCompactionConfig, skipWriteIndexOnLoad,
                                             disableAutoCompaction, verticalCompactionNumColumnsPerGroup);
             batchTask.addTask(task);
         }
@@ -3515,7 +3514,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,
-                                                newBinlogConfig, null, null, -1, -1, -1, -1);
+                                                newBinlogConfig, null, null, -1, -1, -1);
         }
 
         olapTable.writeLockOrDdlException();

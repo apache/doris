@@ -21,7 +21,9 @@
 #include <glog/logging.h>
 
 #include "common/cast_set.h"
+#include "core/column/column_fixed_length_object.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type/data_type_fixed_length_object.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
@@ -107,29 +109,38 @@ ColumnPtr PhysicalToLogicalConverter::get_physical_column(tparquet::Type::type s
             _cached_src_physical_type = std::make_shared<DataTypeString>();
             break;
         case tparquet::Type::type::FIXED_LEN_BYTE_ARRAY:
-            _cached_src_physical_type = std::make_shared<DataTypeUInt8>();
+            _cached_src_physical_type = std::make_shared<DataTypeFixedLengthObject>();
             break;
         case tparquet::Type::type::INT96:
             _cached_src_physical_type = std::make_shared<DataTypeInt8>();
             break;
         }
-        _cached_src_physical_column = _cached_src_physical_type->create_column();
+        const bool is_fixed_length_byte_array =
+                src_physical_type == tparquet::Type::type::FIXED_LEN_BYTE_ARRAY;
         if (dst_logical_type->is_nullable()) {
+            MutableColumnPtr nested_physical_column;
+            if (is_fixed_length_byte_array) {
+                nested_physical_column = ColumnFixedLengthObject::create(
+                        _convert_params->field_schema->parquet_schema.type_length);
+            } else {
+                nested_physical_column = _cached_src_physical_type->create_column();
+            }
+            _cached_src_physical_column = ColumnNullable::create(std::move(nested_physical_column),
+                                                                 ColumnUInt8::create());
             _cached_src_physical_type = make_nullable(_cached_src_physical_type);
+        } else {
+            if (is_fixed_length_byte_array) {
+                _cached_src_physical_column = ColumnFixedLengthObject::create(
+                        _convert_params->field_schema->parquet_schema.type_length);
+            } else {
+                _cached_src_physical_column = _cached_src_physical_type->create_column();
+            }
         }
     }
     // remove the old cached data
-    _cached_src_physical_column->assume_mutable()->clear();
-
-    if (dst_logical_type->is_nullable()) {
-        // In order to share null map between parquet converted src column and dst column to avoid copying. It is very tricky that will
-        // call mutable function `doris_nullable_column->get_null_map_column_ptr()` which will set `_need_update_has_null = true`.
-        // Because some operations such as agg will call `has_null()` to set `_need_update_has_null = false`.
-        auto* doris_nullable_column = const_cast<ColumnNullable*>(
-                assert_cast<const ColumnNullable*>(dst_logical_column.get()));
-        return ColumnNullable::create(_cached_src_physical_column,
-                                      doris_nullable_column->get_null_map_column_ptr());
-    }
+    auto cached_src_physical_column = IColumn::mutate(std::move(_cached_src_physical_column));
+    cached_src_physical_column->clear();
+    _cached_src_physical_column = std::move(cached_src_physical_column);
 
     return _cached_src_physical_column;
 }

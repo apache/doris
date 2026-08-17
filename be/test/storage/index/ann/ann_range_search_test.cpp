@@ -188,7 +188,8 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch) {
     ASSERT_TRUE(range_search_ctx
                         ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
                                                     column_iterators, common_expr_to_slotref_map,
-                                                    row_bitmap, stats, &ann_range_search_executed)
+                                                    row_bitmap.cardinality(), row_bitmap, stats,
+                                                    &ann_range_search_executed)
                         .ok());
     EXPECT_TRUE(ann_range_search_executed);
 
@@ -291,7 +292,8 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch2) {
     ASSERT_TRUE(range_search_ctx
                         ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
                                                     column_iterators, common_expr_to_slotref_map,
-                                                    row_bitmap, stats, &ann_range_search_executed)
+                                                    row_bitmap.cardinality(), row_bitmap, stats,
+                                                    &ann_range_search_executed)
                         .ok());
     EXPECT_TRUE(ann_range_search_executed);
 
@@ -372,10 +374,10 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearchStateDoesNotLeakAcrossClones)
             common_expr_to_slotref_map;
     bool ann_range_search_executed = false;
     ASSERT_TRUE(segment_with_ann_ctx
-                        ->evaluate_ann_range_search(ann_index_iterators, idx_to_cid,
-                                                    ann_column_iterators,
-                                                    common_expr_to_slotref_map, ann_row_bitmap,
-                                                    ann_stats, &ann_range_search_executed)
+                        ->evaluate_ann_range_search(
+                                ann_index_iterators, idx_to_cid, ann_column_iterators,
+                                common_expr_to_slotref_map, ann_row_bitmap.cardinality(),
+                                ann_row_bitmap, ann_stats, &ann_range_search_executed)
                         .ok());
     EXPECT_TRUE(ann_range_search_executed);
     const auto* ann_result = segment_with_ann_ctx->get_index_context()->get_index_result_for_expr(
@@ -396,10 +398,10 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearchStateDoesNotLeakAcrossClones)
     segment_v2::AnnIndexStats no_ann_stats;
     bool no_ann_range_search_executed = true;
     ASSERT_TRUE(segment_without_ann_ctx
-                        ->evaluate_ann_range_search(no_ann_index_iterators, idx_to_cid,
-                                                    no_ann_column_iterators,
-                                                    common_expr_to_slotref_map, no_ann_row_bitmap,
-                                                    no_ann_stats, &no_ann_range_search_executed)
+                        ->evaluate_ann_range_search(
+                                no_ann_index_iterators, idx_to_cid, no_ann_column_iterators,
+                                common_expr_to_slotref_map, no_ann_row_bitmap.cardinality(),
+                                no_ann_row_bitmap, no_ann_stats, &no_ann_range_search_executed)
                         .ok());
     EXPECT_FALSE(no_ann_range_search_executed);
     EXPECT_FALSE(segment_without_ann_ctx->get_index_context()->has_index_result_for_expr(
@@ -477,7 +479,8 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearchUsesSourceColumnIndexForSlotM
     ASSERT_TRUE(range_search_ctx
                         ->evaluate_ann_range_search(cid_to_index_iterators, idx_to_cid,
                                                     column_iterators, common_expr_to_slotref_map,
-                                                    row_bitmap, stats, &ann_range_search_executed)
+                                                    row_bitmap.cardinality(), row_bitmap, stats,
+                                                    &ann_range_search_executed)
                         .ok());
     EXPECT_TRUE(ann_range_search_executed);
     EXPECT_TRUE(common_expr_index_status[5][range_search_ctx->root().get()]);
@@ -868,7 +871,7 @@ TEST_F(VectorSearchTest, TestEvaluateAnnRangeSearch_DimensionMismatch) {
 
     auto st = range_search_ctx->evaluate_ann_range_search(
             cid_to_index_iterators, idx_to_cid, column_iterators, common_expr_to_slotref_map,
-            row_bitmap, stats, nullptr);
+            row_bitmap.cardinality(), row_bitmap, stats, nullptr);
     EXPECT_FALSE(st.ok());
     EXPECT_TRUE(st.is<doris::ErrorCode::INVALID_ARGUMENT>());
 }

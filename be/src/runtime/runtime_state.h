@@ -100,6 +100,10 @@ public:
                  const TQueryGlobals& query_globals, ExecEnv* exec_env,
                  const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
 
+    // Keep this production-visible because master format_v2 constructs a lightweight state for
+    // page-cache reads; a BE_TEST-only overload would hide release-build incompatibilities.
+    RuntimeState(const TQueryOptions& query_options, const TQueryGlobals& query_globals);
+
     // RuntimeState for executing expr in fe-support.
     RuntimeState(const TQueryGlobals& query_globals);
 
@@ -548,6 +552,17 @@ public:
         _mc_commit_datas.emplace_back(mc_commit_data);
     }
 
+    std::vector<TPaimonCommitMessage> paimon_commit_messages() const {
+        std::lock_guard<std::mutex> lock(_paimon_commit_messages_mutex);
+        return _paimon_commit_messages;
+    }
+
+    void add_paimon_commit_messages(const std::vector<TPaimonCommitMessage>& commit_messages) {
+        std::lock_guard<std::mutex> lock(_paimon_commit_messages_mutex);
+        _paimon_commit_messages.insert(_paimon_commit_messages.end(), commit_messages.begin(),
+                                       commit_messages.end());
+    }
+
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
     // runtime filter mgr can release the memory of local runtime filter
@@ -579,6 +594,16 @@ public:
     bool enable_streaming_agg_hash_join_force_passthrough() const {
         return _query_options.__isset.enable_streaming_agg_hash_join_force_passthrough &&
                _query_options.enable_streaming_agg_hash_join_force_passthrough;
+    }
+
+    bool enable_local_exchange_before_agg() const {
+        return _query_options.__isset.enable_local_exchange_before_agg &&
+               _query_options.enable_local_exchange_before_agg;
+    }
+
+    bool enable_local_exchange_before_streaming_agg() const {
+        return _query_options.__isset.enable_local_exchange_before_streaming_agg &&
+               _query_options.enable_local_exchange_before_streaming_agg;
     }
 
     bool enable_distinct_streaming_agg_force_passthrough() const {
@@ -845,6 +870,14 @@ public:
         params.hnsw_check_relative_distance = _query_options.hnsw_check_relative_distance;
         params.hnsw_bounded_queue = _query_options.hnsw_bounded_queue;
         params.ivf_nprobe = _query_options.ivf_nprobe;
+        params.ann_index_candidate_rows_threshold =
+                _query_options.__isset.ann_index_candidate_rows_threshold
+                        ? _query_options.ann_index_candidate_rows_threshold
+                        : 0;
+        params.ann_index_candidate_rows_percent_threshold =
+                _query_options.__isset.ann_index_candidate_rows_percent_threshold
+                        ? _query_options.ann_index_candidate_rows_percent_threshold
+                        : 0.3;
         return params;
     }
 
@@ -964,6 +997,9 @@ private:
 
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;
+
+    mutable std::mutex _paimon_commit_messages_mutex;
+    std::vector<TPaimonCommitMessage> _paimon_commit_messages;
 
     std::vector<std::unique_ptr<doris::PipelineXLocalStateBase>> _op_id_to_local_state;
 

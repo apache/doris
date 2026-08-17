@@ -28,6 +28,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "exec/operator/operator.h"
 #include "runtime/descriptors.h"
+#include "util/uid_util.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -41,6 +42,7 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(_init_timer);
     _task_idx = info.task_idx;
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
+    custom_profile()->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
     _probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
     for (size_t i = 0; i < _probe_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
@@ -233,7 +235,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_bl
 
     local_state._join_block.clear_column_data();
 
-    MutableBlock mutable_join_block(&local_state._join_block);
+    ScopedMutableBlock scoped_mutable_join_block(&local_state._join_block);
+    auto& mutable_join_block = scoped_mutable_join_block.mutable_block();
     Block temp_block;
 
     Status st;
@@ -314,8 +317,8 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, Block* output_bl
             state, output_block, eos, &temp_block,
             !local_state._shared_state->left_semi_direct_return));
     // Here make _join_block release the columns' ptr
+    scoped_mutable_join_block.restore();
     local_state._join_block.set_columns(local_state._join_block.clone_empty_columns());
-    mutable_join_block.clear();
     return Status::OK();
 }
 

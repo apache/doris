@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.parquet_alter_column_to_varchar`(
+drop table if exists `multi_catalog.parquet_alter_column_to_varchar`;
+
+create table `multi_catalog.parquet_alter_column_to_varchar`(
   `col_int` varchar(20), 
   `col_smallint` varchar(20), 
   `col_tinyint` varchar(20), 
@@ -26,5 +28,3 @@ TBLPROPERTIES (
   'last_modified_by'='hadoop', 
   'last_modified_time'='1697275145', 
   'transient_lastDdlTime'='1697275145');
-
-msck repair table parquet_alter_column_to_varchar;

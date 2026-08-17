@@ -44,7 +44,6 @@
 #include "exprs/vexpr_fwd.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "runtime/runtime_profile.h"
-#include "storage/field.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/index/index_iterator.h"
 #include "storage/iterators.h"
@@ -189,6 +188,9 @@ private:
     // calculate row ranges that satisfy requested column conditions using various column index
     [[nodiscard]] Status _get_row_ranges_by_column_conditions();
     [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
+    [[nodiscard]] Status _apply_expr_zonemap_to_row_ranges(const VExprContextSPtrs& conjuncts,
+                                                           rowid_t min_rowid,
+                                                           RowRanges* row_ranges);
     [[nodiscard]] Status _apply_inverted_index();
     [[nodiscard]] Status _apply_inverted_index_on_column_predicate(
             std::shared_ptr<ColumnPredicate> pred,
@@ -204,11 +206,6 @@ private:
     bool _is_literal_node(const TExprNodeType::type& node_type);
 
     Status _vec_init_lazy_materialization();
-    // TODO: Fix Me
-    // CHAR type in storage layer padding the 0 in length. But query engine need ignore the padding 0.
-    // so segment iterator need to shrink char column before output it. only use in vec query engine.
-    void _vec_init_char_column_id(Block* block);
-    bool _has_char_type(const StorageField& column_desc);
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
@@ -252,8 +249,7 @@ private:
             if (block_cid >= block->columns()) {
                 continue;
             }
-            DataTypePtr storage_type =
-                    _segment->get_data_type_of(_schema->column(cid)->get_desc(), _opts);
+            DataTypePtr storage_type = _segment->get_data_type_of(*_schema->column(cid), _opts);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 MutableColumnPtr tmp = storage_type->create_column();
@@ -264,8 +260,8 @@ private:
                         {tmp->get_ptr(), storage_type, ""}, block->get_by_position(block_cid).type,
                         &block->get_by_position(block_cid).column));
             } else {
-                MutableColumnPtr output_column =
-                        block->get_by_position(block_cid).column->assume_mutable();
+                auto output_column_guard = block->mutate_column_scoped(block_cid);
+                auto& output_column = output_column_guard.mutable_column();
                 RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
                                                              output_column, sel_rowid_idx,
                                                              select_size, _opts.block_row_max));
@@ -428,10 +424,6 @@ private:
     MutableColumns _seek_block;
 
     io::FileReaderSPtr _file_reader;
-
-    // char_type or array<char> type columns cid
-    std::vector<size_t> _char_type_idx;
-    std::vector<bool> _is_char_type;
 
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;

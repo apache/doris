@@ -18,9 +18,8 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -48,11 +47,11 @@ public class RandomBytes extends UniqueFunction
      * constructor with 1 argument.
      */
     public RandomBytes(Expression arg0) {
-        this(StatementScopeIdGenerator.newExprId(), false, arg0);
+        this(VolatileIdentity.newVolatileIdentity(), ImmutableList.of(arg0));
     }
 
-    public RandomBytes(ExprId uniqueId, boolean ignoreUniqueId, Expression arg0) {
-        super("random_bytes", uniqueId, ignoreUniqueId, arg0);
+    private RandomBytes(VolatileIdentity volatileIdentity, List<Expression> children) {
+        super("random_bytes", volatileIdentity, children);
     }
 
     /** constructor for withChildren and reuse signature */
@@ -71,7 +70,7 @@ public class RandomBytes extends UniqueFunction
 
     @Override
     public RandomBytes withIgnoreUniqueId(boolean ignoreUniqueId) {
-        return new RandomBytes(uniqueId, ignoreUniqueId, children.get(0));
+        return new RandomBytes(volatileIdentity.withIgnoreUniqueId(ignoreUniqueId), children);
     }
 
     @Override

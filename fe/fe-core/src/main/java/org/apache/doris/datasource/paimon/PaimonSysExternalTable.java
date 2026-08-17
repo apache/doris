@@ -17,12 +17,14 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -35,15 +37,19 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.Split;
+import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypeRoot;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * Represents a Paimon system table (e.g., snapshots, binlog, audit_log) that wraps a source data table.
@@ -69,7 +75,10 @@ public class PaimonSysExternalTable extends ExternalTable {
     private final PaimonExternalTable sourceTable;
     private final String sysTableType;
     private volatile Boolean isDataTable;
+    private volatile FileStoreTable paimonSysDataTable;
     private volatile Table paimonSysTable;
+    private volatile List<Column> fullSchema;
+    private volatile SchemaCacheValue schemaCacheValue;
 
     /**
      * Creates a new Paimon system external table.
@@ -93,6 +102,7 @@ public class PaimonSysExternalTable extends ExternalTable {
         return PaimonExternalMetaCache.ENGINE;
     }
 
+    @Override
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
@@ -110,18 +120,30 @@ public class PaimonSysExternalTable extends ExternalTable {
 
     /**
      * Returns the Paimon system table instance (e.g., snapshots, binlog).
-     * Note: system tables currently ignore snapshot semantics.
      */
     public Table getSysPaimonTable() {
+        getRawSysPaimonTable();
+        FileStoreTable safeDataTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(paimonSysDataTable);
+        PaimonReaderOptions.validateEffectiveTable(safeDataTable);
+        // The cached wrapper must remain catalog-neutral; rebuild only when this FE needs a capped
+        // data handle so the hidden manifest planner sees the normalized value.
+        return safeDataTable == paimonSysDataTable ? paimonSysTable : createSystemTable(safeDataTable);
+    }
+
+    /** Returns the cached wrapper without validating its hidden data table. */
+    public Table getRawSysPaimonTable() {
         if (paimonSysTable == null) {
             synchronized (this) {
                 if (paimonSysTable == null) {
-                    PaimonExternalCatalog catalog = (PaimonExternalCatalog) getCatalog();
-                    paimonSysTable = catalog.getPaimonTable(
-                            sourceTable.getOrBuildNameMapping(),
-                            "main",  // branch
-                            sysTableType  // queryType: snapshots, binlog, etc.
-                    );
+                    Table dataTable = sourceTable.getBasePaimonTable();
+                    if (!(dataTable instanceof FileStoreTable)) {
+                        throw new IllegalArgumentException(
+                                "Paimon system tables require a file-store data table.");
+                    }
+                    paimonSysDataTable = (FileStoreTable) dataTable;
+                    // Build the wrapper from this exact cached handle. Reloading it through the
+                    // catalog can pair validation with one generation and planning with another.
+                    paimonSysTable = createSystemTable(paimonSysDataTable);
                     LOG.info("Created Paimon system table: {} for source table: {}",
                             sysTableType, sourceTable.getName());
                 }
@@ -130,23 +152,139 @@ public class PaimonSysExternalTable extends ExternalTable {
         return paimonSysTable;
     }
 
+    public Table getSysPaimonTable(TableScanParams scanParams) {
+        return getSysPaimonTable(getRawSysPaimonDataTable(), scanParams);
+    }
+
+    public Table getSysPaimonTable(FileStoreTable dataTable, TableScanParams scanParams) {
+        if (scanParams == null || !scanParams.isOptions()) {
+            FileStoreTable safeDataTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(dataTable);
+            PaimonReaderOptions.validateEffectiveTable(safeDataTable);
+            return createSystemTable(safeDataTable);
+        }
+        Map<String, String> resolvedOptions = resolvedOptions(dataTable, scanParams);
+        if (PaimonScanParams.getPinnedFileCreationTime(resolvedOptions).isPresent()) {
+            // Generic system-table wrappers cannot carry Paimon's manifest-entry predicate.
+            // Reject the fallback instead of silently widening it to the whole pinned snapshot.
+            throw new IllegalArgumentException(
+                    "Paimon system tables cannot apply a creation-time file filter.");
+        }
+        FileStoreTable effectiveDataTable = PaimonScanParams.applyOptionsToBoundTable(
+                dataTable, resolvedOptions);
+        return createSystemTable(effectiveDataTable);
+    }
+
+    public void validateEffectiveDataTable(TableScanParams scanParams) {
+        validateEffectiveDataTable(getRawSysPaimonDataTable(), scanParams);
+    }
+
+    public void validateEffectiveDataTable(FileStoreTable dataTable, TableScanParams scanParams) {
+        if (scanParams != null && scanParams.isOptions()) {
+            // Apply the same relation copy to the data table hidden by ReadonlyTable wrappers.
+            PaimonScanParams.applyOptionsToBoundTable(
+                    dataTable, resolvedOptions(dataTable, scanParams));
+        } else {
+            PaimonReaderOptions.validateEffectiveTable(PaimonReaderOptions.runtimeSafeTable(dataTable));
+        }
+    }
+
+    public OptionalInt runtimeSafeManifestParallelism(TableScanParams scanParams) {
+        return runtimeSafeManifestParallelism(getRawSysPaimonDataTable(), scanParams);
+    }
+
+    public OptionalInt runtimeSafeManifestParallelism(
+            FileStoreTable dataTable, TableScanParams scanParams) {
+        Table effectiveDataTable = runtimeSafeDataTable(dataTable, scanParams, Collections.emptyMap());
+        // The serialized system wrapper does not expose this hidden value, so transport the
+        // FE-safe bound separately for a smaller BE to lower after deserialization.
+        return PaimonReaderOptions.backendManifestParallelismCap(effectiveDataTable);
+    }
+
+    public FileStoreTable runtimeSafeDataTable(
+            TableScanParams scanParams, Map<String, String> incrementalOptions) {
+        return runtimeSafeDataTable(getRawSysPaimonDataTable(), scanParams, incrementalOptions);
+    }
+
+    public FileStoreTable runtimeSafeDataTable(
+            FileStoreTable dataTable, TableScanParams scanParams, Map<String, String> incrementalOptions) {
+        if (scanParams != null && scanParams.isOptions()) {
+            return PaimonScanParams.applyOptionsToBoundTable(
+                    dataTable, resolvedOptions(dataTable, scanParams));
+        }
+        if (incrementalOptions != null && !incrementalOptions.isEmpty()) {
+            return (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(
+                    dataTable.copy(incrementalOptions));
+        }
+        return (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(dataTable);
+    }
+
+    private Map<String, String> resolvedOptions(FileStoreTable dataTable, TableScanParams scanParams) {
+        return scanParams.getOrResolveMapParams(
+                options -> PaimonScanParams.resolveOptions(dataTable, options));
+    }
+
+    public FileStoreTable getBoundDataTable(Optional<MvccSnapshot> snapshot) {
+        if (snapshot.isPresent()) {
+            if (!(snapshot.get() instanceof PaimonMvccSnapshot)) {
+                throw new IllegalArgumentException("Expected a Paimon MVCC snapshot for a Paimon system table.");
+            }
+            Table table = ((PaimonMvccSnapshot) snapshot.get()).getSnapshotCacheValue().getSnapshot().getTable();
+            if (!(table instanceof FileStoreTable)) {
+                throw new IllegalArgumentException("Paimon system tables require a file-store data table.");
+            }
+            return (FileStoreTable) table;
+        }
+        return getRawSysPaimonDataTable();
+    }
+
+    private FileStoreTable getRawSysPaimonDataTable() {
+        getRawSysPaimonTable();
+        return paimonSysDataTable;
+    }
+
+    public Table getRawSysPaimonTable(FileStoreTable dataTable) {
+        return createSystemTable(dataTable);
+    }
+
+    private Table createSystemTable(FileStoreTable dataTable) {
+        Table systemTable = SystemTableLoader.load(
+                sysTableType, PaimonTableDecorators.unwrapToFallbackOrBase(dataTable));
+        if (systemTable == null) {
+            throw new IllegalArgumentException("Unknown Paimon system table '" + sysTableType + "'.");
+        }
+        return systemTable;
+    }
+
+    public List<Column> getFullSchema(TableScanParams scanParams) {
+        return getFullSchema(scanParams, Optional.empty());
+    }
+
+    public List<Column> getFullSchema(
+            TableScanParams scanParams, Optional<MvccSnapshot> relationSnapshot) {
+        Table table = getSysPaimonTable(getBoundDataTable(relationSnapshot), scanParams);
+        return PaimonUtil.parseSchema(table,
+                getCatalog().getEnableMappingVarbinary(),
+                getCatalog().getEnableMappingTimestampTz());
+    }
+
     /**
      * Returns the schema of the system table.
      * The schema is derived from the system table's rowType.
      */
     @Override
     public List<Column> getFullSchema() {
-        Table sysTable = getSysPaimonTable();
-        List<DataField> fields = sysTable.rowType().getFields();
+        return getOrCreateSchemaCacheValue().getSchema();
+    }
+
+    static List<Column> buildFullSchema(List<DataField> fields, boolean enableMappingVarbinary,
+            boolean enableMappingTimestampTz) {
         List<Column> columns = Lists.newArrayListWithCapacity(fields.size());
 
         for (DataField field : fields) {
             Column column = new Column(
-                    field.name().toLowerCase(),
+                    field.name(),
                     PaimonUtil.paimonTypeToDorisType(
-                            field.type(),
-                            getCatalog().getEnableMappingVarbinary(),
-                            getCatalog().getEnableMappingTimestampTz()),
+                            field.type(), enableMappingVarbinary, enableMappingTimestampTz),
                     true,
                     null,
                     true,
@@ -183,7 +321,9 @@ public class PaimonSysExternalTable extends ExternalTable {
         if (isDataTable == null) {
             synchronized (this) {
                 if (isDataTable == null) {
-                    isDataTable = getSysPaimonTable() instanceof DataTable;
+                    // Type inspection happens before relation parameters reach ScanNode. It must not
+                    // reject a hidden physical value that a later OPTIONS copy safely overrides.
+                    isDataTable = getRawSysPaimonTable() instanceof DataTable;
                 }
             }
         }
@@ -232,12 +372,12 @@ public class PaimonSysExternalTable extends ExternalTable {
 
     @Override
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
-        return Optional.of(new SchemaCacheValue(getFullSchema()));
+        return Optional.of(getOrCreateSchemaCacheValue());
     }
 
     @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        return Optional.of(new SchemaCacheValue(getFullSchema()));
+        return Optional.of(getOrCreateSchemaCacheValue());
     }
 
     @Override
@@ -253,4 +393,24 @@ public class PaimonSysExternalTable extends ExternalTable {
     public String getComment() {
         return "Paimon system table: " + sysTableType + " for " + sourceTable.getName();
     }
+
+    private SchemaCacheValue getOrCreateSchemaCacheValue() {
+        if (schemaCacheValue == null) {
+            synchronized (this) {
+                if (schemaCacheValue == null) {
+                    if (fullSchema == null) {
+                        // Schema serialization never plans manifests, so keep a safe relation
+                        // override from being replaced by validation of the physical data handle.
+                        Table sysTable = getRawSysPaimonTable();
+                        fullSchema = buildFullSchema(sysTable.rowType().getFields(),
+                                getCatalog().getEnableMappingVarbinary(),
+                                getCatalog().getEnableMappingTimestampTz());
+                    }
+                    schemaCacheValue = new SchemaCacheValue(fullSchema);
+                }
+            }
+        }
+        return schemaCacheValue;
+    }
+
 }

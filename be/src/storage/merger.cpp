@@ -669,7 +669,7 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
                 // still calls ColumnNullable::insert_many_defaults() for null runs,
                 // which grows the nested PODArray by N * type_size. So the runtime
                 // per-row footprint is at least type_size, no matter how sparse.
-                int64_t type_size = get_type_info(&col)->size();
+                int64_t type_size = field_type_size(col.type());
                 col_per_row = std::max(raw_per_row, type_size);
                 if (col.is_nullable()) {
                     col_per_row += 1; // null map

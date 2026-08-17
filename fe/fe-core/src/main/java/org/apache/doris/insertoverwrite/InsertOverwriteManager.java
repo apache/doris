@@ -177,7 +177,8 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     }
 
     // here we will make all raplacement of this group visiable. if someone fails, nothing happen.
-    public void taskGroupSuccess(long groupId, OlapTable targetTable) throws DdlException {
+    public void taskGroupSuccess(long groupId, OlapTable targetTable,
+            boolean forceDropPartition) throws DdlException {
         try {
             Map<Long, Long> relations = partitionPairs.get(groupId);
             ArrayList<String> oldNames = new ArrayList<>();
@@ -186,7 +187,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
                 oldNames.add(targetTable.getPartition(partitionPair.getKey()).getName());
                 newNames.add(targetTable.getPartition(partitionPair.getValue()).getName());
             }
-            InsertOverwriteUtil.replacePartition(targetTable, oldNames, newNames);
+            InsertOverwriteUtil.replacePartition(targetTable, oldNames, newNames, forceDropPartition);
         } catch (Exception e) {
             LOG.warn("insert overwrite task making replacement failed because " + e.getMessage()
                     + "all new partition will not be visible and will be recycled by partition GC.");

@@ -301,4 +301,90 @@ public class StmtExecutorTest extends TestWithFeService {
 
         Mockito.verify(resultFileSink).setDeleteExistingFiles(false);
     }
+
+    @Test
+    public void testParseByNereidsSetsParsedStatementOnStatementContext() throws Exception {
+        // This test verifies the fix for a bug in multi-FE environments where
+        // parseByNereids() did not propagate the parsed statement to the
+        // StatementContext. In the proxy flow (e.g., when a follower FE forwards
+        // a query to the master FE), the StmtExecutor is created via the proxy
+        // constructor which creates a fresh StatementContext without a
+        // parsedStatement. Without the fix, statementContext.getParsedStatement()
+        // remains null, causing SessionVariable.canUseNereidsDistributePlanner()
+        // to return false, which leads EnvFactory.createCoordinator() to create
+        // a legacy Coordinator instead of NereidsCoordinator, resulting in
+        // "fragment has no children" error.
+
+        // Simulate the proxy flow: StmtExecutor(ConnectContext, OriginStatement, boolean isProxy)
+        StmtExecutor executor = new StmtExecutor(connectContext,
+                new OriginStatement("select 1", 0), true);
+
+        // Before parsing, statementContext should exist but parsedStatement should be null
+        Assertions.assertNotNull(connectContext.getStatementContext());
+        Assertions.assertNull(connectContext.getStatementContext().getParsedStatement(),
+                "ParsedStatement should be null before parseByNereids() in proxy flow");
+
+        // Trigger parseByNereids via reflection (it's private)
+        Method parseByNereidsMethod = StmtExecutor.class.getDeclaredMethod("parseByNereids");
+        parseByNereidsMethod.setAccessible(true);
+        parseByNereidsMethod.invoke(executor);
+
+        // After parsing, parsedStatement should be set on the StatementContext
+        org.apache.doris.analysis.StatementBase parsedStatement
+                = connectContext.getStatementContext().getParsedStatement();
+        Assertions.assertNotNull(parsedStatement,
+                "ParsedStatement should not be null after parseByNereids() in proxy flow");
+        Assertions.assertTrue(
+                parsedStatement instanceof org.apache.doris.nereids.glue.LogicalPlanAdapter,
+                "ParsedStatement should be a LogicalPlanAdapter after parseByNereids(), but was: "
+                        + (parsedStatement == null ? "null" : parsedStatement.getClass().getName()));
+    }
+
+    @Test
+    public void testShouldDisableCloudVersionCacheOnRetryForE230() {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        String originalDeployMode = Config.deploy_mode;
+        long originalPartitionTtl = connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs;
+        long originalTableTtl = connectContext.getSessionVariable().cloudTableVersionCacheTtlMs;
+        try {
+            Config.cloud_unique_id = "test-cloud-id";
+            StmtExecutor executor = new StmtExecutor(connectContext, "select 1");
+
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 1000L;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 1000L;
+            Assertions.assertTrue(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+            Assertions.assertFalse(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = some other error"));
+            // null error message must not trigger the disable.
+            Assertions.assertFalse(executor.shouldDisableCloudVersionCacheOnRetry(null));
+
+            // Non-cloud mode must never disable the version cache, even on E-230.
+            Config.cloud_unique_id = "";
+            Config.deploy_mode = "";
+            Assertions.assertFalse(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+            Config.cloud_unique_id = "test-cloud-id";
+
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 0L;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 1000L;
+            Assertions.assertTrue(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 1000L;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 0L;
+            Assertions.assertTrue(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 0L;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 0L;
+            Assertions.assertFalse(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+            Config.deploy_mode = originalDeployMode;
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = originalPartitionTtl;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = originalTableTtl;
+        }
+    }
 }

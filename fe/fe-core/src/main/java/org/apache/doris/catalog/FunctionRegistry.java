@@ -322,6 +322,15 @@ public class FunctionRegistry {
         }
     }
 
+    public void dropUdfByDb(String dbName) {
+        if (dbName == null) {
+            dbName = GLOBAL_FUNCTION;
+        }
+        synchronized (name2UdfBuilders) {
+            name2UdfBuilders.remove(dbName);
+        }
+    }
+
     /**
      * use for search appropriate signature for UDFs if candidate more than one.
      */

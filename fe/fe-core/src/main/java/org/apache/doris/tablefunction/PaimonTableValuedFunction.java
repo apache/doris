@@ -30,6 +30,8 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonReaderOptions;
+import org.apache.doris.datasource.paimon.PaimonTableDecorators;
 import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -41,9 +43,12 @@ import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.Split;
+import org.apache.paimon.table.system.SystemTableLoader;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -82,7 +87,8 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
         }
 
         PaimonExternalCatalog paimonExternalCatalog = (PaimonExternalCatalog) dorisCatalog;
-        this.hadoopProps = paimonExternalCatalog.getCatalogProperty().getHadoopProperties();
+        // Keep TVF-specific Kerberos entries isolated from the catalog's shared immutable snapshot.
+        this.hadoopProps = new HashMap<>(paimonExternalCatalog.getCatalogProperty().getHadoopProperties());
         appendHMSKerberosProps(hadoopProps, paimonExternalCatalog);
         this.hadoopAuthenticator = paimonExternalCatalog.getExecutionAuthenticator();
 
@@ -98,10 +104,26 @@ public class PaimonTableValuedFunction extends MetadataTableValuedFunction {
                 ));
         NameMapping buildNameMapping = externalTable.getOrBuildNameMapping();
 
-        this.paimonSysTable = paimonExternalCatalog.getPaimonTable(buildNameMapping,
-                "main", queryType);
+        this.paimonSysTable = createRuntimeSafeSystemTable(
+                paimonExternalCatalog.getPaimonTable(buildNameMapping), queryType);
         this.schema = PaimonUtil.parseSchema(paimonSysTable, paimonExternalCatalog.getEnableMappingVarbinary(),
                 paimonExternalCatalog.getEnableMappingTimestampTz());
+    }
+
+    static Table createRuntimeSafeSystemTable(Table dataTable, String queryType) {
+        if (!(dataTable instanceof FileStoreTable)) {
+            throw new IllegalArgumentException("Paimon metadata queries require a file-store data table.");
+        }
+        // System-table wrappers hide the data table that owns manifest planning. Normalize the
+        // disposable data handle before wrapping it so metadata TVFs cannot bypass the CPU cap.
+        FileStoreTable safeDataTable = (FileStoreTable) PaimonReaderOptions.runtimeSafeTable(dataTable);
+        PaimonReaderOptions.validateEffectiveTable(safeDataTable);
+        Table systemTable = SystemTableLoader.load(
+                queryType, PaimonTableDecorators.unwrapToFallbackOrBase(safeDataTable));
+        if (systemTable == null) {
+            throw new IllegalArgumentException("Unknown Paimon system table '" + queryType + "'.");
+        }
+        return systemTable;
     }
 
     private void appendHMSKerberosProps(Map<String, String> hadoopProperties,

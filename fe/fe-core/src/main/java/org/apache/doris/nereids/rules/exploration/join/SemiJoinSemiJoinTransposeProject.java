@@ -68,7 +68,15 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                 .when(this::typeChecker)
                 .when(topSemi -> InnerJoinLAsscomProject.checkReorder(topSemi, topSemi.left().child(), false))
                 .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                .when(join -> join.left().isAllSlots()))
+                .when(join -> join.left().isAllSlots())
+                // the transpose swaps the bottom semi join to the top, so the mark slot
+                // produced by the bottom mark join would be produced by the new top semi
+                // join. if the top semi join references the mark slot in its conjuncts,
+                // those conjuncts would be moved to the new bottom semi join whose children
+                // don't output the mark slot, which makes the mark slot dangling and fails
+                // physical planning with "slot not from children", so the transpose must be
+                // rejected in this case
+                .whenNot(this::isMarkSlotReferencedByTopJoin))
                 .then(topProject -> {
                     LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topSemi
                             = topProject.child();
@@ -118,5 +126,25 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
 
     public boolean typeChecker(LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin) {
         return VALID_TYPE_PAIR_SET.contains(Pair.of(topJoin.getJoinType(), topJoin.left().child().getJoinType()));
+    }
+
+    /**
+     * check whether the top semi join references the mark slot produced by the bottom mark
+     * join in its conjuncts. in the transposed plan the mark slot is produced by the new
+     * top semi join (built from the bottom semi join), while the top semi join becomes the
+     * new bottom semi join whose children are A and C, which don't output the mark slot.
+     * so if the top semi join's conjuncts reference the mark slot, the transpose would make
+     * the mark slot dangling and must be rejected.
+     */
+    private boolean isMarkSlotReferencedByTopJoin(
+            LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topSemi) {
+        LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();
+        if (!bottomSemi.isMarkJoin()) {
+            return false;
+        }
+        ExprId markSlotExprId = bottomSemi.getMarkJoinSlotReference().get().getExprId();
+        return topSemi.getExpressions().stream()
+                .flatMap(expr -> expr.getInputSlotExprIds().stream())
+                .anyMatch(markSlotExprId::equals);
     }
 }

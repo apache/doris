@@ -18,12 +18,12 @@
 
 #include "core/block/block.h"
 #include "core/column/column_array.h"
+#include "core/column/column_array_view.h"
 #include "core/column/column_const.h"
 #include "core/column/column_execute_util.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_string.h"
 #include "core/string_ref.h"
-#include "exprs/function/array/function_array_utils.h"
 
 namespace doris {
 
@@ -59,22 +59,15 @@ public:
 
     static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                           const DataTypeArray* data_type_array, const ColumnArray& array) {
-        ColumnPtr src_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        ColumnArrayExecutionData src;
-        if (!extract_column_array_info(*src_column, src)) {
-            return Status::RuntimeError(fmt::format(
-                    "execute failed, unsupported types for function {}({})", "array_join",
-                    block.get_by_position(arguments[0]).type->get_name()));
-        }
+        ColumnPtr src_column = block.get_by_position(arguments[0]).column;
+        auto array_view = ColumnArrayView<TYPE_STRING>::create(src_column);
 
-        auto nested_type = data_type_array->get_nested_type();
         auto dest_column_ptr = ColumnString::create();
 
         auto& dest_chars = dest_column_ptr->get_chars();
         auto& dest_offsets = dest_column_ptr->get_offsets();
 
-        dest_offsets.resize_fill(src_column->size(), 0);
+        dest_offsets.resize_fill(array_view.size(), 0);
 
         auto sep_column =
                 ColumnView<TYPE_STRING>::create(block.get_by_position(arguments[1]).column);
@@ -83,8 +76,7 @@ public:
             auto null_replace_column =
                     ColumnView<TYPE_STRING>::create(block.get_by_position(arguments[2]).column);
 
-            _execute_string(*src.nested_col, *src.offsets_ptr, src.nested_nullmap_data, sep_column,
-                            null_replace_column, dest_chars, dest_offsets);
+            _execute_string(array_view, sep_column, null_replace_column, dest_chars, dest_offsets);
 
         } else {
             auto tmp_column_string = ColumnString::create();
@@ -95,8 +87,7 @@ public:
 
             auto null_replace_column = ColumnView<TYPE_STRING>::create(tmp_const_column);
 
-            _execute_string(*src.nested_col, *src.offsets_ptr, src.nested_nullmap_data, sep_column,
-                            null_replace_column, dest_chars, dest_offsets);
+            _execute_string(array_view, sep_column, null_replace_column, dest_chars, dest_offsets);
         }
 
         block.replace_by_position(result, std::move(dest_column_ptr));
@@ -130,27 +121,23 @@ private:
         }
     }
 
-    static void _execute_string(const IColumn& src_column,
-                                const ColumnArray::Offsets64& src_offsets,
-                                const UInt8* src_null_map, ColumnView<TYPE_STRING>& sep_column,
+    static void _execute_string(const ColumnArrayView<TYPE_STRING>& array_view,
+                                ColumnView<TYPE_STRING>& sep_column,
                                 ColumnView<TYPE_STRING>& null_replace_column,
                                 ColumnString::Chars& dest_chars,
                                 ColumnString::Offsets& dest_offsets) {
-        const auto& src_data = assert_cast<const ColumnString&>(src_column);
-
         uint32_t total_size = 0;
 
-        for (int64_t i = 0; i < src_offsets.size(); ++i) {
-            auto begin = src_offsets[i - 1];
-            auto end = src_offsets[i];
+        for (int64_t i = 0; i < array_view.size(); ++i) {
+            auto arr = array_view[i];
 
             auto sep_str = sep_column.value_at(i);
             auto null_replace_str = null_replace_column.value_at(i);
 
             bool is_first_elem = true;
 
-            for (size_t j = begin; j < end; ++j) {
-                if (src_null_map && src_null_map[j]) {
+            for (size_t j = 0; j < arr.size(); ++j) {
+                if (arr.is_null_at(j)) {
                     if (null_replace_str.size != 0) {
                         _fill_result_string(i, null_replace_str, sep_str, dest_chars, total_size,
                                             is_first_elem);
@@ -158,7 +145,7 @@ private:
                     continue;
                 }
 
-                StringRef src_str_ref = src_data.get_data_at(j);
+                StringRef src_str_ref = arr.value_at(j);
                 _fill_result_string(i, src_str_ref, sep_str, dest_chars, total_size, is_first_elem);
             }
 

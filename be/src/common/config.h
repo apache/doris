@@ -119,8 +119,14 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
+DECLARE_Bool(enable_arrow_input_validation);
+
 // port for cdc client scan oltp cdc data
 DECLARE_Int32(cdc_client_port);
+
+// JVM options passed to cdc_client (whitespace-separated). Inserted before -jar.
+DECLARE_String(cdc_client_java_opts);
 
 // If the external client cannot directly access priority_networks, set public_host to be accessible
 // to external client.
@@ -327,6 +333,8 @@ DECLARE_mInt32(download_low_speed_limit_kbps);
 DECLARE_mInt32(download_low_speed_time);
 // whether to download small files in batch.
 DECLARE_mBool(enable_batch_download);
+// whether to enable stream load forward endpoint for cloud group commit
+DECLARE_mBool(enable_group_commit_streamload_be_forward);
 // whether to check md5sum when download
 DECLARE_mBool(enable_download_md5sum_check);
 // download binlog meta timeout
@@ -466,6 +474,7 @@ DECLARE_String(storage_page_cache_limit);
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
 DECLARE_Int32(storage_page_cache_shard_size);
+DECLARE_mInt32(file_cache_mem_storage_shard_num);
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DECLARE_Int32(index_page_cache_percentage);
@@ -537,7 +546,6 @@ DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 // This config can be set to limit thread number in compaction thread pool.
 DECLARE_mInt32(max_base_compaction_threads);
 DECLARE_mInt32(max_cumu_compaction_threads);
-DECLARE_mInt32(max_single_replica_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
@@ -584,8 +592,6 @@ DECLARE_mInt64(total_permits_for_compaction_score);
 
 // sleep interval in ms after generated compaction tasks
 DECLARE_mInt32(generate_compaction_tasks_interval_ms);
-// sleep interval in second after update replica infos
-DECLARE_mInt32(update_replica_infos_interval_seconds);
 
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
@@ -650,6 +656,26 @@ DECLARE_Int64(migration_lock_timeout_ms);
 
 // Port to start debug webserver on
 DECLARE_Int32(webserver_port);
+// TLS module enable flag
+DECLARE_Bool(enable_tls);
+// Path of TLS certificate
+DECLARE_String(tls_certificate_path);
+// Path of TLS private key
+DECLARE_String(tls_private_key_path);
+// Password for encrypted TLS private key
+DECLARE_String(tls_private_key_password);
+// TLS peer verification mode
+DECLARE_String(tls_verify_mode);
+// Path of TLS CA certificate
+DECLARE_String(tls_ca_certificate_path);
+// TLS certificate reload interval, in seconds
+DECLARE_Int32(tls_cert_refresh_interval_seconds);
+// Comma-separated excluded server protocols: brpc,thrift,http,arrowflight
+DECLARE_String(tls_excluded_protocols);
+// Required peer certificate DNS SAN allowlist for private protocols, syntax: brpc=a.com;thrift=b.com.
+// Empty means allow all peers. Once configured, the list acts as an allowlist and only peers whose
+// DNS SAN matches at least one configured entry for that protocol are allowed.
+DECLARE_String(tls_peer_cert_required_san_dns);
 // Https enable flag
 DECLARE_Bool(enable_https);
 // Path of certificate
@@ -676,9 +702,11 @@ DECLARE_mInt64(load_error_log_limit_bytes);
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_block etc
 DECLARE_Int32(brpc_heavy_work_pool_threads);
+DECLARE_Int32(brpc_peer_fetch_pool_threads);
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
 DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
+DECLARE_Int32(brpc_peer_fetch_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
 DECLARE_mBool(enable_bthread_transmit_block);
 DECLARE_Int32(brpc_arrow_flight_work_pool_threads);
@@ -884,6 +912,11 @@ DECLARE_mDouble(min_flush_thread_num_per_cpu);
 
 // Whether to enable adaptive flush thread adjustment
 DECLARE_mBool(enable_adaptive_flush_threads);
+
+// Whether to block writes when one table has too many pending flush memtables on this BE.
+DECLARE_mBool(enable_table_memtable_flush_backpressure);
+// Max pending flush memtables for one table on this BE before blocking new writes.
+DECLARE_mInt32(table_memtable_flush_pending_count_limit);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -1124,6 +1157,11 @@ DECLARE_mInt32(cold_data_compaction_score_threshold);
 DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
 
+// Thread pool for S3 reads in cross-CG peer winner race.
+// Max should match max_concurrent_peer_races so the pool never fills up under normal operation.
+DECLARE_Int32(min_peer_race_s3_thread_num);
+DECLARE_Int32(max_peer_race_s3_thread_num);
+
 DECLARE_Bool(enable_time_lut);
 DECLARE_mBool(enable_simdjson_reader);
 
@@ -1186,6 +1224,21 @@ DECLARE_mInt32(segcompaction_num_threads);
 // enable java udf and jdbc scannode
 DECLARE_Bool(enable_java_support);
 
+// enable python udf
+DECLARE_Bool(enable_python_udf_support);
+// python env mode, options: conda, venv
+DECLARE_String(python_env_mode);
+// root path of conda runtime, python_env_mode should be conda
+DECLARE_String(python_conda_root_path);
+// root path of venv runtime, python_env_mode should be venv
+DECLARE_String(python_venv_root_path);
+// python interpreter paths used by venv, e.g. /usr/bin/python3.7:/usr/bin/python3.6
+DECLARE_String(python_venv_interpreter_paths);
+// max python processes in global shared pool, each version can have up to this many processes
+DECLARE_mInt32(max_python_process_num);
+// Memory limit in bytes for all Python UDF processes; warning is logged when exceeded
+DECLARE_mInt64(python_udf_processes_memory_limit_bytes);
+
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
 
@@ -1215,6 +1268,7 @@ DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
 DECLARE_mBool(enable_file_cache_query_limit);
+DECLARE_mBool(enable_file_cache_query_limit_segment_meta);
 DECLARE_Int32(file_cache_enter_disk_resource_limit_mode_percent);
 DECLARE_Int32(file_cache_exit_disk_resource_limit_mode_percent);
 DECLARE_mBool(enable_evict_file_cache_in_advance);
@@ -1253,6 +1307,7 @@ DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_qps_limit);
+DECLARE_mInt64(file_cache_background_block_lru_update_queue_max_size);
 DECLARE_mBool(enable_file_cache_async_touch_on_get_or_set);
 DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
@@ -1267,6 +1322,7 @@ DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
 // dump queue only if the queue update specific times through several dump intervals
 DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
+DECLARE_mInt64(file_cache_background_lru_log_queue_max_size);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
@@ -1370,8 +1426,6 @@ DECLARE_mInt32(kerberos_refresh_interval_second);
 // JDK-8153057: avoid StackOverflowError thrown from the UncaughtExceptionHandler in thread "process reaper"
 DECLARE_mBool(jdk_process_reaper_use_default_stack_size);
 
-// Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
-DECLARE_mString(get_stack_trace_tool);
 DECLARE_mBool(enable_address_sanitizers_with_stack_trace);
 
 // DISABLED: Don't resolve location info.
@@ -1405,6 +1459,9 @@ DECLARE_mInt32(variant_max_json_key_length);
 DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 // Enable duplicate path check when parsing json into variant subcolumns/jsonb.
 DECLARE_mBool(variant_enable_duplicate_json_path_check);
+// Controls storage-layer parse target for plain non-doc VARIANT columns:
+// 0 = auto, 1 = force parse-time subcolumns, 2 = force doc-value KV staging.
+DECLARE_mInt32(variant_storage_parse_mode);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 DECLARE_mBool(enable_variant_doc_sparse_write_subcolumns);
@@ -1481,6 +1538,10 @@ DECLARE_mInt32(group_commit_queue_mem_limit);
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DECLARE_mString(group_commit_wal_max_disk_limit);
 DECLARE_Bool(group_commit_wait_replay_wal_finish);
+// Max WAL count for one table before rejecting async group commit loads. 0 means no limit.
+DECLARE_mInt32(group_commit_max_wal_num_per_table);
+// Max time(ms) to wait for creating group commit plan fragment. 0 means no timeout.
+DECLARE_mInt32(group_commit_create_plan_timeout_ms);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
@@ -1571,6 +1632,7 @@ DECLARE_mInt64(s3_get_token_limit);
 DECLARE_mInt64(s3_put_bucket_tokens);
 DECLARE_mInt64(s3_put_token_per_second);
 DECLARE_mInt64(s3_put_token_limit);
+DECLARE_mInt64(s3_rate_limiter_log_interval);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 // When meet s3 429 error, the "get" request will
@@ -1607,6 +1669,10 @@ DECLARE_mInt64(hive_sink_max_file_size);
 
 /** Iceberg sink configurations **/
 DECLARE_mInt64(iceberg_sink_max_file_size);
+
+/** Paimon sink configurations **/
+// Hard upper bound for Doris-managed Paimon write-buffer memory per JNI writer.
+DECLARE_mInt64(paimon_jni_writer_memory_pool_limit_bytes);
 
 /** Paimon file system configurations **/
 DECLARE_Strings(paimon_file_system_scheme_mappings);
@@ -1781,8 +1847,8 @@ DECLARE_mInt32(max_segment_partial_column_cache_size);
 DECLARE_String(ann_index_ivf_list_cache_limit);
 // Stale sweep time for ANN index IVF list cache in seconds.
 DECLARE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec);
-// Chunk size for ANN/vector index building per training/adding batch
-DECLARE_mInt64(ann_index_build_chunk_size);
+// Minimum segment rows required to persist an ANN index.
+DECLARE_mInt64(ann_index_build_min_segment_rows);
 
 DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);

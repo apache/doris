@@ -32,11 +32,13 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
+import org.apache.doris.datasource.hudi.HudiMvccSnapshot;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
@@ -237,7 +239,15 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
-            remoteTable = loadHiveTable();
+            long startTime = System.currentTimeMillis();
+            try {
+                remoteTable = loadHiveTable();
+            } finally {
+                SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
+                if (summaryProfile != null) {
+                    summaryProfile.addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
+                }
+            }
             if (remoteTable == null) {
                 throw new IllegalArgumentException("Hms table not exists, table: " + getNameWithFullQualifiers());
             } else {
@@ -373,6 +383,19 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
+    public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
+        makeSureInitialized();
+        // HMS can front snapshot-aware formats too; callers that pin a relation must not fall
+        // back to the table's current schema merely because its catalog type is HMS.
+        if (getDlaType() == DLAType.HUDI) {
+            return ((HudiDlaTable) dlaTable).getHudiSchemaCacheValue(snapshot).getSchema();
+        } else if (getDlaType() == DLAType.ICEBERG) {
+            return IcebergUtils.getIcebergSchema(this, snapshot);
+        }
+        return super.getFullSchema(snapshot);
+    }
+
+    @Override
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
         makeSureInitialized();
         if (dlaType == DLAType.HUDI) {
@@ -420,6 +443,18 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
+    public boolean supportsExternalMetadataPreload() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsLatestSnapshotPreload() {
+        // HMSExternalTable may represent Hive, Hudi, or Iceberg tables.
+        // Only snapshot-aware table types should preload latest snapshot metadata.
+        return getDlaType() == DLAType.HUDI || getDlaType() == DLAType.ICEBERG;
+    }
+
+    @Override
     public Optional<SortedPartitionRanges<String>> getSortedPartitionRanges(CatalogRelation scan) {
         if (getDlaType() != DLAType.HIVE) {
             return Optional.empty();
@@ -441,21 +476,30 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             return SelectedPartitions.NOT_PRUNED;
         }
         TablePartitionValues tablePartitionValues = HudiUtils.getPartitionValues(tableSnapshot, this);
-
-        Map<Long, PartitionItem> idToPartitionItem = tablePartitionValues.getIdToPartitionItem();
-        Map<Long, String> idToNameMap = tablePartitionValues.getPartitionIdToNameMap();
-
-        Map<String, PartitionItem> nameToPartitionItems = Maps.newHashMapWithExpectedSize(idToPartitionItem.size());
-        for (Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
-            nameToPartitionItems.put(idToNameMap.get(entry.getKey()), entry.getValue());
-        }
+        Map<String, PartitionItem> nameToPartitionItems = toNameToPartitionItems(tablePartitionValues);
 
         return new SelectedPartitions(nameToPartitionItems.size(), nameToPartitionItems, false);
     }
 
     @Override
     public Map<String, PartitionItem> getNameToPartitionItems(Optional<MvccSnapshot> snapshot) {
+        if (getDlaType() == DLAType.HUDI && snapshot.filter(HudiMvccSnapshot.class::isInstance).isPresent()) {
+            // Hudi binding already resolved the timeline; reuse its frozen partition values so
+            // schema, partition pruning, and split planning stay on one metadata generation.
+            HudiMvccSnapshot hudiSnapshot = (HudiMvccSnapshot) snapshot.get();
+            return toNameToPartitionItems(hudiSnapshot.getTablePartitionValues());
+        }
         return getNameToPartitionItems();
+    }
+
+    private Map<String, PartitionItem> toNameToPartitionItems(TablePartitionValues tablePartitionValues) {
+        Map<Long, PartitionItem> idToPartitionItem = tablePartitionValues.getIdToPartitionItem();
+        Map<Long, String> idToNameMap = tablePartitionValues.getPartitionIdToNameMap();
+        Map<String, PartitionItem> nameToPartitionItems = Maps.newHashMapWithExpectedSize(idToPartitionItem.size());
+        for (Entry<Long, PartitionItem> entry : idToPartitionItem.entrySet()) {
+            nameToPartitionItems.put(idToNameMap.get(entry.getKey()), entry.getValue());
+        }
+        return nameToPartitionItems;
     }
 
     public Map<String, PartitionItem> getNameToPartitionItems() {
@@ -1234,6 +1278,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public TFileFormatType getFileFormatType(SessionVariable sessionVariable) throws UserException {
         TFileFormatType type = null;
         Table table = getRemoteTable();
+        // now hive self only support mixed with orc/parquet files in table and different partitions
+        // But if mixed with orc/parquet files in table and same partition, will failed when read.
+        // now here hive used table format, so BE will regrard all files in table is same format.
         String inputFormatName = table.getSd().getInputFormat();
         String hiveFormat = HiveMetaStoreClientHelper.HiveFileFormat.getFormat(inputFormatName);
         if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.PARQUET.getDesc())) {
@@ -1275,11 +1322,18 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     public HiveExternalMetaCache.HivePartitionValues getHivePartitionValues(Optional<MvccSnapshot> snapshot) {
+        long startTime = System.currentTimeMillis();
         HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .hive(getCatalog().getId());
         try {
             List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
-            return cache.getPartitionValues(this, partitionColumnTypes);
+            HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(this,
+                    partitionColumnTypes);
+            SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
+            if (summaryProfile != null) {
+                summaryProfile.addExternalTableGetPartitionValuesTime(System.currentTimeMillis() - startTime);
+            }
+            return partitionValues;
         } catch (Exception e) {
             if (e.getMessage().contains(HiveExternalMetaCache.ERR_CACHE_INCONSISTENCY)) {
                 LOG.warn("Hive metastore cache inconsistency detected for table: {}.{}.{}. "
@@ -1288,7 +1342,13 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableByEngine(
                         getCatalog().getId(), getMetaCacheEngine(), getDbName(), getName());
                 List<Type> partitionColumnTypes = this.getPartitionColumnTypes(snapshot);
-                return cache.getPartitionValues(this, partitionColumnTypes);
+                HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(this,
+                        partitionColumnTypes);
+                SummaryProfile summaryProfile = SummaryProfile.getSummaryProfile(null);
+                if (summaryProfile != null) {
+                    summaryProfile.addExternalTableGetPartitionValuesTime(System.currentTimeMillis() - startTime);
+                }
+                return partitionValues;
             } else {
                 throw e;
             }

@@ -154,7 +154,14 @@ bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_
         ctz = it->second;
         return true;
     }
-    return false;
+    // V2 readers and Iceberg writers may resolve UTC/fixed offsets before ExecEnv preloads the
+    // timezone cache, so retain the cache fast path but handle those self-contained zones here.
+    const auto normalized = to_lower_copy(timezone);
+    if (normalized == "utc" || normalized == "etc/utc" || normalized == "zulu") {
+        ctz = cctz::utc_time_zone();
+        return true;
+    }
+    return parse_tz_offset_string(timezone, ctz);
 }
 
 bool TimezoneUtils::parse_tz_offset_string(const std::string& timezone, cctz::time_zone& ctz) {

@@ -17,6 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -35,9 +37,9 @@ public class TypeTest {
         ArrayType a3 = new ArrayType(new ArrayType(Type.BIGINT, true), true);
         Assert.assertFalse(Type.matchExactType(a1, a3, false));
 
-        // containsNull differs -> matchesType fails
+        // containsNull is always true now, so a4 is equivalent to a1
         ArrayType a4 = new ArrayType(new ArrayType(Type.INT, true), false);
-        Assert.assertFalse(Type.matchExactType(a1, a4, false));
+        Assert.assertTrue(Type.matchExactType(a1, a4, false));
 
         // array nested decimal test
         ArrayType a5 = new ArrayType(new ArrayType(ScalarType.createDecimalV3Type(8, 2), true), true);
@@ -63,7 +65,7 @@ public class TypeTest {
         Assert.assertFalse(Type.matchExactType(m1, m3, false));
         Assert.assertFalse(Type.matchExactType(m1, m3, true));
 
-        // key/value containsNull differs -> doesn't matter for matching
+        // key/value containsNull differs, but MapType.equals() ignores it -> matches
         MapType m4 = new MapType(Type.INT, arrayOfD, false, true);
         Assert.assertTrue(Type.matchExactType(m1, m4, false));
     }
@@ -126,14 +128,39 @@ public class TypeTest {
         fields4.add(new VariantField("a", Type.INT, ""));
         VariantType v4 = new VariantType(fields4);
         Assert.assertFalse(Type.matchExactType(v1, v4, false));
+
+        VariantType differentMaxSubcolumns = new VariantType(fields1, 2048, false, 10000, 1,
+                false, 0L, 64, false);
+        Assert.assertFalse(Type.matchExactType(v1, differentMaxSubcolumns, false));
+
+        VariantType docMode = new VariantType(fields1, 0, false, 10000, 1,
+                true, 0L, 64, false);
+        Assert.assertFalse(Type.matchExactType(v1, docMode, false));
+
     }
 
     @Test
-    public void testVariantToSqlDoesNotSerializeUnsupportedNestedGroupProperty() {
+    public void testVariantToSqlSerializesNestedGroupProperty() {
         VariantType variantType = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
                 false, 0L, 64, true);
 
-        Assert.assertFalse(variantType.toSql().contains("variant_enable_nested_group"));
+        Assert.assertTrue(variantType.toSql().contains("\"variant_enable_nested_group\" = \"true\""));
+    }
+
+    @Test
+    public void testVariantToThriftUsesGlobalV2Config() {
+        boolean originalEnableVariantV2 = Config.enable_variant_v2;
+        try {
+            Config.enable_variant_v2 = false;
+            Assert.assertFalse(new VariantType().toThrift().types.get(0).scalar_type.variant_is_v2);
+            Assert.assertTrue(VariantType.COMPUTE_V2_INSTANCE.toThrift()
+                    .types.get(0).scalar_type.variant_is_v2);
+
+            Config.enable_variant_v2 = true;
+            Assert.assertTrue(new VariantType().toThrift().types.get(0).scalar_type.variant_is_v2);
+        } finally {
+            Config.enable_variant_v2 = originalEnableVariantV2;
+        }
     }
 
     // ===================== Mixed Nesting & Precision =====================

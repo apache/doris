@@ -131,8 +131,7 @@ suite("join_order") {
             "is_being_synced" = "false",
             "storage_format" = "V2",
             "light_schema_change" = "true",
-            "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false"
+            "disable_auto_compaction" = "false"
             );"""
 
     sql """ create table test_table_t2
@@ -146,8 +145,7 @@ suite("join_order") {
             "is_being_synced" = "false",
             "storage_format" = "V2",
             "light_schema_change" = "true",
-            "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false"
+            "disable_auto_compaction" = "false"
             );"""
 
     sql """ create table test_table_t3
@@ -161,8 +159,7 @@ suite("join_order") {
             "is_being_synced" = "false",
             "storage_format" = "V2",
             "light_schema_change" = "true",
-            "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false"
+            "disable_auto_compaction" = "false"
             );"""
 
     sql """insert into test_table_t1 values (1,null);"""

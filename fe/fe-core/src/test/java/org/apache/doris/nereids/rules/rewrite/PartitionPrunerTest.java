@@ -309,4 +309,3 @@ public class PartitionPrunerTest extends TestWithFeService {
         Assertions.assertFalse(result.second);
     }
 }
-

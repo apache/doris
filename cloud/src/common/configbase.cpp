@@ -408,6 +408,7 @@ bool do_set_config(const Register::Field& feild, const std::string& value, bool 
     UPDATE_FIELD(feild, value, int32_t, need_persist);
     UPDATE_FIELD(feild, value, int64_t, need_persist);
     UPDATE_FIELD(feild, value, double, need_persist);
+    UPDATE_FIELD(feild, value, std::vector<std::string>, need_persist);
     {
         // add lock to ensure thread safe
         std::unique_lock<std::shared_mutex> lock(mutable_string_config_lock);
@@ -504,17 +505,30 @@ std::pair<bool, std::string> update_config(const std::string& configs, bool pers
     std::unordered_map<std::string, std::string> conf_map;
     std::istringstream ss(configs);
     std::string conf;
+    std::string key;
+    std::string val;
+    auto add_config = [&]() {
+        if (!key.empty()) {
+            conf_map.emplace(std::move(key), std::move(val));
+        }
+    };
     while (std::getline(ss, conf, ',')) {
         auto pos = conf.find('=');
-        if (pos == std::string::npos) {
+        if (pos == std::string::npos && key.empty()) {
             return {false, fmt::format("config {} is invalid", conf)};
         }
-        std::string key = conf.substr(0, pos);
-        std::string val = conf.substr(pos + 1);
+        if (pos == std::string::npos) {
+            trim(conf);
+            val += "," + conf;
+            continue;
+        }
+        add_config();
+        key = conf.substr(0, pos);
+        val = conf.substr(pos + 1);
         trim(key);
         trim(val);
-        conf_map.emplace(std::move(key), std::move(val));
     }
+    add_config();
 
     return set_config(std::move(conf_map), persist, custom_conf_path);
 }

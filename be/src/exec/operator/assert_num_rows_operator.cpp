@@ -91,8 +91,9 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, Block* block, bo
                 auto& column = block->get_by_position(i).column;
                 auto& type = block->get_by_position(i).type;
                 type = make_nullable(type);
-                column = type->create_column();
-                column->assume_mutable()->insert_default();
+                auto mutable_column = type->create_column();
+                mutable_column->insert_default();
+                column = std::move(mutable_column);
             }
             assert_res = true;
         }

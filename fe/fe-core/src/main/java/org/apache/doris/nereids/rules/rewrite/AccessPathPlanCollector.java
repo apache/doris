@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeMap;
@@ -91,6 +92,10 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                     for (Expression child : function.children()) {
                         exprCollector.collect(child);
                     }
+                } else if (function.arity() == 1 && function.child(0).getDataType().isVariantType()) {
+                    // A generator may change the Variant container kind, which the legacy path
+                    // cannot encode. Preserve the whole input container so residual values stay visible.
+                    exprCollector.collect(function.child(0));
                 } else {
                     for (CollectAccessPathResult accessPath : accessPaths) {
                         List<String> path = accessPath.getPath();
@@ -98,14 +103,9 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                             // $c$1.VALUES.b
                             CollectorContext argumentContext = new CollectorContext(context, false);
                             argumentContext.setType(accessPath.getType());
-                            if (function.child(0).getDataType().isVariantType()) {
-                                argumentContext.getAccessPathBuilder()
-                                        .addSuffix(path.subList(1, path.size()));
-                            } else {
-                                argumentContext.getAccessPathBuilder()
-                                        .addSuffix(AccessPathInfo.ACCESS_ALL)
-                                        .addSuffix(path.subList(1, path.size()));
-                            }
+                            argumentContext.getAccessPathBuilder()
+                                    .addSuffix(AccessPathInfo.ACCESS_ALL)
+                                    .addSuffix(path.subList(1, path.size()));
                             function.child(0).accept(exprCollector, argumentContext);
                             continue;
                         } else if (path.size() >= 2) {
@@ -116,8 +116,10 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                             CollectorContext argumentContext = new CollectorContext(context, false);
                             argumentContext.setType(accessPath.getType());
                             if (function.child(colIndex).getDataType().isVariantType()) {
-                                argumentContext.getAccessPathBuilder()
-                                        .addSuffix(path.subList(2, path.size()));
+                                // Every Variant argument determines the generated array shape, so
+                                // an output-field path must not narrow the input container.
+                                exprCollector.collect(function.child(colIndex));
+                                continue;
                             } else {
                                 argumentContext.getAccessPathBuilder()
                                         .addSuffix(AccessPathInfo.ACCESS_ALL)
@@ -227,7 +229,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         AccessPathExpressionCollector exprCollector
                 = new AccessPathExpressionCollector(context, allSlotToAccessPaths, false);
         for (NamedExpression output : project.getProjects()) {
-            // e.g. select struct_element(s, 'city') from (select s from tbl)a;
+            // e.g. select element_at(s, 'city') from (select s from tbl)a;
             // we will not treat the inner `s` access all path
             if (output instanceof Slot && allSlotToAccessPaths.containsKey(output.getExprId().asInt())) {
                 continue;
@@ -240,6 +242,12 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
                     List<String> outerPath = outerSlotAccessPath.getPath();
                     List<String> replaceSlotNamePath = new ArrayList<>();
                     replaceSlotNamePath.add(innerSlot.getName());
+                    if (outerPath.size() == 1 && innerSlot instanceof SlotReference
+                            && ((SlotReference) innerSlot).hasSubColPath()) {
+                        // A whole access to a derived subcolumn slot is whole only relative to that
+                        // slot; preserve its physical leaf path when propagating to the scan slot.
+                        replaceSlotNamePath.addAll(((SlotReference) innerSlot).getSubPath());
+                    }
                     replaceSlotNamePath.addAll(outerPath.subList(1, outerPath.size()));
                     allSlotToAccessPaths.put(
                             innerSlot.getExprId().asInt(),
@@ -300,7 +308,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
         // now we will not prune complex type through union, because we can not prune the complex type's literal,
         // for example, we can not prune the literal now: array(map(1, named_struct('a', 100, 'b', 100))),
         // so we can not prune this sql:
-        // select struct_element(map_values(s[0]), 'a')
+        // select element_at(map_values(s[0]), 'a')
         // from (
         //     select s from tbl
         //     union all

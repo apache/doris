@@ -1,7 +1,9 @@
 create database if not exists multi_catalog;
 use multi_catalog;
 
-CREATE TABLE complex_data_orc (
+drop table if exists complex_data_orc;
+
+create table complex_data_orc (
   id INT,
   m MAP<STRING, INT>,
   l ARRAY<STRING>

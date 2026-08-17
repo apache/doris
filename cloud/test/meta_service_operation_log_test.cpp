@@ -1296,6 +1296,8 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &commit_res, nullptr);
         ASSERT_EQ(commit_res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(commit_res.has_version_update_time_ms());
+        ASSERT_GT(commit_res.version_update_time_ms(), 0);
     }
 
     auto txn_kv = meta_service->txn_kv();
@@ -1394,12 +1396,17 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
         VersionPB versioned_partition_version;
         ASSERT_TRUE(versioned_partition_version.ParseFromString(partition_version_val));
         ASSERT_EQ(versionstamp, commit_versionstamp);
+        ASSERT_TRUE(versioned_partition_version.has_update_time_ms());
+        ASSERT_EQ(versioned_partition_version.update_time_ms(),
+                  commit_res.version_update_time_ms());
 
         key = partition_version_key({instance_id, db_id, table_id, partition_id});
         ASSERT_EQ(txn->get(key, &partition_version_val), TxnErrorCode::TXN_OK);
         VersionPB partition_version;
         ASSERT_TRUE(partition_version.ParseFromString(partition_version_val));
         ASSERT_EQ(versioned_partition_version.version(), partition_version.version());
+        ASSERT_TRUE(partition_version.has_update_time_ms());
+        ASSERT_EQ(partition_version.update_time_ms(), commit_res.version_update_time_ms());
     }
 
     {

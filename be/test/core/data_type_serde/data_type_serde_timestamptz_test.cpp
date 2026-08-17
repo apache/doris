@@ -24,7 +24,9 @@
 
 #include <cstddef>
 #include <iostream>
+#include <limits>
 #include <type_traits>
+#include <vector>
 
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -273,5 +275,124 @@ TEST_F(DataTypeTimeStampTzSerDeTest, binary_roundtrip) {
     test_func(*serde_tz_0, column_tz_0, 0);
     test_func(*serde_tz_3, column_tz_3, 3);
     test_func(*serde_tz_6, column_tz_6, 6);
+}
+
+// Roundtrip through Arrow. Same failure shape as binary_roundtrip above: read_column_from_arrow
+// was inherited from DataTypeNumberSerDe, whose fixed-width path memcpy'd Arrow's int64 EPOCH
+// values over this column's PACKED values. Both are 8 bytes, so nothing failed -- the read
+// succeeded with every row wrong. Comparing the value that comes back against the one that went
+// out is what makes deleting the override fail here instead of in a user's result set.
+TEST_F(DataTypeTimeStampTzSerDeTest, ArrowRoundTrip) {
+    auto test_func = [&](const DataTypeTimeStampTzSerDe& serde, arrow::TimeUnit::type unit,
+                         uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
+                         uint8_t second, uint32_t microsecond, int64_t expected_arrow_value) {
+        auto source_column = ColumnTimeStampTz::create();
+        TimestampTzValue source_value;
+        source_value.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
+        source_column->insert_value(source_value);
+
+        arrow::TimestampBuilder builder(arrow::timestamp(unit), arrow::default_memory_pool());
+        ASSERT_TRUE(serde.write_column_to_arrow(*source_column, nullptr, &builder, 0,
+                                                source_column->size(), cctz::utc_time_zone())
+                            .ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+        // Pinned so the roundtrip cannot pass by both halves sharing one wrong encoding: what
+        // crosses the wire is an epoch count in the unit, not the column's packed representation.
+        ASSERT_EQ(expected_arrow_value,
+                  assert_cast<const arrow::TimestampArray*>(array.get())->Value(0));
+
+        auto dest_column = ColumnTimeStampTz::create();
+        ASSERT_TRUE(serde.read_column_from_arrow(*dest_column, array.get(), 0, array->length(),
+                                                 cctz::utc_time_zone())
+                            .ok());
+        ASSERT_EQ(1, dest_column->size());
+        EXPECT_EQ(source_value, dest_column->get_element(0));
+    };
+
+    // Before the epoch, so a division that truncates toward zero instead of flooring lands one
+    // unit late rather than agreeing by accident.
+    test_func(*serde_tz_6, arrow::TimeUnit::MICRO, 1969, 12, 31, 23, 59, 59, 123456, -876544);
+    test_func(*serde_tz_3, arrow::TimeUnit::MILLI, 1969, 12, 31, 23, 59, 59, 123000, -877);
+    test_func(*serde_tz_0, arrow::TimeUnit::SECOND, 1969, 12, 31, 23, 59, 59, 0, -1);
+    test_func(*serde_tz_6, arrow::TimeUnit::MICRO, 2023, 1, 2, 3, 4, 5, 123456, 1672628645123456);
+}
+
+// An Arrow type this serde cannot decode must fail the scan, not produce values. The inherited
+// reader accepted anything 8 bytes wide, which is how the corruption above stayed invisible.
+TEST_F(DataTypeTimeStampTzSerDeTest, ReadArrowRejectsNonTimestampType) {
+    arrow::Int64Builder builder;
+    ASSERT_TRUE(builder.Append(1672628645123456).ok());
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder.Finish(&array).ok());
+
+    auto dest_column = ColumnTimeStampTz::create();
+    auto st = serde_tz_6->read_column_from_arrow(*dest_column, array.get(), 0, array->length(),
+                                                 cctz::utc_time_zone());
+    EXPECT_FALSE(st.ok());
+    EXPECT_EQ(0, dest_column->size());
+}
+
+// A null slot's value buffer holds whatever the source left there. Converting it would range-check
+// garbage and fail a batch whose rows are all well-formed, so nulls take a default value instead.
+TEST_F(DataTypeTimeStampTzSerDeTest, ReadArrowIgnoresValuesUnderNulls) {
+    TimestampTzValue source_value;
+    source_value.unchecked_set_time(2023, 1, 2, 3, 4, 5, 123456);
+
+    std::vector<int64_t> values = {1672628645123456, std::numeric_limits<int64_t>::max()};
+    // Bit 0 set, bit 1 clear: row 0 valid, row 1 null.
+    std::vector<uint8_t> validity = {0b01};
+    auto data = arrow::ArrayData::Make(arrow::timestamp(arrow::TimeUnit::MICRO), values.size(),
+                                       {arrow::Buffer::Wrap(validity.data(), validity.size()),
+                                        arrow::Buffer::Wrap(values.data(), values.size())},
+                                       /*null_count=*/1);
+    std::shared_ptr<arrow::Array> array = arrow::MakeArray(data);
+    ASSERT_TRUE(array->IsNull(1));
+
+    auto dest_column = ColumnTimeStampTz::create();
+    ASSERT_TRUE(serde_tz_6
+                        ->read_column_from_arrow(*dest_column, array.get(), 0, array->length(),
+                                                 cctz::utc_time_zone())
+                        .ok());
+    // One value per row, nulls included: the caller took the validity bitmap and expects the
+    // nested column to have grown by the full range.
+    ASSERT_EQ(2, dest_column->size());
+    EXPECT_EQ(source_value, dest_column->get_element(0));
+}
+
+TEST_F(DataTypeTimeStampTzSerDeTest, ArrowTimestampToTimestampTz) {
+    const auto read_timestamp = [](arrow::TimeUnit::type unit, int64_t value,
+                                   const std::string& arrow_timezone,
+                                   const std::string& expected_utc,
+                                   const std::string& expected_session_time) {
+        auto type = arrow::timestamp(unit, arrow_timezone);
+        arrow::TimestampBuilder builder(type, arrow::default_memory_pool());
+        ASSERT_TRUE(builder.Append(value).ok());
+        ASSERT_TRUE(builder.AppendNull().ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+
+        auto column = ColumnTimeStampTz::create();
+        DataTypeTimeStampTzSerDe serde(6);
+        cctz::time_zone session_timezone;
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", session_timezone));
+        const auto status = serde.read_column_from_arrow(*column, array.get(), 0, array->length(),
+                                                         session_timezone);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_EQ(2, column->size());
+
+        const auto utc = cctz::utc_time_zone();
+        EXPECT_EQ(expected_utc, column->get_data()[0].to_string(utc, 6));
+        EXPECT_EQ(expected_session_time, column->get_data()[0].to_string(session_timezone, 6));
+    };
+
+    read_timestamp(arrow::TimeUnit::SECOND, 0, "UTC", "1970-01-01 00:00:00.000000+00:00",
+                   "1970-01-01 08:00:00.000000+08:00");
+    read_timestamp(arrow::TimeUnit::MILLI, 123, "Asia/Shanghai", "1970-01-01 00:00:00.123000+00:00",
+                   "1970-01-01 08:00:00.123000+08:00");
+    read_timestamp(arrow::TimeUnit::MICRO, -876544, "UTC", "1969-12-31 23:59:59.123456+00:00",
+                   "1970-01-01 07:59:59.123456+08:00");
+    read_timestamp(arrow::TimeUnit::NANO, -876543211, "Asia/Shanghai",
+                   "1969-12-31 23:59:59.123456+00:00", "1970-01-01 07:59:59.123456+08:00");
 }
 } // namespace doris

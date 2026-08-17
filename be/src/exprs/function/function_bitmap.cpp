@@ -682,11 +682,11 @@ void update_bitmap_op_count(int64_t* __restrict count, const NullMap& null_map) 
 ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
                                             const ColumnNumbers& args, uint32_t result,
                                             size_t input_rows_count) {
-    auto* nullable = assert_cast<const ColumnNullable*>(src.get());
-    ColumnPtr src_not_nullable = nullable->get_nested_column_ptr();
-    MutableColumnPtr src_not_nullable_mutable = (*std::move(src_not_nullable)).assume_mutable();
+    MutableColumnPtr mutable_src = IColumn::mutate(std::move(src));
+    auto* nullable = assert_cast<ColumnNullable*>(mutable_src.get());
+    auto* src_not_nullable_mutable = &nullable->get_nested_column();
     auto* __restrict count_data =
-            assert_cast<ColumnInt64*>(src_not_nullable_mutable.get())->get_data().data();
+            assert_cast<ColumnInt64*>(src_not_nullable_mutable)->get_data().data();
 
     for (const auto& arg : args) {
         const ColumnWithTypeAndName& elem = block.get_by_position(arg);
@@ -713,7 +713,7 @@ ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
         }
     }
 
-    return src;
+    return mutable_src;
 }
 
 Status execute_bitmap_op_count_null_to_zero(

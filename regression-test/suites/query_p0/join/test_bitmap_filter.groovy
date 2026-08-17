@@ -20,7 +20,6 @@ suite("test_bitmap_filter", "query_p0") {
     def tbl2 = "bitmap_table"
     def tbl3 = "test_query_db.baseall"
 
-    sql "set runtime_filter_type = 16"
     sql "DROP TABLE IF EXISTS ${tbl2}"
     sql """
     CREATE TABLE ${tbl2} (

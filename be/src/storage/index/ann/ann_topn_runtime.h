@@ -151,6 +151,8 @@ public:
      */
     bool is_asc() const { return _asc; }
 
+    const doris::VectorSearchUserParams& user_params() const { return _user_params; }
+
 private:
     // Core configuration
     const bool _asc;                     ///< Sort order for results

@@ -37,6 +37,8 @@ suite("test_hive_ctas_to_doris", "p0,external,hive,external_docker,external_dock
             String hive_tb = "tb_test_hive_ctas_to_doris"
             String db_name = "db_test_hive_ctas_to_doris"
 
+            sql "set enable_strict_cast = true;"
+
             // create hive table
             sql """drop catalog if exists ${catalog}"""
             sql """create catalog if not exists ${catalog} properties (
@@ -53,6 +55,8 @@ suite("test_hive_ctas_to_doris", "p0,external,hive,external_docker,external_dock
             qt_q02 """ desc ${catalog}.${db_name}.${hive_tb} """
 
             sql """ create database if not exists internal.${db_name} """
+
+            sql """set enable_strict_cast = true"""
 
             // ctas for partition
             sql """ create table internal.${db_name}.${hive_tb}_1 (id,str1,str2,str3) auto partition by list (str3)() properties("replication_num" = "1") as select id, str1, str2, str3 from ${catalog}.${db_name}.${hive_tb} """

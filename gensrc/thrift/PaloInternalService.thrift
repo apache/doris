@@ -374,6 +374,8 @@ struct TQueryOptions {
 
   148: optional i32 min_scanners_concurrency = 1;
   149: optional i32 min_scan_scheduler_concurrency = 0; //deprecated
+  // Controls runtime-filter partition pruning for readers that honor this option.
+  // FileScannerV2 always enables safe partition pruning.
   150: optional bool enable_runtime_filter_partition_prune = true;
 
   // The minimum memory that an operator required to run.
@@ -480,6 +482,8 @@ struct TQueryOptions {
   211: optional bool enable_adaptive_scan = false;
   212: optional bool enable_local_exchange_before_agg = true;
   213: optional double max_scan_mem_ratio = 0.3;
+  214: optional i32 embed_max_batch_size = 5;
+  215: optional i64 ai_context_window_size = 131072;
 
   // Use Rust-based Lance reader for FORMAT_LANCE scan ranges
   216: optional bool enable_rust_lance_reader = false;
@@ -489,11 +493,29 @@ struct TQueryOptions {
   // Default 8MB. Sent by FE session variable preferred_block_size_bytes.
   218: optional i64 preferred_block_size_bytes = 8388608
 
+  // ANN search falls back to exact vector distance evaluation when candidate rows
+  // before ANN search are less than this value. 0 disables the absolute threshold.
+  219: optional i64 ann_index_candidate_rows_threshold = 0
+  // Candidate row ratio threshold against segment rows. Existing default is 0.3.
+  220: optional double ann_index_candidate_rows_percent_threshold = 0.3
+
+  // Controls expression-based ZoneMap pruning for readers that honor this option.
+  // FileScannerV2 always enables safe expression ZoneMap pruning.
+  224: optional bool enable_expr_zonemap_filter = true
+
+  225: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456
+  226: optional bool enable_local_exchange_before_streaming_agg = false
+
+  227: optional i64 file_presigned_url_ttl_seconds = 3600;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
   1001: optional i32 file_cache_query_limit_percent = -1
+  1002: optional bool enable_file_scanner_v2 = false
+  1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
+  1004: optional i64 file_cache_query_limit_bytes = -1
 }
 
 

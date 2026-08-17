@@ -113,8 +113,36 @@ suite("test_nthvalue_function") {
     qt_select_14 " SELECT k1,k6, nth_value(k1, 1) OVER(PARTITION BY k6 ORDER BY k1 RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)  FROM baseall order by k6,k1; "
     qt_select_15 "SELECT      k1,      k6,      nth_value(k1, 5) OVER(PARTITION BY k6 ORDER BY k1 ROWS BETWEEN 5 PRECEDING AND 1 FOLLOWING)  FROM baseall order by k6,k1; "
     qt_select_16 "SELECT      k1,      k6,      nth_value(k1, 4) OVER(PARTITION BY k6 ORDER BY k1 ROWS BETWEEN 3 PRECEDING AND CURRENT ROW)  FROM baseall order by k6,k1; "
-}
 
+    sql "DROP TABLE IF EXISTS test_nthvalue_upper_bounded"
+    sql """
+        CREATE TABLE test_nthvalue_upper_bounded (
+            seq int,
+            v varchar(10)
+        ) DUPLICATE KEY(seq)
+        DISTRIBUTED BY HASH(seq) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1"
+        )
+    """
+    sql """
+        INSERT INTO test_nthvalue_upper_bounded VALUES
+            (1, 'A'),
+            (2, 'B'),
+            (3, 'C')
+    """
+    qt_select_upper_bounded """
+        SELECT
+            seq,
+            nth_value(v, 2) OVER (
+                ORDER BY seq
+                ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+            ) AS actual,
+            lead(v, 1, NULL) OVER (ORDER BY seq) AS expected
+        FROM test_nthvalue_upper_bounded
+        ORDER BY seq
+    """
+}
 
 
 

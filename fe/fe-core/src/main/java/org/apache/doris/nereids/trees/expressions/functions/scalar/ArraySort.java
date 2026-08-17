@@ -72,6 +72,13 @@ public class ArraySort extends ScalarFunction
                 throw new AnalysisException("array_sort does not support types: " + argType.toSql());
             }
         }
+        if (getArgument(0) instanceof Lambda) {
+            Lambda lambda = (Lambda) getArgument(0);
+            if (lambda.getLambdaArgumentNames().size() != 2) {
+                throw new AnalysisException("When using lambda as the parameter of array_sort,"
+                        + " the lambda must be a binary comparator lambda.");
+            }
+        }
     }
 
     /**
@@ -90,11 +97,11 @@ public class ArraySort extends ScalarFunction
             ArrayItemReference argRef = lambda.getLambdaArguments().get(0);
             Expression arrayExpr = argRef.getArrayExpression();
             ArrayType arrayType = (ArrayType) arrayExpr.getDataType();
-            return ArrayType.of(arrayType.getItemType(), true);
+            return ArrayType.of(arrayType.getItemType());
         } else if (children.get(0).getDataType() instanceof ArrayType) {
             Expression arrayExpr = children.get(0);
             ArrayType arrayType = (ArrayType) arrayExpr.getDataType();
-            return ArrayType.of(arrayType.getItemType(), true);
+            return ArrayType.of(arrayType.getItemType());
         } else {
             throw new AnalysisException("The first arg of array_sort must be lambda or array");
         }

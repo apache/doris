@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_doc_value_p2", "nonConcurrent,p2"){
+suite("test_doc_value_p2", "p2"){
     sql """ set default_variant_enable_doc_mode = true """
     boolean random = new Random().nextBoolean()
     if (random) {

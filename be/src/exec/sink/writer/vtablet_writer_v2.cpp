@@ -24,6 +24,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <mutex>
 #include <ranges>
@@ -58,6 +59,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 extern bvar::Adder<int64_t> g_sink_load_back_pressure_version_time_ms;
+
+static constexpr int64_t CLOSE_WAIT_EVENT_FALLBACK_MS = 1000;
 
 VTabletWriterV2::VTabletWriterV2(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
                                  std::shared_ptr<Dependency> dep,
@@ -159,9 +162,10 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
 
-    // if distributed column list is empty, we can ensure that tablet is with random distribution info
-    // and if load_to_single_tablet is set and set to true, we should find only one tablet in one partition
-    // for the whole olap table sink
+    // If distributed column list is empty, the table uses random distribution.
+    // Mode priority (highest to lowest):
+    //   1. FIND_TABLET_EVERY_SINK: load_to_single_tablet=true (legacy single-tablet mode).
+    //   2. FIND_TABLET_EVERY_BATCH: default round-robin per batch.
     auto find_tablet_mode = OlapTabletFinder::FindTabletMode::FIND_TABLET_EVERY_ROW;
     if (table_sink.partition.distributed_columns.empty()) {
         if (table_sink.__isset.load_to_single_tablet && table_sink.load_to_single_tablet) {
@@ -494,6 +498,7 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     // check out of limit
     RETURN_IF_ERROR(_send_new_partition_batch());
 
+    const bool is_replaying_batched_block = _row_distribution._deal_batched;
     auto input_rows = input_block.rows();
     auto input_bytes = input_block.bytes();
     if (UNLIKELY(input_rows == 0)) {
@@ -505,8 +510,10 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     // the real 'num_rows_load_total' will be set when sink being closed.
     _state->update_num_rows_load_total(input_rows);
     _state->update_num_bytes_load_total(input_bytes);
-    DorisMetrics::instance()->load_rows->increment(input_rows);
-    DorisMetrics::instance()->load_bytes->increment(input_bytes);
+    if (!is_replaying_batched_block) {
+        DorisMetrics::instance()->load_rows->increment(input_rows);
+        DorisMetrics::instance()->load_bytes->increment(input_bytes);
+    }
 
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
@@ -557,6 +564,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<Block> block, int64_t ta
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = _write_file_cache,
                 .storage_vault_id {},
+                .enable_table_memtable_backpressure = _tablet_finder->is_adaptive_random_bucket(),
         };
         bool index_not_found = true;
         for (const auto& index : _schema->indexes()) {
@@ -575,7 +583,11 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<Block> block, int64_t ta
                          << " not found in schema, load_id=" << print_id(_load_id);
             return std::unique_ptr<DeltaWriterV2>(nullptr);
         }
-        return DeltaWriterV2::create_unique(&req, streams, _state);
+        std::shared_ptr<WorkloadGroup> workload_group = nullptr;
+        if (_state->get_query_ctx()) {
+            workload_group = _state->workload_group();
+        }
+        return DeltaWriterV2::create_unique(&req, streams, workload_group);
     });
     if (delta_writer == nullptr) {
         LOG(WARNING) << "failed to open DeltaWriter for tablet " << tablet_id
@@ -585,13 +597,23 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<Block> block, int64_t ta
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush(
-                [state = _state]() { return state->is_cancelled(); });
+                [state = _state]() { return state->is_cancelled(); },
+                _state->workload_group().get());
         if (_state->is_cancelled()) {
             return _state->cancel_reason();
         }
     }
     SCOPED_TIMER(_write_memtable_timer);
-    st = delta_writer->write(block.get(), rows.row_idxes);
+    bool memtable_flushed = false;
+    st = delta_writer->write(
+            block.get(), rows.row_idxes,
+            [state = _state]() {
+                if (state->is_cancelled()) {
+                    return state->cancel_reason();
+                }
+                return Status::OK();
+            },
+            &memtable_flushed);
     return st;
 }
 
@@ -621,10 +643,12 @@ Status VTabletWriterV2::_send_new_partition_batch() {
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
+        Defer recover_batching_block([&]() {
+            _row_distribution._batching_block->set_mutable_columns(
+                    std::move(tmp_block).mutate_columns());
+            _row_distribution._batching_block->clear_column_data();
+        });
         RETURN_IF_ERROR(this->write(_state, tmp_block));
-        _row_distribution._batching_block->set_mutable_columns(
-                tmp_block.mutate_columns()); // Recovery back
-        _row_distribution._batching_block->clear_column_data();
         _row_distribution._deal_batched = false;
     }
     return Status::OK();
@@ -647,8 +671,9 @@ Status VTabletWriterV2::close(Status exec_status) {
     }
 
     DBUG_EXECUTE_IF("VTabletWriterV2.close.sleep", {
-        auto sleep_sec = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                "VTabletWriterV2.close.sleep", "sleep_sec", 1);
+        auto sleep_sec = dp->param<int32_t>("sleep_sec", 1);
+        auto token = dp->param<std::string>("token", "");
+        LOG(INFO) << "hit debug point VTabletWriterV2.close.sleep, token=" << token;
         std::this_thread::sleep_for(std::chrono::seconds(sleep_sec));
     });
     DBUG_EXECUTE_IF("VTabletWriterV2.close.cancel",
@@ -674,7 +699,10 @@ Status VTabletWriterV2::close(Status exec_status) {
             std::unordered_map<int64_t, int32_t> segments_for_tablet;
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            auto st = _delta_writer_for_tablet->close(segments_for_tablet, _operator_profile);
+            RuntimeProfile* delta_writer_profile =
+                    (_state->enable_profile() && _state->profile_level() >= 2) ? _operator_profile
+                                                                               : nullptr;
+            auto st = _delta_writer_for_tablet->close(segments_for_tablet, delta_writer_profile);
             _delta_writer_for_tablet.reset();
             if (!st.ok()) {
                 _cancel(st);
@@ -699,9 +727,23 @@ Status VTabletWriterV2::close(Status exec_status) {
         // close_wait on all non-incremental streams, even if this is not the last sink.
         // because some per-instance data structures are now shared among all sinks
         // due to sharing delta writers and load stream stubs.
-        // Do not need to wait after quorum success,
-        // for first-stage close_wait only ensure incremental streams load has been completed,
-        // unified waiting in the second-stage close_wait.
+        //
+        // This stage is also a cross-source fence for a source that has incremental streams:
+        // it must not close those streams before every other source has entered the close
+        // phase and can no longer open new incremental streams.
+        //
+        // A stream contributes to quorum only after CLOSE_LOAD has been sent
+        // (LoadStreamStub::is_closing) and the sender has observed both EOS and StreamClose.
+        // When this source has incremental streams, its non-incremental CLOSE_LOAD carries
+        // num_incremental_streams > 0, so the destination defers StreamClose until CLOSE_LOAD
+        // has arrived from all sources (LoadStream::_dispatch). Therefore, any non-incremental
+        // stream counted towards quorum is a valid lifecycle fence for this source.
+        //
+        // A source without incremental streams does not require this fence because it has no
+        // incremental streams to close.
+        //
+        // The remaining streams do not need to be waited for in this stage; they are included
+        // in the second-stage close_wait.
         RETURN_IF_ERROR(_close_wait(_non_incremental_streams(), false));
 
         // send CLOSE_LOAD on all incremental streams if this is the last sink.
@@ -805,6 +847,7 @@ Status VTabletWriterV2::_close_wait(
         }
     }
     while (true) {
+        int64_t close_wait_version = _load_stream_map->close_wait_version();
         RETURN_IF_ERROR(_check_timeout());
         RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
         bool quorum_success = _quorum_success(unfinished_streams, need_finish_tablets);
@@ -814,7 +857,7 @@ Status VTabletWriterV2::_close_wait(
                       << ", txn_id: " << _txn_id << ", load_id: " << print_id(_load_id);
             break;
         }
-        bthread_usleep(1000 * 10);
+        _load_stream_map->wait_for_close_event(close_wait_version, CLOSE_WAIT_EVENT_FALLBACK_MS);
     }
 
     // 2. then wait for remaining streams as much as possible
@@ -822,6 +865,7 @@ Status VTabletWriterV2::_close_wait(
         int64_t arrival_quorum_success_time = UnixMillis();
         int64_t max_wait_time_ms = _calc_max_wait_time_ms(streams_for_node, unfinished_streams);
         while (true) {
+            int64_t close_wait_version = _load_stream_map->close_wait_version();
             RETURN_IF_ERROR(_check_timeout());
             RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
             if (unfinished_streams.empty()) {
@@ -840,7 +884,9 @@ Status VTabletWriterV2::_close_wait(
                              << ", unfinished streams: " << unfinished_streams_str.str();
                 break;
             }
-            bthread_usleep(1000 * 10);
+            _load_stream_map->wait_for_close_event(
+                    close_wait_version,
+                    std::min(CLOSE_WAIT_EVENT_FALLBACK_MS, max_wait_time_ms - elapsed_ms));
         }
     }
 
@@ -867,7 +913,9 @@ bool VTabletWriterV2::_quorum_success(
     for (const auto& [dst_id, streams] : streams_for_node) {
         bool finished = true;
         for (const auto& stream : streams->streams()) {
-            if (unfinished_streams.contains(stream) || !stream->check_cancel().ok()) {
+            // Incremental streams do not participate in the first close stage.
+            if (!stream->is_closing() || unfinished_streams.contains(stream) ||
+                !stream->check_cancel().ok()) {
                 finished = false;
                 break;
             }

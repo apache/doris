@@ -42,7 +42,6 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
-#include "storage/field.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
@@ -53,6 +52,7 @@
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
+#include "storage/types.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
@@ -203,7 +203,7 @@ public:
         return tablet_schema;
     }
 
-    void test_non_null_string(std::string_view rowset_id, int seg_id, StorageField* field) {
+    void test_non_null_string(std::string_view rowset_id, int seg_id, const TabletColumn* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -270,7 +270,7 @@ public:
         const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
 
         // Get the length of the subfield, used for inverted index writing
-        auto field_size = field->get_sub_field(0)->size();
+        auto field_size = field_type_size(field->get_sub_column(0).type());
         // Call the inverted index writing interface, passing in item_data, item_nullmap, offsets_ptr, and the number of rows (the number of array rows in the Block)
         st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                        offsets_ptr, block.rows());
@@ -289,7 +289,7 @@ public:
                           &idx_meta);
     }
 
-    void test_string(std::string_view rowset_id, int seg_id, StorageField* field) {
+    void test_string(std::string_view rowset_id, int seg_id, const TabletColumn* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -357,7 +357,7 @@ public:
         const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
 
         // Get the length of the subfield, used for inverted index writing
-        auto field_size = field->get_sub_field(0)->size();
+        auto field_size = field_type_size(field->get_sub_column(0).type());
         // Call the inverted index writing interface, passing in item_data, item_nullmap, offsets_ptr, and the number of rows (the number of array rows in the Block)
         st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                        offsets_ptr, block.rows());
@@ -375,7 +375,7 @@ public:
                           &idx_meta);
     }
 
-    void test_null_write_v2(std::string_view rowset_id, int seg_id, StorageField* field) {
+    void test_null_write_v2(std::string_view rowset_id, int seg_id, const TabletColumn* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -469,7 +469,7 @@ public:
         const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
 
         // Call the inverted index writing interface, passing in the converted nested data, nullmap, and offsets
-        auto field_size = field->get_sub_field(0)->size();
+        auto field_size = field_type_size(field->get_sub_column(0).type());
         st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                        offsets_ptr, block.rows());
         EXPECT_EQ(st, Status::OK());
@@ -491,7 +491,7 @@ public:
                           InvertedIndexStorageFormatPB::V2, &idx_meta);
     }
 
-    void test_null_write(std::string_view rowset_id, int seg_id, StorageField* field) {
+    void test_null_write(std::string_view rowset_id, int seg_id, const TabletColumn* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -582,7 +582,7 @@ public:
         const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
 
         // Call the inverted index writing interface, passing in the converted nested data, nullmap, and offsets
-        auto field_size = field->get_sub_field(0)->size();
+        auto field_size = field_type_size(field->get_sub_column(0).type());
         st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                        offsets_ptr, block.rows());
         EXPECT_EQ(st, Status::OK());
@@ -604,7 +604,7 @@ public:
                           InvertedIndexStorageFormatPB::V1, &idx_meta);
     }
 
-    void test_multi_block_write(std::string_view rowset_id, int seg_id, StorageField* field) {
+    void test_multi_block_write(std::string_view rowset_id, int seg_id, const TabletColumn* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -678,7 +678,7 @@ public:
             const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
             const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
             const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-            auto field_size = field->get_sub_field(0)->size();
+            auto field_size = field_type_size(field->get_sub_column(0).type());
             st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                            offsets_ptr, row_num);
             EXPECT_EQ(st, Status::OK());
@@ -727,7 +727,7 @@ public:
             const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
             const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
 
-            auto field_size = field->get_sub_field(0)->size();
+            auto field_size = field_type_size(field->get_sub_column(0).type());
             st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                            offsets_ptr, row_num);
             EXPECT_EQ(st, Status::OK());
@@ -774,7 +774,7 @@ public:
             const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
             const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
             const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-            auto field_size = field->get_sub_field(0)->size();
+            auto field_size = field_type_size(field->get_sub_column(0).type());
             st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                            offsets_ptr, row_num);
             EXPECT_EQ(st, Status::OK());
@@ -796,7 +796,7 @@ public:
                           InvertedIndexStorageFormatPB::V1, &idx_meta);
     }
 
-    void test_array_numeric(std::string_view rowset_id, int seg_id, StorageField* field) {
+    void test_array_numeric(std::string_view rowset_id, int seg_id, const TabletColumn* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -882,7 +882,7 @@ public:
         const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
 
         // get the size of the sub field (4 bytes for INT type)
-        auto field_size = field->get_sub_field(0)->size();
+        auto field_size = field_type_size(field->get_sub_column(0).type());
         st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                        offsets_ptr, block.rows());
         EXPECT_EQ(st, Status::OK());
@@ -938,7 +938,7 @@ public:
         }
     }
 
-    void test_array_all_null(std::string_view rowset_id, int seg_id, StorageField* field) {
+    void test_array_all_null(std::string_view rowset_id, int seg_id, const TabletColumn* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
                 local_segment_path(kTestDir, rowset_id, seg_id))};
@@ -993,7 +993,7 @@ public:
         const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
         const auto* null_map = accessor->get_nullmap();
 
-        auto field_size = field->get_sub_field(0)->size();
+        auto field_size = field_type_size(field->get_sub_column(0).type());
         st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
                                                        offsets_ptr, block.rows());
         EXPECT_EQ(st, Status::OK());
@@ -1055,10 +1055,9 @@ TEST_F(InvertedIndexArrayTest, ArrayString) {
     arraySubColumn.set_name("arr_sub_string");
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     arrayTabletColumn.add_sub_column(arraySubColumn);
-    StorageField* field = StorageFieldFactory::create(arrayTabletColumn);
+    const TabletColumn* field = &(arrayTabletColumn);
     test_string("rowset_id", 0, field);
     test_non_null_string("rowset_id_non_null", 0, field);
-    delete field;
 }
 
 TEST_F(InvertedIndexArrayTest, ComplexNullCases) {
@@ -1071,11 +1070,10 @@ TEST_F(InvertedIndexArrayTest, ComplexNullCases) {
     arraySubColumn.set_name("arr_sub_string");
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     arrayTabletColumn.add_sub_column(arraySubColumn);
-    StorageField* field = StorageFieldFactory::create(arrayTabletColumn);
+    const TabletColumn* field = &(arrayTabletColumn);
     test_null_write("complex_null", 0, field);
     test_null_write_v2("complex_null_v2", 0, field);
     test_array_all_null("complex_null_all_null", 0, field);
-    delete field;
 }
 
 TEST_F(InvertedIndexArrayTest, MultiBlockWrite) {
@@ -1088,9 +1086,8 @@ TEST_F(InvertedIndexArrayTest, MultiBlockWrite) {
     arraySubColumn.set_name("arr_sub_string");
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     arrayTabletColumn.add_sub_column(arraySubColumn);
-    StorageField* field = StorageFieldFactory::create(arrayTabletColumn);
+    const TabletColumn* field = &(arrayTabletColumn);
     test_multi_block_write("multi_block", 0, field);
-    delete field;
 }
 
 TEST_F(InvertedIndexArrayTest, ArrayInt) {
@@ -1103,8 +1100,7 @@ TEST_F(InvertedIndexArrayTest, ArrayInt) {
     arraySubColumn.set_name("arr_sub_int");
     arraySubColumn.set_type(FieldType::OLAP_FIELD_TYPE_INT);
     arrayTabletColumn.add_sub_column(arraySubColumn);
-    StorageField* field = StorageFieldFactory::create(arrayTabletColumn);
+    const TabletColumn* field = &(arrayTabletColumn);
     test_array_numeric("int_test", 0, field);
-    delete field;
 }
 } // namespace doris::segment_v2

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheKey;
@@ -75,6 +76,7 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     private boolean isValidRelatedTable = false;
     private boolean isView;
     private static final String ENGINE_PROP_NAME = "engine-name";
+    private static final String TABLE_COMMENT_PROP = "comment";
 
     public IcebergExternalTable(long id, String name, String remoteName, IcebergExternalCatalog catalog,
             IcebergExternalDatabase db) {
@@ -144,6 +146,17 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     public Table getIcebergTable() {
         return IcebergUtils.getIcebergTable(this);
+    }
+
+    @Override
+    public String getComment() {
+        return properties().getOrDefault(TABLE_COMMENT_PROP, "");
+    }
+
+    @Override
+    public String getComment(boolean escapeQuota) {
+        String comment = getComment();
+        return escapeQuota ? SqlUtils.escapeQuota(comment) : comment;
     }
 
     @Override
@@ -278,14 +291,25 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public List<Column> getFullSchema() {
-        List<Column> schema = IcebergUtils.getIcebergSchema(this);
+        return getFullSchema(MvccUtil.getSnapshotFromContext(this));
+    }
+
+    @Override
+    public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
+        List<Column> schema = IcebergUtils.getIcebergSchema(this, snapshot);
         schema = new ArrayList<>(schema);
 
         if (Util.showHiddenColumns() || needInternalHiddenColumns()) {
             schema.add(createIcebergRowIdColumn());
         }
 
-        schema = IcebergUtils.appendRowLineageColumnsForV3(schema, getIcebergTable());
+        Optional<Table> snapshotTable = snapshot
+                .filter(IcebergMvccSnapshot.class::isInstance)
+                .map(IcebergMvccSnapshot.class::cast)
+                .flatMap(value -> value.getSnapshotCacheValue().getIcebergTable());
+        // Row-lineage fields are part of the pinned schema generation, not the refreshable table.
+        schema = IcebergUtils.appendRowLineageColumnsForV3(
+                schema, snapshotTable.orElseGet(this::getIcebergTable));
         return schema;
     }
 
@@ -295,6 +319,16 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
 
     @Override
     public boolean supportInternalPartitionPruned() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsExternalMetadataPreload() {
+        return true;
+    }
+
+    @Override
+    public boolean supportsLatestSnapshotPreload() {
         return true;
     }
 
@@ -418,7 +452,11 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
      * @return SQL string representing ORDER BY clause, or empty string if no sort order
      */
     public String getSortOrderSql() {
-        Table table = getIcebergTable();
+        return getSortOrderSql(getIcebergTable());
+    }
+
+    /** Return the sort order SQL for an already resolved Iceberg metadata generation. */
+    public String getSortOrderSql(Table table) {
         org.apache.iceberg.SortOrder sortOrder = table.sortOrder();
         if (sortOrder == null || sortOrder.isUnsorted() || sortOrder.fields().isEmpty()) {
             return "";

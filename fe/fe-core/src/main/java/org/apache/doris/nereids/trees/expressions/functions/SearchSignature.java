@@ -29,6 +29,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.Lists;
@@ -257,14 +258,15 @@ public class SearchSignature {
             // we need to try to do string literal coercion when search signature.
             // for example, FUNC_A has two signature FUNC_A(datetime) and FUNC_A(string)
             // if SQL block is `FUNC_A('2020-02-02 00:00:00')`, we should return signature FUNC_A(datetime).
-            if (!argument.isNullLiteral() && argument.isLiteral() && realType.isStringLikeType()) {
-                realType = TypeCoercionUtils.characterLiteralTypeCoercion(((Literal) argument).getStringValue(),
+            Optional<Literal> literalAfterUnwrapNullable = ExpressionUtils.getLiteralAfterUnwrapNullable(argument);
+            if (!argument.isNullLiteral() && literalAfterUnwrapNullable.isPresent() && realType.isStringLikeType()) {
+                String literalValue = literalAfterUnwrapNullable.get().getStringValue();
+                realType = TypeCoercionUtils.characterLiteralTypeCoercion(literalValue,
                         sigArgType).orElse(argument).getDataType();
                 if (!realType.isStringLikeType()) {
                     stringLiteralCoersionCount++;
                 }
 
-                String literalValue = ((Literal) argument).getStringValue();
                 if (sigArgType.isTimeStampTzType()) {
                     boolean hasTimeZone = DateTimeChecker.hasTimeZone(literalValue);
                     if (hasTimeZone) {

@@ -20,6 +20,7 @@
 
 #include <memory>
 #include <ostream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -33,14 +34,18 @@
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
 #include "core/column/subcolumn_tree.h"
+#include "core/column/variant_column_utils.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/string_ref.h"
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
+#include "exprs/function/function_variant_element_v2.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/json_functions.h"
 #include "simdjson.h"
@@ -71,14 +76,13 @@ public:
         DCHECK_EQ(arguments[0]->get_primitive_type(), TYPE_VARIANT)
                 << "First argument for function: " << name
                 << " should be DataTypeVariant but it has type " << arguments[0]->get_name() << ".";
-        DCHECK(is_string_type(arguments[1]->get_primitive_type()))
-                << "Second argument for function: " << name << " should be String but it has type "
-                << arguments[1]->get_name() << ".";
+        const PrimitiveType index_type = remove_nullable(arguments[1])->get_primitive_type();
+        DCHECK(is_string_type(index_type) || is_int_or_bool(index_type))
+                << "Second argument for function: " << name
+                << " should be String or Integer but it has type " << arguments[1]->get_name()
+                << ".";
         auto arg_variant = remove_nullable(arguments[0]);
-        const auto& data_type_object = assert_cast<const DataTypeVariant&>(*arg_variant);
-        return make_nullable(
-                std::make_shared<DataTypeVariant>(data_type_object.variant_max_subcolumns_count(),
-                                                  data_type_object.enable_doc_mode()));
+        return make_nullable(std::move(arg_variant));
     }
 
     // wrap variant column with nullable
@@ -98,10 +102,72 @@ public:
         return make_nullable(col);
     }
 
+    // Keep legacy/V2 physical-column dispatch in one entry point so nullable handling stays shared.
+    // NOLINTNEXTLINE(readability-function-size)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        const auto* variant_col = check_and_get_column<ColumnVariant>(
-                remove_nullable(block.get_by_position(arguments[0]).column).get());
+        const ColumnPtr materialized =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const IColumn* physical = materialized.get();
+        std::span<const uint8_t> outer_nulls;
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(physical)) {
+            outer_nulls = nullable->get_null_map_data();
+            physical = &nullable->get_nested_column();
+        }
+        if (const auto* variant_v2 = check_and_get_column<ColumnVariantV2>(physical)) {
+            if (block.empty()) {
+                block.replace_by_position(result, ColumnNullable::create(ColumnVariantV2::create(),
+                                                                         ColumnUInt8::create()));
+                return Status::OK();
+            }
+
+            auto replace_with_all_null_result = [&]() {
+                auto null_values = ColumnVariantV2::create();
+                null_values->insert_many_defaults(variant_v2->size());
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(null_values),
+                                                       ColumnUInt8::create(variant_v2->size(), 1)));
+            };
+            const auto& index_argument = block.get_by_position(arguments[1]);
+            const ColumnPtr materialized_index =
+                    index_argument.column->convert_to_full_column_if_const();
+            const IColumn* index_column = materialized_index.get();
+            if (index_column->is_null_at(0)) {
+                replace_with_all_null_result();
+                return Status::OK();
+            }
+            if (const auto* nullable = check_and_get_column<ColumnNullable>(*index_column)) {
+                index_column = &nullable->get_nested_column();
+            }
+
+            std::optional<VariantElementV2PathSegment> segment;
+            const PrimitiveType index_type =
+                    remove_nullable(index_argument.type)->get_primitive_type();
+            if (is_string_type(index_type)) {
+                segment = VariantElementV2PathSegment::object_key(index_column->get_data_at(0));
+            } else if (is_int_or_bool(index_type)) {
+                const int64_t sql_index = index_column->get_int(0);
+                if (sql_index == 0) {
+                    replace_with_all_null_result();
+                    return Status::OK();
+                }
+                segment = VariantElementV2PathSegment::array_index(sql_index > 0 ? sql_index - 1
+                                                                                 : sql_index);
+            } else {
+                return Status::RuntimeError("unsupported index type {} for function {}",
+                                            index_argument.type->get_name(), get_name());
+            }
+            std::unique_ptr<ResolvedVariantElementV2Path> path;
+            RETURN_IF_ERROR(resolve_variant_element_v2_path(std::span(&*segment, 1), &path));
+            ColumnPtr result_column;
+            RETURN_IF_ERROR(
+                    extract_variant_element_v2(*variant_v2, *path, outer_nulls, &result_column));
+            block.replace_by_position(result, std::move(result_column));
+            return Status::OK();
+        }
+
+        const auto* variant_col =
+                check_and_get_column<ColumnVariant>(remove_nullable(materialized).get());
         if (!variant_col) {
             return Status::RuntimeError(
                     fmt::format("unsupported types for function {}({}, {})", get_name(),
@@ -148,8 +214,7 @@ private:
         const auto& src_sparse_data_values =
                 assert_cast<const ColumnString&>(sparse_data_map.get_values());
         auto& sparse_data_offsets =
-                assert_cast<ColumnMap&>(*target_ptr->get_sparse_column()->assume_mutable())
-                        .get_offsets();
+                assert_cast<ColumnMap&>(target_ptr->get_sparse_column_mutable()).get_offsets();
         auto [sparse_data_paths, sparse_data_values] =
                 target_ptr->get_sparse_data_paths_and_values();
         StringRef prefix_ref(path.get_path());
@@ -157,7 +222,7 @@ private:
         for (size_t i = 0; i != src_sparse_data_offsets.size(); ++i) {
             size_t start = src_sparse_data_offsets[ssize_t(i) - 1];
             size_t end = src_sparse_data_offsets[ssize_t(i)];
-            size_t lower_bound_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
+            size_t lower_bound_index = find_variant_sparse_path_lower_bound(
                     prefix_ref, src_sparse_data_paths, start, end);
             for (; lower_bound_index != end; ++lower_bound_index) {
                 auto path_ref = src_sparse_data_paths.get_data_at(lower_bound_index);
@@ -190,7 +255,7 @@ private:
             sparse_data_offsets.push_back(sparse_data_paths->size());
         }
         target_ptr->get_subcolumns().create_root(root);
-        target_ptr->get_doc_value_column()->assume_mutable()->resize(src_ptr->size());
+        target_ptr->get_doc_value_column_mutable().resize(src_ptr->size());
         target_ptr->set_num_rows(src_ptr->size());
     }
 
@@ -211,9 +276,9 @@ private:
         // Ordinary Variant extraction keeps the selected prefix in sparse data, matching the
         // source branch behavior. Only doc-mode columns keep extracted data in doc_value.
         auto& extracted_offsets =
-                assert_cast<ColumnMap&>(*(write_to_doc_value ? target_ptr->get_doc_value_column()
-                                                             : target_ptr->get_sparse_column())
-                                                 ->assume_mutable())
+                assert_cast<ColumnMap&>(write_to_doc_value
+                                                ? target_ptr->get_doc_value_column_mutable()
+                                                : target_ptr->get_sparse_column_mutable())
                         .get_offsets();
         auto [extracted_paths, extracted_values] =
                 write_to_doc_value ? target_ptr->get_doc_value_data_paths_and_values()
@@ -223,7 +288,7 @@ private:
         for (size_t i = 0; i != src_doc_value_data_offsets.size(); ++i) {
             size_t start = src_doc_value_data_offsets[ssize_t(i) - 1];
             size_t end = src_doc_value_data_offsets[ssize_t(i)];
-            size_t lower_bound_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
+            size_t lower_bound_index = find_variant_sparse_path_lower_bound(
                     prefix_ref, src_doc_value_data_paths, start, end);
             for (; lower_bound_index != end; ++lower_bound_index) {
                 auto path_ref = src_doc_value_data_paths.get_data_at(lower_bound_index);
@@ -251,9 +316,9 @@ private:
         }
         target_ptr->get_subcolumns().create_root(root);
         if (write_to_doc_value) {
-            target_ptr->get_sparse_column()->assume_mutable()->resize(src_ptr->size());
+            target_ptr->get_sparse_column_mutable().resize(src_ptr->size());
         } else {
-            target_ptr->get_doc_value_column()->assume_mutable()->resize(src_ptr->size());
+            target_ptr->get_doc_value_column_mutable().resize(src_ptr->size());
         }
         target_ptr->set_num_rows(src_ptr->size());
     }
@@ -264,9 +329,9 @@ private:
         if (src.empty()) {
             *result = ColumnVariant::create(src.max_subcolumns_count(), src.enable_doc_mode());
             // src subcolumns empty but src row count may not be 0
-            (*result)->assume_mutable()->insert_many_defaults(src.size());
+            (*result)->assert_mutable()->insert_many_defaults(src.size());
             // ColumnVariant should be finalized before parsing, finalize maybe modify original column structure
-            (*result)->assume_mutable()->finalize();
+            (*result)->assert_mutable()->finalize();
             return Status::OK();
         }
         if (src.is_scalar_variant() && is_string_type(src.get_root_type()->get_primitive_type())) {
@@ -291,7 +356,7 @@ private:
             }
             *result = ColumnVariant::create(src.max_subcolumns_count(), src.enable_doc_mode(), type,
                                             std::move(result_column));
-            (*result)->assume_mutable()->finalize();
+            (*result)->assert_mutable()->finalize();
             return Status::OK();
         } else {
             auto mutable_src = src.clone_finalized();
@@ -323,7 +388,7 @@ private:
                 if (new_subcolumns.empty() && !nodes.empty()) {
                     CHECK_EQ(nodes.size(), 1);
                     new_subcolumns.create_root(ColumnVariant::Subcolumn {
-                            nodes[0]->data.get_finalized_column_ptr()->assume_mutable(),
+                            IColumn::mutate(nodes[0]->data.get_finalized_column_ptr()),
                             nodes[0]->data.get_least_common_type(), true, true});
                     auto container =
                             ColumnVariant::create(src.max_subcolumns_count(), src.enable_doc_mode(),
@@ -349,12 +414,12 @@ private:
                 }
                 result_col->insert_range_from(*container, 0, container->size());
             }
-            *result = result_col->get_ptr();
             // ColumnVariant should be finalized before parsing, finalize maybe modify original column structure
-            (*result)->assume_mutable()->finalize();
+            result_col->finalize();
             VLOG_DEBUG << "dump new object "
                        << static_cast<const ColumnVariant*>(result_col.get())->debug_string()
                        << ", path " << path.get_path();
+            *result = std::move(result_col);
             return Status::OK();
         }
     }
@@ -389,6 +454,15 @@ private:
             }
             break;
         }
+        case simdjson::ondemand::json_type::string: {
+            // Extract the raw (unescaped) string value rather than its JSON
+            // representation. simdjson::to_json_string would keep the surrounding
+            // double quotes (e.g. "2026-05-20"), which leaks into the result and
+            // makes scalar-string variants inconsistent with structured ones.
+            std::string_view value_str = value.get_string().value();
+            column->insert_data(value_str.data(), value_str.length());
+            break;
+        }
         default: {
             auto value_str = simdjson::to_json_string(value).value();
             column->insert_data(value_str.data(), value_str.length());
@@ -397,8 +471,19 @@ private:
     }
 };
 
+class FunctionVariantElementByInteger final : public FunctionVariantElement {
+public:
+    static constexpr auto name = FunctionVariantElement::name;
+    static FunctionPtr create() { return std::make_shared<FunctionVariantElementByInteger>(); }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeVariant>(), std::make_shared<DataTypeInt64>()};
+    }
+};
+
 void register_function_variant_element(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionVariantElement>();
+    factory.register_function<FunctionVariantElementByInteger>();
 }
 
 } // namespace doris

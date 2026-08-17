@@ -39,6 +39,7 @@ jobs:
        github.event.issue.user.login == 'github-actions[bot]') 
     outputs:
       thirdparty_changes: ${{ steps.filter.outputs.thirdparty_changes }}
+      arrow_paimon_lifecycle_changes: ${{ steps.filter.outputs.arrow_paimon_lifecycle_changes }}
     steps:
       - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v4
@@ -54,6 +55,30 @@ jobs:
             thirdparty_changes:
               - 'thirdparty/**'
               - 'env.sh'
+            arrow_paimon_lifecycle_changes:
+              - 'build.sh'
+              - 'env.sh'
+              - 'thirdparty/arrow-paimon-vars.sh'
+              - 'thirdparty/vars.sh'
+              - 'thirdparty/build-thirdparty.sh'
+              - 'thirdparty/download-thirdparty.sh'
+              - 'thirdparty/paimon-cpp-cache.cmake'
+              - 'thirdparty/patches/apache-arrow-*.patch'
+              - 'thirdparty/patches/paimon-cpp-*.patch'
+              - 'thirdparty/test/arrow-paimon-lifecycle-test.sh'
+              - '.github/workflows/build-thirdparty.yml'
+
+  arrow_paimon_lifecycle_test:
+    name: Arrow/Paimon Lifecycle Test
+    needs: changes
+    if: ${{ needs.changes.outputs.arrow_paimon_lifecycle_changes == 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout ${{ github.ref }}
+        uses: actions/checkout@v4
+
+      - name: Test focused thirdparty lifecycle
+        run: thirdparty/test/arrow-paimon-lifecycle-test.sh
 
   build_linux:
     name: Build Third Party Libraries (Linux)
@@ -195,9 +220,9 @@ jobs:
 
           # Install specific version of cmake
           brew unlink cmake || true
-          wget https://github.com/Kitware/CMake/releases/download/v3.22.1/cmake-3.22.1-macos-universal.tar.gz
-          tar -xzf cmake-3.22.1-macos-universal.tar.gz
-          sudo cp -r cmake-3.22.1-macos-universal/CMake.app/Contents/* /usr/local/
+          wget https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-macos-universal.tar.gz
+          tar -xzf cmake-3.25.3-macos-universal.tar.gz
+          sudo cp -r cmake-3.25.3-macos-universal/CMake.app/Contents/* /usr/local/
           cmake --version
 
       - name: Build
@@ -260,9 +285,9 @@ jobs:
 
           # Install specific version of cmake
           brew unlink cmake || true
-          wget https://github.com/Kitware/CMake/releases/download/v3.22.1/cmake-3.22.1-macos-universal.tar.gz
-          tar -xzf cmake-3.22.1-macos-universal.tar.gz
-          sudo cp -r cmake-3.22.1-macos-universal/CMake.app/Contents/* /usr/local/
+          wget https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-macos-universal.tar.gz
+          tar -xzf cmake-3.25.3-macos-universal.tar.gz
+          sudo cp -r cmake-3.25.3-macos-universal/CMake.app/Contents/* /usr/local/
           cmake --version
 
       - name: Build
@@ -278,4 +303,3 @@ jobs:
           cd thirdparty
           #./build-thirdparty.sh -j "$(nproc)"
           ./build-thirdparty.sh -j 2
-

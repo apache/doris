@@ -2,7 +2,9 @@ create database if not exists multi_catalog;
 
 use multi_catalog;
 
-CREATE TABLE `byd`(
+drop table if exists `byd`;
+
+create table `byd`(
   `id` int, 
   `capacity` array<double>, 
   `singles` map<string,double>, 
@@ -17,10 +19,8 @@ LOCATION
   '/user/doris/suites/multi_catalog/byd'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1690356922');
-
-msck repair table byd;
-
-CREATE TABLE `complex_offsets_check`(
+drop table if exists `complex_offsets_check`;
+create table `complex_offsets_check`(
   `id` int, 
   `array1` array<int>, 
   `array2` array<array<int>>, 
@@ -36,10 +36,8 @@ LOCATION
   '/user/doris/suites/multi_catalog/complex_offsets_check'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1690974653');
-
-msck repair table complex_offsets_check;
-
-CREATE TABLE `parquet_all_types`(
+drop table if exists `parquet_all_types`;
+create table `parquet_all_types`(
   `t_null_string` string, 
   `t_null_varchar` varchar(65535), 
   `t_null_char` char(10), 
@@ -117,10 +115,8 @@ LOCATION
   '/user/doris/suites/multi_catalog/parquet_all_types'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1692347490');
-
-msck repair table parquet_all_types;
-
-CREATE TABLE `date_dict`(
+drop table if exists `date_dict`;
+create table `date_dict`(
   `date1` date, 
   `date2` date, 
   `date3` date)
@@ -134,5 +130,3 @@ LOCATION
   '/user/doris/suites/multi_catalog/date_dict'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1693396885');
-
-msck repair table date_dict;

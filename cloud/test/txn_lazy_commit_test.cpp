@@ -101,9 +101,6 @@ int main(int argc, char** argv) {
 
     // Initialize FDB
     get_fdb_txn_kv();
-    DORIS_CLOUD_DEFER {
-        txn_kv.reset();
-    };
 
     auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     s3_producer_pool->start();
@@ -116,7 +113,10 @@ int main(int argc, char** argv) {
             RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
                                     std::move(group_recycle_function_pool));
 
-    return RUN_ALL_TESTS();
+    int ret = RUN_ALL_TESTS();
+    thread_group = RecyclerThreadPoolGroup();
+    txn_kv.reset();
+    return ret;
 }
 namespace doris::cloud {
 
@@ -1192,6 +1192,10 @@ TEST(TxnLazyCommitTest, CommitTxnImmediatelyTest) {
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         ASSERT_TRUE(commit_txn_immediatelly_hit);
+        ASSERT_TRUE(res.has_is_lazy_commit());
+        ASSERT_FALSE(res.is_lazy_commit());
+        ASSERT_FALSE(res.has_is_lazy_commit_incomplete());
+        ASSERT_FALSE(res.is_lazy_commit_incomplete());
     }
 
     {
@@ -1205,6 +1209,83 @@ TEST(TxnLazyCommitTest, CommitTxnImmediatelyTest) {
             check_rowset_meta_exist(txn, tablet_id, 2);
         }
     }
+}
+
+TEST(TxnLazyCommitTest, CommitTxnEventuallyWithFailedLazyCommitTaskTest) {
+    auto txn_kv = get_mem_txn_kv();
+
+    int64_t db_id = 67935421;
+    int64_t table_id = 97432015;
+    int64_t index_id = 468213;
+    int64_t partition_id = 753129;
+    int64_t tablet_id = 86421357;
+    std::string label = "test_failed_lazy_commit_task";
+
+    auto meta_service = get_meta_service(txn_kv, true);
+    brpc::Controller cntl;
+    BeginTxnRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    TxnInfoPB txn_info_pb;
+    txn_info_pb.set_db_id(db_id);
+    txn_info_pb.set_label(label);
+    txn_info_pb.add_table_ids(table_id);
+    txn_info_pb.set_timeout_ms(36000);
+    req.mutable_txn_info()->CopyFrom(txn_info_pb);
+    BeginTxnResponse res;
+    meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
+                            nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    int64_t txn_id = res.txn_id();
+
+    create_tablet_with_db_id(meta_service.get(), db_id, table_id, index_id, partition_id,
+                             tablet_id);
+    auto tmp_rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
+    CreateRowsetResponse rowset_res;
+    prepare_rowset(meta_service.get(), tmp_rowset, rowset_res);
+    ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+    commit_rowset(meta_service.get(), tmp_rowset, rowset_res);
+    ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+
+    int32_t original_fuzzy_possibility = config::cloud_txn_lazy_commit_fuzzy_possibility;
+    config::cloud_txn_lazy_commit_fuzzy_possibility = 100;
+    std::atomic_bool failure_injected = false;
+    auto sp = SyncPoint::get_instance();
+    sp->set_call_back("convert_tmp_rowsets::before_commit", [&](auto&& args) {
+        auto* code = try_any_cast<MetaServiceCode*>(args[0]);
+        *code = MetaServiceCode::UNDEFINED_ERR;
+        auto* pred = try_any_cast<bool*>(args.back());
+        *pred = true;
+        failure_injected = true;
+    });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        config::cloud_txn_lazy_commit_fuzzy_possibility = original_fuzzy_possibility;
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+        sp->disable_processing();
+    };
+
+    CommitTxnRequest commit_req;
+    commit_req.set_cloud_unique_id("test_cloud_unique_id");
+    commit_req.set_db_id(db_id);
+    commit_req.set_txn_id(txn_id);
+    commit_req.set_is_2pc(false);
+    commit_req.set_enable_txn_lazy_commit(true);
+    CommitTxnResponse commit_res;
+    meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                             &commit_req, &commit_res, nullptr);
+    ASSERT_EQ(commit_res.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(failure_injected.load());
+    ASSERT_TRUE(commit_res.has_is_lazy_commit());
+    ASSERT_TRUE(commit_res.is_lazy_commit());
+    ASSERT_TRUE(commit_res.has_is_lazy_commit_incomplete());
+    ASSERT_TRUE(commit_res.is_lazy_commit_incomplete());
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    check_txn_committed(txn, db_id, txn_id, label);
+    check_tmp_rowset_exist(txn, tablet_id, txn_id);
+    check_rowset_meta_not_exist(txn, tablet_id, 2);
 }
 
 TEST(TxnLazyCommitTest, NotFallThroughCommitTxnEventuallyTest) {
@@ -2224,6 +2305,10 @@ TEST(TxnLazyCommitTest, ConcurrentCommitTxnEventuallyCase4Test) {
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            ASSERT_TRUE(res.has_is_lazy_commit());
+            ASSERT_TRUE(res.is_lazy_commit());
+            ASSERT_TRUE(res.has_is_lazy_commit_incomplete());
+            ASSERT_TRUE(res.is_lazy_commit_incomplete());
         }
     }
 
@@ -3363,7 +3448,7 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
         req.set_cloud_unique_id("test_cloud_unique_id");
         meta_service->abort_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                 &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::TXN_ALREADY_COMMITED);
+        ASSERT_EQ(res.status().actual_code(), MetaServiceCode::TXN_ALREADY_COMMITED);
     });
 
     // mock rowset and tablet
@@ -3404,6 +3489,32 @@ TEST(TxnLazyCommitTest, CommitTxnEventuallyWithAbortAfterCommitTest) {
         meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                  &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_is_lazy_commit());
+        ASSERT_TRUE(res.is_lazy_commit());
+        ASSERT_TRUE(res.has_is_lazy_commit_incomplete());
+        ASSERT_FALSE(res.is_lazy_commit_incomplete());
+    }
+
+    {
+        brpc::Controller cntl;
+        CommitTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_txn_id(txn_id);
+        req.set_is_2pc(false);
+        req.set_enable_txn_lazy_commit(true);
+        for (int i = 0; i < 2001; ++i) {
+            int64_t tablet_id = tablet_id_base + i;
+            req.add_base_tablet_ids(tablet_id);
+        }
+        CommitTxnResponse res;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_is_lazy_commit());
+        ASSERT_FALSE(res.is_lazy_commit());
+        ASSERT_FALSE(res.has_is_lazy_commit_incomplete());
+        ASSERT_FALSE(res.is_lazy_commit_incomplete());
     }
 
     {

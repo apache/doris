@@ -19,9 +19,11 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.analysis.AlterTableClause;
+import org.apache.doris.analysis.ColumnPath;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -33,17 +35,25 @@ import java.util.Map;
  * ModifyColumnCommentOp
  */
 public class ModifyColumnCommentOp extends AlterTableOp {
-    private String colName;
+    private ColumnPath columnPath;
     private String comment;
 
     public ModifyColumnCommentOp(String colName, String comment) {
+        this(ColumnPath.of(colName), comment);
+    }
+
+    public ModifyColumnCommentOp(ColumnPath columnPath, String comment) {
         super(AlterOpType.MODIFY_COLUMN_COMMENT);
-        this.colName = colName;
+        this.columnPath = columnPath;
         this.comment = Strings.nullToEmpty(comment);
     }
 
     public String getColName() {
-        return colName;
+        return columnPath.getFullPath();
+    }
+
+    public ColumnPath getColumnPath() {
+        return columnPath;
     }
 
     public String getComment() {
@@ -57,14 +67,14 @@ public class ModifyColumnCommentOp extends AlterTableOp {
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
-        if (Strings.isNullOrEmpty(colName)) {
+        if (columnPath == null || Strings.isNullOrEmpty(columnPath.getFullPath())) {
             throw new AnalysisException("Empty column name");
         }
     }
 
     @Override
     public AlterTableClause translateToLegacyAlterClause() {
-        return new ModifyColumnCommentClause(colName, comment);
+        return new ModifyColumnCommentClause(columnPath, comment);
     }
 
     @Override
@@ -80,8 +90,8 @@ public class ModifyColumnCommentOp extends AlterTableOp {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("MODIFY COLUMN COMMENT ").append(colName);
-        sb.append(" '").append(comment).append("'");
+        sb.append("MODIFY COLUMN ").append(columnPath.toSql());
+        sb.append(" COMMENT ").append(SqlLiteralUtils.quoteStringLiteral(comment));
         return sb.toString();
     }
 

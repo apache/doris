@@ -57,6 +57,16 @@ CONF_Int64(fdb_txn_timeout_ms, "10000");
 CONF_Int64(brpc_max_body_size, "3147483648");
 CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
 
+CONF_Bool(enable_tls, "false");
+CONF_String(tls_certificate_path, "");
+CONF_String(tls_private_key_path, "");
+CONF_String(tls_private_key_password, "");
+CONF_String(tls_verify_mode, "verify_peer");
+CONF_String(tls_ca_certificate_path, "");
+CONF_Int32(tls_cert_refresh_interval_seconds, "3600");
+CONF_String(tls_excluded_protocols, "");
+CONF_String(tls_peer_cert_required_san_dns, "");
+
 CONF_String(bvar_max_dump_multi_dimension_metric_num, "5000");
 
 // logging
@@ -96,9 +106,9 @@ CONF_mInt64(compacted_rowset_retention_seconds, "10800");  // 3h
 CONF_mInt64(dropped_index_retention_seconds, "10800");     // 3h
 CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 // Which instance should be recycled. If empty, recycle all instances.
-CONF_Strings(recycle_whitelist, ""); // Comma seprated list
+CONF_mStrings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
-CONF_Strings(recycle_blacklist, ""); // Comma seprated list
+CONF_mStrings(recycle_blacklist, ""); // Comma seprated list
 // IO worker thread pool concurrency: object list, delete
 CONF_mInt32(instance_recycler_worker_pool_size, "32");
 // Max number of delete tasks per batch when recycling objects.
@@ -193,7 +203,7 @@ CONF_Int64(default_max_qps_limit, "1000000");
 CONF_String(specific_max_qps_limit, "get_cluster:5000000;begin_txn:5000000");
 CONF_Bool(enable_rate_limit, "true");
 CONF_Int64(bvar_qps_update_second, "5");
-CONF_mBool(enable_ms_rate_limit, "true");
+CONF_mBool(enable_ms_rate_limit, "false");
 // Fault injection: randomly return meta service rate limit error for testing.
 // ms_rate_limit_injection_probability is the probability (0-100) of injecting a rate limit error.
 CONF_mBool(enable_ms_rate_limit_injection, "false");
@@ -264,6 +274,9 @@ CONF_Int32(txn_store_retry_base_intervals_ms, "500");
 CONF_Bool(enable_retry_txn_conflict, "true");
 
 CONF_mBool(enable_s3_rate_limiter, "false");
+// Log active S3 rate limiter every N throttled/rejected requests, 0 means no log.
+CONF_mInt64(s3_rate_limiter_log_interval, "1000");
+CONF_Validator(s3_rate_limiter_log_interval, [](int64_t config) -> bool { return config >= 0; });
 CONF_mInt64(s3_get_bucket_tokens, "1000000000000000000");
 CONF_Validator(s3_get_bucket_tokens, [](int64_t config) -> bool { return config > 0; });
 
@@ -293,8 +306,8 @@ CONF_mBool(enable_load_txn_status_check, "true");
 CONF_mBool(enable_tablet_job_check, "true");
 
 CONF_mBool(enable_recycle_delete_rowset_key_check, "true");
-CONF_mBool(enable_mark_delete_rowset_before_recycle, "true");
-CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "true");
+CONF_mBool(enable_mark_delete_rowset_before_recycle, "false");
+CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "false");
 
 // Declare a selection strategy for those servers have many ips.
 // Note that there should at most one ip match this list.
@@ -341,6 +354,7 @@ CONF_Int64(txn_lazy_commit_shuffle_seed, "0"); // 0 means generate a random seed
 // When enabled, defer deleting pending delete bitmaps until lazy commit completes.
 // This reduces contention during transaction commit by extending delete bitmap locks.
 CONF_mBool(txn_lazy_commit_defer_deleting_pending_delete_bitmaps, "false");
+CONF_mBool(enable_recycler_check_lazy_txn_finished, "true");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 CONF_Int32(max_restore_job_rowsets_per_batch, "1000");

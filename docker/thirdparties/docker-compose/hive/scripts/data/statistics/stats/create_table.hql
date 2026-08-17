@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS statistics;
 USE statistics;
 
-CREATE TABLE `statistics.stats`(
+drop table if exists `statistics.stats`;
+
+create table `statistics.stats`(
   `lo_orderkey` int, 
   `lo_linenumber` int, 
   `lo_custkey` int, 
@@ -31,5 +33,3 @@ OUTPUTFORMAT
 LOCATION '/user/doris/suites/statistics/stats'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1687325090');
-
-msck repair table stats;

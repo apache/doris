@@ -62,22 +62,36 @@ public class IPv4Literal extends LiteralExpr {
         this.value = other.value;
     }
 
-    private static long parseIPv4toLong(String ipv4) {
-        String[] parts = ipv4.split("\\.");
+    private static long parseIPv4toLong(String ipv4) throws AnalysisException {
+        // Use limit -1 so a trailing dot keeps its empty part: "1.2.3.4." stays 5 parts and is
+        // rejected by the count check below (plain split("\\.") drops the trailing "" and would
+        // wrongly yield 4). An IPv4 address must be exactly 4 dot-separated parts.
+        String[] parts = ipv4.split("\\.", -1);
         if (parts.length != 4) {
-            return 0L;
+            throw new AnalysisException("Invalid IPv4 format: " + ipv4);
         }
 
         long value = 0L;
         for (int i = 0; i < 4; ++i) {
-            short octet;
-            try {
-                octet = Short.parseShort(parts[i]);
-            } catch (NumberFormatException e) {
-                return 0L;
+            String part = parts[i];
+            // Each octet must be 1-3 ASCII digits. Short.parseShort alone is too lax for a DDL
+            // validator: it accepts a leading '+' and Unicode digits (fullwidth, Arabic-Indic,
+            // etc.), which BE's ASCII-only parse_ipv4 later rejects, turning the stored default
+            // into a late failure at load time. So check ASCII digits explicitly here. Leading
+            // zeros stay decimal ("010" -> 10), consistent with the BE parser and Nereids.
+            if (part.isEmpty() || part.length() > 3) {
+                throw new AnalysisException("Invalid IPv4 format: " + ipv4);
             }
-            if (octet < 0 || octet > 255) {
-                return 0L;
+            for (int j = 0; j < part.length(); ++j) {
+                char c = part.charAt(j);
+                if (c < '0' || c > '9') {
+                    throw new AnalysisException("Invalid IPv4 format: " + ipv4);
+                }
+            }
+            // Safe now: 1-3 ASCII digits never overflow short and never throw.
+            short octet = Short.parseShort(part);
+            if (octet > 255) {
+                throw new AnalysisException("Invalid IPv4 format: " + ipv4);
             }
             value = (value << 8) | octet;
         }

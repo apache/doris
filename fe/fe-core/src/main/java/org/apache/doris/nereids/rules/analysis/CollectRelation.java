@@ -208,6 +208,11 @@ public class CollectRelation implements AnalysisRuleFactory {
         } else {
             StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
             table = statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+            // Record relation-level metadata so the planner can preload latest external metadata before locking.
+            if (tableFrom == TableFrom.QUERY && unboundRelation.isPresent()) {
+                statementContext.registerExternalTableForPreload(table, unboundRelation.get().getTableSnapshot(),
+                        Optional.ofNullable(unboundRelation.get().getScanParams()));
+            }
             if (firstLevel) {
                 statementContext.getOneLevelTables().put(tableQualifier, table);
             }

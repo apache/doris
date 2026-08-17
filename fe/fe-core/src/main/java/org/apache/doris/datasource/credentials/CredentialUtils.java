@@ -83,6 +83,7 @@ public class CredentialUtils {
             backendProps.entrySet().stream().filter(e -> e.getValue() != null)
                     .forEach(e -> result.put(e.getKey(), e.getValue()));
         }
+        StorageProperties.setCombinedFsCacheKey(result, storagePropertiesMap.values());
         return result;
     }
 }

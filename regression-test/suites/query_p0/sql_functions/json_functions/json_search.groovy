@@ -143,4 +143,14 @@ suite("test_json_search") {
             JSON_UNQUOTE(JSON_SEARCH('{ "onepotato": "foot", "one potato": "food" , "one \\\\"potato": "fool" }','all', 'fool'))
         );
     """
+
+    qt_search_control_escape """
+        select JSON_SEARCH('{ "a\\\\nb": "needle" }', 'one', 'needle'),
+               JSON_SEARCH('{ "a\\\\tb": "tab" }', 'one', 'tab'),
+               JSON_SEARCH('{ "a\\\\rb": "cr" }', 'one', 'cr'),
+               JSON_SEARCH('{ "a\\\\u0001b": "ctrl" }', 'one', 'ctrl'),
+               JSON_EXTRACT('{ "a\\\\nb": "needle" }',
+                   JSON_UNQUOTE(JSON_SEARCH('{ "a\\\\nb": "needle" }', 'one', 'needle'))
+               );
+    """
 }

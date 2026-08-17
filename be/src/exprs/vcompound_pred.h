@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cstdint>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -28,6 +29,7 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vexpr_fwd.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "util/simd/bits.h"
 
 namespace doris {
@@ -59,6 +61,206 @@ public:
 #endif
 
     const std::string& expr_name() const override { return _expr_name; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = VCompoundPred::create_shared(clone_texpr_node());
+        return Status::OK();
+    }
+
+    bool can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                         int column_id) const override {
+        return !_children.empty() &&
+               (_op == TExprOpcode::COMPOUND_AND || _op == TExprOpcode::COMPOUND_OR) &&
+               std::ranges::all_of(_children, [&](const VExprSPtr& child) {
+                   return child->can_execute_on_raw_fixed_values(data_type, column_id);
+               });
+    }
+
+    Status execute_on_raw_fixed_values(const uint8_t* values, size_t num_values, size_t value_width,
+                                       const DataTypePtr& data_type, int column_id,
+                                       uint8_t* matches) const override {
+        if (!can_execute_on_raw_fixed_values(data_type, column_id)) {
+            return Status::NotSupported("Compound predicate cannot evaluate raw fixed values");
+        }
+        return _execute_raw_compound(
+                num_values, matches, [&](const VExprSPtr& child, uint8_t* child_matches) {
+                    return child->execute_on_raw_fixed_values(values, num_values, value_width,
+                                                              data_type, column_id, child_matches);
+                });
+    }
+
+    bool can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                          int column_id) const override {
+        return !_children.empty() &&
+               (_op == TExprOpcode::COMPOUND_AND || _op == TExprOpcode::COMPOUND_OR) &&
+               std::ranges::all_of(_children, [&](const VExprSPtr& child) {
+                   return child->can_execute_on_raw_binary_values(data_type, column_id);
+               });
+    }
+
+    Status execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                        const DataTypePtr& data_type, int column_id,
+                                        uint8_t* matches) const override {
+        if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+            return Status::NotSupported("Compound predicate cannot evaluate raw binary values");
+        }
+        return _execute_raw_compound(
+                num_values, matches, [&](const VExprSPtr& child, uint8_t* child_matches) {
+                    return child->execute_on_raw_binary_values(values, num_values, data_type,
+                                                               column_id, child_matches);
+                });
+    }
+
+    bool raw_predicate_result_for_null() const override {
+        if (_op != TExprOpcode::COMPOUND_AND && _op != TExprOpcode::COMPOUND_OR) {
+            // A Boolean keep bit cannot distinguish FALSE from UNKNOWN, so negating a child's
+            // collapsed result is not SQL-correct. NOT remains residual and rejects NULL here.
+            return false;
+        }
+        if (_op == TExprOpcode::COMPOUND_AND) {
+            return std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->raw_predicate_result_for_null();
+            });
+        }
+        return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+            return child->raw_predicate_result_for_null();
+        });
+    }
+
+    bool can_evaluate_zonemap_filter() const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_zonemap_filter();
+            });
+        case TExprOpcode::COMPOUND_OR:
+            return !_children.empty() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_zonemap_filter();
+            });
+        case TExprOpcode::COMPOUND_NOT:
+            return false;
+        default:
+            return false;
+        }
+    }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND: {
+            for (const auto& child : _children) {
+                if (!child->can_evaluate_zonemap_filter()) {
+                    continue;
+                }
+                if (child->evaluate_zonemap_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kNoMatch;
+                }
+            }
+            return ZoneMapFilterResult::kMayMatch;
+        }
+        case TExprOpcode::COMPOUND_OR: {
+            for (const auto& child : _children) {
+                DORIS_CHECK(child->can_evaluate_zonemap_filter());
+                if (child->evaluate_zonemap_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kMayMatch;
+                }
+            }
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        case TExprOpcode::COMPOUND_NOT:
+            return unsupported_zonemap_filter(ctx);
+        default:
+            return unsupported_zonemap_filter(ctx);
+        }
+    }
+
+    bool can_evaluate_dictionary_filter() const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_dictionary_filter();
+            });
+        case TExprOpcode::COMPOUND_OR:
+            return !_children.empty() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_dictionary_filter();
+            });
+        default:
+            return false;
+        }
+    }
+
+    bool is_safe_to_execute_on_selected_rows() const override {
+        // Boolean composition introduces no data-dependent failure of its own. Reuse the generic
+        // child walk so AND/OR remain eligible only when every nested expression is independently
+        // safe; applying VectorizedFnCall's scalar-function allowlist to this structural node would
+        // incorrectly disable selected-row execution for otherwise safe predicates.
+        return VExpr::is_safe_to_execute_on_selected_rows();
+    }
+
+    ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx) const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            for (const auto& child : _children) {
+                if (!child->can_evaluate_dictionary_filter()) {
+                    continue;
+                }
+                if (child->evaluate_dictionary_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kNoMatch;
+                }
+            }
+            return ZoneMapFilterResult::kMayMatch;
+        case TExprOpcode::COMPOUND_OR:
+            for (const auto& child : _children) {
+                DORIS_CHECK(child->can_evaluate_dictionary_filter());
+                if (child->evaluate_dictionary_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kMayMatch;
+                }
+            }
+            return ZoneMapFilterResult::kNoMatch;
+        default:
+            return ZoneMapFilterResult::kUnsupported;
+        }
+    }
+
+    bool can_evaluate_bloom_filter() const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            return std::ranges::any_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_bloom_filter();
+            });
+        case TExprOpcode::COMPOUND_OR:
+            return !_children.empty() && std::ranges::all_of(_children, [](const VExprSPtr& child) {
+                return child->can_evaluate_bloom_filter();
+            });
+        default:
+            return false;
+        }
+    }
+
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override {
+        switch (_op) {
+        case TExprOpcode::COMPOUND_AND:
+            for (const auto& child : _children) {
+                if (!child->can_evaluate_bloom_filter()) {
+                    continue;
+                }
+                if (child->evaluate_bloom_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kNoMatch;
+                }
+            }
+            return ZoneMapFilterResult::kMayMatch;
+        case TExprOpcode::COMPOUND_OR:
+            for (const auto& child : _children) {
+                DORIS_CHECK(child->can_evaluate_bloom_filter());
+                if (child->evaluate_bloom_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
+                    return ZoneMapFilterResult::kMayMatch;
+                }
+            }
+            return ZoneMapFilterResult::kNoMatch;
+        default:
+            return ZoneMapFilterResult::kUnsupported;
+        }
+    }
 
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
         segment_v2::InvertedIndexResultBitmap res;
@@ -180,8 +382,8 @@ public:
         }
 
         ColumnPtr rhs_column = nullptr;
-        uint8_t* __restrict rhs_data_column = nullptr;
-        uint8_t* __restrict rhs_null_map = nullptr;
+        const uint8_t* __restrict rhs_data_column = nullptr;
+        const uint8_t* __restrict rhs_null_map = nullptr;
         bool rhs_is_nullable = false;
         bool rhs_all_true = false;
         bool rhs_all_false = false;
@@ -216,31 +418,36 @@ public:
         };
 
         auto create_null_map_column = [&](ColumnPtr& null_map_column,
-                                          uint8_t* __restrict null_map_data) {
+                                          const uint8_t* __restrict null_map_data) {
             if (null_map_data == nullptr) {
                 null_map_column = ColumnUInt8::create(size, 0);
-                null_map_data = assert_cast<ColumnUInt8*>(null_map_column->assume_mutable().get())
-                                        ->get_data()
-                                        .data();
+                null_map_data =
+                        assert_cast<const ColumnUInt8*>(null_map_column.get())->get_data().data();
             }
             return null_map_data;
         };
 
         auto vector_vector = [&]<bool is_and_op>() {
+            MutableColumnPtr mutable_result_column;
+            uint8_t* __restrict result_data_column = nullptr;
+            const uint8_t* __restrict other_data_column = rhs_data_column;
             if (lhs_column->use_count() == 1) {
-                result_column = lhs_column;
+                mutable_result_column = IColumn::mutate(std::move(lhs_column));
+                result_data_column =
+                        assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();
             } else if (rhs_column->use_count() == 1) {
-                result_column = rhs_column;
-                auto tmp_column = rhs_data_column;
-                rhs_data_column = lhs_data_column;
-                lhs_data_column = tmp_column;
+                mutable_result_column = IColumn::mutate(std::move(rhs_column));
+                result_data_column =
+                        assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();
+                other_data_column = lhs_data_column;
             } else {
-                auto col_res = lhs_column->clone_resized(size);
-                lhs_data_column = assert_cast<ColumnUInt8*>(col_res.get())->get_data().data();
-                result_column = std::move(col_res);
+                mutable_result_column = lhs_column->clone_resized(size);
+                result_data_column =
+                        assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();
             }
 
-            do_not_null_pred<is_and_op>(lhs_data_column, rhs_data_column, size);
+            do_not_null_pred<is_and_op>(result_data_column, other_data_column, size);
+            result_column = std::move(mutable_result_column);
         };
         auto vector_vector_null = [&]<bool is_and_op>() {
             auto col_res = ColumnUInt8::create(size);
@@ -337,6 +544,49 @@ public:
     }
 
 private:
+    template <typename ExecuteChild>
+    Status _execute_raw_compound(size_t num_values, uint8_t* matches,
+                                 ExecuteChild&& execute_child) const {
+        if (_op == TExprOpcode::COMPOUND_AND) {
+            for (const auto& child : _children) {
+                RETURN_IF_ERROR(execute_child(child, matches));
+            }
+            return Status::OK();
+        }
+
+        // Each execution context owns its expression tree. Retaining masks on the OR node avoids
+        // N+1 row-sized allocations for every decoder fragment, while nested OR nodes keep
+        // independent buffers and therefore cannot overwrite their parent's in-flight state.
+        _raw_combined_scratch.resize(num_values);
+        std::ranges::fill(_raw_combined_scratch, 0);
+        for (const auto& child : _children) {
+            // resize_fill() initializes only newly appended bytes; explicitly reset a reused mask
+            // so matches from an earlier page fragment cannot leak into this OR evaluation.
+            _raw_child_scratch.resize(num_values);
+            std::ranges::fill(_raw_child_scratch, 1);
+            RETURN_IF_ERROR(execute_child(child, _raw_child_scratch.data()));
+            for (size_t row = 0; row < num_values; ++row) {
+                _raw_combined_scratch[row] |= _raw_child_scratch[row];
+            }
+        }
+        // Raw kernels receive an existing selection mask, so composition must preserve rows that
+        // an earlier conjunct already rejected instead of replacing the caller's mask.
+        for (size_t row = 0; row < num_values; ++row) {
+            matches[row] &= _raw_combined_scratch[row];
+        }
+        constexpr size_t MAX_RETAINED_RAW_MASK_BYTES = 1UL << 20;
+        if (_raw_combined_scratch.capacity() > MAX_RETAINED_RAW_MASK_BYTES) {
+            IColumn::Filter().swap(_raw_combined_scratch);
+        }
+        if (_raw_child_scratch.capacity() > MAX_RETAINED_RAW_MASK_BYTES) {
+            IColumn::Filter().swap(_raw_child_scratch);
+        }
+        return Status::OK();
+    }
+
+    mutable IColumn::Filter _raw_combined_scratch;
+    mutable IColumn::Filter _raw_child_scratch;
+
     static inline constexpr uint8_t apply_and_null(UInt8 a, UInt8 l_null, UInt8 b, UInt8 r_null) {
         // (<> && false) is false, (true && NULL) is NULL
         return (l_null & r_null) | (r_null & (l_null ^ a)) | (l_null & (r_null ^ b));
@@ -347,7 +597,8 @@ private:
     }
 
     template <bool is_and>
-    void static do_not_null_pred(uint8_t* __restrict lhs, uint8_t* __restrict rhs, size_t size) {
+    void static do_not_null_pred(uint8_t* __restrict lhs, const uint8_t* __restrict rhs,
+                                 size_t size) {
 #ifdef NDEBUG
 #if defined(__clang__)
 #pragma clang loop vectorize(enable)
@@ -365,8 +616,8 @@ private:
     }
 
     template <bool is_and>
-    void static do_null_pred(uint8_t* __restrict lhs_data, uint8_t* __restrict lhs_null,
-                             uint8_t* __restrict rhs_data, uint8_t* __restrict rhs_null,
+    void static do_null_pred(const uint8_t* __restrict lhs_data, const uint8_t* __restrict lhs_null,
+                             const uint8_t* __restrict rhs_data, const uint8_t* __restrict rhs_null,
                              uint8_t* __restrict res_data, uint8_t* __restrict res_null,
                              size_t size) {
 #ifdef NDEBUG
@@ -392,22 +643,18 @@ private:
                                    [](const VExprSPtr& arg) -> bool { return arg->is_constant(); });
     }
 
-    std::pair<uint8_t*, uint8_t*> _get_raw_data_and_null_map(ColumnPtr column,
-                                                             bool has_nullable_column) const {
+    std::pair<const uint8_t*, const uint8_t*> _get_raw_data_and_null_map(
+            const ColumnPtr& column, bool has_nullable_column) const {
         if (has_nullable_column) {
-            auto* nullable_column = assert_cast<ColumnNullable*>(column->assume_mutable().get());
+            const auto* nullable_column = assert_cast<const ColumnNullable*>(column.get());
             auto* data_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_nested_column_ptr().get())
+                    assert_cast<const ColumnUInt8*>(nullable_column->get_nested_column_ptr().get())
                             ->get_data()
                             .data();
-            auto* null_map =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get())
-                            ->get_data()
-                            .data();
+            auto* null_map = nullable_column->get_null_map_column_ptr()->get_data().data();
             return std::make_pair(data_column, null_map);
         } else {
-            auto* data_column =
-                    assert_cast<ColumnUInt8*>(column->assume_mutable().get())->get_data().data();
+            auto* data_column = assert_cast<const ColumnUInt8*>(column.get())->get_data().data();
             return std::make_pair(data_column, nullptr);
         }
     }

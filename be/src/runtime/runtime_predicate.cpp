@@ -59,6 +59,7 @@ Status RuntimePredicate::init_target(
         int32_t target_node_id, phmap::flat_hash_map<int, SlotDescriptor*> slot_id_to_slot_desc,
         const int column_id) {
     if (column_id < 0) {
+        _detected_target = true;
         return Status::OK();
     }
     std::unique_lock<std::shared_mutex> wlock(_rwlock);

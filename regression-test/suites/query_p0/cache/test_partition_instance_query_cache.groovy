@@ -93,6 +93,20 @@ suite("test_partition_instance_query_cache") {
         contains("DIGEST")
     }
 
+    // The "one scan instance per partition" plan shape asserted below only holds when the
+    // scan runs on a single BE. On a multi-BE cluster the query-cache partition parallelism
+    // legitimately produces one instance per (partition, BE) -- or, when
+    // totalTablets <= parallelExecInstanceNum * numBE, falls back to default per-tablet
+    // parallelization (see UnassignedScanSingleOlapTableJob). The result-correctness and
+    // cache-consistency checks above already ran on any topology; only the single-BE-only
+    // plan-shape checks are gated here. Multi-BE behavior should have a dedicated test.
+    def aliveBeNum = sql("show backends").count { it[9].toString() == "true" }
+    if (aliveBeNum != 1) {
+        logger.info("Skip partition-instance plan-shape assertions: requires a single BE, found ${aliveBeNum}.")
+        sql "DROP TABLE IF EXISTS ${tableName}"
+        return
+    }
+
     def distributedRows = sql("EXPLAIN DISTRIBUTED PLAN ${querySql}")
     def distributedPlan = distributedRows.collect { it[0].toString() }.join("\n")
     assertTrue(distributedPlan.contains("UnassignedScanSingleOlapTableJob"))

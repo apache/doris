@@ -257,17 +257,9 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         }
         // For push load, this tablet maybe not need push data, so that the path maybe empty
         if (!path.empty()) {
-            // init schema
-            std::unique_ptr<Schema> schema(new (std::nothrow) Schema(tablet_schema));
-            if (schema == nullptr) {
-                st = Status::Error<MEM_ALLOC_FAILED>("fail to create schema. tablet={}",
-                                                     cur_tablet->tablet_id());
-                break;
-            }
-
             // init Reader
-            std::unique_ptr<PushBrokerReader> reader = PushBrokerReader::create_unique(
-                    schema.get(), _request.broker_scan_range, _request.desc_tbl);
+            std::unique_ptr<PushBrokerReader> reader =
+                    PushBrokerReader::create_unique(_request.broker_scan_range, _request.desc_tbl);
             st = reader->init();
             if (reader == nullptr || !st.ok()) {
                 st = Status::Error<PUSH_INIT_ERROR>("fail to init reader. st={}, tablet={}", st,
@@ -327,7 +319,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
     return st;
 }
 
-PushBrokerReader::PushBrokerReader(const Schema* schema, const TBrokerScanRange& t_scan_range,
+PushBrokerReader::PushBrokerReader(const TBrokerScanRange& t_scan_range,
                                    const TDescriptorTable& t_desc_tbl)
         : _ready(false),
           _eof(false),

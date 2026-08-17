@@ -165,4 +165,35 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 }
         );
     }
+
+    @Test
+    public void testCanUseRowStoreForLazySlots() {
+        Column distinctA = new Column("a", org.apache.doris.catalog.Type.INT);
+        distinctA.setUniqueId(1);
+        Column distinctB = new Column("b", org.apache.doris.catalog.Type.INT);
+        distinctB.setUniqueId(2);
+        Column sharedVariant = new Column("kv", org.apache.doris.catalog.Type.VARIANT);
+        sharedVariant.setUniqueId(3);
+
+        SlotReference distinctSlotA = new SlotReference(StatementScopeIdGenerator.newExprId(), "a",
+                IntegerType.INSTANCE, true, ImmutableList.of(), null, distinctA, null, distinctA);
+        SlotReference distinctSlotB = new SlotReference(StatementScopeIdGenerator.newExprId(), "b",
+                IntegerType.INSTANCE, true, ImmutableList.of(), null, distinctB, null, distinctB);
+        SlotReference variantRootSlot = new SlotReference(StatementScopeIdGenerator.newExprId(), "kv",
+                org.apache.doris.nereids.types.VariantType.INSTANCE, true, ImmutableList.of(),
+                null, sharedVariant, null, sharedVariant);
+        SlotReference singleVariantSubColumnSlot = new SlotReference(StatementScopeIdGenerator.newExprId(), "kv",
+                org.apache.doris.nereids.types.VariantType.INSTANCE, true, ImmutableList.of(),
+                null, sharedVariant, null, sharedVariant, ImmutableList.of("ssl"));
+        SlotReference variantSubColumnSlot = new SlotReference(StatementScopeIdGenerator.newExprId(), "kv",
+                org.apache.doris.nereids.types.VariantType.INSTANCE, true, ImmutableList.of(),
+                null, sharedVariant, null, sharedVariant, ImmutableList.of("ssl"));
+
+        Assertions.assertTrue(PhysicalPlanTranslator.canUseRowStoreForLazySlots(
+                ImmutableList.of(distinctSlotA, distinctSlotB)));
+        Assertions.assertFalse(PhysicalPlanTranslator.canUseRowStoreForLazySlots(
+                ImmutableList.of(singleVariantSubColumnSlot)));
+        Assertions.assertFalse(PhysicalPlanTranslator.canUseRowStoreForLazySlots(
+                ImmutableList.of(variantRootSlot, variantSubColumnSlot)));
+    }
 }

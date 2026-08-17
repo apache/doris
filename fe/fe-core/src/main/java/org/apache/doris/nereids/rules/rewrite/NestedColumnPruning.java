@@ -45,7 +45,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.TreeMultimap;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -131,8 +130,14 @@ public class NestedColumnPruning implements CustomRewriter {
         Map<Slot, DataTypeAccessTree> slotIdToPredicateAccessTree = new LinkedHashMap<>();
         Map<Slot, DataType> variantSlots = new LinkedHashMap<>();
 
-        Comparator<Pair<TAccessPathType, List<String>>> pathComparator = Comparator.comparing(
-                l -> StringUtils.join(l.second, "."));
+        // Segment-wise comparison preserves the distinction between the key "a.b" and path a/b.
+        Comparator<Pair<TAccessPathType, List<String>>> pathComparator = (left, right) -> {
+            int comparison = comparePathSegments(left.second, right.second);
+            if (comparison != 0) {
+                return comparison;
+            }
+            return left.first.compareTo(right.first);
+        };
 
         Multimap<Integer, Pair<TAccessPathType, List<String>>> allAccessPaths = TreeMultimap.create(
                 Comparator.naturalOrder(), pathComparator);
@@ -263,6 +268,17 @@ public class NestedColumnPruning implements CustomRewriter {
         return paths;
     }
 
+    private static int comparePathSegments(List<String> left, List<String> right) {
+        int commonLength = Math.min(left.size(), right.size());
+        for (int index = 0; index < commonLength; index++) {
+            int comparison = left.get(index).compareTo(right.get(index));
+            if (comparison != 0) {
+                return comparison;
+            }
+        }
+        return Integer.compare(left.size(), right.size());
+    }
+
     /** DataTypeAccessTree */
     public static class DataTypeAccessTree {
         // type of this level
@@ -344,8 +360,7 @@ public class NestedColumnPruning implements CustomRewriter {
                         children.values().iterator().next().pruneCastType(
                                 origin.children.values().iterator().next(),
                                 cast.children.values().iterator().next()
-                        ),
-                        ((ArrayType) cast.type).containsNull()
+                        )
                 );
             } else if (type instanceof MapType) {
                 return MapType.of(
@@ -448,6 +463,12 @@ public class NestedColumnPruning implements CustomRewriter {
                     valuesChild.setAccessByPath(path, accessIndex + 1, pathType);
                     return;
                 }
+            } else if (this.type.isVariantType()) {
+                // Variant subpaths remain in the serialized access-path list. The static type
+                // tree only needs to retain the Variant terminal so its complex parent is pruned
+                // without discarding the path before BE can project a shredded leaf.
+                accessAll = true;
+                return;
             } else if (isRoot) {
                 children.get(path.get(accessIndex).toLowerCase()).setAccessByPath(path, accessIndex + 1, pathType);
                 return;
@@ -535,7 +556,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 }
                 return new StructType(newFields);
             } else if (dataType instanceof ArrayType) {
-                return ArrayType.of(newChildrenTypes.get(0).second, ((ArrayType) dataType).containsNull());
+                return ArrayType.of(newChildrenTypes.get(0).second);
             } else if (dataType instanceof MapType) {
                 return MapType.of(newChildrenTypes.get(0).second, newChildrenTypes.get(1).second);
             } else {

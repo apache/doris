@@ -22,7 +22,6 @@ suite("ann_range_search_source_index_status_regression", "nonConcurrent") {
     sql "set enable_no_need_read_data_opt=true;"
     sql "set parallel_pipeline_task_num=1;"
     sql "set enable_sql_cache=false;"
-    sql "set enable_condition_cache=false;"
 
     // The source column's index in the scan block differs from its storage
     // ColumnId. ANN range search should mark the common expression status by

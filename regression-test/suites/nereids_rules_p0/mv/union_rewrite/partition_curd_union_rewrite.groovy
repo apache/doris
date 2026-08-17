@@ -195,9 +195,11 @@ suite ("partition_curd_union_rewrite") {
     """
     // wait partition is invalid
     sleep(5000)
-    mv_rewrite_success(all_partition_sql, mv_name)
+    mv_rewrite_success(all_partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(all_partition_sql + order_by_stmt)
-    mv_rewrite_success(partition_sql, mv_name)
+    mv_rewrite_success(partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(partition_sql + order_by_stmt)
 
     sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
@@ -209,9 +211,11 @@ suite ("partition_curd_union_rewrite") {
     """
     // Wait partition is invalid
     sleep(5000)
-    mv_rewrite_success(all_partition_sql, mv_name)
+    mv_rewrite_success(all_partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(all_partition_sql + order_by_stmt)
-    mv_rewrite_success(partition_sql, mv_name)
+    mv_rewrite_success(partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(partition_sql + order_by_stmt)
 
     // Test when base table delete partition test
@@ -221,8 +225,153 @@ suite ("partition_curd_union_rewrite") {
     """
     // Wait partition is invalid
     sleep(3000)
-    mv_rewrite_success(all_partition_sql, mv_name)
+    mv_rewrite_success(all_partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(all_partition_sql + order_by_stmt)
-    mv_rewrite_success(partition_sql, mv_name)
+    mv_rewrite_success(partition_sql, mv_name,
+            is_partition_statistics_ready(db, ["lineitem", "orders", mv_name]))
     compare_res(partition_sql + order_by_stmt)
+
+    // Use exactly two base partitions. After p2 is dropped, p2 is stale only in the MV: no
+    // surviving base partition needs UNION ALL compensation. The query omits the MV partition column d,
+    // so canUnionRewrite() must be false while the rewrite still succeeds by removing stale MV p2.
+    sql "DROP MATERIALIZED VIEW IF EXISTS partition_compensation_mv"
+    sql "DROP TABLE IF EXISTS partition_compensation_mv"
+    sql "DROP TABLE IF EXISTS partition_compensation_base"
+    sql """
+    CREATE TABLE partition_compensation_base (
+        id int not null,
+        k int not null,
+        d date not null,
+        v int not null
+    )
+    DUPLICATE KEY(id, k, d)
+    PARTITION BY RANGE(d) (
+        PARTITION p1 VALUES [('2024-01-01'), ('2024-01-02')),
+        PARTITION p2 VALUES [('2024-01-02'), ('2024-01-03'))
+    )
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ('replication_num' = '1')
+    """
+    sql """
+    INSERT INTO partition_compensation_base VALUES
+        (1, 1, '2024-01-01', 1),
+        (2, 1, '2024-01-01', 1),
+        (3, 1, '2024-01-01', 1),
+        (4, 1, '2024-01-01', 1),
+        (5, 1, '2024-01-01', 1),
+        (6, 1, '2024-01-01', 1),
+        (7, 1, '2024-01-01', 1),
+        (8, 1, '2024-01-01', 1),
+        (9, 1, '2024-01-01', 1),
+        (10, 1, '2024-01-01', 1),
+        (11, 1, '2024-01-01', 1),
+        (12, 1, '2024-01-01', 1),
+        (13, 1, '2024-01-01', 1),
+        (14, 1, '2024-01-01', 1),
+        (15, 1, '2024-01-01', 1),
+        (16, 1, '2024-01-01', 1),
+        (17, 1, '2024-01-01', 1),
+        (18, 1, '2024-01-01', 1),
+        (19, 1, '2024-01-01', 1),
+        (20, 1, '2024-01-01', 1),
+        (21, 1, '2024-01-02', 1)
+    """
+
+    def partition_compensation_mv_name = "partition_compensation_mv"
+    def aggregate_without_partition_column_sql = """
+    select k, sum(v) as sum_v
+    from partition_compensation_base
+    group by k
+    """
+    sql """
+    CREATE MATERIALIZED VIEW ${partition_compensation_mv_name}
+    BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+    PARTITION BY(d)
+    DISTRIBUTED BY RANDOM BUCKETS 1
+    PROPERTIES ('replication_num' = '1')
+    AS
+    select d, k, sum(v) as sum_v
+    from partition_compensation_base
+    group by d, k
+    """
+    waitingMTMVTaskFinished(getJobName(db, partition_compensation_mv_name))
+    sql """
+    analyze table partition_compensation_base with sync;
+    analyze table ${partition_compensation_mv_name} with sync;
+    """
+
+    sql "ALTER TABLE partition_compensation_base DROP PARTITION p2 FORCE"
+    waitingPartitionIsExpected(partition_compensation_mv_name, "p_20240102_20240103", false)
+    mv_rewrite_success(aggregate_without_partition_column_sql, partition_compensation_mv_name,
+            is_partition_statistics_ready(db, ["partition_compensation_base", partition_compensation_mv_name]))
+    explain {
+        sql "memo plan ${aggregate_without_partition_column_sql}"
+        notContains "PhysicalUnion"
+    }
+    order_qt_aggregate_without_partition_column_after_partition_delete """
+    ${aggregate_without_partition_column_sql}
+    order by k
+    """
+
+    // Aggregate-on-detail rewrite has the same removal-only partition state. It should remove the stale
+    // detail MV partition and must not require a base-table UNION ALL branch.
+    sql "DROP MATERIALIZED VIEW IF EXISTS partition_compensation_detail_mv"
+    sql "DROP TABLE IF EXISTS partition_compensation_detail_mv"
+    sql "DROP TABLE IF EXISTS partition_compensation_detail_base"
+    sql """
+    CREATE TABLE partition_compensation_detail_base (
+        id int not null,
+        k int not null,
+        d date not null,
+        v int not null
+    )
+    DUPLICATE KEY(id, k, d)
+    PARTITION BY RANGE(d) (
+        PARTITION p1 VALUES [('2024-02-01'), ('2024-02-02')),
+        PARTITION p2 VALUES [('2024-02-02'), ('2024-02-03'))
+    )
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ('replication_num' = '1')
+    """
+    sql """
+    INSERT INTO partition_compensation_detail_base VALUES
+        (1, 1, '2024-02-01', 1),
+        (2, 1, '2024-02-02', 1)
+    """
+
+    def aggregate_on_detail_mv_sql = """
+    select k, sum(v) as sum_v
+    from partition_compensation_detail_base
+    group by k
+    """
+    sql """
+    CREATE MATERIALIZED VIEW partition_compensation_detail_mv
+    BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+    PARTITION BY(d)
+    DISTRIBUTED BY RANDOM BUCKETS 1
+    PROPERTIES ('replication_num' = '1')
+    AS
+    select id, k, d, v
+    from partition_compensation_detail_base
+    """
+    waitingMTMVTaskFinished(getJobName(db, "partition_compensation_detail_mv"))
+    sql """
+    analyze table partition_compensation_detail_base with sync;
+    analyze table partition_compensation_detail_mv with sync;
+    """
+
+    sql "ALTER TABLE partition_compensation_detail_base DROP PARTITION p2 FORCE"
+    waitingPartitionIsExpected("partition_compensation_detail_mv", "p_20240202_20240203", false)
+    mv_rewrite_success(aggregate_on_detail_mv_sql, "partition_compensation_detail_mv",
+            is_partition_statistics_ready(
+                    db, ["partition_compensation_detail_base", "partition_compensation_detail_mv"]))
+    explain {
+        sql "memo plan ${aggregate_on_detail_mv_sql}"
+        notContains "PhysicalUnion"
+    }
+    order_qt_aggregate_on_detail_mv_after_partition_delete """
+    ${aggregate_on_detail_mv_sql}
+    order by k
+    """
 }

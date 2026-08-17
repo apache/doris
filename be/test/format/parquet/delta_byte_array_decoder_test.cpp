@@ -20,7 +20,9 @@
 #include <gtest/gtest.h>
 
 #include "arrow/api.h"
+#include "core/column/column_fixed_length_object.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_fixed_length_object.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "format/parquet/delta_bit_pack_decoder.h"
@@ -37,6 +39,16 @@ protected:
 
     std::unique_ptr<DeltaByteArrayDecoder> _decoder;
 };
+
+static void expect_fixed_length_value(const ColumnFixedLengthObject& column, size_t row,
+                                      const std::vector<uint8_t>& expected) {
+    const auto value = column.get_data_at(row);
+    ASSERT_EQ(value.size, expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        EXPECT_EQ(static_cast<uint8_t>(value.data[i]), expected[i])
+                << "Mismatch at row " << row << ", byte " << i;
+    }
+}
 
 // Test basic decoding byte array functionality
 TEST_F(DeltaByteArrayDecoderTest, test_basic_decode_byte_array) {
@@ -340,6 +352,60 @@ TEST_F(DeltaByteArrayDecoderTest, test_basic_decode_fixed_len_byte_array) {
     }
 }
 
+TEST_F(DeltaByteArrayDecoderTest, test_basic_decode_fixed_len_byte_array_object) {
+    const int32_t type_length = 16;
+    int precision = 10;
+    int scale = 2;
+    _decoder->set_type_length(type_length);
+
+    auto node = parquet::schema::PrimitiveNode::Make(
+            "test_column", parquet::Repetition::REQUIRED, parquet::Type::FIXED_LEN_BYTE_ARRAY,
+            parquet::ConvertedType::DECIMAL, type_length, precision, scale);
+    auto descr = std::make_shared<parquet::ColumnDescriptor>(node, 0, 0);
+
+    std::vector<std::vector<uint8_t>> test_fixed_len_buffers = {
+            {0x1a, 0x05, 0x06, 0x1b, 0x00, 0x00, 0x00, 0x13, 0x1c, 0x00, 0x00, 0x00, 0x00, 0xbc,
+             0x61, 0x40},
+            {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+             0x00, 0x00},
+            {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+             0xFF, 0xFF}};
+
+    std::vector<parquet::ByteArray> byte_array_values;
+    for (const auto& buffer : test_fixed_len_buffers) {
+        byte_array_values.emplace_back(
+                parquet::ByteArray {static_cast<uint32_t>(buffer.size()), buffer.data()});
+    }
+
+    auto encoder = MakeTypedEncoder<parquet::ByteArrayType>(parquet::Encoding::DELTA_BYTE_ARRAY,
+                                                            /*use_dictionary=*/false, descr.get());
+    ASSERT_NO_THROW(
+            encoder->Put(byte_array_values.data(), static_cast<int>(byte_array_values.size())));
+    auto encoded_buffer = encoder->FlushValues();
+    Slice data_slice(encoded_buffer->data(), encoded_buffer->size());
+    ASSERT_TRUE(_decoder->set_data(&data_slice).ok());
+
+    MutableColumnPtr column = ColumnFixedLengthObject::create(type_length);
+    DataTypePtr data_type = std::make_shared<DataTypeFixedLengthObject>();
+
+    const size_t num_values = test_fixed_len_buffers.size();
+    std::vector<uint16_t> run_length_null_map(1, num_values);
+    std::vector<uint8_t> filter_data(num_values, 1);
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector.init(run_length_null_map, num_values, nullptr, &filter_map, 0).ok());
+
+    ASSERT_TRUE(_decoder->decode_values(column, data_type, select_vector, false).ok());
+
+    const auto* result_column = assert_cast<const ColumnFixedLengthObject*>(column.get());
+    ASSERT_EQ(result_column->item_size(), type_length);
+    ASSERT_EQ(result_column->size(), num_values);
+    for (size_t i = 0; i < num_values; ++i) {
+        expect_fixed_length_value(*result_column, i, test_fixed_len_buffers[i]);
+    }
+}
+
 // Test decoding fixed-length byte array with filter
 TEST_F(DeltaByteArrayDecoderTest, test_decode_fixed_len_byte_array_with_filter) {
     // Configure DECIMAL type parameters
@@ -416,6 +482,62 @@ TEST_F(DeltaByteArrayDecoderTest, test_decode_fixed_len_byte_array_with_filter) 
                   static_cast<int8_t>(test_fixed_len_buffers[2][j]))
                 << "Mismatch at buffer 2, byte " << j;
     }
+}
+
+TEST_F(DeltaByteArrayDecoderTest, test_decode_fixed_len_byte_array_object_with_filter_and_null) {
+    const int32_t type_length = 16;
+    int precision = 10;
+    int scale = 2;
+    _decoder->set_type_length(type_length);
+
+    auto node = parquet::schema::PrimitiveNode::Make(
+            "test_column", parquet::Repetition::REQUIRED, parquet::Type::FIXED_LEN_BYTE_ARRAY,
+            parquet::ConvertedType::DECIMAL, type_length, precision, scale);
+    auto descr = std::make_shared<parquet::ColumnDescriptor>(node, 0, 0);
+
+    std::vector<std::vector<uint8_t>> test_fixed_len_buffers = {
+            {0x1a, 0x05, 0x06, 0x1b, 0x00, 0x00, 0x00, 0x13, 0x1c, 0x00, 0x00, 0x00, 0x00, 0xbc,
+             0x61, 0x40},
+            {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+             0x00, 0x00},
+            {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC,
+             0xDE, 0xF0}};
+
+    std::vector<parquet::ByteArray> byte_array_values;
+    for (const auto& buffer : test_fixed_len_buffers) {
+        byte_array_values.emplace_back(
+                parquet::ByteArray {static_cast<uint32_t>(buffer.size()), buffer.data()});
+    }
+
+    auto encoder = MakeTypedEncoder<parquet::ByteArrayType>(parquet::Encoding::DELTA_BYTE_ARRAY,
+                                                            /*use_dictionary=*/false, descr.get());
+    ASSERT_NO_THROW(
+            encoder->Put(byte_array_values.data(), static_cast<int>(byte_array_values.size())));
+    auto encoded_buffer = encoder->FlushValues();
+    Slice data_slice(encoded_buffer->data(), encoded_buffer->size());
+    ASSERT_TRUE(_decoder->set_data(&data_slice).ok());
+
+    MutableColumnPtr column = ColumnFixedLengthObject::create(type_length);
+    DataTypePtr data_type = std::make_shared<DataTypeFixedLengthObject>();
+
+    const size_t num_values = 4;
+    std::vector<uint16_t> run_length_null_map = {2, 1, 1}; // data: [Data 1, Data 2, null, Data 4]
+    std::vector<uint8_t> filter_data = {1, 0, 1, 0};       // output: [Data 1, null]
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    NullMap null_map;
+    ASSERT_TRUE(
+            select_vector.init(run_length_null_map, num_values, &null_map, &filter_map, 0).ok());
+
+    ASSERT_TRUE(_decoder->decode_values(column, data_type, select_vector, false).ok());
+
+    const auto* result_column = assert_cast<const ColumnFixedLengthObject*>(column.get());
+    ASSERT_EQ(result_column->item_size(), type_length);
+    ASSERT_EQ(result_column->size(), 2);
+    expect_fixed_length_value(*result_column, 0, test_fixed_len_buffers[0]);
+    EXPECT_FALSE(null_map[0]);
+    EXPECT_TRUE(null_map[1]);
 }
 
 // Test decoding fixed-length byte array with filter and null values

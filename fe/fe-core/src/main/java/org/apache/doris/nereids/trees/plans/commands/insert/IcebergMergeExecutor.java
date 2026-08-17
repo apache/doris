@@ -32,6 +32,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionType;
 
+import org.apache.iceberg.Table;
 import org.apache.iceberg.expressions.Expression;
 
 import java.util.Optional;
@@ -41,14 +42,17 @@ import java.util.Optional;
  */
 public class IcebergMergeExecutor extends BaseExternalTableInsertExecutor {
     private final NereidsPlanner nereidsPlanner;
+    private final Table targetIcebergTable;
     private Optional<Expression> conflictDetectionFilter = Optional.empty();
     private IcebergRewritableDeletePlan rewritableDeletePlan = IcebergRewritableDeletePlan.empty();
 
     public IcebergMergeExecutor(ConnectContext ctx, IcebergExternalTable table,
+            Table targetIcebergTable,
             String labelName, NereidsPlanner planner,
             boolean emptyInsert, long jobId) {
         super(ctx, table, labelName, planner, Optional.empty(), emptyInsert, jobId);
         this.nereidsPlanner = planner;
+        this.targetIcebergTable = targetIcebergTable;
     }
 
     /** Finalize merge sink and attach rewritable delete-file metadata for BE. */
@@ -73,7 +77,7 @@ public class IcebergMergeExecutor extends BaseExternalTableInsertExecutor {
     @Override
     protected void beforeExec() throws UserException {
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        transaction.beginMerge((IcebergExternalTable) table);
+        transaction.beginMerge((IcebergExternalTable) table, targetIcebergTable);
         transaction.setRewrittenDeleteFilesByReferencedDataFile(
                 rewritableDeletePlan.getDeleteFilesByReferencedDataFile());
         if (conflictDetectionFilter.isPresent()) {

@@ -47,13 +47,8 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _data_page_builder(nullptr),
           _dict_builder(nullptr),
           _encoding_type(DICT_ENCODING),
-          _dict_word_page_encoding_type(
-                  options.encoding_preference.binary_plain_encoding_default_impl ==
-                                  BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
-                          ? PLAIN_ENCODING_V2
-                          : PLAIN_ENCODING),
-          _fallback_binary_encoding_type(
-                  options.encoding_preference.binary_plain_encoding_default_impl ==
+          _binary_plain_encoding_type(
+                  options.dict_binary_plain_encoding ==
                                   BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2
                           ? PLAIN_ENCODING_V2
                           : PLAIN_ENCODING) {}
@@ -74,7 +69,7 @@ Status BinaryDictPageBuilder::init() {
 
     const EncodingInfo* encoding_info;
     RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                      _dict_word_page_encoding_type, {}, &encoding_info));
+                                      _binary_plain_encoding_type, &encoding_info));
     RETURN_IF_ERROR(encoding_info->create_page_builder(dict_builder_options, _dict_builder));
     return reset();
 }
@@ -98,11 +93,6 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         uint32_t value_code = -1;
         auto* actual_builder = dynamic_cast<BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>*>(
                 _data_page_builder.get());
-
-        if (_data_page_builder->count() == 0) {
-            _first_value.assign_copy(reinterpret_cast<const uint8_t*>(src->get_data()),
-                                     src->get_size());
-        }
 
         for (int i = 0; i < *count; ++i, ++src) {
             if (is_page_full()) {
@@ -188,13 +178,11 @@ Status BinaryDictPageBuilder::reset() {
         _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
         if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
-            DCHECK(_fallback_binary_encoding_type == PLAIN_ENCODING ||
-                   _fallback_binary_encoding_type == PLAIN_ENCODING_V2);
             const EncodingInfo* encoding_info;
             RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                              _fallback_binary_encoding_type, {}, &encoding_info));
+                                              _binary_plain_encoding_type, &encoding_info));
             RETURN_IF_ERROR(encoding_info->create_page_builder(_options, _data_page_builder));
-            _encoding_type = _fallback_binary_encoding_type;
+            _encoding_type = _binary_plain_encoding_type;
         } else {
             RETURN_IF_ERROR(_data_page_builder->reset());
         }
@@ -215,33 +203,7 @@ Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page_encoding(EncodingTypePB* encoding) const {
-    *encoding = _dict_word_page_encoding_type;
-    return Status::OK();
-}
-
-Status BinaryDictPageBuilder::get_first_value(void* value) const {
-    DCHECK(_finished);
-    if (_data_page_builder->count() == 0) {
-        return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-    }
-    if (_encoding_type != DICT_ENCODING) {
-        return _data_page_builder->get_first_value(value);
-    }
-    *reinterpret_cast<Slice*>(value) = Slice(_first_value);
-    return Status::OK();
-}
-
-Status BinaryDictPageBuilder::get_last_value(void* value) const {
-    DCHECK(_finished);
-    if (_data_page_builder->count() == 0) {
-        return Status::Error<ErrorCode::ENTRY_NOT_FOUND>("page is empty");
-    }
-    if (_encoding_type != DICT_ENCODING) {
-        return _data_page_builder->get_last_value(value);
-    }
-    uint32_t value_code;
-    RETURN_IF_ERROR(_data_page_builder->get_last_value(&value_code));
-    RETURN_IF_ERROR(_dict_builder->get_dict_word(value_code, reinterpret_cast<Slice*>(value)));
+    *encoding = _binary_plain_encoding_type;
     return Status::OK();
 }
 

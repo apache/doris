@@ -5,7 +5,11 @@ SET hive.merge.mapredfiles=false;
 
 
 
-CREATE TABLE test_topn_rf_null_parquet (
+drop table if exists test_topn_rf_null_parquet;
+
+
+
+create table test_topn_rf_null_parquet (
   id INT,
   value INT,
   name STRING
@@ -25,7 +29,11 @@ INSERT INTO test_topn_rf_null_parquet VALUES (10, 1000, 'Judy');
 
 
 
-CREATE TABLE test_topn_rf_null_orc (
+drop table if exists test_topn_rf_null_orc;
+
+
+
+create table test_topn_rf_null_orc (
   id INT,
   value INT,
   name STRING

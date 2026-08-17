@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import com.google.common.collect.ImmutableList;
@@ -39,8 +40,11 @@ import java.util.stream.Collectors;
 public class VariantType extends PrimitiveType {
 
     public static final VariantType INSTANCE = new VariantType(0);
-
+    public static final VariantType COMPUTE_V2_INSTANCE = new VariantType(0, true);
     public static final int WIDTH = 24;
+
+    public static final String UNSUPPORTED_ORDERING_COMPARISON_MESSAGE =
+            "Variant does not support ordering/comparison, CAST to a concrete type first";
 
     private final int variantMaxSubcolumnsCount;
 
@@ -55,6 +59,7 @@ public class VariantType extends PrimitiveType {
     private final long variantDocMaterializationMinRows;
     private final int variantDocShardCount;
     private final boolean enableNestedGroup;
+    private final boolean computeV2;
 
     /**
      * Creates a Variant type without predefined fields and only configures the max subcolumn limit.
@@ -62,6 +67,10 @@ public class VariantType extends PrimitiveType {
      * @param variantMaxSubcolumnsCount max number of subcolumns allowed (0 means unlimited)
      */
     public VariantType(int variantMaxSubcolumnsCount) {
+        this(variantMaxSubcolumnsCount, false);
+    }
+
+    private VariantType(int variantMaxSubcolumnsCount, boolean computeV2) {
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.predefinedFields = Lists.newArrayList();
         this.enableTypedPathsToSparse = false;
@@ -71,6 +80,7 @@ public class VariantType extends PrimitiveType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.computeV2 = computeV2;
     }
 
     /**
@@ -86,6 +96,7 @@ public class VariantType extends PrimitiveType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.computeV2 = false;
     }
 
     /**
@@ -98,12 +109,39 @@ public class VariantType extends PrimitiveType {
      * @param variantSparseHashShardCount hash buckets count when writing sparse shards
      * @param enableVariantDocMode whether to enable variant doc snapshot writing mode
      * @param variantDocMaterializationMinRows minimum rows to generate doc snapshot columns
+     * @param variantDocShardCount shard count for variant doc snapshot columns
+     * @param enableNestedGroup whether to enable nested group storage
      */
     public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount,
             boolean enableTypedPathsToSparse, int variantMaxSparseColumnStatisticsSize,
             int variantSparseHashShardCount, boolean enableVariantDocMode,
             long variantDocMaterializationMinRows, int variantDocShardCount,
             boolean enableNestedGroup) {
+        this(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
+                enableVariantDocMode, variantDocMaterializationMinRows, variantDocShardCount,
+                enableNestedGroup, false);
+    }
+
+    /**
+     * Creates a Variant type with predefined fields and an execution-only V2 marker.
+     *
+     * @param fields predefined variant path fields
+     * @param variantMaxSubcolumnsCount max number of subcolumns allowed
+     * @param enableTypedPathsToSparse whether typed paths should be materialized as sparse columns
+     * @param variantMaxSparseColumnStatisticsSize upper bound of sparse path statistics entries
+     * @param variantSparseHashShardCount hash buckets count when writing sparse shards
+     * @param enableVariantDocMode whether to enable variant doc snapshot writing mode
+     * @param variantDocMaterializationMinRows minimum rows to generate doc snapshot columns
+     * @param variantDocShardCount shard count for variant doc snapshot columns
+     * @param enableNestedGroup whether to enable nested group storage
+     * @param computeV2 whether this external execution type requires the V2 representation
+     */
+    public VariantType(List<VariantField> fields, int variantMaxSubcolumnsCount,
+            boolean enableTypedPathsToSparse, int variantMaxSparseColumnStatisticsSize,
+            int variantSparseHashShardCount, boolean enableVariantDocMode,
+            long variantDocMaterializationMinRows, int variantDocShardCount,
+            boolean enableNestedGroup, boolean computeV2) {
         this.predefinedFields = ImmutableList.copyOf(Objects.requireNonNull(fields, "fields should not be null"));
         this.variantMaxSubcolumnsCount = variantMaxSubcolumnsCount;
         this.enableTypedPathsToSparse = enableTypedPathsToSparse;
@@ -113,6 +151,12 @@ public class VariantType extends PrimitiveType {
         this.variantDocMaterializationMinRows = variantDocMaterializationMinRows;
         this.variantDocShardCount = variantDocShardCount;
         this.enableNestedGroup = enableNestedGroup;
+        this.computeV2 = computeV2;
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        return target instanceof VariantType;
     }
 
     @Override
@@ -121,7 +165,7 @@ public class VariantType extends PrimitiveType {
                                 .collect(Collectors.toList()), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                                     variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                                     enableVariantDocMode, variantDocMaterializationMinRows,
-                                    variantDocShardCount, enableNestedGroup);
+                                    variantDocShardCount, enableNestedGroup, computeV2);
     }
 
     @Override
@@ -130,7 +174,7 @@ public class VariantType extends PrimitiveType {
                 .map(VariantField::toCatalogDataType)
                 .collect(Collectors.toCollection(ArrayList::new)), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                      variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
-                     variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup);
+                     variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, computeV2);
         return type;
     }
 
@@ -207,6 +251,7 @@ public class VariantType extends PrimitiveType {
                     && this.enableTypedPathsToSparse == other.enableTypedPathsToSparse
                     && this.enableVariantDocMode == other.enableVariantDocMode
                     && this.variantDocMaterializationMinRows == other.variantDocMaterializationMinRows
+                    && this.computeV2 == other.computeV2
                     && Objects.equals(predefinedFields, other.predefinedFields);
     }
 
@@ -219,6 +264,9 @@ public class VariantType extends PrimitiveType {
             return false;
         }
         VariantType other = (VariantType) o;
+        if (computeV2 != other.computeV2) {
+            return false;
+        }
         if (predefinedFields.size() != other.predefinedFields.size()) {
             return false;
         }
@@ -236,7 +284,7 @@ public class VariantType extends PrimitiveType {
         return Objects.hash(super.hashCode(), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
                             variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
                             enableVariantDocMode, variantDocMaterializationMinRows, variantDocShardCount,
-                            predefinedFields);
+                            predefinedFields, computeV2);
     }
 
     @Override
@@ -280,4 +328,101 @@ public class VariantType extends PrimitiveType {
     public boolean getEnableNestedGroup() {
         return enableNestedGroup;
     }
+
+    public boolean isComputeV2() {
+        return computeV2;
+    }
+
+    /** Whether the type or any nested complex type contains Variant. */
+    public static boolean containsVariant(DataType dataType) {
+        if (dataType instanceof VariantType) {
+            return true;
+        } else if (dataType instanceof ArrayType) {
+            return containsVariant(((ArrayType) dataType).getItemType());
+        } else if (dataType instanceof MapType) {
+            MapType mapType = (MapType) dataType;
+            return containsVariant(mapType.getKeyType()) || containsVariant(mapType.getValueType());
+        } else if (dataType instanceof StructType) {
+            return ((StructType) dataType).getFields().stream()
+                    .anyMatch(field -> containsVariant(field.getDataType()));
+        }
+        return false;
+    }
+
+    /** Whether this is a legacy Variant leaf rather than a V2 execution representation. */
+    public static boolean isLegacyVariant(DataType dataType) {
+        return dataType instanceof VariantType && !((VariantType) dataType).isExecutionV2();
+    }
+
+    /**
+     * Whether the Variant V2 execution kernel can convert this source type.
+     *
+     * <p>This mirrors the BE {@code execute_to_variant} contract: encoded JSON, nested arrays,
+     * V2 values, and the scalar types supported by the typed Variant representation. MAP, STRUCT,
+     * TIMEV2 and DECIMAL256 are intentionally excluded until their BE conversions are implemented.</p>
+     */
+    public static boolean isSupportedComputeV2CastSource(DataType dataType) {
+        if (dataType.isNullType() || dataType.isJsonType()) {
+            return true;
+        }
+        if (dataType instanceof VariantType) {
+            return ((VariantType) dataType).isExecutionV2();
+        }
+        if (dataType instanceof ArrayType) {
+            return isSupportedComputeV2CastSource(((ArrayType) dataType).getItemType());
+        }
+        if (dataType instanceof DecimalV3Type) {
+            return ((DecimalV3Type) dataType).getPrecision()
+                    <= DecimalV3Type.MAX_DECIMAL128_PRECISION;
+        }
+        return dataType.isBooleanType()
+                || dataType.isIntegralType()
+                || dataType.isFloatLikeType()
+                || dataType.isDecimalV2Type()
+                || dataType.isDateLikeType()
+                || dataType.isStringLikeType()
+                || dataType.isIPType();
+    }
+
+    /** Selects the compute-only Variant representation in a possibly nested type. */
+    public static DataType toComputeV2(DataType dataType) {
+        if (dataType instanceof VariantType) {
+            return COMPUTE_V2_INSTANCE;
+        } else if (dataType instanceof ArrayType) {
+            return ArrayType.of(toComputeV2(((ArrayType) dataType).getItemType()));
+        } else if (dataType instanceof MapType) {
+            MapType mapType = (MapType) dataType;
+            return MapType.of(toComputeV2(mapType.getKeyType()), toComputeV2(mapType.getValueType()));
+        } else if (dataType instanceof StructType) {
+            return new StructType(((StructType) dataType).getFields().stream()
+                    .map(field -> field.withDataType(toComputeV2(field.getDataType())))
+                    .collect(Collectors.toList()));
+        }
+        return dataType;
+    }
+
+    public boolean isExecutionV2() {
+        return Config.enable_variant_v2 || computeV2;
+    }
+
+    /** Whether two Variant values use an execution-compatible physical representation. */
+    public boolean hasCommonExecutionTypeWith(VariantType other) {
+        return (isExecutionV2() && other.isExecutionV2()) || equals(other);
+    }
+
+    /** Whether a cast between two Variant types is safe for their execution representations. */
+    public boolean isCastCompatibleWith(VariantType other) {
+        return (isExecutionV2() && other.isExecutionV2()) || equals(other);
+    }
+
+    /** Returns this Variant type with the requested compute-only physical representation. */
+    public VariantType withComputeV2(boolean enabled) {
+        if (computeV2 == enabled) {
+            return this;
+        }
+        return new VariantType(predefinedFields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
+                variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, enabled);
+    }
+
 }

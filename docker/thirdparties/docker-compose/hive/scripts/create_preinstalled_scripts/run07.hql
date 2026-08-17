@@ -1,4 +1,5 @@
-CREATE EXTERNAL TABLE `delta_encoding_optional_column`(
+drop table if exists `delta_encoding_optional_column`;
+create external table `delta_encoding_optional_column`(
     c_customer_sk bigint,
     c_current_cdemo_sk bigint,
     c_current_hdemo_sk bigint,
@@ -23,7 +24,3 @@ LOCATION
   '/user/doris/preinstalled_data/different_types_parquet/delta_encoding_optional_column'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table delta_encoding_optional_column;
-
-

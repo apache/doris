@@ -35,6 +35,7 @@
 #include "core/block/block.h"
 #include "exec/sink/load_stream_stub.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "service/backend_options.h"
@@ -52,6 +53,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/tablet/tablet_schema_cache.h"
 #include "storage/tablet_info.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
@@ -66,9 +68,9 @@ using namespace ErrorCode;
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
                              const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                             RuntimeState* state)
-        : _state(state),
-          _req(*req),
+                             std::shared_ptr<WorkloadGroup> workload_group)
+        : _req(*req),
+          _workload_group(std::move(workload_group)),
           _tablet_schema(new TabletSchema),
           _memtable_writer(new MemTableWriter(*req)),
           _streams(streams) {}
@@ -90,6 +92,11 @@ DeltaWriterV2::~DeltaWriterV2() {
 
     // cancel and wait all memtables in flush queue to be finished
     static_cast<void>(_memtable_writer->cancel());
+}
+
+int64_t DeltaWriterV2::_table_id() const {
+    DORIS_CHECK(_req.table_schema_param != nullptr);
+    return _req.table_schema_param->table_id();
 }
 
 Status DeltaWriterV2::init() {
@@ -127,21 +134,32 @@ Status DeltaWriterV2::init() {
 
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));
-    std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
-    if (_state->get_query_ctx()) {
-        wg_sptr = _state->get_query_ctx()->workload_group();
-    }
     RETURN_IF_ERROR(_memtable_writer->init(_rowset_writer, _tablet_schema, _partial_update_info,
-                                           wg_sptr, _streams[0]->enable_unique_mow(_req.index_id)));
+                                           _workload_group,
+                                           _streams[0]->enable_unique_mow(_req.index_id)));
     ExecEnv::GetInstance()->memtable_memory_limiter()->register_writer(_memtable_writer);
     _is_init = true;
     _streams.clear();
     return Status::OK();
 }
 
-Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row_idxs) {
+Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+                            const std::function<Status()>& cancel_check, bool* memtable_flushed) {
+    if (memtable_flushed != nullptr) {
+        *memtable_flushed = false;
+    }
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
+    }
+    if (_req.enable_table_memtable_backpressure && !_req.is_high_priority) {
+        Status cancel_status = Status::OK();
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_table_memtable_backpressure(
+                [&]() {
+                    cancel_status = cancel_check();
+                    return !cancel_status.ok();
+                },
+                _table_id());
+        RETURN_IF_ERROR(cancel_status);
     }
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
@@ -155,14 +173,13 @@ Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row
         DBUG_EXECUTE_IF("DeltaWriterV2.write.back_pressure",
                         { std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000)); });
         while (_memtable_writer->flush_running_count() >= memtable_flush_running_count_limit) {
-            if (_state->is_cancelled()) {
-                return _state->cancel_reason();
-            }
+            DBUG_EXECUTE_IF("DeltaWriterV2.write.flush_limit_wait", DBUG_RUN_CALLBACK());
+            RETURN_IF_ERROR(cancel_check());
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
     SCOPED_RAW_TIMER(&_write_memtable_time);
-    return _memtable_writer->write(block, row_idxs);
+    return _memtable_writer->write(block, row_idxs, memtable_flushed);
 }
 
 Status DeltaWriterV2::close() {
@@ -186,14 +203,10 @@ Status DeltaWriterV2::close_wait(int32_t& num_segments, RuntimeProfile* profile)
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
 
-    if (_state->profile_level() >= 2 && profile != nullptr) {
+    if (profile != nullptr) {
         _update_profile(profile);
     }
-    if (_state->profile_level() >= 2) {
-        RETURN_IF_ERROR(_memtable_writer->close_wait(profile));
-    } else {
-        RETURN_IF_ERROR(_memtable_writer->close_wait());
-    }
+    RETURN_IF_ERROR(_memtable_writer->close_wait(profile));
     num_segments = _rowset_writer->next_segment_id();
 
     _delta_written_success = true;
@@ -217,28 +230,39 @@ Status DeltaWriterV2::cancel_with_status(const Status& st) {
 Status DeltaWriterV2::_build_current_tablet_schema(int64_t index_id,
                                                    const OlapTableSchemaParam* table_schema_param,
                                                    const TabletSchema& ori_tablet_schema) {
-    _tablet_schema->copy_from(ori_tablet_schema);
     // find the right index id
-    int i = 0;
-    auto indexes = table_schema_param->indexes();
-    for (; i < indexes.size(); i++) {
-        if (indexes[i]->index_id == index_id) {
+    const OlapTableIndexSchema* index_schema = nullptr;
+    for (const auto* schema : table_schema_param->indexes()) {
+        if (schema->index_id == index_id) {
+            index_schema = schema;
             break;
         }
     }
 
-    if (!indexes.empty() && !indexes[i]->columns.empty() &&
-        indexes[i]->columns[0]->unique_id() >= 0) {
-        _tablet_schema->build_current_tablet_schema(
-                index_id, static_cast<int32_t>(table_schema_param->version()), indexes[i],
-                ori_tablet_schema);
+    auto cache_key = TabletSchemaCache::build_load_schema_cache_key(
+            index_id, table_schema_param, ori_tablet_schema, index_schema);
+    auto cached_schema = TabletSchemaCache::instance()->lookup_schema(cache_key);
+    if (cached_schema.first != nullptr) {
+        _tablet_schema = cached_schema.second;
+        TabletSchemaCache::instance()->release(cached_schema.first);
+    } else {
+        _tablet_schema->copy_from(ori_tablet_schema);
+        if (index_schema != nullptr && !index_schema->columns.empty() &&
+            index_schema->columns[0]->unique_id() >= 0) {
+            _tablet_schema->build_current_tablet_schema(
+                    index_id, static_cast<int32_t>(table_schema_param->version()), index_schema,
+                    ori_tablet_schema);
+        }
+        _tablet_schema->set_table_id(table_schema_param->table_id());
+        _tablet_schema->set_db_id(table_schema_param->db_id());
+        if (table_schema_param->is_partial_update()) {
+            _tablet_schema->set_auto_increment_column(table_schema_param->auto_increment_coulumn());
+        }
+        auto inserted_schema = TabletSchemaCache::instance()->insert(cache_key, _tablet_schema);
+        _tablet_schema = inserted_schema.second;
+        TabletSchemaCache::instance()->release(inserted_schema.first);
     }
 
-    _tablet_schema->set_table_id(table_schema_param->table_id());
-    _tablet_schema->set_db_id(table_schema_param->db_id());
-    if (table_schema_param->is_partial_update()) {
-        _tablet_schema->set_auto_increment_column(table_schema_param->auto_increment_coulumn());
-    }
     // set partial update columns info
     _partial_update_info = std::make_shared<PartialUpdateInfo>();
     RETURN_IF_ERROR(_partial_update_info->init(

@@ -75,8 +75,7 @@ suite("test_array_with_inverted_index_all_type"){
     "is_being_synced" = "false",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     );
     """
     
@@ -101,8 +100,7 @@ suite("test_array_with_inverted_index_all_type"){
             "is_being_synced" = "false",
             "storage_format" = "V2",
             "light_schema_change" = "true",
-            "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false"
+            "disable_auto_compaction" = "false"
             );
     """
 
@@ -145,8 +143,7 @@ suite("test_array_with_inverted_index_all_type"){
     "is_being_synced" = "false",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     );
     """
     
@@ -170,8 +167,7 @@ suite("test_array_with_inverted_index_all_type"){
     "is_being_synced" = "false",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     );
     """
     
@@ -215,7 +211,6 @@ suite("test_array_with_inverted_index_all_type"){
     "storage_format" = "V2",
     "light_schema_change" = "true",
     "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false",
     "enable_unique_key_merge_on_write" = "true"
     );
     """
@@ -241,7 +236,6 @@ suite("test_array_with_inverted_index_all_type"){
     "storage_format" = "V2",
     "light_schema_change" = "true",
     "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false",
     "enable_unique_key_merge_on_write" = "true"
     );
     """

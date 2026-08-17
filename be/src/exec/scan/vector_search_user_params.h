@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
 
 namespace doris {
@@ -27,8 +29,13 @@ struct VectorSearchUserParams {
     bool hnsw_check_relative_distance = true;
     bool hnsw_bounded_queue = true;
     int ivf_nprobe = 32;
+    int64_t ann_index_candidate_rows_threshold = 0;
+    double ann_index_candidate_rows_percent_threshold = 0.3;
 
     bool operator==(const VectorSearchUserParams& other) const;
+
+    bool should_fallback_ann_index_by_small_candidate(size_t candidate_rows,
+                                                      size_t rows_of_segment) const;
 
     std::string to_string() const;
 };

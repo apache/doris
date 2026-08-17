@@ -81,6 +81,9 @@ public class RespContent {
     @JsonProperty(value = "ErrorURL")
     private String errorURL;
 
+    @JsonProperty(value = "FirstErrorMsg")
+    private String firstErrorMsg;
+
     public Long getTxnId() {
         return txnId;
     }
@@ -166,5 +169,9 @@ public class RespContent {
 
     public String getErrorURL() {
         return errorURL;
+    }
+
+    public String getFirstErrorMsg() {
+        return firstErrorMsg;
     }
 }

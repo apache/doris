@@ -22,6 +22,7 @@
 #include <cstdint>
 
 #include "core/data_type_serde/data_type_number_serde.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "core/types.h"
 #include "core/value/time_value.h"
 
@@ -67,10 +68,29 @@ public:
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
 
+    // Overridden rather than inherited: DataTypeNumberSerDe's reader would memcpy Arrow's epoch
+    // integers over this column's packed values, same width and no error. See the definition.
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override;
+
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
+
+    Status read_column_from_decoded_values(IColumn& column,
+                                           const DecodedColumnView& view) const override;
+    Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
+                                    const ParquetDecodeContext& context, size_t num_values,
+                                    ParquetMaterializationState& state) const override;
+    bool supports_parquet_raw_predicate(const ParquetDecodeContext& context) const override;
+    Status read_parquet_raw_predicate(ParquetDecodeSource& source,
+                                      const ParquetDecodeContext& context, size_t num_values,
+                                      bool enable_strict_mode,
+                                      ParquetLogicalValueConsumer& consumer) const override;
+    Status read_parquet_dictionary(IColumn& column, ParquetDecodeSource& source,
+                                   const ParquetDecodeContext& context) const override;
+    Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;
 
     // Override needed: paired reader skips a scale byte; the inherited number-serde writer omits it.
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,

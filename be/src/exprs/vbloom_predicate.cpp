@@ -31,6 +31,8 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/types.h"
 #include "exprs/bloom_filter_func.h"
+#include "exprs/expr_zonemap_filter.h"
+#include "exprs/vslot_ref.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -107,6 +109,91 @@ Status VBloomPredicate::execute_runtime_filter(VExprContext* context, const Bloc
                                                ColumnPtr* arg_column) const {
     return _do_execute(context, block, filter, nullptr, count, result_column);
 }
+
+namespace {
+
+bool bloom_filter_type_matches(PrimitiveType filter_type, const DataTypePtr& data_type) {
+    if (data_type == nullptr) {
+        return false;
+    }
+    const auto value_type = remove_nullable(data_type)->get_primitive_type();
+    return filter_type == value_type || (is_string_type(filter_type) && is_string_type(value_type));
+}
+
+} // namespace
+
+bool VBloomPredicate::can_execute_on_raw_fixed_values(const DataTypePtr& data_type,
+                                                      int column_id) const {
+    if (_filter == nullptr || !_filter->supports_raw_fixed_values() || _children.size() != 1) {
+        return false;
+    }
+    const auto slot = std::dynamic_pointer_cast<VSlotRef>(_children[0]);
+    return slot != nullptr && slot->column_id() == column_id &&
+           bloom_filter_type_matches(_filter->primitive_type(), slot->data_type()) &&
+           bloom_filter_type_matches(_filter->primitive_type(), data_type);
+}
+
+Status VBloomPredicate::execute_on_raw_fixed_values(const uint8_t* values, size_t num_values,
+                                                    size_t value_width,
+                                                    const DataTypePtr& data_type, int column_id,
+                                                    uint8_t* matches) const {
+    if (!can_execute_on_raw_fixed_values(data_type, column_id)) {
+        return Status::NotSupported("Bloom predicate cannot evaluate raw fixed-width values");
+    }
+    // Hash physical values inside BloomFilterFunc<T>; reconstructing an untyped hash here could
+    // disagree with the build-side hash for dates, decimals, and other fixed-width wrappers.
+    return _filter->find_batch_raw_fixed(values, num_values, value_width, matches);
+}
+
+bool VBloomPredicate::can_execute_on_raw_binary_values(const DataTypePtr& data_type,
+                                                       int column_id) const {
+    if (_filter == nullptr || !_filter->supports_raw_binary_values() || _children.size() != 1) {
+        return false;
+    }
+    const auto slot = std::dynamic_pointer_cast<VSlotRef>(_children[0]);
+    return slot != nullptr && slot->column_id() == column_id &&
+           bloom_filter_type_matches(_filter->primitive_type(), slot->data_type()) &&
+           bloom_filter_type_matches(_filter->primitive_type(), data_type);
+}
+
+Status VBloomPredicate::execute_on_raw_binary_values(const StringRef* values, size_t num_values,
+                                                     const DataTypePtr& data_type, int column_id,
+                                                     uint8_t* matches) const {
+    if (!can_execute_on_raw_binary_values(data_type, column_id)) {
+        return Status::NotSupported("Bloom predicate cannot evaluate raw binary values");
+    }
+    return _filter->find_batch_raw_binary(values, num_values, matches);
+}
+
+ZoneMapFilterResult VBloomPredicate::evaluate_dictionary_filter(
+        const DictionaryEvalContext& ctx) const {
+    if (!can_evaluate_dictionary_filter()) {
+        return ZoneMapFilterResult::kUnsupported;
+    }
+    const auto slot = std::dynamic_pointer_cast<VSlotRef>(_children[0]);
+    DORIS_CHECK(slot != nullptr);
+    const auto* dictionary = ctx.slot(slot->column_id());
+    if (dictionary == nullptr ||
+        !bloom_filter_type_matches(_filter->primitive_type(), dictionary->data_type)) {
+        return ZoneMapFilterResult::kUnsupported;
+    }
+    for (const auto& value : dictionary->values) {
+        if (_filter->test_field(value)) {
+            return ZoneMapFilterResult::kMayMatch;
+        }
+    }
+    return ZoneMapFilterResult::kNoMatch;
+}
+
+bool VBloomPredicate::can_evaluate_dictionary_filter() const {
+    if (_filter == nullptr || _children.size() != 1) {
+        return false;
+    }
+    const auto slot = std::dynamic_pointer_cast<VSlotRef>(_children[0]);
+    return slot != nullptr &&
+           bloom_filter_type_matches(_filter->primitive_type(), slot->data_type());
+}
+
 const std::string& VBloomPredicate::expr_name() const {
     return EXPR_NAME;
 }

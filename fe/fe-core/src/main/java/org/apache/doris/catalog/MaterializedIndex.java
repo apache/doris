@@ -126,37 +126,28 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         idToTablets = new HashMap<>();
     }
 
-    public synchronized void addTablet(Tablet tablet, TabletMeta tabletMeta) {
+    public void addTablet(Tablet tablet, TabletMeta tabletMeta) {
         addTablet(tablet, tabletMeta, false);
     }
 
-    // Writers are synchronized on this index to prevent concurrent lost-update:
-    // some callers (e.g. InternalCatalog.createTablets) do NOT hold the OlapTable
-    // write lock when adding tablets.
-    // Copy-on-write keeps readers CME-safe without locking; for bulk creation use
-    // appendTablets(...) so the per-index tablets list is copied once per batch
-    // instead of once per tablet.
-    public synchronized void addTablet(Tablet tablet, TabletMeta tabletMeta, boolean isRestore) {
+    // For bulk creation, prefer appendTablets() so the per-index list is copied
+    // once per batch instead of once per tablet.
+    public void addTablet(Tablet tablet, TabletMeta tabletMeta, boolean isRestore) {
         appendTabletsInternal(Collections.singletonList(tablet));
         if (!isRestore) {
             Env.getCurrentInvertedIndex().addTablet(tablet.getId(), tabletMeta);
         }
     }
 
-    // Bulk-publish: append the given tablets to this index's tablets list in a
-    // single copy-on-write (O(existing + batch) instead of O(n^2) over n
-    // single-tablet adds inside a synchronized block).
-    //
-    // Does NOT touch TabletInvertedIndex. Bulk-creation callers register tablets
-    // in TabletInvertedIndex eagerly inside their per-tablet loop because
-    // Tablet.addReplica(...) (non-restore) requires the tablet to already be
-    // present in the inverted index; only the per-index list copy is expensive
-    // enough to be worth batching.
-    public synchronized void appendTablets(Collection<Tablet> newTablets) {
+    // Bulk-publish path. Does NOT register tablets in TabletInvertedIndex —
+    // callers do that per tablet (needed before Tablet.addReplica in non-restore paths).
+    public void appendTablets(Collection<Tablet> newTablets) {
         appendTabletsInternal(newTablets);
     }
 
-    private void appendTabletsInternal(Collection<Tablet> newTablets) {
+    // Synchronized to prevent concurrent lost-update on the per-index list/map snapshots;
+    // some callers (e.g. InternalCatalog.createTablets) do not hold the OlapTable write lock.
+    private synchronized void appendTabletsInternal(Collection<Tablet> newTablets) {
         if (newTablets.isEmpty()) {
             return;
         }

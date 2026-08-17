@@ -33,6 +33,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import org.apache.iceberg.Table;
 
 import java.util.List;
 import java.util.Objects;
@@ -46,6 +47,7 @@ public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTa
         implements Sink, PropagateFuncDeps {
     private final IcebergExternalDatabase database;
     private final IcebergExternalTable targetTable;
+    private final Table targetIcebergTable;
     private final DeleteCommandContext deleteContext;
 
     /**
@@ -53,6 +55,7 @@ public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTa
      */
     public LogicalIcebergDeleteSink(IcebergExternalDatabase database,
                                    IcebergExternalTable targetTable,
+                                   Table targetIcebergTable,
                                    List<Column> cols,
                                    List<NamedExpression> outputExprs,
                                    DeleteCommandContext deleteContext,
@@ -62,6 +65,8 @@ public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTa
         super(PlanType.LOGICAL_ICEBERG_DELETE_SINK, outputExprs, groupExpression, logicalProperties, cols, child);
         this.database = Objects.requireNonNull(database, "database != null in LogicalIcebergDeleteSink");
         this.targetTable = Objects.requireNonNull(targetTable, "targetTable != null in LogicalIcebergDeleteSink");
+        this.targetIcebergTable = Objects.requireNonNull(
+                targetIcebergTable, "targetIcebergTable != null in LogicalIcebergDeleteSink");
         this.deleteContext = Objects.requireNonNull(deleteContext, "deleteContext != null in LogicalIcebergDeleteSink");
     }
 
@@ -69,19 +74,19 @@ public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTa
         List<NamedExpression> output = child.getOutput().stream()
                 .map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalIcebergDeleteSink<>(database, targetTable, cols, output,
+        return new LogicalIcebergDeleteSink<>(database, targetTable, targetIcebergTable, cols, output,
                 deleteContext, Optional.empty(), Optional.empty(), child);
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalIcebergDeleteSink only accepts one child");
-        return new LogicalIcebergDeleteSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalIcebergDeleteSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
                 deleteContext, Optional.empty(), Optional.empty(), children.get(0));
     }
 
     public LogicalIcebergDeleteSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalIcebergDeleteSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalIcebergDeleteSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
                 deleteContext, Optional.empty(), Optional.empty(), child());
     }
 
@@ -91,6 +96,10 @@ public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTa
 
     public IcebergExternalTable getTargetTable() {
         return targetTable;
+    }
+
+    public Table getTargetIcebergTable() {
+        return targetIcebergTable;
     }
 
     public DeleteCommandContext getDeleteContext() {
@@ -111,13 +120,14 @@ public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTa
         LogicalIcebergDeleteSink<?> that = (LogicalIcebergDeleteSink<?>) o;
         return Objects.equals(database, that.database)
                 && Objects.equals(targetTable, that.targetTable)
+                && Objects.equals(targetIcebergTable, that.targetIcebergTable)
                 && Objects.equals(deleteContext, that.deleteContext)
                 && Objects.equals(cols, that.cols);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), database, targetTable, cols, deleteContext);
+        return Objects.hash(super.hashCode(), database, targetTable, targetIcebergTable, cols, deleteContext);
     }
 
     @Override
@@ -138,14 +148,14 @@ public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTa
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalIcebergDeleteSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalIcebergDeleteSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
                 deleteContext, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalIcebergDeleteSink<>(database, targetTable, cols, outputExprs,
+        return new LogicalIcebergDeleteSink<>(database, targetTable, targetIcebergTable, cols, outputExprs,
                 deleteContext, groupExpression, logicalProperties, children.get(0));
     }
 }

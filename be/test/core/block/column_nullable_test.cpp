@@ -44,7 +44,7 @@ TEST(ColumnNullableTest, HashTest) {
     nullable_column->update_hash_with_value(0, hashes[1]);
     EXPECT_EQ(hashes[0].get64(), hashes[1].get64());
 
-    auto& null_map = ((ColumnNullable)(*nullable_column)).get_null_map_data();
+    auto& null_map = nullable_column->get_null_map_data();
     null_map[1] = true;
     column->update_hash_with_value(1, hashes[0]);
     nullable_column->update_hash_with_value(1, hashes[1]);

@@ -19,45 +19,45 @@ suite("hash_shuffle_key_prune") {
     multi_sql """
         drop table if exists t1;
         create table t1(a int, b int, c int, d int, e int, f int, g int, h int, i int, j int) properties("replication_num"="1");
-        alter table t1 modify column a set stats ('row_count'='204000', 'ndv'='8', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t1 modify column b set stats ('row_count'='204000', 'ndv'='30', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t1 modify column c set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t1 modify column d set stats ('row_count'='204000', 'ndv'='15000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t1 modify column e set stats ('row_count'='204000', 'ndv'='20000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t1 modify column f set stats ('row_count'='204000', 'ndv'='8', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t1 modify column g set stats ('row_count'='204000', 'ndv'='30', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t1 modify column h set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t1 modify column i set stats ('row_count'='204000', 'ndv'='15000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t1 modify column j set stats ('row_count'='204000', 'ndv'='20000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
+        alter table t1 modify column a set stats ('row_count'='204000', 'ndv'='8', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t1 modify column b set stats ('row_count'='204000', 'ndv'='30', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t1 modify column c set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t1 modify column d set stats ('row_count'='204000', 'ndv'='15000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t1 modify column e set stats ('row_count'='204000', 'ndv'='20000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t1 modify column f set stats ('row_count'='204000', 'ndv'='8', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t1 modify column g set stats ('row_count'='204000', 'ndv'='30', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t1 modify column h set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t1 modify column i set stats ('row_count'='204000', 'ndv'='15000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t1 modify column j set stats ('row_count'='204000', 'ndv'='20000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
         
         drop table if exists t2;
         create table t2(a int, b int, c int, d int, e int, f int, g int, h int, i int, j int) distributed by hash(a) properties("replication_num"="1");
-        alter table t2 modify column a set stats ('row_count'='204000', 'ndv'='8', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t2 modify column b set stats ('row_count'='204000', 'ndv'='30', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t2 modify column c set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t2 modify column d set stats ('row_count'='204000', 'ndv'='15000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t2 modify column e set stats ('row_count'='204000', 'ndv'='20000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t2 modify column f set stats ('row_count'='204000', 'ndv'='8', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t2 modify column g set stats ('row_count'='204000', 'ndv'='30', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t2 modify column h set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t2 modify column i set stats ('row_count'='204000', 'ndv'='15000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t2 modify column j set stats ('row_count'='204000', 'ndv'='20000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
+        alter table t2 modify column a set stats ('row_count'='204000', 'ndv'='8', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t2 modify column b set stats ('row_count'='204000', 'ndv'='30', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t2 modify column c set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t2 modify column d set stats ('row_count'='204000', 'ndv'='15000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t2 modify column e set stats ('row_count'='204000', 'ndv'='20000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t2 modify column f set stats ('row_count'='204000', 'ndv'='8', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t2 modify column g set stats ('row_count'='204000', 'ndv'='30', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t2 modify column h set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t2 modify column i set stats ('row_count'='204000', 'ndv'='15000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t2 modify column j set stats ('row_count'='204000', 'ndv'='20000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
         
         drop table if exists t3;
         create table t3(a int, b int, c int, d int, e int, f int, g int, h int, i int, j int) distributed by hash(e) properties("replication_num"="1");
-        alter table t3 modify column a set stats ('row_count'='204000', 'ndv'='2000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t3 modify column b set stats ('row_count'='204000', 'ndv'='30', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t3 modify column c set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t3 modify column d set stats ('row_count'='204000', 'ndv'='15000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t3 modify column e set stats ('row_count'='204000', 'ndv'='20000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t3 modify column f set stats ('row_count'='204000', 'ndv'='8', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t3 modify column g set stats ('row_count'='204000', 'ndv'='30', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t3 modify column h set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t3 modify column i set stats ('row_count'='204000', 'ndv'='15000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
-        alter table t3 modify column j set stats ('row_count'='204000', 'ndv'='20000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961' );
+        alter table t3 modify column a set stats ('row_count'='204000', 'ndv'='2000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t3 modify column b set stats ('row_count'='204000', 'ndv'='30', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t3 modify column c set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t3 modify column d set stats ('row_count'='204000', 'ndv'='15000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t3 modify column e set stats ('row_count'='204000', 'ndv'='20000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t3 modify column f set stats ('row_count'='204000', 'ndv'='8', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t3 modify column g set stats ('row_count'='204000', 'ndv'='30', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t3 modify column h set stats ('row_count'='204000', 'ndv'='100', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t3 modify column i set stats ('row_count'='204000', 'ndv'='15000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
+        alter table t3 modify column j set stats ('row_count'='204000', 'ndv'='20000', 'min_value'='0', 'max_value'='1000', 'avg_size'='880961', 'max_size'='880961','hot_values'='' );
 
         set disable_nereids_rules='prune_empty_partition';
-        set enable_agg_shuffle_key_prune=true;
+        set enable_shuffle_key_prune=true;
         set detail_shape_nodes='PhysicalDistribute';
         set runtime_filter_mode=OFF;
         set global enable_auto_analyze=false;
@@ -181,10 +181,12 @@ suite("hash_shuffle_key_prune") {
     // One side of join satisfies agg distribution
     explainAndOrderResult "join_one_side_satisfy_agg_distribution", """select t1.a,t1.b,t1.c,t1.d,t1.e,t1.f,t1.g from (select a,b,c,d,e,f,g from t1 group by a,b,c,d,e,f,g) t1 inner join (select a,b,c,d,e,f,g from t2 group by a,b,c,d,e,f,g) t2 on t1.a=t2.a and t1.b=t2.b and t1.c=t2.c and t1.d=t2.d and t1.e=t2.e and t1.f=t2.f and t1.g=t2.g order by t1.a,t1.b,t1.c,t1.d,t1.e,t1.f,t1.g;"""
 
+    explainAndOrderResult "join_scan_scan", "select t1.a,t2.b from t1 join t2 on t1.b=t2.b and t1.d=t2.d order by 1,2"
+
     // 5.7 Disable single key optimization: should use full join column shuffle
-    sql "set enable_agg_shuffle_key_prune=false"
+    sql "set enable_shuffle_key_prune=false"
     explainAndOrderResult "agg_join_no_opt", """select t1.a,t1.b,t1.c,t1.d,t1.e,t1.f,t1.g from (select a,b,c,d,e,f,g from t1 group by a,b,c,d,e,f,g) t1 inner join (select a,b,c,d,e,f,g from t1 group by a,b,c,d,e,f,g) t2 on t1.a=t2.a and t1.b=t2.b and t1.c=t2.c and t1.d=t2.d and t1.e=t2.e and t1.f=t2.f and t1.g=t2.g order by t1.a,t1.b,t1.c,t1.d,t1.e,t1.f,t1.g;"""
-    sql "set enable_agg_shuffle_key_prune=true"
+    sql "set enable_shuffle_key_prune=true"
 
     // No optimization, because under join is project, not agg
     explainAndOrderResult "join_project_agg", """select * from (select a,b,c,e,c+1 col1 ,b+2 col2 from t1 group by a,b,c,e) t1 inner join (select a,b,c,e,e+1 col1,c+2 col2 from t1 group by a,b,c,e) t2 on t1.a=t2.a and t1.b=t2.b and t1.c=t2.c and t1.e=t2.e and t1.col1=t2.col1 and t1.col2=t2.col2 order by t1.a,t1.b,t1.c,t1.e;"""

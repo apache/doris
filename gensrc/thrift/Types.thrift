@@ -146,6 +146,8 @@ struct TScalarType {
     // Only set for VARIANT
     5: optional i32 variant_max_subcolumns_count = 0;
     6: optional bool variant_enable_doc_mode = false;
+    // Execution-only ColumnVariantV2 marker. Table metadata never sets this field.
+    7: optional bool variant_is_v2 = false;
 }
 
 // Represents a field in a STRUCT type.
@@ -335,7 +337,9 @@ enum TFunctionBinaryType {
 
   JAVA_UDF = 5,
 
-  AGG_STATE = 6
+  AGG_STATE = 6,
+
+  PYTHON_UDF = 7
 }
 
 // Represents a fully qualified function name.
@@ -411,6 +415,8 @@ struct TFunction {
   15: optional bool is_static_load = false
   16: optional i64 expiration_time //minutes
   17: optional TDictFunction dict_function
+  18: optional string runtime_version
+  19: optional string function_code
 }
 
 enum TJdbcOperation {
@@ -683,6 +689,7 @@ struct TReplicaInfo {
     5: required TReplicaId replica_id
     6: optional bool is_alive
     7: optional i64 backend_id
+    8: optional string cloud_compute_group_id
 }
 
 struct TResourceInfo {

@@ -148,12 +148,13 @@ TEST_F(IndexGcBinglogsTest, gc_binlogs_test) {
         const auto& rowset_writer = res.value();
 
         Block block = _tablet_schema->create_block();
-        auto columns = block.mutate_columns();
+        auto columns = std::move(block).mutate_columns();
 
         Field key = Field::create_field<TYPE_INT>(10);
         Field v1 = Field::create_field<TYPE_STRING>("v1");
         columns[0]->insert(key);
         columns[1]->insert(v1);
+        block.set_columns(std::move(columns));
 
         EXPECT_TRUE(rowset_writer->add_block(&block).ok());
         EXPECT_TRUE(rowset_writer->flush().ok());

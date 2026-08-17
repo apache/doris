@@ -19,6 +19,7 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include "common/atomic_shared_ptr.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "exec/sink/writer/async_result_writer.h"
@@ -30,6 +31,10 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
+
+namespace io {
+class FileSystem;
+}
 
 class ObjectPool;
 class RuntimeState;
@@ -59,6 +64,10 @@ public:
 
     Status close(Status) override;
 
+    void defer_file_cleanup_until_outer_close() { _defer_file_cleanup_until_outer_close = true; }
+
+    void finish_deferred_file_cleanup(Status outer_status);
+
     bool is_rewrite_compaction() const { return _write_type == TIcebergWriteType::REWRITE; }
 
     TIcebergWriteType::type write_type() const { return _write_type; }
@@ -66,12 +75,17 @@ public:
     // Getter for the current partition writer.
     // Used by SpillIcebergTableSinkLocalState to access the current writer for
     // memory management operations (get_reserve_mem_size, revocable_mem_size, etc.).
-    const std::shared_ptr<IPartitionWriterBase>& current_writer() const { return _current_writer; }
+    // Returns a snapshot by value: the async writer thread updates _current_writer
+    // concurrently with the spill/revoke path, so callers must hold their own copy
+    // while operating on it instead of dereferencing the underlying member directly.
+    std::shared_ptr<IPartitionWriterBase> current_writer() const { return _current_writer.load(); }
 
 private:
     // The currently active partition writer (may be VIcebergPartitionWriter or VIcebergSortWriter).
     // Updated during write() to track which writer received the most recent data.
-    std::shared_ptr<IPartitionWriterBase> _current_writer;
+    // Wrapped in atomic_shared_ptr because revoke_memory / get_revocable_mem_size run on
+    // a different thread than the async writer that assigns to it.
+    doris::atomic_shared_ptr<IPartitionWriterBase> _current_writer;
     class IcebergPartitionColumn {
     public:
         IcebergPartitionColumn(const iceberg::PartitionField& field,
@@ -131,6 +145,7 @@ private:
 
     Status _write_prepared_block(Block& output_block);
     Status _process_row_lineage_columns(Block& block);
+    void _cleanup_closed_files();
 
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;
@@ -165,6 +180,9 @@ private:
     std::vector<std::string> _static_partition_value_list;
 
     std::unordered_map<std::string, std::shared_ptr<IPartitionWriterBase>> _partitions_to_writers;
+    // Rolled writers are no longer active, so retain their physical paths until statement outcome is known.
+    std::vector<std::pair<std::shared_ptr<io::FileSystem>, std::string>> _closed_files;
+    bool _defer_file_cleanup_until_outer_close = false;
     VExprContextSPtrs _write_output_vexpr_ctxs;
     size_t _row_count = 0;
     const RowDescriptor* _row_desc = nullptr;

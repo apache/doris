@@ -60,7 +60,7 @@ Status inline check_dict_input_data(ColumnsWithTypeAndName& key_data,
     // Similar to the filter_block_internal function in block.cpp
     auto filter_column = [&](ColumnPtr& column) {
         if (column->is_exclusive()) {
-            column->assume_mutable()->filter(filter);
+            column->assert_mutable()->filter(filter);
         } else {
             column = column->filter(filter, count);
         }

@@ -193,6 +193,9 @@ public:
     }
 
 protected:
+    [[nodiscard]] static bool is_hash_shuffle(ExchangeType exchange_type);
+    [[nodiscard]] bool child_breaks_local_key_distribution(RuntimeState* state) const;
+
     OperatorPtr _child = nullptr;
 
     bool _is_closed;
@@ -633,7 +636,13 @@ public:
         return result.value()->is_finished();
     }
 
-    [[nodiscard]] virtual Status sink(RuntimeState* state, Block* block, bool eos) = 0;
+    [[nodiscard]] Status sink(RuntimeState* state, Block* block, bool eos) {
+        RETURN_IF_ERROR(block->check_column_and_type_not_null());
+        RETURN_IF_ERROR(block->check_type_and_column());
+        return sink_impl(state, block, eos);
+    }
+
+    [[nodiscard]] virtual Status sink_impl(RuntimeState* state, Block* block, bool eos) = 0;
 
     [[nodiscard]] virtual Status setup_local_state(RuntimeState* state,
                                                    LocalSinkStateInfo& info) = 0;
@@ -874,7 +883,14 @@ public:
     Status prepare(RuntimeState* state) override;
 
     Status terminate(RuntimeState* state) override;
-    [[nodiscard]] virtual Status get_block(RuntimeState* state, Block* block, bool* eos) = 0;
+    [[nodiscard]] Status get_block(RuntimeState* state, Block* block, bool* eos) {
+        RETURN_IF_ERROR(get_block_impl(state, block, eos));
+        RETURN_IF_ERROR(block->check_column_and_type_not_null());
+        RETURN_IF_ERROR(block->check_type_and_column());
+        return Status::OK();
+    }
+
+    [[nodiscard]] virtual Status get_block_impl(RuntimeState* state, Block* block, bool* eos) = 0;
 
     Status close(RuntimeState* state) override;
 
@@ -1004,10 +1020,6 @@ protected:
     std::string _op_name;
     int _parallel_tasks = 0;
 
-    //_keep_origin is used to avoid copying during projection,
-    // currently set to false only in the nestloop join.
-    bool _keep_origin = true;
-
     // _blockable is true if the operator contains expressions that may block execution
     bool _blockable = false;
 };
@@ -1067,7 +1079,7 @@ public:
 
     virtual ~StreamingOperatorX() = default;
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     virtual Status pull(RuntimeState* state, Block* block, bool* eos) = 0;
 };
@@ -1093,7 +1105,7 @@ public:
 
     using OperatorX<LocalStateType>::get_local_state;
 
-    [[nodiscard]] Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    [[nodiscard]] Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     [[nodiscard]] virtual Status pull(RuntimeState* state, Block* block, bool* eos) const = 0;
     [[nodiscard]] virtual Status push(RuntimeState* state, Block* input_block, bool eos) const = 0;
@@ -1167,7 +1179,7 @@ public:
 
     [[nodiscard]] bool is_source() const override { return true; }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         *eos = _eos;
         return Status::OK();
     }
@@ -1222,7 +1234,7 @@ class DummySinkOperatorX final : public DataSinkOperatorX<DummySinkLocalState> {
 public:
     DummySinkOperatorX(int op_id, int node_id, int dest_id)
             : DataSinkOperatorX<DummySinkLocalState>(op_id, node_id, dest_id) {}
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override {
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override {
         return _return_eof ? Status::Error<ErrorCode::END_OF_FILE>("source have closed")
                            : Status::OK();
     }

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.rules.analysis.AddInitMaterializationHook;
 import org.apache.doris.nereids.rules.analysis.CollectRelation;
+import org.apache.doris.nereids.rules.analysis.PreloadExternalMetadata;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 
 import com.google.common.collect.ImmutableSet;
@@ -36,13 +37,21 @@ public class TableCollectAndHookInitializer extends AbstractBatchJobExecutor {
     public final List<RewriteJob> collectJobs;
 
     /**
+     * Keep the legacy collector entry point for nested collect passes that should not trigger preload.
+     */
+    public TableCollectAndHookInitializer(CascadesContext cascadesContext, boolean firstLevel) {
+        this(cascadesContext, firstLevel, false);
+    }
+
+    /**
      * constructor of Analyzer. For view, we only do bind relation since other analyze step will do by outer Analyzer.
      *
      * @param cascadesContext current context for analyzer
      */
-    public TableCollectAndHookInitializer(CascadesContext cascadesContext, boolean firstLevel) {
+    public TableCollectAndHookInitializer(
+            CascadesContext cascadesContext, boolean firstLevel, boolean enablePreloadRule) {
         super(cascadesContext);
-        collectJobs = buildCollectTableJobs(firstLevel);
+        collectJobs = buildCollectTableJobs(firstLevel, enablePreloadRule);
     }
 
     @Override
@@ -57,14 +66,21 @@ public class TableCollectAndHookInitializer extends AbstractBatchJobExecutor {
         execute();
     }
 
-    private static List<RewriteJob> buildCollectTableJobs(boolean firstLevel) {
+    private static List<RewriteJob> buildCollectTableJobs(boolean firstLevel, boolean enablePreloadRule) {
         return notTraverseChildrenOf(
                 ImmutableSet.of(LogicalView.class),
-                () -> TableCollectAndHookInitializer.buildCollectorJobs(firstLevel)
+                () -> TableCollectAndHookInitializer.buildCollectorJobs(firstLevel, enablePreloadRule)
         );
     }
 
-    private static List<RewriteJob> buildCollectorJobs(boolean firstLevel) {
+    private static List<RewriteJob> buildCollectorJobs(boolean firstLevel, boolean enablePreloadRule) {
+        if (enablePreloadRule) {
+            return jobs(
+                    topDown(new AddInitMaterializationHook()),
+                    topDown(new CollectRelation(firstLevel)),
+                    topDown(new PreloadExternalMetadata())
+            );
+        }
         return jobs(
                 topDown(new AddInitMaterializationHook()),
                 topDown(new CollectRelation(firstLevel))

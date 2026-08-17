@@ -1006,7 +1006,7 @@ public:
     }
 
     void add_initial_rowsets(const std::vector<RowsetSharedPtr>& rowsets) {
-        std::unique_lock<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
+        std::unique_lock meta_wlock(_tablet->get_header_lock());
         _tablet->add_rowsets(std::vector<RowsetSharedPtr>(rowsets), false, meta_wlock, false);
     }
 
@@ -1467,6 +1467,50 @@ TEST_F(CloudTabletDeleteRowsetsForSchemaChangeTest, TestSchemaChangeDeletesCompa
     for (int i = 0; i < 5; i++) {
         ASSERT_EQ(versions[i + 1], Version(2 + i, 2 + i));
     }
+}
+
+TEST_F(CloudTabletDeleteRowsetsForSchemaChangeTest,
+       TestReplaceSchemaChangeOutputCleansPollutedTmpGraph) {
+    auto rs_placeholder = create_rowset(Version(0, 1));
+    auto rs_sc_2 = create_rowset(Version(2, 2));
+    auto rs_sc_3 = create_rowset(Version(3, 3));
+    auto rs_compacted = create_rowset(Version(2, 3));
+    auto rs_post_alter = create_rowset(Version(4, 4));
+    ASSERT_NE(rs_placeholder, nullptr);
+    ASSERT_NE(rs_sc_2, nullptr);
+    ASSERT_NE(rs_sc_3, nullptr);
+    ASSERT_NE(rs_compacted, nullptr);
+    ASSERT_NE(rs_post_alter, nullptr);
+
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        _tablet->add_rowsets({rs_placeholder, rs_sc_2, rs_sc_3, rs_compacted, rs_post_alter}, false,
+                             wlock, false);
+    }
+    ASSERT_TRUE(_tablet->rowset_map().count(Version(2, 2)));
+    ASSERT_TRUE(_tablet->rowset_map().count(Version(3, 3)));
+    ASSERT_TRUE(_tablet->rowset_map().count(Version(2, 3)));
+
+    {
+        std::unique_lock wlock(_tablet->get_header_lock());
+        _tablet->replace_rowsets_with_schema_change_output({rs_sc_2, rs_sc_3}, 3, wlock, "test",
+                                                           false);
+    }
+
+    ASSERT_TRUE(_tablet->rowset_map().count(Version(2, 2)));
+    ASSERT_TRUE(_tablet->rowset_map().count(Version(3, 3)));
+    ASSERT_FALSE(_tablet->rowset_map().count(Version(2, 3)));
+    ASSERT_TRUE(_tablet->rowset_map().count(Version(4, 4)));
+    ASSERT_FALSE(_tablet->need_remove_unused_rowsets());
+
+    auto versions_result = _tablet->capture_consistent_versions_unlocked(Version(0, 4), {});
+    ASSERT_TRUE(versions_result.has_value()) << versions_result.error();
+    auto& versions = versions_result.value();
+    ASSERT_EQ(versions.size(), 4);
+    ASSERT_EQ(versions[0], Version(0, 1));
+    ASSERT_EQ(versions[1], Version(2, 2));
+    ASSERT_EQ(versions[2], Version(3, 3));
+    ASSERT_EQ(versions[3], Version(4, 4));
 }
 
 // Test that delete_rowsets_for_schema_change with empty input is a no-op

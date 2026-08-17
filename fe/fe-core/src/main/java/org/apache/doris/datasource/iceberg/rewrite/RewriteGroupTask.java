@@ -21,6 +21,8 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Status;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -58,6 +60,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
     private final RewriteDataGroup group;
     private final long transactionId;
     private final IcebergExternalTable dorisTable;
+    private final MvccSnapshot targetSnapshot;
     private final ConnectContext connectContext;
     private final long targetFileSizeBytes;
     private final RewriteResultCallback resultCallback;
@@ -72,6 +75,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
     public RewriteGroupTask(RewriteDataGroup group,
             long transactionId,
             IcebergExternalTable dorisTable,
+            MvccSnapshot targetSnapshot,
             ConnectContext connectContext,
             long targetFileSizeBytes,
             int availableBeCount,
@@ -79,6 +83,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         this.group = group;
         this.transactionId = transactionId;
         this.dorisTable = dorisTable;
+        this.targetSnapshot = targetSnapshot;
         this.connectContext = connectContext;
         this.targetFileSizeBytes = targetFileSizeBytes;
         this.availableBeCount = availableBeCount;
@@ -86,6 +91,18 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         this.taskId = UUID.randomUUID().getMostSignificantBits();
         this.isCanceled = new AtomicBoolean(false);
         this.isFinished = new AtomicBoolean(false);
+    }
+
+    // Tests that only exercise scheduling strategy do not create an Iceberg metadata snapshot.
+    RewriteGroupTask(RewriteDataGroup group,
+            long transactionId,
+            IcebergExternalTable dorisTable,
+            ConnectContext connectContext,
+            long targetFileSizeBytes,
+            int availableBeCount,
+            RewriteResultCallback resultCallback) {
+        this(group, transactionId, dorisTable, null, connectContext, targetFileSizeBytes,
+                availableBeCount, resultCallback);
     }
 
     @Override
@@ -258,6 +275,12 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         StatementContext statementContext = new StatementContext();
         statementContext.setConnectContext(taskContext);
         taskContext.setStatementContext(statementContext);
+
+        if (targetSnapshot != null) {
+            // Every group binds both its source relation and write sink to the transaction's
+            // retained Iceberg generation instead of independently observing a catalog refresh.
+            statementContext.setSnapshot(new MvccTableInfo(dorisTable), targetSnapshot);
+        }
 
         // Set GATHER distribution flag if needed (for small data rewrite)
         statementContext.setUseGatherForIcebergRewrite(strategy.useGather);

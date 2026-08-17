@@ -40,23 +40,23 @@ suite("test_complex_type") {
     }
 
     // struct element with int
-    sql "select struct_element(struct('1', '2', '3', '4'), 1);"
+    sql "select element_at(struct('1', '2', '3', '4'), 1);"
 
     test {
-        sql "select struct_element(struct('1', '2', '3', '4'), 5);"
+        sql "select element_at(struct('1', '2', '3', '4'), 5);"
         exception "the specified field index out of bound"
     }
 
     test {
-        sql "select struct_element(struct('1', '2', '3', '4'), -1);"
+        sql "select element_at(struct('1', '2', '3', '4'), -1);"
         exception "the specified field index out of bound"
     }
 
     // struct element with string
-    sql "select struct_element(named_struct('1', '2', '3', '4'), '1');"
+    sql "select element_at(named_struct('1', '2', '3', '4'), '1');"
 
     test {
-        sql "select struct_element(named_struct('1', '2', '3', '4'), '5')"
+        sql "select element_at(named_struct('1', '2', '3', '4'), '5')"
         exception "the specified field name 5 was not found"
     }
 }

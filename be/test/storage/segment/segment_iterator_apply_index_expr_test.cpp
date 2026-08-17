@@ -121,7 +121,11 @@ protected:
         _tablet_schema = make_tablet_schema();
         _segment = make_stub_segment(100, _tablet_schema);
 
-        _read_schema = std::make_shared<Schema>(_tablet_schema);
+        std::vector<ColumnId> read_column_ids(_tablet_schema->num_columns());
+        for (uint32_t cid = 0; cid < read_column_ids.size(); ++cid) {
+            read_column_ids[cid] = cid;
+        }
+        _read_schema = std::make_shared<Schema>(_tablet_schema->columns(), read_column_ids);
         _iter = std::make_unique<SegmentIterator>(_segment, _read_schema);
 
         // Set up RuntimeState with fallback enabled so _downgrade_without_index works

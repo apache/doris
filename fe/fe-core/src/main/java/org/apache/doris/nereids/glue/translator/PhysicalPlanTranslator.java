@@ -59,12 +59,15 @@ import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.source.HudiScanNode;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.jdbc.sink.JdbcTableSink;
 import org.apache.doris.datasource.jdbc.source.JdbcScanNode;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.source.LakeSoulScanNode;
+import org.apache.doris.datasource.lance.LanceExternalTable;
+import org.apache.doris.datasource.lance.source.LanceScanNode;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
 import org.apache.doris.datasource.odbc.source.OdbcScanNode;
@@ -83,12 +86,13 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecExecutionAny;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.DistributionSpecOlapTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecPaimonTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
 import org.apache.doris.nereids.properties.DistributionSpecStorageGather;
@@ -161,6 +165,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -190,6 +195,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
+import org.apache.doris.nereids.util.RowStoreFetchChecker;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
@@ -219,6 +225,7 @@ import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.NestedLoopJoinNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.planner.PaimonTableSink;
 import org.apache.doris.planner.PartitionSortNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
@@ -239,11 +246,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
+import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
+import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TFetchOption;
+import org.apache.doris.thrift.TPaimonFixedBucketInfo;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
-import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -610,9 +619,29 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> outputExprs = Lists.newArrayList();
         icebergTableSink.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
-        IcebergTableSink sink = new IcebergTableSink((IcebergExternalTable) icebergTableSink.getTargetTable());
+        IcebergTableSink sink = new IcebergTableSink(
+                (IcebergExternalTable) icebergTableSink.getTargetTable(),
+                icebergTableSink.getTargetIcebergTable());
         rootFragment.setSink(sink);
         sink.setOutputExprs(outputExprs);
+        return rootFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalPaimonTableSink(PhysicalPaimonTableSink<? extends Plan> paimonTableSink,
+                                                      PlanTranslatorContext context) {
+        PlanFragment rootFragment = paimonTableSink.child().accept(this, context);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+        List<Expr> outputExprs = Lists.newArrayList();
+        paimonTableSink.getOutput().stream().map(Slot::getExprId)
+                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+        PaimonTableSink sink = new PaimonTableSink(paimonTableSink.getWriteTarget());
+        sink.setCols(paimonTableSink.getCols());
+        rootFragment.setSink(sink);
+        sink.setOutputExprs(outputExprs);
+        if (paimonTableSink.requiresSingleWriter()) {
+            rootFragment.setForceSingleInstance();
+        }
         return rootFragment;
     }
 
@@ -634,6 +663,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
         IcebergDeleteSink sink = new IcebergDeleteSink(
                 (IcebergExternalTable) icebergDeleteSink.getTargetTable(),
+                icebergDeleteSink.getTargetIcebergTable(),
                 icebergDeleteSink.getDeleteContext());
         rootFragment.setSink(sink);
         return rootFragment;
@@ -663,7 +693,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         rootFragment.setOutputExprs(outputExprs);
         IcebergMergeSink sink = new IcebergMergeSink(
                 (IcebergExternalTable) icebergMergeSink.getTargetTable(),
-                icebergMergeSink.getDeleteContext());
+                icebergMergeSink.getTargetIcebergTable(),
+                icebergMergeSink.getDeleteContext(),
+                icebergMergeSink.isWritesDataFiles(),
+                icebergMergeSink.isRequireMergeCardinalityCheck());
         rootFragment.setSink(sink);
         return rootFragment;
     }
@@ -760,7 +793,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 default:
                     throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
             }
-        } else if (table instanceof IcebergExternalTable) {
+        } else if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable) {
             scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());
         } else if (table.getType() == TableIf.TableType.PAIMON_EXTERNAL_TABLE) {
@@ -775,6 +808,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         } else if (table instanceof LakeSoulExternalTable) {
             scanNode = new LakeSoulScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());
+        } else if (table instanceof LanceExternalTable) {
+            scanNode = new LanceScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
+                    context.getScanContext());
         } else if (table instanceof RemoteDorisExternalTable) {
             scanNode = new RemoteDorisScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());
@@ -783,6 +819,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         if (scanNode instanceof FileQueryScanNode) {
             FileQueryScanNode fileQueryScanNode = (FileQueryScanNode) scanNode;
+            fileQueryScanNode.setRelationSnapshot(fileScan.getRelationSnapshot());
             fileScan.getTableSnapshot().ifPresent(fileQueryScanNode::setQueryTableSnapshot);
             fileScan.getScanParams().ifPresent(fileQueryScanNode::setScanParams);
         }
@@ -862,10 +899,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         ScanNode scanNode = new HudiScanNode(context.nextPlanNodeId(), tupleDescriptor, false,
                 hudiScan.getScanParams(), hudiScan.getIncrementalRelation(), ConnectContext.get().getSessionVariable(),
                 directoryLister, context.getScanContext());
-        if (fileScan.getTableSnapshot().isPresent()) {
-            ((FileQueryScanNode) scanNode).setQueryTableSnapshot(fileScan.getTableSnapshot().get());
-        }
+        // Split planning must reuse the timeline frozen during binding instead of resolving Hudi metadata again.
         HudiScanNode hudiScanNode = (HudiScanNode) scanNode;
+        hudiScanNode.setRelationSnapshot(hudiScan.getRelationSnapshot());
+        if (hudiScan.getTableSnapshot().isPresent()) {
+            hudiScanNode.setQueryTableSnapshot(hudiScan.getTableSnapshot().get());
+        }
         hudiScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
         return getPlanFragmentForPhysicalFileScan(fileScan, context, scanNode, table, tupleDescriptor);
     }
@@ -877,6 +916,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         scanNode.setNereidsId(fileScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(fileScan.getId(), scanNode.getId());
         scanNode.setPushDownAggNoGrouping(context.getRelationPushAggOp(fileScan.getRelationId()));
+        scanNode.setPushDownCountSlotIds(context.getRelationPushCountArgumentExprIds(fileScan.getRelationId())
+                .stream()
+                .map(exprId -> Objects.requireNonNull(context.findSlotRef(exprId),
+                        "missing slot for pushed-down COUNT argument " + exprId).getSlotId())
+                .collect(Collectors.toList()));
 
         TableNameInfo tableNameInfo = new TableNameInfo(null, "", "");
         TableRefInfo ref = new TableRefInfo(tableNameInfo, null, null);
@@ -1433,6 +1477,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         context.setRelationPushAggOp(
                 storageLayerAggregate.getRelation().getRelationId(), pushAggOp);
+        context.setRelationPushCountArgumentExprIds(
+                storageLayerAggregate.getRelation().getRelationId(),
+                pushAggOp == TPushAggOp.COUNT
+                        ? storageLayerAggregate.getCountArgumentExprIds() : ImmutableList.of());
 
         PlanFragment planFragment = storageLayerAggregate.getRelation().accept(this, context);
 
@@ -2029,9 +2077,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             List<RuntimeFilter> filters = nestedLoopJoin.getRuntimeFilters();
             filters.forEach(filter -> runtimeFilterTranslator
                     .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));
-            if (filters.stream().anyMatch(filter -> filter.getType() == TRuntimeFilterType.BITMAP)) {
-                nestedLoopJoinNode.setOutputLeftSideOnly(true);
-            }
         });
 
         Map<ExprId, SlotReference> leftChildOutputMap = nestedLoopJoin.child(0).getOutput().stream()
@@ -2127,13 +2172,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         nestedLoopJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
 
         List<Expr> joinConjuncts = nestedLoopJoin.getOtherJoinConjuncts().stream()
-                .filter(e -> !nestedLoopJoin.isBitmapRuntimeFilterCondition(e))
                 .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
-
-        if (!nestedLoopJoin.isBitMapRuntimeFilterConditionsEmpty() && joinConjuncts.isEmpty()) {
-            // left semi join need at least one conjunct. otherwise left-semi-join fallback to cross-join
-            joinConjuncts.add(new BoolLiteral(true));
-        }
 
         nestedLoopJoinNode.setJoinConjuncts(joinConjuncts);
 
@@ -2902,7 +2941,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         List<Boolean> rowStoreFlags = new ArrayList<>();
         for (Relation relation : materialize.getRelations()) {
-            rowStoreFlags.add(shouldUseRowStore(relation));
+            rowStoreFlags.add(shouldUseRowStore(relation, materialize.getLazySlots(relation)));
         }
         materializeNode.setRowStoreFlags(rowStoreFlags);
 
@@ -2915,14 +2954,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return inputPlanFragment;
     }
 
-    private boolean shouldUseRowStore(Relation rel) {
+    static boolean canUseRowStoreForLazySlots(List<Slot> lazySlots) {
+        return RowStoreFetchChecker.canUseRowStoreForLazySlots(lazySlots);
+    }
+
+    private boolean shouldUseRowStore(Relation rel, List<Slot> lazySlots) {
         boolean useRowStore = false;
         if (rel instanceof PhysicalOlapScan) {
             OlapTable olapTable = ((PhysicalOlapScan) rel).getTable();
             useRowStore = olapTable.storeRowColumn()
                     && CollectionUtils.isEmpty(olapTable.getTableProperty().getCopiedRowStoreColumns());
         }
-        return useRowStore;
+        return useRowStore && canUseRowStoreForLazySlots(lazySlots);
     }
 
     @Override
@@ -3303,19 +3346,59 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return new DataPartition(partitionType, partitionExprs);
         } else if (distributionSpec instanceof DistributionSpecOlapTableSinkHashPartitioned) {
             return DataPartition.TABLET_ID;
-        } else if (distributionSpec instanceof DistributionSpecHiveTableSinkHashPartitioned) {
-            DistributionSpecHiveTableSinkHashPartitioned partitionSpecHash =
-                    (DistributionSpecHiveTableSinkHashPartitioned) distributionSpec;
+        } else if (distributionSpec instanceof DistributionSpecExternalTableSinkHashPartitioned) {
+            DistributionSpecExternalTableSinkHashPartitioned externalSpec =
+                    (DistributionSpecExternalTableSinkHashPartitioned) distributionSpec;
             List<Expr> partitionExprs = Lists.newArrayList();
-            List<ExprId> partitionExprIds = partitionSpecHash.getOutputColExprIds();
-            for (ExprId partitionExprId : partitionExprIds) {
-                if (childOutputIds.contains(partitionExprId)) {
-                    partitionExprs.add(context.findSlotRef(partitionExprId));
+            for (ExprId partitionExprId : externalSpec.getOutputColumnExprIds()) {
+                if (!childOutputIds.contains(partitionExprId)) {
+                    throw new RuntimeException("External table sink partition expression "
+                            + partitionExprId + " is missing from child output");
                 }
+                partitionExprs.add(context.findSlotRef(partitionExprId));
             }
-            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, partitionExprs);
-        } else if (distributionSpec instanceof DistributionSpecHiveTableSinkUnPartitioned) {
-            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED);
+            TExternalTableSinkHashAlgorithm algorithm;
+            switch (externalSpec.getHashAlgorithm()) {
+                case DIRECT_HASH:
+                    algorithm = TExternalTableSinkHashAlgorithm.DIRECT_HASH;
+                    break;
+                case ICEBERG_TRANSFORM:
+                    algorithm = TExternalTableSinkHashAlgorithm.ICEBERG_TRANSFORM;
+                    break;
+                case PAIMON_FIXED_BUCKET:
+                    algorithm = TExternalTableSinkHashAlgorithm.PAIMON_FIXED_BUCKET;
+                    break;
+                default:
+                    throw new RuntimeException("Unsupported external table sink hash algorithm: "
+                            + externalSpec.getHashAlgorithm());
+            }
+            TExternalTableSinkWriterAssignment writerAssignment;
+            switch (externalSpec.getWriterAssignment()) {
+                case IDENTITY:
+                    writerAssignment = TExternalTableSinkWriterAssignment.IDENTITY;
+                    break;
+                case SKEWED:
+                    writerAssignment = TExternalTableSinkWriterAssignment.SKEWED;
+                    break;
+                default:
+                    throw new RuntimeException("Unsupported external table sink writer assignment: "
+                            + externalSpec.getWriterAssignment());
+            }
+            TPaimonFixedBucketInfo paimonFixedBucketInfo = null;
+            if (externalSpec instanceof DistributionSpecPaimonTableSinkHashPartitioned) {
+                DistributionSpecPaimonTableSinkHashPartitioned paimonSpec
+                        = (DistributionSpecPaimonTableSinkHashPartitioned) externalSpec;
+                paimonFixedBucketInfo = new TPaimonFixedBucketInfo();
+                paimonFixedBucketInfo.setNumBuckets(paimonSpec.getNumBuckets());
+                paimonFixedBucketInfo.setPartitionFieldIndexes(
+                        paimonSpec.getPartitionFieldIndexes());
+                paimonFixedBucketInfo.setBucketFieldIndexes(paimonSpec.getBucketFieldIndexes());
+            }
+            return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_HASH_PARTITIONED,
+                    partitionExprs, algorithm, writerAssignment,
+                    externalSpec.getPartitionTransforms(), paimonFixedBucketInfo);
+        } else if (distributionSpec instanceof DistributionSpecExternalTableSinkUnPartitioned) {
+            return new DataPartition(TPartitionType.EXTERNAL_TABLE_SINK_UNPARTITIONED);
         } else if (distributionSpec instanceof DistributionSpecMerge) {
             DistributionSpecMerge mergeSpec = (DistributionSpecMerge) distributionSpec;
             Expr operationExpr = context.findSlotRef(mergeSpec.getOperationExprId());

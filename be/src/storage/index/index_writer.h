@@ -36,10 +36,6 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-class CollectionValue;
-
-class StorageField;
-
 class TabletIndex;
 class TabletColumn;
 
@@ -48,7 +44,7 @@ class IndexFileWriter;
 
 class IndexColumnWriter {
 public:
-    static Status create(const StorageField* field, std::unique_ptr<IndexColumnWriter>* res,
+    static Status create(const TabletColumn* column, std::unique_ptr<IndexColumnWriter>* res,
                          IndexFileWriter* index_file_writer, const TabletIndex* inverted_index);
     virtual Status init() = 0;
 
@@ -56,8 +52,6 @@ public:
     virtual ~IndexColumnWriter() = default;
 
     virtual Status add_values(const std::string name, const void* values, size_t count) = 0;
-    virtual Status add_array_values(size_t field_size, const CollectionValue* values,
-                                    size_t count) = 0;
 
     virtual Status add_array_values(size_t field_size, const void* value_ptr,
                                     const uint8_t* null_map, const uint8_t* offsets_ptr,

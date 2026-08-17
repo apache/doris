@@ -105,6 +105,25 @@ TEST_F(ColumnTest, CutColumnDecimal64) {
     EXPECT_THROW({ col_dcm->cut(0, 10); }, doris::Exception);
 }
 
+TEST_F(ColumnTest, AssumeMutableRequiresExclusiveOwnership) {
+    ColumnPtr column = ColumnInt64::create();
+    {
+        auto mutable_column = column->assert_mutable();
+        assert_cast<ColumnInt64*>(mutable_column.get())->insert_value(1);
+    }
+
+    ColumnPtr alias = column;
+    EXPECT_THROW({ (void)column->assert_mutable(); }, doris::Exception);
+    EXPECT_THROW({ (void)column->assert_mutable_ref(); }, doris::Exception);
+
+    auto cloned = IColumn::mutate(std::move(column));
+    auto* cloned_int = assert_cast<ColumnInt64*>(cloned.get());
+    cloned_int->insert_value(2);
+
+    EXPECT_EQ(alias->size(), 1);
+    EXPECT_EQ(cloned_int->size(), 2);
+}
+
 TEST_F(ColumnTest, ShrinkColumnString) {
     auto shrunk_col = col_str->shrink(2);
     EXPECT_EQ(shrunk_col->size(), 2);

@@ -92,8 +92,8 @@ void register_function_fake(SimpleFunctionFactory& factory);
 void register_function_array(SimpleFunctionFactory& factory);
 void register_function_map(SimpleFunctionFactory& factory);
 void register_function_struct(SimpleFunctionFactory& factory);
-void register_function_struct_element(SimpleFunctionFactory& factory);
 void register_function_variant_element(SimpleFunctionFactory& factory);
+void register_function_variant_parse(SimpleFunctionFactory& factory);
 void register_function_geo(SimpleFunctionFactory& factory);
 void register_function_multi_string_position(SimpleFunctionFactory& factory);
 void register_function_multi_string_search(SimpleFunctionFactory& factory);
@@ -309,6 +309,7 @@ public:
             register_function_date_time_string_to_string(instance);
             register_function_json(instance);
             register_function_jsonb(instance);
+            register_function_variant_parse(instance);
             register_function_to_json(instance);
             register_function_hash(instance);
             register_function_comparison_eq_for_null(instance);
@@ -330,7 +331,6 @@ public:
             register_function_array(instance);
             register_function_map(instance);
             register_function_struct(instance);
-            register_function_struct_element(instance);
             register_function_geo(instance);
             register_function_url(instance);
             register_function_multi_string_position(instance);

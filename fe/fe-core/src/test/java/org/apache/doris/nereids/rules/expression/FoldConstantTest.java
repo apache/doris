@@ -1413,6 +1413,12 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateV2Literal1, dateTimeV2Literal).toSql(), "1826");
         Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeV2Literal, dateTimeV2Literal1).toSql(), "-1826");
         Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeV2Literal1, dateTimeV2Literal).toSql(), "1826");
+
+        DateV2Literal zeroDateV2Literal = new DateV2Literal("0000-01-01");
+        DateTimeV2Literal zeroDateTimeV2Literal = new DateTimeV2Literal("0000-01-01 00:00:00");
+        DateTimeV2Literal dateTimeV2Literal2 = new DateTimeV2Literal("2021-12-31 12:23:34");
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeV2Literal2, zeroDateV2Literal).toSql(), "738519");
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeV2Literal2, zeroDateTimeV2Literal).toSql(), "738519");
     }
 
     @Test

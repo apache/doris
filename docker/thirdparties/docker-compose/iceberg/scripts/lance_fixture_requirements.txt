@@ -1,0 +1,37 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Exact pins for lance_build_preinstalled_catalog.py.
+#
+# The fixture has several readers and they do not all run the same Lance version:
+#
+#   lance-c v0.1.2 (lance-rs 4.0.1)       BE built from source - thirdparty/vars.sh
+#   lance-c v0.1.6 (lance-rs 7.0.0-beta)  BE in CI - the prebuilt doris-thirdparty package
+#   lance-java 4.0.0                      Spark, via lance-spark-bundle 0.4.0; it registers
+#                                         runtime tables into the same __manifest
+#   lance-java (FE)                       Doris FE Directory Namespace client
+#
+# So pin the writer to the oldest Lance in that set rather than to whichever one the BE
+# happens to use: an older writer is readable by every reader above, while a newer one
+# would leave the source-build and Spark cells unverified. Verified for the committed
+# fixture: pylance 7.0.0 reads it with results identical to pylance 4.0.1 - same index,
+# same refined top-5, same nprobes=1 boundary rows, same IVF partition ranges - so the
+# regression goldens are stable across the lance-rs 4 to 7 gap and do not depend on which
+# lance-c the backend was built with.
+pylance==4.0.1
+lance-namespace==0.6.1
+pyarrow==25.0.0

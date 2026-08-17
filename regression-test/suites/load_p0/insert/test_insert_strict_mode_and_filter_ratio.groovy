@@ -27,7 +27,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
     PROPERTIES ("replication_num" = "1");
     """
     sql "set enable_insert_strict=false"
-    sql "set enable_strict_cast=true"
+    sql "set enable_strict_cast=false"
     sql "set insert_max_filter_ratio=0"
     sql """
         INSERT INTO test_insert_strict_mode_and_filter_ratio VALUES 
@@ -49,7 +49,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
         truncate table test_insert_strict_mode_and_filter_ratio;
     """
     sql "set enable_insert_strict=true"
-    sql "set enable_strict_cast=false"
+    sql "set enable_strict_cast=true"
     sql "set insert_max_filter_ratio=1"
     test {
         sql """
@@ -80,7 +80,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
     PROPERTIES ("replication_num" = "1");
     """
     sql "set enable_insert_strict=false"
-    sql "set enable_strict_cast=true"
+    sql "set enable_strict_cast=false"
     sql "set insert_max_filter_ratio=0"
     sql """
         INSERT INTO test_insert_strict_mode_and_filter_ratio VALUES 
@@ -102,7 +102,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
         truncate TABLE test_insert_strict_mode_and_filter_ratio;
     """
     sql "set enable_insert_strict=true"
-    sql "set enable_strict_cast=false"
+    sql "set enable_strict_cast=true"
     sql "set insert_max_filter_ratio=1"
     test {
         sql """
@@ -135,7 +135,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
     PROPERTIES ("replication_num" = "1");
     """
     sql "set enable_insert_strict=false"
-    sql "set enable_strict_cast=true"
+    sql "set enable_strict_cast=false"
     sql "set insert_max_filter_ratio=0.2"
     test {
         sql """
@@ -183,7 +183,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
         truncate TABLE test_insert_strict_mode_and_filter_ratio;
     """
     sql "set enable_insert_strict=false"
-    sql "set enable_strict_cast=true"
+    sql "set enable_strict_cast=false"
     sql "set insert_max_filter_ratio=0.3"
     sql """
         INSERT INTO test_insert_strict_mode_and_filter_ratio VALUES 
@@ -223,7 +223,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
         truncate TABLE test_insert_strict_mode_and_filter_ratio;
     """
     sql "set enable_insert_strict=true"
-    sql "set enable_strict_cast=false"
+    sql "set enable_strict_cast=true"
     sql "set insert_max_filter_ratio=1"
     test {
         sql """
@@ -364,7 +364,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
         ) properties ('replication_num' = '1');
     """
     sql "set enable_insert_strict=false"
-    sql "set enable_strict_cast=true"
+    sql "set enable_strict_cast=false"
     sql "set insert_max_filter_ratio=0"
     sql """
     insert into test_insert_strict_mode_and_filter_ratio  values
@@ -386,7 +386,7 @@ suite("test_insert_strict_mode_and_filter_ratio","p0") {
         truncate table test_insert_strict_mode_and_filter_ratio;
     """
     sql "set enable_insert_strict=true"
-    sql "set enable_strict_cast=false"
+    sql "set enable_strict_cast=true"
     sql "set insert_max_filter_ratio=1"
     test {
         sql """

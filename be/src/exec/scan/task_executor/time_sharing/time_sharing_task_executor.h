@@ -294,6 +294,15 @@ private:
     // // Submits a task to be run via token.
     Status _do_submit(std::shared_ptr<PrioritizedSplitRunner> split);
 
+    // Offer a split to the executor queue and keep _total_queued_tasks consistent.
+    // REQUIRES: _lock is held.
+    void _offer_split_unlocked(std::shared_ptr<PrioritizedSplitRunner> split);
+
+    // Remove queued splits and keep _total_queued_tasks/token state consistent.
+    // REQUIRES: _lock is held.
+    void _remove_queued_splits_unlocked(
+            const std::vector<std::shared_ptr<PrioritizedSplitRunner>>& splits);
+
     //NOTE: not thread safe, caller should keep it thread-safe by using lock
     Status _try_create_thread(int thread_num, std::lock_guard<std::mutex>&);
 

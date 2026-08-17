@@ -799,6 +799,26 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     /**
+     * Check properties before restore.
+     */
+    public Status checkPropertiesForRestore() {
+        if (tableProperty != null) {
+            if (Config.isCloudMode()) {
+                // Avoid restore non-light schema change table in cloud mode. Because non-light schema change table
+                // may have different schema with same schema version(which is always 0), which will cause very bad
+                // problem to metadata in cloud mode.
+                if (!tableProperty.getUseSchemaLightChange()) {
+                    String msg = String.format("Restoring table %s which has property `\"light_schema_change\""
+                            + " = \"false\"`, currently cloud mode only supports light schema change table."
+                            + " Please enable `light_schema_change` property before backup and restore.", name);
+                    return new Status(ErrCode.COMMON_ERROR, msg);
+                }
+            }
+        }
+        return Status.OK;
+    }
+
+    /**
      * Set the related properties when is_being_synced properties is true.
      *
      * Some properties, like storage_policy, colocate_with, are not supported by the ccr syncer.
@@ -1852,37 +1872,43 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public long getAvgRowLength() {
-        long rowCount = 0;
-        long dataSize = 0;
-        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            rowCount += entry.getValue().getBaseIndex().getRowCount();
-            dataSize += entry.getValue().getBaseIndex().getDataSize(false, false);
-        }
-        if (rowCount > 0) {
-            return dataSize / rowCount;
-        } else {
-            return 0;
-        }
+        return getTableStatusStats().getAvgRowLength();
     }
 
     @Override
     public long getDataLength() {
-        long dataSize = 0;
-        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            dataSize += entry.getValue().getBaseIndex().getLocalSegmentSize();
-            dataSize += entry.getValue().getBaseIndex().getRemoteSegmentSize();
-        }
-        return dataSize;
+        return getTableStatusStats().getDataLength();
     }
 
     @Override
     public long getIndexLength() {
-        long indexSize = 0;
+        return getTableStatusStats().getIndexLength();
+    }
+
+    @Override
+    public TableStatusStats getTableStatusStats() {
+        long rowCount = 0;
+        long rowCountForAvg = 0;
+        long dataSizeForAvg = 0;
+        long dataLength = 0;
+        long indexLength = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            indexSize += entry.getValue().getBaseIndex().getLocalIndexSize();
-            indexSize += entry.getValue().getBaseIndex().getRemoteIndexSize();
+            MaterializedIndex baseIndex = entry.getValue().getBaseIndex();
+            long baseIndexRowCount = baseIndex.getRowCount();
+            rowCount += baseIndexRowCount == UNKNOWN_ROW_COUNT ? 0 : baseIndexRowCount;
+            rowCountForAvg += baseIndexRowCount;
+            for (Tablet tablet : baseIndex.getTablets()) {
+                for (Replica replica : tablet.getReplicas()) {
+                    if (replica.getState() == Replica.ReplicaState.NORMAL) {
+                        dataSizeForAvg += replica.getDataSize();
+                    }
+                    dataLength += replica.getLocalSegmentSize() + replica.getRemoteSegmentSize();
+                    indexLength += replica.getLocalInvertedIndexSize() + replica.getRemoteInvertedIndexSize();
+                }
+            }
         }
-        return indexSize;
+        long avgRowLength = rowCountForAvg > 0 ? dataSizeForAvg / rowCountForAvg : 0;
+        return new TableStatusStats(rowCount, dataLength, avgRowLength, indexLength);
     }
 
     // Get the signature string of this table with specified partitions.
@@ -2640,22 +2666,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public int getBaseSchemaVersion() {
         MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
         return baseIndexMeta.getSchemaVersion();
-    }
-
-    public void setEnableSingleReplicaCompaction(boolean enableSingleReplicaCompaction) {
-        if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<>());
-        }
-        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
-                Boolean.valueOf(enableSingleReplicaCompaction).toString());
-        tableProperty.buildEnableSingleReplicaCompaction();
-    }
-
-    public Boolean enableSingleReplicaCompaction() {
-        if (tableProperty != null) {
-            return tableProperty.enableSingleReplicaCompaction();
-        }
-        return false;
     }
 
     public void setStoreRowColumn(boolean storeRowColumn) {

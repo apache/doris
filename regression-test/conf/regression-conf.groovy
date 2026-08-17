@@ -129,6 +129,7 @@ doris_port=9030
 mariadb_10_port=3326
 db2_11_port=50000
 oceanbase_port=2881
+oceanbase_cdc_port=2883
 
 // hive catalog test config
 // To enable hive/paimon test, you need first start hive container.
@@ -233,6 +234,7 @@ extArrowFlightHttpPort= 8030
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
 iceberg_minio_port=19001
+lance_rest_port=19102
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182
 iceberg_rest_uri_port_cos=19183
@@ -299,6 +301,8 @@ icebergS3TablesCatalogGlueRest=""
 // The path of the cert configuration file for the testing framework 
 // is consistent with the path of the cert file for the cluster
 enableTLS=false
+// Comma-separated Doris connector protocols that remain plaintext when TLS is enabled
+tlsExcludedProtocols=""
 tlsVerifyMode="strict"
 keyStorePath="/your/keystore.p12"
 keyStorePassword="yourPwd"
@@ -328,3 +332,6 @@ hudiMinioAccessKey="minio"
 hudiMinioSecretKey="minio123"
 
 icebergDlfRestCatalog="'type' = 'iceberg', 'warehouse' = 'new_dlf_iceberg_catalog', 'iceberg.catalog.type' = 'rest', 'iceberg.rest.uri' = 'http://cn-beijing-vpc.dlf.aliyuncs.com/iceberg', 'iceberg.rest.sigv4-enabled' = 'true', 'iceberg.rest.signing-name' = 'DlfNext', 'iceberg.rest.access-key-id' = 'ak', 'iceberg.rest.secret-access-key' = 'sk', 'iceberg.rest.signing-region' = 'cn-beijing', 'iceberg.rest.vended-credentials-enabled' = 'true', 'io-impl' = 'org.apache.iceberg.rest.DlfFileIO', 'fs.oss.support' = 'true'"
+
+// For python UDF test, set the runtime version of python, default: 3.8.10
+// pythonUdfRuntimeVersion = ""

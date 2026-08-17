@@ -30,7 +30,7 @@
     "@ant-design/icons": "^4.1.0",
     "@umijs/hooks": "^1.9.3",
     "antd": "^4.5.4",
-    "axios": "^0.19.2",
+    "axios": "^1.16.0",
     "classnames": "^2.2.6",
     "i18next": "^19.7.0",
     "i18next-browser-languagedetector": "^6.0.1",

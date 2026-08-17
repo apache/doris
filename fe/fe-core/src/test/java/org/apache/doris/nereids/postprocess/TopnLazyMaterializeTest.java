@@ -22,11 +22,15 @@ import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.planner.MaterializationNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -77,5 +81,60 @@ public class TopnLazyMaterializeTest extends SSBTestBase {
         List<SlotDescriptor> slots = ((OlapScanNode) scanNodes.get(0)).getTupleDesc().getSlots();
         Assertions.assertEquals(1, slots.size());
         Assertions.assertEquals("k2", slots.get(0).getColumn().getName());
+    }
+
+    @Test
+    public void testLazyBaseColumnIndexUsesOriginalColumnNameForAlias() throws Exception {
+        this.createTable("create table lazy_materialize_alias_tbl("
+                + "sort_col int, lazy_col int) "
+                + "duplicate key(sort_col) distributed by hash(sort_col) buckets 1 "
+                + "properties('replication_num' = '1')");
+        String sql = "select lazy_col as lazy_alias from lazy_materialize_alias_tbl "
+                + "order by sort_col limit 1";
+
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+
+        List<PhysicalLazyMaterialize<? extends Plan>> materializeNodes = plan.collectToList(
+                node -> node instanceof PhysicalLazyMaterialize);
+        Assertions.assertEquals(1, materializeNodes.size(), plan.treeString());
+        Assertions.assertEquals(ImmutableList.of(ImmutableList.of(1)),
+                materializeNodes.get(0).getLazyBaseColumnIndices());
+    }
+
+    @Test
+    public void testLightSchemaChangeFalse() throws Exception {
+        this.createTable("create table tm_lsc_false (k int, v int) duplicate key(k) "
+                + "distributed by hash(k) buckets 1 "
+                + "properties('replication_num' = '1', 'light_schema_change' = 'false')");
+        String sql = "select * from tm_lsc_false order by k limit 1";
+        PlanChecker checker = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .implement();
+        PhysicalPlan plan = checker.getPhysicalPlan();
+        plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+        PlanTranslatorContext translatorContext = new PlanTranslatorContext(checker.getCascadesContext());
+        PlanFragment fragment = new PhysicalPlanTranslator(translatorContext).translatePlan(plan);
+
+        // TopN lazy materialization should be skipped for light_schema_change=false,
+        // so no MaterializationNode should be created.
+        List<MaterializationNode> materializationNodes = Lists.newArrayList();
+        fragment.getPlanRoot().collect(MaterializationNode.class, materializationNodes);
+        Assertions.assertTrue(materializationNodes.isEmpty(),
+                "TopN lazy materialization should be skipped for light_schema_change=false");
+
+        // All columns should be in the scan output (no lazy pruned columns).
+        List<OlapScanNode> scanNodes = Lists.newArrayList();
+        fragment.getPlanRoot().collect(OlapScanNode.class, scanNodes);
+        Assertions.assertEquals(1, scanNodes.size());
+        List<SlotDescriptor> slots = scanNodes.get(0).getTupleDesc().getSlots();
+        Assertions.assertEquals(2, slots.size());
+        Assertions.assertTrue(slots.stream().anyMatch(s -> s.getColumn().getName().equals("k")));
+        Assertions.assertTrue(slots.stream().anyMatch(s -> s.getColumn().getName().equals("v")));
     }
 }

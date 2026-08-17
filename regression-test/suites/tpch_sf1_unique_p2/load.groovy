@@ -47,6 +47,7 @@ suite("load") {
             file """${getS3Url()}/regression/tpch/sf1/${tableName}.csv.split00.gz"""
 
             time 10000 // limit inflight 10s
+            retryIfHttpError true
 
             // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
 
@@ -81,6 +82,7 @@ suite("load") {
             file """${getS3Url()}/regression/tpch/sf1/${tableName}.csv.split01.gz"""
 
             time 10000 // limit inflight 10s
+            retryIfHttpError true
 
             // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
 

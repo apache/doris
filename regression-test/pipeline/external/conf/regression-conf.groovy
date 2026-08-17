@@ -74,6 +74,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_information_schema_external," +
     "test_parquet_join_runtime_filter," +
     "test_profile," +
+    "test_paimon_gcs," +
     "test_refresh_mtmv," +
     "test_spark_load," +
     "test_broker_load_func," +
@@ -153,6 +154,7 @@ iceberg_rest_uri_port_gcs=19185
 iceberg_rest_uri_port_hdfs=19186
 iceberg_rest_hdfs_port=20020
 iceberg_minio_port=19001
+lance_rest_port=19102
 enableIcebergTest=true
 
 // polaris rest catalog config
@@ -191,6 +193,7 @@ oracle_11_port=1521
 sqlserver_2022_port=1433
 clickhouse_22_port=8123
 oceanbase_port=2881
+oceanbase_cdc_port=2883
 db2_11_port=50000
 
 // trino-connector catalog test config

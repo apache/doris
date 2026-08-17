@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_validate_restore_inverted_idx", "validate_restore") {
+suite("test_validate_restore_inverted_idx", "validate_restore,nonConcurrent") {
     def runValidateRestoreInvertedIdx = { String version ->
         String validateSuiteName = "test_backup_restore_inverted_idx"
         String dbName = "${validateSuiteName}_db_${version.replace('.', '_')}"

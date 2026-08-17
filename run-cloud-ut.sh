@@ -40,6 +40,68 @@ ROOT=$(
 
 export DORIS_HOME="${ROOT}"
 
+trim_whitespace() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "${value}"
+}
+
+is_valid_extra_module_feature() {
+    local feature="$1"
+    [[ "${feature}" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]]
+}
+
+feature_to_cmake_name() {
+    local feature="$1"
+    printf '%s' "${feature}" | tr '[:lower:]-' '[:upper:]_'
+}
+
+parse_extra_cloud_modules() {
+    local spec_value="$1"
+    local entry feature module_path existing
+    local -a feature_keys=()
+
+    CLOUD_EXTRA_FEATURE_KEYS=()
+    CLOUD_EXTRA_MODULE_PATHS=()
+    if [[ -z "${spec_value}" ]]; then
+        return
+    fi
+
+    IFS=',' read -r -a entries <<<"${spec_value}"
+    for entry in "${entries[@]}"; do
+        entry="$(trim_whitespace "${entry}")"
+        if [[ -z "${entry}" || "${entry}" != *=* ]]; then
+            echo "Invalid EXTRA_CLOUD_MODULES entry '${entry}': expected feature=module_path"
+            exit 1
+        fi
+
+        feature="$(trim_whitespace "${entry%%=*}")"
+        module_path="$(trim_whitespace "${entry#*=}")"
+        if [[ -z "${feature}" || -z "${module_path}" ]]; then
+            echo "Invalid EXTRA_CLOUD_MODULES entry '${entry}': feature and module_path must be non-empty"
+            exit 1
+        fi
+        if ! is_valid_extra_module_feature "${feature}"; then
+            echo "Invalid EXTRA_CLOUD_MODULES feature '${feature}'"
+            exit 1
+        fi
+        for existing in "${feature_keys[@]}"; do
+            if [[ "${existing}" == "${feature}" ]]; then
+                echo "Duplicate EXTRA_CLOUD_MODULES feature '${feature}'"
+                exit 1
+            fi
+        done
+        if [[ ! -d "${DORIS_HOME}/cloud/src/${module_path}" ]]; then
+            echo "Missing EXTRA_CLOUD_MODULES module directory: ${DORIS_HOME}/cloud/src/${module_path}"
+            exit 1
+        fi
+        feature_keys+=("${feature}")
+        CLOUD_EXTRA_FEATURE_KEYS+=("${feature}")
+        CLOUD_EXTRA_MODULE_PATHS+=("${module_path}")
+    done
+}
+
 # Check args
 usage() {
     echo "
@@ -55,6 +117,9 @@ Usage: $0 <options>
      -j                 build parallel
      -h                 print this help message
      --gdb              debug with gdb, does not take effect if --run is not specified
+
+  Environment variables:
+     EXTRA_CLOUD_MODULES Optional CLOUD feature modules in feature=module_path format, separated by commas.
 
   Eg.
     $0                                                                          build tests
@@ -140,6 +205,15 @@ echo "===================== filter: ${FILTER}"
 
 CMAKE_BUILD_TYPE=${BUILD_TYPE:-ASAN}
 CMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE^^}"
+EXTRA_CLOUD_MODULES="${EXTRA_CLOUD_MODULES:-}"
+parse_extra_cloud_modules "${EXTRA_CLOUD_MODULES}"
+
+CLOUD_EXTRA_CMAKE_ARGS=()
+for ((i = 0; i < ${#CLOUD_EXTRA_FEATURE_KEYS[@]}; i++)); do
+    feature_name="$(feature_to_cmake_name "${CLOUD_EXTRA_FEATURE_KEYS[i]}")"
+    CLOUD_EXTRA_CMAKE_ARGS+=("-DENABLE_${feature_name}=ON")
+    CLOUD_EXTRA_CMAKE_ARGS+=("-D${feature_name}_MODULE_DIR=${CLOUD_EXTRA_MODULE_PATHS[i]}")
+done
 
 echo "Get params:
     PARALLEL            -- ${PARALLEL}
@@ -147,6 +221,7 @@ echo "Get params:
     FILTER              -- ${FILTER}
     COVERAGE            -- ${ENABLE_CLANG_COVERAGE}
     FDB                 -- ${FDB}
+    EXTRA_CLOUD_MODULES -- ${EXTRA_CLOUD_MODULES}
 "
 echo "Build Doris Cloud UT"
 
@@ -203,6 +278,7 @@ find . -name "*.gcda" -exec rm {} \;
     -DENABLE_CLANG_COVERAGE="${ENABLE_CLANG_COVERAGE}" \
     "${CMAKE_USE_CCACHE}" \
     -DBUILD_AZURE="${BUILD_AZURE}" \
+    "${CLOUD_EXTRA_CMAKE_ARGS[@]}" \
     "${DORIS_HOME}/cloud/"
 "${BUILD_SYSTEM}" -j "${PARALLEL}"
 "${BUILD_SYSTEM}" install

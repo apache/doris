@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include <sstream>
+#include <utility>
 #include <variant>
 
 #include "core/block/block.h"
@@ -94,7 +95,9 @@ Status JniConnector::open(RuntimeState* state, RuntimeProfile* profile) {
     }
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
-    _scanner_params.emplace("time_zone", _state->timezone());
+    if (_state) { // maybe nullptr when init_fetch_table_schema_reader
+        _scanner_params.emplace("time_zone", _state->timezone());
+    }
     RETURN_IF_ERROR(_init_jni_scanner(env, batch_size));
     // Call org.apache.doris.common.jni.JniScanner#open
     RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_open).call());
@@ -164,43 +167,30 @@ Status JniConnector::get_statistics(JNIEnv* env, std::map<std::string, std::stri
 }
 
 Status JniConnector::close() {
-    if (!_closed) {
-        JNIEnv* env = nullptr;
-        RETURN_IF_ERROR(Jni::Env::Get(&env));
-        if (_scanner_opened) {
-            COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
-            COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
-
-            RETURN_ERROR_IF_EXC(env);
-            int64_t _append = 0;
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
-                            .call(&_append));
-
-            COUNTER_UPDATE(_java_append_data_time, _append);
-
-            int64_t _create = 0;
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj
-                            .call_long_method(env, _jni_scanner_get_create_vector_table_time)
-                            .call(&_create));
-
-            COUNTER_UPDATE(_java_create_vector_table_time, _create);
-
-            COUNTER_UPDATE(_java_scan_time, _java_scan_watcher - _append - _create);
-
-            _max_time_split_weight_counter->conditional_update(
-                    _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
-                    _self_split_weight);
-
-            // _fill_block may be failed and returned, we should release table in close.
-            // org.apache.doris.common.jni.JniScanner#releaseTable is idempotent
-            RETURN_IF_ERROR(
-                    _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call());
-            RETURN_IF_ERROR(_jni_scanner_obj.call_void_method(env, _jni_scanner_close).call());
-        }
+    if (_closed) {
+        return Status::OK();
     }
-    return Status::OK();
+    if (!_scanner_opened) {
+        _closed = true;
+        return Status::OK();
+    }
+
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
+
+    // _fill_block may fail before releasing the current Java table. JniScanner::releaseTable()
+    // is idempotent, so close always retries it. Java close must still run when that release
+    // fails, otherwise connector resources such as Paimon's static table-cache lease can leak.
+    auto close_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_release_table).call();
+    auto java_close_status = _jni_scanner_obj.call_void_method(env, _jni_scanner_close).call();
+    if (close_status.ok() && !java_close_status.ok()) {
+        close_status = std::move(java_close_status);
+    }
+    if (close_status.ok()) {
+        _scanner_opened = false;
+        _closed = true;
+    }
+    return close_status;
 }
 
 Status JniConnector::_init_jni_scanner(JNIEnv* env, int batch_size) {
@@ -300,26 +290,29 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
         // org.apache.doris.common.jni.vec.ColumnType.Type#UNSUPPORTED will set column address as 0
         return Status::InternalError("Unsupported type {} in java side", data_type->get_name());
     }
+    auto mutable_doris_column = IColumn::mutate(std::move(doris_column));
     MutableColumnPtr data_column;
-    if (doris_column->is_nullable()) {
-        auto* nullable_column =
-                reinterpret_cast<ColumnNullable*>(doris_column->assume_mutable().get());
+    if (mutable_doris_column->is_nullable()) {
+        auto* nullable_column = assert_cast<ColumnNullable*>(mutable_doris_column.get());
         data_column = nullable_column->get_nested_column_ptr();
         NullMap& null_map = nullable_column->get_null_map_data();
         size_t origin_size = null_map.size();
         null_map.resize(origin_size + num_rows);
         memcpy(null_map.data() + origin_size, static_cast<bool*>(null_map_ptr), num_rows);
     } else {
-        data_column = doris_column->assume_mutable();
+        data_column = mutable_doris_column->get_ptr();
     }
     // Date and DateTime are deprecated and not supported.
+    Status status = Status::OK();
     switch (logical_type) {
         //FIXME: in Doris we check data then insert. jdbc external table may have some data invalid for doris.
         // should add check otherwise it may break some of our assumption now.
-#define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)              \
-    case TYPE_INDEX:                                             \
-        return _fill_fixed_length_column<COLUMN_TYPE, CPP_TYPE>( \
-                data_column, reinterpret_cast<CPP_TYPE*>(address.next_meta_as_ptr()), num_rows);
+#define DISPATCH(TYPE_INDEX, COLUMN_TYPE, CPP_TYPE)                                             \
+    case TYPE_INDEX: {                                                                          \
+        auto* data = reinterpret_cast<CPP_TYPE*>(address.next_meta_as_ptr());                   \
+        status = _fill_fixed_length_column<COLUMN_TYPE, CPP_TYPE>(data_column, data, num_rows); \
+        break;                                                                                  \
+    }
         FOR_FIXED_LENGTH_TYPES(DISPATCH)
 #undef DISPATCH
     case PrimitiveType::TYPE_STRING:
@@ -327,19 +320,27 @@ Status JniConnector::_fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     case PrimitiveType::TYPE_CHAR:
         [[fallthrough]];
     case PrimitiveType::TYPE_VARCHAR:
-        return _fill_string_column(address, data_column, num_rows);
+        status = _fill_string_column(address, data_column, num_rows);
+        break;
     case PrimitiveType::TYPE_ARRAY:
-        return _fill_array_column(address, data_column, data_type, num_rows);
+        status = _fill_array_column(address, data_column, data_type, num_rows);
+        break;
     case PrimitiveType::TYPE_MAP:
-        return _fill_map_column(address, data_column, data_type, num_rows);
+        status = _fill_map_column(address, data_column, data_type, num_rows);
+        break;
     case PrimitiveType::TYPE_STRUCT:
-        return _fill_struct_column(address, data_column, data_type, num_rows);
+        status = _fill_struct_column(address, data_column, data_type, num_rows);
+        break;
     case PrimitiveType::TYPE_VARBINARY:
-        return _fill_varbinary_column(address, data_column, num_rows);
+        status = _fill_varbinary_column(address, data_column, num_rows);
+        break;
     default:
-        return Status::InvalidArgument("Unsupported type {} in jni scanner", data_type->get_name());
+        status = Status::InvalidArgument("Unsupported type {} in jni scanner",
+                                         data_type->get_name());
+        break;
     }
-    return Status::OK();
+    doris_column = std::move(mutable_doris_column);
+    return status;
 }
 
 Status JniConnector::_fill_varbinary_column(TableMetaAddress& address,
@@ -820,6 +821,35 @@ void JniConnector::_collect_profile_before_close() {
             LOG(WARNING) << "failed to get jni env when collect profile: " << st;
             return;
         }
+        COUNTER_UPDATE(_open_scanner_time, _jni_scanner_open_watcher);
+        COUNTER_UPDATE(_fill_block_time, _fill_block_watcher);
+
+        int64_t append_data_time = 0;
+        auto append_time_status =
+                _jni_scanner_obj.call_long_method(env, _jni_scanner_get_append_data_time)
+                        .call(&append_data_time);
+        int64_t create_vector_table_time = 0;
+        auto create_table_time_status =
+                _jni_scanner_obj.call_long_method(env, _jni_scanner_get_create_vector_table_time)
+                        .call(&create_vector_table_time);
+        if (!append_time_status.ok()) {
+            LOG(WARNING) << "failed to collect JNI append-data time before close: "
+                         << append_time_status;
+        }
+        if (!create_table_time_status.ok()) {
+            LOG(WARNING) << "failed to collect JNI vector-table time before close: "
+                         << create_table_time_status;
+        }
+        if (append_time_status.ok() && create_table_time_status.ok()) {
+            COUNTER_UPDATE(_java_append_data_time, append_data_time);
+            COUNTER_UPDATE(_java_create_vector_table_time, create_vector_table_time);
+            COUNTER_UPDATE(_java_scan_time,
+                           _java_scan_watcher - append_data_time - create_vector_table_time);
+            _max_time_split_weight_counter->conditional_update(
+                    _jni_scanner_open_watcher + _fill_block_watcher + _java_scan_watcher,
+                    _self_split_weight);
+        }
+
         // update scanner metrics
         std::map<std::string, std::string> statistics_result;
         st = get_statistics(env, &statistics_result);
@@ -828,6 +858,9 @@ void JniConnector::_collect_profile_before_close() {
             return;
         }
 
+        const auto update_peak = [](int64_t previous, int64_t current) {
+            return current > previous;
+        };
         for (const auto& metric : statistics_result) {
             std::vector<std::string> type_and_name = split(metric.first, ":");
             if (type_and_name.size() != 2) {
@@ -835,22 +868,49 @@ void JniConnector::_collect_profile_before_close() {
                              << "'metricType:metricName'";
                 continue;
             }
-            long metric_value = std::stol(metric.second);
+            int64_t metric_value = std::stoll(metric.second);
             RuntimeProfile::Counter* scanner_counter;
             if (type_and_name[0] == "timer") {
                 scanner_counter =
                         ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
+                COUNTER_UPDATE(scanner_counter, metric_value);
             } else if (type_and_name[0] == "counter") {
                 scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
                                                     _connector_name.c_str());
+                COUNTER_UPDATE(scanner_counter, metric_value);
             } else if (type_and_name[0] == "bytes") {
                 scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
                                                     _connector_name.c_str());
+                COUNTER_UPDATE(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "timer_gauge") {
+                scanner_counter =
+                        ADD_CHILD_TIMER(_profile, type_and_name[1], _connector_name.c_str());
+                COUNTER_SET(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "gauge") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::UNIT,
+                                                    _connector_name.c_str());
+                COUNTER_SET(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "bytes_gauge") {
+                scanner_counter = ADD_CHILD_COUNTER(_profile, type_and_name[1], TUnit::BYTES,
+                                                    _connector_name.c_str());
+                COUNTER_SET(scanner_counter, metric_value);
+            } else if (type_and_name[0] == "timer_peak") {
+                auto* scanner_peak_counter = _profile->add_conditition_counter(
+                        type_and_name[1], TUnit::TIME_NS, update_peak, _connector_name.c_str());
+                scanner_peak_counter->conditional_update(metric_value, metric_value);
+            } else if (type_and_name[0] == "peak") {
+                auto* scanner_peak_counter = _profile->add_conditition_counter(
+                        type_and_name[1], TUnit::UNIT, update_peak, _connector_name.c_str());
+                scanner_peak_counter->conditional_update(metric_value, metric_value);
+            } else if (type_and_name[0] == "bytes_peak") {
+                auto* scanner_peak_counter = _profile->add_conditition_counter(
+                        type_and_name[1], TUnit::BYTES, update_peak, _connector_name.c_str());
+                scanner_peak_counter->conditional_update(metric_value, metric_value);
             } else {
-                LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter or bytes";
+                LOG(WARNING) << "Type of JNI Scanner metric should be timer, counter, bytes, "
+                             << "timer_gauge, gauge, bytes_gauge, timer_peak, peak or bytes_peak";
                 continue;
             }
-            COUNTER_UPDATE(scanner_counter, metric_value);
         }
     }
 }

@@ -42,6 +42,7 @@ import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanNode;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TFileScanSlotInfo;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -92,6 +93,8 @@ public abstract class FileScanNode extends ExternalScanNode {
     @Override
     protected void toThrift(TPlanNode planNode) {
         planNode.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+        planNode.setPushDownCountSlotIds(
+                pushDownCountSlotIds.stream().map(id -> id.asInt()).collect(Collectors.toList()));
 
         planNode.setNodeType(TPlanNodeType.FILE_SCAN_NODE);
         TFileScanNode fileScanNode = new TFileScanNode();
@@ -105,6 +108,21 @@ public abstract class FileScanNode extends ExternalScanNode {
 
     protected void setPushDownCount(long count) {
         tableLevelRowCount = count;
+    }
+
+    /**
+     * Return whether FE may replace real table-format splits with metadata COUNT splits.
+     *
+     * <p>The aggregate opcode alone is insufficient because both {@code COUNT(*)} and
+     * {@code COUNT(col)} use {@link TPushAggOp#COUNT}. The semantic argument list distinguishes
+     * them: it is empty only for {@code COUNT(*)}/{@code COUNT(1)}. For example, if an Iceberg
+     * table has 100 data files, retaining one representative split is correct for a snapshot
+     * {@code COUNT(*)}. Doing that for {@code COUNT(required_col)} is unsafe: BE deliberately
+     * falls back to reading the column, but it would then see only the representative file and
+     * undercount the table.
+     */
+    protected boolean isTableLevelCountStarPushdown() {
+        return pushDownAggNoGroupingOp == TPushAggOp.COUNT && pushDownCountSlotIds.isEmpty();
     }
 
     private long getPushDownCount() {
@@ -254,6 +272,16 @@ public abstract class FileScanNode extends ExternalScanNode {
             Map<String, Expr> exprByName,
             TFileScanRangeParams params,
             boolean useVarcharAsNull) throws UserException {
+        setDefaultValueExprs(tbl, slotDescByName, exprByName, params, useVarcharAsNull,
+                desc.getTable().getFullSchema());
+    }
+
+    protected void setDefaultValueExprs(TableIf tbl,
+            Map<String, SlotDescriptor> slotDescByName,
+            Map<String, Expr> exprByName,
+            TFileScanRangeParams params,
+            boolean useVarcharAsNull,
+            List<Column> columns) throws UserException {
         Preconditions.checkNotNull(tbl);
         TExpr tExpr = new TExpr();
         tExpr.setNodes(Lists.newArrayList());
@@ -263,7 +291,16 @@ public abstract class FileScanNode extends ExternalScanNode {
             nameToSlotDesc.put(slot.getColumn().getName(), slot);
         }
 
-        for (Column column : desc.getTable().getFullSchema()) {
+        // Build slot_id -> index map for required_slots to set default_value_expr inline.
+        Map<Integer, Integer> slotIdToRequiredIdx = Maps.newHashMap();
+        if (params.getRequiredSlots() != null) {
+            for (int i = 0; i < params.getRequiredSlots().size(); i++) {
+                TFileScanSlotInfo slotInfo = params.getRequiredSlots().get(i);
+                slotIdToRequiredIdx.put(slotInfo.getSlotId(), i);
+            }
+        }
+
+        for (Column column : columns) {
             Expr expr;
             Expression expression;
             if (column.getDefaultValue() != null) {

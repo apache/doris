@@ -30,6 +30,8 @@ import mockit.MockUp;
 import org.eclipse.jetty.util.BlockingArrayQueue;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.Queue;
@@ -83,6 +85,34 @@ public class FollowerColumnSenderTest {
         Assertions.assertTrue(needAnalyzeColumns.contains(column2.toThrift()));
         Assertions.assertFalse(needAnalyzeColumns.contains(column3.toThrift()));
         Assertions.assertTrue(needAnalyzeColumns.contains(column4.toThrift()));
+    }
+
+    @Test
+    public void testGetNeedAnalyzeColumnsSkipDroppedColumns() {
+        OlapTable mockTable = Mockito.mock(OlapTable.class);
+        Mockito.when(mockTable.getColumn("dropped")).thenReturn(null);
+        Mockito.when(mockTable.getColumn("visible")).thenReturn(new Column("visible", PrimitiveType.INT));
+        Mockito.when(mockTable.getColumnIndexPairs(Mockito.any()))
+                .thenReturn(Collections.singleton(Pair.of("mockIndex", "visible")));
+
+        try (MockedStatic<StatisticsUtil> statisticsUtilStatic = Mockito.mockStatic(StatisticsUtil.class)) {
+            statisticsUtilStatic.when(() -> StatisticsUtil.needAnalyzeColumn(Mockito.any(), Mockito.any()))
+                    .thenReturn(true);
+            statisticsUtilStatic.when(() -> StatisticsUtil.findTable(Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong()))
+                    .thenReturn(mockTable);
+
+            QueryColumn droppedColumn = new QueryColumn(1, 2, 3, "dropped");
+            QueryColumn visibleQueryColumn = new QueryColumn(1, 2, 3, "visible");
+            Queue<QueryColumn> queue = new BlockingArrayQueue<>();
+            queue.add(droppedColumn);
+            queue.add(visibleQueryColumn);
+
+            FollowerColumnSender sender = new FollowerColumnSender();
+            Set<TQueryColumn> needAnalyzeColumns = sender.getNeedAnalyzeColumns(queue);
+            Assertions.assertEquals(1, needAnalyzeColumns.size());
+            Assertions.assertFalse(needAnalyzeColumns.contains(droppedColumn.toThrift()));
+            Assertions.assertTrue(needAnalyzeColumns.contains(visibleQueryColumn.toThrift()));
+        }
     }
 
 }

@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -241,6 +242,34 @@ public class MTMVPartitionUtilTest {
     }
 
     @Test
+    public void testIsMTMVPartitionSyncWithImmutableExcludedTriggerTables() throws AnalysisException {
+        Map<MTMVRelatedTableIf, Set<String>> partitionMappings = Maps.newHashMap();
+        partitionMappings.put(baseOlapTable, Sets.newHashSet("name2"));
+        new Expectations() {
+            {
+                context.getByPartitionName("name1");
+                minTimes = 0;
+                result = partitionMappings;
+
+                mtmvPartitionInfo.getPartitionType();
+                minTimes = 0;
+                result = MTMVPartitionType.FOLLOW_BASE_TABLE;
+
+                mtmvPartitionInfo.getPctTables();
+                minTimes = 0;
+                result = Sets.newHashSet(baseOlapTable);
+            }
+        };
+
+        Set<TableName> excludedTriggerTables = ImmutableSet.of();
+        boolean isMTMVPartitionSync = MTMVPartitionUtil.isMTMVPartitionSync(context, "name1", baseTables,
+                excludedTriggerTables);
+
+        Assert.assertTrue(isMTMVPartitionSync);
+        Assert.assertTrue(excludedTriggerTables.isEmpty());
+    }
+
+    @Test
     public void testGeneratePartitionName() {
         List<List<PartitionValue>> inValues = Lists.newArrayList();
         inValues.add(Lists.newArrayList(new PartitionValue("20201010 01:01:01"), new PartitionValue("value12")));
@@ -255,6 +284,21 @@ public class MTMVPartitionUtilTest {
         );
         String rangeName = MTMVPartitionUtil.generatePartitionName(rangeDesc);
         Assert.assertEquals("p_1_2", rangeName);
+
+        PartitionKeyDesc nullDesc = PartitionKeyDesc.createIn(
+                Lists.<List<PartitionValue>>newArrayList(
+                        Lists.newArrayList(new PartitionValue("NULL", true))));
+        PartitionKeyDesc literalNullDesc = PartitionKeyDesc.createIn(
+                Lists.<List<PartitionValue>>newArrayList(
+                        Lists.newArrayList(new PartitionValue("NULL"))));
+        PartitionKeyDesc legacySuffixCollisionDesc = PartitionKeyDesc.createIn(
+                Lists.<List<PartitionValue>>newArrayList(
+                        Lists.newArrayList(new PartitionValue("NULL,literal"))));
+        Assert.assertEquals("p_NULL", MTMVPartitionUtil.generatePartitionName(nullDesc));
+        String literalNullName = MTMVPartitionUtil.generatePartitionName(literalNullDesc);
+        Assert.assertEquals(literalNullName, MTMVPartitionUtil.generatePartitionName(literalNullDesc));
+        Assert.assertNotEquals(MTMVPartitionUtil.generatePartitionName(nullDesc), literalNullName);
+        Assert.assertNotEquals(MTMVPartitionUtil.generatePartitionName(legacySuffixCollisionDesc), literalNullName);
     }
 
     @Test

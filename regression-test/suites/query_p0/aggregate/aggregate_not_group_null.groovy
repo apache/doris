@@ -31,8 +31,7 @@ suite("aggregate_no_group_null") {
     "replication_allocation" = "tag.location.default: 1",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     );
     """
     sql """insert into t1_int values(1,1),(1,2),(1,3),(1,4),(1,null);"""

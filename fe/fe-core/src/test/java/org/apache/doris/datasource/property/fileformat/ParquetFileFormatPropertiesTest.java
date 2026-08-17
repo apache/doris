@@ -47,6 +47,7 @@ public class ParquetFileFormatPropertiesTest {
 
         Assert.assertEquals(TParquetCompressionType.SNAPPY, parquetFileFormatProperties.getParquetCompressionType());
         Assert.assertEquals(false, parquetFileFormatProperties.isParquetDisableDictionary());
+        Assert.assertTrue(parquetFileFormatProperties.isEnableInt96Timestamps());
     }
 
     @Test
@@ -139,6 +140,7 @@ public class ParquetFileFormatPropertiesTest {
         parquetFileFormatProperties.fullTResultFileSinkOptions(sinkOptions);
         Assert.assertEquals(parquetFileFormatProperties.getParquetCompressionType(), sinkOptions.getParquetCompressionType());
         Assert.assertEquals(parquetFileFormatProperties.isParquetDisableDictionary(), sinkOptions.isParquetDisableDictionary());
+        Assert.assertEquals(parquetFileFormatProperties.isEnableInt96Timestamps(), sinkOptions.isEnableInt96Timestamps());
     }
 
     @Test

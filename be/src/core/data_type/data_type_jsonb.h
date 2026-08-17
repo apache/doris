@@ -51,9 +51,6 @@ public:
 
     const std::string get_family_name() const override { return "JSONB"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_JSONB; }
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_JSONB;
-    }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int data_version) const override;

@@ -56,8 +56,7 @@ suite("test_array_index1"){
     "is_being_synced" = "false",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     );
     """
     sql """ set enable_common_expr_pushdown = true """
@@ -114,8 +113,7 @@ suite("test_array_index2"){
     "is_being_synced" = "false",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     );
     """
 

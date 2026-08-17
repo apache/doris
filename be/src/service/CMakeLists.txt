@@ -24,6 +24,14 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/service")
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
 list(REMOVE_ITEM SRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/doris_main.cpp)
 
+if (ENABLE_TLS)
+    list(REMOVE_ITEM SRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/server/oss/be_server_starter_factory.cpp)
+    file(GLOB_RECURSE EXTRA_SOURCES CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/../${TLS_MODULE_DIR}/*.cpp")
+    list(APPEND SRC_FILES ${EXTRA_SOURCES})
+    list(REMOVE_ITEM SRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/../${TLS_MODULE_DIR}/client_connection_provider.cpp)
+endif()
+
 add_library(Service STATIC ${SRC_FILES})
 
 pch_reuse(Service)

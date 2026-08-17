@@ -211,7 +211,11 @@ suite("right_join_infer_and_derive") {
         if (mtmv_it == 0) {
             for (int i = 0; i < query_list.size(); i++) {
                 logger.info("i: " + i)
-                if (i in [0, 2, 5, 7, 9, 10]) {
+                // For query_stmt_10, the RIGHT JOIN is converted to INNER JOIN before MV rewrite,
+                // but the join condition can be simplified away, leaving the INNER JoinEdge with
+                // no expressions. Without JoinEdge expressions, null-reject slots cannot be
+                // inferred, so this case is expected to fail.
+                if (i in [0, 7, 10]) {
                     mv_rewrite_fail(query_list[i], mv_name_1)
                 } else {
                     mv_rewrite_success(query_list[i], mv_name_1)

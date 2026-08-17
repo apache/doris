@@ -88,8 +88,7 @@ class PushBrokerReader {
     ENABLE_FACTORY_CREATOR(PushBrokerReader);
 
 public:
-    PushBrokerReader(const Schema* schema, const TBrokerScanRange& t_scan_range,
-                     const TDescriptorTable& t_desc_tbl);
+    PushBrokerReader(const TBrokerScanRange& t_scan_range, const TDescriptorTable& t_desc_tbl);
     ~PushBrokerReader() = default;
     Status init();
     Status next(Block* block);

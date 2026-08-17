@@ -43,9 +43,6 @@ public:
     static constexpr PrimitiveType PType = TYPE_DATE;
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATE; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_DATE;
-    }
     const std::string get_family_name() const override { return "Date"; }
     std::string do_get_name() const override { return "Date"; }
 

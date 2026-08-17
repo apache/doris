@@ -34,6 +34,7 @@
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
 #include "storage/segment/column_writer.h"
+#include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"
@@ -107,10 +108,12 @@ public:
     [[nodiscard]] uint32_t row_count() const { return _row_count; }
     [[nodiscard]] uint32_t segment_id() const { return _segment_id; }
 
-    Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
+    Status finalize(uint64_t* segment_file_size, uint64_t* index_size,
+                    SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);
 
     Status finalize_columns_index(uint64_t* index_size);
-    Status finalize_footer(uint64_t* segment_file_size);
+    Status finalize_footer(uint64_t* segment_file_size,
+                           SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);
 
     Slice min_encoded_key();
     Slice max_encoded_key();
@@ -129,7 +132,8 @@ public:
     }
 
 private:
-    void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column);
+    void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
+                           const ColumnWriterOptions& opts);
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                                  const TabletSchemaSPtr& schema);
     uint64_t _estimated_remaining_size();
@@ -158,7 +162,8 @@ private:
     void _set_min_max_key(const Slice& key);
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
-    void _serialize_block_to_row_column(const Block& block);
+    Status _append_row_store_column(const Block& block, size_t row_pos, size_t num_rows,
+                                    uint32_t cid);
     Status _probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
                               bool have_delete_sign,
                               const std::vector<RowsetSharedPtr>& specified_rowsets,
@@ -194,6 +199,7 @@ private:
             IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
     Status _generate_short_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
+    Status _check_column_writer_disk_capacity(size_t cid);
     Status _finalize_column_writer_and_update_meta(size_t cid);
 
     bool _is_mow();
@@ -213,6 +219,7 @@ private:
     IndexFileWriter* _index_file_writer = nullptr;
 
     SegmentFooterPB _footer;
+    SegmentIndexFileCacheInfo _index_file_cache_info;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys
     // for other tables, the sort key is the keys
     size_t _num_sort_key_columns;

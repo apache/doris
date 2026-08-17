@@ -15,9 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_variant.h"
+#include "exec/common/variant_util.h"
 #include "gtest/gtest.h"
 #include "storage/segment/segment_iterator.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/json/path_in_data.h"
 
 namespace doris::segment_v2 {
 
@@ -37,14 +41,20 @@ TEST(SegmentIteratorNoNeedReadDataTest, extracted_variant_count_on_index) {
     auto tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->init_from_pb(schema_pb);
 
-    TabletColumn subcol =
-            TabletColumn::create_materialized_variant_column("data", {"items", "content"}, 1, 3);
+    const PathInData path("data", std::vector<std::string> {"items", "content"});
+    TabletColumn subcol = variant_util::get_column_by_type(
+            make_nullable(std::make_shared<DataTypeVariant>(3)), path.get_path(),
+            variant_util::ExtraInfo {.parent_unique_id = 1, .path_info = path});
     tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
 
     const ColumnId subcol_cid = tablet_schema->field_index(*subcol.path_info_ptr());
     ASSERT_GE(subcol_cid, 0);
 
-    auto read_schema = std::make_shared<Schema>(tablet_schema);
+    std::vector<ColumnId> read_column_ids(tablet_schema->num_columns());
+    for (uint32_t cid = 0; cid < read_column_ids.size(); ++cid) {
+        read_column_ids[cid] = cid;
+    }
+    auto read_schema = std::make_shared<Schema>(tablet_schema->columns(), read_column_ids);
     SegmentIterator iter(nullptr, read_schema);
     iter._opts.tablet_schema = tablet_schema;
     iter._opts.push_down_agg_type_opt = TPushAggOp::COUNT_ON_INDEX;

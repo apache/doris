@@ -45,10 +45,6 @@ public:
     const std::string get_family_name() const override { return "IPv4"; }
     std::string do_get_name() const override { return "IPv4"; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_IPV4;
-    }
-
     bool equals(const IDataType& rhs) const override;
 
     Field get_field(const TExprNode& node) const override;

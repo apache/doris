@@ -94,7 +94,7 @@ void MemInfo::refresh_proc_meminfo() {
     if (meminfo.is_open()) {
         meminfo.close();
     }
-
+    _s_cgroup_mem_refresh_state = false;
     // refresh cgroup memory
     if (config::enable_use_cgroup_memory_info) {
         if (_s_cgroup_mem_refresh_wait_times >= 0) {
@@ -119,12 +119,13 @@ void MemInfo::refresh_proc_meminfo() {
 
         // cgroup mem limit is refreshed every 10 seconds,
         // cgroup mem usage is refreshed together with memInfo every time, which is very frequent.
+        // If _s_cgroup_mem_limit == max, it means get cgroup mem limit failed OR the cgroup has no memory limit for example
+        // there is just "max" in memory.max file.
         if (_s_cgroup_mem_limit != std::numeric_limits<int64_t>::max()) {
             int64_t cgroup_mem_usage;
             auto status = CGroupMemoryCtl::find_cgroup_mem_usage(&cgroup_mem_usage);
             if (!status.ok()) {
                 _s_cgroup_mem_usage = std::numeric_limits<int64_t>::min();
-                _s_cgroup_mem_refresh_state = false;
                 LOG_EVERY_N(WARNING, 500)
                         << "Refresh cgroup memory usage failed, cgroup mem limit: "
                         << _s_cgroup_mem_limit << ", " << status;
@@ -132,17 +133,14 @@ void MemInfo::refresh_proc_meminfo() {
                 _s_cgroup_mem_usage = cgroup_mem_usage;
                 _s_cgroup_mem_refresh_state = true;
             }
-        } else {
-            _s_cgroup_mem_refresh_state = false;
         }
-    } else {
-        _s_cgroup_mem_refresh_state = false;
     }
 
     // 1. calculate physical_mem
     int64_t physical_mem = -1;
-
-    physical_mem = _mem_info_bytes["MemTotal"];
+    if (_mem_info_bytes.find("MemTotal") != _mem_info_bytes.end()) {
+        physical_mem = _mem_info_bytes["MemTotal"];
+    }
     if (_s_cgroup_mem_refresh_state) {
         // In theory, always cgroup_mem_limit < physical_mem
         if (physical_mem < 0) {
@@ -200,7 +198,7 @@ void MemInfo::refresh_proc_meminfo() {
         // Process `MemAvailable = MemFree - LowWaterMark + (PageCache - min(PageCache / 2, LowWaterMark))`,
         // from `MemAvailable` in `/proc/meminfo`, calculated by OS.
         // CgroupV2 `MemAvailable = cgroup_mem_limit - cgroup_mem_usage`,
-        // `cgroup_mem_usage = memory.current - inactive_file - slab_reclaimable`, in fact,
+        // `cgroup_mem_usage = memory.current - inactive_file - active_file - slab_reclaimable`, in fact,
         // there seems to be some memory that can be reused in `cgroup_mem_usage`.
         if (mem_available < 0) {
             mem_available = _s_cgroup_mem_limit - _s_cgroup_mem_usage;

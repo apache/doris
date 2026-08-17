@@ -95,8 +95,7 @@ public:
         const NullMap* nullmap = nullptr;
         if constexpr (is_nullable) {
             col_nullable = check_and_get_column<ColumnNullable>(column.get());
-            col_nullmap = check_and_get_column<ColumnUInt8>(
-                    col_nullable->get_null_map_column_ptr().get());
+            col_nullmap = col_nullable->get_null_map_column_ptr().get();
             col = check_and_get_column<ColumnFloat64>(col_nullable->get_nested_column_ptr().get());
             if (col == nullptr || col_nullmap == nullptr) {
                 return type_error();
@@ -168,6 +167,8 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     bool use_default_implementation_for_nulls() const override { return false; }
+
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {

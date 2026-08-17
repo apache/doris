@@ -253,7 +253,7 @@ public class OperationType {
     // The actual opcode now represents
     // modify table properties: inMemory, StoragePolicy, IsBeingSynced, CompactionPolicy,
     // TimeSeriesCompactionFileCountThreshold, SeriesCompactionTimeThresholdSeconds,
-    // SkipWriteIndexOnLoad, EnableSingleReplicaCompaction.
+    // SkipWriteIndexOnLoad.
     public static final short OP_MODIFY_TABLE_PROPERTIES = 267;
 
     // set table default distribution bucket num

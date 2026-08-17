@@ -137,6 +137,8 @@ true
 
 -- !null_partition --
 1	bj
+2	\N
+3	\N
 4	null
 5	NULL
 
@@ -148,4 +150,3 @@ true
 
 -- !date_partition --
 1	2020-01-01
-

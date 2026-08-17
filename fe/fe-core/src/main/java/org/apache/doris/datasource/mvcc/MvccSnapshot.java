@@ -22,4 +22,12 @@ package org.apache.doris.datasource.mvcc;
  * but it should be ensured that the table information queried through this snapshot remains unchanged
  */
 public interface MvccSnapshot {
+    /**
+     * Whether two independently resolved wrappers identify the same immutable metadata state.
+     */
+    default boolean isSameSnapshot(MvccSnapshot other) {
+        // Unknown implementations remain identity-conservative so optimizer rewrites cannot
+        // merge scans unless the provider exposes a stable snapshot identity.
+        return this == other;
+    }
 }

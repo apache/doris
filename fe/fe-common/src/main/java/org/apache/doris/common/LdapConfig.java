@@ -73,6 +73,12 @@ public class LdapConfig extends ConfigBase {
     public static String ldap_group_filter = "";
 
     /**
+     * Default Doris roles granted to every LDAP-authenticated user.
+     */
+    @ConfigBase.ConfField(mutable = true)
+    public static String[] ldap_default_roles = {};
+
+    /**
      * The user LDAP information cache time.
      * After timeout, the user information will be retrieved from the LDAP service again.
      */

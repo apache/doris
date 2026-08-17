@@ -111,7 +111,11 @@ enum TFileFormatType {
     FORMAT_WAL = 15,
     FORMAT_ARROW = 16,
     FORMAT_TEXT = 17,
-    FORMAT_NATIVE = 18
+    FORMAT_NATIVE = 18,
+    // Reserve the master wire IDs so branch-4.1 can explicitly keep these unsupported formats
+    // off FileScannerV2 without renumbering later TFileFormatType values.
+    FORMAT_LANCE = 19,
+    FORMAT_ES_HTTP = 20
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -253,9 +257,21 @@ struct TFileTextScanRangeParams {
     8: optional bool empty_field_as_null
 }
 
+enum TColumnCategory {
+    REGULAR = 0,
+    PARTITION_KEY = 1,
+    SYNTHESIZED = 2,
+    GENERATED = 3,
+}
+
 struct TFileScanSlotInfo {
     1: optional Types.TSlotId slot_id;
     2: optional bool is_file_slot;
+    3: optional TColumnCategory category;
+    // Default value expression for this column when it is missing from the data file.
+    // Populated by FE from Column.getDefaultValue() or NULL literal.
+    // This replaces the separate default_value_of_src_slot map in TFileScanRangeParams.
+    4: optional Exprs.TExpr default_value_expr;
 }
 
 // descirbe how to read file
@@ -297,6 +313,10 @@ struct TIcebergDeleteFileDesc {
     6: optional i64 content_offset;
     7: optional i64 content_size_in_bytes;
     8: optional TFileFormatType file_format;
+    // Original Iceberg delete file path before Doris storage path normalization.
+    9: optional string original_path;
+    // Referenced data file path. Required to materialize rows from deletion vectors.
+    10: optional string referenced_data_file_path;
 }
 
 struct TIcebergFileDesc {
@@ -319,12 +339,19 @@ struct TIcebergFileDesc {
     10: optional i64 first_row_id;
     // Only for format_version >= 3, the sequence number which last updated this file.
     11: optional i64 last_updated_sequence_number;
+    12: optional string serialized_split;
 }
 
 struct TPaimonDeletionFileDesc {
     1: optional string path;
     2: optional i64 offset;
     3: optional i64 length;
+}
+
+enum TPaimonReaderType {
+    PAIMON_NATIVE = 0,
+    PAIMON_JNI = 1,
+    PAIMON_CPP = 2,
 }
 
 struct TPaimonFileDesc {
@@ -344,6 +371,8 @@ struct TPaimonFileDesc {
     14: optional string paimon_table  // deprecated
     15: optional i64 row_count // deprecated
     16: optional i64 schema_id; // for schema change.
+    // Reader implementation for logical paimon split. Native file split uses range format type.
+    17: optional TPaimonReaderType reader_type;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -412,6 +441,98 @@ struct TRemoteDorisFileDesc {
     6: optional string password
 }
 
+// Element type and byte layout of a vector search query. The encoded values use little-endian
+// byte order and contain exactly `dimension` elements of `element_type`.
+enum TVectorElementType {
+    FLOAT16,
+    FLOAT32,
+    FLOAT64,
+    UINT8,
+    INT8
+}
+
+enum TVectorMetric {
+    DEFAULT,
+    L2,
+    COSINE,
+    DOT_PRODUCT,
+    HAMMING
+}
+
+struct TSearchVector {
+    1: optional TVectorElementType element_type
+    2: optional i32 dimension
+    3: optional binary values
+}
+
+// Logical result parameters for one vector query. `top_k` is the number of rows returned after
+// skipping `offset`; an adapter may fetch more physical candidates to implement that contract.
+struct TVectorSearchParams {
+    1: optional string column
+    2: optional TSearchVector query_vector
+    3: optional i64 top_k
+    4: optional i64 offset
+    5: optional TVectorMetric metric
+}
+
+// Logical parameters for one full-text query. `query` initially carries the backend query string;
+// richer structured query forms can be added as new fields without changing this basic contract.
+struct TFullTextSearchParams {
+    1: optional string column
+    2: optional string query
+    3: optional i64 top_k
+    4: optional i64 offset
+}
+
+enum TSearchFilterFormat {
+    SQL,
+    SUBSTRAIT
+}
+
+// A search filter is evaluated before candidate selection. A normal SQL predicate above the search
+// relation remains a post-search filter and is not serialized here.
+struct TSearchFilter {
+    1: optional TSearchFilterFormat format
+    2: optional binary payload
+}
+
+// Lance-only vector search tuning. Logical query fields stay in TVectorSearchParams so another
+// provider, such as Paimon, can reuse the same request without depending on Lance options.
+struct TLanceVectorSearchOptions {
+    1: optional i32 nprobes
+    2: optional i32 refine_factor
+    3: optional i32 ef
+    4: optional bool use_index
+}
+
+// The active union field identifies the logical search kind. A future hybrid field can contain both
+// vector and full-text subqueries plus its fusion parameters without changing either existing field.
+union TExternalSearchQuery {
+    1: TVectorSearchParams vector
+    2: TFullTextSearchParams full_text
+}
+
+// A provider-independent logical search request. Physical target information remains in the
+// provider FileDesc (for example, dataset_uri/version/fragment_ids in TLanceFileDesc).
+struct TExternalSearchRequest {
+    1: optional i32 schema_version = 1
+    2: optional TExternalSearchQuery query
+    3: optional TSearchFilter filter
+    4: optional TLanceVectorSearchOptions lance_options
+}
+
+// A catalog/S3 range reads fragments from a fixed snapshot. A local TVF range uses version zero
+// without fragment_ids to open the latest snapshot and scan the whole dataset on its selected BE.
+struct TLanceFileDesc {
+    1: optional string dataset_uri
+    2: optional list<i64> fragment_ids
+    3: optional i64 version
+    // Per-split row limit pushed down from the query LIMIT. Each scanner returns at
+    // most this many rows; the upper LIMIT operator still enforces the global bound.
+    // Only set for ordinary scans whose predicates are fully pushed into Lance.
+    4: optional i64 limit
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -423,6 +544,9 @@ struct TTableFormatFileDesc {
     8: optional TLakeSoulFileDesc lakesoul_params
     9: optional i64 table_level_row_count = -1
     10: optional TRemoteDorisFileDesc remote_doris_params
+    // JDBC connection parameters (used when table_format_type == "jdbc")
+    11: optional map<string, string> jdbc_params
+    12: optional TLanceFileDesc lance_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -499,6 +623,18 @@ struct TFileScanRangeParams {
     // Paimon options from FE, used for jni/native scanner
     // Set at ScanNode level to avoid redundant serialization in each split
     30: optional map<string, string> paimon_options
+    // Versioned Iceberg scan semantics negotiated by FE. Absence/zero preserves legacy BE
+    // behavior during a BE-first rolling upgrade; version 1 enables file-wide ID projection and
+    // logical initial-default materialization.
+    34: optional i32 iceberg_scan_semantics_version
+    // FE-generated identity for sharing a deserialized table across JNI scanners in one scan node.
+    35: optional string serialized_table_cache_key
+    // Serialized Substrait ExtendedExpression executed by the native Lance scanner. Set at
+    // ScanNode level so it is not serialized once per fragment split.
+    36: optional binary lance_substrait_filter
+    // Provider-independent search request. Set at ScanNode level so all ranges use the same logical
+    // query. The first implementation uses one whole-dataset range for Lance vector search.
+    37: optional TExternalSearchRequest external_search_request
 }
 
 struct TFileRangeDesc {
@@ -1000,7 +1136,8 @@ struct TNestedLoopJoinNode {
 
   4: optional list<Types.TTupleId> vintermediate_tuple_id_list
 
-  // for bitmap filer, don't need to join, but output left child tuple
+  // Deprecated: bitmap runtime filter planning no longer uses this field; for bitmap filer,
+  // don't need to join, but output left child tuple
   5: optional bool is_output_left_side_only
 
   6: optional Exprs.TExpr vjoin_conjunct
@@ -1374,6 +1511,7 @@ enum TRuntimeFilterType {
   BLOOM = 2,
   MIN_MAX = 4,
   IN_OR_BLOOM = 8,
+  // Deprecated: bitmap runtime filters are no longer planned.
   BITMAP = 16
 }
 
@@ -1433,10 +1571,10 @@ struct TRuntimeFilterDesc {
   // the query options. Should be greater than zero for bloom filters, zero otherwise.
   9: optional i64 bloom_filter_size_bytes
 
-  // for bitmap filter target expr
+  // Deprecated: bitmap runtime filters are no longer planned; for bitmap filter target expr
   10: optional Exprs.TExpr bitmap_target_expr
 
-  // for bitmap filter
+  // Deprecated: bitmap runtime filters are no longer planned; for bitmap filter
   11: optional bool bitmap_filter_not_in
 
   12: optional bool opt_remote_rf; // Deprecated
@@ -1537,6 +1675,10 @@ struct TPlanNode {
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
   51: optional bool is_serial_operator
   52: optional TRecCTEScanNode rec_cte_scan_node
+  // COUNT(*) and COUNT(col) share push_down_agg_type_opt=COUNT, but file readers need to know
+  // whether a projected scan slot is the aggregate argument or merely the placeholder retained by
+  // column pruning. Empty means row-count semantics; non-empty identifies explicit COUNT columns.
+  55: optional list<Types.TSlotId> push_down_count_slot_ids
 
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections

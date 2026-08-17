@@ -117,7 +117,7 @@ void LocalMergeSortSourceOperatorX::init_dependencies_and_sorter() {
     _sorters.resize(_parallel_tasks);
 }
 
-Status LocalMergeSortSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status LocalMergeSortSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);

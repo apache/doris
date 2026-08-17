@@ -55,6 +55,8 @@ import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -546,6 +548,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             // 3. remove db from catalog
             idToDb.remove(db.getId());
             fullNameToDb.remove(db.getFullName());
+            Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(db.getFullName());
             DropDbInfo info = new DropDbInfo(dbName, force, recycleTime);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(), db.getId());
             Env.getCurrentEnv().getDictionaryManager().dropDbDictionaries(dbName);
@@ -598,6 +601,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             fullNameToDb.remove(dbName);
             idToDb.remove(db.getId());
+            Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(dbName);
         } finally {
             unlock();
         }
@@ -647,6 +651,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
             Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
             db.unmarkDropped();
+            registerDbFunctionsToNereids(db);
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
             db.writeUnlock();
@@ -729,7 +734,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         // add db to catalog
         replayCreateDb(db, newDbName);
         db.unmarkDropped();
+        registerDbFunctionsToNereids(db);
         LOG.info("replay recover db[{}]", dbId);
+    }
+
+    private void registerDbFunctionsToNereids(Database db) {
+        // A recovered database reuses catalog Function objects, so rebuild their Nereids builders.
+        for (Function function : db.getFunctions()) {
+            FunctionUtil.translateToNereids(db.getFullName(), function);
+        }
     }
 
     public void alterDatabaseQuota(String dbName, QuotaType quotaType, long quotaValue) throws DdlException {
@@ -1533,10 +1546,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
                         olapTable.variantEnableFlattenNested().toString());
             }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION,
-                        olapTable.enableSingleReplicaCompaction().toString());
-            }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
                         olapTable.storeRowColumn().toString());
@@ -2140,7 +2149,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             indexes, tbl.isInMemory(), tabletType,
                             tbl.getDataSortInfo(), tbl.getCompressionType(),
                             tbl.getEnableUniqueKeyMergeOnWrite(), storagePolicy, tbl.disableAutoCompaction(),
-                            tbl.enableSingleReplicaCompaction(), tbl.skipWriteIndexOnLoad(),
+                            tbl.skipWriteIndexOnLoad(),
                             tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                             tbl.getTimeSeriesCompactionFileCountThreshold(),
                             tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
@@ -2752,18 +2761,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 + " property is only supported for unique merge-on-write table");
         }
         olapTable.setEnableMowLightDelete(enableDeleteOnDeletePredicate);
-
-        boolean enableSingleReplicaCompaction = false;
-        try {
-            enableSingleReplicaCompaction = PropertyAnalyzer.analyzeEnableSingleReplicaCompaction(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        if (enableUniqueKeyMergeOnWrite && enableSingleReplicaCompaction) {
-            throw new DdlException(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
-                + " property is not supported for merge-on-write table");
-        }
-        olapTable.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
 
         if (Config.isCloudMode() && ((CloudEnv) env).getEnableStorageVault()) {
             // <storageVaultName, storageVaultId>
@@ -3817,8 +3814,10 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             //replace
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap  =  new HashMap<>();
+            long version = Config.isNotCloudMode() ? olapTable.getNextVersion() : 0L;
+            long versionTimeMs = Config.isNotCloudMode() ? System.currentTimeMillis() : 0L;
             oldPartitions = truncateTableInternal(olapTable, newPartitions,
-                    truncateEntireTable, recyclePartitionParamMap, forceDrop);
+                    truncateEntireTable, recyclePartitionParamMap, forceDrop, version, versionTimeMs);
             if (truncateEntireTable) {
                 Env.getCurrentEnv().getAnalysisManager().removeTableStats(olapTable.getId());
             } else {
@@ -3830,7 +3829,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
                     newPartitions, truncateEntireTable,
-                            rawTruncateSql, oldPartitions, forceDrop, updateRecords);
+                            rawTruncateSql, oldPartitions, forceDrop, updateRecords, version, versionTimeMs);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (DdlException e) {
             failedCleanCallback.run();
@@ -3846,7 +3845,8 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     private List<Partition> truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions,
-            boolean isEntireTable, Map<Long, RecyclePartitionParam> recyclePartitionParamMap, boolean isforceDrop) {
+            boolean isEntireTable, Map<Long, RecyclePartitionParam> recyclePartitionParamMap, boolean isforceDrop,
+            long version, long versionTimeMs) {
         // use new partitions to replace the old ones.
         List<Partition> oldPartitions = Lists.newArrayList();
         for (Partition newPartition : newPartitions) {
@@ -3876,9 +3876,13 @@ public class InternalCatalog implements CatalogIf<Database> {
             olapTable.dropPartitionForTruncate(olapTable.getDatabase().getId(), isforceDrop, pair.getValue());
         }
 
-        // Reset table-level visibleVersion to TABLE_INIT_VERSION so it stays consistent
-        // with the newly created partitions (which also start at PARTITION_INIT_VERSION).
-        olapTable.resetVisibleVersion();
+        if (Config.isNotCloudMode() && version > 0) {
+            // Persisted values make the version transition deterministic during journal replay.
+            olapTable.updateVisibleVersionAndTime(version, versionTimeMs);
+        } else {
+            // Preserve legacy replay and Cloud's local cache invalidation behavior.
+            olapTable.resetVisibleVersion();
+        }
 
         return oldPartitions;
     }
@@ -3892,7 +3896,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             Map<Long, RecyclePartitionParam> recyclePartitionParamMap =  new HashMap<>();
             truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable(),
-                                    recyclePartitionParamMap, isForceDrop);
+                                    recyclePartitionParamMap, isForceDrop,
+                                    info.getVersion(), info.getVersionTimeMs());
 
             // add tablet to inverted index
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();

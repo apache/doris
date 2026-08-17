@@ -35,12 +35,19 @@ services:
       - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
       - ./data/input/jars/iceberg-aws-bundle-1.10.1.jar:/opt/spark/jars/iceberg-aws-bundle-1.10.1.jar
       - ./data/input/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar:/opt/spark/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar
-      - ./data/input/jars/paimon-s3-1.3.1.jar:/opt/spark/jars/paimon-s3-1.3.1.jar
-      - ./data/input/jars/paimon-spark-4.0-1.3.1.jar:/opt/spark/jars/paimon-spark-4.0-1.3.1.jar
+      - ./data/input/jars/lance-spark-bundle-4.0_2.13-0.4.0.jar:/opt/spark/jars/lance-spark-bundle-4.0_2.13-0.4.0.jar
+      - ./data/input/jars/paimon-s3-1.4.2.jar:/opt/spark/jars/paimon-s3-1.4.2.jar
+      - ./data/input/jars/paimon-spark-4.0_2.13-1.4.2.jar:/opt/spark/jars/paimon-spark-4.0_2.13-1.4.2.jar
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
+      # Keep the native Lance caches bounded in the shared regression container.
+      - LANCE_ALLOCATOR_SIZE=536870912
+      - LANCE_INDEX_CACHE_SIZE=268435456
+      - LANCE_METADATA_CACHE_SIZE=134217728
+    ports:
+      - ${SPARK_THRIFT_PORT}:10000
     entrypoint: /bin/sh /mnt/scripts/entrypoint.sh
     user: root
     networks:
@@ -53,7 +60,7 @@ services:
 
   postgres:
     image: postgis/postgis:14-3.3
-    container_name: doris--postgres
+    container_name: doris--iceberg-postgres
     environment:
       POSTGRES_PASSWORD: 123456
       POSTGRES_USER: root
@@ -99,9 +106,57 @@ services:
       - /usr/lib/iceberg-rest/iceberg-rest-adapter.jar:/opt/jdbc/postgresql.jar
       - org.apache.iceberg.rest.RESTCatalogServer
 
+  lance-rest:
+    image: python:3.11.9-slim-bookworm
+    container_name: doris--lance-rest
+    depends_on:
+      mc:
+        condition: service_completed_successfully
+    ports:
+      - ${LANCE_REST_PORT}:8080
+    volumes:
+      - ./scripts/lance_rest_server.py:/opt/lance-rest/server.py:ro
+    environment:
+      LANCE_REST_BEARER_TOKEN: doris-lance-rest-test-token
+      LANCE_REST_TABLES_JSON: '{"all_types":"s3://warehouse/lance/all_types.lance"}'
+      LANCE_S3_ACCESS_KEY: admin
+      LANCE_S3_SECRET_KEY: password
+      LANCE_S3_REGION: us-east-1
+    networks:
+      - doris--iceberg
+    command: ["python3", "/opt/lance-rest/server.py"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')",
+        ]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  trino:
+    image: trinodb/trino:482
+    container_name: doris--iceberg-trino
+    depends_on:
+      rest:
+        condition: service_started
+      mc:
+        condition: service_completed_successfully
+    user: root
+    networks:
+      - doris--iceberg
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /etc/trino/catalog && command -v trino >/dev/null"]
+      interval: 5s
+      timeout: 60s
+      retries: 120
+
   minio:
     image: minio/minio:RELEASE.2025-01-20T14-49-07Z
-    container_name: doris--minio
+    container_name: doris--iceberg-minio
     ports:
       - ${MINIO_API_PORT}:9000
     healthcheck:
@@ -127,7 +182,7 @@ services:
       minio:
         condition: service_healthy
     image: minio/mc:RELEASE.2025-01-17T23-25-50Z
-    container_name: doris--mc
+    container_name: doris--iceberg-mc
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
@@ -148,6 +203,7 @@ services:
         /usr/bin/mc policy set public minio/warehouse;
         /usr/bin/mc cp -r /mnt/data/input/minio/warehouse/* minio/warehouse/;
       fi;
+      /usr/bin/mc cp -r /mnt/preinstalled_data/lance/ minio/warehouse/lance/;
       /usr/bin/mc cp -r /mnt/preinstalled_data/iceberg/ minio/warehouse/wh/multi_catalog/;
       "
 

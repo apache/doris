@@ -65,7 +65,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
@@ -80,7 +80,6 @@ private:
 
     VExprContextSPtrs _filter_src_expr_ctxs;
 
-    const bool _is_output_left_side_only;
     RowDescriptor _row_descriptor;
 };
 

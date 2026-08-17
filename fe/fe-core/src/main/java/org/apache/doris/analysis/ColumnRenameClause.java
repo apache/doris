@@ -28,17 +28,27 @@ import java.util.Map;
 // rename column
 public class ColumnRenameClause extends AlterTableClause {
     private String colName;
+    private ColumnPath columnPath;
     private String newColName;
 
     public ColumnRenameClause(String colName, String newColName) {
+        this(ColumnPath.of(colName), newColName);
+    }
+
+    public ColumnRenameClause(ColumnPath columnPath, String newColName) {
         super(AlterOpType.RENAME);
-        this.colName = colName;
+        this.colName = columnPath.getLeafName();
+        this.columnPath = columnPath;
         this.newColName = newColName;
         this.needTableStable = false;
     }
 
     public String getColName() {
         return colName;
+    }
+
+    public ColumnPath getColumnPath() {
+        return columnPath;
     }
 
     public String getNewColName() {
@@ -75,7 +85,7 @@ public class ColumnRenameClause extends AlterTableClause {
 
     @Override
     public String toSql() {
-        return "RENAME COLUMN " + colName + " " + newColName;
+        return "RENAME COLUMN " + columnPath.toSql() + " TO " + newColName;
     }
 
     @Override

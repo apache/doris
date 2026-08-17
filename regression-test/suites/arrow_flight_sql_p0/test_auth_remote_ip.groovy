@@ -18,6 +18,8 @@
 import java.sql.Connection
 import java.sql.DriverManager
 
+import org.apache.doris.regression.util.JdbcUtils
+
 suite("test_auth_remote_ip", "arrow_flight_sql") {
     String user = "flight_auth_remote_ip_user"
     String password = "flight_auth_remote_ip_pwd"
@@ -60,7 +62,7 @@ suite("test_auth_remote_ip", "arrow_flight_sql") {
 
         Connection conn = DriverManager.getConnection(arrowFlightSqlUrl, user, password)
         try {
-            List<List<Object>> result = sql_impl(conn, "SELECT 1")
+            def (result, meta) = JdbcUtils.executeQueryToList(conn, "SELECT 1")
             assertEquals(1, result.size())
             assertEquals(1, (result[0][0] as Number).intValue())
         } finally {

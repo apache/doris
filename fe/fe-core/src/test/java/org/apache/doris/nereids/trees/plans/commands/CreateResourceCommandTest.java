@@ -25,6 +25,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableMap;
@@ -35,12 +36,24 @@ import org.junit.jupiter.api.Test;
 
 public class CreateResourceCommandTest extends TestWithFeService {
     @Test
-    public void testValidate(@Mocked Env env, @Mocked AccessControllerManager accessManager) {
+    public void testValidate(@Mocked Env env, @Mocked AccessControllerManager accessManager,
+            @Mocked SystemInfoService systemInfoService) {
         new Expectations() {
             {
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
                 env.getAccessManager();
+                minTimes = 0;
                 result = accessManager;
+
+                env.getCurrentSystemInfo();
+                minTimes = 0;
+                result = systemInfoService;
+
                 accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                minTimes = 0;
                 result = true;
             }
         };

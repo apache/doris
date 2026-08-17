@@ -68,18 +68,18 @@ public class PushDownTopNDistinctThroughUnion implements RewriteRuleFactory {
                             LogicalAggregate<LogicalUnion> agg = topN.child();
                             LogicalUnion union = agg.child();
                             List<Plan> newChildren = new ArrayList<>();
-                            for (Plan child : union.children()) {
+                            for (int childIdx = 0; childIdx < union.arity(); ++childIdx) {
                                 Map<Expression, Expression> replaceMap = new HashMap<>();
                                 for (int i = 0; i < union.getOutputs().size(); ++i) {
                                     NamedExpression output = union.getOutputs().get(i);
-                                    replaceMap.put(output, child.getOutput().get(i));
+                                    replaceMap.put(output, union.getRegularChildOutput(childIdx).get(i));
                                 }
                                 List<OrderKey> orderKeys = topN.getOrderKeys().stream()
                                         .map(orderKey -> orderKey.withExpression(
                                                 ExpressionUtils.replace(orderKey.getExpr(), replaceMap)))
                                         .collect(ImmutableList.toImmutableList());
                                 newChildren.add(new LogicalTopN<>(orderKeys, topN.getLimit() + topN.getOffset(), 0,
-                                        PlanUtils.distinct(child)));
+                                        PlanUtils.distinct(union.child(childIdx))));
                             }
                             if (union.children().equals(newChildren)) {
                                 return null;

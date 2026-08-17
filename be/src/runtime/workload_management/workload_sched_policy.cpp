@@ -18,6 +18,7 @@
 #include "runtime/workload_management/workload_sched_policy.h"
 
 #include "runtime/workload_management/resource_context.h"
+#include "runtime/workload_management/task_controller.h"
 #include "util/time.h"
 
 namespace doris {
@@ -79,6 +80,12 @@ bool WorkloadSchedPolicy::is_match(WorkloadAction::RuntimeContext* action_runtim
             val = std::to_string(action_runtime_ctx->resource_ctx->io_context()->scan_bytes());
             break;
         }
+        // Evaluate the remote read breaker against the existing IO context remote scan counter.
+        case WorkloadMetricType::SCAN_BYTES_FROM_REMOTE_STORAGE: {
+            val = std::to_string(action_runtime_ctx->resource_ctx->io_context()
+                                         ->scan_bytes_from_remote_storage());
+            break;
+        }
         case WorkloadMetricType::SCAN_ROWS: {
             val = std::to_string(action_runtime_ctx->resource_ctx->io_context()->scan_rows());
             break;
@@ -86,6 +93,13 @@ bool WorkloadSchedPolicy::is_match(WorkloadAction::RuntimeContext* action_runtim
         case WorkloadMetricType::QUERY_MEMORY_BYTES: {
             val = std::to_string(
                     action_runtime_ctx->resource_ctx->memory_context()->current_memory_bytes());
+            break;
+        }
+        case WorkloadMetricType::USERNAME: {
+            // Reject the condition when BE does not have explicit user metadata.
+            if (!action_runtime_ctx->resource_ctx->task_controller()->get_user(&val)) {
+                return false;
+            }
             break;
         }
         default:

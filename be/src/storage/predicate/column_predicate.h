@@ -48,9 +48,8 @@ enum class PredicateType {
     NOT_IN_LIST = 8,
     IS_NULL = 9,
     IS_NOT_NULL = 10,
-    BF = 11,            // BloomFilter
-    BITMAP_FILTER = 12, // BitmapFilter
-    MATCH = 13,         // fulltext match
+    BF = 11,    // BloomFilter
+    MATCH = 13, // fulltext match
 };
 
 template <PrimitiveType primitive_type, typename ResultType>
@@ -387,8 +386,6 @@ public:
     // If true, it was definitely created by a runtime filter.
     // If false, it may still have been created by a runtime filter,
     // as certain filters like "in filter" generate key ranges instead of ColumnPredicate.
-    // is_runtime_filter uses _can_ignore, except for BitmapFilter,
-    // as BitmapFilter cannot ignore data.
     virtual bool is_runtime_filter() const { return _can_ignore(); }
 
 protected:

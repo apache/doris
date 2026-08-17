@@ -373,7 +373,15 @@ public class QueryProfileAction extends RestBaseController {
      *  Query qError.
      */
     @RequestMapping(path = "/qerror/{id}", method = RequestMethod.GET)
-    public ResponseEntity<String> getStats(@PathVariable(value = "id") String id) {
+    public Object getStats(HttpServletRequest request, HttpServletResponse response,
+            @PathVariable(value = "id") String id) {
+        executeCheckPassword(request, response);
+        try {
+            checkAuthByUserAndQueryId(id);
+        } catch (AuthenticationException e) {
+            return ResponseEntityBuilder.badRequest(e.getMessage());
+        }
+
         ProfileElement profile = ProfileManager.getInstance().findProfileElementObject(id);
         if (profile == null) {
             return ResponseEntityBuilder.notFound(null);

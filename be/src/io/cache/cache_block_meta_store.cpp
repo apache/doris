@@ -33,8 +33,6 @@
 
 #include "common/status.h"
 #include "exec/common/hex.h"
-#include "storage/field.h"
-#include "storage/field.h" // For OLAP_FIELD_TYPE_BIGINT
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"
 #include "util/threadpool.h"

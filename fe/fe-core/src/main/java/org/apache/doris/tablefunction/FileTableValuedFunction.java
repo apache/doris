@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.lance.LanceTableMetadata;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
@@ -87,6 +88,21 @@ public class FileTableValuedFunction extends ExternalFileTableValuedFunction {
     @Override
     public TFileCompressType getTFileCompressType() {
         return delegateTvf.getTFileCompressType();
+    }
+
+    @Override
+    public boolean isLanceFormat() {
+        return delegateTvf.isLanceFormat();
+    }
+
+    @Override
+    public long getLanceDatasetVersion() {
+        return delegateTvf.getLanceDatasetVersion();
+    }
+
+    @Override
+    public List<LanceTableMetadata.LanceFragmentInfo> getLanceFragments() {
+        return delegateTvf.getLanceFragments();
     }
 
     @Override

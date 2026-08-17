@@ -166,52 +166,6 @@ TEST_F(RuntimeFilterConsumerTest, aquire_disabled) {
     ASSERT_TRUE(consumer->is_applied());
 }
 
-TEST_F(RuntimeFilterConsumerTest, bitmap_filter) {
-    auto desc = TRuntimeFilterDescBuilder()
-                        .set_type(TRuntimeFilterType::BITMAP)
-                        .add_planId_to_target_expr(0)
-                        .build();
-    std::shared_ptr<RuntimeFilterConsumer> consumer;
-
-    {
-        auto st = RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer);
-        ASSERT_FALSE(st.ok());
-    }
-    desc.__set_src_expr(
-            TExprBuilder()
-                    .append_nodes(
-                            TExprNodeBuilder(
-                                    TExprNodeType::SLOT_REF,
-                                    TTypeDescBuilder()
-                                            .set_types(
-                                                    TTypeNodeBuilder()
-                                                            .set_type(TTypeNodeType::SCALAR)
-                                                            .set_scalar_type(TPrimitiveType::BITMAP)
-                                                            .build())
-                                            .build(),
-                                    0)
-                                    .set_slot_ref(TSlotRefBuilder(0, 0).build())
-                                    .build())
-                    .build());
-
-    {
-        auto st = RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer);
-        ASSERT_FALSE(st.ok());
-    }
-    {
-        desc.__set_has_local_targets(false);
-        desc.__set_has_remote_targets(true);
-        auto st = RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer);
-        ASSERT_FALSE(st.ok());
-        desc.__set_has_local_targets(true);
-        desc.__set_has_remote_targets(false);
-    }
-
-    desc.__set_bitmap_target_expr(TRuntimeFilterDescBuilder::get_default_expr());
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            RuntimeFilterConsumer::create(_runtime_states[1].get(), &desc, 0, &consumer));
-}
-
 TEST_F(RuntimeFilterConsumerTest, aquire_signal_at_same_time) {
     for (int i = 0; i < 100; i++) {
         std::shared_ptr<RuntimeFilterConsumer> consumer;

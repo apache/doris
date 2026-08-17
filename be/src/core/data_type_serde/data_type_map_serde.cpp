@@ -17,13 +17,18 @@
 
 #include "core/data_type_serde/data_type_map_serde.h"
 
+#include <algorithm>
+
 #include "arrow/array/builder_nested.h"
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_map.h"
+#include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/string_ref.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
@@ -349,8 +354,7 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
 
     for (size_t r = start; r < end; ++r) {
         if ((null_map && (*null_map)[r])) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
         } else if (simd::contain_one(keys_nullmap_data + offsets[r - 1],
                                      offsets[r] - offsets[r - 1])) {
             // arrow do not support key is null, so we ignore the null key-value
@@ -364,8 +368,7 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
                 key_mutable_data->insert_from(nested_keys_column, i);
                 value_mutable_data->insert_from(nested_values_column, i);
             }
-            RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column, *array_builder));
 
             RETURN_IF_ERROR(key_serde->write_column_to_arrow(
                     *key_mutable_data, nullptr, key_builder, 0, key_mutable_data->size(), ctz));
@@ -373,8 +376,7 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
                                                                value_builder, 0,
                                                                value_mutable_data->size(), ctz));
         } else {
-            RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column, *array_builder));
             RETURN_IF_ERROR(key_serde->write_column_to_arrow(
                     nested_keys_column, nullptr, key_builder, offsets[r - 1], offsets[r], ctz));
             RETURN_IF_ERROR(value_serde->write_column_to_arrow(
@@ -392,6 +394,9 @@ Status DataTypeMapSerDe::read_column_from_arrow(IColumn& column, const arrow::Ar
     const auto* concrete_map = dynamic_cast<const arrow::MapArray*>(arrow_array);
     auto arrow_offsets_array = concrete_map->offsets();
     auto* arrow_offsets = dynamic_cast<arrow::Int32Array*>(arrow_offsets_array.get());
+    if (config::enable_arrow_input_validation) {
+        check_arrow_map_offsets(*concrete_map, start, end);
+    }
     auto prev_size = offsets_data.back();
 
     const auto* base_offsets_ptr = reinterpret_cast<const uint8_t*>(arrow_offsets->raw_values());
@@ -437,21 +442,56 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
     const ColumnArray::Offsets64& offsets = map_column.get_offsets();
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
-    for (size_t row_id = start; row_id < end; row_id++) {
-        size_t offset = offsets[row_id - 1];
-        size_t next_offset = offsets[row_id];
-
+    const size_t source_nested_start = start == 0 ? 0 : offsets[start - 1];
+    const size_t source_nested_end = end == 0 ? source_nested_start : offsets[end - 1];
+    const bool has_masked_row =
+            null_map != nullptr && std::any_of(null_map->begin() + start, null_map->begin() + end,
+                                               [](UInt8 is_null) { return is_null != 0; });
+    if (!has_masked_row) {
+        for (size_t row_id = start; row_id < end; row_id++) {
+            cur_batch->offsets[row_id - start + 1] = offsets[row_id] - source_nested_start;
+        }
         RETURN_IF_ERROR(key_serde->write_column_to_orc(timezone, nested_keys_column, nullptr,
-                                                       cur_batch->keys.get(), offset, next_offset,
-                                                       arena, options));
-        RETURN_IF_ERROR(value_serde->write_column_to_orc(timezone, nested_values_column, nullptr,
-                                                         cur_batch->elements.get(), offset,
-                                                         next_offset, arena, options));
-
-        cur_batch->offsets[row_id + 1] = next_offset;
+                                                       cur_batch->keys.get(), source_nested_start,
+                                                       source_nested_end, arena, options));
+        RETURN_IF_ERROR(value_serde->write_column_to_orc(
+                timezone, nested_values_column, nullptr, cur_batch->elements.get(),
+                source_nested_start, source_nested_end, arena, options));
+        cur_batch->keys->numElements = source_nested_end - source_nested_start;
+        cur_batch->elements->numElements = source_nested_end - source_nested_start;
+        cur_batch->numElements = end - start;
+        return Status::OK();
     }
-    cur_batch->keys->numElements = nested_keys_column.size();
-    cur_batch->elements->numElements = nested_values_column.size();
+
+    auto packed_keys_column = nested_keys_column.clone_empty();
+    auto packed_values_column = nested_values_column.clone_empty();
+    size_t packed_nested_size = 0;
+    for (size_t row_id = start; row_id < end; row_id++) {
+        const size_t nested_start = row_id == 0 ? 0 : offsets[row_id - 1];
+        size_t next_offset = offsets[row_id];
+        // ORC omits collection payload for absent parent rows, so keys, values, and offsets must
+        // share one compacted coordinate space when a nullable ancestor masks a populated map.
+        if (!(*null_map)[row_id]) {
+            packed_keys_column->insert_range_from(nested_keys_column, nested_start,
+                                                  next_offset - nested_start);
+            packed_values_column->insert_range_from(nested_values_column, nested_start,
+                                                    next_offset - nested_start);
+            packed_nested_size += next_offset - nested_start;
+        }
+        cur_batch->offsets[row_id - start + 1] = packed_nested_size;
+    }
+    RETURN_IF_ERROR(key_serde->write_column_to_orc(timezone, *packed_keys_column, nullptr,
+                                                   cur_batch->keys.get(), 0, packed_nested_size,
+                                                   arena, options));
+    RETURN_IF_ERROR(value_serde->write_column_to_orc(timezone, *packed_values_column, nullptr,
+                                                     cur_batch->elements.get(), 0,
+                                                     packed_nested_size, arena, options));
+    // String batches borrow their source bytes, but the packed columns are local to this call;
+    // keep only those borrowed leaves in the write Arena until Writer::add() consumes them.
+    copy_orc_string_data_to_arena(cur_batch->keys.get(), arena);
+    copy_orc_string_data_to_arena(cur_batch->elements.get(), arena);
+    cur_batch->keys->numElements = packed_nested_size;
+    cur_batch->elements->numElements = packed_nested_size;
 
     cur_batch->numElements = end - start;
     return Status::OK();

@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <chrono> // IWYU pragma: keep
 #include <cstddef>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -150,24 +151,28 @@ void TaskScheduler::_do_work(int index) {
         }
 
         // Main logics of execution
-        ASSIGN_STATUS_IF_CATCH_EXCEPTION(
-                //TODO: use a better enclose to abstracting these
-                if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
-                    TUniqueId query_id = fragment_context->get_query_id();
-                    std::string task_name = task->task_name();
+        try {
+            ASSIGN_STATUS_IF_CATCH_EXCEPTION(
+                    //TODO: use a better enclose to abstracting these
+                    if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) {
+                        TUniqueId query_id = fragment_context->get_query_id();
+                        std::string task_name = task->task_name();
 
-                    std::thread::id tid = std::this_thread::get_id();
-                    uint64_t thread_id = *reinterpret_cast<uint64_t*>(&tid);
-                    uint64_t start_time = MonotonicMicros();
+                        std::thread::id tid = std::this_thread::get_id();
+                        uint64_t thread_id = *reinterpret_cast<uint64_t*>(&tid);
+                        uint64_t start_time = MonotonicMicros();
 
-                    status = task->execute(&done);
+                        status = task->execute(&done);
 
-                    uint64_t end_time = MonotonicMicros();
-                    ExecEnv::GetInstance()->pipeline_tracer_context()->record(
-                            {query_id, task_name, static_cast<uint32_t>(index), thread_id,
-                             start_time, end_time});
-                } else { status = task->execute(&done); },
-                status);
+                        uint64_t end_time = MonotonicMicros();
+                        ExecEnv::GetInstance()->pipeline_tracer_context()->record(
+                                {query_id, task_name, static_cast<uint32_t>(index), thread_id,
+                                 start_time, end_time});
+                    } else { status = task->execute(&done); },
+                    status);
+        } catch (const std::exception& e) {
+            status = Status::InternalError("Catch std::exception: {}", e.what());
+        }
         fragment_context->trigger_report_if_necessary();
     }
 }
@@ -189,7 +194,15 @@ void TaskScheduler::stop() {
 }
 
 Status HybridTaskScheduler::submit(PipelineTaskSPtr task) {
-    if (task->is_blockable()) {
+    bool blockable = false;
+    {
+        std::unique_lock<std::mutex> blockable_check_lock(task->_blockable_check_lock);
+        if (!task->_accept_submit) {
+            return Status::OK();
+        }
+        blockable = task->is_blockable();
+    }
+    if (blockable) {
         return _blocking_scheduler.submit(task);
     } else {
         return _simple_scheduler.submit(task);

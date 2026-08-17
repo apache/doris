@@ -159,6 +159,12 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         return routineLoadJob.hasMoreDataToConsume(id, partitionIdToOffset);
     }
 
+    @Override
+    protected boolean shouldDelaySchedule(RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment) {
+        KafkaRoutineLoadJob routineLoadJob = (KafkaRoutineLoadJob) routineLoadManager.getJob(jobId);
+        return routineLoadJob.shouldDelayScheduleForReadCommittedZeroRowsWithLag(rlTaskTxnCommitAttachment);
+    }
+
     private TPipelineFragmentParams rePlan(RoutineLoadJob routineLoadJob) throws UserException {
         TUniqueId loadId = new TUniqueId(id.getMostSignificantBits(), id.getLeastSignificantBits());
         // plan for each task, in case table has change(rollup or schema change)

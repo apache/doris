@@ -146,16 +146,18 @@ public class CredentialUtilsTest {
         s3BackendProps.put("AWS_REGION", "us-west-2");
 
         Mockito.when(s3Properties.getBackendConfigProperties()).thenReturn(s3BackendProps);
+        Mockito.when(s3Properties.getFsCacheFingerprint()).thenReturn("fp-s3");
 
         Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
         storagePropertiesMap.put(Type.S3, s3Properties);
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
-        Assertions.assertEquals(3, result.size());
+        Assertions.assertEquals(4, result.size());
         Assertions.assertEquals("testAccessKey", result.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("testSecretKey", result.get("AWS_SECRET_KEY"));
         Assertions.assertEquals("us-west-2", result.get("AWS_REGION"));
+        Assertions.assertEquals("fp-s3", result.get(StorageProperties.FS_CACHE_KEY_PROPERTY));
     }
 
     @Test
@@ -179,6 +181,9 @@ public class CredentialUtilsTest {
         Mockito.when(s3Properties.getBackendConfigProperties()).thenReturn(s3BackendProps);
         Mockito.when(ossProperties.getBackendConfigProperties()).thenReturn(ossBackendProps);
         Mockito.when(hdfsProperties.getBackendConfigProperties()).thenReturn(hdfsBackendProps);
+        Mockito.when(s3Properties.getFsCacheFingerprint()).thenReturn("fp-s3");
+        Mockito.when(ossProperties.getFsCacheFingerprint()).thenReturn("fp-oss");
+        Mockito.when(hdfsProperties.getFsCacheFingerprint()).thenReturn("fp-hdfs");
 
         Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
         storagePropertiesMap.put(Type.S3, s3Properties);
@@ -187,7 +192,9 @@ public class CredentialUtilsTest {
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
-        Assertions.assertEquals(4, result.size());
+        Assertions.assertEquals(5, result.size());
+        Assertions.assertEquals(StorageProperties.combinedFsCacheFingerprint(storagePropertiesMap.values()),
+                result.get(StorageProperties.FS_CACHE_KEY_PROPERTY));
         // Note: Last one wins when there are duplicate keys, but order is not guaranteed due to HashMap
         Assertions.assertTrue(result.containsKey("AWS_ACCESS_KEY"));
         Assertions.assertTrue(result.get("AWS_ACCESS_KEY").equals("s3AccessKey") || result.get("AWS_ACCESS_KEY").equals("ossAccessKey"));
@@ -207,15 +214,17 @@ public class CredentialUtilsTest {
         s3BackendProps.put("AWS_TOKEN", null); // null value should be filtered out
 
         Mockito.when(s3Properties.getBackendConfigProperties()).thenReturn(s3BackendProps);
+        Mockito.when(s3Properties.getFsCacheFingerprint()).thenReturn("fp-s3");
 
         Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
         storagePropertiesMap.put(Type.S3, s3Properties);
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
-        Assertions.assertEquals(2, result.size());
+        Assertions.assertEquals(3, result.size());
         Assertions.assertEquals("testAccessKey", result.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("us-west-2", result.get("AWS_REGION"));
+        Assertions.assertEquals("fp-s3", result.get(StorageProperties.FS_CACHE_KEY_PROPERTY));
         Assertions.assertFalse(result.containsKey("AWS_SECRET_KEY"));
         Assertions.assertFalse(result.containsKey("AWS_TOKEN"));
     }
@@ -234,13 +243,16 @@ public class CredentialUtilsTest {
     public void testGetBackendPropertiesFromStorageMapWithEmptyBackendProps() {
         StorageProperties s3Properties = Mockito.mock(StorageProperties.class);
         Mockito.when(s3Properties.getBackendConfigProperties()).thenReturn(new HashMap<>());
+        Mockito.when(s3Properties.getFsCacheFingerprint()).thenReturn("fp-s3");
 
         Map<Type, StorageProperties> storagePropertiesMap = new HashMap<>();
         storagePropertiesMap.put(Type.S3, s3Properties);
 
         Map<String, String> result = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
 
+        // Only the injected fs cache key remains for a storage with no backend props.
         Assertions.assertNotNull(result);
-        Assertions.assertTrue(result.isEmpty());
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals("fp-s3", result.get(StorageProperties.FS_CACHE_KEY_PROPERTY));
     }
 }

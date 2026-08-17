@@ -135,6 +135,7 @@ struct TWarmUpCacheAsyncRequest {
     1: required string host
     2: required i32 brpc_port
     3: required list<i64> tablet_ids
+    4: optional string cloud_compute_group_id
 }
 
 struct TWarmUpCacheAsyncResponse {
@@ -208,6 +209,7 @@ struct TWarmUpTabletsRequest {
     3: optional list<TJobMeta> job_metas
     4: required TWarmUpTabletsRequestType type
     5: optional TWarmUpEventType event
+    6: optional list<i64> table_ids
 }
 
 struct TWarmUpTabletsResponse {
@@ -295,7 +297,10 @@ enum TWorkloadMetricType {
     QUERY_TIME = 0,
     BE_SCAN_ROWS = 1,
     BE_SCAN_BYTES = 2,
-    QUERY_BE_MEMORY_BYTES = 3
+    QUERY_BE_MEMORY_BYTES = 3,
+    USERNAME = 4,
+    // Append the new enum value to keep existing metric ids stable across versions.
+    BE_SCAN_BYTES_FROM_REMOTE_STORAGE = 5
 }
 
 enum TCompareOperator {
@@ -378,6 +383,19 @@ struct TTestStorageConnectivityResponse {
     1: optional Status.TStatus status;
 }
 
+struct TPythonEnvInfo {
+    1: optional string env_name       // e.g. "myenv"
+    2: optional string full_version   // e.g. "3.9.16"
+    3: optional string env_type       // "conda" or "venv"
+    4: optional string base_path      // e.g. "/opt/miniconda3/envs/myenv"
+    5: optional string executable_path
+}
+
+struct TPythonPackageInfo {
+    1: optional string package_name
+    2: optional string version
+}
+
 service BackendService {
     AgentService.TAgentResult submit_tasks(1:list<AgentService.TAgentTaskRequest> tasks);
 
@@ -431,4 +449,10 @@ service BackendService {
 
     // Test storage connectivity (S3, HDFS, etc.)
     TTestStorageConnectivityResponse test_storage_connectivity(1:TTestStorageConnectivityRequest request);
+
+    // Get Python environments available on this BE
+    list<TPythonEnvInfo> get_python_envs();
+
+    // Get installed pip packages for a specific Python version
+    list<TPythonPackageInfo> get_python_packages(1:string python_version);
 }

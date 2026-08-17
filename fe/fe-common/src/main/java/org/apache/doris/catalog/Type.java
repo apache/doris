@@ -453,7 +453,31 @@ public abstract class Type {
         return false;
     }
 
+    /** Whether this type or a nested complex type contains Variant. */
+    public boolean typeContainsVariant() {
+        if (isVariantType()) {
+            return true;
+        } else if (isStructType()) {
+            return ((StructType) this).getFields().stream()
+                    .anyMatch(field -> field.getType().typeContainsVariant());
+        } else if (isMapType()) {
+            MapType mapType = (MapType) this;
+            return mapType.getKeyType().typeContainsVariant()
+                    || mapType.getValueType().typeContainsVariant();
+        } else if (isArrayType()) {
+            return ((ArrayType) this).getItemType().typeContainsVariant();
+        } else if (isAggStateType()) {
+            return ((AggStateType) this).getSubTypes().stream()
+                    .anyMatch(Type::typeContainsVariant);
+        }
+        return false;
+    }
+
     public String hideVersionForVersionColumn(Boolean isToSql) {
+        return hideVersionForVersionColumn(isToSql, false);
+    }
+
+    public String hideVersionForVersionColumn(Boolean isToSql, boolean showNestedComment) {
         if (isDatetime() || isDatetimeV2()) {
             StringBuilder typeStr = new StringBuilder("datetime");
             if (((ScalarType) this).getScalarScale() > 0) {
@@ -482,18 +506,32 @@ public abstract class Type {
             }
             return typeStr.toString();
         } else if (isArrayType()) {
-            String nestedDesc = ((ArrayType) this).getItemType().hideVersionForVersionColumn(isToSql);
+            String nestedDesc = ((ArrayType) this).getItemType()
+                    .hideVersionForVersionColumn(isToSql, showNestedComment);
             return "array<" + nestedDesc + ">";
         } else if (isMapType()) {
-            String keyDesc = ((MapType) this).getKeyType().hideVersionForVersionColumn(isToSql);
-            String valueDesc = ((MapType) this).getValueType().hideVersionForVersionColumn(isToSql);
+            String keyDesc = ((MapType) this).getKeyType()
+                    .hideVersionForVersionColumn(isToSql, showNestedComment);
+            String valueDesc = ((MapType) this).getValueType()
+                    .hideVersionForVersionColumn(isToSql, showNestedComment);
             return "map<" + keyDesc + "," + valueDesc + ">";
         } else if (isStructType()) {
             List<String> fieldDesc = new ArrayList<>();
             StructType structType = (StructType) this;
             for (int i = 0; i < structType.getFields().size(); i++) {
                 StructField field = structType.getFields().get(i);
-                fieldDesc.add(field.getName() + ":" + field.getType().hideVersionForVersionColumn(isToSql));
+                StringBuilder desc = new StringBuilder(field.getName()).append(":")
+                        .append(field.getType().hideVersionForVersionColumn(isToSql, showNestedComment));
+                // Requiredness is schema semantics and must survive independently of whether
+                // nested documentation is requested for DESCRIBE output.
+                if (!field.getContainsNull()) {
+                    desc.append(" not null");
+                }
+                // Nested docs are part of DESCRIBE output only when comments were explicitly requested.
+                if (showNestedComment && field.isCommentSpecified()) {
+                    desc.append(String.format(" comment '%s'", field.getComment()));
+                }
+                fieldDesc.add(desc.toString());
             }
             return "struct<" + StringUtils.join(fieldDesc, ",") + ">";
         } else if (isToSql) {
@@ -897,7 +935,8 @@ public abstract class Type {
     public static List<TTypeDesc> toThrift(ArrayList<Type> types, ArrayList<Type> realTypes) {
         ArrayList<TTypeDesc> result = Lists.newArrayList();
         for (int i = 0; i < types.size(); i++) {
-            if (PrimitiveType.typeWithPrecision.contains(realTypes.get(i).getPrimitiveType())) {
+            if (PrimitiveType.typeWithPrecision.contains(realTypes.get(i).getPrimitiveType())
+                    || realTypes.get(i).typeContainsVariant()) {
                 result.add(realTypes.get(i).toThrift());
             } else {
                 result.add(types.get(i).toThrift());
@@ -1167,8 +1206,17 @@ public abstract class Type {
                 }
                 return true;
             } else if (type1.isVariantType()) {
-                ArrayList<VariantField> fields1 = ((VariantType) type1).getPredefinedFields();
-                ArrayList<VariantField> fields2 = ((VariantType) type2).getPredefinedFields();
+                VariantType variant1 = (VariantType) type1;
+                VariantType variant2 = (VariantType) type2;
+                if (variant1.getVariantMaxSubcolumnsCount() != variant2.getVariantMaxSubcolumnsCount()
+                        || variant1.getEnableVariantDocMode() != variant2.getEnableVariantDocMode()) {
+                    return false;
+                }
+                if (variant1.isComputeV2()) {
+                    return true;
+                }
+                ArrayList<VariantField> fields1 = variant1.getPredefinedFields();
+                ArrayList<VariantField> fields2 = variant2.getPredefinedFields();
                 if (fields1.size() != fields2.size()) {
                     return false;
                 }

@@ -309,17 +309,14 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             TQueryGlobals queryGlobals = new TQueryGlobals();
             queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
             queryGlobals.setTimestampMs(System.currentTimeMillis());
-            queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-            if (context.getSessionVariable().getTimeZone().equals("CST")) {
-                queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-            } else {
-                queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
-            }
+            queryGlobals.setTimeZone(
+                    TimeUtils.getCanonicalTimeZone(context.getSessionVariable().getTimeZone()));
 
             TQueryOptions tQueryOptions = new TQueryOptions();
             tQueryOptions.setBeExecVersion(Config.be_exec_version);
             tQueryOptions.setEnableDecimal256(context.getSessionVariable().isEnableDecimal256());
             tQueryOptions.setNewVersionUnixTimestamp(true);
+            tQueryOptions.setNewVersionPercentile(true);
             tQueryOptions.setEnableStrictCast(SessionVariable.enableStrictCast());
 
             TFoldConstantParams tParams = new TFoldConstantParams(paramMap, queryGlobals);
@@ -628,13 +625,13 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
     private static Pair<DataType, Integer> convertToNereidsType(List<PTypeNode> typeNodes, int start) {
         PScalarType pScalarType = typeNodes.get(start).getScalarType();
-        boolean containsNull = typeNodes.get(start).getContainsNull();
         TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(pScalarType.getType());
         DataType type;
         int parsedNodes;
         if (tPrimitiveType == TPrimitiveType.ARRAY) {
             Pair<DataType, Integer> itemType = convertToNereidsType(typeNodes, start + 1);
-            type = ArrayType.of(itemType.key(), containsNull);
+            // Array elements are always nullable
+            type = ArrayType.of(itemType.key());
             parsedNodes = 1 + itemType.value();
         } else if (tPrimitiveType == TPrimitiveType.MAP) {
             Pair<DataType, Integer> keyType = convertToNereidsType(typeNodes, start + 1);

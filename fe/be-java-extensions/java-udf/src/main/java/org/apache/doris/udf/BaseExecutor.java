@@ -138,8 +138,12 @@ public abstract class BaseExecutor {
         UdfClassCache cache = null;
         if (isStaticLoad) {
             cache = ScannerLoader.getUdfClassLoader(signature);
-            if (cache != null && cache.classLoader != null) {
-                // Reuse the cached classLoader to ensure dependent classes can be loaded
+            if (cache != null) {
+                // Reuse the cached classLoader to ensure dependent classes can be loaded.
+                // NOTE: cache.classLoader may be null when the UDF was originally loaded via
+                // the system class loader (jarPath empty / custom_lib UDF); see
+                // UdfClassCache#classLoader. A null value here is a valid cached state and
+                // must NOT trigger a rebuild — only an actual cache miss does.
                 classLoader = cache.classLoader;
             }
         }
@@ -162,7 +166,14 @@ public abstract class BaseExecutor {
             cache.classLoader = classLoader;
             checkAndCacheUdfClass(cache, funcRetType, parameterTypes);
             if (isStaticLoad) {
-                ScannerLoader.cacheClassLoader(signature, cache, expirationTime);
+                UdfClassCache effective = ScannerLoader.cacheClassLoader(signature, cache, expirationTime);
+                if (effective != cache) {
+                    // Another thread won the publish race. Our locally-built cache (and its
+                    // URLClassLoader) was already closed inside cacheClassLoader(); switch to
+                    // the published one so we share its live classLoader.
+                    cache = effective;
+                    classLoader = cache.classLoader;
+                }
             }
         }
         return cache;

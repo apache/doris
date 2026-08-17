@@ -16,8 +16,10 @@
 // under the License.
 
 
-suite("variant_rqg_fix1", "p0") {
-
+suite("variant_rqg_fix1", "p0,nonConcurrent") {
+    setFeConfigTemporary([enable_variant_v2: false]) {
+    assertFalse(getFeConfig("enable_variant_v2").toBoolean())
+    def variantV2Function = ""
     sql """ drop table if exists table_200_undef_partitions2_keys3_properties4_distributed_by5 """
     sql """
         CREATE TABLE `table_200_undef_partitions2_keys3_properties4_distributed_by5` (
@@ -35,15 +37,13 @@ suite("variant_rqg_fix1", "p0") {
         "inverted_index_storage_format" = "V2",
         "light_schema_change" = "true",
         "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000",
         "group_commit_data_bytes" = "134217728"
         );
         """
 
-     sql """ insert into table_200_undef_partitions2_keys3_properties4_distributed_by5 values(20, '{"k1" : 1, "k2" : "str", "k3" : 3, "k4" : "str2"}') """
+     sql """ insert into table_200_undef_partitions2_keys3_properties4_distributed_by5 values(20, ${variantV2Function}('{"k1" : 1, "k2" : "str", "k3" : 3, "k4" : "str2"}')) """
 
      qt_sql """ select count() from table_200_undef_partitions2_keys3_properties4_distributed_by5 where cast(var['k2'] as string) > 'bea' """
+    }
 }
-    
-

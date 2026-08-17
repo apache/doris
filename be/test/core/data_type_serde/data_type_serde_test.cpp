@@ -18,6 +18,7 @@
 
 #include "core/data_type_serde/data_type_serde.h"
 
+#include <arrow/api.h>
 #include <gen_cpp/types.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -48,6 +49,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_variant.h"
 #include "core/types.h"
 #include "core/value/bitmap_value.h"
 #include "core/value/hll.h"
@@ -599,5 +601,28 @@ TEST(DataTypeSerDeTest, DeserializeFromSparseColumnTest) {
         EXPECT_EQ(subcolumn.get_dimensions(), 1);
         EXPECT_EQ(subcolumn.get_least_common_base_type_id(), PrimitiveType::TYPE_JSONB);
     }
+}
+
+TEST(DataTypeSerDeTest, VariantWriteColumnToArrowSupportsLargeString) {
+    auto variant_column = ColumnVariant::create(0, false);
+    VariantMap root;
+    root.try_emplace(PathInData(), FieldWithDataType {.field = Field::create_field<TYPE_STRING>(
+                                                              String("variant value", 13))});
+    variant_column->try_insert(Field::create_field<TYPE_VARIANT>(std::move(root)));
+
+    auto data_type = std::make_shared<DataTypeVariant>();
+    auto serde = data_type->get_serde(0);
+    arrow::LargeStringBuilder builder;
+    auto ctz = cctz::utc_time_zone();
+    auto st = serde->write_column_to_arrow(*variant_column, nullptr, &builder, 0,
+                                           variant_column->size(), ctz);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder.Finish(&array).ok());
+    auto* string_array = dynamic_cast<arrow::LargeStringArray*>(array.get());
+    ASSERT_NE(string_array, nullptr);
+    ASSERT_EQ(string_array->length(), 1);
+    EXPECT_EQ(string_array->GetString(0), "variant value");
 }
 } // namespace doris

@@ -62,7 +62,8 @@ public:
                 std::shared_ptr<PartialUpdateInfo> partial_update_info,
                 std::shared_ptr<WorkloadGroup> wg_sptr, bool unique_key_mow = false);
 
-    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs);
+    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+                 bool* memtable_flushed = nullptr);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();
@@ -83,6 +84,7 @@ public:
 
     int64_t mem_consumption(MemType mem);
     int64_t active_memtable_mem_consumption();
+    int64_t flush_pending_memtable_count();
 
     // Submit current memtable to flush queue, and return without waiting.
     // This is currently for reducing mem consumption of this memtable writer.
@@ -92,6 +94,8 @@ public:
     Status wait_flush();
 
     int64_t tablet_id() const { return _req.tablet_id; }
+
+    int64_t table_id() const;
 
     int64_t total_received_rows() const { return _total_received_rows; }
 

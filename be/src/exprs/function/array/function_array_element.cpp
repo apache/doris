@@ -24,6 +24,8 @@ namespace doris {
 void register_function_array_element(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayElement>();
     factory.register_alias(FunctionArrayElement::name, "%element_extract%");
+    // struct_element was merged into element_at in #64027; keep it as an alias
+    factory.register_alias(FunctionArrayElement::name, "struct_element");
 }
 
 } // namespace doris

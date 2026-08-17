@@ -40,6 +40,7 @@ public:
     Status replay_wals();
     size_t size();
     void stop();
+    std::string get_last_replay_wal_failed_reason() const;
 
 private:
     void _pick_relay_wals();
@@ -67,5 +68,6 @@ private:
     // key is wal_path
     std::map<std::string, std::shared_ptr<WalInfo>> _replay_wal_map;
     std::list<std::shared_ptr<WalInfo>> _replaying_queue;
+    std::string _last_replay_wal_failed_reason;
 };
 } // namespace doris

@@ -28,6 +28,7 @@
 
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_dictionary.h"
 #include "core/column/column_map.h"
 #include "core/cow.h"
@@ -633,11 +634,15 @@ public:
         Block block;
         for (size_t i = 0; i < load_cols.size(); ++i) {
             ColumnWithTypeAndName columnTypeAndName;
-            columnTypeAndName.column = load_cols[i]->assume_mutable();
+            columnTypeAndName.column = load_cols[i]->get_ptr();
             columnTypeAndName.type = types[i];
             block.insert(columnTypeAndName);
         }
-        MutableBlock mb = MutableBlock::build_mutable_block(&block);
+        MutableBlock mb = MutableBlock::build_mutable_block(std::move(block));
+        // Rebuild block from load_cols after build_mutable_block stole the column pointers
+        for (size_t i = 0; i < load_cols.size(); ++i) {
+            block.get_by_position(i).column = load_cols[i]->get_ptr();
+        }
         // step2. to construct a block for assert_cols
         Block assert_block;
         Block empty_block;
@@ -648,7 +653,7 @@ public:
             assert_block.insert(columnTypeAndName);
             empty_block.insert(columnTypeAndName);
         }
-        MutableBlock assert_mb = MutableBlock::build_mutable_block(&empty_block);
+        MutableBlock assert_mb = MutableBlock::build_mutable_block(std::move(empty_block));
         // step3. to insert data from load_cols to assert_cols
         Status st = mb.merge_impl_ignore_overflow(assert_block);
         EXPECT_TRUE(st.ok()) << "Failed to merge block: " << st.to_string();
@@ -690,7 +695,9 @@ public:
                         continue;
                     } else if (*pos + *cl > source_column->size()) {
                         if (is_column<ColumnArray>(
-                                    remove_nullable(source_column->assume_mutable()).get())) {
+                                    remove_nullable(static_cast<const IColumn*>(source_column.get())
+                                                            ->get_ptr())
+                                            .get())) {
                             // insert_range_from in array has DCHECK_LG
                             continue;
                         }
@@ -2363,43 +2370,6 @@ public:
         }
     }
 
-    // get_shrinked_column should only happened in char-type column or nested char-type column,
-    // other column just return the origin column without any data changed, so check file content should be the same as the origin column
-    //  just shrink the end zeros for char-type column which happened in segmentIterator
-    //    eg. column_desc: char(6), insert into char(3), the char(3) will padding the 3 zeros at the end for writing to disk.
-    //       but we select should just print the char(3) without the padding zeros
-    //  limit and topN operation will trigger this function call
-    void shrink_padding_chars_callback(MutableColumns& load_cols, DataTypeSerDeSPtrs serders) {
-        auto option = DataTypeSerDe::FormatOptions();
-        std::vector<std::vector<std::string>> res;
-        for (size_t i = 0; i < load_cols.size(); i++) {
-            auto& source_column = load_cols[i];
-            LOG(INFO) << "now we are in shrink_padding_chars column : " << load_cols[i]->get_name()
-                      << " for column size : " << source_column->size();
-            source_column->shrink_padding_chars();
-            // check after get_shrinked_column: 1 in selector present the load cols data is selected and data should be default value
-            auto ser_col = ColumnString::create();
-            ser_col->reserve(source_column->size());
-            VectorBufferWriter buffer_writer(*ser_col.get());
-            std::vector<std::string> data;
-            data.push_back("column: " + source_column->get_name() +
-                           " with shrinked column size: " + std::to_string(source_column->size()));
-            for (size_t j = 0; j < source_column->size(); ++j) {
-                if (auto st = serders[i]->serialize_one_cell_to_json(*source_column, j,
-                                                                     buffer_writer, option);
-                    !st) {
-                    LOG(ERROR) << "Failed to serialize column " << i << " at row " << j;
-                    break;
-                }
-                buffer_writer.commit();
-                std::string actual_str_value = ser_col->get_data_at(j).to_string();
-                data.push_back(actual_str_value);
-            }
-            res.push_back(data);
-        }
-        check_res_file("shrink_padding_chars", res);
-    }
-
     void assert_size_eq(MutableColumnPtr col, size_t expect_size) {
         EXPECT_EQ(col->size(), expect_size);
     }
@@ -3543,13 +3513,13 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
         if (test_null_map) {
             cloned_target_column->serialize_vec(input_keys.data(), rows);
             deser_column_wrapper = cloned_target_column->clone_empty();
-            deser_column = ((ColumnNullable*)deser_column_wrapper.get())->get_nested_column_ptr();
         } else {
             target_column->serialize_vec(input_keys.data(), rows);
             deser_column = source_column->clone_empty();
         }
         if (test_null_map) {
             deser_column_wrapper->deserialize_vec(input_keys.data(), rows);
+            deser_column = ((ColumnNullable*)deser_column_wrapper.get())->get_nested_column_ptr();
         } else {
             deser_column->deserialize_vec(input_keys.data(), rows);
         }

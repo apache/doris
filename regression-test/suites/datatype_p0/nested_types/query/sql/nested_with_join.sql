@@ -611,7 +611,7 @@ with cte1 as (
                   col_map_string__double__undef_signed_not_null
                 )
               ) <=> positive(
-                struct_element(col_struct4, 11)
+                element_at(col_struct4, 11)
               )
             ) 
             AND (
@@ -635,7 +635,7 @@ with cte1 as (
       AND (
         col_double_undef_signed_not_null = -1125983298 
         OR (
-          struct_element(col_struct5, "c_boolean") = (
+          element_at(col_struct5, "c_boolean") = (
             select 
               max (
                 cast(
@@ -650,11 +650,11 @@ with cte1 as (
     ) 
     OR (
       greatest(
-        struct_element(col_struct, 12), 
+        element_at(col_struct, 12), 
         cast(
           col_variant_undef_signed2 [ "c_double" ] as double
         ), 
-        struct_element(col_struct6, "c_double"), 
+        element_at(col_struct6, "c_double"), 
         col_tinyint_undef_signed, 
         col_map_bigint__bigint__undef_signed_not_null [ 18.37077 ]
       ) <=> 1675317512

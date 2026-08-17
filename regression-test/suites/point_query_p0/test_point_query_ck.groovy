@@ -17,7 +17,7 @@
 
 import java.math.BigDecimal;
 
-suite("test_point_query_ck") {
+suite("test_point_query_ck", "nonConcurrent") {
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);

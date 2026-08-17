@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <ostream>
+#include <span>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -32,10 +33,14 @@
 #include "core/column/column_nothing.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nothing.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/primitive_type.h"
+#include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 #include "exprs/function/function_helpers.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -51,9 +56,32 @@ VExplodeV2TableFunction::VExplodeV2TableFunction() {
 Status VExplodeV2TableFunction::_process_init_variant(Block* block, int value_column_idx,
                                                       int children_column_idx) {
     // explode variant array
-    auto column_without_nullable = remove_nullable(block->get_by_position(value_column_idx).column);
-    auto column = column_without_nullable->convert_to_full_column_if_const();
-    auto& variant_column = assert_cast<ColumnVariant&>(*(column->assume_mutable()));
+    auto materialized =
+            block->get_by_position(value_column_idx).column->convert_to_full_column_if_const();
+    std::span<const uint8_t> outer_nulls;
+    const IColumn* nested = materialized.get();
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(nested)) {
+        outer_nulls = nullable->get_null_map_data();
+        nested = &nullable->get_nested_column();
+    }
+    if (const auto* variant_v2 = check_and_get_column<ColumnVariantV2>(nested)) {
+        auto variant_type = std::make_shared<DataTypeVariantV2>();
+        auto target_type = std::make_shared<DataTypeArray>(variant_type);
+        ColumnPtr array_column;
+        RETURN_IF_ERROR(CastWrapper::variant_v2_internal::cast_variant_to_array(
+                nullptr, *variant_v2, target_type, variant_v2->size(), outer_nulls, &array_column));
+        _array_columns[children_column_idx] = std::move(array_column);
+        auto& detail = _multi_detail[children_column_idx];
+        detail.output_as_variant = true;
+        detail.nested_type = make_nullable(std::move(variant_type));
+        _variant_v2_outputs[children_column_idx] = true;
+        _has_variant_v2_output = true;
+        return Status::OK();
+    }
+
+    auto column = remove_nullable(materialized);
+    auto variant_column_ptr = IColumn::mutate(std::move(column));
+    auto& variant_column = assert_cast<ColumnVariant&>(*variant_column_ptr);
     variant_column.finalize();
     _multi_detail[children_column_idx].output_as_variant = true;
     _multi_detail[children_column_idx].variant_enable_doc_mode = variant_column.enable_doc_mode();
@@ -70,10 +98,10 @@ Status VExplodeV2TableFunction::_process_init_variant(Block* block, int value_co
         _multi_detail[children_column_idx].nested_type = array_type->get_nested_type();
     } else {
         // null root, use nothing type
-        _array_columns[children_column_idx] = ColumnNullable::create(
-                ColumnArray::create(ColumnNothing::create(0)), ColumnUInt8::create(0));
-        _array_columns[children_column_idx]->assume_mutable()->insert_many_defaults(
-                variant_column.size());
+        auto array_column = ColumnNullable::create(ColumnArray::create(ColumnNothing::create(0)),
+                                                   ColumnUInt8::create(0));
+        array_column->insert_many_defaults(variant_column.size());
+        _array_columns[children_column_idx] = std::move(array_column);
         _multi_detail[children_column_idx].nested_type = std::make_shared<DataTypeNothing>();
     }
     return Status::OK();
@@ -88,6 +116,7 @@ Status VExplodeV2TableFunction::process_init(Block* block, RuntimeState* state) 
     _multi_detail.resize(expr_size);
     _array_offsets.resize(expr_size);
     _array_columns.resize(expr_size);
+    _variant_v2_outputs.assign(expr_size, false);
 
     for (int i = 0; i < expr_size; i++) {
         RETURN_IF_ERROR(_expr_context->root()->children()[i]->execute(_expr_context.get(), block,
@@ -103,13 +132,17 @@ Status VExplodeV2TableFunction::process_init(Block* block, RuntimeState* state) 
                     "column type {} not supported now",
                     block->get_by_position(value_column_idx).column->get_name());
         }
+        if (check_and_get_column<ColumnVariantV2>(_multi_detail[i].nested_col.get()) != nullptr) {
+            _variant_v2_outputs[i] = true;
+            _has_variant_v2_output = true;
+        }
     }
 
     return Status::OK();
 }
 
 bool VExplodeV2TableFunction::support_block_fast_path() const {
-    return _multi_detail.size() == 1;
+    return _multi_detail.size() == 1 && !_has_variant_v2_output;
 }
 
 Status VExplodeV2TableFunction::prepare_block_fast_path(Block* /*block*/, RuntimeState* /*state*/,
@@ -146,10 +179,51 @@ void VExplodeV2TableFunction::process_close() {
     _multi_detail.clear();
     _array_offsets.clear();
     _array_columns.clear();
+    _variant_v2_outputs.clear();
     _row_idx = 0;
+    _has_variant_v2_output = false;
+}
+
+void VExplodeV2TableFunction::_ensure_variant_v2_output(MutableColumnPtr& column) const {
+    if (!_has_variant_v2_output) {
+        return;
+    }
+    const bool struct_output = _multi_detail.size() > 1 || _generate_row_index;
+    if (!struct_output) {
+        auto* nullable = check_and_get_column<ColumnNullable>(column.get());
+        DORIS_CHECK(nullable != nullptr);
+        if (check_and_get_column<ColumnVariantV2>(&nullable->get_nested_column()) != nullptr) {
+            return;
+        }
+        DORIS_CHECK_EQ(column->size(), 0);
+        column = ColumnNullable::create(ColumnVariantV2::create(), ColumnUInt8::create());
+        return;
+    }
+
+    IColumn* nested_output = column.get();
+    if (auto* nullable = check_and_get_column<ColumnNullable>(nested_output)) {
+        nested_output = nullable->get_nested_column_ptr().get();
+    }
+    auto* struct_column = check_and_get_column<ColumnStruct>(nested_output);
+    DORIS_CHECK(struct_column != nullptr);
+    for (size_t i = 0; i < _variant_v2_outputs.size(); ++i) {
+        if (!_variant_v2_outputs[i]) {
+            continue;
+        }
+        const size_t field_index = i + (_generate_row_index ? 1 : 0);
+        ColumnPtr& field = struct_column->get_column_ptr(field_index);
+        const auto* nullable = check_and_get_column<ColumnNullable>(field.get());
+        DORIS_CHECK(nullable != nullptr);
+        if (check_and_get_column<ColumnVariantV2>(&nullable->get_nested_column()) != nullptr) {
+            continue;
+        }
+        DORIS_CHECK(field->empty());
+        field = ColumnNullable::create(ColumnVariantV2::create(), ColumnUInt8::create());
+    }
 }
 
 void VExplodeV2TableFunction::get_same_many_values(MutableColumnPtr& column, int length) {
+    _ensure_variant_v2_output(column);
     if (current_empty()) {
         column->insert_many_defaults(length);
         return;
@@ -164,8 +238,7 @@ void VExplodeV2TableFunction::get_same_many_values(MutableColumnPtr& column, int
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             struct_column =
                     assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             nullmap_column->insert_many_defaults(length);
 
         } else {
@@ -193,8 +266,7 @@ void VExplodeV2TableFunction::get_same_many_values(MutableColumnPtr& column, int
             struct_field.insert_many_defaults(length);
         } else {
             auto* nullable_column = assert_cast<ColumnNullable*>(struct_field.get_ptr().get());
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             // only need to check if the value at position pos is null
             if (element_size < _cur_offset ||
                 (detail.nested_nullmap_data && detail.nested_nullmap_data[pos])) {
@@ -209,6 +281,7 @@ void VExplodeV2TableFunction::get_same_many_values(MutableColumnPtr& column, int
 }
 
 int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
+    _ensure_variant_v2_output(column);
     max_step = std::min(max_step, (int)(_cur_size - _cur_offset));
     const bool multi_sub_columns = _multi_detail.size() > 1 || _generate_row_index;
 
@@ -224,8 +297,7 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
                 auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
                 struct_column =
                         assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
-                auto* nullmap_column =
-                        assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+                auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
                 nullmap_column->insert_many_defaults(max_step);
 
             } else {
@@ -254,8 +326,7 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
                 struct_field.insert_many_defaults(max_step);
             } else {
                 auto* nullable_column = assert_cast<ColumnNullable*>(struct_field.get_ptr().get());
-                auto* nullmap_column =
-                        assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+                auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
                 if (element_size >= _cur_offset + max_step) {
                     nullable_column->get_nested_column_ptr()->insert_range_from(*detail.nested_col,
                                                                                 pos, max_step);

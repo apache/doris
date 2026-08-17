@@ -60,7 +60,13 @@ public:
     // Returns true if this file's data was written to a packed file (not direct write)
     bool is_in_packed_file() const override { return !_is_direct_write; }
 
+#ifdef BE_TEST
+    size_t buffer_capacity_for_test() const { return _buffer.capacity(); }
+#endif
+
 private:
+    void _release_buffer();
+
     // Async close: submit data without waiting
     Status _close_async();
 

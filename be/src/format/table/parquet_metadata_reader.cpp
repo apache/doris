@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "core/block/block.h"
+#include "core/column/column.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
@@ -807,32 +808,31 @@ Status ParquetMetadataReader::get_next_block(Block* block, size_t* read_rows, bo
 
     // Scanner may call multiple times; we surface data once and mark eof on the next call.
     // When reusing a Block, wipe row data but keep column structure intact.
-    bool mem_reuse = block->mem_reuse();
-    std::vector<MutableColumnPtr> columns(_slots.size());
-    if (mem_reuse) {
-        block->clear_column_data();
-        for (size_t i = 0; i < _slots.size(); ++i) {
-            columns[i] = block->get_by_position(i).column->assume_mutable();
-        }
-    } else {
+    const bool mem_reuse = block->mem_reuse();
+    size_t produced = 0;
+    if (!mem_reuse) {
+        std::vector<MutableColumnPtr> columns(_slots.size());
         for (size_t i = 0; i < _slots.size(); ++i) {
             columns[i] = _slots[i]->get_empty_mutable_column();
         }
-    }
 
-    size_t rows_before = block->rows();
-    RETURN_IF_ERROR(_build_rows(columns));
-
-    if (!mem_reuse) {
+        RETURN_IF_ERROR(_build_rows(columns));
         for (size_t i = 0; i < _slots.size(); ++i) {
             block->insert(ColumnWithTypeAndName(
                     std::move(columns[i]), _slots[i]->get_data_type_ptr(), _slots[i]->col_name()));
         }
+        produced = block->rows();
     } else {
-        columns.clear();
+        auto columns_guard = block->mutate_columns_scoped();
+        auto& columns = columns_guard.mutable_columns();
+        for (size_t i = 0; i < _slots.size(); ++i) {
+            columns[i]->clear();
+        }
+
+        RETURN_IF_ERROR(_build_rows(columns));
+        produced = columns[0]->size();
     }
 
-    size_t produced = block->rows() - rows_before;
     *read_rows = produced;
     _eof = true;
     *eof = (produced == 0);

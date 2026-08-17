@@ -31,6 +31,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionType;
 
+import org.apache.iceberg.Table;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -51,16 +52,19 @@ import java.util.Optional;
 public class IcebergDeleteExecutor extends BaseExternalTableInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(IcebergDeleteExecutor.class);
     private final NereidsPlanner nereidsPlanner;
+    private final Table targetIcebergTable;
     private Optional<Expression> conflictDetectionFilter = Optional.empty();
     private IcebergRewritableDeletePlan rewritableDeletePlan = IcebergRewritableDeletePlan.empty();
 
     public IcebergDeleteExecutor(ConnectContext ctx, IcebergExternalTable table,
+            Table targetIcebergTable,
             String labelName, NereidsPlanner planner,
             boolean emptyInsert, long jobId) {
         // BaseExternalTableInsertExecutor requires Optional<InsertCommandContext>
         // For DELETE operations, we pass Optional.empty().
         super(ctx, table, labelName, planner, Optional.empty(), emptyInsert, jobId);
         this.nereidsPlanner = planner;
+        this.targetIcebergTable = targetIcebergTable;
     }
 
     /** Finalize delete sink and attach rewritable delete-file metadata for BE. */
@@ -85,7 +89,8 @@ public class IcebergDeleteExecutor extends BaseExternalTableInsertExecutor {
     @Override
     protected void beforeExec() throws UserException {
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
-        transaction.beginDelete((IcebergExternalTable) table);
+        // DELETE conflict validation must start from the same retained generation scanned by BE.
+        transaction.beginDelete((IcebergExternalTable) table, targetIcebergTable);
         transaction.setRewrittenDeleteFilesByReferencedDataFile(
                 rewritableDeletePlan.getDeleteFilesByReferencedDataFile());
         if (conflictDetectionFilter.isPresent()) {

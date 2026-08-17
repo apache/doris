@@ -199,22 +199,29 @@ Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows,
 }
 
 Status IcebergTableReader::init_row_filters() {
-    // We get the count value by doris's be, so we don't need to read the delete file
-    if (_push_down_agg_type == TPushAggOp::type::COUNT && _table_level_row_count > 0) {
+    // We get the count value by doris's be, so we don't need to read the delete file.
+    // A table-level row count of 0 (e.g. an all-deleted table read with ignore_iceberg_dangling_delete,
+    // where total-records == total-position-deletes) is still a valid pushed-down count, so accept >= 0.
+    // FE sends -1 when there is no table-level count; using > 0 here would drop a genuine 0 into the
+    // delete-applying path below and never produce the intended CountReader(0).
+    if (_push_down_agg_type == TPushAggOp::type::COUNT && _table_level_row_count >= 0) {
         return Status::OK();
     }
 
     const auto& table_desc = _range.table_format_params.iceberg_params;
-    const auto& version = table_desc.format_version;
-    if (version < MIN_SUPPORT_DELETE_FILES_VERSION) {
-        return Status::OK();
-    }
 
     auto* parquet_reader = dynamic_cast<ParquetReader*>(_file_format_reader.get());
     auto* orc_reader = dynamic_cast<OrcReader*>(_file_format_reader.get());
 
     // Initialize file information for $row_id generation
-    // Extract from table_desc which contains current file's metadata
+    // Extract from table_desc which contains current file's metadata.
+    // NOTE: row-id generation only needs the data file path / partition info / row positions,
+    // which are independent of delete-file support, so it MUST be set up before the
+    // format-version gate below. The FE adds the hidden __DORIS_ICEBERG_ROWID_COL__ column
+    // whenever show_hidden_columns is on, regardless of format version (see
+    // IcebergExternalTable.getFullSchema). If a v1 table selects this column we still have to
+    // fill it; otherwise it stays empty while the other columns are filtered down, tripping the
+    // `block->rows() == col.column->size()` check in RowGroupReader::_do_lazy_read.
     if (_need_row_id_column) {
         std::string file_path = table_desc.original_file_path;
         int32_t partition_spec_id = 0;
@@ -235,6 +242,11 @@ Status IcebergTableReader::init_row_filters() {
         }
         LOG(INFO) << "Initialized $row_id generation for file: " << file_path
                   << ", partition_spec_id: " << partition_spec_id;
+    }
+
+    const auto& version = table_desc.format_version;
+    if (version < MIN_SUPPORT_DELETE_FILES_VERSION) {
+        return Status::OK();
     }
 
     std::vector<TIcebergDeleteFileDesc> position_delete_files;
@@ -295,7 +307,9 @@ Status IcebergTableReader::_expand_block_if_need(Block* block) {
     auto block_names = block->get_names();
     names.insert(block_names.begin(), block_names.end());
     for (auto& col : _expand_columns) {
-        col.column->assume_mutable()->clear();
+        auto mutable_column = IColumn::mutate(std::move(col.column));
+        mutable_column->clear();
+        col.column = std::move(mutable_column);
         if (names.contains(col.name)) {
             return Status::InternalError("Wrong expand column '{}'", col.name);
         }
@@ -1092,8 +1106,8 @@ Status IcebergParquetReader::_process_equality_delete(
             size_t read_rows = 0;
             RETURN_IF_ERROR(delete_reader->get_next_block(&tmp_block, &read_rows, &eof));
             if (read_rows > 0) {
-                MutableBlock mutable_block(&eq_file_block);
-                RETURN_IF_ERROR(mutable_block.merge(tmp_block));
+                ScopedMutableBlock mutable_block(&eq_file_block);
+                RETURN_IF_ERROR(mutable_block.mutable_block().merge(tmp_block));
             }
         }
     }
@@ -1239,8 +1253,8 @@ Status IcebergOrcReader::_process_equality_delete(
             size_t read_rows = 0;
             RETURN_IF_ERROR(delete_reader->get_next_block(&tmp_block, &read_rows, &eof));
             if (read_rows > 0) {
-                MutableBlock mutable_block(&eq_file_block);
-                RETURN_IF_ERROR(mutable_block.merge(tmp_block));
+                ScopedMutableBlock mutable_block(&eq_file_block);
+                RETURN_IF_ERROR(mutable_block.mutable_block().merge(tmp_block));
             }
         }
     }

@@ -33,7 +33,6 @@ namespace arrow {
 class DataType;
 } // namespace arrow
 namespace doris {
-class StorageField;
 class PColumnMeta;
 enum class FieldType;
 
@@ -52,7 +51,6 @@ public:
         return instance;
     }
 
-    DataTypePtr create_data_type(const doris::StorageField& col_desc);
     DataTypePtr create_data_type(const TabletColumn& col_desc, bool is_nullable = false);
 
     DataTypePtr create_data_type(const PColumnMeta& pcolumn);

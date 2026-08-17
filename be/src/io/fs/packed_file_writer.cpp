@@ -80,6 +80,7 @@ Status PackedFileWriter::appendv(const Slice* data, size_t data_cnt) {
     if (_is_direct_write) {
         RETURN_IF_ERROR(_inner_writer->appendv(data, data_cnt));
     } else {
+        _buffer.reserve(_bytes_appended + total_size);
         // Buffer small file data
         for (size_t i = 0; i < data_cnt; ++i) {
             _buffer.append(data[i].data, data[i].size);
@@ -181,6 +182,10 @@ Status PackedFileWriter::_wait_packed_upload() {
     return Status::OK();
 }
 
+void PackedFileWriter::_release_buffer() {
+    std::string().swap(_buffer);
+}
+
 Status PackedFileWriter::_switch_to_direct_write() {
     DCHECK(!_is_direct_write);
 
@@ -188,7 +193,7 @@ Status PackedFileWriter::_switch_to_direct_write() {
     if (_buffer.size() > 0) {
         Slice buffer_slice(_buffer.data(), _buffer.size());
         RETURN_IF_ERROR(_inner_writer->appendv(&buffer_slice, 1));
-        _buffer.clear();
+        _release_buffer();
     }
 
     return Status::OK();
@@ -213,7 +218,7 @@ Status PackedFileWriter::_send_to_packed_manager() {
 
     Slice data_slice(_buffer.data(), _buffer.size());
     RETURN_IF_ERROR(_packed_file_manager->append_small_file(_file_path, data_slice, _append_info));
-    _buffer.clear();
+    _release_buffer();
     return Status::OK();
 }
 

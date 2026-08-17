@@ -33,6 +33,7 @@
 #include "storage/compaction/base_compaction.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/inverted/query/query_factory.h"
+#include "storage/key_coder.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
@@ -158,9 +159,9 @@ class IndexCompactionUtils {
         EXPECT_TRUE(searcher_result.has_value());
         auto bkd_searcher = std::get_if<BKDIndexSearcherPtr>(&searcher_result.value());
         EXPECT_TRUE(bkd_searcher != nullptr);
-        idx_reader->_type_info = get_scalar_type_info((FieldType)(*bkd_searcher)->type);
-        EXPECT_TRUE(idx_reader->_type_info != nullptr);
-        idx_reader->_value_key_coder = get_key_coder(idx_reader->_type_info->type());
+        idx_reader->_type = (FieldType)(*bkd_searcher)->type;
+        EXPECT_TRUE(is_scalar_type(idx_reader->_type));
+        idx_reader->_value_key_coder = get_key_coder(idx_reader->_type);
 
         for (int i = 0; i < query_data.size(); i++) {
             Field param_value = Field::create_field<TYPE_INT>(int32_t(query_data[i]));
@@ -657,7 +658,7 @@ class IndexCompactionUtils {
             const auto& rowset_writer = res.value();
 
             Block block = schema->create_block();
-            auto columns = block.mutate_columns();
+            auto columns = std::move(block).mutate_columns();
             for (const auto& row : data[i]) {
                 if constexpr (std::is_same_v<T, DataRow>) {
                     Field key = Field::create_field<TYPE_INT>(int32_t(row.key));
@@ -695,6 +696,8 @@ class IndexCompactionUtils {
                     }
                 }
             }
+
+            block.set_columns(std::move(columns));
 
             Status st = rowset_writer->add_block(&block);
             EXPECT_TRUE(st.ok()) << st.to_string();

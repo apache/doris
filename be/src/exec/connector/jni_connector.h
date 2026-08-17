@@ -254,6 +254,12 @@ public:
      */
     Status close();
 
+#ifdef BE_TEST
+    const std::map<std::string, std::string>& TEST_scanner_params() const {
+        return _scanner_params;
+    }
+#endif
+
     /**
      * Set column name to block index map from FileScanner to avoid repeated map creation.
      */

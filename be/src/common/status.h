@@ -17,6 +17,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/check.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/expected.h"
@@ -770,13 +771,6 @@ using ResultError = unexpected<Status>;
     })
 
 // core in Debug mode, exception in Release mode.
-#define DORIS_CHECK(stmt)                                                                \
-    do {                                                                                 \
-        if (!static_cast<bool>(stmt)) [[unlikely]] {                                     \
-            throw Exception(Status::FatalError(fmt::format("Check failed: {}", #stmt))); \
-        }                                                                                \
-    } while (false)
-
 } // namespace doris
 
 // specify formatter for Status

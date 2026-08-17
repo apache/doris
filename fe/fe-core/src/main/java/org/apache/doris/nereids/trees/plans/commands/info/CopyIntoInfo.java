@@ -53,6 +53,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
@@ -62,6 +63,8 @@ import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -70,6 +73,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -239,8 +244,10 @@ public class CopyIntoInfo {
         }
         PlanTranslatorContext context = new PlanTranslatorContext(cascadesContext);
         List<Slot> slots = boundRelation.getOutput();
-        Scope scope = new Scope(slots);
-        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, scope, cascadesContext, false, false);
+        CopyIntoFileSlots fileSlots = new CopyIntoFileSlots(slots, copyFromDesc.getFileColumns(),
+                copyFromDesc.getColumnMappingList());
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(null, new Scope(fileSlots.getScopeSlots()),
+                cascadesContext, false, false);
 
         Map<SlotReference, SlotRef> translateMap = Maps.newHashMap();
 
@@ -257,13 +264,14 @@ public class CopyIntoInfo {
         if (copyFromDesc.getColumnMappingList() != null && !copyFromDesc.getColumnMappingList().isEmpty()) {
             legacyColumnMappingList = new ArrayList<>();
             for (Expression expression : copyFromDesc.getColumnMappingList()) {
-                legacyColumnMappingList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext));
+                legacyColumnMappingList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext,
+                        fileSlots));
             }
         }
         Expr legacyFileFilterExpr = null;
         if (copyFromDesc.getFileFilterExpr().isPresent()) {
             legacyFileFilterExpr = translateToLegacyExpr(copyFromDesc.getFileFilterExpr().get(),
-                    analyzer, context, cascadesContext);
+                    analyzer, context, cascadesContext, fileSlots);
         }
 
         String compression = copyIntoProperties.getCompression();
@@ -301,30 +309,32 @@ public class CopyIntoInfo {
         }
 
         // translate copy from description to copy from param
-        legacyCopyFromParam = toLegacyParam(copyFromDesc, analyzer, context, cascadesContext);
+        legacyCopyFromParam = toLegacyParam(copyFromDesc, analyzer, context, cascadesContext, fileSlots);
     }
 
     private CopyFromParam toLegacyParam(CopyFromDesc copyFromDesc, ExpressionAnalyzer analyzer,
-                                        PlanTranslatorContext context, CascadesContext cascadesContext) {
+                                        PlanTranslatorContext context, CascadesContext cascadesContext,
+                                        CopyIntoFileSlots fileSlots) {
         StageAndPattern stageAndPattern = copyFromDesc.getStageAndPattern();
         List<Expr> exprList = null;
         if (copyFromDesc.getExprList() != null) {
             exprList = new ArrayList<>();
             for (Expression expression : copyFromDesc.getExprList()) {
-                exprList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext));
+                exprList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext, fileSlots));
             }
         }
         Expr fileFilterExpr = null;
         if (copyFromDesc.getFileFilterExpr().isPresent()) {
             fileFilterExpr = translateToLegacyExpr(copyFromDesc.getFileFilterExpr().get(),
-                    analyzer, context, cascadesContext);
+                    analyzer, context, cascadesContext, fileSlots);
         }
         List<String> fileColumns = copyFromDesc.getFileColumns();
         List<Expr> columnMappingList = null;
         if (copyFromDesc.getColumnMappingList() != null) {
             columnMappingList = new ArrayList<>();
             for (Expression expression : copyFromDesc.getColumnMappingList()) {
-                columnMappingList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext));
+                columnMappingList.add(translateToLegacyExpr(expression, analyzer, context, cascadesContext,
+                        fileSlots));
             }
         }
         List<String> targetColumns = copyFromDesc.getTargetColumns();
@@ -333,7 +343,7 @@ public class CopyIntoInfo {
     }
 
     private Expr translateToLegacyExpr(Expression expr, ExpressionAnalyzer analyzer, PlanTranslatorContext context,
-                                       CascadesContext cascadesContext) {
+                                       CascadesContext cascadesContext, CopyIntoFileSlots fileSlots) {
         Expression expression;
         try {
             expression = analyzer.analyze(expr, new ExpressionRewriteContext(cascadesContext));
@@ -342,16 +352,99 @@ public class CopyIntoInfo {
                 + expr.toSql() + "', "
                 + Utils.convertFirstChar(e.getMessage()));
         }
-        ExpressionToExpr translator = new ExpressionToExpr();
+        ExpressionToExpr translator = new ExpressionToExpr(fileSlots);
         return expression.accept(translator, context);
     }
 
     private static class ExpressionToExpr extends ExpressionTranslator {
+        private final CopyIntoFileSlots fileSlots;
+
+        private ExpressionToExpr(CopyIntoFileSlots fileSlots) {
+            this.fileSlots = fileSlots;
+        }
+
+        @Override
+        public Expr visitSlotReference(SlotReference slotReference, PlanTranslatorContext context) {
+            String fileSlotName = fileSlots.getFileSlotName(slotReference.getExprId());
+            if (fileSlotName != null) {
+                return new SlotRef(null, fileSlotName);
+            }
+            return super.visitSlotReference(slotReference, context);
+        }
+
         @Override
         public Expr visitCast(Cast cast, PlanTranslatorContext context) {
             // left child of cast is target type, right child of cast is expression
             return new CastExpr(cast.getDataType().toCatalogDataType(),
                     cast.child().accept(this, context), null);
+        }
+    }
+
+    private static class CopyIntoFileSlots {
+        private final List<Slot> scopeSlots;
+        private final Map<ExprId, String> fileSlotNames = Maps.newHashMap();
+
+        private CopyIntoFileSlots(List<Slot> targetSlots, List<String> fileColumns,
+                List<Expression> columnMappingList) {
+            scopeSlots = new ArrayList<>(targetSlots);
+            if (fileColumns == null) {
+                return;
+            }
+            Map<String, DataType> targetColumnTypes = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+            for (Slot slot : targetSlots) {
+                targetColumnTypes.put(slot.getName(), slot.getDataType());
+            }
+            Map<String, DataType> fileColumnTypes = inferFileColumnTypes(targetColumnTypes, columnMappingList);
+            for (String fileColumn : fileColumns) {
+                if (!isFileColumnPlaceholder(fileColumn) || fileSlotNames.containsValue(fileColumn)) {
+                    continue;
+                }
+                SlotReference slot = new SlotReference(fileColumn,
+                        fileColumnTypes.getOrDefault(fileColumn, StringType.INSTANCE), true);
+                scopeSlots.add(slot);
+                fileSlotNames.put(slot.getExprId(), fileColumn);
+            }
+        }
+
+        private List<Slot> getScopeSlots() {
+            return scopeSlots;
+        }
+
+        private String getFileSlotName(ExprId exprId) {
+            return fileSlotNames.get(exprId);
+        }
+
+        private static boolean isFileColumnPlaceholder(String columnName) {
+            return columnName != null && columnName.startsWith("$");
+        }
+
+        private static Map<String, DataType> inferFileColumnTypes(Map<String, DataType> targetColumnTypes,
+                List<Expression> columnMappingList) {
+            Map<String, DataType> fileColumnTypes = Maps.newHashMap();
+            if (columnMappingList == null) {
+                return fileColumnTypes;
+            }
+            for (Expression expression : columnMappingList) {
+                if (!(expression instanceof EqualTo)) {
+                    continue;
+                }
+                EqualTo columnMapping = (EqualTo) expression;
+                if (!(columnMapping.left() instanceof UnboundSlot)) {
+                    continue;
+                }
+                DataType targetType = targetColumnTypes.get(((UnboundSlot) columnMapping.left()).getName());
+                if (targetType == null) {
+                    continue;
+                }
+                for (UnboundSlot fileColumn : columnMapping.right()
+                        .<UnboundSlot>collect(UnboundSlot.class::isInstance)) {
+                    String fileColumnName = fileColumn.getName();
+                    if (isFileColumnPlaceholder(fileColumnName)) {
+                        fileColumnTypes.putIfAbsent(fileColumnName, targetType);
+                    }
+                }
+            }
+            return fileColumnTypes;
         }
     }
 

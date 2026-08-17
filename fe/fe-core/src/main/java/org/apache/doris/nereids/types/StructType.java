@@ -20,6 +20,7 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.ComplexDataType;
 
 import com.google.common.collect.ImmutableList;
@@ -82,6 +83,23 @@ public class StructType extends DataType implements ComplexDataType, NestedColum
     @Override
     public DataType conversion() {
         return new StructType(fields.stream().map(StructField::conversion).collect(Collectors.toList()));
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        if (target instanceof StructType) {
+            StructType structType = (StructType) target;
+            if (this.fields.size() != structType.fields.size()) {
+                return false;
+            }
+            for (int i = 0; i < fields.size(); i++) {
+                if (!this.fields.get(i).getDataType().isInjectiveCastTo(structType.fields.get(i).getDataType())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return target instanceof CharacterType;
     }
 
     @Override

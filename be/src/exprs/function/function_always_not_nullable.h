@@ -51,8 +51,7 @@ public:
             const ColumnNullable* col_nullable = check_and_get_column<ColumnNullable>(column.get());
             const ColumnType* col =
                     check_and_get_column<ColumnType>(col_nullable->get_nested_column_ptr().get());
-            const ColumnUInt8* col_nullmap = check_and_get_column<ColumnUInt8>(
-                    col_nullable->get_null_map_column_ptr().get());
+            const ColumnUInt8* col_nullmap = col_nullable->get_null_map_column_ptr().get();
 
             if (col != nullptr && col_nullmap != nullptr) {
                 if constexpr (WithReturn) {

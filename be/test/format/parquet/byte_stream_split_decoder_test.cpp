@@ -19,7 +19,9 @@
 
 #include <gtest/gtest.h>
 
+#include "core/column/column_fixed_length_object.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_fixed_length_object.h"
 #include "core/data_type/data_type_number.h"
 #include "util/slice.h"
 
@@ -31,6 +33,24 @@ protected:
 
     ByteStreamSplitDecoder _decoder;
 };
+
+static std::vector<uint8_t> encode_byte_stream_split_fixed_length(
+        const std::vector<std::string>& values, size_t type_length) {
+    std::vector<uint8_t> encoded(values.size() * type_length);
+    for (size_t value_index = 0; value_index < values.size(); ++value_index) {
+        DCHECK_EQ(values[value_index].size(), type_length);
+        for (size_t byte_index = 0; byte_index < type_length; ++byte_index) {
+            encoded[byte_index * values.size() + value_index] =
+                    static_cast<uint8_t>(values[value_index][byte_index]);
+        }
+    }
+    return encoded;
+}
+
+static std::string fixed_length_value(const ColumnFixedLengthObject& column, size_t row) {
+    const auto value = column.get_data_at(row);
+    return {value.data, value.size};
+}
 
 //// Test basic decoding functionality for FLOAT type
 TEST_F(ByteStreamSplitDecoderTest, test_basic_decode_float) {
@@ -116,6 +136,36 @@ TEST_F(ByteStreamSplitDecoderTest, test_basic_decode_double) {
     EXPECT_DOUBLE_EQ(result_column->get_data()[0], 1.0);
     EXPECT_DOUBLE_EQ(result_column->get_data()[1], 2.0);
     EXPECT_DOUBLE_EQ(result_column->get_data()[2], 3.0);
+}
+
+TEST_F(ByteStreamSplitDecoderTest, test_basic_decode_fixed_length_object) {
+    const size_t type_length = 3;
+    const std::vector<std::string> values = {"abc", "def", "ghi"};
+    auto encoded = encode_byte_stream_split_fixed_length(values, type_length);
+    Slice data_slice(encoded.data(), encoded.size());
+
+    MutableColumnPtr column = ColumnFixedLengthObject::create(type_length);
+    DataTypePtr data_type = std::make_shared<DataTypeFixedLengthObject>();
+
+    ASSERT_TRUE(_decoder.set_data(&data_slice).ok());
+    _decoder.set_type_length(type_length);
+
+    const size_t num_values = values.size();
+    std::vector<uint16_t> run_length_null_map(1, num_values);
+    std::vector<uint8_t> filter_data(num_values, 1);
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    ASSERT_TRUE(select_vector.init(run_length_null_map, num_values, nullptr, &filter_map, 0).ok());
+
+    ASSERT_TRUE(_decoder.decode_values(column, data_type, select_vector, false).ok());
+
+    const auto* result_column = assert_cast<const ColumnFixedLengthObject*>(column.get());
+    ASSERT_EQ(result_column->item_size(), type_length);
+    ASSERT_EQ(result_column->size(), num_values);
+    EXPECT_EQ(fixed_length_value(*result_column, 0), "abc");
+    EXPECT_EQ(fixed_length_value(*result_column, 1), "def");
+    EXPECT_EQ(fixed_length_value(*result_column, 2), "ghi");
 }
 
 // Test decoding with filter for FLOAT type
@@ -256,6 +306,38 @@ TEST_F(ByteStreamSplitDecoderTest, test_decode_with_filter_and_null_float) {
             EXPECT_TRUE(null_map[i]) << "Expected null at position " << i;
         }
     }
+}
+
+TEST_F(ByteStreamSplitDecoderTest, test_decode_fixed_length_object_with_filter_and_null) {
+    const size_t type_length = 3;
+    const std::vector<std::string> values = {"abc", "ghi"};
+    auto encoded = encode_byte_stream_split_fixed_length(values, type_length);
+    Slice data_slice(encoded.data(), encoded.size());
+
+    MutableColumnPtr column = ColumnFixedLengthObject::create(type_length);
+    DataTypePtr data_type = std::make_shared<DataTypeFixedLengthObject>();
+
+    ASSERT_TRUE(_decoder.set_data(&data_slice).ok());
+    _decoder.set_type_length(type_length);
+
+    const size_t num_values = 3;
+    std::vector<uint16_t> run_length_null_map = {1, 1, 1}; // data: [abc, null, ghi]
+    std::vector<uint8_t> filter_data = {0, 1, 1};          // output: [null, ghi]
+    FilterMap filter_map;
+    ASSERT_TRUE(filter_map.init(filter_data.data(), filter_data.size(), false).ok());
+    ColumnSelectVector select_vector;
+    NullMap null_map;
+    ASSERT_TRUE(
+            select_vector.init(run_length_null_map, num_values, &null_map, &filter_map, 0).ok());
+
+    ASSERT_TRUE(_decoder.decode_values(column, data_type, select_vector, false).ok());
+
+    const auto* result_column = assert_cast<const ColumnFixedLengthObject*>(column.get());
+    ASSERT_EQ(result_column->item_size(), type_length);
+    ASSERT_EQ(result_column->size(), 2);
+    EXPECT_EQ(fixed_length_value(*result_column, 1), "ghi");
+    EXPECT_TRUE(null_map[0]);
+    EXPECT_FALSE(null_map[1]);
 }
 
 // Test decoding with filter and null for DOUBLE type

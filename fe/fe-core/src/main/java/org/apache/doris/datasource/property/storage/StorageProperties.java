@@ -23,6 +23,7 @@ import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 
 import lombok.Getter;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -30,10 +31,12 @@ import org.apache.hadoop.conf.Configuration;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.BiFunction;
 
 public abstract class StorageProperties extends ConnectionProperties {
@@ -76,7 +79,79 @@ public abstract class StorageProperties extends ConnectionProperties {
         UNKNOWN
     }
 
-    public abstract Map<String, String> getBackendConfigProperties();
+    /**
+     * Reserved Hadoop configuration property carrying a credential fingerprint. The
+     * Doris-patched {@code org.apache.hadoop.fs.FileSystem} shipped in hadoop-deps.jar on the
+     * BE classpath mixes this value into its {@code FileSystem.CACHE} key, so FileSystem
+     * instances created for the same scheme://authority but with different credentials no
+     * longer collide in the cache. Vanilla (unpatched) Hadoop ignores this property, and an
+     * absent/empty value keeps the vanilla cache-key semantics.
+     */
+    public static final String FS_CACHE_KEY_PROPERTY = "doris.fs.cache.key";
+
+    private volatile String fsCacheFingerprint;
+
+    /**
+     * Backend-bound configuration properties. The returned map is a defensive copy and always
+     * carries {@link #FS_CACHE_KEY_PROPERTY} identifying the credential set it was built from,
+     * see {@link #getFsCacheFingerprint()}.
+     */
+    public final Map<String, String> getBackendConfigProperties() {
+        Map<String, String> props = new HashMap<>(doGetBackendConfigProperties());
+        props.put(FS_CACHE_KEY_PROPERTY, getFsCacheFingerprint());
+        return props;
+    }
+
+    protected abstract Map<String, String> doGetBackendConfigProperties();
+
+    /**
+     * Stable fingerprint of this storage identity: SHA-256 over the concrete class name and the
+     * sorted user-supplied properties this instance matched ({@code matchedProperties}), which
+     * include the credentials. The same definition always yields the same fingerprint (cache
+     * hits are preserved across queries); any credential or config change yields a new one.
+     */
+    public String getFsCacheFingerprint() {
+        if (fsCacheFingerprint == null) {
+            fsCacheFingerprint = fingerprintOf(getClass().getName(), matchedProperties);
+        }
+        return fsCacheFingerprint;
+    }
+
+    private static String fingerprintOf(String salt, Map<String, String> props) {
+        StringBuilder sb = new StringBuilder(salt);
+        new TreeMap<>(props).forEach((k, v) -> sb.append('\n').append(k).append('=').append(v == null ? "" : v));
+        return DigestUtils.sha256Hex(sb.toString()).substring(0, 32);
+    }
+
+    /**
+     * Fingerprint for a property map merged from several StorageProperties (a catalog can hold
+     * more than one storage type). Order-independent combination of the individual fingerprints.
+     */
+    public static String combinedFsCacheFingerprint(Collection<StorageProperties> spList) {
+        List<String> fps = new ArrayList<>();
+        for (StorageProperties sp : spList) {
+            fps.add(sp.getFsCacheFingerprint());
+        }
+        if (fps.size() == 1) {
+            return fps.get(0);
+        }
+        fps.sort(String::compareTo);
+        return DigestUtils.sha256Hex(String.join("\n", fps)).substring(0, 32);
+    }
+
+    /**
+     * Merging several storages' properties keeps only the last storage's
+     * {@link #FS_CACHE_KEY_PROPERTY}; this replaces it with the order-independent combined
+     * fingerprint. No-op for an empty storage list. It is applied at the catalog-level
+     * aggregate getters ({@code CatalogProperty#getBackendStorageProperties},
+     * {@code CatalogProperty#getHadoopProperties} and their vended-credentials counterpart),
+     * which are the entry points downstream consumers read merged properties from.
+     */
+    public static void setCombinedFsCacheKey(Map<String, String> props, Collection<StorageProperties> spList) {
+        if (props != null && spList != null && !spList.isEmpty()) {
+            props.put(FS_CACHE_KEY_PROPERTY, combinedFsCacheFingerprint(spList));
+        }
+    }
 
     /**
      * Hadoop storage configuration used for interacting with HDFS-based systems.
@@ -109,6 +184,10 @@ public abstract class StorageProperties extends ConnectionProperties {
         Map<String, String> properties = new HashMap<>(getBackendConfigProperties());
         if (runtimeProperties != null && !runtimeProperties.isEmpty()) {
             properties.putAll(runtimeProperties);
+            // Runtime properties may carry per-session credentials (e.g. vended credentials),
+            // so the fingerprint of the base definition alone would wrongly share cache slots.
+            properties.put(FS_CACHE_KEY_PROPERTY,
+                    fingerprintOf(getFsCacheFingerprint(), runtimeProperties));
         }
         return properties;
     }
@@ -320,7 +399,10 @@ public abstract class StorageProperties extends ConnectionProperties {
             return;
         }
         appendUserFsConfig(origProps);
-        ensureDisableCache(hadoopStorageConfig, origProps);
+        applyUserFsCacheOverrides(hadoopStorageConfig, origProps);
+        // Covers the channels that bake this Configuration into BE-bound artifacts
+        // (Hudi hadoop_conf.*, Paimon/Iceberg FileIO options); see FS_CACHE_KEY_PROPERTY.
+        hadoopStorageConfig.set(FS_CACHE_KEY_PROPERTY, getFsCacheFingerprint());
     }
 
     private void appendUserFsConfig(Map<String, String> userProps) {
@@ -336,33 +418,24 @@ public abstract class StorageProperties extends ConnectionProperties {
     protected abstract Set<String> schemas();
 
     /**
-     * By default, Hadoop caches FileSystem instances per scheme and authority (e.g. s3a://bucket/), meaning that all
-     * subsequent calls using the same URI will reuse the same FileSystem object.
-     * In multi-tenant or dynamic credential environments — where different users may access the same bucket using
-     * different access keys or tokens — this cache reuse can lead to cross-credential contamination.
+     * Hadoop caches FileSystem instances per scheme/authority/UGI, which used to cause cross-credential
+     * contamination when different catalogs/TVFs accessed the same bucket or namenode with different
+     * credentials. Doris therefore used to force fs.&lt;schema&gt;.impl.disable.cache=true everywhere.
      * <p>
-     * Specifically, if the cache is not disabled, a FileSystem instance initialized with one set of credentials may
-     * be reused by another session targeting the same bucket but with a different AK/SK. This results in:
+     * That blanket disable is gone: both FE and BE now load a patched {@link org.apache.hadoop.fs.FileSystem}
+     * whose cache key additionally carries {@link #FS_CACHE_KEY_PROPERTY} (a per-storage credential
+     * fingerprint injected right after this method runs), so instances with different credentials never
+     * collide while identical definitions safely share one cached instance.
      * <p>
-     * Incorrect authentication (using stale credentials)
-     * <p>
-     * Unexpected permission errors or access denial
-     * <p>
-     * Potential data leakage between users
-     * <p>
-     * To avoid such risks, the configuration property
-     * fs.<schema>.impl.disable.cache
-     * must be set to true for all object storage backends (e.g., S3A, OSS, COS, OBS), ensuring that each new access
-     * creates an isolated FileSystem instance with its own credentials and configuration context.
+     * Users can still opt out per schema by explicitly setting fs.&lt;schema&gt;.impl.disable.cache;
+     * this method only forwards such explicit choices.
      */
-    private void ensureDisableCache(Configuration conf, Map<String, String> origProps) {
+    private void applyUserFsCacheOverrides(Configuration conf, Map<String, String> origProps) {
         for (String schema : schemas()) {
             String key = "fs." + schema + ".impl.disable.cache";
             String userValue = origProps.get(key);
             if (StringUtils.isNotBlank(userValue)) {
                 conf.setBoolean(key, BooleanUtils.toBoolean(userValue));
-            } else {
-                conf.setBoolean(key, true);
             }
         }
     }

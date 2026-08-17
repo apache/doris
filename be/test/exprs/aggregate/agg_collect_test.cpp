@@ -148,14 +148,14 @@ public:
         agg_function->merge(place, place2, _agg_arena_pool);
         auto column_result =
                 ColumnArray::create(std::move(make_nullable(data_types[0]->create_column())));
-        agg_function->insert_result_into(place, column_result->assume_mutable_ref());
+        agg_function->insert_result_into(place, column_result->assert_mutable_ref());
         EXPECT_EQ(column_result->size(), 1);
         EXPECT_EQ(column_result->get_offsets()[0],
                   is_distinct(fn_name) ? input_nums : 2 * input_nums * _repeated_times);
 
         auto column_result2 =
                 ColumnArray::create(std::move(make_nullable(data_types[0]->create_column())));
-        agg_function->insert_result_into(place2, column_result2->assume_mutable_ref());
+        agg_function->insert_result_into(place2, column_result2->assert_mutable_ref());
         EXPECT_EQ(column_result2->size(), 1);
         EXPECT_EQ(column_result2->get_offsets()[0],
                   is_distinct(fn_name) ? input_nums : input_nums * _repeated_times);

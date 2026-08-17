@@ -174,6 +174,10 @@ public:
 
         void deserialize_from_binary_column(const ColumnString* value, size_t row);
 
+        // Used only when a storage cell is the requested logical value. SQL NULL and encoded
+        // JSON null both become a missing value; object children keep their encoded null.
+        void deserialize_nullable_from_binary_column(const ColumnString* value, size_t row);
+
         /// Returns single column if subcolumn in finalizes.
         /// Otherwise -- undefined behaviour.
         IColumn& get_finalized_column();
@@ -247,7 +251,7 @@ public:
         /// Parts of column. Parts should be in increasing order in terms of subtypes/supertypes.
         /// That means that the least common type for i-th prefix is the type of i-th part
         /// and it's the supertype for all type of column from 0 to i-1.
-        std::vector<WrappedPtr> data;
+        std::vector<IColumn::WrappedPtr> data;
         std::vector<DataTypePtr> data_types;
         std::vector<DataTypeSerDeSPtr> data_serdes;
         /// Until we insert any non-default field we don't know further
@@ -275,10 +279,10 @@ private:
 
     // It's filled when the number of subcolumns reaches the limit.
     // It has type Map(String, String) and stores a map (path, binary serialized subcolumn value) for each row.
-    WrappedPtr serialized_sparse_column = ColumnMap::create(
+    IColumn::WrappedPtr serialized_sparse_column = ColumnMap::create(
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
-    WrappedPtr serialized_doc_value_column = ColumnMap::create(
+    IColumn::WrappedPtr serialized_doc_value_column = ColumnMap::create(
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
     // if `_max_subcolumns_count == 0`, all subcolumns are materialized.
@@ -325,7 +329,7 @@ public:
         if (subcolumns.empty()) {
             return nullptr;
         }
-        return subcolumns.get_mutable_root()->data.get_finalized_column_ptr()->assume_mutable();
+        return std::move(*subcolumns.get_mutable_root()->data.get_finalized_column_ptr()).mutate();
     }
 
     void serialize_one_row_to_string(int64_t row, std::string* output,
@@ -353,6 +357,8 @@ public:
     static const DataTypePtr& get_most_common_type();
 
     void clear_sparse_column();
+
+    void ensure_binary_columns_rows();
 
     // root is null or type nothing
     bool is_null_root() const;
@@ -409,7 +415,11 @@ public:
 
     ColumnPtr get_sparse_column() const { return serialized_sparse_column; }
 
+    IColumn& get_sparse_column_mutable() { return *serialized_sparse_column; }
+
     ColumnPtr get_doc_value_column() const { return serialized_doc_value_column; }
+
+    IColumn& get_doc_value_column_mutable() { return *serialized_doc_value_column; }
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
     static MutableColumnPtr create_binary_column_fn() {
@@ -462,6 +472,8 @@ public:
     size_t allocated_bytes() const override;
 
     bool has_enough_capacity(const IColumn& src) const override { return false; }
+
+    bool is_exclusive() const override;
 
     void for_each_subcolumn(ColumnCallback callback) override;
 
@@ -605,10 +617,6 @@ public:
                                                   StringRef path,
                                                   const ColumnPtr& sparse_data_column, size_t start,
                                                   size_t end);
-
-    static size_t find_path_lower_bound_in_sparse_data(StringRef path,
-                                                       const ColumnString& sparse_data_paths,
-                                                       size_t start, size_t end);
 
     // Deserialize the i-th row of the column from the sparse column.
     static std::pair<Field, FieldInfo> deserialize_from_binary_column(const ColumnString* value,

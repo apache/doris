@@ -116,9 +116,11 @@ struct TabletSize {
     size_t tablet_size;
 };
 
-// Define all data types supported by StorageField.
-// If new filed_type is defined, not only new TypeInfo may need be defined,
-// but also some functions like get_type_info in types.cpp need to be changed.
+// Storage-engine cell types, used by TabletColumn / KeyCoder and the
+// data_type traits chain. When adding a new value, also extend CppTypeTraits,
+// FieldTypeTraits and the field_type_size() switch in storage/types.h. Decide how it maps to
+// PrimitiveType and explicitly define its behavior in primitive_type_to_storage_field_type() and
+// storage_field_type_to_primitive_type(), either by providing a mapping or by throwing.
 enum class FieldType {
     OLAP_FIELD_TYPE_TINYINT = 1, // MYSQL_TYPE_TINY
     OLAP_FIELD_TYPE_UNSIGNED_TINYINT = 2,
@@ -163,10 +165,10 @@ enum class FieldType {
     OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
 };
 
-// Define all aggregation methods supported by StorageField
+// Define all aggregation methods supported by TabletColumn
 // Note that in practice, not all types can use all the following aggregation methods
 // For example, it is meaningless to use SUM for the string type (but it will not cause the program to crash)
-// The implementation of the StorageField class does not perform such checks, and should be constrained when creating the table
+// The implementation of the TabletColumn class does not perform such checks, and should be constrained when creating the table
 enum class FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_NONE = 0,
     OLAP_FIELD_AGGREGATION_SUM = 1,
@@ -193,6 +195,14 @@ constexpr bool field_is_slice_type(const FieldType& field_type) {
     return field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
            field_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
            field_type == FieldType::OLAP_FIELD_TYPE_STRING;
+}
+
+constexpr bool field_is_decimal_type(const FieldType& field_type) {
+    return field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL32 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL64 ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == FieldType::OLAP_FIELD_TYPE_DECIMAL256;
 }
 
 constexpr bool field_is_numeric_type(const FieldType& field_type) {
@@ -281,8 +291,6 @@ struct Vertex {
     Vertex(int64_t v) : value(v) {}
 };
 
-class StorageField;
-
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
     int64_t io_ns = 0;
@@ -337,6 +345,11 @@ struct OlapReaderStatistics {
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
     int64_t rows_stats_rp_filtered = 0;
+    int64_t expr_zonemap_filtered_segments = 0;
+    int64_t expr_zonemap_filtered_pages = 0;
+    int64_t expr_zonemap_unusable_evals = 0;
+    int64_t in_zonemap_point_check_count = 0;
+    int64_t in_zonemap_range_only_count = 0;
     int64_t rows_bf_filtered = 0;
     int64_t segment_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
@@ -402,6 +415,10 @@ struct OlapReaderStatistics {
     int64_t ann_range_engine_convert_ns = 0; // time spent on FAISS-side conversions (Range)
     int64_t rows_ann_index_range_filtered = 0;
     int64_t ann_fall_back_brute_force_cnt = 0;
+    int64_t ann_topn_fallback_by_small_candidate_cnt = 0;
+    int64_t ann_topn_fallback_small_candidate_rows = 0;
+    int64_t ann_range_fallback_by_small_candidate_cnt = 0;
+    int64_t ann_range_fallback_small_candidate_rows = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator

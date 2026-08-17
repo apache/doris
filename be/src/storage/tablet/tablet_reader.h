@@ -51,7 +51,6 @@
 namespace doris {
 
 class RuntimeState;
-class BitmapFilterFuncBase;
 class BloomFilterFuncBase;
 class ColumnPredicate;
 class DeleteBitmap;

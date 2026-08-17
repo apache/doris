@@ -19,7 +19,9 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -30,6 +32,7 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 class InferFilterNotNullTest implements MemoPatternMatchSupported {
@@ -76,5 +79,30 @@ class InferFilterNotNullTest implements MemoPatternMatchSupported {
                         // LogicalFilter ( predicates=(id IS NULL OR (id#0 = 1)) )
                         logicalFilter().when(filter -> filter.getConjuncts().size() == 1)
                 );
+    }
+
+    @Test
+    void testSkipWidePredicateButKeepSimplePredicate() {
+        Expression widePredicate = new EqualTo(repeatAdd(scan1.getOutput().get(0), 257), Literal.of(1));
+        Expression simplePredicate = new EqualTo(scan1.getOutput().get(1), Literal.of(1));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .filter(ImmutableSet.of(widePredicate, simplePredicate))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferFilterNotNull())
+                .matches(
+                        logicalFilter().when(filter -> filter.getConjuncts().stream()
+                                .filter(e -> e instanceof Not && ((Not) e).isGeneratedIsNotNull())
+                                .count() == 1)
+                );
+    }
+
+    private Expression repeatAdd(Expression expression, int width) {
+        if (width == 1) {
+            return expression;
+        }
+        int leftWidth = width / 2;
+        return new Add(repeatAdd(expression, leftWidth), repeatAdd(expression, width - leftWidth));
     }
 }

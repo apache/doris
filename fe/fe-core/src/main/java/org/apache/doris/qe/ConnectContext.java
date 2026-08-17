@@ -58,6 +58,7 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
@@ -117,6 +118,7 @@ public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
 
     private static final String SSL_PROTOCOL = "TLS";
+    private static final int INITIAL_PREPARED_STMT_ID = Integer.MIN_VALUE;
 
     public enum ConnectType {
         MYSQL,
@@ -132,7 +134,7 @@ public class ConnectContext {
     protected volatile TUniqueId loadId;
     protected volatile long backendId;
     // range [Integer.MIN_VALUE, Integer.MAX_VALUE]
-    protected int preparedStmtId = Integer.MIN_VALUE;
+    protected int preparedStmtId = INITIAL_PREPARED_STMT_ID;
     protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId = null;
@@ -218,6 +220,9 @@ public class ConnectContext {
 
     // cloud cluster name
     protected volatile String cloudCluster = null;
+    // The compute group selected for the statement currently being executed. Unlike cloudCluster,
+    // this value is query-scoped and remains available after a per-query SET_VAR is reverted.
+    protected volatile String effectiveCloudCluster = null;
 
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
@@ -377,6 +382,47 @@ public class ConnectContext {
         lastDBOfCatalog.clear();
     }
 
+    public void resetConnection() throws UserException {
+        closeTxnForConnectionReset();
+        if (!dbToTempTableNamesMap.isEmpty()) {
+            cleanupTemporaryTables(true);
+            dbToTempTableNamesMap.clear();
+        }
+        resetSessionVariable();
+        userVars = new HashMap<>();
+        preparedQuerys.clear();
+        preparedStatementContextMap.clear();
+        runningQuery = null;
+        queryId = null;
+        lastQueryId = null;
+        setTraceId(null);
+        insertResult = null;
+        command = MysqlCommand.COM_SLEEP;
+        returnRows = 0;
+    }
+
+    private void resetSessionVariable() {
+        sessionVariable = VariableMgr.newSessionVariable();
+        applyUserSessionVariableDefaults();
+        if (Config.use_fuzzy_session_variable) {
+            sessionVariable.initFuzzyModeVariables();
+        }
+    }
+
+    private void applyUserSessionVariableDefaults() {
+        String qualifiedUser = getQualifiedUser();
+        if (Strings.isNullOrEmpty(qualifiedUser)) {
+            return;
+        }
+        Env currentEnv = env == null ? Env.getCurrentEnv() : env;
+        Auth auth = currentEnv == null ? null : currentEnv.getAuth();
+        if (auth == null) {
+            return;
+        }
+        setUserQueryTimeout(auth.getQueryTimeout(qualifiedUser));
+        setUserInsertTimeout(auth.getInsertTimeout(qualifiedUser));
+    }
+
     public void setNotEvalNondeterministicFunction(boolean notEvalNondeterministicFunction) {
         this.notEvalNondeterministicFunction = notEvalNondeterministicFunction;
     }
@@ -393,12 +439,9 @@ public class ConnectContext {
         state = new QueryState();
         returnRows = 0;
         isKilled = false;
-        sessionVariable = VariableMgr.newSessionVariable();
+        resetSessionVariable();
         userVars = new HashMap<>();
         command = MysqlCommand.COM_SLEEP;
-        if (Config.use_fuzzy_session_variable) {
-            sessionVariable.initFuzzyModeVariables();
-        }
 
         sessionId = UUID.randomUUID().toString();
         if (!FeConstants.runningUnitTest) {
@@ -494,6 +537,18 @@ public class ConnectContext {
             } catch (Exception e) {
                 LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
                         txnEntry.getTransactionId(), e);
+            }
+            txnEntry = null;
+        }
+    }
+
+    private void closeTxnForConnectionReset() throws DdlException {
+        if (isTxnModel()) {
+            try {
+                txnEntry.abortTransaction();
+            } catch (Exception e) {
+                throw new DdlException(String.format("rollback transaction failed, db: %s, txnId: %s",
+                        currentDb, txnEntry.getTransactionId()), e);
             }
             txnEntry = null;
         }
@@ -953,21 +1008,41 @@ public class ConnectContext {
     }
 
     protected void deleteTempTable() {
+        try {
+            cleanupTemporaryTables(false);
+        } catch (DdlException e) {
+            LOG.error("drop temporary table error", e);
+        }
+    }
+
+    private void cleanupTemporaryTables(boolean reportFailure) throws DdlException {
         // only delete temporary table in its creating session, not proxy session in master fe
         if (isProxy) {
             return;
         }
 
+        Map<String, Set<String>> tempTables = new HashMap<>();
+        for (Map.Entry<String, Set<String>> entry : dbToTempTableNamesMap.entrySet()) {
+            tempTables.put(entry.getKey(), new HashSet<>(entry.getValue()));
+        }
+
         // if current fe is master, delete temporary table directly
         if (Env.getCurrentEnv().isMaster()) {
-            for (String dbName : dbToTempTableNamesMap.keySet()) {
-                Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbName).get();
-                for (String tableName : dbToTempTableNamesMap.get(dbName)) {
+            for (String dbName : tempTables.keySet()) {
+                for (String tableName : tempTables.get(dbName)) {
                     LOG.info("try to drop temporary table: {}.{}", dbName, tableName);
                     try {
+                        Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbName).get();
                         Env.getCurrentEnv().getInternalCatalog()
                             .dropTableWithoutCheck(db, db.getTable(tableName).get(), false, true);
-                    } catch (DdlException e) {
+                    } catch (Exception e) {
+                        if (reportFailure) {
+                            if (e instanceof DdlException) {
+                                throw (DdlException) e;
+                            }
+                            throw new DdlException(String.format(
+                                    "drop temporary table error: db: %s, table: %s", dbName, tableName), e);
+                        }
                         LOG.error("drop temporary table error: {}.{}", dbName, tableName, e);
                     }
                 }
@@ -975,8 +1050,8 @@ public class ConnectContext {
         } else {
             // forward to master fe to drop table
             RedirectStatus redirectStatus = new RedirectStatus(true, false);
-            for (String dbName : dbToTempTableNamesMap.keySet()) {
-                for (String tableName : dbToTempTableNamesMap.get(dbName)) {
+            for (String dbName : tempTables.keySet()) {
+                for (String tableName : tempTables.get(dbName)) {
                     LOG.info("request to delete temporary table: {}.{}", dbName, tableName);
                     String dropTableSql = String.format("drop table `%s`", tableName);
                     OriginStatement originStmt = new OriginStatement(dropTableSql, 0);
@@ -987,6 +1062,11 @@ public class ConnectContext {
                     try {
                         masterOpExecutor.execute();
                     } catch (Exception e) {
+                        if (reportFailure) {
+                            throw new DdlException(String.format(
+                                    "master FE drop temporary table error: db: %s, table: %s",
+                                    dbName, tableName), e);
+                        }
                         LOG.error("master FE drop temporary table error: db: {}, table: {}", dbName, tableName, e);
                     }
                 }
@@ -1370,6 +1450,14 @@ public class ConnectContext {
 
     public void setCloudCluster(String cluster) {
         this.getSessionVariable().setCloudCluster(cluster);
+    }
+
+    public String getEffectiveCloudCluster() {
+        return effectiveCloudCluster;
+    }
+
+    public void setEffectiveCloudCluster(String cluster) {
+        this.effectiveCloudCluster = cluster;
     }
 
     public String getCloudCluster() throws ComputeGroupException {

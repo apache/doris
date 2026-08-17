@@ -32,6 +32,7 @@
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/field.h"
 
@@ -45,6 +46,10 @@ namespace doris {
 IDataType::IDataType() = default;
 
 IDataType::~IDataType() = default;
+
+doris::FieldType IDataType::get_storage_field_type() const {
+    return primitive_type_to_storage_field_type(get_primitive_type());
+}
 
 String IDataType::get_name() const {
     return do_get_name();

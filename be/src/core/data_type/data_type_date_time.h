@@ -71,10 +71,6 @@ public:
     std::string do_get_name() const override { return "DateTime"; }
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_DATETIME; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_DATETIME;
-    }
-
     bool equals(const IDataType& rhs) const override;
 #ifdef BE_TEST
     /// TODO: remove this in the future

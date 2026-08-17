@@ -76,10 +76,11 @@ Status BetaRowset::init() {
 namespace {
 Status load_segment_rows_from_footer(BetaRowsetSharedPtr rowset,
                                      std::vector<uint32_t>* segment_rows, bool enable_segment_cache,
-                                     OlapReaderStatistics* read_stats) {
+                                     OlapReaderStatistics* read_stats,
+                                     const io::IOContext* io_ctx) {
     SegmentCacheHandle segment_cache_handle;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-            rowset, &segment_cache_handle, enable_segment_cache, false, read_stats));
+            rowset, &segment_cache_handle, enable_segment_cache, false, read_stats, io_ctx));
     for (const auto& segment : segment_cache_handle.get_segments()) {
         segment_rows->emplace_back(segment->num_rows());
     }
@@ -107,14 +108,14 @@ Status check_segment_rows_consistency(const std::vector<uint32_t>& rows_from_met
 } // namespace
 
 Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
-                                        bool enable_segment_cache,
-                                        OlapReaderStatistics* read_stats) {
+                                        bool enable_segment_cache, OlapReaderStatistics* read_stats,
+                                        const io::IOContext* io_ctx) {
 #ifndef BE_TEST
     // `ROWSET_UNLOADING` is state for closed() called but owned by some readers.
     // So here `ROWSET_UNLOADING` is allowed.
     DCHECK_NE(_rowset_state_machine.rowset_state(), ROWSET_UNLOADED);
 #endif
-    RETURN_IF_ERROR(_load_segment_rows_once.call([this, enable_segment_cache, read_stats] {
+    RETURN_IF_ERROR(_load_segment_rows_once.call([this, enable_segment_cache, read_stats, io_ctx] {
         auto segment_count = num_segments();
         if (segment_count == 0) {
             return Status::OK();
@@ -131,7 +132,7 @@ Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
                     std::vector<uint32_t> rows_from_footer;
                     auto self = std::dynamic_pointer_cast<BetaRowset>(shared_from_this());
                     auto load_status = load_segment_rows_from_footer(
-                            self, &rows_from_footer, enable_segment_cache, read_stats);
+                            self, &rows_from_footer, enable_segment_cache, read_stats, io_ctx);
                     if (load_status.ok()) {
                         return check_segment_rows_consistency(
                                 _segments_rows, rows_from_footer, _rowset_meta->tablet_id(),
@@ -163,7 +164,7 @@ Status BetaRowset::get_segment_num_rows(std::vector<uint32_t>* segment_rows,
         TEST_SYNC_POINT("BetaRowset::get_segment_num_rows:load_from_segment_footer");
         auto self = std::dynamic_pointer_cast<BetaRowset>(shared_from_this());
         return load_segment_rows_from_footer(self, &_segments_rows, enable_segment_cache,
-                                             read_stats);
+                                             read_stats, io_ctx);
     }));
     segment_rows->assign(_segments_rows.cbegin(), _segments_rows.cend());
     return Status::OK();
@@ -259,7 +260,8 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
 }
 
 Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
-                                segment_v2::SegmentSharedPtr* segment) {
+                                segment_v2::SegmentSharedPtr* segment,
+                                const io::IOContext* io_ctx) {
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");
@@ -274,12 +276,13 @@ Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
             .cache_base_path = "",
             .file_size = _rowset_meta->segment_file_size(static_cast<int>(seg_id)),
             .tablet_id = _rowset_meta->tablet_id(),
+            .storage_resource_id = _rowset_meta->resource_id(),
     };
 
     auto s = segment_v2::Segment::open(
             fs, seg_path, _rowset_meta->tablet_id(), static_cast<uint32_t>(seg_id), rowset_id(),
             _schema, reader_options, segment,
-            _rowset_meta->inverted_index_file_info(static_cast<int>(seg_id)), stats);
+            _rowset_meta->inverted_index_file_info(static_cast<int>(seg_id)), stats, io_ctx);
     if (!s.ok()) {
         LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset " << rowset_id()
                      << " : " << s.to_string();
@@ -633,6 +636,8 @@ Status BetaRowset::check_current_rowset_segment() {
                 .is_doris_table = true,
                 .cache_base_path {},
                 .file_size = _rowset_meta->segment_file_size(seg_id),
+                .tablet_id = _rowset_meta->tablet_id(),
+                .storage_resource_id = _rowset_meta->resource_id(),
         };
 
         auto s = segment_v2::Segment::open(fs, seg_path, _rowset_meta->tablet_id(), seg_id,
@@ -843,7 +848,8 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
         auto seg_path = DORIS_TRY(segment_path(seg_id));
         auto index_file_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
         auto index_file_reader = std::make_unique<IndexFileReader>(
-                fs, std::string(index_file_path_prefix), storage_format);
+                fs, std::string(index_file_path_prefix), storage_format, InvertedIndexFileInfo(),
+                _rowset_meta->tablet_id());
         RETURN_IF_ERROR(index_file_reader->init());
         auto dirs = index_file_reader->get_all_directories();
 

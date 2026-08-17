@@ -1099,9 +1099,9 @@ TEST(RecycleOperationLogTest, RecycleCompactionLog) {
         ret->first = true;
         ret->second = true;
     });
-    sp->set_call_back("recycle_tablet::bypass_check", [&](auto&& args) {
-        auto* ret = doris::try_any_cast_ret<bool>(args);
-        ret->first = false;
+    sp->set_call_back("recycle_tablet::begin", [&](auto&& args) {
+        auto* ret = doris::try_any_cast_ret<int>(args);
+        ret->first = 0;
         ret->second = true;
     });
     sp->enable_processing();
@@ -1622,9 +1622,9 @@ TEST(RecycleOperationLogTest, RecycleSchemaChangeLog) {
         ret->first = true;
         ret->second = true;
     });
-    sp->set_call_back("recycle_tablet::bypass_check", [&](auto&& args) {
-        auto* ret = doris::try_any_cast_ret<bool>(args);
-        ret->first = false;
+    sp->set_call_back("recycle_tablet::begin", [&](auto&& args) {
+        auto* ret = doris::try_any_cast_ret<int>(args);
+        ret->first = 0;
         ret->second = true;
     });
     sp->enable_processing();
@@ -2516,8 +2516,10 @@ TEST(RecycleOperationLogTest, RecycleDeletedInstance) {
     }
 
     ASSERT_EQ(recycler.recycle_deleted_instance(), 0);
+    ASSERT_EQ(recycler.recycle_deleted_instance(), 0);
+    ASSERT_EQ(recycler.recycle_deleted_instance(), 0);
 
-    // Verify all keys are deleted, expecting the instance_update
+    // Verify all data keys are deleted, keeping the instance status and instance_update keys.
     ASSERT_EQ(count_range(txn_kv.get()), 1) << dump_range(txn_kv.get());
 }
 

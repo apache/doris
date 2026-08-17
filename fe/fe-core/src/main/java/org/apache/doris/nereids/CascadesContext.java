@@ -289,7 +289,11 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public TableCollectAndHookInitializer newTableCollector(boolean firstLevel) {
-        return new TableCollectAndHookInitializer(this, firstLevel);
+        return newTableCollector(firstLevel, false);
+    }
+
+    public TableCollectAndHookInitializer newTableCollector(boolean firstLevel, boolean enablePreloadRule) {
+        return new TableCollectAndHookInitializer(this, firstLevel, enablePreloadRule);
     }
 
     public Analyzer newAnalyzer() {

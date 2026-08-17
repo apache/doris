@@ -128,7 +128,7 @@ Status CloudFullCompaction::pick_rowsets_to_compact() {
         std::shared_lock rlock(_tablet->get_header_lock());
         _base_compaction_cnt = cloud_tablet()->base_compaction_cnt();
         _cumulative_compaction_cnt = cloud_tablet()->cumulative_compaction_cnt();
-        _input_rowsets = cloud_tablet()->pick_candidate_rowsets_to_full_compaction();
+        _input_rowsets = cloud_tablet()->pick_candidate_rowsets_to_full_compaction_unlocked();
     }
     if (auto st = check_version_continuity(_input_rowsets); !st.ok()) {
         DCHECK(false) << st;
@@ -379,7 +379,7 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *cloud_tablet(), -1, initiator, delete_bitmap.get(), delete_bitmap.get(),
             _output_rowset->rowset_id().to_string(), storage_resource,
-            config::delete_bitmap_store_write_version));
+            config::delete_bitmap_store_write_version, cloud_tablet()->table_id()));
     LOG_INFO("update delete bitmap in CloudFullCompaction, tablet_id={}, range=[{}-{}]",
              _tablet->tablet_id(), _input_rowsets.front()->start_version(),
              _input_rowsets.back()->end_version())

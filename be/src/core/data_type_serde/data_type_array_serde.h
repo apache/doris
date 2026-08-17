@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "common/status.h"
+#include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_serde.h"
 
 namespace doris {
@@ -38,7 +39,12 @@ class IDataType;
 class DataTypeArraySerDe : public DataTypeSerDe {
 public:
     DataTypeArraySerDe(DataTypeSerDeSPtr _nested_serde, int nesting_level = 1)
-            : DataTypeSerDe(nesting_level), nested_serde(std::move(_nested_serde)) {}
+            : DataTypeSerDe(nesting_level) {
+        auto nullable_serde =
+                std::dynamic_pointer_cast<DataTypeNullableSerDe>(std::move(_nested_serde));
+        DORIS_CHECK(nullable_serde != nullptr);
+        nested_serde = std::move(nullable_serde);
+    }
 
     std::string get_name() const override { return "Array(" + nested_serde->get_name() + ")"; }
 
@@ -88,6 +94,7 @@ public:
                                  const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
+    Status read_column_from_orc(IColumn& column, const OrcDecodedColumnView& view) const override;
 
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
                                         int64_t row_idx, bool col_const,
@@ -132,6 +139,6 @@ private:
     template <bool is_strict_mode>
     Status _from_string(StringRef& str, IColumn& column, const FormatOptions& options) const;
 
-    DataTypeSerDeSPtr nested_serde;
+    DataTypeNullableSerDeSPtr nested_serde;
 };
 } // namespace doris

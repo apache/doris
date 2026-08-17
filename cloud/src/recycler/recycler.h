@@ -40,7 +40,6 @@
 #include "recycler/snapshot_chain_compactor.h"
 #include "recycler/snapshot_data_migrator.h"
 #include "recycler/storage_vault_accessor.h"
-#include "recycler/white_black_list.h"
 #include "snapshot/snapshot_manager.h"
 
 namespace brpc {
@@ -56,6 +55,11 @@ class SimpleThreadPool;
 class RecyclerMetricsContext;
 class TabletRecyclerMetricsContext;
 class SegmentRecyclerMetricsContext;
+
+int64_t calculate_tmp_rowset_expired_time(
+        const std::string& instance_id_, const doris::RowsetMetaCloudPB& tmp_rowset_meta_pb,
+        int64_t* earlest_ts /* tmp_rowset earliest expiration ts */);
+
 struct RecyclerThreadPoolGroup {
     RecyclerThreadPoolGroup() = default;
     RecyclerThreadPoolGroup(std::shared_ptr<SimpleThreadPool> s3_producer_pool,
@@ -118,7 +122,6 @@ private:
 
     std::string ip_port_;
 
-    WhiteBlackList instance_filter_;
     std::unique_ptr<Checker> checker_;
 
     RecyclerThreadPoolGroup _thread_pool_group;
@@ -283,6 +286,16 @@ public:
     // returns 0 for success otherwise error
     int recycle_deleted_instance();
 
+    int recycle_deleted_instance_data();
+
+    int recycle_deleted_instance_metadata();
+
+    int update_instance_recycle_state(InstanceRecycleState expected_state,
+                                      InstanceRecycleState target_state);
+
+    int update_instance_recycle_state(InstanceRecycleState expected_state,
+                                      InstanceRecycleState target_state, Transaction* txn);
+
     // scan and recycle expired indexes:
     // 1. dropped table, dropped mv
     // 2. half-successtable/index when create
@@ -425,6 +438,9 @@ public:
                                        const SnapshotPB& snapshot_pb);
 
 private:
+    // returns 0 for success otherwise error
+    int remove_instance_key();
+
     // returns 0 for success otherwise error
     int init_obj_store_accessors();
 

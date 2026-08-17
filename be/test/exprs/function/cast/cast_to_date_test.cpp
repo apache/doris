@@ -85,6 +85,18 @@ TEST_F(FunctionCastTest, string_to_date_valid_case_strict_mode) {
     check_function_for_cast_strict_mode<DataTypeDateV2>(input_types, data_set);
 }
 
+TEST_F(FunctionCastTest, string_to_datev1_valid_case_strict_mode) {
+    InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
+    DataSet data_set = {
+            // Compact formats
+            {{std::string("20240501 01")}, std::string("2024-05-01")},
+            {{std::string("20230716 1920Z")}, std::string("2023-07-16")},
+            {{std::string("20240501T0000")}, std::string("2024-05-01")},
+            {{std::string("20120102030405")}, std::string("2012-01-02")},
+    };
+    check_function_for_cast_strict_mode<DataTypeDate>(input_types, data_set);
+}
+
 TEST_F(FunctionCastTest, string_to_date_invalid_cases_in_strict_mode) {
     InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR};
     DataSet data_set = {

@@ -138,8 +138,16 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         boolean limitOneIsEliminated = false;
         if (isCorrelated) {
             if (analyzedSubqueryPlan instanceof LogicalLimit) {
-                LogicalLimit limit = (LogicalLimit) analyzedSubqueryPlan;
-                if (limit.getOffset() == 0 && limit.getLimit() == 1) {
+                Plan child = ((LogicalLimit<?>) analyzedSubqueryPlan).child();
+                LogicalLimit<?> limit = (LogicalLimit<?>) analyzedSubqueryPlan;
+                // after analysis, if project not contains sort key, FILL_UP_SORT_PROJECT will add a project upper sort
+                // so we must find sort under project here.
+                while (child instanceof LogicalProject) {
+                    child = ((LogicalProject<?>) child).child();
+                }
+                // order by c1 limit 1 is not acceptable
+                if (!(child instanceof LogicalSort)
+                        && limit.getOffset() == 0 && limit.getLimit() == 1) {
                     // skip useless limit node
                     analyzedResult = new AnalyzedResult((LogicalPlan) analyzedSubqueryPlan.child(0),
                             analyzedResult.correlatedSlots);

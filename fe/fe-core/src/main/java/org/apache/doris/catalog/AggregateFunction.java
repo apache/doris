@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TAggregateFunction;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
@@ -631,6 +632,15 @@ public class AggregateFunction extends Function {
         }
         //    agg_fn.setIgnores_distinct(ignoresDistinct);
         fn.setAggregateFn(aggFn);
+
+        // Set runtime_version and function_code for Python UDAF
+        if (getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+            if (!Strings.isNullOrEmpty(functionCode)) {
+                fn.setFunctionCode(functionCode);
+            }
+            fn.setRuntimeVersion(runtimeVersion);
+        }
+
         return fn;
     }
 

@@ -467,7 +467,8 @@ public abstract class DataType {
         if (type.isStructType()) {
             List<StructField> structFields = ((org.apache.doris.catalog.StructType) (type)).getFields().stream()
                     .map(cf -> new StructField(cf.getName(), fromCatalogType(cf.getType()),
-                            cf.getContainsNull(), cf.getComment() == null ? "" : cf.getComment()))
+                            cf.getContainsNull(), cf.getComment() == null ? "" : cf.getComment(),
+                            cf.isCommentSpecified()))
                     .collect(ImmutableList.toImmutableList());
             return new StructType(structFields);
         } else if (type.isMapType()) {
@@ -475,7 +476,7 @@ public abstract class DataType {
             return MapType.of(fromCatalogType(mapType.getKeyType()), fromCatalogType(mapType.getValueType()));
         } else if (type.isArrayType()) {
             org.apache.doris.catalog.ArrayType arrayType = (org.apache.doris.catalog.ArrayType) type;
-            return ArrayType.of(fromCatalogType(arrayType.getItemType()), arrayType.getContainsNull());
+            return ArrayType.of(fromCatalogType(arrayType.getItemType()));
         } else if (type.isVariantType()) {
             // In the past, variant metadata used the ScalarType type.
             // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
@@ -493,7 +494,8 @@ public abstract class DataType {
                         ((org.apache.doris.catalog.VariantType) type).getEnableVariantDocMode(),
                         ((org.apache.doris.catalog.VariantType) type).getvariantDocMaterializationMinRows(),
                         ((org.apache.doris.catalog.VariantType) type).getVariantDocShardCount(),
-                        ((org.apache.doris.catalog.VariantType) type).getEnableNestedGroup());
+                        ((org.apache.doris.catalog.VariantType) type).getEnableNestedGroup(),
+                        ((org.apache.doris.catalog.VariantType) type).isComputeV2());
             }
             return VariantType.INSTANCE;
         } else {
@@ -802,7 +804,7 @@ public abstract class DataType {
             return arrayType.getItemType()
                     .getAllPromotions()
                     .stream()
-                    .map(promotionType -> ArrayType.of(promotionType, arrayType.containsNull()))
+                    .map(promotionType -> ArrayType.of(promotionType))
                     .collect(ImmutableList.toImmutableList());
         }
 
@@ -811,6 +813,10 @@ public abstract class DataType {
     }
 
     public abstract int width();
+
+    public boolean isInjectiveCastTo(DataType target) {
+        return this.equals(target);
+    }
 
     public static List<DataType> trivialTypes() {
         return Type.getTrivialTypes()

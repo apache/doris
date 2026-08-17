@@ -1,7 +1,9 @@
 CREATE DATABASE IF NOT EXISTS multi_catalog;
 USE multi_catalog;
 
-CREATE TABLE `multi_catalog.parquet_bloom_filter`(
+drop table if exists `multi_catalog.parquet_bloom_filter`;
+
+create table `multi_catalog.parquet_bloom_filter`(
   `tinyint_col` tinyint,
   `smallint_col` smallint,
   `int_col` int,
@@ -35,5 +37,3 @@ TBLPROPERTIES (
   'transient_lastDdlTime'='1763470218',
   'bucketing_version'='2',
   'parquet.compression'='ZSTD');
-
-msck repair table parquet_bloom_filter;

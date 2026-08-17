@@ -499,6 +499,11 @@ public:
     /// otherwise appended after other child profiles.
     RuntimeProfile* create_child(const std::string& name, bool indent = true, bool prepend = false);
 
+    /// Returns an existing child profile with 'name', or creates it if absent. Lookup and creation
+    /// are atomic so concurrent callers cannot race while initializing a shared profile subtree.
+    RuntimeProfile* get_or_create_child(const std::string& name, bool indent = true,
+                                        bool prepend = false);
+
     // Merges the src profile into this one, combining counters that have an identical
     // path. Info strings from profiles are not merged. 'src' would be a const if it
     // weren't for locking.
@@ -530,6 +535,13 @@ public:
     Counter* add_counter_with_level(const std::string& name, TUnit::type type, int64_t level) {
         return add_counter(name, type, RuntimeProfile::ROOT_COUNTER, level);
     }
+
+    // Add a counter whose storage may outlive this profile. Repeated registration returns the same
+    // shared counter, matching add_counter() semantics for reused scanner profiles.
+    std::shared_ptr<Counter> add_shared_counter(
+            const std::string& name, TUnit::type type,
+            const std::string& parent_counter_name = RuntimeProfile::ROOT_COUNTER,
+            int64_t level = 2);
 
     NonZeroCounter* add_nonzero_counter(
             const std::string& name, TUnit::type type,
@@ -654,7 +666,7 @@ private:
     std::unique_ptr<ObjectPool> _pool;
 
     // Pool for allocated counters. These counters are shared with some other objects.
-    std::map<std::string, std::shared_ptr<HighWaterMarkCounter>> _shared_counter_pool;
+    std::map<std::string, std::shared_ptr<Counter>> _shared_counter_pool;
 
     // Name for this runtime profile.
     std::string _name;

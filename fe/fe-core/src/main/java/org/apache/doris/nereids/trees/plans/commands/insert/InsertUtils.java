@@ -28,9 +28,13 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergVariantWriteAnalyzer;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.paimon.PaimonVariantWriteAnalyzer;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundBlackholeSink;
@@ -41,6 +45,7 @@ import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
 import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
+import org.apache.doris.nereids.analyzer.UnboundPaimonTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -284,6 +289,13 @@ public class InsertUtils {
                                      Optional<CascadesContext> analyzeContext,
                                      Optional<InsertCommandContext> insertCtx) {
         UnboundLogicalSink<? extends Plan> unboundLogicalSink = (UnboundLogicalSink<? extends Plan>) plan;
+        ConnectContext connectContext = ConnectContext.get();
+        StatementContext statementContext = analyzeContext.map(CascadesContext::getStatementContext)
+                .orElseGet(() -> connectContext == null ? null : connectContext.getStatementContext());
+        if (table instanceof MvccTable && statementContext != null) {
+            // Default/generated expressions and sink binding must observe one metadata generation.
+            statementContext.loadSnapshots(table, Optional.empty(), Optional.empty());
+        }
         if (table instanceof HMSExternalTable) {
             HMSExternalTable hiveTable = (HMSExternalTable) table;
             if (hiveTable.isView()) {
@@ -376,22 +388,29 @@ public class InsertUtils {
         UnboundInlineTable unboundInlineTable = (UnboundInlineTable) query;
         ImmutableList.Builder<List<NamedExpression>> optimizedRowConstructors
                 = ImmutableList.builderWithExpectedSize(unboundInlineTable.getConstantExprsList().size());
+        // Iceberg branch writes follow the shared table schema; historical schemas only apply
+        // when a branch is read, not when INSERT values are bound.
         List<Column> columns = table.getBaseSchema(false);
         Map<String, Expression> staticPartitions = null;
         if (unboundLogicalSink instanceof UnboundIcebergTableSink) {
             staticPartitions = ((UnboundIcebergTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
         } else if (unboundLogicalSink instanceof UnboundMaxComputeTableSink) {
             staticPartitions = ((UnboundMaxComputeTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
+        } else if (unboundLogicalSink instanceof UnboundPaimonTableSink) {
+            staticPartitions = ((UnboundPaimonTableSink<?>) unboundLogicalSink).getStaticPartitionKeyValues();
         }
         if (staticPartitions != null && !staticPartitions.isEmpty()
                 && CollectionUtils.isEmpty(unboundLogicalSink.getColNames())) {
-            Set<String> staticPartitionColNames = staticPartitions.keySet();
+            Set<String> staticPartitionColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            staticPartitionColNames.addAll(staticPartitions.keySet());
             columns = columns.stream()
                     .filter(column -> !staticPartitionColNames.contains(column.getName()))
                     .collect(ImmutableList.toImmutableList());
         }
 
         ConnectContext context = ConnectContext.get();
+        boolean isPaimonSink = unboundLogicalSink instanceof UnboundPaimonTableSink;
+        boolean isIcebergSink = unboundLogicalSink instanceof UnboundIcebergTableSink;
         ExpressionRewriteContext rewriteContext = null;
         if (context != null && context.getStatementContext() != null) {
             rewriteContext = new ExpressionRewriteContext(
@@ -445,7 +464,8 @@ public class InsertUtils {
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
-                            DataType targetType = DataType.fromCatalogType(sameNameColumn.getType());
+                            DataType targetType = targetTypeForInlineValue(
+                                    sameNameColumn, values.get(i), isPaimonSink, isIcebergSink);
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i),
                                     targetType, rewriteContext, strictCast);
                         }
@@ -466,7 +486,8 @@ public class InsertUtils {
                             addColumnValue(analyzer, optimizedRowConstructor, defaultExpression,
                                     null, rewriteContext, strictCast);
                         } else {
-                            DataType targetType = DataType.fromCatalogType(columns.get(i).getType());
+                            DataType targetType = targetTypeForInlineValue(
+                                    columns.get(i), values.get(i), isPaimonSink, isIcebergSink);
                             addColumnValue(analyzer, optimizedRowConstructor, values.get(i), targetType,
                                     rewriteContext, strictCast);
                         }
@@ -476,6 +497,20 @@ public class InsertUtils {
             optimizedRowConstructors.add(optimizedRowConstructor.build());
         }
         return plan.withChildren(new LogicalInlineTable(optimizedRowConstructors.build()));
+    }
+
+    private static DataType targetTypeForInlineValue(
+            Column column, NamedExpression value, boolean isPaimonSink, boolean isIcebergSink) {
+        DataType targetType = DataType.fromCatalogType(column.getType());
+        if (isPaimonSink) {
+            return PaimonVariantWriteAnalyzer.resolveInlineCoercionTarget(
+                    targetType, value).orElse(null);
+        }
+        if (isIcebergSink) {
+            return IcebergVariantWriteAnalyzer.resolveInlineCoercionTarget(
+                    targetType, value).orElse(null);
+        }
+        return targetType;
     }
 
     /** buildAnalyzer */
@@ -611,9 +646,12 @@ public class InsertUtils {
             unboundTableSink = (UnboundBlackholeSink<? extends Plan>) plan;
         } else if (plan instanceof UnboundMaxComputeTableSink) {
             unboundTableSink = (UnboundMaxComputeTableSink<? extends Plan>) plan;
+        } else if (plan instanceof UnboundPaimonTableSink) {
+            unboundTableSink = (UnboundPaimonTableSink<? extends Plan>) plan;
         } else {
             throw new AnalysisException(
-                    "the root of plan only accept Olap, Dictionary, Hive, Iceberg or Jdbc table sink, but it is "
+                    "the root of plan only accept Olap, Dictionary, Hive, Iceberg, Paimon"
+                            + " or Jdbc table sink, but it is "
                             + plan.getType());
         }
         return RelationUtil.getQualifierName(ctx, unboundTableSink.getNameParts());

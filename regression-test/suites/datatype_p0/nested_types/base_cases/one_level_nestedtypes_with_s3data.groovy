@@ -306,33 +306,33 @@ suite("one_level_nestedtypes_with_s3data") {
     }
     // select element_at(column)
     // first
-    order_qt_select_struct "select struct_element(${colNameArr[0]}, 1), struct_element(${colNameArr[0]}, 'col1') from ${table_names[2]} where k1 IS NOT NULL order by k1 limit 10;"
+    order_qt_select_struct "select element_at(${colNameArr[0]}, 1), element_at(${colNameArr[0]}, 'col1') from ${table_names[2]} where k1 IS NOT NULL order by k1 limit 10;"
     // last
-    order_qt_select_struct "select struct_element(${colNameArr[0]}, 17), struct_element(${colNameArr[0]}, 'col17') from ${table_names[2]} where k1 IS NOT NULL order by k1 limit 10;"
+    order_qt_select_struct "select element_at(${colNameArr[0]}, 17), element_at(${colNameArr[0]}, 'col17') from ${table_names[2]} where k1 IS NOT NULL order by k1 limit 10;"
     // struct make error
     test {
-        sql "select struct_element(${colNameArr[0]}, -1), struct_element(${colNameArr[0]}, 'not_exist') from ${table_names[2]} order by k1;"
+        sql "select element_at(${colNameArr[0]}, -1), element_at(${colNameArr[0]}, 'not_exist') from ${table_names[2]} order by k1;"
         exception("the specified field index out of bound")
     }
 
     test {
-        sql "select struct_element(${colNameArr[0]}, 0), struct_element(${colNameArr[0]}, 'not_exist') from ${table_names[2]} order by k1;"
+        sql "select element_at(${colNameArr[0]}, 0), element_at(${colNameArr[0]}, 'not_exist') from ${table_names[2]} order by k1;"
         exception("the specified field index out of bound")
     }
     test {
-        sql "select struct_element(${colNameArr[0]}, 1000) from ${table_names[2]} order by k1;"
+        sql "select element_at(${colNameArr[0]}, 1000) from ${table_names[2]} order by k1;"
         exception("the specified field index out of bound")
     }
 
-    String res = sql "select struct_element(${colNameArr[0]}, 17) from ${table_names[2]} order by k1 limit 1;"
+    String res = sql "select element_at(${colNameArr[0]}, 17) from ${table_names[2]} order by k1 limit 1;"
     // select * from table where element_at(column) with equal expr
-    order_qt_select_struct "select * from ${table_names[2]} where struct_element(${colNameArr[0]}, 1) > 100 AND k1 IS NOT NULL order by k1 limit 10;"
-    order_qt_select_struct "select * from ${table_names[2]} where struct_element(${colNameArr[0]}, 'col17') = '${res}' AND k1 IS NOT NULL order by k1 limit 10;"
+    order_qt_select_struct "select * from ${table_names[2]} where element_at(${colNameArr[0]}, 1) > 100 AND k1 IS NOT NULL order by k1 limit 10;"
+    order_qt_select_struct "select * from ${table_names[2]} where element_at(${colNameArr[0]}, 'col17') = '${res}' AND k1 IS NOT NULL order by k1 limit 10;"
 
     // select * from table where groupby|orderby column will meet exception
 
     // select * from table where groupby|orderby element_at(column)
-    String agg_expr = "struct_element(${colNameArr[0]}, 1)"
+    String agg_expr = "element_at(${colNameArr[0]}, 1)"
     groupby_or_orderby_element_at(true, table_names[2], agg_expr)
     groupby_or_orderby_element_at(false, table_names[2], agg_expr)
 

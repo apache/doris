@@ -60,14 +60,6 @@ public:
         OwnedSlice s = rle_page_builder.finish();
         EXPECT_EQ(size, rle_page_builder.count());
 
-        //check first value and last value
-        CppType first_value;
-        rle_page_builder.get_first_value(&first_value);
-        EXPECT_EQ(src[0], first_value);
-        CppType last_value;
-        rle_page_builder.get_last_value(&last_value);
-        EXPECT_EQ(src[size - 1], last_value);
-
         PageDecoderOptions decodeder_options;
         PageDecoderType rle_page_decoder(s.slice(), decodeder_options);
         Status status = rle_page_decoder.init();

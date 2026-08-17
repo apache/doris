@@ -79,7 +79,7 @@ public class JavaUdafBuilder extends UdfBuilder {
 
     @Override
     public Pair<JavaUdaf, JavaUdaf> build(String name, List<?> arguments) {
-        return Pair.ofSame((JavaUdaf) udaf.withChildren(
+        return Pair.ofSame((JavaUdaf) udaf.withFreshVolatileIdentity().withChildren(
                 arguments.stream()
                         .map(Expression.class::cast)
                         .collect(Collectors.toList()))

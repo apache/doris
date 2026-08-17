@@ -86,7 +86,11 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     return Status::OK();
 }
 
-Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs) {
+Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs,
+                             bool* memtable_flushed) {
+    if (memtable_flushed != nullptr) {
+        *memtable_flushed = false;
+    }
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
@@ -110,6 +114,9 @@ Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& ro
                     { raw_rows = std::numeric_limits<int32_t>::max(); });
     if (raw_rows + row_idxs.size() > std::numeric_limits<int32_t>::max()) {
         RETURN_IF_ERROR(_flush_memtable());
+        if (memtable_flushed != nullptr) {
+            *memtable_flushed = true;
+        }
     }
 
     _total_received_rows += row_idxs.size();
@@ -137,6 +144,9 @@ Status MemTableWriter::write(const Block* block, const DorisVector<uint32_t>& ro
     }
     if (UNLIKELY(_mem_table->need_flush())) {
         RETURN_IF_ERROR(_flush_memtable());
+        if (memtable_flushed != nullptr) {
+            *memtable_flushed = true;
+        }
     }
 
     return Status::OK();
@@ -173,7 +183,6 @@ Status MemTableWriter::flush_async() {
     // 1. call by local, from `VTabletWriterV2::_write_memtable`.
     // 2. call by remote, from `LoadChannelMgr::_get_load_channel`.
     // 3. call by daemon thread, from `handle_paused_queries` -> `flush_workload_group_memtables`.
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
@@ -185,6 +194,9 @@ Status MemTableWriter::flush_async() {
     if (_is_cancelled) {
         return _cancel_status;
     }
+
+    DCHECK(_resource_ctx != nullptr);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
 
     VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
                 << PrettyPrinter::print_bytes(_mem_table->memory_usage())
@@ -355,6 +367,27 @@ const FlushStatistic& MemTableWriter::get_flush_token_stats() {
 
 uint64_t MemTableWriter::flush_running_count() const {
     return _flush_token == nullptr ? 0 : _flush_token->get_stats().flush_running_count.load();
+}
+
+int64_t MemTableWriter::table_id() const {
+    DORIS_CHECK(_req.table_schema_param != nullptr);
+    return _req.table_schema_param->table_id();
+}
+
+int64_t MemTableWriter::flush_pending_memtable_count() {
+    std::lock_guard<std::mutex> l(_mem_table_ptr_lock);
+    int64_t memtable_count = 0;
+    for (const auto& mem_table : _freezed_mem_tables) {
+        auto mem_table_sptr = mem_table.lock();
+        if (mem_table_sptr == nullptr) {
+            continue;
+        }
+        auto mem_type = mem_table_sptr->get_mem_type();
+        if (mem_type == MemType::WRITE_FINISHED || mem_type == MemType::FLUSH) {
+            memtable_count++;
+        }
+    }
+    return memtable_count;
 }
 
 int64_t MemTableWriter::mem_consumption(MemType mem) {

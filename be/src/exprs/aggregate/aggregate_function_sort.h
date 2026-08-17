@@ -47,33 +47,27 @@ namespace doris {
 
 struct AggregateFunctionSortData {
     const SortDescription sort_desc;
-    Block block;
+    // The aggregate state is the sole owner of these columns and appends rows in add(), which is
+    // a hot path. Keep the long-lived state as MutableBlock and only materialize temporary Block
+    // views for APIs that require immutable Block input.
+    MutableBlock block;
 
     // The construct only support the template compiler, useless
     AggregateFunctionSortData() : sort_desc() {};
     AggregateFunctionSortData(SortDescription sort_desc, const Block& block)
             : sort_desc(std::move(sort_desc)), block(block.clone_empty()) {}
 
-    void merge(const AggregateFunctionSortData& rhs) {
-        if (block.rows() == 0) {
-            block = rhs.block;
-        } else {
-            for (size_t i = 0; i < block.columns(); i++) {
-                auto column = block.get_by_position(i).column->assume_mutable();
-                auto column_rhs = rhs.block.get_by_position(i).column;
-                column->insert_range_from(*column_rhs, 0, rhs.block.rows());
-            }
-        }
-    }
+    void merge(const AggregateFunctionSortData& rhs) { append_block(rhs, 0, rhs.block.rows()); }
 
     void serialize(const RuntimeState* state, BufferWritable& buf) const {
         PBlock pblock;
         size_t uncompressed_bytes = 0;
         size_t compressed_bytes = 0;
         int64_t compressed_time = 0;
-        auto st = block.serialize(state->be_exec_version(), &pblock, &uncompressed_bytes,
-                                  &compressed_bytes, &compressed_time,
-                                  segment_v2::CompressionTypePB::NO_COMPRESSION);
+        auto block_view = to_block_view();
+        auto st = block_view.serialize(state->be_exec_version(), &pblock, &uncompressed_bytes,
+                                       &compressed_bytes, &compressed_time,
+                                       segment_v2::CompressionTypePB::NO_COMPRESSION);
         if (!st.ok()) {
             throw doris::Exception(st);
         }
@@ -89,12 +83,14 @@ struct AggregateFunctionSortData {
         pblock.ParseFromString(data);
         [[maybe_unused]] size_t uncompressed_size = 0;
         [[maybe_unused]] int64_t uncompressed_time = 0;
-        auto st = block.deserialize(pblock, &uncompressed_size, &uncompressed_time);
+        Block deserialized_block;
+        auto st = deserialized_block.deserialize(pblock, &uncompressed_size, &uncompressed_time);
         // If memory allocate failed during deserialize, st is not ok, throw exception here to
         // stop the query.
         if (!st.ok()) {
             throw doris::Exception(st);
         }
+        block = MutableBlock(std::move(deserialized_block));
     }
 
     void add(const IColumn** columns, size_t columns_num, size_t row_num) {
@@ -103,14 +99,40 @@ struct AggregateFunctionSortData {
                                block.columns(), columns_num);
 
         for (size_t i = 0; i < columns_num; ++i) {
-            auto column = block.get_by_position(i).column->assume_mutable();
-            column->insert_from(*columns[i], row_num);
+            block.get_column_by_position(i)->insert_from(*columns[i], row_num);
         }
     }
 
     void sort() {
+        auto block_view = to_block_view();
+        auto sorted_block = block_view.clone_empty();
         HybridSorter hybrid_sorter;
-        sort_block(block, block, sort_desc, hybrid_sorter, block.rows());
+        sort_block(block_view, sorted_block, sort_desc, hybrid_sorter, block_view.rows());
+        block = MutableBlock(std::move(sorted_block));
+    }
+
+private:
+    void append_block(const AggregateFunctionSortData& rhs, size_t start, size_t length) {
+        DCHECK_EQ(block.columns(), rhs.block.columns());
+        for (size_t i = 0; i < block.columns(); ++i) {
+            DCHECK(block.get_datatype_by_position(i)->equals(
+                    *rhs.block.get_datatype_by_position(i)))
+                    << "lhs type: " << block.get_datatype_by_position(i)->get_name()
+                    << ", rhs type: " << rhs.block.get_datatype_by_position(i)->get_name();
+            block.get_column_by_position(i)->insert_range_from(*rhs.block.get_column_by_position(i),
+                                                               start, length);
+        }
+    }
+
+    Block to_block_view() const {
+        ColumnsWithTypeAndName columns_with_schema;
+        columns_with_schema.reserve(block.columns());
+        for (size_t i = 0; i < block.columns(); ++i) {
+            columns_with_schema.emplace_back(
+                    static_cast<const IColumn&>(*block.get_column_by_position(i)).get_ptr(),
+                    block.get_datatype_by_position(i), "");
+        }
+        return {std::move(columns_with_schema)};
     }
 };
 
@@ -178,7 +200,7 @@ public:
             ColumnRawPtrs arguments_nested;
             for (int i = 0; i < _arguments.size() - _sort_desc.size(); i++) {
                 arguments_nested.emplace_back(
-                        this->data(place).block.get_by_position(i).column.get());
+                        this->data(place).block.get_column_by_position(i).get());
             }
 
             _nested_func->add_batch_single_place(arguments_nested[0]->size(),

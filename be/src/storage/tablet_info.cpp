@@ -697,9 +697,14 @@ Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartiti
     part_result = _obj_pool.add(new VOlapTablePartition(&_partition_block));
     part_result->id = t_part.id;
     part_result->is_mutable = t_part.is_mutable;
-    // only load_to_single_tablet = true will set load_tablet_idx
     if (t_part.__isset.load_tablet_idx) {
         part_result->load_tablet_idx = t_part.load_tablet_idx;
+    }
+    if (t_part.__isset.bucket_be_id) {
+        part_result->bucket_be_id = t_part.bucket_be_id;
+    }
+    if (t_part.__isset.local_bucket_seqs) {
+        part_result->local_bucket_seqs = t_part.local_bucket_seqs;
     }
 
     if (_is_in_partition) {
@@ -787,6 +792,15 @@ Status VOlapTablePartitionParam::add_partitions(
         }
 
         part->num_buckets = t_part.num_buckets;
+        if (t_part.__isset.load_tablet_idx) {
+            part->load_tablet_idx = t_part.load_tablet_idx;
+        }
+        if (t_part.__isset.bucket_be_id) {
+            part->bucket_be_id = t_part.bucket_be_id;
+        }
+        if (t_part.__isset.local_bucket_seqs) {
+            part->local_bucket_seqs = t_part.local_bucket_seqs;
+        }
         auto num_indexes = _schema->indexes().size();
         if (t_part.indexes.size() != num_indexes) {
             return Status::InternalError(
@@ -859,6 +873,15 @@ Status VOlapTablePartitionParam::replace_partitions(
         }
 
         part->num_buckets = t_part.num_buckets;
+        if (t_part.__isset.load_tablet_idx) {
+            part->load_tablet_idx = t_part.load_tablet_idx;
+        }
+        if (t_part.__isset.bucket_be_id) {
+            part->bucket_be_id = t_part.bucket_be_id;
+        }
+        if (t_part.__isset.local_bucket_seqs) {
+            part->local_bucket_seqs = t_part.local_bucket_seqs;
+        }
         auto num_indexes = _schema->indexes().size();
         if (t_part.indexes.size() != num_indexes) {
             return Status::InternalError(

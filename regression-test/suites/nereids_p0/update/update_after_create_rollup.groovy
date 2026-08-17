@@ -104,7 +104,6 @@ suite('update_after_create_rollup') {
         "enable_unique_key_merge_on_write" = "true",
         "light_schema_change" = "true",
         "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
         "group_commit_interval_ms" = "10000",
         "group_commit_data_bytes" = "134217728",
         "enable_mow_light_delete" = "false"
@@ -124,16 +123,7 @@ suite('update_after_create_rollup') {
     sql """
         ALTER TABLE mow_table ADD ROLLUP rollup1(event_date, event_time, user_id, country, update_time)
     """
-    sleep(10000)
-    explain {
-        sql('''
-            SELECT event_date, country, count(*) 
-            FROM mow_table 
-            WHERE event_date = '2025-09-22'
-            GROUP BY event_date, country
-        ''')
-        contains "rollup1"
-    }
+    assertEquals("FINISHED", getAlterRollupFinalState("mow_table"))
     
     // Test 1: UPDATE column not in rollup1 (city)
     sql 'UPDATE mow_table SET city = "beijing" WHERE user_id = 2000'

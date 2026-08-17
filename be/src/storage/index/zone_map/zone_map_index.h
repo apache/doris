@@ -31,14 +31,15 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"
 #include "io/fs/file_reader_writer_fwd.h"
-#include "storage/field.h"
 #include "storage/metadata_adder.h"
+#include "storage/tablet/tablet_schema.h"
 #include "util/once.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 namespace io {
 class FileWriter;
+struct IOContext;
 } // namespace io
 
 namespace segment_v2 {
@@ -88,7 +89,7 @@ struct ZoneMap {
 
 class ZoneMapIndexWriter {
 public:
-    static Status create(DataTypePtr data_type, StorageField* field,
+    static Status create(DataTypePtr data_type, const TabletColumn* column,
                          std::unique_ptr<ZoneMapIndexWriter>& res);
 
     ZoneMapIndexWriter() = default;
@@ -183,7 +184,8 @@ public:
 
     // load all page zone maps into memory
     Status load(bool use_page_cache, bool kept_in_memory,
-                OlapReaderStatistics* index_load_stats = nullptr);
+                OlapReaderStatistics* index_load_stats = nullptr,
+                const io::IOContext* io_ctx = nullptr);
 
     const std::vector<ZoneMapPB>& page_zone_maps() const { return _page_zone_maps; }
 
@@ -191,7 +193,7 @@ public:
 
 private:
     Status _load(bool use_page_cache, bool kept_in_memory, std::unique_ptr<IndexedColumnMetaPB>,
-                 OlapReaderStatistics* index_load_stats);
+                 OlapReaderStatistics* index_load_stats, const io::IOContext* io_ctx);
 
     int64_t get_metadata_size() const override;
 

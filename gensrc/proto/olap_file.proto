@@ -427,6 +427,15 @@ enum InvertedIndexStorageFormatPB {
     V3 = 2;
 }
 
+// Tablet-level storage format. Values match TStorageFormat (Thrift) integer values so
+// the C++ side can cast between TStorageFormat::type and this enum 1:1.
+enum TabletStorageFormatPB {
+    TABLET_STORAGE_FORMAT_DEFAULT = 0;
+    TABLET_STORAGE_FORMAT_V1 = 1;
+    TABLET_STORAGE_FORMAT_V2 = 2;
+    TABLET_STORAGE_FORMAT_V3 = 3;
+}
+
 message TabletIndexPB {
     optional int64 index_id = 1;
     optional string index_name = 2;
@@ -472,7 +481,7 @@ message TabletSchemaPB {
     optional bool is_dynamic_schema = 19 [default=false]; // deprecated
     reserved 20; // deprecated is_partial_update
     reserved 21; // deprecated partial_update_input_columns
-    optional bool enable_single_replica_compaction = 22 [default=false];
+    reserved 22; // deprecated enable_single_replica_compaction
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_uids = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
@@ -490,6 +499,14 @@ message TabletSchemaPB {
 
     optional bool integer_type_default_use_plain_encoding = 33;
     optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 34;
+
+    // Persisted TStorageFormat (V2=2, V3=3). This is the new authoritative field.
+    // The legacy is_external_segment_column_meta_used, integer_type_default_use_plain_encoding
+    // and binary_plain_encoding_default_impl fields above are still emitted redundantly when
+    // storage_format == V3 so that an old BE rolled back from a new one can still recover
+    // the format via the prior "any of those three implies V3" rule. New code should read
+    // storage_format; the fallback path lives in TabletSchema::init_from_pb.
+    optional TabletStorageFormatPB storage_format = 36;
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
@@ -514,7 +531,7 @@ message TabletSchemaCloudPB {
     optional bool store_row_column = 18 [default=false]; // store tuplerow oriented column
     reserved 20; // deprecated is_partial_update
     reserved 21; // deprecated partial_update_input_columns
-    optional bool enable_single_replica_compaction = 22 [default=false];
+    reserved 22; // deprecated enable_single_replica_compaction
     optional bool skip_write_index_on_load = 23 [default=false];
     repeated int32 cluster_key_uids = 24;
     optional InvertedIndexStorageFormatPB inverted_index_storage_format = 25 [default=V1];
@@ -532,6 +549,9 @@ message TabletSchemaCloudPB {
 
     optional bool integer_type_default_use_plain_encoding = 34;
     optional BinaryPlainEncodingTypePB binary_plain_encoding_default_impl = 35;
+
+    // Persisted TStorageFormat (V2=2, V3=3); see TabletSchemaPB::storage_format.
+    optional TabletStorageFormatPB storage_format = 37;
 
     optional bool is_dynamic_schema = 100 [default=false];
 

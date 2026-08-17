@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_bf_skip_unsupported_subcolumn", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def tableName = "variant_bf_skip_unsupported_subcolumn"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
@@ -33,7 +34,7 @@ suite("test_variant_bf_skip_unsupported_subcolumn", "p0") {
             "storage_format" = "V3"
         );
     """
-    sql """INSERT INTO ${tableName} VALUES (1, '{"m":{"d":1.23}}')"""
-    sql """INSERT INTO ${tableName} VALUES (2, '{"m":{"d":4.56}}')"""
+    sql """INSERT INTO ${tableName} VALUES (1, ${variantV2Function}('{"m":{"d":1.23}}'))"""
+    sql """INSERT INTO ${tableName} VALUES (2, ${variantV2Function}('{"m":{"d":4.56}}'))"""
     qt_sql """select cast(v['m']['d'] as double) from ${tableName} order by k"""
 }

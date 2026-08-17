@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Http;
 import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.HudiMeta;
-import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
 import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
@@ -42,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
+import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
 
 import com.google.common.collect.ImmutableList;
 
@@ -60,7 +60,6 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(GroupCommit.class, "group_commit"),
             tableValued(Local.class, "local"),
             tableValued(HudiMeta.class, "hudi_meta"),
-            tableValued(IcebergMeta.class, "iceberg_meta"),
             tableValued(Hdfs.class, "hdfs"),
             tableValued(HttpStream.class, "http_stream"),
             tableValued(Numbers.class, "numbers"),
@@ -77,7 +76,8 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(ParquetFileMetadata.class, "parquet_file_metadata"),
             tableValued(ParquetKvMetadata.class, "parquet_kv_metadata"),
             tableValued(ParquetBloomProbe.class, "parquet_bloom_probe"),
-            tableValued(CdcStream.class, "cdc_stream")
+            tableValued(CdcStream.class, "cdc_stream"),
+            tableValued(VectorSearch.class, "vector_search")
     );
 
     public static final BuiltinTableValuedFunctions INSTANCE = new BuiltinTableValuedFunctions();

@@ -760,6 +760,12 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             }
                         }
 
+                        st = remoteOlapTbl.checkPropertiesForRestore();
+                        if (!st.ok()) {
+                            status = st;
+                            return;
+                        }
+
                         checkStorageVault(localOlapTbl);
                         if (!status.ok()) {
                             return;
@@ -865,9 +871,15 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         }
                     }
 
+                    Status st = remoteOlapTbl.checkPropertiesForRestore();
+                    if (!st.ok()) {
+                        status = st;
+                        return;
+                    }
+
                     // reset all ids in this table
                     String srcDbName = jobInfo.dbName;
-                    Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica,
+                    st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica,
                             reserveColocate, colocatePersistInfos, srcDbName);
                     if (!st.ok()) {
                         status = st;
@@ -1140,9 +1152,20 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     if (reserveReplica) {
                         restoreReplicaAlloc = remotePartitionInfo.getReplicaAllocation(remotePartId);
                     }
+                    boolean isInMemory = remotePartitionInfo.getIsInMemory(remotePartId);
+                    if (Config.isCloudMode()) {
+                        // In cloud mode, storage_medium, cooldown_time, storage_policy and in_memory
+                        // from the source cluster are not applicable. Reset them to defaults.
+                        remoteDataProperty = new DataProperty(
+                                DataProperty.DEFAULT_STORAGE_MEDIUM,
+                                DataProperty.MAX_COOLDOWN_TIME_MS,
+                                "",
+                                remoteDataProperty.isMutable());
+                        isInMemory = false;
+                    }
                     localPartitionInfo.addPartition(restoredPart.getId(), false, remoteItem,
                             remoteDataProperty, restoreReplicaAlloc,
-                            remotePartitionInfo.getIsInMemory(remotePartId),
+                            isInMemory,
                             remotePartitionInfo.getIsMutable(remotePartId));
                 }
                 localTbl.addPartition(restoredPart);
@@ -1439,7 +1462,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getCompressionType(),
                             localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy(),
                             localTbl.disableAutoCompaction(),
-                            localTbl.enableSingleReplicaCompaction(),
                             localTbl.skipWriteIndexOnLoad(),
                             localTbl.getCompactionPolicy(),
                             localTbl.getTimeSeriesCompactionGoalSizeMbytes(),
@@ -1679,9 +1701,20 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             if (reserveReplica) {
                 restoreReplicaAlloc = remotePartitionInfo.getReplicaAllocation(remotePartId);
             }
+            boolean isInMemory = remotePartitionInfo.getIsInMemory(remotePartId);
+            if (Config.isCloudMode()) {
+                // In cloud mode, storage_medium, cooldown_time, storage_policy and in_memory
+                // from the source cluster are not applicable. Reset them to defaults.
+                remoteDataProperty = new DataProperty(
+                        DataProperty.DEFAULT_STORAGE_MEDIUM,
+                        DataProperty.MAX_COOLDOWN_TIME_MS,
+                        "",
+                        remoteDataProperty.isMutable());
+                isInMemory = false;
+            }
             localPartitionInfo.addPartition(restorePart.getId(), false, remotePartitionInfo.getItem(remotePartId),
                     remoteDataProperty, restoreReplicaAlloc,
-                    remotePartitionInfo.getIsInMemory(remotePartId),
+                    isInMemory,
                     remotePartitionInfo.getIsMutable(remotePartId));
             localTbl.addPartition(restorePart);
 
@@ -2172,7 +2205,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
-        updateOlapTablesVersion(db);
+        updateOlapTablesVersion(db, isReplay);
 
         if (!isReplay) {
             restoredPartitions.clear();
@@ -2199,7 +2232,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         return Status.OK;
     }
 
-    private void updateOlapTablesVersion(Database db) {
+    protected void updateOlapTablesVersion(Database db, boolean isReplay) {
         if (Env.getCurrentEnv().invalidCacheForCloud()) {
             return;
         }

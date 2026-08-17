@@ -257,8 +257,13 @@ public class NodeAction extends RestBaseController {
      */
     @RequestMapping(path = "/config", method = RequestMethod.GET)
     public Object config(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), InfoSchemaDb.DATABASE_NAME, PrivPredicate.SELECT);
+        // This endpoint lists all FE config, matching the SQL "SHOW FRONTEND CONFIG", which
+        // requires ADMIN. Use an unconditional ADMIN check: checkAdminAuth only enforces the
+        // privilege when enable_all_http_auth is true, so it would be a no-op by default.
+        // Sensitive config values (e.g. fe_meta_auth_token) are additionally masked by ConfigBase,
+        // so they are never returned in plaintext even to an admin.
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkGlobalAuth(authInfo.userIdentity, PrivPredicate.ADMIN);
 
         List<List<String>> configs = ConfigBase.getConfigInfo(null);
         // Sort all configs by config key.
@@ -318,8 +323,10 @@ public class NodeAction extends RestBaseController {
     public Object configurationInfo(HttpServletRequest request, HttpServletResponse response,
             @RequestParam(value = "type") String type,
             @RequestBody(required = false) ConfigInfoRequestBody requestBody) {
+        // Reads FE/BE config via fan-out to the per-node config endpoints, so it must be
+        // ADMIN-gated too. Unconditional check (see config() above for why checkAdminAuth is not).
         ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
-        checkAdminAuth(authInfo.userIdentity);
+        checkGlobalAuth(authInfo.userIdentity, PrivPredicate.ADMIN);
 
         initHttpExecutor();
 
@@ -612,8 +619,10 @@ public class NodeAction extends RestBaseController {
     }
 
     @PostMapping("/{action}/be")
-    public Object operateBackend(HttpServletRequest request, HttpServletResponse response, @PathVariable String action,
-            @RequestBody BackendReqInfo reqInfo) {
+    public Object operateBackend(HttpServletRequest request, HttpServletResponse response,
+            @PathVariable("action") String action, @RequestBody BackendReqInfo reqInfo) {
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         try {
             if (needRedirect(request.getScheme())) {
                 return redirectToHttps(request);
@@ -660,7 +669,9 @@ public class NodeAction extends RestBaseController {
 
     @PostMapping("/{action}/fe")
     public Object operateFrontends(HttpServletRequest request, HttpServletResponse response,
-            @PathVariable String action, @RequestBody FrontendReqInfo reqInfo) {
+            @PathVariable("action") String action, @RequestBody FrontendReqInfo reqInfo) {
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         try {
             if (needRedirect(request.getScheme())) {
                 return redirectToHttps(request);
@@ -692,7 +703,9 @@ public class NodeAction extends RestBaseController {
 
     @PostMapping("/{action}/broker")
     public Object operateBroker(HttpServletRequest request, HttpServletResponse response,
-                                @PathVariable String action, @RequestBody BrokerReqInfo reqInfo) {
+                                @PathVariable("action") String action, @RequestBody BrokerReqInfo reqInfo) {
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         try {
             if (!Env.getCurrentEnv().isMaster()) {
                 return redirectToMasterOrException(request, response);

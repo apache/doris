@@ -49,7 +49,7 @@ Status VNumbersTVF::get_next(RuntimeState* state, Block* block, bool* eos) {
     // now only support one column for tvf numbers
     for (int i = 0; i < _slot_num; ++i) {
         if (mem_reuse) {
-            columns[i] = std::move(*(block->get_by_position(i).column)).mutate();
+            columns[i] = IColumn::mutate(std::move(block->get_by_position(i).column));
         } else {
             columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
         }
@@ -73,7 +73,7 @@ Status VNumbersTVF::get_next(RuntimeState* state, Block* block, bool* eos) {
     }
 
     if (mem_reuse) {
-        columns.clear();
+        block->set_columns(std::move(columns));
     } else {
         size_t n_columns = 0;
         for (const auto* slot_desc : _tuple_desc->slots()) {

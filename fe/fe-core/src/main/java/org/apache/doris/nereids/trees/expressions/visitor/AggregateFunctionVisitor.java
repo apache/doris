@@ -97,6 +97,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCo
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
+import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdaf;
 
 /** AggregateFunctionVisitor. */
 public interface AggregateFunctionVisitor<R, C> {
@@ -148,15 +149,15 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitBoolAnd(BoolAnd boolAnd, C context) {
-        return visitAggregateFunction(boolAnd, context);
+        return visitNullableAggregateFunction(boolAnd, context);
     }
 
     default R visitBoolOr(BoolOr boolOr, C context) {
-        return visitAggregateFunction(boolOr, context);
+        return visitNullableAggregateFunction(boolOr, context);
     }
 
     default R visitBoolXor(BoolXor boolXor, C context) {
-        return visitAggregateFunction(boolXor, context);
+        return visitNullableAggregateFunction(boolXor, context);
     }
 
     default R visitCollectList(CollectList collectList, C context) {
@@ -419,4 +420,7 @@ public interface AggregateFunctionVisitor<R, C> {
         return visitAggregateFunction(javaUdaf, context);
     }
 
+    default R visitPythonUdaf(PythonUdaf pythonUdaf, C context) {
+        return visitAggregateFunction(pythonUdaf, context);
+    }
 }

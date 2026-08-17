@@ -70,9 +70,6 @@ public:
     DataTypeStruct(const DataTypes& elems, const Strings& names);
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_STRUCT; }
 
-    doris::FieldType get_storage_field_type() const override {
-        return doris::FieldType::OLAP_FIELD_TYPE_STRUCT;
-    }
     std::string do_get_name() const override;
     const std::string get_family_name() const override { return "Struct"; }
 

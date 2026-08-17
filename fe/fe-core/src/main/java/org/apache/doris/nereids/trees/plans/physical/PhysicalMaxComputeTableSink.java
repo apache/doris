@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecMaxComputeTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -123,7 +123,9 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
             boolean hasDynamicPartition = partitionNames.stream().anyMatch(colNames::contains);
             if (!hasDynamicPartition) {
                 // All partition columns are statically specified, no sort needed
-                return PhysicalProperties.SINK_RANDOM_PARTITIONED;
+                // Keep sharing the original Hive-style non-partitioned writer scaling until
+                // MaxCompute defines an independent sink-exchange contract.
+                return PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED;
             }
 
             List<Integer> columnIdx = new ArrayList<>();
@@ -137,9 +139,8 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
             List<ExprId> exprIds = columnIdx.stream()
                     .map(idx -> child().getOutput().get(idx).getExprId())
                     .collect(Collectors.toList());
-            DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
-                    = new DistributionSpecHiveTableSinkHashPartitioned();
-            shuffleInfo.setOutputColExprIds(exprIds);
+            DistributionSpecMaxComputeTableSinkHashPartitioned shuffleInfo
+                    = new DistributionSpecMaxComputeTableSinkHashPartitioned(exprIds);
             // Require local sort by partition columns so that rows for the same partition
             // are grouped together. MaxCompute Storage API streams dynamic partition data
             // and will close a partition writer once it sees a different partition;
@@ -150,6 +151,8 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
             return new PhysicalProperties(shuffleInfo)
                     .withOrderSpec(new MustLocalSortOrderSpec(orderKeys));
         }
-        return PhysicalProperties.SINK_RANDOM_PARTITIONED;
+        // Keep sharing the original Hive-style non-partitioned writer scaling until
+        // MaxCompute defines an independent sink-exchange contract.
+        return PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED;
     }
 }

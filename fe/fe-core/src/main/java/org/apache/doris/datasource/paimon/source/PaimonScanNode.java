@@ -19,7 +19,9 @@ package org.apache.doris.datasource.paimon.source;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -30,7 +32,13 @@ import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
+import org.apache.doris.datasource.paimon.PaimonMvccSnapshot;
+import org.apache.doris.datasource.paimon.PaimonReaderOptions;
+import org.apache.doris.datasource.paimon.PaimonScanParams;
+import org.apache.doris.datasource.paimon.PaimonSnapshot;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.datasource.paimon.PaimonUtils;
@@ -48,30 +56,42 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
-import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TPaimonReaderType;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.BucketMode;
+import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.InnerTableScan;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.table.source.TableScan;
+import org.apache.paimon.table.source.snapshot.SnapshotReader;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.OptionalLong;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -80,8 +100,6 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
     // The keys of incremental read params for Paimon SDK
-    private static final String PAIMON_SCAN_SNAPSHOT_ID = "scan.snapshot-id";
-    private static final String PAIMON_SCAN_MODE = "scan.mode";
     private static final String PAIMON_INCREMENTAL_BETWEEN = "incremental-between";
     private static final String PAIMON_INCREMENTAL_BETWEEN_SCAN_MODE = "incremental-between-scan-mode";
     private static final String PAIMON_INCREMENTAL_BETWEEN_TIMESTAMP = "incremental-between-timestamp";
@@ -91,8 +109,20 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_START_TIMESTAMP = "startTimestamp";
     private static final String DORIS_END_TIMESTAMP = "endTimestamp";
     private static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
-    private static final String PAIMON_BINLOG_SYSTEM_TABLE_TYPE = "binlog";
-    private static final String PAIMON_AUDIT_LOG_SYSTEM_TABLE_TYPE = "audit_log";
+    private static final String PAIMON_PROPERTY_PREFIX = "paimon.";
+    private static final String DORIS_ENABLE_FILE_READER_ASYNC = "jni.enable_file_reader_async";
+    private static final String DORIS_ENABLE_JNI_IO_MANAGER = "jni.enable_jni_io_manager";
+    private static final String DORIS_JNI_IO_MANAGER_TMP_DIR = "jni.io_manager.tmp_dir";
+    private static final String DORIS_JNI_IO_MANAGER_IMPL_CLASS = "jni.io_manager.impl_class";
+    private static final String DORIS_MANIFEST_PARALLELISM_CAP =
+            "doris.scan.manifest.parallelism-cap";
+    private static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
+    private static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
+    private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
+            DORIS_ENABLE_JNI_IO_MANAGER,
+            DORIS_JNI_IO_MANAGER_TMP_DIR,
+            DORIS_JNI_IO_MANAGER_IMPL_CLASS,
+            DORIS_ENABLE_FILE_READER_ASYNC);
 
     private enum SplitReadType {
         JNI,
@@ -142,11 +172,13 @@ public class PaimonScanNode extends FileQueryScanNode {
     private int paimonSplitNum = 0;
     private List<SplitStat> splitStats = new ArrayList<>();
     private String serializedTable;
+    private final String serializedTableCacheKey = UUID.randomUUID().toString();
     // Store PropertiesMap, including vended credentials or static credentials
     // get them in doInitialize() to ensure internal consistency of ScanNode
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
     private Map<String, String> backendPaimonOptions = Collections.emptyMap();
+    private Table processedTable;
 
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
@@ -158,15 +190,35 @@ public class PaimonScanNode extends FileQueryScanNode {
                           ScanContext scanContext) {
         super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE,
                 scanContext, needCheckColumnPriv, sv);
+        // Some branch-4.1 callers construct the scan node before attaching a table descriptor;
+        // defer source creation for them while preserving eager setup for normal planned scans.
+        if (desc.getTable() != null) {
+            source = new PaimonSource(desc);
+        }
     }
 
     @Override
     protected void doInitialize() throws UserException {
+        checkVariantV2Enabled(desc);
+        Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
+        if (desc.getTable() instanceof PaimonExternalTable
+                || desc.getTable() instanceof PaimonSysExternalTable) {
+            // Rebuild from the logical scan's snapshot: system-table snapshots are keyed by their
+            // source table and cannot be recovered by looking up the synthetic descriptor table.
+            source = new PaimonSource(desc, relationSnapshot);
+        } else if (source == null) {
+            source = new PaimonSource(desc);
+        }
+        processedTable = getProcessedTable();
         super.doInitialize();
-        source = new PaimonSource(desc);
-        serializedTable = PaimonUtil.encodeObjectToString(source.getPaimonTable());
+        long startTime = System.currentTimeMillis();
+        serializeProcessedTable();
+        params.setNumOfColumnsFromFile(processedTable.rowType().getFieldCount() - getPathPartitionKeys().size());
+        List<Column> queryColumns = desc.getSlots().stream()
+                .map(slot -> slot.getColumn())
+                .collect(Collectors.toList());
         // Todo: Get the current schema id of the table, instead of using -1.
-        ExternalUtil.initSchemaInfo(params, -1L, source.getTargetTable().getColumns());
+        ExternalUtil.initSchemaInfo(params, -1L, queryColumns);
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
         storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
                 catalog.getCatalogProperty().getMetastoreProperties(),
@@ -174,7 +226,50 @@ public class PaimonScanNode extends FileQueryScanNode {
                 source.getPaimonTable()
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
-        backendPaimonOptions = getBackendPaimonOptions();
+        backendPaimonOptions = new HashMap<>(getBackendPaimonOptions());
+        OptionalInt manifestCap;
+        if (source.getExternalTable() instanceof PaimonSysExternalTable) {
+            manifestCap = source.runtimeSafeManifestParallelism(getScanParams());
+        } else {
+            manifestCap = PaimonReaderOptions.backendManifestParallelismCap(processedTable);
+        }
+        // The hidden planner's option is not visible on a serialized system wrapper.
+        manifestCap.ifPresent(cap -> backendPaimonOptions.put(
+                DORIS_MANIFEST_PARALLELISM_CAP, String.valueOf(cap)));
+        if (source.getExternalTable() instanceof PaimonSysExternalTable && manifestCap.isPresent()) {
+            PaimonSysExternalTable systemTable = (PaimonSysExternalTable) source.getExternalTable();
+            TableScanParams scanParams = getScanParams();
+            Map<String, String> incrementalOptions = scanParams != null && scanParams.incrementalRead()
+                    ? getIncrReadParams() : Collections.emptyMap();
+            FileStoreTable effectiveSource = source.runtimeSafeSystemDataTable(
+                    scanParams, incrementalOptions);
+            // A system wrapper can hide its physical option map. Ship the exact source so a smaller
+            // BE can cap it and rebuild without guessing through the wrapper.
+            backendPaimonOptions.put(DORIS_SERIALIZED_SYSTEM_SOURCE,
+                    PaimonUtil.encodeObjectToString(effectiveSource));
+            backendPaimonOptions.put(DORIS_SYSTEM_TABLE_TYPE, systemTable.getSysTableType());
+        }
+        if (getSummaryProfile() != null) {
+            getSummaryProfile().addExternalTableGetTableMetaTime(System.currentTimeMillis() - startTime);
+        }
+    }
+
+    @VisibleForTesting
+    static void checkVariantV2Enabled(TupleDescriptor tuple) throws UserException {
+        // Enforce the global switch here instead of during Paimon schema conversion. The cached
+        // external schema is shared, while this tuple contains only the slots projected by the
+        // current query and therefore does not reject scans of unrelated non-VARIANT columns.
+        if (!Config.enable_variant_v2
+                && tuple.getSlots().stream().anyMatch(slot -> PaimonUtil.containsVariant(slot.getType()))) {
+            throw new UserException(
+                    "Paimon VARIANT columns require FE config enable_variant_v2=true");
+        }
+    }
+
+    private void serializeProcessedTable() throws UserException {
+        // System-table splits are materialized by the BE JNI reader, so it must receive the same
+        // option-bearing table copy that FE uses to plan the split.
+        serializedTable = PaimonUtil.encodeObjectToString(getProcessedTable());
     }
 
     @VisibleForTesting
@@ -185,8 +280,20 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     protected void convertPredicate() {
         PaimonPredicateConverter paimonPredicateConverter = new PaimonPredicateConverter(
-                source.getPaimonTable().rowType());
+                processedTable.rowType());
         predicates = paimonPredicateConverter.convertToPaimonExpr(conjuncts);
+    }
+
+    @Override
+    protected List<String> getFileColumnNames() {
+        if (scanParams != null && scanParams.isOptions()) {
+            // Relation-scoped options may select a historical schema, so its slots must be
+            // positioned against the same processed table that is serialized to the reader.
+            return processedTable.rowType().getFieldNames();
+        }
+        // Normal scans must retain the refreshable descriptor schema; the cached Paimon table
+        // handle can still expose pre-refresh column names after an external schema change.
+        return super.getFileColumnNames();
     }
 
     @Override
@@ -199,6 +306,11 @@ public class PaimonScanNode extends FileQueryScanNode {
     @Override
     protected Optional<String> getSerializedTable() {
         return Optional.of(serializedTable);
+    }
+
+    @Override
+    protected Optional<String> getSerializedTableCacheKey() {
+        return Optional.of(serializedTableCacheKey);
     }
 
     @Override
@@ -216,6 +328,19 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
     }
 
+    private List<String> getOrderedPathPartitionKeys() {
+        if (source == null) {
+            return Collections.emptyList();
+        }
+        ExternalTable externalTable = source.getExternalTable();
+        if (externalTable instanceof PaimonSysExternalTable
+                && !((PaimonSysExternalTable) externalTable).isDataTable()) {
+            return Collections.emptyList();
+        }
+        Table paimonTable = source.getPaimonTable();
+        return paimonTable == null ? Collections.emptyList() : paimonTable.partitionKeys();
+    }
+
     private void putHistorySchemaInfo(Long schemaId) {
         if (currentQuerySchema.putIfAbsent(schemaId, Boolean.TRUE) == null) {
             ExternalTable targetTable = source.getExternalTable();
@@ -226,11 +351,51 @@ public class PaimonScanNode extends FileQueryScanNode {
                 }
             }
 
-            TableSchema tableSchema = PaimonUtils.getSchemaCacheValue(targetTable, schemaId).getTableSchema();
+            TableSchema tableSchema;
+            if (targetTable instanceof PaimonExternalTable) {
+                // Schema IDs are scoped to the resolved relation table, so a branch ID must
+                // never be looked up through the base table's schema cache namespace.
+                tableSchema = ((DataTable) source.getPaimonTable()).schemaManager().schema(schemaId);
+            } else {
+                tableSchema = PaimonUtils.getSchemaCacheValue(targetTable, schemaId).getTableSchema();
+            }
             params.addToHistorySchemaInfo(PaimonUtil.getHistorySchemaInfo(targetTable, tableSchema,
                     source.getCatalog().getEnableMappingVarbinary(),
                     source.getCatalog().getEnableMappingTimestampTz()));
         }
+    }
+
+    @VisibleForTesting
+    void setPartitionValues(TFileRangeDesc rangeDesc, Map<String, String> partitionValues) {
+        rangeDesc.unsetColumnsFromPathKeys();
+        rangeDesc.unsetColumnsFromPath();
+        rangeDesc.unsetColumnsFromPathIsNull();
+
+        List<String> orderedPartitionKeys = getOrderedPathPartitionKeys();
+        if (orderedPartitionKeys.isEmpty()) {
+            return;
+        }
+        Preconditions.checkState(partitionValues != null,
+                "Missing partition values for Paimon partitioned table");
+
+        Map<String, String> normalizedPartitionValues = new HashMap<>();
+        for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
+            normalizedPartitionValues.put(entry.getKey().toLowerCase(Locale.ROOT), entry.getValue());
+        }
+
+        List<String> fromPathValues = new ArrayList<>(orderedPartitionKeys.size());
+        List<Boolean> fromPathIsNull = new ArrayList<>(orderedPartitionKeys.size());
+        for (String partitionKey : orderedPartitionKeys) {
+            String normalizedPartitionKey = partitionKey.toLowerCase(Locale.ROOT);
+            Preconditions.checkState(normalizedPartitionValues.containsKey(normalizedPartitionKey),
+                    "Missing partition value for Paimon partition key: %s", partitionKey);
+            String partitionValue = normalizedPartitionValues.get(normalizedPartitionKey);
+            fromPathValues.add(partitionValue == null ? "" : partitionValue);
+            fromPathIsNull.add(partitionValue == null);
+        }
+        rangeDesc.setColumnsFromPathKeys(orderedPartitionKeys);
+        rangeDesc.setColumnsFromPath(fromPathValues);
+        rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
     }
 
     private void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
@@ -241,22 +406,15 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         String fileFormat = getFileFormat(paimonSplit.getPathString());
         if (split != null) {
-            // use jni reader or paimon-cpp reader
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            // Use Paimon native serialization for paimon-cpp reader
-            if (sessionVariable.isEnablePaimonCppReader() && split instanceof DataSplit) {
-                fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
-            } else {
-                fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
-            }
-            // Set table location for paimon-cpp reader
-            String tableLocation = source.getTableLocation();
-            if (tableLocation != null) {
-                fileDesc.setPaimonTable(tableLocation);
-            }
+            // A logical DataSplit may span multiple files, so keep it intact for the JNI reader
+            // until the C++ path has a split-aware V2 adapter.
+            fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
+            fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
             rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {
             // use native reader
+            fileDesc.setReaderType(TPaimonReaderType.PAIMON_NATIVE);
             if (fileFormat.equals("orc")) {
                 rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
             } else if (fileFormat.equals("parquet")) {
@@ -290,20 +448,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             tableFormatFileDesc.setTableLevelRowCount(-1);
         }
         tableFormatFileDesc.setPaimonParams(fileDesc);
-        Map<String, String> partitionValues = paimonSplit.getPaimonPartitionValues();
-        if (partitionValues != null) {
-            List<String> fromPathKeys = new ArrayList<>();
-            List<String> fromPathValues = new ArrayList<>();
-            List<Boolean> fromPathIsNull = new ArrayList<>();
-            for (Map.Entry<String, String> entry : partitionValues.entrySet()) {
-                fromPathKeys.add(entry.getKey());
-                fromPathValues.add(entry.getValue() != null ? entry.getValue() : "");
-                fromPathIsNull.add(entry.getValue() == null);
-            }
-            rangeDesc.setColumnsFromPathKeys(fromPathKeys);
-            rangeDesc.setColumnsFromPath(fromPathValues);
-            rangeDesc.setColumnsFromPathIsNull(fromPathIsNull);
-        }
+        setPartitionValues(rangeDesc, paimonSplit.getPaimonPartitionValues());
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
 
@@ -366,11 +511,16 @@ public class PaimonScanNode extends FileQueryScanNode {
             ++paimonSplitNum;
         }
 
-        boolean applyCountPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
+        // Merged row counts contain only COUNT(*) semantics. COUNT(col) must keep every DataSplit
+        // because BE will read the argument column to account for NULL and schema-mapping rules.
+        // Incremental binlog readers pack an UPDATE_BEFORE/UPDATE_AFTER pair into one logical row,
+        // so DataSplit's physical merged count is not a valid COUNT(*) result for this relation.
+        boolean applyCountPushdown = isTableLevelCountStarPushdown() && !isIncrementalBinlogScan();
         // Used to avoid repeatedly calculating partition info map for the same
         // partition data.
         // And for counting the number of selected partitions for this paimon table.
         Map<BinaryRow, Map<String, String>> partitionInfoMaps = new HashMap<>();
+        boolean needPartitionMetadata = !getOrderedPathPartitionKeys().isEmpty();
         // if applyCountPushdown is true, we can't split the DataSplit
         boolean hasDeterminedTargetFileSplitSize = false;
         long targetFileSplitSize = 0;
@@ -380,9 +530,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
             BinaryRow partitionValue = dataSplit.partition();
             Map<String, String> partitionInfoMap = null;
-            if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
-                // If the partition value is not in the map, we need to calculate the partition
-                // info map and store it in the map.
+            if (needPartitionMetadata) {
                 partitionInfoMap = partitionInfoMaps.computeIfAbsent(partitionValue, k -> {
                     return PaimonUtil.getPartitionInfoMap(
                             source.getPaimonTable(), partitionValue, sessionVariable.getTimeZone());
@@ -392,15 +540,20 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
             Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
-            if (applyCountPushdown && dataSplit.mergedRowCountAvailable()) {
-                splitStat.setMergedRowCount(dataSplit.mergedRowCount());
+            // Only evaluate merged row counts when COUNT(*) pushdown is active; ordinary scans
+            // must not pay the planning cost of merging Paimon manifest statistics.
+            OptionalLong mergedRowCount = applyCountPushdown
+                    ? dataSplit.mergedRowCount() : OptionalLong.empty();
+            if (applyCountPushdown && mergedRowCount.isPresent()) {
+                long count = mergedRowCount.getAsLong();
+                splitStat.setMergedRowCount(count);
                 PaimonSplit split = new PaimonSplit(dataSplit);
-                split.setRowCount(dataSplit.mergedRowCount());
+                split.setRowCount(count);
                 if (partitionInfoMap != null) {
                     split.setPaimonPartitionValues(partitionInfoMap);
                 }
                 pushDownCountSplits.add(split);
-                pushDownCountSum += dataSplit.mergedRowCount();
+                pushDownCountSum += count;
             } else if (!forceJniScanner && !forceJniForSystemTable && supportNativeReader(optRawFiles)) {
                 if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
                     continue;
@@ -423,7 +576,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                                 file.length(),
                                 -1,
                                 !applyCountPushdown,
-                                null,
+                                Collections.emptyList(),
                                 PaimonSplit.PaimonSplitCreator.DEFAULT);
                         for (Split dorisSplit : dorisSplits) {
                             PaimonSplit paimonSplit = (PaimonSplit) dorisSplit;
@@ -486,12 +639,24 @@ public class PaimonScanNode extends FileQueryScanNode {
             return Collections.emptyMap();
         }
         PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
+        Map<String, String> backendOptions = new HashMap<>();
+        Map<String, String> catalogProperties = catalog.getCatalogProperty().getProperties();
+        if (catalogProperties == null) {
+            catalogProperties = Collections.emptyMap();
+        }
+        for (String option : BACKEND_PAIMON_OPTIONS) {
+            String catalogProperty = PAIMON_PROPERTY_PREFIX + option;
+            if (catalogProperties.containsKey(catalogProperty)) {
+                backendOptions.put(option, catalogProperties.get(catalogProperty));
+            }
+        }
         if (!(catalog.getCatalogProperty().getMetastoreProperties() instanceof PaimonJdbcMetaStoreProperties)) {
-            return Collections.emptyMap();
+            return backendOptions;
         }
         PaimonJdbcMetaStoreProperties jdbcMetaStoreProperties =
                 (PaimonJdbcMetaStoreProperties) catalog.getCatalogProperty().getMetastoreProperties();
-        return jdbcMetaStoreProperties.getBackendPaimonOptions();
+        backendOptions.putAll(jdbcMetaStoreProperties.getBackendPaimonOptions());
+        return backendOptions;
     }
 
     @VisibleForTesting
@@ -505,8 +670,17 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
         PaimonSysExternalTable paimonSysExternalTable = (PaimonSysExternalTable) externalTable;
         String sysTableType = paimonSysExternalTable.getSysTableType();
-        return PAIMON_BINLOG_SYSTEM_TABLE_TYPE.equalsIgnoreCase(sysTableType)
-                || PAIMON_AUDIT_LOG_SYSTEM_TABLE_TYPE.equalsIgnoreCase(sysTableType);
+        return PaimonScanParams.requiresPaimonReader(sysTableType);
+    }
+
+    private boolean isIncrementalBinlogScan() {
+        TableScanParams params = getScanParams();
+        if (params == null || !params.incrementalRead() || source == null) {
+            return false;
+        }
+        ExternalTable externalTable = source.getExternalTable();
+        return externalTable instanceof PaimonSysExternalTable
+                && "binlog".equalsIgnoreCase(((PaimonSysExternalTable) externalTable).getSysTableType());
     }
 
     private long determineTargetFileSplitSize(List<DataSplit> dataSplits,
@@ -553,30 +727,92 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @VisibleForTesting
     public List<org.apache.paimon.table.source.Split> getPaimonSplitFromAPI() throws UserException {
-        Table paimonTable = getProcessedTable();
-        int[] projected = desc.getSlots().stream().mapToInt(
-                slot -> paimonTable.rowType()
-                        .getFieldNames()
-                        .stream()
-                        .map(String::toLowerCase)
-                        .collect(Collectors.toList())
-                        .indexOf(slot.getColumn().getName()))
-                .filter(i -> i >= 0)
-                .toArray();
-        ReadBuilder readBuilder = paimonTable.newReadBuilder();
-        TableScan scan = readBuilder.withFilter(predicates)
-                .withProjection(projected)
-                .newScan();
-        PaimonMetricRegistry registry = new PaimonMetricRegistry();
-        if (scan instanceof InnerTableScan) {
-            scan = ((InnerTableScan) scan).withMetricRegistry(registry);
+        long startTime = System.currentTimeMillis();
+        try {
+            Optional<MvccSnapshot> relationSnapshot = getRelationSnapshot();
+            if (!(source.getExternalTable() instanceof PaimonSysExternalTable)
+                    && relationSnapshot.isPresent() && relationSnapshot.get() instanceof PaimonMvccSnapshot
+                    && ((PaimonMvccSnapshot) relationSnapshot.get()).getSnapshotCacheValue()
+                            .getSnapshot().getSnapshotId() == PaimonSnapshot.INVALID_SNAPSHOT_ID) {
+                // An empty data snapshot is a bound generation, but metadata system tables such as
+                // $schemas can still contain rows and must plan their own independent row domain.
+                return Collections.emptyList();
+            }
+            Table paimonTable = getProcessedTable();
+            Map<String, String> resolvedOptions = scanParams == null
+                    ? Collections.emptyMap()
+                    : scanParams.getResolvedMapParams().orElse(Collections.emptyMap());
+            if (PaimonScanParams.isPinnedEmptyScan(resolvedOptions)) {
+                return Collections.emptyList();
+            }
+            Optional<Long> fileCreationTime = PaimonScanParams.getPinnedFileCreationTime(resolvedOptions);
+            if (fileCreationTime.isPresent()) {
+                if (!(paimonTable instanceof FileStoreTable)) {
+                    throw new UserException("Paimon file-creation OPTIONS require a data table.");
+                }
+                FileStoreTable fileStoreTable = (FileStoreTable) paimonTable;
+                SnapshotReader snapshotReader = fileStoreTable.newSnapshotReader()
+                        .withMode(ScanMode.ALL)
+                        .withSnapshot(Long.parseLong(
+                                paimonTable.options().get(CoreOptions.SCAN_SNAPSHOT_ID.key())))
+                        .withManifestEntryFilter(entry ->
+                                entry.file().creationTimeEpochMillis() >= fileCreationTime.get());
+                preserveBatchScanFilters(fileStoreTable, snapshotReader);
+                if (predicates != null) {
+                    predicates.forEach(snapshotReader::withFilter);
+                }
+                return snapshotReader.read().splits();
+            }
+            List<String> fieldNames = paimonTable.rowType().getFieldNames();
+            int[] projected = desc.getSlots().stream().mapToInt(
+                    slot -> getFieldIndex(fieldNames, slot.getColumn().getName()))
+                    .toArray();
+            if (Arrays.stream(projected).anyMatch(index -> index < 0)) {
+                throw new UserException("Paimon scan schema does not contain all bound Doris columns.");
+            }
+            ReadBuilder readBuilder = paimonTable.newReadBuilder();
+            TableScan scan = readBuilder.withFilter(predicates)
+                    .withProjection(projected)
+                    .newScan();
+            PaimonMetricRegistry registry = new PaimonMetricRegistry();
+            if (scan instanceof InnerTableScan) {
+                scan = ((InnerTableScan) scan).withMetricRegistry(registry);
+            }
+            List<org.apache.paimon.table.source.Split> splits = scan.plan().splits();
+            PaimonScanMetricsReporter.report(source.getTargetTable(), paimonTable.name(), registry);
+            if (!registry.getAllGroups().isEmpty()) {
+                registry.clear();
+            }
+            return splits;
+        } finally {
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+            }
         }
-        List<org.apache.paimon.table.source.Split> splits = scan.plan().splits();
-        PaimonScanMetricsReporter.report(source.getTargetTable(), paimonTable.name(), registry);
-        if (!registry.getAllGroups().isEmpty()) {
-            registry.clear();
+    }
+
+    private void preserveBatchScanFilters(FileStoreTable table, SnapshotReader snapshotReader) {
+        CoreOptions options = table.coreOptions();
+        // This direct reader bypasses DataTableBatchScan, so preserve its correctness filters for
+        // deletion-vector/first-row tables and postponed buckets before reading the pinned plan.
+        if (!table.primaryKeys().isEmpty()
+                && options.batchScanSkipLevel0()
+                && options.toConfiguration().get(CoreOptions.BATCH_SCAN_MODE) == CoreOptions.BatchScanMode.NONE) {
+            snapshotReader.withLevelFilter(level -> level > 0).enableValueFilter();
         }
-        return splits;
+        if (options.bucket() == BucketMode.POSTPONE_BUCKET) {
+            snapshotReader.onlyReadRealBuckets();
+        }
+    }
+
+    @VisibleForTesting
+    static int getFieldIndex(List<String> fieldNames, String columnName) {
+        for (int i = 0; i < fieldNames.size(); i++) {
+            if (fieldNames.get(i).equalsIgnoreCase(columnName)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private String getFileFormat(String path) {
@@ -605,10 +841,7 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
-        // return new ArrayList<>(source.getPaimonTable().partitionKeys());
-        // Paimon is not aware of partitions and bypasses some existing logic by
-        // returning an empty list
-        return new ArrayList<>();
+        return getOrderedPathPartitionKeys();
     }
 
     @Override
@@ -809,11 +1042,8 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         // Fill the result map based on parameter combinations
         Map<String, String> paimonScanParams = new HashMap<>();
-        paimonScanParams.put(PAIMON_SCAN_SNAPSHOT_ID, null);
-        paimonScanParams.put(PAIMON_SCAN_MODE, null);
 
         if (hasSnapshotParams) {
-            paimonScanParams.put(PAIMON_SCAN_MODE, null);
             if (hasStartSnapshotId && !hasEndSnapshotId) {
                 // Only startSnapshotId is specified
                 throw new UserException("endSnapshotId is required when using snapshot-based incremental read");
@@ -844,15 +1074,22 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
         }
 
-        return paimonScanParams;
+        return PaimonScanParams.isolateIncrementalRead(paimonScanParams);
     }
 
     private Table getProcessedTable() throws UserException {
-        Table baseTable = source.getPaimonTable();
+        if (processedTable != null) {
+            return processedTable;
+        }
         TableScanParams theScanParams = getScanParams();
+        Table baseTable = source.getPaimonTable();
+        PaimonSysExternalTable systemTable = null;
         if (source.getExternalTable() instanceof PaimonSysExternalTable) {
-            if (theScanParams != null) {
-                throw new UserException("Paimon system tables do not support scan params.");
+            systemTable = (PaimonSysExternalTable) source.getExternalTable();
+            try {
+                PaimonScanParams.validateSystemTable(systemTable.getSysTableType(), theScanParams);
+            } catch (IllegalArgumentException e) {
+                throw new UserException(e.getMessage(), e);
             }
             if (getQueryTableSnapshot() != null) {
                 throw new UserException("Paimon system tables do not support time travel.");
@@ -862,9 +1099,37 @@ public class PaimonScanNode extends FileQueryScanNode {
             throw new UserException("Can not specify scan params and table snapshot at same time.");
         }
 
+        Table finalTable;
         if (theScanParams != null && theScanParams.incrementalRead()) {
-            return baseTable.copy(getIncrReadParams());
+            if (systemTable != null) {
+                // System wrappers hide the manifest-planning data table. Start paths that copy the
+                // wrapper directly from a disposable CPU-capped handle.
+                baseTable = source.getPaimonTable(null);
+            }
+            // System table handles are cached, so preserve query isolation by applying dynamic
+            // options to a copied Paimon table instead of changing the shared handle.
+            finalTable = baseTable.copy(getIncrReadParams());
+        } else if (theScanParams != null && theScanParams.isOptions()) {
+            try {
+                finalTable = source.getPaimonTable(theScanParams);
+            } catch (IllegalArgumentException e) {
+                throw new UserException(e.getMessage(), e);
+            }
+        } else {
+            finalTable = systemTable == null ? baseTable : source.getPaimonTable(null);
         }
-        return baseTable;
+        try {
+            // This is the last common boundary before planning and serialization, including scans
+            // with no relation copy and incremental/system-table paths that bypass applyOptions.
+            finalTable = PaimonReaderOptions.runtimeSafeTable(finalTable);
+            PaimonReaderOptions.validateEffectiveTable(finalTable);
+            if (source.getExternalTable() instanceof PaimonSysExternalTable) {
+                // Read-only system wrappers hide the data table that performs manifest planning.
+                source.validateEffectiveSystemDataTable(theScanParams);
+            }
+        } catch (IllegalArgumentException e) {
+            throw new UserException(e.getMessage(), e);
+        }
+        return finalTable;
     }
 }

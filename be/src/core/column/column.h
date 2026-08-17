@@ -113,10 +113,6 @@ public:
         return nullptr;
     }
 
-    // shrink the end zeros for ColumnStr(also for who has it nested). so nest column will call it for all nested.
-    // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
-    virtual void shrink_padding_chars() {}
-
     // Only used in ColumnVariant to handle lifecycle of variant. Other columns would do nothing.
     virtual void finalize() {}
 
@@ -266,6 +262,14 @@ public:
                 "Method insert_many_continuous_binary_data is not supported for " + get_name());
     }
 
+    // OFFSET_ONLY readers still need true string lengths; keeping this virtual preserves that
+    // invariant when decoders only hold an IColumn reference and intentionally skip payloads.
+    virtual void insert_offsets_from_lengths(const uint32_t* lengths, size_t num) {
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method insert_offsets_from_lengths is not supported for " + get_name());
+    }
+
     virtual void insert_many_strings(const StringRef* strings, size_t num) {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method insert_many_strings is not supported for " + get_name());
@@ -409,6 +413,16 @@ public:
                                "Method update_crc32c_batch is not supported for " + get_name());
     }
 
+    // Hash NULL rows as this column type's default value, instead of skipping them like
+    // update_crc32c_batch(hashes, null_map). This keeps the legacy Nullable fixed-width hash
+    // semantics without mutating the source nested column.
+    virtual void update_crc32c_batch_default_on_null(uint32_t* __restrict hashes,
+                                                     const uint8_t* __restrict null_map) const {
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method update_crc32c_batch_default_on_null is not supported for " + get_name());
+    }
+
     // use range for one hash value to avoid virtual function call in loop
     virtual void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                                       const uint8_t* __restrict null_map) const {
@@ -440,7 +454,8 @@ public:
      *  // nullable -> predict_column
      *  // string (dictionary) -> column_dictionary
      */
-    virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                                      IColumn* col_ptr) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method filter_by_selector is not supported for {}, only "
                                "column_nullable, column_dictionary and predict_column support",
@@ -563,18 +578,29 @@ public:
         return false;
     }
 
+    // Recursively make a mutable column tree. Use this rvalue member when the
+    // current column object is being consumed. Shared nodes are cloned, while
+    // exclusive nodes are reused through the COW fast path.
     MutablePtr mutate() const&& {
         MutablePtr res = shallow_mutate();
-        res->for_each_subcolumn(
-                [](WrappedPtr& subcolumn) { subcolumn = std::move(*subcolumn).mutate(); });
+        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
+            static_cast<IColumn::Ptr&>(subcolumn) =
+                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+        });
         return res;
     }
 
+    // COW entry point for a ColumnPtr. Passing the pointer by value keeps the
+    // original owner alive until the top-level detach succeeds; passing
+    // std::move(ptr) explicitly consumes that owner. Subcolumns are still
+    // recursively detached as needed.
     static MutablePtr mutate(Ptr ptr) {
         MutablePtr res = ptr->shallow_mutate(); /// Now use_count is 2.
         ptr.reset();                            /// Reset use_count to 1.
-        res->for_each_subcolumn(
-                [](WrappedPtr& subcolumn) { subcolumn = std::move(*subcolumn).mutate(); });
+        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
+            static_cast<IColumn::Ptr&>(subcolumn) =
+                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+        });
         return res;
     }
 
@@ -664,6 +690,12 @@ public:
       */
     String dump_structure() const;
 
+    Status column_self_check() const {
+        // branch-4.1 predates the recursive debug validators used by master format_v2; keeping
+        // this check side-effect free preserves the branch's established column semantics.
+        return Status::OK();
+    }
+
     // only used in agg value replace for column which is not variable length, eg.BlockReader::_copy_value_data
     // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
@@ -691,6 +723,17 @@ public:
     // whether support replace null data, default return false
     // column_vector and column_decimal override this method to return true
     virtual bool support_replace_column_null_data() const { return false; }
+
+    /**
+     * Try to replace the payload of NULL rows with the nested column's default value without
+     * going through COW. Implementations must return false without modifying data unless the
+     * complete column ownership chain is exclusive. This is only safe because payloads of rows
+     * that are already NULL are not observable through the nullable column. In particular, a
+     * shared nested column may belong to another nullable column with a different null map.
+     *
+     * This bypasses the normal COW mutation path. Do not use it for general column mutation.
+     */
+    virtual bool try_replace_null_payload_with_default_without_cow() const { return false; }
 
     // For float/double types, replace -0.0 with 0.0, set NaN to quiet NaN,
     // used to ensure data hash equality for -0.0 and +0.0, e.g. aggregate and join
@@ -796,7 +839,19 @@ ColumnType::Ptr check_and_get_column_ptr(const ColumnPtr& column) {
     if (raw_type_ptr == nullptr) {
         return nullptr;
     }
-    return typename ColumnType::Ptr(raw_type_ptr);
+    return ColumnType::cast_to_column_ptr(raw_type_ptr);
+}
+
+template <typename ColumnType>
+ColumnType::Ptr cast_to_column(const ColumnPtr& column) {
+    const ColumnType* raw_type_ptr = assert_cast<const ColumnType*>(column.get());
+    return ColumnType::cast_to_column_ptr(raw_type_ptr);
+}
+
+template <typename ColumnType>
+ColumnType::MutablePtr cast_to_column(MutableColumnPtr column) {
+    ColumnType* raw_type_ptr = assert_cast<ColumnType*>(column.get());
+    return ColumnType::cast_to_column_mutptr(raw_type_ptr);
 }
 
 /// True if column's an ColumnConst instance. It's just a syntax sugar for type check.

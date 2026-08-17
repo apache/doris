@@ -1,4 +1,5 @@
-CREATE TABLE `example_string`(
+drop table if exists `example_string`;
+create table `example_string`(
   `strings` string
   )
 ROW FORMAT SERDE
@@ -14,7 +15,3 @@ LOCATION
   '/user/doris/preinstalled_data/example_string.parquet'
 TBLPROPERTIES (
   'transient_lastDdlTime'='1661955829');
-
-msck repair table example_string;
-
-

@@ -61,7 +61,9 @@ struct AnnIndexStats {
               ivf_on_disk_search_cnt(TUnit::UNIT, 0),
               ivf_on_disk_cache_hit_cnt(TUnit::UNIT, 0),
               ivf_on_disk_cache_miss_cnt(TUnit::UNIT, 0),
-              fall_back_brute_force_cnt(0) {}
+              fall_back_brute_force_cnt(0),
+              range_fallback_by_small_candidate_cnt(0),
+              range_fallback_small_candidate_rows(0) {}
 
     AnnIndexStats(const AnnIndexStats& other)
             : search_costs_ns(TUnit::TIME_NS, other.search_costs_ns.value()),
@@ -76,7 +78,9 @@ struct AnnIndexStats {
               ivf_on_disk_search_cnt(TUnit::UNIT, other.ivf_on_disk_search_cnt.value()),
               ivf_on_disk_cache_hit_cnt(TUnit::UNIT, other.ivf_on_disk_cache_hit_cnt.value()),
               ivf_on_disk_cache_miss_cnt(TUnit::UNIT, other.ivf_on_disk_cache_miss_cnt.value()),
-              fall_back_brute_force_cnt(other.fall_back_brute_force_cnt) {}
+              fall_back_brute_force_cnt(other.fall_back_brute_force_cnt),
+              range_fallback_by_small_candidate_cnt(other.range_fallback_by_small_candidate_cnt),
+              range_fallback_small_candidate_rows(other.range_fallback_small_candidate_rows) {}
 
     AnnIndexStats& operator=(const AnnIndexStats& other) {
         if (this != &other) {
@@ -92,6 +96,8 @@ struct AnnIndexStats {
             ivf_on_disk_cache_hit_cnt.set(other.ivf_on_disk_cache_hit_cnt.value());
             ivf_on_disk_cache_miss_cnt.set(other.ivf_on_disk_cache_miss_cnt.value());
             fall_back_brute_force_cnt = other.fall_back_brute_force_cnt;
+            range_fallback_by_small_candidate_cnt = other.range_fallback_by_small_candidate_cnt;
+            range_fallback_small_candidate_rows = other.range_fallback_small_candidate_rows;
         }
         return *this;
     }
@@ -109,6 +115,8 @@ struct AnnIndexStats {
     RuntimeProfile::Counter ivf_on_disk_cache_hit_cnt;   // IVF_ON_DISK cache hit count
     RuntimeProfile::Counter ivf_on_disk_cache_miss_cnt;  // IVF_ON_DISK cache miss count
     int64_t fall_back_brute_force_cnt; // fallback count when ANN range search is bypassed
+    int64_t range_fallback_by_small_candidate_cnt;
+    int64_t range_fallback_small_candidate_rows;
 };
 
 struct AnnTopNParam {

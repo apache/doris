@@ -352,7 +352,7 @@ suite("test_point_query") {
             INDEX col2 (`col2`) USING INVERTED )
         ENGINE=OLAP UNIQUE KEY(`col1`, `col2`, `loc3`)
         DISTRIBUTED BY HASH(`col1`, `col2`, `loc3`) BUCKETS 1
-        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "bloom_filter_columns" = "col1", "store_row_column" = "true", "enable_mow_light_delete" = "false" );
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true", "bloom_filter_columns" = "col1", "store_row_column" = "true", "enable_mow_light_delete" = "false" );
     """
     explain {
         sql("select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'")

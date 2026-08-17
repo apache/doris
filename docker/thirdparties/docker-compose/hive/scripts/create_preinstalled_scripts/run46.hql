@@ -1,4 +1,5 @@
-CREATE TABLE `rcbinary_all_types`(
+drop table if exists `rcbinary_all_types`;
+create table `rcbinary_all_types`(
 `t_null_string` string,
 `t_null_varchar` varchar(65535),
 `t_null_char` char(10),
@@ -84,6 +85,3 @@ ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe
 STORED AS RCFILE
 LOCATION
   '/user/doris/preinstalled_data/rcbinary/rcbinary_all_types';
-
-msck repair table rcbinary_all_types;
-

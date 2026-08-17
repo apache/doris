@@ -399,6 +399,41 @@ public class Config extends ConfigBase {
             "Whether to enable all http interface authentication"}, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_all_http_auth = false;
 
+    @ConfField(description = {"Whether to enable FE unified TLS configuration. When enabled, protocols not listed in "
+            + "tls_excluded_protocols will use TLS implementation."})
+    public static boolean enable_tls = false;
+
+    @ConfField(description = {"Verify mode used by FE TLS. Supported values are verify_peer, verify_none and "
+            + "verify_fail_if_no_peer_cert."})
+    public static String tls_verify_mode = "verify_peer";
+
+    @ConfField(description = {"Path to the FE TLS server certificate."})
+    public static String tls_certificate_path = "";
+
+    @ConfField(description = {"Path to the FE TLS private key."})
+    public static String tls_private_key_path = "";
+
+    @ConfField(description = {"Password for the FE TLS private key."})
+    public static String tls_private_key_password = "";
+
+    @ConfField(description = {"Path to the FE TLS CA certificate."})
+    public static String tls_ca_certificate_path = "";
+
+    @ConfField(description = {"Refresh interval for FE TLS certificate reload, in seconds."})
+    public static int tls_cert_refresh_interval_seconds = 3600;
+
+    @ConfField(description = {"Comma-separated list of protocols that should not use TLS. Supported values are "
+            + "thrift,mysql,http,arrowflight."})
+    public static String tls_excluded_protocols = "";
+
+    @ConfField(description = {"Peer certificate DNS SAN allowlist for private protocols. "
+            + "Syntax: protocol=dns1,dns2;... . Currently supported protocols are thrift and brpc."})
+    public static String tls_peer_cert_required_san_dns = "";
+
+    @ConfField(mutable = true, description = {
+            "Whether password verification can be skipped after cert-based auth succeeds."})
+    public static boolean tls_cert_based_auth_ignore_password = false;
+
     @ConfField(description = {"FE http 端口，目前所有 FE 的 http 端口必须相同",
             "Fe http port, currently all FE's http port must be same"})
     public static int http_port = 8030;
@@ -463,6 +498,13 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Jetty 的最大 HTTP POST 大小，单位是字节，默认值是 100MB。",
             "The maximum HTTP POST size of Jetty, in bytes, the default value is 100MB."})
     public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
+
+    @ConfField(description = {
+            "Jetty 在应用未消费完请求体时，额外尝试读取剩余内容的最大次数。"
+                    + "-1 表示不限制，0 表示不额外读取，正数表示最大读取次数。",
+            "The maximum number of extra reads Jetty performs for unconsumed request content. "
+                    + "-1 means unlimited, 0 means disabled, and a positive value limits the read attempts."})
+    public static int jetty_server_max_unconsumed_request_content_reads = -1;
 
     @ConfField(description = {"Jetty 的最大 HTTP header 大小，单位是字节，默认值是 1MB。",
             "The maximum HTTP header size of Jetty, in bytes, the default value is 1MB."})
@@ -538,7 +580,7 @@ public class Config extends ConfigBase {
                     + "start at first time. You can also specify one."})
     public static int cluster_id = -1;
 
-    @ConfField(description = {"集群 token，用于内部认证。",
+    @ConfField(sensitive = true, description = {"集群 token，用于内部认证。",
             "Cluster token used for internal authentication."})
     public static String auth_token = "";
 
@@ -704,6 +746,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"Stream Load 是否默认打开 memtable 前移",
             "Whether to enable memtable on sink node by default in stream load"})
     public static boolean stream_load_default_memtable_on_sink_node = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable forwarding group commit stream load to follower nodes."
+                    + " If true, stream load with group commit mode will be forwarded to a follower FE round robin."})
+    public static boolean enable_forward_group_commit_stream_load_to_follower = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Load 的最大超时时间，单位是秒。",
             "Maximal timeout for load job, in seconds."})
@@ -920,6 +967,18 @@ public class Config extends ConfigBase {
     // For forward compatibility, will be removed later.
     // check token when download image file.
     @ConfField public static boolean enable_token_check = true;
+
+    @ConfField(sensitive = true, description = {"Cluster token for FE meta-service internal HTTP authentication. "
+            + "When set (non-empty), FE meta-service endpoints (such as image/role/check/put/journal_id) "
+            + "additionally require the caller to present a matching token header, on top of the existing "
+            + "node-host check. Empty (default) keeps the legacy behavior of node-host check only, so "
+            + "existing clusters and rolling upgrades are unaffected. Must be identical on all FEs and "
+            + "provisioned in fe.conf before enabling, otherwise FEs will reject each other.",
+            "FE meta-service 内部 HTTP 鉴权使用的集群 token。设置(非空)后,meta-service 端点(如 "
+            + "image/role/check/put/journal_id)在原有 node-host 校验之上,额外要求调用方携带匹配的 token 头。"
+            + "为空(默认)时维持仅 node-host 校验的旧行为,存量集群与滚动升级不受影响。必须在所有 FE 上取值一致,"
+            + "并在启用前写入 fe.conf,否则 FE 之间会互相拒绝。"})
+    public static String fe_meta_auth_token = "";
 
     /**
      * Set to true if you deploy Palo using thirdparty deploy manager
@@ -1317,11 +1376,25 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_task_timeout_multiplier = 10;
 
+    /**
+     * streaming task min timeout second.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_task_min_timeout_sec = 300;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Minimum interval in seconds between snapshot offset persistence operations"})
+    public static int streaming_job_snapshot_offset_persist_interval_sec = 300;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_light_rpc_timeout_sec = 90;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_heavy_rpc_timeout_sec = 600;
+
+    // Max byte length of a PG database name for a CDC job; raise only for a larger NAMEDATALEN build.
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_pg_max_identifier_length = 63;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_fetch_splits_batch_size = 100;
@@ -2187,7 +2260,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 10;
+    public static int max_be_exec_version = 12;
 
     /**
      * Min data version of backends serialize block.
@@ -2350,6 +2423,13 @@ public class Config extends ConfigBase {
     public static long max_external_table_split_file_meta_cache_num = 100000;
 
     /**
+     * Maximum number of MaxCompute Storage API write block IDs that can be allocated in one write session.
+     */
+    @ConfField(mutable = false, masterOnly = true, description = {
+            "Maximum number of MaxCompute Storage API write block IDs that can be allocated in one write session."})
+    public static long max_compute_write_max_block_count = 20000L;
+
+    /**
      * Max cache loader thread-pool size.
      * Max thread pool size for loading external meta cache
      */
@@ -2381,6 +2461,11 @@ public class Config extends ConfigBase {
             "The auto refresh time of external meta cache."
     })
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
+
+    // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"Whether external meta cache uses manual miss load instead of Caffeine sync load."})
+    public static boolean enable_external_meta_cache_manual_miss_load = true;
 
     /**
      * Github workflow test type, for setting some session variables
@@ -2876,7 +2961,7 @@ public class Config extends ConfigBase {
             "Auto Buckets 中最小的 buckets 数目",
             "min buckets of auto bucket"
     })
-    public static int autobucket_min_buckets = 1;
+    public static int autobucket_min_buckets = 3;
 
     @ConfField(mutable = true, masterOnly = true, description = {
         "Auto Buckets 中最大的 buckets 数目",
@@ -2960,6 +3045,14 @@ public class Config extends ConfigBase {
                 + " The default setting is false."
     })
     public static boolean enable_udf_in_load = false;
+
+    @ConfField(description = {
+        "开启python_udf, 默认为true。如果该配置为false，则禁止创建和使用python_udf。在一些场景下关闭该配置可防止命令注入攻击。",
+        "Used to enable python_udf, default is true. if this configuration is false, creation and use of python_udf "
+            + "is disabled. in some scenarios it may be necessary to disable this configuration to prevent "
+            + "command injection attacks."
+    })
+    public static boolean enable_python_udf = true;
 
     @ConfField(description = {
             "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
@@ -3256,7 +3349,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {
             "是否在 schema change 过程中，检测冲突事物并 abort 它",
-            "SHould abort txn by checking conflick txn in schema change"})
+            "SHould abort txn by checking conflick txn in schema change or cloud upgrade checks"})
     public static boolean enable_abort_txn_by_checking_conflict_txn = true;
 
     @ConfField(mutable = true, description = {
@@ -3355,7 +3448,7 @@ public class Config extends ConfigBase {
     public static int drop_rpc_retry_num = 200;
 
     @ConfField
-    public static int default_get_version_from_ms_timeout_second = 3;
+    public static int default_get_version_from_ms_timeout_second = 30;
 
     @ConfField(mutable = true)
     public static boolean enable_cloud_multi_replica = false;
@@ -3592,6 +3685,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期刷新 table-level warmup 任务匹配的 table ID 集合的时间间隔（毫秒）",
+            "en: Interval in milliseconds to refresh matched table IDs for table-level warmup jobs"})
+    public static long cloud_warm_up_table_filter_refresh_interval_ms = 60000; // 60 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期从 BE 拉取主动增量预热 SyncStats 并缓存到 FE job 的时间间隔（毫秒）",
+            "en: Interval in milliseconds to collect event-driven warmup SyncStats from BEs and cache it in FE jobs"})
+    public static long cloud_warm_up_sync_stats_refresh_interval_ms = 15000; // 15 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: SHOW WARM UP JOB 和 FE 日志中 MatchedTables 最多展示的表数量",
+            "en: Maximum number of MatchedTables entries displayed in SHOW WARM UP JOB and FE logs"})
+    public static int cloud_warm_up_matched_tables_display_limit = 100;
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean cloud_warm_up_force_all_partitions = false;
 
@@ -3627,6 +3735,23 @@ public class Config extends ConfigBase {
             "streamload route policy, available options are "
             + "public-private/public/private/direct/random-be and empty string" })
     public static String streamload_redirect_policy = "";
+
+    @ConfField(mutable = true, description = {
+            "Stream Load redirect 场景下，FE 在返回 307 后额外丢弃请求体的最大字节数。"
+                    + "0 表示关闭该兼容逻辑，正数表示最大丢弃字节数。",
+            "The maximum number of request body bytes FE drains after returning 307 for Stream Load redirects. "
+                    + "0 disables the compatibility logic, and a positive value sets the byte limit."})
+    // Enable a generous bounded drain window by default to preserve FE redirect compatibility on Jetty 12.
+    public static long stream_load_redirect_bounded_drain_max_bytes = 1024L * 1024 * 1024;
+
+    @ConfField(mutable = true, description = {
+            "Stream Load redirect 场景下，FE 在检测到请求体暂时无可读数据后继续等待的最大空闲时长，单位毫秒。"
+                    + "0 表示不额外等待，用于给慢客户端或分段到达的数据保留一个有限的缓冲窗口。",
+            "The maximum idle wait time in milliseconds after FE detects no readable request body bytes "
+                    + "during Stream Load redirect drain. 0 disables the extra idle wait, while a positive value "
+                    + "keeps a bounded grace window for slow clients or delayed request body chunks."})
+    // Keep a small grace period for delayed body chunks after FE has already written the redirect.
+    public static int stream_load_redirect_bounded_drain_max_idle_time_ms = 1000;
 
     @ConfField(mutable = true, description = {
             "存算分离模式下是否启用 group commit 的 streamload BE 转发功能。"
@@ -3670,6 +3795,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = false,
             description = { "存算分离模式下，一个 BE 挂掉多长时间后，它的 tablet 彻底转移到其他 BE 上" })
     public static int rehash_tablet_after_be_dead_seconds = 3600;
+
+    @ConfField(mutable = false, masterOnly = true,
+            description = {
+                    "Whether to use rendezvous hashing for colocate bucket placement in cloud mode. "
+                            + "If false, use the legacy modulo placement. Restart-only."})
+    public static boolean enable_cloud_colocate_consistent_hash = true;
 
     @ConfField(mutable = true, description = {"存算分离模式下是否启用自动启停功能，默认 true",
         "Whether to enable the automatic start-stop feature in cloud model, default is true."})
@@ -3734,6 +3865,38 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"存算分离模式下 FE 请求 meta service 超时的重试次数，默认 1 次",
             "In cloud mode, the retry number when the FE requests the meta service times out is 1 by default"})
     public static int meta_service_rpc_timeout_retry_times = 1;
+
+    @ConfField(mutable = true, description = {
+            "Whether to enable QPS rate limit for RPC requests to meta service."})
+    public static boolean meta_service_rpc_rate_limit_enabled = false;
+
+    @ConfField(mutable = true, description = {
+            "Default QPS limit for each method (requests per second) in each cpu core, "
+                    + "non-positive value (<= 0) means no limit"})
+    public static int meta_service_rpc_rate_limit_default_qps_per_core = 50;
+
+    @ConfField(mutable = true,
+            callback = MetaServiceRpcRateLimitConfigValidator.QpsConfigHandler.class,
+            description = {
+                "QPS limit config per rpc method to meta service in per cpu core, "
+                    + "format: method1:qps1;method2:qps2, "
+                    + "e.g.: getPartitionVersion:100;getTableVersion:100;getTabletStats:50, "
+                    + "non-positive value (<= 0) means no limit"})
+    public static String meta_service_rpc_rate_limit_qps_per_core_config
+            = "getPartitionVersion:500;getTableVersion:500;getTabletStats:50;beginTxn:50";
+
+    @ConfField(mutable = true,
+            callback = MetaServiceRpcRateLimitConfigValidator.PositiveIntConfigHandler.class,
+            description = {
+                "Burst window for meta service RPC rate limit in seconds. "
+                    + "The long-term average QPS is unchanged, while calls can burst within this window."})
+    public static int meta_service_rpc_rate_limit_burst_seconds = 2;
+
+    @ConfField(mutable = true, callback = MetaServiceRpcRateLimitConfigValidator.NonNegativeLongConfigHandler.class,
+            description = {
+                "Max wait time in milliseconds when meta service RPC is rate limited, "
+                    + "zero means fail fast."})
+    public static long meta_service_rpc_rate_limit_wait_timeout_ms = 1000;
 
     @ConfField(mutable = true, description = {"存算分离模式下自动启停功能，对于该配置中的数据库名不进行唤醒操作，"
             + "用于内部作业的数据库，例如统计信息用到的数据库，"
@@ -3834,8 +3997,10 @@ public class Config extends ConfigBase {
             "Whether to allow the use of inverted index v1 for variant"})
     public static boolean enable_inverted_index_v1_for_variant = false;
 
-    @ConfField(mutable = true, description = {"Prometheus 输出表维度指标的个数限制",
-            "Prometheus output table dimension metric count limit"})
+    @ConfField(mutable = true, description = "Whether to enable ColumnVariantV2 for Variant execution and storage.")
+    public static boolean enable_variant_v2 = false;
+
+    @ConfField(mutable = true, description = "Prometheus output table dimension metric count limit.")
     public static int prom_output_table_metrics_limit = 10000;
 
 
@@ -3975,4 +4140,16 @@ public class Config extends ConfigBase {
                     + "by default"
     })
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable adaptive random bucket load. When enabled, each BE computes its own local "
+                    + "bucket set (buckets whose primary replica it hosts) from the tablet location info "
+                    + "sent by FE, and rotates across those buckets once per-tablet write volume exceeds "
+                    + "the threshold (default 200 MB). This reduces import memory pressure and improves "
+                    + "throughput for random-distribution tables. Covers all load types uniformly.",
+            "是否启用自适应随机桶导入。开启后每个 BE 根据 FE 下发的 tablet 位置信息自行计算本地桶集合"
+                    + "（持有主副本的桶），并在单个 tablet 写入量超过阈值（默认 200 MB）后在本地桶之间轮转。"
+                    + "可降低导入内存压力并提升随机分桶表的吞吐量，覆盖所有导入类型。"})
+    public static boolean enable_adaptive_random_bucket_load = true;
+
 }

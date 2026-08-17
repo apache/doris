@@ -63,6 +63,26 @@ suite("test_hive_serde_prop", "external_docker,hive,external_docker_hive,p0,exte
         qt_test_empty_null_defined_text """select * from ${catalog_name}.regression.test_empty_null_defined_text order by id;"""
         qt_test_empty_null_defined_text2 """select * from ${catalog_name}.regression.test_empty_null_defined_text where name is null order by id;"""
         qt_test_empty_null_defined_text3 """select * from ${catalog_name}.regression.test_empty_null_defined_text where name = '' order by id;"""
+
+        qt_test_single_col_null_format_text_count """select count(*) from ${catalog_name}.regression.test_single_col_null_format_text;"""
+        qt_test_single_col_null_format_text_values """
+            select count(*), count(name), count(case when name is null then 1 end),
+                   count(case when name = '' then 1 end),
+                   count(case when name = 'non-null' then 1 end),
+                   count(case when name is not null and name not in ('', 'non-null') then 1 end)
+            from ${catalog_name}.regression.test_single_col_null_format_text;
+        """
+
+        qt_test_default_null_format_multi_col_text_count """select count(*) from ${catalog_name}.regression.test_default_null_format_multi_col_text;"""
+        qt_test_default_null_format_multi_col_text_values """
+            select count(*), count(c1), count(c2),
+                   count(case when c1 is null then 1 end),
+                   count(case when c1 = '' then 1 end),
+                   count(case when c2 is null then 1 end),
+                   count(case when c2 = '' then 1 end),
+                   count(case when c1 = 'a' and c2 = 'b' then 1 end)
+            from ${catalog_name}.regression.test_default_null_format_multi_col_text;
+        """
     }
 }
 

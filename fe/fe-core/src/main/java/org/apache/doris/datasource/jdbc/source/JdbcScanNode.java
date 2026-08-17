@@ -391,6 +391,34 @@ public class JdbcScanNode extends ExternalScanNode {
             return filter;
         }
 
+        // Databases without a native boolean type (SQL Server bit, Oracle number) reject
+        // the TRUE/FALSE keyword and report it as an identifier (e.g. SQL Server:
+        // "Invalid column name 'TRUE'"). Render boolean literals as 1/0 there. See #64464.
+        if (needRewriteBoolLiteralToInt(tableType) && expr.contains(BoolLiteral.class)
+                && expr instanceof BinaryPredicate) {
+            ArrayList<Expr> children = expr.getChildren();
+            return handleBooleanLiteral(children.get(0), tbl)
+                    + " " + ((BinaryPredicate) expr).getOp().toString() + " "
+                    + handleBooleanLiteral(children.get(1), tbl);
+        }
+
+        if (needRewriteBoolLiteralToInt(tableType) && expr.contains(BoolLiteral.class)
+                && expr instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) expr;
+            String filter = inPredicate.getChild(0).toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+            if (inPredicate.isNotIn()) {
+                filter += " NOT";
+            }
+            filter += " IN (";
+            List<String> inItemStrings = new ArrayList<>();
+            for (int i = 1; i < inPredicate.getChildren().size(); i++) {
+                inItemStrings.add(handleBooleanLiteral(inPredicate.getChild(i), tbl));
+            }
+            filter += String.join(", ", inItemStrings);
+            filter += ")";
+            return filter;
+        }
+
         // Only for old planner
         if (expr.contains(BoolLiteral.class) && "1".equals(expr.getStringValue()) && expr.getChildren().isEmpty()) {
             return "1 = 1";
@@ -454,6 +482,22 @@ public class JdbcScanNode extends ExternalScanNode {
                 // which is language-independent
                 return "CONVERT(DATE, '" + expr.getStringValue() + "', 23)";
             }
+        }
+        return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+    }
+
+    private static boolean needRewriteBoolLiteralToInt(TOdbcTableType tableType) {
+        // These databases have no native boolean type and reject the TRUE/FALSE keyword,
+        // so boolean literals must be pushed down as 1/0 instead.
+        return tableType == TOdbcTableType.SQLSERVER
+                || tableType == TOdbcTableType.ORACLE
+                || tableType == TOdbcTableType.OCEANBASE_ORACLE;
+    }
+
+    private static String handleBooleanLiteral(Expr expr, TableIf tbl) {
+        if (expr instanceof BoolLiteral) {
+            // BoolLiteral.getStringValue() returns "1"/"0".
+            return expr.getStringValue();
         }
         return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
     }

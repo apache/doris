@@ -47,7 +47,7 @@ Status JdbcTableSinkOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status JdbcTableSinkOperatorX::sink(RuntimeState* state, Block* block, bool eos) {
+Status JdbcTableSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());

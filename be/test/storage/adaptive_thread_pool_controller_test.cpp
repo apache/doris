@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <thread>
 
 #include "common/config.h"
@@ -44,15 +45,19 @@ protected:
     void SetUp() override {
         _original_enable_adaptive = config::enable_adaptive_flush_threads;
 
+        int num_cpus = std::thread::hardware_concurrency();
+        if (num_cpus <= 0) num_cpus = 1;
+        int max_threads = std::max(64, num_cpus * 4);
+
         ASSERT_TRUE(ThreadPoolBuilder("TestPool")
                             .set_min_threads(2)
-                            .set_max_threads(64)
+                            .set_max_threads(max_threads)
                             .build(&_pool)
                             .ok());
 
         ASSERT_TRUE(ThreadPoolBuilder("TestPool2")
                             .set_min_threads(2)
-                            .set_max_threads(64)
+                            .set_max_threads(max_threads)
                             .build(&_pool2)
                             .ok());
     }

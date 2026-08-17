@@ -28,12 +28,14 @@
 #include <limits>
 #include <type_traits>
 
+#include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/field.h"
 #include "core/types.h"
 #include "testutil/test_util.h"
 #include "util/slice.h"
@@ -370,6 +372,179 @@ TEST_F(DataTypeNumberSerDeTest, ArrowStringToUnsignedDateLikeTypes) {
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(1, datetimev2_column->size());
     EXPECT_EQ(20240102112233ULL, datetimev2_column->get_data()[0].to_date_int_val());
+}
+
+TEST_F(DataTypeNumberSerDeTest, ArrowFloat16ToFloat32) {
+    arrow::HalfFloatBuilder builder;
+    ASSERT_TRUE(builder.AppendNull().ok());
+    ASSERT_TRUE(builder.Append(0x0000).ok());
+    ASSERT_TRUE(builder.Append(0x8000).ok());
+    ASSERT_TRUE(builder.Append(0x3E00).ok());
+    ASSERT_TRUE(builder.Append(0x7BFF).ok());
+    ASSERT_TRUE(builder.Append(0x7C00).ok());
+    ASSERT_TRUE(builder.Append(0xFC00).ok());
+    ASSERT_TRUE(builder.Append(0x7E00).ok());
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder.Finish(&array).ok());
+
+    auto float_column = ColumnFloat32::create();
+    cctz::time_zone tz;
+    ASSERT_TRUE(serde_float32
+                        ->read_column_from_arrow(*float_column, array.get(), 0, array->length(), tz)
+                        .ok());
+
+    ASSERT_EQ(8, float_column->size());
+    EXPECT_FLOAT_EQ(0.0F, float_column->get_data()[0]);
+    EXPECT_FLOAT_EQ(0.0F, float_column->get_data()[1]);
+    EXPECT_FALSE(std::signbit(float_column->get_data()[1]));
+    EXPECT_FLOAT_EQ(-0.0F, float_column->get_data()[2]);
+    EXPECT_TRUE(std::signbit(float_column->get_data()[2]));
+    EXPECT_FLOAT_EQ(1.5F, float_column->get_data()[3]);
+    EXPECT_FLOAT_EQ(65504.0F, float_column->get_data()[4]);
+    EXPECT_EQ(std::numeric_limits<float>::infinity(), float_column->get_data()[5]);
+    EXPECT_EQ(-std::numeric_limits<float>::infinity(), float_column->get_data()[6]);
+    EXPECT_TRUE(std::isnan(float_column->get_data()[7]));
+}
+
+TEST_F(DataTypeNumberSerDeTest, ArrowUnsignedIntegersAreWidenedLosslessly) {
+    cctz::time_zone tz;
+
+    {
+        arrow::UInt8Builder builder;
+        ASSERT_TRUE(builder.AppendNull().ok());
+        ASSERT_TRUE(builder.Append(0).ok());
+        ASSERT_TRUE(builder.Append(127).ok());
+        ASSERT_TRUE(builder.Append(128).ok());
+        ASSERT_TRUE(builder.Append(std::numeric_limits<UInt8>::max()).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+
+        auto column = ColumnInt16::create();
+        ASSERT_TRUE(
+                serde_int16->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
+                        .ok());
+        ASSERT_EQ(5, column->size());
+        EXPECT_EQ(0, column->get_data()[0]);
+        EXPECT_EQ(0, column->get_data()[1]);
+        EXPECT_EQ(127, column->get_data()[2]);
+        EXPECT_EQ(128, column->get_data()[3]);
+        EXPECT_EQ(255, column->get_data()[4]);
+    }
+
+    {
+        arrow::UInt16Builder builder;
+        ASSERT_TRUE(builder.AppendNull().ok());
+        ASSERT_TRUE(builder.Append(0).ok());
+        ASSERT_TRUE(builder.Append(32767).ok());
+        ASSERT_TRUE(builder.Append(32768).ok());
+        ASSERT_TRUE(builder.Append(std::numeric_limits<UInt16>::max()).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+
+        auto column = ColumnInt32::create();
+        ASSERT_TRUE(
+                serde_int32->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
+                        .ok());
+        ASSERT_EQ(5, column->size());
+        EXPECT_EQ(0, column->get_data()[0]);
+        EXPECT_EQ(0, column->get_data()[1]);
+        EXPECT_EQ(32767, column->get_data()[2]);
+        EXPECT_EQ(32768, column->get_data()[3]);
+        EXPECT_EQ(65535, column->get_data()[4]);
+    }
+
+    {
+        arrow::UInt32Builder builder;
+        ASSERT_TRUE(builder.AppendNull().ok());
+        ASSERT_TRUE(builder.Append(0).ok());
+        ASSERT_TRUE(builder.Append(std::numeric_limits<Int32>::max()).ok());
+        ASSERT_TRUE(builder.Append(UInt32(1) << 31).ok());
+        ASSERT_TRUE(builder.Append(std::numeric_limits<UInt32>::max()).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+
+        auto column = ColumnInt64::create();
+        ASSERT_TRUE(
+                serde_int64->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
+                        .ok());
+        ASSERT_EQ(5, column->size());
+        EXPECT_EQ(0, column->get_data()[0]);
+        EXPECT_EQ(0, column->get_data()[1]);
+        EXPECT_EQ(std::numeric_limits<Int32>::max(), column->get_data()[2]);
+        EXPECT_EQ(Int64(1) << 31, column->get_data()[3]);
+        EXPECT_EQ(std::numeric_limits<UInt32>::max(), column->get_data()[4]);
+    }
+
+    {
+        arrow::UInt64Builder builder;
+        ASSERT_TRUE(builder.AppendNull().ok());
+        ASSERT_TRUE(builder.Append(0).ok());
+        ASSERT_TRUE(builder.Append(std::numeric_limits<Int64>::max()).ok());
+        ASSERT_TRUE(builder.Append(UInt64(1) << 63).ok());
+        ASSERT_TRUE(builder.Append(std::numeric_limits<UInt64>::max()).ok());
+        std::shared_ptr<arrow::Array> array;
+        ASSERT_TRUE(builder.Finish(&array).ok());
+
+        auto column = ColumnInt128::create();
+        ASSERT_TRUE(
+                serde_int128->read_column_from_arrow(*column, array.get(), 0, array->length(), tz)
+                        .ok());
+        ASSERT_EQ(5, column->size());
+        EXPECT_EQ(Int128(0), column->get_data()[0]);
+        EXPECT_EQ(Int128(0), column->get_data()[1]);
+        EXPECT_EQ(static_cast<Int128>(std::numeric_limits<Int64>::max()), column->get_data()[2]);
+        EXPECT_EQ(Int128(1) << 63, column->get_data()[3]);
+        EXPECT_EQ(static_cast<Int128>(std::numeric_limits<UInt64>::max()), column->get_data()[4]);
+    }
+}
+
+// to_olap_string / from_zonemap_string must round-trip finite floating-point
+// extremes (±DBL_MAX / ±FLT_MAX). The old digits10+1 (16g/7g) formatter rounded
+// DBL_MAX up to 1.797693134862316e+308 — larger than the largest finite double —
+// so from_olap_string parsed it to ±inf and rejected it, and the zone-map min/max
+// never got materialized.
+TEST_F(DataTypeNumberSerDeTest, OlapStringRoundTripFloatExtremes) {
+    auto check_double = [&](double v) {
+        Field field = Field::create_field<TYPE_DOUBLE>(v);
+        std::string s = serde_float64->to_olap_string(field);
+        Field back;
+        Status st = serde_float64->from_zonemap_string(s, back);
+        ASSERT_TRUE(st.ok()) << "double round-trip failed: v=" << v << " str='" << s << "'";
+        EXPECT_EQ(back.get<TYPE_DOUBLE>(), v) << "str='" << s << "'";
+    };
+    auto check_float = [&](float v) {
+        Field field = Field::create_field<TYPE_FLOAT>(v);
+        std::string s = serde_float32->to_olap_string(field);
+        Field back;
+        Status st = serde_float32->from_zonemap_string(s, back);
+        ASSERT_TRUE(st.ok()) << "float round-trip failed: v=" << v << " str='" << s << "'";
+        EXPECT_EQ(back.get<TYPE_FLOAT>(), v) << "str='" << s << "'";
+    };
+
+    // finite extremes — these broke before the fix
+    check_double(std::numeric_limits<double>::max());    // 1.7976931348623157e308
+    check_double(std::numeric_limits<double>::lowest()); // -1.7976931348623157e308
+    check_float(std::numeric_limits<float>::max());
+    check_float(std::numeric_limits<float>::lowest());
+
+    // neighbors of extremes + precision-sensitive values — also broke before
+    // the fix (digits10+1 is short of max_digits10)
+    check_double(std::nextafter(std::numeric_limits<double>::max(),
+                                0.0));                // 1 ULP below DBL_MAX, 16g -> inf
+    check_double(std::numeric_limits<double>::min()); // smallest normal, 16g loses precision
+    check_double(2.0000000164243876);                 // ordinary double needing 17 sig digits
+    check_float(std::nextafter(std::numeric_limits<float>::max(), 0.0f)); // 1 ULP below FLT_MAX
+    check_float(std::numeric_limits<float>::min());                       // smallest normal float
+
+    // ordinary values must still round-trip exactly
+    check_double(0.0);
+    check_double(-0.0);
+    check_double(1.0);
+    check_double(3.141592653589793);
+    check_double(1e300);
+    check_double(-1e308);
+    check_float(3.14f);
+    check_float(0.0f);
 }
 
 } // namespace doris

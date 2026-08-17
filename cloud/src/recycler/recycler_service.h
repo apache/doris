@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <cpp/s3_rate_limiter.h>
+#include <cpp/token_bucket_rate_limiter.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include "meta-service/txn_lazy_committer.h"
@@ -49,6 +49,9 @@ public:
     void statistics_recycle(StatisticsRecycleRequest& req, MetaServiceCode& code, std::string& msg);
 
     void check_instance(const std::string& instance_id, MetaServiceCode& code, std::string& msg);
+
+    std::pair<MetaServiceCode, std::string> skip_instance_data_cleanup(
+            const std::string& instance_id);
 
     std::shared_ptr<TxnKv> txn_kv() { return txn_kv_; }
     Recycler* recycler() { return recycler_; }

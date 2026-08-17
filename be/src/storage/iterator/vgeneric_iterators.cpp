@@ -26,7 +26,6 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
-#include "storage/field.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/schema.h"
@@ -66,7 +65,8 @@ Status VStatisticsIterator::next_batch(Block* block) {
     DCHECK(block->columns() == _column_iterators.size());
     if (_output_rows < _target_rows) {
         block->clear_column_data();
-        auto columns = block->mutate_columns();
+        auto columns_guard = block->mutate_columns_scoped();
+        auto& columns = columns_guard.mutable_columns();
 
         size_t size = _push_down_agg_type_opt == TPushAggOp::MINMAX
                               ? 2
@@ -82,14 +82,13 @@ Status VStatisticsIterator::next_batch(Block* block) {
                     _schema.column(cid)->type() == FieldType::OLAP_FIELD_TYPE_CHAR) {
                     auto col = columns[i]->clone_empty();
                     for (size_t j = 0; j < columns[i]->size(); ++j) {
-                        const auto& ref = columns[i]->get_data_at(j).trim_tail_padding_zero();
-                        col->insert(Field::create_field<TYPE_CHAR>(ref.to_string()));
+                        const auto ref = columns[i]->get_data_at(j).trim_tail_padding_zero();
+                        col->insert_data(ref.data, ref.size);
                     }
                     columns[i].swap(col);
                 }
             }
         }
-        block->set_columns(std::move(columns));
         _output_rows += size;
         return Status::OK();
     }
@@ -173,7 +172,7 @@ Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
             ColumnPtr& s_cp = s_col.column;
             ColumnPtr& d_cp = d_col.column;
 
-            d_cp->assume_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
+            d_cp->assert_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
         }
     });
     _cur_batch_num = 0;

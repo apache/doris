@@ -527,60 +527,6 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
 }
 
 template <FieldType field_type>
-Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size,
-                                                               const CollectionValue* values,
-                                                               size_t count) {
-    if constexpr (field_is_slice_type(field_type)) {
-        DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_array_values_field_is_nullptr",
-                        { _field = nullptr; })
-        DBUG_EXECUTE_IF(
-                "InvertedIndexColumnWriter::add_array_values_index_writer_is_"
-                "nullptr",
-                { _index_writer = nullptr; })
-        if (_field == nullptr || _index_writer == nullptr) {
-            LOG(ERROR) << "field or index writer is null in inverted index writer.";
-            return Status::InternalError("field or index writer is null in inverted index writer");
-        }
-        for (int i = 0; i < count; ++i) {
-            const auto* item_data_ptr = values->data();
-            std::vector<std::string> strings;
-
-            for (size_t j = 0; j < values->length(); ++j) {
-                auto* v = (Slice*)item_data_ptr;
-
-                if (!values->is_null_at(j)) {
-                    strings.emplace_back(v->get_data(), v->get_size());
-                }
-                item_data_ptr = (uint8_t*)item_data_ptr + field_size;
-            }
-            auto value = join(strings, " ");
-            RETURN_IF_ERROR(new_inverted_index_field(value.c_str(), value.length()));
-            _rid++;
-            RETURN_IF_ERROR(add_document());
-            values++;
-        }
-    } else if constexpr (field_is_numeric_type(field_type)) {
-        for (int i = 0; i < count; ++i) {
-            const auto* item_data_ptr = values->data();
-
-            for (size_t j = 0; j < values->length(); ++j) {
-                const auto* p = reinterpret_cast<const CppType*>(item_data_ptr);
-                if (values->is_null_at(j)) {
-                    // bkd do not index null values, so we do nothing here.
-                } else {
-                    RETURN_IF_ERROR(add_value(*p));
-                }
-                item_data_ptr = (uint8_t*)item_data_ptr + field_size;
-            }
-            _row_ids_seen_for_bkd++;
-            _rid++;
-            values++;
-        }
-    }
-    return Status::OK();
-}
-
-template <FieldType field_type>
 Status InvertedIndexColumnWriter<field_type>::add_numeric_values(const void* values, size_t count) {
     auto p = reinterpret_cast<const CppType*>(values);
     for (size_t i = 0; i < count; ++i) {

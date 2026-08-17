@@ -54,6 +54,7 @@ TEST_F(BlockFileCacheTest,
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
 
     {
         FileReaderSPtr local_reader;

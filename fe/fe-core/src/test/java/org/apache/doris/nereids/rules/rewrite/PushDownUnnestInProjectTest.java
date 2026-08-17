@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.ArrayType;
@@ -75,7 +75,7 @@ public class PushDownUnnestInProjectTest implements MemoPatternMatchSupported {
                                 logicalGenerate(
                                         logicalOlapScan()
                                 )
-                        ).when(p -> p.getProjects().stream().allMatch(ne -> ne.child(0) instanceof StructElement))
+                        ).when(p -> p.getProjects().stream().allMatch(ne -> ne.child(0) instanceof ElementAt))
                 );
     }
 }

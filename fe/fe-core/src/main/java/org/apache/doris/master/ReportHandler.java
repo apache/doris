@@ -1074,7 +1074,6 @@ public class ReportHandler extends Daemon {
                                             olapTable.getCompressionType(),
                                             olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(),
                                             olapTable.disableAutoCompaction(),
-                                            olapTable.enableSingleReplicaCompaction(),
                                             olapTable.skipWriteIndexOnLoad(), olapTable.getCompactionPolicy(),
                                             olapTable.getTimeSeriesCompactionGoalSizeMbytes(),
                                             olapTable.getTimeSeriesCompactionFileCountThreshold(),

@@ -944,6 +944,13 @@ void WorkloadGroupMgr::stop() {
     }
 }
 
+void WorkloadGroupMgr::destroy_schedulers() {
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+    for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
+        iter->second->destroy_schedulers();
+    }
+}
+
 Status WorkloadGroupMgr::create_internal_wg() {
     TWorkloadGroupInfo twg_info;
     twg_info.__set_id(INTERNAL_NORMAL_WG_ID);

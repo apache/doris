@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AllPartitionDesc;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
@@ -43,6 +44,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -64,6 +66,8 @@ public class MTMVPartitionUtil {
     private static final Logger LOG = LogManager.getLogger(MTMVPartitionUtil.class);
     private static final Pattern PARTITION_NAME_PATTERN = Pattern.compile("[^a-zA-Z0-9,]");
     private static final String PARTITION_NAME_PREFIX = "p_";
+    private static final int MAX_PARTITION_NAME_LENGTH = 50;
+    private static final int PARTITION_IDENTITY_HASH_LENGTH = 16;
 
     private static final List<MTMVRelatedPartitionDescGeneratorService> partitionDescGenerators = ImmutableList
             .of(
@@ -93,6 +97,7 @@ public class MTMVPartitionUtil {
             Set<TableName> excludedTriggerTables) throws AnalysisException {
         MTMV mtmv = refreshContext.getMtmv();
         Map<MTMVRelatedTableIf, Set<String>> partitionMappings = refreshContext.getByPartitionName(partitionName);
+        Set<TableName> excludedTriggerTablesToCheck = Sets.newHashSet(excludedTriggerTables);
         if (mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE) {
             if (MapUtils.isEmpty(partitionMappings)) {
                 LOG.warn("can not found pct partition, partitionName: {}, mtmvName: {}",
@@ -103,7 +108,7 @@ public class MTMVPartitionUtil {
             for (MTMVRelatedTableIf pctTable : pctTables) {
                 Set<String> relatedPartitionNames = partitionMappings.getOrDefault(pctTable, Sets.newHashSet());
                 // if follow base table, not need compare with related table, only should compare with related partition
-                excludedTriggerTables.add(new TableName(pctTable));
+                excludedTriggerTablesToCheck.add(new TableName(pctTable));
                 if (!isSyncWithPartitions(refreshContext, partitionName, relatedPartitionNames, pctTable)) {
                     return false;
                 }
@@ -111,7 +116,7 @@ public class MTMVPartitionUtil {
 
         }
         return isSyncWithAllBaseTables(refreshContext, partitionName, tables,
-                excludedTriggerTables);
+                excludedTriggerTablesToCheck);
 
     }
 
@@ -360,11 +365,39 @@ public class MTMVPartitionUtil {
     public static String generatePartitionName(PartitionKeyDesc desc) {
         Matcher matcher = PARTITION_NAME_PATTERN.matcher(desc.toSql());
         String partitionName = PARTITION_NAME_PREFIX + matcher.replaceAll("").replaceAll("\\,", "_");
-        if (partitionName.length() > 50) {
-            partitionName = partitionName.substring(0, 30) + Math.abs(Objects.hash(partitionName))
-                    + "_" + System.currentTimeMillis();
+        // The legacy readable name removes SQL quotes, so typed NULL, the string "NULL", and
+        // strings containing separators can collapse to the same name. Preserve ordinary names,
+        // but attach a stable identity derived from the complete typed descriptor where that
+        // lossy encoding is known to be ambiguous. The same identity also makes long names
+        // deterministic across retries and FE restarts.
+        if (containsLiteralNull(desc) || partitionName.length() > MAX_PARTITION_NAME_LENGTH) {
+            String identitySuffix = "_" + DigestUtils.sha256Hex(desc.toSql())
+                    .substring(0, PARTITION_IDENTITY_HASH_LENGTH);
+            int readableLength = MAX_PARTITION_NAME_LENGTH - identitySuffix.length();
+            partitionName = partitionName.substring(0, Math.min(partitionName.length(), readableLength))
+                    + identitySuffix;
         }
         return partitionName;
+    }
+
+    private static boolean containsLiteralNull(PartitionKeyDesc desc) {
+        if (desc.hasInValues()) {
+            for (List<PartitionValue> values : desc.getInValues()) {
+                if (containsLiteralNull(values)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return containsLiteralNull(desc.getLowerValues()) || containsLiteralNull(desc.getUpperValues());
+    }
+
+    private static boolean containsLiteralNull(List<PartitionValue> values) {
+        if (values == null) {
+            return false;
+        }
+        return values.stream().anyMatch(value -> !value.isNullPartition()
+                && "NULL".equals(value.getStringValue()));
     }
 
     /**

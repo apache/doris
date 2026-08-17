@@ -483,7 +483,7 @@ public class ComputeSignatureHelper {
             return signature;
         }
         ArrayType arrayType = (ArrayType) signature.returnType;
-        return signature.withReturnType(ArrayType.of(arrayType.getItemType(), true));
+        return signature.withReturnType(ArrayType.of(arrayType.getItemType()));
     }
 
     // for time type with precision(now are DateTimeV2Type and TimeV2Type),

@@ -58,6 +58,7 @@ public class AuditEventProcessorTest {
                 .setDb("db1")
                 .setState("EOF")
                 .setQueryTime(2000)
+                .setQueueTimeMs(2000)
                 .setScanBytes(100000)
                 .setScanRows(200000)
                 .setReturnRows(1)
@@ -68,6 +69,7 @@ public class AuditEventProcessorTest {
         Assert.assertEquals("127.0.0.1", event.clientIp);
         Assert.assertEquals(200000, event.scanRows);
         Assert.assertEquals("SELECT", event.stmtType);
+        Assert.assertEquals(2000, event.queueTimeMs);
     }
 
     @Test

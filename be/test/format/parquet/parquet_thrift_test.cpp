@@ -161,8 +161,8 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
 
 static int fill_nullable_column(ColumnPtr& doris_column, level_t* definitions, size_t num_values) {
     CHECK(doris_column->is_nullable());
-    auto* nullable_column =
-            const_cast<ColumnNullable*>(static_cast<const ColumnNullable*>(doris_column.get()));
+    doris_column = IColumn::mutate(std::move(doris_column));
+    auto* nullable_column = assert_cast<ColumnNullable*>(doris_column->assert_mutable().get());
     NullMap& map_data = nullable_column->get_null_map_data();
     int null_cnt = 0;
     for (int i = 0; i < num_values; ++i) {
@@ -193,6 +193,9 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
 
     ColumnPtr src_column = _converter->get_physical_column(
             field_schema->physical_type, field_schema->data_type, doris_column, data_type, false);
+    if (_converter->read_directly_into_dst_logical_column()) {
+        src_column = std::move(doris_column);
+    }
     DataTypePtr& resolved_type = _converter->get_physical_type();
 
     io::BufferedFileStreamReader stream_reader(file_reader, start_offset, chunk_size, 1024);
@@ -217,11 +220,11 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
     if (src_column->is_nullable()) {
         // fill nullable values
         fill_nullable_column(src_column, definitions, rows);
-        auto* nullable_column =
-                const_cast<ColumnNullable*>(static_cast<const ColumnNullable*>(src_column.get()));
+        auto* nullable_column = assert_cast<ColumnNullable*>(src_column->assert_mutable().get());
         data_column = nullable_column->get_nested_column_ptr();
     } else {
-        data_column = src_column->assume_mutable();
+        src_column = IColumn::mutate(std::move(src_column));
+        data_column = src_column->assert_mutable();
     }
     FilterMap filter_map;
     RETURN_IF_ERROR(filter_map.init(nullptr, 0, false));

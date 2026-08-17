@@ -18,17 +18,33 @@
 package org.apache.doris.datasource.iceberg.helper;
 
 import org.apache.doris.thrift.TFileContent;
+import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.hadoop.HadoopTables;
+import org.apache.iceberg.io.WriteResult;
+import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mockito;
 
+import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -56,6 +72,242 @@ public class IcebergWriterHelperTest {
         // Use Parquet format
         format = FileFormat.PARQUET;
 
+    }
+
+    @Test
+    public void testConvertToWriterResultRespectsNoneMetricsMode() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "none"));
+
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setColumnSizes(ImmutableMap.of(2, 128L));
+        columnStats.setValueCounts(ImmutableMap.of(2, 10L));
+        columnStats.setNullValueCounts(ImmutableMap.of(2, 0L));
+        columnStats.setLowerBounds(ImmutableMap.of(2, ByteBuffer.wrap(new byte[] {0x01})));
+        columnStats.setUpperBounds(ImmutableMap.of(2, ByteBuffer.wrap(new byte[] {0x02})));
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/data.parquet");
+        commitData.setRowCount(10);
+        commitData.setFileSize(1024);
+        commitData.setColumnStats(columnStats);
+
+        WriteResult result = IcebergWriterHelper.convertToWriterResult(table, ImmutableList.of(commitData));
+        DataFile dataFile = result.dataFiles()[0];
+
+        Assertions.assertTrue(dataFile.columnSizes() == null || dataFile.columnSizes().isEmpty());
+        Assertions.assertTrue(dataFile.valueCounts() == null || dataFile.valueCounts().isEmpty());
+        Assertions.assertTrue(dataFile.nullValueCounts() == null || dataFile.nullValueCounts().isEmpty());
+        Assertions.assertTrue(dataFile.lowerBounds() == null || dataFile.lowerBounds().isEmpty());
+        Assertions.assertTrue(dataFile.upperBounds() == null || dataFile.upperBounds().isEmpty());
+    }
+
+    @Test
+    public void testConvertToWriterResultCountsModeOmitsBounds() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "counts"));
+
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setColumnSizes(ImmutableMap.of(2, 128L));
+        columnStats.setValueCounts(ImmutableMap.of(2, 10L));
+        columnStats.setNullValueCounts(ImmutableMap.of(2, 0L));
+        columnStats.setLowerBounds(ImmutableMap.of(
+                2, Conversions.toByteBuffer(Types.StringType.get(), "abcdefgh")));
+        columnStats.setUpperBounds(ImmutableMap.of(
+                2, Conversions.toByteBuffer(Types.StringType.get(), "ijklmnop")));
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/data.parquet");
+        commitData.setRowCount(10);
+        commitData.setFileSize(1024);
+        commitData.setColumnStats(columnStats);
+
+        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(table, ImmutableList.of(commitData)).dataFiles()[0];
+
+        Assertions.assertEquals(ImmutableMap.of(2, 128L), dataFile.columnSizes());
+        Assertions.assertEquals(ImmutableMap.of(2, 10L), dataFile.valueCounts());
+        Assertions.assertEquals(ImmutableMap.of(2, 0L), dataFile.nullValueCounts());
+        Assertions.assertTrue(dataFile.lowerBounds() == null || dataFile.lowerBounds().isEmpty());
+        Assertions.assertTrue(dataFile.upperBounds() == null || dataFile.upperBounds().isEmpty());
+    }
+
+    @Test
+    public void testConvertToWriterResultTruncatesStringAndBinaryBounds() {
+        Schema boundsSchema = new Schema(
+                Types.NestedField.optional(1, "text", Types.StringType.get()),
+                Types.NestedField.optional(2, "payload", Types.BinaryType.get()));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(boundsSchema);
+        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "truncate(3)"));
+
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setLowerBounds(ImmutableMap.of(
+                1, Conversions.toByteBuffer(Types.StringType.get(), "abcdef"),
+                2, ByteBuffer.wrap(new byte[] {1, 2, 3, 4})));
+        columnStats.setUpperBounds(ImmutableMap.of(
+                1, Conversions.toByteBuffer(Types.StringType.get(), "uvwxyz"),
+                2, ByteBuffer.wrap(new byte[] {1, 2, 3, 4})));
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/data.parquet");
+        commitData.setRowCount(10);
+        commitData.setFileSize(1024);
+        commitData.setColumnStats(columnStats);
+
+        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(table, ImmutableList.of(commitData)).dataFiles()[0];
+
+        Assertions.assertEquals("abc", Conversions.fromByteBuffer(
+                Types.StringType.get(), dataFile.lowerBounds().get(1)).toString());
+        Assertions.assertEquals("uvx", Conversions.fromByteBuffer(
+                Types.StringType.get(), dataFile.upperBounds().get(1)).toString());
+        Assertions.assertEquals(ByteBuffer.wrap(new byte[] {1, 2, 3}), dataFile.lowerBounds().get(2));
+        Assertions.assertEquals(ByteBuffer.wrap(new byte[] {1, 2, 4}), dataFile.upperBounds().get(2));
+    }
+
+    @Test
+    public void testConvertToWriterResultPreservesOrcUpperBoundWithoutTruncatedSuccessor() {
+        Schema boundsSchema = new Schema(
+                Types.NestedField.optional(1, "text", Types.StringType.get()));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(boundsSchema);
+        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "orc",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "truncate(1)"));
+
+        String maxWithoutSuccessor = new String(Character.toChars(Character.MAX_CODE_POINT)) + "tail";
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setUpperBounds(ImmutableMap.of(
+                1, Conversions.toByteBuffer(Types.StringType.get(), maxWithoutSuccessor)));
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/data.orc");
+        commitData.setRowCount(1);
+        commitData.setFileSize(128);
+        commitData.setColumnStats(columnStats);
+
+        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(table, ImmutableList.of(commitData)).dataFiles()[0];
+
+        Assertions.assertNotNull(dataFile.upperBounds());
+        Assertions.assertEquals(maxWithoutSuccessor, Conversions.fromByteBuffer(
+                Types.StringType.get(), dataFile.upperBounds().get(1)).toString());
+    }
+
+    @Test
+    public void testConvertToWriterResultBuildsMetricsPolicyOncePerBatch() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "none"));
+
+        TIcebergCommitData firstCommit = new TIcebergCommitData();
+        firstCommit.setFilePath("/path/to/first.parquet");
+        firstCommit.setRowCount(10);
+        firstCommit.setFileSize(1024);
+
+        TIcebergCommitData secondCommit = new TIcebergCommitData();
+        secondCommit.setFilePath("/path/to/second.parquet");
+        secondCommit.setRowCount(20);
+        secondCommit.setFileSize(2048);
+
+        IcebergWriterHelper.convertToWriterResult(table, ImmutableList.of(firstCommit, secondCommit));
+
+        // One schema lookup is made by Iceberg's policy builder and one is captured for all files in the batch.
+        Mockito.verify(table, Mockito.times(2)).schema();
+    }
+
+    @Test
+    public void testConvertToWriterResultHandlesV3TransactionTableLineageMetrics(@TempDir Path tempDir) {
+        HadoopTables tables = new HadoopTables(new Configuration());
+        Table baseTable = tables.create(schema, unpartitionedSpec, SortOrder.unsorted(), ImmutableMap.of(
+                TableProperties.FORMAT_VERSION, "3",
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "truncate(16)"),
+                tempDir.resolve("table").toUri().toString());
+        Table transactionTable = baseTable.newTransaction().table();
+
+        int rowId = MetadataColumns.ROW_ID.fieldId();
+        int sequenceNumberId = MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.fieldId();
+        ByteBuffer rowIdBound = Conversions.toByteBuffer(MetadataColumns.ROW_ID.type(), 7L);
+        ByteBuffer sequenceNumberBound = Conversions.toByteBuffer(
+                MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.type(), 3L);
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setLowerBounds(ImmutableMap.of(rowId, rowIdBound, sequenceNumberId, sequenceNumberBound));
+        columnStats.setUpperBounds(ImmutableMap.of(rowId, rowIdBound, sequenceNumberId, sequenceNumberBound));
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/v3-data.parquet");
+        commitData.setRowCount(1);
+        commitData.setFileSize(128);
+        commitData.setColumnStats(columnStats);
+
+        DataFile dataFile = Assertions.assertDoesNotThrow(
+                () -> IcebergWriterHelper.convertToWriterResult(
+                        transactionTable, ImmutableList.of(commitData)).dataFiles()[0]);
+        Assertions.assertEquals(rowIdBound, dataFile.lowerBounds().get(rowId));
+        Assertions.assertEquals(rowIdBound, dataFile.upperBounds().get(rowId));
+        Assertions.assertEquals(sequenceNumberBound, dataFile.lowerBounds().get(sequenceNumberId));
+        Assertions.assertEquals(sequenceNumberBound, dataFile.upperBounds().get(sequenceNumberId));
+    }
+
+    @Test
+    public void testConvertToWriterResultSuppressesLogicalMetricsBelowRepeatedFields() {
+        Schema repeatedSchema = new Schema(
+                Types.NestedField.optional(1, "items",
+                        Types.ListType.ofOptional(2, Types.IntegerType.get())),
+                Types.NestedField.optional(3, "attributes",
+                        Types.MapType.ofOptional(4, 5, Types.StringType.get(), Types.StringType.get())),
+                Types.NestedField.optional(6, "top_level", Types.IntegerType.get()));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schema()).thenReturn(repeatedSchema);
+        Mockito.when(table.spec()).thenReturn(unpartitionedSpec);
+        Mockito.when(table.sortOrder()).thenReturn(SortOrder.unsorted());
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
+                TableProperties.DEFAULT_FILE_FORMAT, "parquet",
+                TableProperties.DEFAULT_WRITE_METRICS_MODE, "full"));
+
+        TIcebergColumnStats columnStats = new TIcebergColumnStats();
+        columnStats.setColumnSizes(ImmutableMap.of(2, 20L, 4, 40L, 5, 50L, 6, 60L));
+        columnStats.setValueCounts(ImmutableMap.of(2, 2L, 4, 4L, 5, 5L, 6, 6L));
+        columnStats.setNullValueCounts(ImmutableMap.of(2, 0L, 4, 0L, 5, 0L, 6, 0L));
+        columnStats.setLowerBounds(ImmutableMap.of(
+                2, Conversions.toByteBuffer(Types.IntegerType.get(), 2),
+                4, Conversions.toByteBuffer(Types.StringType.get(), "key"),
+                5, Conversions.toByteBuffer(Types.StringType.get(), "value"),
+                6, Conversions.toByteBuffer(Types.IntegerType.get(), 6)));
+        columnStats.setUpperBounds(columnStats.getLowerBounds());
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/repeated.parquet");
+        commitData.setRowCount(6);
+        commitData.setFileSize(1024);
+        commitData.setColumnStats(columnStats);
+
+        DataFile dataFile = IcebergWriterHelper.convertToWriterResult(table, ImmutableList.of(commitData)).dataFiles()[0];
+
+        Assertions.assertEquals(ImmutableMap.of(2, 20L, 4, 40L, 5, 50L, 6, 60L), dataFile.columnSizes());
+        Assertions.assertEquals(ImmutableMap.of(6, 6L), dataFile.valueCounts());
+        Assertions.assertEquals(ImmutableMap.of(6, 0L), dataFile.nullValueCounts());
+        Assertions.assertEquals(ImmutableMap.of(6, columnStats.getLowerBounds().get(6)), dataFile.lowerBounds());
+        Assertions.assertEquals(ImmutableMap.of(6, columnStats.getUpperBounds().get(6)), dataFile.upperBounds());
     }
 
     @Test

@@ -62,6 +62,36 @@ import java.util.stream.Collectors;
 public interface TableIf {
     Logger LOG = LogManager.getLogger(TableIf.class);
 
+    class TableStatusStats {
+        private final long rows;
+        private final long dataLength;
+        private final long avgRowLength;
+        private final long indexLength;
+
+        public TableStatusStats(long rows, long dataLength, long avgRowLength, long indexLength) {
+            this.rows = rows;
+            this.dataLength = dataLength;
+            this.avgRowLength = avgRowLength;
+            this.indexLength = indexLength;
+        }
+
+        public long getRows() {
+            return rows;
+        }
+
+        public long getDataLength() {
+            return dataLength;
+        }
+
+        public long getAvgRowLength() {
+            return avgRowLength;
+        }
+
+        public long getIndexLength() {
+            return indexLength;
+        }
+    }
+
     long UNKNOWN_ROW_COUNT = -1;
 
     default void readLock() {
@@ -182,6 +212,10 @@ public interface TableIf {
     long getAvgRowLength();
 
     long getIndexLength();
+
+    default TableStatusStats getTableStatusStats() {
+        return new TableStatusStats(getCachedRowCount(), getDataLength(), getAvgRowLength(), getIndexLength());
+    }
 
     long getLastCheckTime();
 
@@ -442,6 +476,20 @@ public interface TableIf {
     }
 
     /**
+     * Returns whether the table can preload planning metadata before internal table locks are acquired.
+     */
+    default boolean supportsExternalMetadataPreload() {
+        return false;
+    }
+
+    /**
+     * Returns whether the table has a meaningful latest snapshot that can be preloaded ahead of analysis.
+     */
+    default boolean supportsLatestSnapshotPreload() {
+        return false;
+    }
+
+    /**
      * Doris table type.
      */
     enum TableType {
@@ -451,7 +499,8 @@ public interface TableIf {
         HUDI, JDBC,
         TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
         ICEBERG_EXTERNAL_TABLE, TEST_EXTERNAL_TABLE, PAIMON_EXTERNAL_TABLE, MAX_COMPUTE_EXTERNAL_TABLE,
-        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY, DORIS_EXTERNAL_TABLE;
+        HUDI_EXTERNAL_TABLE, TRINO_CONNECTOR_EXTERNAL_TABLE, LAKESOUl_EXTERNAL_TABLE, DICTIONARY,
+        DORIS_EXTERNAL_TABLE, LANCE_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -490,6 +539,8 @@ public interface TableIf {
                     return "iceberg";
                 case PAIMON_EXTERNAL_TABLE:
                     return "paimon";
+                case LANCE_EXTERNAL_TABLE:
+                    return "lance";
                 case DICTIONARY:
                     return "dictionary";
                 case DORIS_EXTERNAL_TABLE:
@@ -530,6 +581,7 @@ public interface TableIf {
                 case ES_EXTERNAL_TABLE:
                 case ICEBERG_EXTERNAL_TABLE:
                 case PAIMON_EXTERNAL_TABLE:
+                case LANCE_EXTERNAL_TABLE:
                 case MATERIALIZED_VIEW:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:
                 case DORIS_EXTERNAL_TABLE:

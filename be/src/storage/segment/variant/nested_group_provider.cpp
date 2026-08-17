@@ -17,6 +17,10 @@
 
 #include "storage/segment/variant/nested_group_provider.h"
 
+#include <algorithm>
+#include <string>
+#include <utility>
+
 namespace doris::segment_v2 {
 
 namespace {
@@ -123,7 +127,7 @@ public:
             statistics == nullptr) {
             return Status::InvalidArgument("NestedGroup provider input is null");
         }
-        return Status::OK();
+        return Status::NotSupported("NestedGroup write path is not available in this build");
     }
 
     Status prepare_with_built_groups(const NestedGroupsMap& /*nested_groups*/,
@@ -135,7 +139,7 @@ public:
             statistics == nullptr) {
             return Status::InvalidArgument("NestedGroup provider input is null");
         }
-        return Status::OK();
+        return Status::NotSupported("NestedGroup write path is not available in this build");
     }
 
     Status init_with_plan(const NestedGroupStreamingWritePlan& /*plan*/,
@@ -144,12 +148,12 @@ public:
         if (tablet_column == nullptr || column_id == nullptr || statistics == nullptr) {
             return Status::InvalidArgument("NestedGroup streaming init input is null");
         }
-        return Status::OK();
+        return Status::NotSupported("NestedGroup write path is not available in this build");
     }
 
     Status append_chunk(const NestedGroupStreamingWritePlan& /*plan*/,
                         const ColumnVariant& /*variant*/) override {
-        return Status::OK();
+        return Status::NotSupported("NestedGroup write path is not available in this build");
     }
 
     uint64_t estimate_buffer_size() const override { return 0; }

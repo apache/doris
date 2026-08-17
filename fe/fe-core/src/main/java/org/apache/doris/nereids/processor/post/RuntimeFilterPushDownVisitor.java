@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -80,8 +81,6 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         final long buildSideNdv;
         final int exprOrder;
         final Pair<PhysicalRelation, Slot> finalTarget;
-        //bitmap rf used only
-        final boolean isNot;
         // only used for Min_Max runtime filter
         final TMinMaxRuntimeFilterType singleSideMinMax;
 
@@ -92,7 +91,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         private PushDownContext(Expression srcExpr, Expression probeExpr, RuntimeFilterContext rfContext,
                 IdGenerator<RuntimeFilterId> rfIdGen, TRuntimeFilterType type,
                 AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
-                boolean hasUnknownColStats, long buildSideNdv, int exprOrder, boolean isNot,
+                boolean hasUnknownColStats, long buildSideNdv, int exprOrder,
                 TMinMaxRuntimeFilterType singleSideMinMax) {
             this.probeExpr = probeExpr;
             this.rfContext = rfContext;
@@ -103,7 +102,6 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             this.hasUnknownColStats = hasUnknownColStats;
             this.buildSideNdv = buildSideNdv;
             this.exprOrder = exprOrder;
-            this.isNot = isNot;
             Expression expr = getSingleNumericSlotOrExpressionCoveredByCast(probeExpr);
             /* finalTarget can be null if it is not a column from base table.
             for example:
@@ -120,17 +118,6 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             this.singleSideMinMax = singleSideMinMax;
         }
 
-        // for BitMap runtime filter
-        public static PushDownContext createPushDownContextForBitMapFilter(Expression srcExpr, Expression probeExpr,
-                RuntimeFilterContext rfContext,
-                IdGenerator<RuntimeFilterId> rfIdGen,
-                AbstractPhysicalJoin<? extends Plan, ? extends Plan> builderNode,
-                long buildSideNdv, int exprOrder, boolean isNot) {
-            return new PushDownContext(srcExpr, probeExpr, rfContext, rfIdGen, TRuntimeFilterType.BITMAP, builderNode,
-                    false, buildSideNdv,
-                    exprOrder, isNot, TMinMaxRuntimeFilterType.MIN_MAX);
-        }
-
         // for NLJ min-max runtime filter
         public static PushDownContext createPushDownContextForNljMinMaxFilter(Expression srcExpr, Expression probeExpr,
                 RuntimeFilterContext rfContext,
@@ -140,7 +127,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                 TMinMaxRuntimeFilterType singleSideMinMax) {
             return new PushDownContext(srcExpr, probeExpr, rfContext, rfIdGen, TRuntimeFilterType.MIN_MAX, builderNode,
                     false, -1,
-                    exprOrder, false, singleSideMinMax);
+                    exprOrder, singleSideMinMax);
         }
 
         public static PushDownContext createPushDownContextForHashJoin(Expression srcExpr, Expression probeExpr,
@@ -150,7 +137,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                 boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
             return new PushDownContext(srcExpr, probeExpr, rfContext, rfIdGen, type, builderNode,
                     hasUnknownColStats, buildSideNdv,
-                    exprOrder, false, TMinMaxRuntimeFilterType.MIN_MAX);
+                    exprOrder, TMinMaxRuntimeFilterType.MIN_MAX);
         }
 
         public boolean isValid() {
@@ -159,7 +146,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         public PushDownContext withNewProbeExpression(Expression newProbe) {
             return new PushDownContext(srcExpr, newProbe, this.rfContext, rfIdGen, type, builderNode,
-                    hasUnknownColStats, buildSideNdv, exprOrder, isNot, singleSideMinMax);
+                    hasUnknownColStats, buildSideNdv, exprOrder, singleSideMinMax);
         }
 
         private Expression getSingleNumericSlotOrExpressionCoveredByCast(Expression expression) {
@@ -227,7 +214,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         } else {
             filter = new RuntimeFilter(ctx.rfIdGen.getNextId(),
                     ctx.srcExpr, ImmutableList.of(scanSlot), ImmutableList.of(ctx.probeExpr),
-                    type, ctx.exprOrder, ctx.builderNode, ctx.isNot, ctx.buildSideNdv,
+                    type, ctx.exprOrder, ctx.builderNode, ctx.buildSideNdv,
                     !ctx.hasUnknownColStats, ctx.singleSideMinMax, scan);
             scan.addAppliedRuntimeFilter(filter);
             ctx.rfContext.addJoinToTargetMap(ctx.builderNode, scanSlot.getExprId());
@@ -272,7 +259,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         probExprList.add(ctx.probeExpr);
         Pair<PhysicalRelation, Slot> srcPair = ctx.rfContext.getAliasTransferMap().get(ctx.srcExpr);
         PhysicalRelation srcNode = (srcPair == null) ? null : srcPair.first;
-        Pair<PhysicalRelation, Slot> targetPair = ctx.rfContext.getAliasTransferMap().get(ctx.probeExpr);
+        Pair<PhysicalRelation, Slot> targetPair = ctx.rfContext.getAliasTransferMap().get(ctx.probeSlot);
         if (targetPair == null) {
             /* cases for "targetPair is null"
              when probeExpr is output slot of setOperator, targetPair is null
@@ -309,10 +296,12 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             if (!ctxForChild.isValid()) {
                 continue;
             }
-            if (ctx.rfContext.isRelationUseByPlan(leftNode, ctxForChild.finalTarget.first)) {
+            if (ctx.rfContext.isRelationUseByPlan(leftNode, ctxForChild.finalTarget.first)
+                    && canPushThroughJoinChild(join, true, ctxForChild)) {
                 pushed |= leftNode.accept(this, ctxForChild);
             }
-            if (ctx.rfContext.isRelationUseByPlan(rightNode, ctxForChild.finalTarget.first)) {
+            if (ctx.rfContext.isRelationUseByPlan(rightNode, ctxForChild.finalTarget.first)
+                    && canPushThroughJoinChild(join, false, ctxForChild)) {
                 pushed |= rightNode.accept(this, ctxForChild);
             }
         }
@@ -342,13 +331,54 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             }
         }
         boolean pushed = false;
-        if (ctx.rfContext.isRelationUseByPlan(join.left(), ctx.finalTarget.first)) {
+        if (ctx.rfContext.isRelationUseByPlan(join.left(), ctx.finalTarget.first)
+                && canPushThroughJoinChild(join, true, ctx)) {
             pushed |= join.left().accept(this, ctx);
         }
-        if (ctx.rfContext.isRelationUseByPlan(join.right(), ctx.finalTarget.first)) {
+        if (ctx.rfContext.isRelationUseByPlan(join.right(), ctx.finalTarget.first)
+                && canPushThroughJoinChild(join, false, ctx)) {
             pushed |= join.right().accept(this, ctx);
         }
         return pushed;
+    }
+
+    private boolean canPushThroughJoinChild(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join,
+            boolean isLeftChild, PushDownContext ctx) {
+        if (join.equals(ctx.builderNode) || !isNullGeneratingChild(join.getJoinType(), isLeftChild)) {
+            return true;
+        }
+        // A runtime filter is still safe on the null-generating side if generated NULL rows
+        // cannot become non-NULL before the parent join condition is evaluated. For example,
+        // `b.pk = c.pk` rejects generated NULLs, while `coalesce(b.pk, 0) = c.pk` may match them.
+        return isNullPropagating(ctx.probeExpr);
+    }
+
+    private boolean isNullGeneratingChild(JoinType joinType, boolean isLeftChild) {
+        if (joinType.isFullOuterJoin()) {
+            return true;
+        }
+        if (isLeftChild) {
+            return joinType.isRightOuterJoin() || joinType.isAsofRightOuterJoin();
+        }
+        return joinType.isLeftOuterJoin() || joinType.isAsofLeftOuterJoin();
+    }
+
+    private boolean isNullPropagating(Expression expression) {
+        if (expression instanceof Slot) {
+            return true;
+        }
+        if (expression instanceof Cast) {
+            return isNullPropagating(((Cast) expression).child());
+        }
+        if (expression instanceof PropagateNullable) {
+            for (Expression child : expression.children()) {
+                if (!child.getInputSlots().isEmpty() && !isNullPropagating(child)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     @Override

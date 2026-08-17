@@ -39,10 +39,6 @@ private:
         return PushDownType::ACCEPTABLE;
     }
 
-    PushDownType _should_push_down_bitmap_filter() const override {
-        return PushDownType::ACCEPTABLE;
-    }
-
     bool _should_push_down_common_expr() override { return true; }
     PushDownType _should_push_down_topn_filter() const override { return PushDownType::ACCEPTABLE; }
 
@@ -88,7 +84,7 @@ public:
         _output_blocks.push_back(std::move(block));
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         if (_output_blocks.empty()) {
             *eos = true;
             return Status::OK();

@@ -108,8 +108,6 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean disableAutoCompaction;
 
-    private boolean enableSingleReplicaCompaction;
-
     private boolean skipWriteIndexOnLoad;
 
     private String compactionPolicy;
@@ -150,7 +148,6 @@ public class CreateReplicaTask extends AgentTask {
                              TCompressionType compressionType,
                              boolean enableUniqueKeyMergeOnWrite,
                              String storagePolicy, boolean disableAutoCompaction,
-                             boolean enableSingleReplicaCompaction,
                              boolean skipWriteIndexOnLoad,
                              String compactionPolicy,
                              long timeSeriesCompactionGoalSizeMbytes,
@@ -201,7 +198,6 @@ public class CreateReplicaTask extends AgentTask {
             }
         }
         this.disableAutoCompaction = disableAutoCompaction;
-        this.enableSingleReplicaCompaction = enableSingleReplicaCompaction;
         this.skipWriteIndexOnLoad = skipWriteIndexOnLoad;
         this.compactionPolicy = compactionPolicy;
         this.timeSeriesCompactionGoalSizeMbytes = timeSeriesCompactionGoalSizeMbytes;
@@ -374,7 +370,6 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setIsInMemory(isInMemory);
         tSchema.setDisableAutoCompaction(disableAutoCompaction);
         tSchema.setVariantEnableFlattenNested(variantEnableFlattenNested);
-        tSchema.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
         tSchema.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);
         tSchema.setRowStorePageSize(rowStorePageSize);

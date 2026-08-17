@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.paimon.PaimonReaderOptions;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
@@ -29,8 +30,10 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -53,12 +56,23 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
     public abstract String getPaimonCatalogType();
 
     private static final String USER_PROPERTY_PREFIX = "paimon.";
+    private static final String DORIS_JNI_PROPERTY_PREFIX = "paimon.jni.";
+    /** The suffix after this prefix is passed to Paimon as a dynamic table option. */
+    public static final String TABLE_OPTION_PREFIX = PaimonReaderOptions.TABLE_OPTION_PREFIX;
+
+    private Map<String, String> tableOptionsMap = Collections.emptyMap();
 
     protected AbstractPaimonProperties(Map<String, String> props) {
         super(Type.PAIMON, props);
     }
 
     public abstract Catalog initializeCatalog(String catalogName, List<StorageProperties> storagePropertiesList);
+
+    @Override
+    public void initNormalizeAndCheckProps() {
+        super.initNormalizeAndCheckProps();
+        tableOptionsMap = extractTableOptions();
+    }
 
     protected void appendCatalogOptions() {
         if (StringUtils.isNotBlank(warehouse)) {
@@ -68,10 +82,12 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
 
         // FIXME(cmy): Rethink these custom properties
         origProps.forEach((k, v) -> {
-            if (k.toLowerCase().startsWith(USER_PROPERTY_PREFIX)) {
+            if (k.toLowerCase(Locale.ROOT).startsWith(USER_PROPERTY_PREFIX)) {
                 String newKey = k.substring(USER_PROPERTY_PREFIX.length());
                 if (StringUtils.isNotBlank(newKey)) {
-                    boolean excluded = userStoragePrefixes.stream().anyMatch(k::startsWith);
+                    boolean excluded = isTableOptionProperty(k)
+                            || k.toLowerCase(Locale.ROOT).startsWith(DORIS_JNI_PROPERTY_PREFIX)
+                            || userStoragePrefixes.stream().anyMatch(k::startsWith);
                     if (!excluded) {
                         catalogOptions.set(newKey, v);
                     }
@@ -119,6 +135,27 @@ public abstract class AbstractPaimonProperties extends MetastoreProperties {
             // Another thread already initialized it; return the existing one
             return catalogOptionsMapRef.get();
         }
+    }
+
+    public Map<String, String> getTableOptionsMap() {
+        return tableOptionsMap;
+    }
+
+    /**
+     * Returns Catalog-scoped dynamic reader options to copy onto a Paimon table.
+     * Catalog options intentionally override physical table values, while a subsequent
+     * relation-scoped copy can override the Catalog for one relation only.
+     */
+    public Map<String, String> getTableOptionsForCopy() {
+        return tableOptionsMap;
+    }
+
+    public static boolean isTableOptionProperty(String key) {
+        return key.toLowerCase(Locale.ROOT).startsWith(TABLE_OPTION_PREFIX);
+    }
+
+    private Map<String, String> extractTableOptions() {
+        return PaimonReaderOptions.compatibleCatalogOptions(origProps);
     }
 
     /**

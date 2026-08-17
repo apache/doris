@@ -21,6 +21,7 @@ suite("eliminate_inner") {
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET disable_join_reorder=true"
+    sql "SET disable_nereids_rules=INFER_SET_OPERATOR_DISTINCT"
 
     sql """
         DROP TABLE IF EXISTS pkt

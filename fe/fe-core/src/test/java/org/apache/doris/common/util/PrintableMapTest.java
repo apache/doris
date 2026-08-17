@@ -43,6 +43,10 @@ public class PrintableMapTest {
         Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("bos_secret_accesskey"));
         Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("jdbc.password"));
         Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("elasticsearch.password"));
+        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("iceberg.rest.oauth2.credential"));
+        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("iceberg.rest.oauth2.token"));
+        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("lance.rest.bearer-token"));
+        Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("lance.rest.api-key"));
 
         // Verify cloud storage related sensitive keys (these are constants added in static initialization block)
         Assertions.assertTrue(PrintableMap.SENSITIVE_KEY.contains("s3.secret_key"));
@@ -155,6 +159,8 @@ public class PrintableMapTest {
         testMap.put("password", "secret_password");
         testMap.put("dlf.secret_key", "dlf_secret_value");
         testMap.put("s3.secret_key", "s3_secret_value");
+        testMap.put("iceberg.rest.oauth2.credential", "oauth_credential");
+        testMap.put("iceberg.rest.oauth2.token", "oauth_token");
         testMap.put("kerberos_keytab_content", "kerberos_content");
 
         PrintableMap<String, String> printableMap = new PrintableMap<>(testMap, "=", false, false, true);
@@ -164,6 +170,10 @@ public class PrintableMapTest {
         Assertions.assertTrue(result.contains("password = " + PrintableMap.PASSWORD_MASK));
         Assertions.assertTrue(result.contains("dlf.secret_key = " + PrintableMap.PASSWORD_MASK));
         Assertions.assertTrue(result.contains("s3.secret_key = " + PrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains(
+                "iceberg.rest.oauth2.credential = " + PrintableMap.PASSWORD_MASK));
+        Assertions.assertTrue(result.contains(
+                "iceberg.rest.oauth2.token = " + PrintableMap.PASSWORD_MASK));
         Assertions.assertTrue(result.contains("kerberos_keytab_content = " + PrintableMap.PASSWORD_MASK));
     }
 

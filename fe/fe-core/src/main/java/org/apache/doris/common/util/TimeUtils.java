@@ -148,6 +148,11 @@ public class TimeUtils {
         return getTimeZone().toZoneId();
     }
 
+    /** Resolve a Doris time-zone name to the canonical ID understood by execution backends. */
+    public static String getCanonicalTimeZone(String timeZone) {
+        return ZoneId.of(timeZone, timeZoneAliasMap).getId();
+    }
+
     public static TimeZone getUTCTimeZone() {
         return TimeZone.getTimeZone(UTC_TIME_ZONE);
     }
@@ -188,6 +193,20 @@ public class TimeUtils {
         }
         DateTimeFormatter dateFormat = getDatetimeFormatFromTimeZone(timeZone);
         return dateFormat.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(timeStamp), dateFormat.getZone()));
+    }
+
+    /** Same as {@link #longToTimeStringWithTimeZone(Long, String)} but appends
+     *  the timezone offset (e.g. {@code +00:00}, {@code +08:00}) so the
+     *  result is an unambiguous UTC instant string that
+     *  {@link PropertyAnalyzer#TZ_OFFSET_PATTERN} can detect and route to
+     *  {@code TZ_FORMATTER} for instant-aware parsing. */
+    public static String longToTimeStringWithTimeZoneAndOffset(Long timeStamp, String timeZone) {
+        if (timeStamp == null || timeStamp <= 0L) {
+            return FeConstants.null_string;
+        }
+        return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ssXXX")
+                .withZone(getOrSystemTimeZone(timeZone).toZoneId())
+                .format(Instant.ofEpochMilli(timeStamp));
     }
 
     public static String longToTimeStringWithms(Long timeStamp) {

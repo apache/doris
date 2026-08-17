@@ -97,6 +97,30 @@ void sleep_for_packed_file_retry() {
     std::this_thread::sleep_for(std::chrono::milliseconds(packed_file_retry_sleep_ms()));
 }
 
+bool filter_out_instance(const std::string& instance_id) {
+    if (config::recycle_whitelist.empty()) {
+        return std::ranges::find(config::recycle_blacklist, instance_id) !=
+               config::recycle_blacklist.end();
+    }
+    return std::ranges::find(config::recycle_whitelist, instance_id) ==
+           config::recycle_whitelist.end();
+}
+
+bool is_packed_slice_path(const doris::RowsetMetaCloudPB& rowset, const std::string& path) {
+    const auto& locations = rowset.packed_slice_locations();
+    auto it = locations.find(path);
+    return it != locations.end() && it->second.has_packed_file_path() &&
+           !it->second.packed_file_path().empty();
+}
+
+void add_file_to_delete_if_not_packed(const doris::RowsetMetaCloudPB& rowset,
+                                      const std::string& path,
+                                      std::vector<std::string>* file_paths) {
+    if (!is_packed_slice_path(rowset, path)) {
+        file_paths->push_back(path);
+    }
+}
+
 } // namespace
 
 // return 0 for success get a key, 1 for key not found, negative for error
@@ -262,7 +286,7 @@ void Recycler::instance_scanner_callback() {
                 // enqueue instances
                 std::lock_guard lock(mtx_);
                 for (auto& instance : instances) {
-                    if (instance_filter_.filter_out(instance.instance_id())) continue;
+                    if (filter_out_instance(instance.instance_id())) continue;
                     auto [_, success] = pending_instance_set_.insert(instance.instance_id());
                     // skip instance already in pending queue
                     if (success) {
@@ -415,7 +439,6 @@ void Recycler::check_recycle_tasks() {
 }
 
 int Recycler::start(brpc::Server* server) {
-    instance_filter_.reset(config::recycle_whitelist, config::recycle_blacklist);
     g_bvar_recycler_task_max_concurrency.set_value(config::recycle_concurrency);
     S3Environment::getInstance();
 
@@ -733,6 +756,12 @@ int InstanceRecycler::init_storage_vault_accessors() {
 }
 
 int InstanceRecycler::init() {
+    if (instance_info_.status() == InstanceInfoPB::DELETED &&
+        (instance_info_.recycle_state() == INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING ||
+         instance_info_.recycle_state() == INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED)) {
+        return 0;
+    }
+
     int ret = init_obj_store_accessors();
     if (ret != 0) {
         return ret;
@@ -823,13 +852,48 @@ int InstanceRecycler::recycle_deleted_instance() {
 
     int ret = 0;
     auto start_time = steady_clock::now();
+    const auto recycle_state = instance_info_.recycle_state();
 
     DORIS_CLOUD_DEFER {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
-        LOG(WARNING) << (ret == 0 ? "successfully" : "failed to")
-                     << " recycle deleted instance, cost=" << cost
-                     << "s, instance_id=" << instance_id_;
+        if (ret != 0) {
+            LOG(WARNING) << "failed to recycle deleted instance, recycle_state="
+                         << InstanceRecycleState_Name(recycle_state) << ", cost=" << cost
+                         << "s, instance_id=" << instance_id_;
+        } else if (recycle_state ==
+                   InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED) {
+            LOG(INFO) << "successfully removed recycled instance key, cost=" << cost
+                      << "s, instance_id=" << instance_id_;
+        } else {
+            LOG(INFO) << "finished recycle deleted instance step, recycle_state="
+                      << InstanceRecycleState_Name(recycle_state) << ", cost=" << cost
+                      << "s, instance_id=" << instance_id_;
+        }
     };
+
+    switch (recycle_state) {
+    case InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING:
+        ret = recycle_deleted_instance_data();
+        break;
+    case InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING:
+        ret = recycle_deleted_instance_metadata();
+        break;
+    case InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED:
+        ret = remove_instance_key();
+        break;
+    default:
+        LOG_WARNING("invalid instance recycle state")
+                .tag("instance_id", instance_id_)
+                .tag("recycle_state", instance_info_.recycle_state());
+        ret = -1;
+        break;
+    }
+
+    return ret;
+}
+
+int InstanceRecycler::recycle_deleted_instance_data() {
+    int ret = 0;
 
     // Step 1: Recycle tmp rowsets (contains ref count but txn is not committed)
     auto recycle_tmp_rowsets_with_mark_delete_enabled = [&]() -> int {
@@ -843,23 +907,21 @@ int InstanceRecycler::recycle_deleted_instance() {
         }
         return res;
     };
+
     if (recycle_tmp_rowsets_with_mark_delete_enabled() != 0) {
         LOG_WARNING("failed to recycle tmp rowsets").tag("instance_id", instance_id_);
-        ret = -1;
         return -1;
     }
 
     // Step 2: Recycle versioned rowsets in recycle space (already marked for deletion)
     if (recycle_versioned_rowsets() != 0) {
         LOG_WARNING("failed to recycle versioned rowsets").tag("instance_id", instance_id_);
-        ret = -1;
         return -1;
     }
 
     // Step 3: Recycle operation logs (can recycle logs not referenced by snapshots)
     if (recycle_operation_logs() != 0) {
         LOG_WARNING("failed to recycle operation logs").tag("instance_id", instance_id_);
-        ret = -1;
         return -1;
     }
 
@@ -867,7 +929,6 @@ int InstanceRecycler::recycle_deleted_instance() {
     bool has_snapshots = false;
     if (has_cluster_snapshots(&has_snapshots) != 0) {
         LOG(WARNING) << "check instance cluster snapshots failed, instance_id=" << instance_id_;
-        ret = -1;
         return -1;
     } else if (has_snapshots) {
         LOG(INFO) << "instance has cluster snapshots, skip recycling, instance_id=" << instance_id_;
@@ -881,7 +942,6 @@ int InstanceRecycler::recycle_deleted_instance() {
         bool has_unrecycled_rowsets = false;
         if (recycle_ref_rowsets(&has_unrecycled_rowsets) != 0) {
             LOG_WARNING("failed to recycle ref rowsets").tag("instance_id", instance_id_);
-            ret = -1;
             return -1;
         } else if (has_unrecycled_rowsets) {
             LOG_INFO("instance has referenced rowsets, skip recycling")
@@ -911,6 +971,16 @@ int InstanceRecycler::recycle_deleted_instance() {
         }
     }
 
+    if (update_instance_recycle_state(
+                InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING,
+                InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+int InstanceRecycler::recycle_deleted_instance_metadata() {
     // Check successor instance, if exists, skip deleting kv because successor instance may still need the data in kv
     if (instance_info_.has_successor_instance_id() &&
         !instance_info_.successor_instance_id().empty()) {
@@ -921,7 +991,6 @@ int InstanceRecycler::recycle_deleted_instance() {
             LOG(WARNING) << "failed to create txn, instance_id=" << instance_id_
                          << " successor_instance_id=" << instance_info_.successor_instance_id()
                          << " err=" << err;
-            ret = -1;
             return -1;
         }
 
@@ -936,7 +1005,6 @@ int InstanceRecycler::recycle_deleted_instance() {
             LOG(WARNING) << "failed to get successor instance, instance_id=" << instance_id_
                          << " successor_instance_id=" << instance_info_.successor_instance_id()
                          << " err=" << err;
-            ret = -1;
             return -1;
         }
     }
@@ -946,7 +1014,6 @@ int InstanceRecycler::recycle_deleted_instance() {
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to create txn";
-        ret = -1;
         return -1;
     }
     LOG(INFO) << "begin to delete all kv, instance_id=" << instance_id_;
@@ -997,33 +1064,157 @@ int InstanceRecycler::recycle_deleted_instance() {
     std::string versioned_log_key_start = versioned::log_key_prefix(instance_id_);
     std::string versioned_log_key_end = versioned::log_key_prefix(instance_id_ + '\x00');
     txn->remove(versioned_log_key_start, versioned_log_key_end);
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to delete all kv, instance_id=" << instance_id_ << ", err=" << err;
-        ret = -1;
+
+    // Updating the recycle state also commits this transaction, making the metadata deletions
+    // and state transition atomic.
+    if (update_instance_recycle_state(
+                InstanceRecycleState::INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING,
+                InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED, txn.get()) != 0) {
+        return -1;
     }
 
-    if (ret == 0) {
-        // remove instance kv
-        // ATTN: MUST ensure that cloud platform won't regenerate the same instance id
-        err = txn_kv_->create_txn(&txn);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to create txn";
-            ret = -1;
-            return ret;
-        }
-        std::string key;
-        instance_key({instance_id_}, &key);
-        txn->atomic_add(system_meta_service_instance_update_key(), 1);
-        txn->remove(key);
-        err = txn->commit();
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to delete instance kv, instance_id=" << instance_id_
-                         << " err=" << err;
-            ret = -1;
-        }
+    return 0;
+}
+
+int InstanceRecycler::remove_instance_key() {
+    std::unique_ptr<Transaction> txn;
+    std::string key = instance_key(instance_info_.instance_id());
+    std::string value;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
     }
-    return ret;
+
+    err = txn->get(key, &value);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to get instance, instance_id=" << instance_info_.instance_id()
+                     << ", err=" << err;
+        return -1;
+    }
+
+    InstanceInfoPB instance;
+    if (!instance.ParseFromString(value)) {
+        LOG(WARNING) << "malformed instance info, key=" << key;
+        return -1;
+    }
+
+    if (instance.status() != InstanceInfoPB::DELETED) {
+        LOG(WARNING) << "failed to remove instance key, instance is not deleted, instance_id="
+                     << instance_id_ << ", status=" << instance.status();
+        return -1;
+    }
+
+    if (instance.recycle_state() != INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED) {
+        LOG(WARNING) << "failed to remove instance key, invalid recycle state, instance_id="
+                     << instance_id_
+                     << ", current_state=" << InstanceRecycleState_Name(instance.recycle_state())
+                     << ", expected_state="
+                     << InstanceRecycleState_Name(INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+        return -1;
+    }
+
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
+    txn->remove(key);
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to delete instance kv, instance_id=" << instance_id_
+                     << " err=" << err;
+        return -1;
+    }
+    return 0;
+}
+
+int InstanceRecycler::update_instance_recycle_state(InstanceRecycleState expected_state,
+                                                    InstanceRecycleState target_state) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
+    }
+    return update_instance_recycle_state(expected_state, target_state, txn.get());
+}
+
+int InstanceRecycler::update_instance_recycle_state(InstanceRecycleState current_state,
+                                                    InstanceRecycleState target_state,
+                                                    Transaction* txn) {
+    const bool valid_transition =
+            (current_state == INSTANCE_RECYCLE_STATE_DATA_CLEANUP_PENDING &&
+             target_state == INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING) ||
+            (current_state == INSTANCE_RECYCLE_STATE_METADATA_CLEANUP_PENDING &&
+             target_state == INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+
+    if (!valid_transition) {
+        LOG_WARNING("invalid instance recycled state transition")
+                .tag("instance_id", instance_id_)
+                .tag("current_state", InstanceRecycleState_Name(current_state))
+                .tag("target_state", InstanceRecycleState_Name(target_state));
+        return -1;
+    }
+
+    std::string key = instance_key({instance_id_});
+    std::string value;
+    TxnErrorCode err = txn->get(key, &value);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to get instance when updating instance recycled state")
+                .tag("instance_id", instance_id_)
+                .tag("current_state", InstanceRecycleState_Name(current_state))
+                .tag("target_state", InstanceRecycleState_Name(target_state))
+                .tag("err", err);
+        return -1;
+    }
+
+    InstanceInfoPB instance;
+    if (!instance.ParseFromString(value)) {
+        LOG_WARNING("failed to parse InstanceInfoPB when updating instance recycled state")
+                .tag("instance_id", instance_id_)
+                .tag("current_state", InstanceRecycleState_Name(current_state))
+                .tag("target_state", InstanceRecycleState_Name(target_state));
+        return -1;
+    }
+    if (instance.status() != InstanceInfoPB::DELETED) {
+        LOG_WARNING("instance is not deleted when updating instance recycled state")
+                .tag("instance_id", instance_id_)
+                .tag("status", instance.status())
+                .tag("current_state", InstanceRecycleState_Name(current_state))
+                .tag("target_state", InstanceRecycleState_Name(target_state));
+        return -1;
+    }
+    if (instance.recycle_state() != current_state) {
+        LOG_WARNING("instance recycled state changed before update")
+                .tag("instance_id", instance_id_)
+                .tag("current_state", InstanceRecycleState_Name(instance.recycle_state()))
+                .tag("expected_state", InstanceRecycleState_Name(current_state))
+                .tag("target_state", InstanceRecycleState_Name(target_state));
+        return -1;
+    }
+
+    instance.set_recycle_state(target_state);
+    instance.set_recycle_state_update_time_ms(
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count());
+    if (!instance.SerializeToString(&value)) {
+        LOG_WARNING("failed to serialize InstanceInfoPB when updating instance recycled state")
+                .tag("instance_id", instance_id_)
+                .tag("expected_state", InstanceRecycleState_Name(current_state))
+                .tag("target_state", InstanceRecycleState_Name(target_state));
+        return -1;
+    }
+
+    txn->atomic_add(system_meta_service_instance_update_key(), 1);
+    txn->put(key, value);
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to commit fdb txn when updating instance recycled state, "
+                     << "instance_id=" << instance_id_ << ", err=" << err;
+        return -1;
+    }
+
+    instance_info_.Swap(&instance);
+    LOG_INFO("updated instance recycled state")
+            .tag("instance_id", instance_id_)
+            .tag("recycle_state", InstanceRecycleState_Name(target_state));
+    return 0;
 }
 
 int InstanceRecycler::check_rowset_exists(int64_t tablet_id, const std::string& rowset_id,
@@ -2879,135 +3070,125 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
                 .tag("num_recycled", num_recycled);
     };
 
-    // The first string_view represents the tablet key which has been recycled
-    // The second bool represents whether the following fdb's tablet key deletion could be done using range move or not
-    using TabletKeyPair = std::pair<std::string_view, bool>;
-    SyncExecutor<TabletKeyPair> sync_executor(
+    // The tablet key and id which have been recycled.
+    struct TabletInfo {
+        std::string_view tablet_meta_key;
+        int64_t tablet_id;
+    };
+    SyncExecutor<TabletInfo> sync_executor(
             _thread_pool_group.recycle_tablet_pool,
             fmt::format("recycle tablets, tablet id {}, index id {}, partition id {}", table_id,
                         index_id, partition_id),
-            [](const TabletKeyPair& k) { return k.first.empty(); });
+            [](const TabletInfo& k) { return k.tablet_meta_key.empty(); });
 
-    // Elements in `tablet_keys` has the same lifetime as `it` in `scan_and_recycle`
-    std::vector<std::string> tablet_idx_keys;
-    std::vector<std::string> restore_job_keys;
+    // Elements in `tablets_info` has the same lifetime as `it` in `scan_and_recycle`
     std::vector<std::string> init_rs_keys;
-    std::vector<std::string> tablet_compact_stats_keys;
-    std::vector<std::string> tablet_load_stats_keys;
-    std::vector<std::string> versioned_meta_tablet_keys;
+    bool has_failure = false;
     auto recycle_func = [&, this](std::string_view k, std::string_view v) -> int {
-        bool use_range_remove = true;
         ++num_scanned;
         doris::TabletMetaCloudPB tablet_meta_pb;
         if (!tablet_meta_pb.ParseFromArray(v.data(), v.size())) {
             LOG_WARNING("malformed tablet meta").tag("key", hex(k));
-            use_range_remove = false;
+            has_failure = true;
             return -1;
         }
         int64_t tablet_id = tablet_meta_pb.tablet_id();
 
-        if (!check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
+        if (config::enable_recycler_check_lazy_txn_finished &&
+            !check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
             LOG(WARNING) << "lazy txn not finished tablet_id=" << tablet_meta_pb.tablet_id();
+            has_failure = true;
             return -1;
         }
 
-        tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id_, tablet_id}));
-        restore_job_keys.push_back(job_restore_tablet_key({instance_id_, tablet_id}));
-        if (is_multi_version) {
-            // The tablet index/inverted index are recycled in recycle_versioned_tablet.
-            tablet_compact_stats_keys.push_back(
-                    versioned::tablet_compact_stats_key({instance_id_, tablet_id}));
-            tablet_load_stats_keys.push_back(
-                    versioned::tablet_load_stats_key({instance_id_, tablet_id}));
-            versioned_meta_tablet_keys.push_back(
-                    versioned::meta_tablet_key({instance_id_, tablet_id}));
-        }
         TEST_SYNC_POINT_RETURN_WITH_VALUE("recycle_tablet::bypass_check", false);
-        sync_executor.add([this, &num_recycled, tid = tablet_id, range_move = use_range_remove,
-                           &metrics_context, k]() mutable -> TabletKeyPair {
-            if (recycle_tablet(tid, metrics_context) != 0) {
-                LOG_WARNING("failed to recycle tablet")
-                        .tag("instance_id", instance_id_)
-                        .tag("tablet_id", tid);
-                range_move = false;
-                return {std::string_view(), range_move};
-            }
-            ++num_recycled;
-            LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
-            return {k, range_move};
-        });
+        sync_executor.add(
+                [this, &num_recycled, tid = tablet_id, &metrics_context, k]() -> TabletInfo {
+                    if (recycle_tablet(tid, metrics_context) != 0) {
+                        LOG_WARNING("failed to recycle tablet")
+                                .tag("instance_id", instance_id_)
+                                .tag("tablet_id", tid);
+                        return {.tablet_meta_key = std::string_view(), .tablet_id = tid};
+                    }
+                    ++num_recycled;
+                    LOG(INFO) << "recycle_tablets scan, key=" << (k.empty() ? "(empty)" : hex(k));
+                    return {.tablet_meta_key = k, .tablet_id = tid};
+                });
         return 0;
     };
 
-    // TODO(AlexYue): Add one ut to cover use_range_remove = false
     auto loop_done = [&, this]() -> int {
+        int ret = 0;
         bool finished = true;
-        auto tablet_keys = sync_executor.when_all(&finished);
+        bool has_empty_key = false;
+        DORIS_CLOUD_DEFER {
+            init_rs_keys.clear();
+            has_failure = false;
+        };
+        auto tablets_info = sync_executor.when_all(&finished);
         if (!finished) {
             LOG_WARNING("failed to recycle tablet").tag("instance_id", instance_id_);
             return -1;
         }
-        if (tablet_keys.empty() && tablet_idx_keys.empty()) return 0;
-        if (!tablet_keys.empty() &&
-            std::ranges::all_of(tablet_keys, [](const auto& k) { return k.first.empty(); })) {
-            return -1;
+
+        size_t size_before_erase = tablets_info.size();
+        std::erase_if(tablets_info, [](const TabletInfo& t) { return t.tablet_meta_key.empty(); });
+        if (tablets_info.empty()) {
+            return size_before_erase == 0 ? 0 : -1;
+        } else if (size_before_erase != tablets_info.size()) {
+            has_empty_key = true;
         }
+
+        ret = has_empty_key ? -1 : 0;
         // sort the vector using key's order
-        std::sort(tablet_keys.begin(), tablet_keys.end(),
-                  [](const auto& prev, const auto& last) { return prev.first < last.first; });
-        bool use_range_remove = true;
-        for (auto& [_, remove] : tablet_keys) {
-            if (!remove) {
-                use_range_remove = remove;
-                break;
-            }
-        }
-        DORIS_CLOUD_DEFER {
-            tablet_idx_keys.clear();
-            restore_job_keys.clear();
-            init_rs_keys.clear();
-            tablet_compact_stats_keys.clear();
-            tablet_load_stats_keys.clear();
-            versioned_meta_tablet_keys.clear();
-        };
+        std::ranges::sort(tablets_info, [](const auto& prev, const auto& last) {
+            return prev.tablet_meta_key < last.tablet_meta_key;
+        });
         std::unique_ptr<Transaction> txn;
         if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to delete tablet meta kv, instance_id=" << instance_id_;
             return -1;
         }
         std::string tablet_key_end;
-        if (!tablet_keys.empty()) {
-            if (use_range_remove) {
-                tablet_key_end = std::string(tablet_keys.back().first) + '\x00';
-                txn->remove(tablet_keys.front().first, tablet_key_end);
+        if (!tablets_info.empty()) {
+            if (!has_empty_key && !has_failure) {
+                tablet_key_end = std::string(tablets_info.back().tablet_meta_key) + '\x00';
+                txn->remove(tablets_info.front().tablet_meta_key, tablet_key_end);
             } else {
-                for (auto& [k, _] : tablet_keys) {
-                    txn->remove(k);
+                for (auto& tablet_info : tablets_info) {
+                    txn->remove(tablet_info.tablet_meta_key);
                 }
             }
         }
         if (is_multi_version) {
-            for (auto& k : tablet_compact_stats_keys) {
+            for (auto& tablet_info : tablets_info) {
                 // Remove all versions of tablet compact stats for recycled tablet
+                auto k = versioned::tablet_compact_stats_key({instance_id_, tablet_info.tablet_id});
                 LOG_INFO("remove versioned tablet compact stats key")
                         .tag("compact_stats_key", hex(k));
                 versioned_remove_all(txn.get(), k);
             }
-            for (auto& k : tablet_load_stats_keys) {
+            for (auto& tablet_info : tablets_info) {
                 // Remove all versions of tablet load stats for recycled tablet
+                auto k = versioned::tablet_load_stats_key({instance_id_, tablet_info.tablet_id});
                 LOG_INFO("remove versioned tablet load stats key").tag("load_stats_key", hex(k));
                 versioned_remove_all(txn.get(), k);
             }
-            for (auto& k : versioned_meta_tablet_keys) {
+            for (auto& tablet_info : tablets_info) {
                 // Remove all versions of meta tablet for recycled tablet
+                auto k = versioned::meta_tablet_key({instance_id_, tablet_info.tablet_id});
                 LOG_INFO("remove versioned meta tablet key").tag("meta_tablet_key", hex(k));
                 versioned_remove_all(txn.get(), k);
             }
         }
-        for (auto& k : tablet_idx_keys) {
+        for (auto& tablet_info : tablets_info) {
+            std::string k;
+            meta_tablet_idx_key({instance_id_, tablet_info.tablet_id}, &k);
             txn->remove(k);
         }
-        for (auto& k : restore_job_keys) {
+        for (auto& tablet_info : tablets_info) {
+            std::string k;
+            job_restore_tablet_key({instance_id_, tablet_info.tablet_id}, &k);
             txn->remove(k);
         }
         for (auto& k : init_rs_keys) {
@@ -3018,7 +3199,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id,
                          << ", err=" << err;
             return -1;
         }
-        return 0;
+        return ret;
     };
 
     int ret = scan_and_recycle(tablet_key_begin, tablet_key_end, std::move(recycle_func),
@@ -3152,14 +3333,19 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
     int64_t tablet_id = rs_meta_pb.tablet_id();
     const auto& rowset_id = rs_meta_pb.rowset_id_v2();
     for (int64_t i = 0; i < num_segments; ++i) {
-        file_paths.push_back(segment_path(tablet_id, rowset_id, i));
+        add_file_to_delete_if_not_packed(rs_meta_pb, segment_path(tablet_id, rowset_id, i),
+                                         &file_paths);
         if (index_format == InvertedIndexStorageFormatPB::V1) {
             for (const auto& index_id : index_ids) {
-                file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
-                                                            index_id.second));
+                add_file_to_delete_if_not_packed(
+                        rs_meta_pb,
+                        inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
+                                               index_id.second),
+                        &file_paths);
             }
         } else if (!index_ids.empty()) {
-            file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
+            add_file_to_delete_if_not_packed(
+                    rs_meta_pb, inverted_index_path_v2(tablet_id, rowset_id, i), &file_paths);
         }
     }
 
@@ -3903,11 +4089,15 @@ int InstanceRecycler::delete_rowset_data(
             continue;
         }
         for (int64_t i = 0; i < num_segments; ++i) {
-            file_paths.push_back(segment_path(tablet_id, rowset_id, i));
+            add_file_to_delete_if_not_packed(rs, segment_path(tablet_id, rowset_id, i),
+                                             &file_paths);
             if (index_format == InvertedIndexStorageFormatPB::V1) {
                 for (const auto& index_id : index_ids) {
-                    file_paths.push_back(inverted_index_path_v1(tablet_id, rowset_id, i,
-                                                                index_id.first, index_id.second));
+                    add_file_to_delete_if_not_packed(
+                            rs,
+                            inverted_index_path_v1(tablet_id, rowset_id, i, index_id.first,
+                                                   index_id.second),
+                            &file_paths);
                 }
             } else if (!index_ids.empty() || inverted_index_get_ret == 1) {
                 // try to recycle inverted index v2 when get_ret == 1
@@ -3919,7 +4109,8 @@ int InstanceRecycler::delete_rowset_data(
                             .tag("inverted index v2 path",
                                  inverted_index_path_v2(tablet_id, rowset_id, i));
                 }
-                file_paths.push_back(inverted_index_path_v2(tablet_id, rowset_id, i));
+                add_file_to_delete_if_not_packed(
+                        rs, inverted_index_path_v2(tablet_id, rowset_id, i), &file_paths);
             }
         }
     }
@@ -4118,7 +4309,8 @@ int InstanceRecycler::scan_tablets_and_statistics(int64_t table_id, int64_t inde
         }
         int64_t tablet_id = tablet_meta_pb.tablet_id();
 
-        if (!check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
+        if (config::enable_recycler_check_lazy_txn_finished &&
+            !check_lazy_txn_finished(txn_kv_, instance_id_, tablet_meta_pb.tablet_id())) {
             return 0;
         }
 
@@ -4309,24 +4501,23 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
     TEST_SYNC_POINT_CALLBACK("InstanceRecycler::recycle_tablet.create_rowset_meta", &resp);
 
     for (const auto& rs_meta : resp.rowset_meta()) {
-        // The rowset has no resource id and segments when it was generated by compaction
-        // with multiple hole rowsets or it's version is [0-1], so we can skip it.
-        if (!rs_meta.has_resource_id() && rs_meta.num_segments() == 0) {
-            LOG_INFO("rowset meta does not have a resource id and no segments, skip this rowset")
-                    .tag("rs_meta", rs_meta.ShortDebugString())
-                    .tag("instance_id", instance_id_)
-                    .tag("tablet_id", tablet_id);
-            recycle_rowsets_number += 1;
-            continue;
-        }
-        if (!rs_meta.has_resource_id()) {
-            LOG_WARNING("rowset meta does not have a resource id, impossible!")
+        if (!rs_meta.has_resource_id() || rs_meta.resource_id().empty()) {
+            if (rs_meta.num_segments() <= 0) {
+                LOG_INFO("rowset meta has no segments and no resource id, skip this rowset")
+                        .tag("rs_meta", rs_meta.ShortDebugString())
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id);
+                recycle_rowsets_number += 1;
+                continue;
+            }
+            LOG_WARNING("rowset meta has a missing or empty resource id, impossible!")
                     .tag("rs_meta", rs_meta.ShortDebugString())
                     .tag("instance_id", instance_id_)
                     .tag("tablet_id", tablet_id);
             return -1;
         }
-        DCHECK(rs_meta.has_resource_id()) << "rs_meta" << rs_meta.ShortDebugString();
+        DCHECK(rs_meta.has_resource_id() && !rs_meta.resource_id().empty())
+                << "rs_meta" << rs_meta.ShortDebugString();
         auto it = accessor_map_.find(rs_meta.resource_id());
         // possible if the accessor is not initilized correctly
         if (it == accessor_map_.end()) [[unlikely]] {

@@ -122,6 +122,7 @@ suite("colocate_join_with_rollup", "nereids_p0") {
             (20220107, 102, 202, 200, 100),
             (20220108, 101, 202, 200, 100);"""
 
+    waitForColocateGroupStable("group1")
     explain {
         sql("""select sum_col1,sum_col2 
             from 

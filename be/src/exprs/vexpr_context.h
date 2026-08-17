@@ -32,17 +32,20 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "exec/runtime_filter/runtime_filter_selectivity.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_range_search_runtime.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/segment/column_reader.h"
 
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
+class ZoneMapEvalContext;
 } // namespace doris
 
 namespace doris::segment_v2 {
@@ -87,16 +90,6 @@ public:
         return _index_iterators[column_id].get();
     }
 
-    segment_v2::IndexIterator* get_inverted_index_iterator_by_id(ColumnId column_id) const {
-        if (column_id >= _index_iterators.size()) {
-            return nullptr;
-        }
-        if (!_index_iterators[column_id]) {
-            return nullptr;
-        }
-        return _index_iterators[column_id].get();
-    }
-
     const IndexFieldNameAndTypePair* get_storage_name_and_type_by_column_id(
             int column_index) const {
         if (column_index < 0 || column_index >= _col_ids.size()) {
@@ -107,22 +100,6 @@ public:
             return nullptr;
         }
         return &_storage_name_and_type[column_id];
-    }
-
-    const IndexFieldNameAndTypePair* get_storage_name_and_type_by_id(ColumnId column_id) const {
-        if (column_id >= _storage_name_and_type.size()) {
-            return nullptr;
-        }
-        return &_storage_name_and_type[column_id];
-    }
-
-    int column_index_by_id(ColumnId column_id) const {
-        for (int i = 0; i < _col_ids.size(); ++i) {
-            if (_col_ids[i] == column_id) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     bool get_column_id(int column_index, ColumnId* column_id) const {
@@ -293,6 +270,13 @@ public:
     //  skip this expr, just do not apply index anymore.
     [[nodiscard]] Status evaluate_inverted_index(uint32_t segment_num_rows);
 
+    [[nodiscard]] static ZoneMapFilterResult evaluate_zonemap_filter(
+            const VExprContextSPtrs& conjuncts, const ZoneMapEvalContext& ctx);
+    [[nodiscard]] static ZoneMapFilterResult evaluate_dictionary_filter(
+            const VExprContextSPtrs& conjuncts, const DictionaryEvalContext& ctx);
+    [[nodiscard]] static ZoneMapFilterResult evaluate_bloom_filter(
+            const VExprContextSPtrs& conjuncts, const BloomFilterEvalContext& ctx);
+
     bool all_expr_inverted_index_evaluated();
 
     Status execute_filter(const Block* block, uint8_t* __restrict result_filter_data, size_t rows,
@@ -395,8 +379,8 @@ public:
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                     common_expr_to_slotref_map,
-            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-            bool* ann_range_search_executed);
+            size_t rows_of_segment, roaring::Roaring& row_bitmap,
+            segment_v2::AnnIndexStats& ann_index_stats, bool* ann_range_search_executed);
 
     uint64_t get_digest(uint64_t seed) const;
 

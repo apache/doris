@@ -19,11 +19,23 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
 suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
+    def enableVariantV2 = getFeConfig("enable_variant_v2").toBoolean()
+    def variantV2Function = enableVariantV2 ? "parse_to_variant" : ""
+    // Nested arrays are intentionally unsupported by Variant V2.
+
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
     sql """ set default_variant_enable_doc_mode = false """
+    // Pin variant_max_subcolumns_count so the session-variable fuzzer
+    // (use_fuzzy_session_variable) cannot randomize it to a small value. With the
+    // default (2048) all nested paths (including v['b']/v['b']['c']) are materialized
+    // as typed subcolumns, which is what the expected .out was generated under. A small
+    // value diverts v['b'] into the sparse column, which is unreadable after cumulative
+    // compaction on this branch.
+    sql """ set default_variant_max_subcolumns_count = 2048 """
+
     try {
         String backend_id = backendId_to_backendIP.keySet()[0]
         def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
@@ -41,7 +53,24 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
         }
 
         int max_sparse_column_statistics_size = 2
-        def create_table = { tableName, buckets="auto", key_type="DUPLICATE" ->
+        test {
+            sql """ set default_variant_max_sparse_column_statistics_size = 0 """
+            exception "variant max sparse column statistics size"
+        }
+        sql "DROP TABLE IF EXISTS variant_sparse_stats_zero"
+        test {
+            sql """
+                CREATE TABLE variant_sparse_stats_zero (
+                    k bigint,
+                    v variant <properties("variant_max_sparse_column_statistics_size" = "0")>
+                )
+                DUPLICATE KEY(`k`)
+                DISTRIBUTED BY HASH(k) BUCKETS 1
+                properties("replication_num" = "1");
+            """
+            exception "variant_max_sparse_column_statistics_size must between 1 and 50000"
+        }
+        def create_table = { tableName, buckets="auto", key_type="DUPLICATE", max_subcolumns_count=2048 ->
             sql "DROP TABLE IF EXISTS ${tableName}"
             def var_def = "variant <MATCH_NAME 'sala' : int, MATCH_NAME 'ddd' : double, MATCH_NAME 'z' : double, properties(\"variant_max_sparse_column_statistics_size\" = \"${max_sparse_column_statistics_size}\")>"
             if (key_type == "AGGREGATE") {
@@ -60,31 +89,38 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
             def create_tbl_res = sql """ show create table ${tableName} """
             logger.info("${create_tbl_res}")
             assertTrue(create_tbl_res.toString().contains("variant_max_sparse_column_statistics_size"))
+            assertTrue(create_tbl_res.toString().contains("\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\""))
         }
         def key_types = ["DUPLICATE", "UNIQUE", "AGGREGATE"]
         // def key_types = ["AGGREGATE"]
         for (int i = 0; i < key_types.size(); i++) {
+            def max_subcolumns_count = key_types[i] == "AGGREGATE" ? 2048 : 1
+            sql """ set default_variant_max_subcolumns_count = ${max_subcolumns_count} """
             def tableName = "simple_variant_${key_types[i]}"
             // 1. simple cases
-            create_table.call(tableName, "1", key_types[i])
+            create_table.call(tableName, "1", key_types[i], max_subcolumns_count)
             def insert1 = {
-                sql """insert into ${tableName} values (1,  '{"x" : [1]}'),(13,  '{"a" : 1}');"""
-                sql """insert into ${tableName} values (2,  '{"a" : "1"}'),(14,  '{"a" : [[[1]]]}');"""
-                sql """insert into ${tableName} values (3,  '{"x" : [3]}'),(15,  '{"a" : 1}')"""
-                sql """insert into ${tableName} values (4,  '{"y": 1}'),(16,  '{"a" : "1223"}');"""
-                sql """insert into ${tableName} values (5,  '{"z" : 2.0}'),(17,  '{"a" : [1]}');"""
-                sql """insert into ${tableName} values (6,  '{"x" : 111}'),(18,  '{"a" : ["1", 2, 1.1]}');"""
-                sql """insert into ${tableName} values (7,  '{"m" : 1}'),(19,  '{"a" : 1, "b" : {"c" : 1}}');"""
-                sql """insert into ${tableName} values (8,  '{"l" : 2}'),(20,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-                sql """insert into ${tableName} values (9,  '{"g" : 1.11}'),(21,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-                sql """insert into ${tableName} values (10, '{"z" : 1.1111}'),(22,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-                sql """insert into ${tableName} values (11, '{"sala" : 0}'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
-                sql """insert into ${tableName} values (12, '{"dddd" : 0.1}'),(1022,  '{"a" : 1, "b" : 10}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
+                sql """insert into ${tableName} values (1,  ${variantV2Function}('{"x" : [1]}')),(13,  ${variantV2Function}('{"a" : 1}'));"""
+                sql """insert into ${tableName} values (2,  ${variantV2Function}('{"a" : "1"}')),(14,  ${variantV2Function}('{"a" : [[[1]]]}'));"""
+                sql """insert into ${tableName} values (3,  ${variantV2Function}('{"x" : [3]}')),(15,  ${variantV2Function}('{"a" : 1}'))"""
+                sql """insert into ${tableName} values (4,  ${variantV2Function}('{"y": 1}')),(16,  ${variantV2Function}('{"a" : "1223"}'));"""
+                sql """insert into ${tableName} values (5,  ${variantV2Function}('{"z" : 2.0}')),(17,  ${variantV2Function}('{"a" : [1]}'));"""
+                sql """insert into ${tableName} values (6,  ${variantV2Function}('{"x" : 111}')),(18,  ${variantV2Function}('{"a" : ["1",2,1.1]}'));"""
+                sql """insert into ${tableName} values (7,  ${variantV2Function}('{"m" : 1}')),(19,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'));"""
+                sql """insert into ${tableName} values (8,  ${variantV2Function}('{"l" : 2}')),(20,  ${variantV2Function}('{"a" : 1, "b" : {"c" : [{"a" : 1}]}}'));"""
+                sql """insert into ${tableName} values (9,  ${variantV2Function}('{"g" : 1.11}')),(21,  ${variantV2Function}('{"a" : 1, "b" : {"c" : [{"a" : 1}]}}'));"""
+                sql """insert into ${tableName} values (10, ${variantV2Function}('{"z" : 1.1111}')),(22,  ${variantV2Function}('{"a" : 1, "b" : {"c" : [{"a" : 1}]}}'));"""
+                sql """insert into ${tableName} values (11, ${variantV2Function}('{"sala" : 0}')),(1999,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}')),(19921,  ${variantV2Function}('{"a" : 1, "b" : 10}'));"""
+                sql """insert into ${tableName} values (12, ${variantV2Function}('{"dddd" : 0.1}')),(1022,  ${variantV2Function}('{"a" : 1, "b" : 10}')),(1029,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'));"""
             }
             insert1.call();
             insert1.call();
-            qt_sql_1 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
-            qt_sql_2 "select k, cast(v['a'] as array<int>) from  ${tableName} where  size(cast(v['a'] as array<int>)) > 0 order by k"
+            if (!enableVariantV2) {
+                qt_sql_1 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
+                qt_sql_2 "select k, cast(v['a'] as array<int>) from ${tableName} where size(cast(v['a'] as array<int>)) > 0 order by k"
+            }
+            qt_sql_1_supported "SELECT k, sort_json_object_keys(cast(v as json)) FROM ${tableName} ORDER BY k, 2; "
+            qt_sql_2_supported "select k, cast(v['a'] as array<int>) from ${tableName} where size(array_filter(x -> x is not null, cast(v['a'] as array<int>))) > 0 order by k"
             qt_sql_3 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
             qt_sql_5 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) != '{}' order by k desc, 1, 2 limit 10;"
 
@@ -108,19 +144,23 @@ suite("test_compaction_variant_predefine_with_sparse_limit", "nonConcurrent") {
                 }
             }
             // assert (rowCount < 8)
-            qt_sql_11 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
-            qt_sql_22 "select k, cast(v['a'] as array<int>) from  ${tableName} where  size(cast(v['a'] as array<int>)) > 0 order by k"
+            if (!enableVariantV2) {
+                qt_sql_11 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
+                qt_sql_22 "select k, cast(v['a'] as array<int>) from ${tableName} where size(cast(v['a'] as array<int>)) > 0 order by k"
+            }
+            qt_sql_11_supported "SELECT k, sort_json_object_keys(cast(v as json)) FROM ${tableName} ORDER BY k, 2; "
+            qt_sql_22_supported "select k, cast(v['a'] as array<int>) from ${tableName} where size(array_filter(x -> x is not null, cast(v['a'] as array<int>))) > 0 order by k"
             qt_sql_33 "select k, v['a'], cast(v['b'] as string) from  ${tableName} where  length(cast(v['b'] as string)) > 4 order  by k"
             qt_sql_55 "select cast(v['b'] as string), cast(v['b']['c'] as string) from  ${tableName} where cast(v['b'] as string) != 'null' and cast(v['b'] as string) != '{}' order by k desc limit 10;"
         }
         for (int i = 0; i < key_types.size(); i++) {
             def tableName = "simple_variant_${key_types[i]}"
             def insert2 = {
-                sql """insert into ${tableName} values (1, '{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1022,  '{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
-                sql """insert into ${tableName} values (2, '{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1022,  '{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
-                sql """insert into ${tableName} values (3, '{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1022,  '{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
-                sql """insert into ${tableName} values (4, '{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1022,  '{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
-                sql """insert into ${tableName} values (5, '{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1022,  '{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
+                sql """insert into ${tableName} values (1, ${variantV2Function}('{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}')),(1022,  ${variantV2Function}('{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}')),(1029,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'));"""
+                sql """insert into ${tableName} values (2, ${variantV2Function}('{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}')),(1022,  ${variantV2Function}('{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}')),(1029,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'));"""
+                sql """insert into ${tableName} values (3, ${variantV2Function}('{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}')),(1022,  ${variantV2Function}('{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}')),(1029,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'));"""
+                sql """insert into ${tableName} values (4, ${variantV2Function}('{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}')),(1022,  ${variantV2Function}('{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}')),(1029,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'));"""
+                sql """insert into ${tableName} values (5, ${variantV2Function}('{"sala" : 0.1, "ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}')),(1022,  ${variantV2Function}('{"ddd" : 1, "z" : 10, "a" : 1, "b" : {"c" : 1}}')),(1029,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'));"""
             }
             insert2.call();
             insert2.call();

@@ -37,6 +37,8 @@ void LoadUtil::parse_format(const std::string& format_str, const std::string& co
         *compress_type = TFileCompressType::LZO;
     } else if (iequal(compress_type_str, "BZ2")) {
         *compress_type = TFileCompressType::BZ2;
+    } else if (iequal(compress_type_str, "ZSTD")) {
+        *compress_type = TFileCompressType::ZSTD;
     } else if (iequal(compress_type_str, "LZ4") || iequal(compress_type_str, "LZ4FRAME")) {
         *compress_type = TFileCompressType::LZ4FRAME;
     } else if (iequal(compress_type_str, "LZ4_BLOCK")) {
@@ -62,6 +64,8 @@ void LoadUtil::parse_format(const std::string& format_str, const std::string& co
             *format_type = TFileFormatType::FORMAT_CSV_LZO;
         } else if (iequal(compress_type_str, "BZ2")) {
             *format_type = TFileFormatType::FORMAT_CSV_BZ2;
+        } else if (iequal(compress_type_str, "ZSTD")) {
+            *format_type = TFileFormatType::FORMAT_CSV_PLAIN;
         } else if (iequal(compress_type_str, "LZ4") || iequal(compress_type_str, "LZ4FRAME")) {
             *format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
         } else if (iequal(compress_type_str, "LZ4_BLOCK")) {
@@ -107,5 +111,26 @@ bool LoadUtil::is_format_support_streaming(TFileFormatType::type format) {
         return false;
     }
     return false;
+}
+
+bool LoadUtil::is_compressed_load(TFileCompressType::type compress_type,
+                                  TFileFormatType::type format_type) {
+    if (compress_type != TFileCompressType::UNKNOWN && compress_type != TFileCompressType::PLAIN) {
+        return true;
+    }
+
+    switch (format_type) {
+    case TFileFormatType::FORMAT_CSV_BZ2:
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+    case TFileFormatType::FORMAT_CSV_GZ:
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSV_LZO:
+    case TFileFormatType::FORMAT_CSV_LZOP:
+    case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+        return true;
+    default:
+        return false;
+    }
 }
 } // namespace  doris

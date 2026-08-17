@@ -41,9 +41,6 @@ def setup_module():
     """
     global runner
     runner = QueryBase()
-    ret = runner.get_sql_result('show variables like "runtime_filter_type"')
-    if len(ret) == 1 and str(ret[0][1]).find('BITMAP_FILTER') == -1:
-        runner.checkok("set global runtime_filter_type='IN_OR_BLOOM_FILTER, BITMAP_FILTER'")
     try:
         runner.checkok('select count(*) from %s' % dup_table)
         runner.checkok('select count(*) from %s' % k1_tb)
@@ -579,4 +576,3 @@ def test_bitmap_filter_query_3():
 
 if __name__ == '__main__':
     setup_module()
-

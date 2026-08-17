@@ -31,6 +31,7 @@
 namespace arrow {
 
 class DataType;
+class Field;
 class RecordBatch;
 class Schema;
 
@@ -44,6 +45,10 @@ class RowDescriptor;
 
 Status convert_to_arrow_type(const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result,
                              const std::string& timezone);
+
+std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
+        const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,
+        bool is_nullable, PrimitiveType primitive_type);
 
 Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Schema>* result,
                                    const std::string& timezone);

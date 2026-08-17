@@ -19,7 +19,11 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -29,7 +33,10 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.Set;
 
 class InferAggNotNullTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -52,6 +59,62 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    void testInferMultipleAggregateSameInput() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(
+                                new Alias(new Avg(scan1.getOutput().get(1)), "avg_k"),
+                                new Alias(new Sum(scan1.getOutput().get(1)), "sum_k")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalFilter().when(filter -> filter.getConjuncts().size() == 1
+                                        && filter.getConjuncts().stream()
+                                        .allMatch(e -> ((Not) e).isGeneratedIsNotNull()))
+                        )
+                );
+    }
+
+    @Test
+    void testNotInferMultipleAggregateDifferentInputs() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(
+                                new Alias(new Avg(scan1.getOutput().get(1)), "avg_k1"),
+                                new Alias(new Sum(scan1.getOutput().get(0)), "sum_k2")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
+    void testNotInferMultipleAggregateWithCountStar() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(
+                                new Alias(new Avg(scan1.getOutput().get(1)), "avg_k"),
+                                new Alias(new Count(), "count_star")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
     void testCountStar() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .aggGroupUsingIndex(ImmutableList.of(), ImmutableList.of(new Alias(new Count(), "dnt")))
@@ -65,5 +128,23 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
                                 logicalOlapScan()
                         )
                 );
+    }
+
+    @Test
+    void testGetAggregateFunctionsStopsAtAggregateFunction() {
+        // Use different agg function types for inner (Avg) and outer (Count),
+        // so we can verify by instanceof regardless of how the plan builder
+        // clones/transforms expressions internally.
+        Avg inner = new Avg(scan1.getOutput().get(1));
+        Count outer = new Count(false, inner);
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .aggGroupUsingIndex(ImmutableList.of(), ImmutableList.of(new Alias(outer, "cnt")))
+                .build();
+
+        Set<AggregateFunction> aggregateFunctions = ((LogicalAggregate<?>) plan).getAggregateFunctions();
+        System.out.println("aggregateFunctions: " + aggregateFunctions);
+        Assertions.assertEquals(1, aggregateFunctions.size());
+        Assertions.assertTrue(aggregateFunctions.stream().allMatch(f -> f instanceof Count),
+                "should collect only the outer Count, got: " + aggregateFunctions);
     }
 }

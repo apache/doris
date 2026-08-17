@@ -106,6 +106,33 @@ under the License.
     <build>
         <plugins>
             <plugin>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.4.1</version>
+                <executions>
+                    <execution>
+                        <id>enforce-hadoop-version-for-patched-filesystem</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireProperty>
+                                    <property>hadoop.version</property>
+                                    <regex>3\.4\.2</regex>
+                                    <regexMessage>
+                                        hadoop-deps ships a patched copy of org.apache.hadoop.fs.FileSystem
+                                        (src/main/java/org/apache/hadoop/fs/FileSystem.java) taken verbatim from
+                                        hadoop-common 3.4.2 sources. Before upgrading hadoop.version, re-copy
+                                        FileSystem.java from the new hadoop-common sources jar and re-apply the
+                                        DORIS-PATCH hunks (grep for DORIS-PATCH), then update this enforcer regex.
+                                    </regexMessage>
+                                </requireProperty>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <artifactId>maven-jar-plugin</artifactId>
                 <configuration>
                     <finalName>${project.artifactId}</finalName>

@@ -72,7 +72,7 @@ public class BrokerProperties extends StorageProperties {
     }
 
     @Override
-    public Map<String, String> getBackendConfigProperties() {
+    protected Map<String, String> doGetBackendConfigProperties() {
         return origProps;
     }
 

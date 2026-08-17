@@ -357,8 +357,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             InPredicate inPredicate = (InPredicate) expr;
             com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator odpsOp =
                     inPredicate.isNotIn()
-                            ? com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.IN
-                            : com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.NOT_IN;
+                            ? com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.NOT_IN
+                            : com.aliyun.odps.table.optimizer.predicate.InPredicate.Operator.IN;
 
             String columnName = convertSlotRefToColumnName(expr.getChild(0));
             if (!table.getColumnNameToOdpsColumn().containsKey(columnName)) {
@@ -633,6 +633,11 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     public List<Split> getSplits(int numBackends) throws UserException {
         List<Split> result = new ArrayList<>();
         com.aliyun.odps.Table odpsTable = table.getOdpsTable();
+        if (MaxComputeExternalTable.isUnsupportedOdpsTable(odpsTable)) {
+            throw new UserException("Reading MaxCompute external table or logical view is not supported: "
+                    + table.getDbName() + "." + table.getName());
+        }
+
         if (desc.getSlots().isEmpty() || odpsTable.getFileNum() <= 0) {
             return result;
         }

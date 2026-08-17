@@ -39,7 +39,7 @@
 #include <vector>
 
 #include "common/metric.h"
-#include "cpp/s3_rate_limiter.h"
+#include "cpp/token_bucket_rate_limiter.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_http.h"
@@ -370,7 +370,12 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                               return process_query_rate_limit((MS*)s, c);
                           },
                   .role = HttpRole::META_SERVICE}},
-
+                {"check_instance_recycle_completed",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_check_instance_recycle_completed((MS*)s, c);
+                          },
+                  .role = HttpRole::META_SERVICE}},
                 // Recycler APIs
                 {"recycle_instance",
                  {.handler =
@@ -399,6 +404,12 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                 {"check_instance",
                  {.handler = [](void* s,
                                 brpc::Controller* c) { return process_check_instance((RS*)s, c); },
+                  .role = HttpRole::RECYCLER}},
+                {"skip_instance_data_cleanup",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_skip_instance_data_cleanup((RS*)s, c);
+                          },
                   .role = HttpRole::RECYCLER}},
                 {"check_job_info",
                  {.handler = [](void* s,
@@ -561,6 +572,17 @@ HttpResponse process_alter_instance(MetaServiceImpl* service, brpc::Controller* 
     return http_json_reply(resp.status());
 }
 
+HttpResponse process_skip_instance_data_cleanup(RecyclerServiceImpl* service,
+                                                brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    if (instance_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id is empty");
+    }
+    auto [code, msg] = service->skip_instance_data_cleanup(instance_id);
+    return http_json_reply(code, msg);
+}
+
 HttpResponse process_abort_txn(MetaServiceImpl* service, brpc::Controller* ctrl) {
     AbortTxnRequest req;
     PARSE_MESSAGE_OR_RETURN(ctrl, req);
@@ -699,6 +721,32 @@ HttpResponse process_query_rate_limit(MetaServiceImpl* service, brpc::Controller
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
     d.Accept(writer);
     return http_json_reply(MetaServiceCode::OK, "", sb.GetString());
+}
+
+HttpResponse process_check_instance_recycle_completed(MetaServiceImpl* service,
+                                                      brpc::Controller* cntl) {
+    const auto* instance_id = cntl->http_request().uri().GetQuery("instance_id");
+    if (!instance_id || instance_id->empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "no instance id");
+    }
+
+    bool finished = false;
+    std::string reason;
+    auto [code, msg] = service->check_instance_recycle_completed(*instance_id, finished, reason);
+    if (code != MetaServiceCode::OK) {
+        return http_json_reply(code, msg);
+    }
+
+    rapidjson::Document result;
+    result.SetObject();
+    result.AddMember("finished", finished, result.GetAllocator());
+    result.AddMember("reason",
+                     rapidjson::Value(reason.data(), reason.size(), result.GetAllocator()),
+                     result.GetAllocator());
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    result.Accept(writer);
+    return http_json_reply(code, msg, buffer.GetString());
 }
 
 // Recycler HTTP handlers

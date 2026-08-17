@@ -4233,18 +4233,18 @@ true
 
 -- !sql_stddev_samp_TinyInt_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_TinyInt_agg_phase_2 --
 12	3.605551275463989
@@ -4265,18 +4265,18 @@ true
 3.6055512754639896
 
 -- !sql_stddev_samp_TinyInt_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_TinyInt_agg_phase_2_notnull --
 12	3.6055512754639896
@@ -4299,18 +4299,18 @@ true
 
 -- !sql_stddev_samp_SmallInt_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_SmallInt_agg_phase_2 --
 12	3.6055512754639896
@@ -4331,18 +4331,18 @@ true
 3.605551275463989
 
 -- !sql_stddev_samp_SmallInt_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_SmallInt_agg_phase_2_notnull --
 12	3.605551275463989
@@ -4365,18 +4365,18 @@ true
 
 -- !sql_stddev_samp_Integer_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_Integer_agg_phase_2 --
 12	3.605551275463989
@@ -4397,18 +4397,18 @@ true
 3.605551275463989
 
 -- !sql_stddev_samp_Integer_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_Integer_agg_phase_2_notnull --
 12	3.605551275463989
@@ -4431,18 +4431,18 @@ true
 
 -- !sql_stddev_samp_BigInt_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_BigInt_agg_phase_2 --
 12	3.605551275463989
@@ -4463,18 +4463,18 @@ true
 3.6055512754639896
 
 -- !sql_stddev_samp_BigInt_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_BigInt_agg_phase_2_notnull --
 12	3.605551275463989
@@ -4497,18 +4497,18 @@ true
 
 -- !sql_stddev_samp_Float_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_Float_agg_phase_2 --
 12	0.3605551333887302
@@ -4529,18 +4529,18 @@ true
 0.3605551333887302
 
 -- !sql_stddev_samp_Float_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_Float_agg_phase_2_notnull --
 12	0.3605551333887302
@@ -4563,18 +4563,18 @@ true
 
 -- !sql_stddev_samp_Double_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_Double_agg_phase_2 --
 12	0.36055512754639896
@@ -4595,18 +4595,18 @@ true
 0.36055512754639896
 
 -- !sql_stddev_samp_Double_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_Double_agg_phase_2_notnull --
 12	0.36055512754639896
@@ -4621,18 +4621,18 @@ true
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_2 --
 12	0.36055512754639896
@@ -4646,18 +4646,18 @@ true
 12	0.36055512754639896
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_stddev_samp_DecimalV2_agg_phase_2_notnull --
 12	0.36055512754639896
@@ -6366,18 +6366,18 @@ true
 
 -- !sql_variance_samp_TinyInt_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_TinyInt_agg_phase_2 --
 12	13.0
@@ -6398,18 +6398,18 @@ true
 13.000000000000002
 
 -- !sql_variance_samp_TinyInt_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_TinyInt_agg_phase_2_notnull --
 12	13.0
@@ -6432,18 +6432,18 @@ true
 
 -- !sql_variance_samp_SmallInt_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_SmallInt_agg_phase_2 --
 12	13.000000000000002
@@ -6464,18 +6464,18 @@ true
 13.0
 
 -- !sql_variance_samp_SmallInt_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_SmallInt_agg_phase_2_notnull --
 12	12.999999999999998
@@ -6498,18 +6498,18 @@ true
 
 -- !sql_variance_samp_Integer_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_Integer_agg_phase_2 --
 12	13.0
@@ -6530,18 +6530,18 @@ true
 13.000000000000002
 
 -- !sql_variance_samp_Integer_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_Integer_agg_phase_2_notnull --
 12	13.000000000000002
@@ -6564,18 +6564,18 @@ true
 
 -- !sql_variance_samp_BigInt_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_BigInt_agg_phase_2 --
 12	13.0
@@ -6596,18 +6596,18 @@ true
 13.000000000000002
 
 -- !sql_variance_samp_BigInt_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_BigInt_agg_phase_2_notnull --
 12	13.0
@@ -6630,18 +6630,18 @@ true
 
 -- !sql_variance_samp_Float_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_Float_agg_phase_2 --
 12	0.130000004212965
@@ -6662,18 +6662,18 @@ true
 0.130000004212965
 
 -- !sql_variance_samp_Float_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_Float_agg_phase_2_notnull --
 12	0.13000000421296498
@@ -6696,18 +6696,18 @@ true
 
 -- !sql_variance_samp_Double_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_Double_agg_phase_2 --
 12	0.12999999999999998
@@ -6728,18 +6728,18 @@ true
 0.12999999999999998
 
 -- !sql_variance_samp_Double_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_Double_agg_phase_2_notnull --
 12	0.13
@@ -6754,18 +6754,18 @@ true
 
 -- !sql_variance_samp_DecimalV2_agg_phase_1 --
 0	\N
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_DecimalV2_agg_phase_2 --
 12	0.13
@@ -6779,18 +6779,18 @@ true
 12	0.13
 
 -- !sql_variance_samp_DecimalV2_agg_phase_1_notnull --
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
-1	NaN
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
+1	0.0
 
 -- !sql_variance_samp_DecimalV2_agg_phase_2_notnull --
 12	0.12999999999999998

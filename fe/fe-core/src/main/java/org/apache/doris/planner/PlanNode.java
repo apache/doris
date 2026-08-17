@@ -59,6 +59,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -866,9 +867,16 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     protected TPushAggOp pushDownAggNoGroupingOp = TPushAggOp.NONE;
+    // Explicit COUNT arguments. COUNT(*)/COUNT(1) intentionally keep this empty even though
+    // column pruning retains one placeholder scan slot.
+    protected List<SlotId> pushDownCountSlotIds = Collections.emptyList();
 
     public void setPushDownAggNoGrouping(TPushAggOp pushDownAggNoGroupingOp) {
         this.pushDownAggNoGroupingOp = pushDownAggNoGroupingOp;
+    }
+
+    public void setPushDownCountSlotIds(List<SlotId> pushDownCountSlotIds) {
+        this.pushDownCountSlotIds = Lists.newArrayList(pushDownCountSlotIds);
     }
 
     public void setChildrenDistributeExprLists(List<List<Expr>> childrenDistributeExprLists) {

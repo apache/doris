@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -92,11 +93,35 @@ public class Count extends NotNullableAggregateFunction
     public void checkLegalityAfterRewrite() {
         // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
         for (Expression argument : getArguments()) {
-            if (distinct && (argument.getDataType().isComplexType()
-                    || argument.getDataType().isObjectType() || argument.getDataType().isJsonType())) {
-                throw new AnalysisException("COUNT DISTINCT could not process type " + this.toSql());
+            if (distinct) {
+                checkLegacyVariantArgument(argument, this);
+                checkDistinctArgument(argument, this);
             }
         }
+    }
+
+    static void checkLegacyVariantArgument(Expression argument, Expression function) {
+        if (argument.getDataType() instanceof VariantType
+                && !((VariantType) argument.getDataType()).isExecutionV2()) {
+            throwDistinctArgumentException(function);
+        }
+    }
+
+    static void checkDistinctArgument(Expression argument, Expression function) {
+        DataType argumentType = argument.getDataType();
+        if (isUnsupportedDistinctArgument(argumentType)) {
+            throwDistinctArgumentException(function);
+        }
+    }
+
+    private static boolean isUnsupportedDistinctArgument(DataType argumentType) {
+        return argumentType.isComplexType()
+                || argumentType.isObjectType()
+                || argumentType.isJsonType();
+    }
+
+    private static void throwDistinctArgumentException(Expression function) {
+        throw new AnalysisException("COUNT DISTINCT could not process type " + function.toSql());
     }
 
     public boolean isStar() {

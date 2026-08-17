@@ -58,6 +58,7 @@
 #include "exec/scan/file_scanner.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"      // ExecEnv
 #include "runtime/fragment_mgr.h"  // FragmentMgr
@@ -79,6 +80,23 @@
 namespace doris {
 
 #include "common/compile_check_begin.h"
+
+namespace {
+
+void set_topn_lazy_materialization_file_cache_stats(
+        const io::FileCacheStatistics& stats, PTopNLazyMaterializationFileCacheStats* pstats) {
+    pstats->set_local_io_count(stats.num_local_io_total);
+    pstats->set_local_io_bytes(stats.bytes_read_from_local);
+    pstats->set_remote_io_count(stats.num_remote_io_total);
+    pstats->set_remote_io_bytes(stats.bytes_read_from_remote);
+    pstats->set_skip_cache_io_count(stats.num_skip_cache_io_total);
+    pstats->set_write_cache_bytes(stats.bytes_write_into_cache);
+    pstats->set_local_io_time(stats.local_io_timer);
+    pstats->set_remote_io_time(stats.remote_io_timer);
+    pstats->set_write_cache_io_time(stats.write_cache_io_timer);
+}
+
+} // namespace
 
 Status RowIDFetcher::init() {
     DorisNodesInfo nodes_info;
@@ -171,10 +189,12 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                     default_values[i] = _fetch_option.desc->slots()[i]->col_default_value();
                 }
             }
+            auto output_columns_guard = output_block->mutate_columns_scoped();
+            MutableColumns& output_columns = output_columns_guard.mutable_columns();
             for (int i = 0; i < resp.binary_row_data_size(); ++i) {
-                RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+                RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                         serdes, resp.binary_row_data(i).data(), resp.binary_row_data(i).size(),
-                        col_uid_to_idx, *output_block, default_values, {}));
+                        col_uid_to_idx, output_columns, default_values, {}));
             }
             return Status::OK();
         }
@@ -197,10 +217,10 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                     partial_block.dump_types());
         } else {
             for (int i = 0; i < output_block->columns(); ++i) {
-                output_block->get_by_position(i).column->assume_mutable()->insert_range_from(
-                        *partial_block.get_by_position(i)
-                                 .column->convert_to_full_column_if_const()
-                                 .get(),
+                auto column_guard = output_block->mutate_column_scoped(i);
+                MutableColumnPtr& column = column_guard.mutable_column();
+                column->insert_range_from(
+                        *partial_block.get_by_position(i).column->convert_to_full_column_if_const(),
                         0, partial_block.rows());
             }
         }
@@ -211,30 +231,6 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
         RETURN_IF_ERROR(merge_function(resp));
     }
     return Status::OK();
-}
-
-bool _has_char_type(const DataTypePtr& type) {
-    switch (type->get_primitive_type()) {
-    case TYPE_CHAR: {
-        return true;
-    }
-    case TYPE_ARRAY: {
-        const auto* arr_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
-        return _has_char_type(arr_type->get_nested_type());
-    }
-    case TYPE_MAP: {
-        const auto* map_type = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
-        return _has_char_type(map_type->get_key_type()) ||
-               _has_char_type(map_type->get_value_type());
-    }
-    case TYPE_STRUCT: {
-        const auto* struct_type = assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
-        return std::any_of(struct_type->get_elements().begin(), struct_type->get_elements().end(),
-                           [&](const DataTypePtr& dt) -> bool { return _has_char_type(dt); });
-    }
-    default:
-        return false;
-    }
 }
 
 Status RowIDFetcher::fetch(const ColumnPtr& column_row_ids, Block* res_block) {
@@ -286,16 +282,6 @@ Status RowIDFetcher::fetch(const ColumnPtr& column_row_ids, Block* res_block) {
     }
     // Check row consistency
     RETURN_IF_CATCH_EXCEPTION(res_block->check_number_of_rows());
-    // shrink for char type
-    std::vector<size_t> char_type_idx;
-    for (size_t i = 0; i < _fetch_option.desc->slots().size(); i++) {
-        const auto& column_desc = _fetch_option.desc->slots()[i];
-        const auto type = column_desc->type();
-        if (_has_char_type(type)) {
-            char_type_idx.push_back(i);
-        }
-    }
-    res_block->shrink_char_type_column_suffix_zero(char_type_idx);
     VLOG_DEBUG << "dump block:" << res_block->dump_data(0, 10);
     return Status::OK();
 }
@@ -468,7 +454,10 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                   row_location.row_location.row_id);
         for (int x = 0; x < slots.size(); ++x) {
             auto row_id = static_cast<segment_v2::rowid_t>(row_loc.ordinal_id());
-            MutableColumnPtr column = result_block.get_by_position(x).column->assume_mutable();
+            // The scoped mutation republishes a potentially replaced V2 column when the reader
+            // transfers ownership of its first assembled batch.
+            auto column_guard = result_block.mutate_column_scoped(x);
+            MutableColumnPtr& column = column_guard.mutable_column();
             IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
                                       .rowset_id = rowset_id,
                                       .segment_id = row_loc.segment_id(),
@@ -532,6 +521,11 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         int64_t external_get_block_avg_ms = 0;
         size_t external_scan_range_cnt = 0;
 
+        const auto file_cache_miss_policy =
+                request.file_cache_remote_only_on_miss()
+                        ? io::FileCacheMissPolicy::REMOTE_ONLY_ON_MISS
+                        : io::FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
+
         // Add counters for different file mapping types
         std::unordered_map<FileMappingType, int64_t> file_type_counts;
 
@@ -568,21 +562,12 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                 for (const auto& pslot : request_block_desc.slots()) {
                     slots.push_back(SlotDescriptor(pslot));
                 }
-                // prepare block char vector shrink for char type
-                std::vector<size_t> char_type_idx;
-                for (int j = 0; j < slots.size(); ++j) {
-                    auto slot = slots[j];
-                    if (_has_char_type(slot.type())) {
-                        char_type_idx.push_back(j);
-                    }
-                }
-
                 try {
                     if (first_file_mapping->type == FileMappingType::INTERNAL) {
                         RETURN_IF_ERROR(read_batch_doris_format_row(
                                 request_block_desc, id_file_map, slots, tquery_id, result_blocks[i],
                                 stats, &acquire_tablet_ms, &acquire_rowsets_ms,
-                                &acquire_segments_ms, &lookup_row_data_ms));
+                                &acquire_segments_ms, &lookup_row_data_ms, file_cache_miss_policy));
                     } else {
                         RETURN_IF_ERROR(read_batch_external_row(
                                 request.wg_id(), request_block_desc, id_file_map, slots,
@@ -594,9 +579,6 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                     return Status::Error<false>(e.code(), "Row id fetch failed because {}",
                                                 e.what());
                 }
-
-                // after read the block, shrink char type block
-                result_blocks[i].shrink_char_type_column_suffix_zero(char_type_idx);
             }
 
             [[maybe_unused]] size_t compressed_size = 0;
@@ -633,6 +615,9 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                              acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms,
                              file_type_stats, external_init_reader_avg_ms,
                              external_get_block_avg_ms, external_scan_range_cnt);
+        set_topn_lazy_materialization_file_cache_stats(
+                stats.file_cache_stats,
+                response->mutable_topn_lazy_materialization_file_cache_stats());
     }
 
     if (request.has_gc_id_map() && request.gc_id_map()) {
@@ -646,7 +631,8 @@ Status RowIdStorageReader::read_batch_doris_format_row(
         const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
         std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
         OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
-        int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms) {
+        int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
+        io::FileCacheMissPolicy file_cache_miss_policy) {
     if (result_block.is_empty_column()) [[likely]] {
         result_block = Block(slots, request_block_desc.row_id_size());
     }
@@ -690,7 +676,7 @@ Status RowIdStorageReader::read_batch_doris_format_row(
         RETURN_IF_ERROR(read_doris_format_row(
                 id_file_map, file_mapping, row_ids, slots, full_read_schema, row_store_read_struct,
                 stats, acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
-                lookup_row_data_ms, seg_map, iterator_map, result_block));
+                lookup_row_data_ms, seg_map, iterator_map, file_cache_miss_policy, result_block));
 
         j += k;
         max_k = std::max(max_k, k);
@@ -704,6 +690,28 @@ const std::string RowIdStorageReader::ScannersRunningTimeProfile = "ScannersRunn
 const std::string RowIdStorageReader::InitReaderAvgTimeProfile = "InitReaderAvgTime";
 const std::string RowIdStorageReader::GetBlockAvgTimeProfile = "GetBlockAvgTime";
 const std::string RowIdStorageReader::FileReadLinesProfile = "FileReadLines";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOCount =
+        "TopNLazyMaterializationSecondPhaseLocalIOCount";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOBytes =
+        "TopNLazyMaterializationSecondPhaseLocalIOBytes";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRemoteIOCount =
+        "TopNLazyMaterializationSecondPhaseRemoteIOCount";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRemoteIOBytes =
+        "TopNLazyMaterializationSecondPhaseRemoteIOBytes";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseSkipCacheIOCount =
+        "TopNLazyMaterializationSecondPhaseSkipCacheIOCount";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseWriteCacheBytes =
+        "TopNLazyMaterializationSecondPhaseWriteCacheBytes";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOTime =
+        "TopNLazyMaterializationSecondPhaseLocalIOTime";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRemoteIOTime =
+        "TopNLazyMaterializationSecondPhaseRemoteIOTime";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseWriteCacheIOTime =
+        "TopNLazyMaterializationSecondPhaseWriteCacheIOTime";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRowsRead =
+        "TopNLazyMaterializationSecondPhaseRowsRead";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseSegmentsRead =
+        "TopNLazyMaterializationSecondPhaseSegmentsRead";
 
 Status RowIdStorageReader::read_external_row_from_file_mapping(
         size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
@@ -941,10 +949,9 @@ Status RowIdStorageReader::read_batch_external_row(
             &scan_running_time));
 
     // Insert the read data into result_block.
-    for (size_t column_id = 0; column_id < result_block.get_columns().size(); column_id++) {
-        // The non-const Block(result_block) is passed in read_by_rowids, but columns[i] in get_columns
-        // is at bottom an immutable_ptr of Cow<IColumn>, so use const_cast
-        auto dst_col = const_cast<IColumn*>(result_block.get_columns()[column_id].get());
+    for (size_t column_id = 0; column_id < result_block.columns(); column_id++) {
+        auto dst_col_guard = result_block.mutate_column_scoped(column_id);
+        MutableColumnPtr& dst_col = dst_col_guard.mutable_column();
 
         std::vector<const IColumn*> scan_src_columns;
         scan_src_columns.reserve(row_id_block_idx.size());
@@ -1015,7 +1022,7 @@ Status RowIdStorageReader::read_doris_format_row(
         int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
         int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
         std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
-        Block& result_block) {
+        io::FileCacheMissPolicy file_cache_miss_policy, Block& result_block) {
     auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
     SegKey seg_key {.tablet_id = tablet_id, .rowset_id = rowset_id, .segment_id = segment_id};
 
@@ -1083,25 +1090,33 @@ Status RowIdStorageReader::read_doris_format_row(
             return Status::InternalError("Tablet {} does not have row store for all columns",
                                          tablet->tablet_id());
         }
+        auto result_columns_guard = result_block.mutate_columns_scoped();
+        MutableColumns& result_columns = result_columns_guard.mutable_columns();
+        io::IOContext io_ctx;
+        io_ctx.reader_type = ReaderType::READER_QUERY;
+        io_ctx.file_cache_stats = &stats.file_cache_stats;
+        io_ctx.file_cache_miss_policy = file_cache_miss_policy;
         for (auto row_id : row_ids) {
             RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
             row_store_read_struct.row_store_buffer.clear();
             RETURN_IF_ERROR(scope_timer_run(
                     [&]() {
                         return tablet->lookup_row_data({}, loc, rowset, stats,
-                                                       row_store_read_struct.row_store_buffer);
+                                                       row_store_read_struct.row_store_buffer,
+                                                       false, &io_ctx);
                     },
                     lookup_row_data_ms));
 
-            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                     row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
                     row_store_read_struct.row_store_buffer.size(),
-                    row_store_read_struct.col_uid_to_idx, result_block,
+                    row_store_read_struct.col_uid_to_idx, result_columns,
                     row_store_read_struct.default_values, {}));
         }
     } else {
         for (int x = 0; x < slots.size(); ++x) {
-            MutableColumnPtr column = result_block.get_by_position(x).column->assume_mutable();
+            auto column_guard = result_block.mutate_column_scoped(x);
+            MutableColumnPtr& column = column_guard.mutable_column();
             IteratorKey iterator_key {.tablet_id = tablet_id,
                                       .rowset_id = rowset_id,
                                       .segment_id = segment_id,
@@ -1111,6 +1126,8 @@ Status RowIdStorageReader::read_doris_format_row(
                 iterator_map[iterator_key].segment = segment;
                 iterator_item.storage_read_options.stats = &stats;
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+                iterator_item.storage_read_options.io_ctx.file_cache_miss_policy =
+                        file_cache_miss_policy;
             }
             for (auto row_id : row_ids) {
                 RETURN_IF_ERROR(segment->seek_and_read_by_rowid(

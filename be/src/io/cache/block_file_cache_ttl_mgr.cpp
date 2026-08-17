@@ -27,6 +27,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/cache_block_meta_store.h"
 #include "io/cache/file_block.h"
@@ -134,6 +135,7 @@ void BlockFileCacheTtlMgr::run_background_tablet_id_flush() {
 
 FileBlocks BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id(int64_t tablet_id) {
     FileBlocks result;
+    TEST_SYNC_POINT_CALLBACK("BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id", tablet_id);
 
     // Use meta store to get all blocks for this tablet
     auto iterator = _meta_store->range_get(tablet_id);
@@ -169,8 +171,12 @@ FileBlocks BlockFileCacheTtlMgr::get_file_blocks_from_tablet_id(int64_t tablet_i
 void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
     Thread::set_self_name("ttl_mgr_update");
 
+    static constexpr uint64_t kFullReconcileIntervalRounds = 20;
+    uint64_t update_round = 0;
+
     while (!_stop_background.load(std::memory_order_acquire)) {
         try {
+            const bool need_full_reconcile = (++update_round % kFullReconcileIntervalRounds) == 0;
             std::unordered_set<int64_t> tablet_ids_to_process;
             {
                 std::lock_guard<std::mutex> lock(_tablet_id_mutex);
@@ -238,9 +244,10 @@ void BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map() {
                             }
                         }
                     } else {
-                        // Remove from TTL map if TTL is 0
-                        _ttl_info_map.erase(tablet_id);
-                        need_convert_from_ttl = true;
+                        // Periodically reconcile blocks restored from persisted TTL metadata,
+                        // because _ttl_info_map is rebuilt only in memory after restart.
+                        need_convert_from_ttl =
+                                _ttl_info_map.erase(tablet_id) > 0 || need_full_reconcile;
                     }
                 }
 

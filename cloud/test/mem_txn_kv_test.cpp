@@ -48,12 +48,10 @@ int main(int argc, char** argv) {
         std::cout << "exit inti FdbTxnKv error" << std::endl;
         return -1;
     }
-    DORIS_CLOUD_DEFER {
-        fdb_txn_kv.reset();
-    };
-
     ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+    int ret = RUN_ALL_TESTS();
+    fdb_txn_kv.reset();
+    return ret;
 }
 
 static void put_and_get_test(std::shared_ptr<cloud::TxnKv> txn_kv) {

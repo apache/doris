@@ -141,6 +141,20 @@ suite("correlated_scalar_subquery") {
 
     test {
         sql """
+              select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select c2 from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1 order by c2 limit 1);
+        """
+        exception "limit is not supported in correlated subquery"
+    }
+
+    test {
+        sql """
+              select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select c2 + 1 from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1 order by c2 limit 1);
+        """
+        exception "limit is not supported in correlated subquery"
+    }
+
+    test {
+        sql """
               select c1 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select e1 from (select k1 from (select 1 k1 ) as t where correlated_scalar_t1.c1 = k1 ) tt lateral view explode_numbers(5) tmp1 as e1 order by e1);
         """
         exception "access outer query's column before lateral view is not supported"

@@ -199,20 +199,20 @@ suite("month_quarter_cast_in_prune") {
 
     explain {
         sql """select * from from_unixtime_t where from_unixtime(a,"%Y-%m-%d %T") <'2001-05-16 16:00:00'"""
-        contains("partitions=2/5 (p1,p2)")
+        contains("partitions=3/5 (p1,p2,p5)")
     }
     explain {
         sql """select * from from_unixtime_t where from_unixtime(a,"%Y-%m-%d %T") <='2001-05-16 16:00:00'"""
-        contains("partitions=3/5 (p1,p2,p3)")
+        contains("partitions=4/5 (p1,p2,p3,p5)")
     }
 
     explain {
         sql """select * from from_unixtime_t where from_unixtime(a,"yyyyMMdd") < '20330518'"""
-        contains("partitions=3/5 (p1,p2,p3)")
+        contains("partitions=4/5 (p1,p2,p3,p5)")
     }
     explain {
         sql """select * from from_unixtime_t where from_unixtime(a,"yyyyMMdd") > '20330518'"""
-        contains("partitions=3/5 (p1,p4,p5)")
+        contains("partitions=4/5 (p1,p2,p4,p5)")
 
     }
     explain {

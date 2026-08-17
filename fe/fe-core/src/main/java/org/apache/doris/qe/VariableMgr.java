@@ -230,7 +230,11 @@ public class VariableMgr {
                 field.setShort(obj, Short.parseShort(value));
                 break;
             case "int":
-                field.setInt(obj, Integer.parseInt(value));
+                int intValue = Integer.parseInt(value);
+                if (SessionVariable.RUNTIME_FILTER_TYPE.equalsIgnoreCase(name)) {
+                    intValue = (int) RuntimeFilterTypeHelper.normalizeDeprecatedRuntimeFilterTypes(intValue);
+                }
+                field.setInt(obj, intValue);
                 break;
             case "long":
                 field.setLong(obj, Long.parseLong(value));
@@ -1082,6 +1086,9 @@ public class VariableMgr {
                     String.valueOf(false));
             VariableMgr.refreshDefaultSessionVariables(updateInfo,
                     SessionVariable.ENABLE_SQL_CACHE,
+                    String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables(updateInfo,
+                    SessionVariable.ENABLE_NEREIDS_DISTRIBUTE_PLANNER,
                     String.valueOf(true));
         }
         if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {

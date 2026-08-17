@@ -58,22 +58,37 @@ custom_start="${DORIS_HOME}/bin/custom_start.sh"
 if [[ -f "${custom_start}" ]]; then
   source "${custom_start}" 
 fi
-enable_hdfs=${enable_hdfs:-1}
 process_name="${process_name:-doris_cloud}"
 
-# export env variables from ${process_name}.conf
-# read from ${process_name}.conf
-while read -r line; do
-    envline="$(echo "${line}" |
-        sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
-        sed 's/^[[:blank:]]*//g' |
-        grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=" ||
-        true)"
-    envline="$(eval "echo ${envline}")"
-    if [[ "${envline}" == *"="* ]]; then
-        eval 'export "${envline}"'
+CONF_FILES="${CONF_FILES:-${process_name}.conf}"
+loaded_conf_env_keys=" "
+for conf_pattern in ${CONF_FILES//,/ }; do
+    if [[ "${conf_pattern}" != /* ]]; then
+        conf_pattern="${DORIS_HOME}/conf/${conf_pattern}"
     fi
-done <"${DORIS_HOME}/conf/${process_name}.conf"
+    for conf_file in ${conf_pattern}; do
+        if [[ ! -f "${conf_file}" ]]; then
+            continue
+        fi
+        while read -r line; do
+            envline="$(echo "${line}" |
+                sed 's/[[:blank:]]*=[[:blank:]]*/=/g' |
+                sed 's/^[[:blank:]]*//g' |
+                grep -E "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=" ||
+                true)"
+            envline="$(eval "echo ${envline}")"
+            if [[ "${envline}" == *"="* ]]; then
+                key="${envline%%=*}"
+                if [[ "${loaded_conf_env_keys}" != *" ${key} "* ]] && [[ -v ${key} ]]; then
+                    continue
+                fi
+                eval 'export "${envline}"'
+                loaded_conf_env_keys="${loaded_conf_env_keys}${key} "
+            fi
+        done <"${conf_file}"
+    done
+done
+enable_hdfs=${enable_hdfs:-1}
 
 role=''
 if [[ ${RUN_METASERVICE} -eq 0 ]] && [[ ${RUN_RECYCLYER} -eq 0 ]]; then

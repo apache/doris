@@ -58,9 +58,6 @@ TEST_F(RuntimeFilterUtilsTest, TestFilterTypeFunction) {
     CHECK_FOR_FILTER(MIN_FILTER);
     CHECK_FOR_FILTER(MAX_FILTER);
 #undef CHECK_FOR_FILTER
-
-    EXPECT_EQ(filter_type_to_string(RuntimeFilterType::BITMAP_FILTER), "BITMAP_FILTER");
-    EXPECT_EQ(get_type(RuntimeFilterType::BITMAP_FILTER), PFilterType::UNKNOWN_FILTER);
 }
 
 TEST_F(RuntimeFilterUtilsTest, TestRuntimeFilterFromThrift) {
@@ -78,8 +75,6 @@ TEST_F(RuntimeFilterUtilsTest, TestRuntimeFilterFromThrift) {
 
     desc.__set_type(TRuntimeFilterType::IN_OR_BLOOM);
     EXPECT_EQ(get_runtime_filter_type(&desc), RuntimeFilterType::IN_OR_BLOOM_FILTER);
-    desc.__set_type(TRuntimeFilterType::BITMAP);
-    EXPECT_EQ(get_runtime_filter_type(&desc), RuntimeFilterType::BITMAP_FILTER);
     desc.__set_type(TRuntimeFilterType::IN);
     EXPECT_EQ(get_runtime_filter_type(&desc), RuntimeFilterType::IN_FILTER);
 }

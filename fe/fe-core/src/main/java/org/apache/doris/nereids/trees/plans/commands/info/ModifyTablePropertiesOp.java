@@ -286,17 +286,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             throw new AnalysisException(
                     "Property "
                             + PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT + " is not allowed to change");
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)) {
-            if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).equalsIgnoreCase("true")
-                    && !properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
-                            .equalsIgnoreCase("false")) {
-                throw new AnalysisException(
-                        "Property "
-                                + PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
-                                + " should be set to true or false");
-            }
-            this.needTableStable = false;
-            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
                     .equalsIgnoreCase("true")
@@ -342,6 +331,8 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
             this.needTableStable = false;
+            PropertyAnalyzer.analyzeFileCacheTtlSeconds(
+                    properties.get(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS));
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
             // do a check here for valid value

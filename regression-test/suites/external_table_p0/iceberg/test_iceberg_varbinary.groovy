@@ -22,6 +22,10 @@ suite("test_iceberg_varbinary", "p0,external,doris,external_docker,external_dock
         logger.info("disable iceberg test.")
         return
     }
+    // Iceberg VARIANT carries the external computeV2 physical marker and must work with either
+    // native Doris VARIANT mode selected by the cluster's FE config.
+    logger.info("run Iceberg VARIANT with FE enable_variant_v2={}",
+            getFeConfig("enable_variant_v2"))
 
     String catalog_name_no_mapping = "test_iceberg_no_mapping"
     String catalog_name_with_mapping = "test_iceberg_with_mapping"
@@ -29,13 +33,18 @@ suite("test_iceberg_varbinary", "p0,external,doris,external_docker,external_dock
     String rest_port = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    // A container-advertised REST URI may differ from the host port-forward address.
+    String restUri = context.config.otherConfigs.get("iceberg_rest_uri")
+    if (restUri == null) {
+        restUri = "http://${externalEnvIp}:${rest_port}"
+    }
     
     sql """drop catalog if exists ${catalog_name_no_mapping}"""
     sql """
     CREATE CATALOG ${catalog_name_no_mapping} PROPERTIES (
         'type'='iceberg',
         'iceberg.catalog.type'='rest',
-        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        'uri' = '${restUri}',
         "s3.access_key" = "admin",
         "s3.secret_key" = "password",
         "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
@@ -50,7 +59,7 @@ suite("test_iceberg_varbinary", "p0,external,doris,external_docker,external_dock
     CREATE CATALOG ${catalog_name_with_mapping} PROPERTIES (
         'type'='iceberg',
         'iceberg.catalog.type'='rest',
-        'uri' = 'http://${externalEnvIp}:${rest_port}',
+        'uri' = '${restUri}',
         "s3.access_key" = "admin",
         "s3.secret_key" = "password",
         "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
@@ -160,5 +169,14 @@ suite("test_iceberg_varbinary", "p0,external,doris,external_docker,external_dock
 
     qt_select23 """
         select * from binary_partitioned_table where from_hex(partition_bin)="0FF102FDFEFF";
+    """
+
+    sql """ use test_db; """
+    qt_select23 """
+        select id from test_variant_repro;
+    """
+    sql """set enable_file_scanner_v2=true"""
+    qt_select_variant """
+        select id, cast(v as string) from test_variant_repro order by id;
     """
 }

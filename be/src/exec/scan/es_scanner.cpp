@@ -122,14 +122,31 @@ Status EsScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) 
     // only empty block should be here
     DCHECK(block->rows() == 0);
 
+    if (mem_reuse) {
+        auto columns_guard = block->mutate_columns_scoped();
+        auto& mutable_columns = columns_guard.mutable_columns();
+        do {
+            while (mutable_columns[0]->size() < batch_size && !_es_eof) {
+                RETURN_IF_CANCELLED(state);
+                // Get from scanner
+                RETURN_IF_ERROR(_get_next(mutable_columns));
+            }
+
+            if (_es_eof == true) {
+                if (mutable_columns[0]->size() == 0) {
+                    *eof = true;
+                }
+                break;
+            }
+            VLOG_ROW << "EsScanner output rows: " << mutable_columns[0]->size();
+        } while (mutable_columns[0]->size() == 0 && !(*eof));
+        return Status::OK();
+    }
+
     do {
         columns.resize(column_size);
         for (auto i = 0; i < column_size; i++) {
-            if (mem_reuse) {
-                columns[i] = block->get_by_position(i).column->assume_mutable();
-            } else {
-                columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
-            }
+            columns[i] = _tuple_desc->slots()[i]->get_empty_mutable_column();
         }
 
         while (columns[0]->size() < batch_size && !_es_eof) {
@@ -147,15 +164,11 @@ Status EsScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) 
 
         // Before really use the Block, must clear other ptr of column in block
         // So here need do std::move and clear in `columns`
-        if (!mem_reuse) {
-            int column_index = 0;
-            for (const auto slot_desc : _tuple_desc->slots()) {
-                block->insert(ColumnWithTypeAndName(std::move(columns[column_index++]),
-                                                    slot_desc->get_data_type_ptr(),
-                                                    slot_desc->col_name()));
-            }
-        } else {
-            columns.clear();
+        int column_index = 0;
+        for (const auto slot_desc : _tuple_desc->slots()) {
+            block->insert(ColumnWithTypeAndName(std::move(columns[column_index++]),
+                                                slot_desc->get_data_type_ptr(),
+                                                slot_desc->col_name()));
         }
         VLOG_ROW << "EsScanner output rows: " << block->rows();
     } while (block->rows() == 0 && !(*eof));

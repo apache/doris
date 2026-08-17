@@ -297,6 +297,12 @@ Status VMysqlResultWriter::write(RuntimeState* state, Block& input_block) {
     Block block;
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
                                                                        input_block, &block));
+
+    if (_is_dry_run) {
+        _written_rows += cast_set<int64_t>(block.rows());
+        return Status::OK();
+    }
+
     const auto total_bytes = block.bytes();
 
     if (total_bytes > config::thrift_max_message_size) [[unlikely]] {

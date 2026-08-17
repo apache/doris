@@ -51,6 +51,7 @@
 #include "core/column/column_array.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_column_utils.h"
 #include "core/data_type/convert_field_to_type.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_decimal.h"
@@ -59,6 +60,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/field.h"
 #include "core/string_buffer.hpp"
 #include "core/types.h"
@@ -73,7 +75,6 @@
 #include "util/jsonb_document.h"
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_parser_simd.h"
-#include "util/jsonb_utils.h"
 #include "util/simd/bits.h"
 #include "util/unaligned.h"
 
@@ -144,6 +145,9 @@ size_t get_number_of_dimensions(const IDataType& type) {
 // which indicates NG-originated array<object> data.
 bool is_nested_group_type(const DataTypePtr& type) {
     auto base = get_base_type_of_array(type);
+    if (get_number_of_dimensions(*type) > 0) {
+        base = remove_nullable(base);
+    }
     return typeid_cast<const DataTypeVariant*>(base.get()) != nullptr;
 }
 
@@ -231,6 +235,7 @@ void ColumnVariant::Subcolumn::insert(FieldWithDataType field) {
     info.scale = field.scale;
     info.scalar_type_id = field.base_scalar_type_id;
     info.num_dimensions = field.num_dimensions;
+    info.need_convert = field.need_convert;
     insert(std::move(field.field), info);
 }
 
@@ -486,7 +491,7 @@ MutableColumnPtr ColumnVariant::apply_for_columns(Func&& func) const {
         auto& finalized_object = assert_cast<ColumnVariant&>(*finalized);
         return finalized_object.apply_for_columns(std::forward<Func>(func));
     }
-    auto new_root = func(get_root())->assume_mutable();
+    auto new_root = std::move(*func(get_root())).mutate();
     auto res = ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode, get_root_type(),
                                      std::move(new_root));
     for (const auto& subcolumn : subcolumns) {
@@ -494,16 +499,16 @@ MutableColumnPtr ColumnVariant::apply_for_columns(Func&& func) const {
             continue;
         }
         auto new_subcolumn = func(subcolumn->data.get_finalized_column_ptr());
-        if (!res->add_sub_column(subcolumn->path, new_subcolumn->assume_mutable(),
+        if (!res->add_sub_column(subcolumn->path, std::move(*new_subcolumn).mutate(),
                                  subcolumn->data.get_least_common_type())) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "add path {} is error",
                                    subcolumn->path.get_path());
         }
     }
     auto sparse_column = func(serialized_sparse_column);
-    res->serialized_sparse_column = sparse_column->assume_mutable();
+    res->serialized_sparse_column = IColumn::mutate(std::move(sparse_column));
     auto doc_value_column = func(serialized_doc_value_column);
-    res->serialized_doc_value_column = doc_value_column->assume_mutable();
+    res->serialized_doc_value_column = IColumn::mutate(std::move(doc_value_column));
     res->num_rows = res->serialized_sparse_column->size();
     ENABLE_CHECK_CONSISTENCY(res.get());
     return res;
@@ -827,6 +832,20 @@ size_t ColumnVariant::allocated_bytes() const {
     return res;
 }
 
+bool ColumnVariant::is_exclusive() const {
+    if (!IColumn::is_exclusive()) {
+        return false;
+    }
+    for (const auto& entry : subcolumns) {
+        for (const auto& part : entry->data.data) {
+            if (!part->is_exclusive()) {
+                return false;
+            }
+        }
+    }
+    return serialized_sparse_column->is_exclusive() && serialized_doc_value_column->is_exclusive();
+}
+
 void ColumnVariant::for_each_subcolumn(ColumnCallback callback) {
     for (auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
@@ -864,7 +883,7 @@ void ColumnVariant::insert_from(const IColumn& src, size_t n) {
 
 void ColumnVariant::try_insert(const Field& field) {
     size_t old_size = size();
-    const auto& object = field.get<TYPE_VARIANT>();
+    const auto& object = field.get<TYPE_VARIANT>().legacy_map();
     for (const auto& [key, value] : object) {
         if (key.get_path() == "__DORIS_VARIANT_DOC_VALUE__") {
             insert_to_doc_value_column(value.field);
@@ -944,6 +963,10 @@ bool ColumnVariant::Subcolumn::is_null_at(size_t n) const {
         }
         ind -= part->size();
     }
+    // Remaining rows are pending lazy defaults (current_num_of_defaults suffix).
+    if (ind < current_num_of_defaults) {
+        return true;
+    }
     throw doris::Exception(ErrorCode::OUT_OF_BOUND, "Index ({}) for getting field is out of range",
                            n);
 }
@@ -973,6 +996,11 @@ void ColumnVariant::Subcolumn::get(size_t n, FieldWithDataType& res) const {
         }
 
         ind -= part->size();
+    }
+    // Remaining rows are pending lazy defaults (current_num_of_defaults suffix).
+    if (ind < current_num_of_defaults) {
+        res = FieldWithDataType(Field());
+        return;
     }
     throw doris::Exception(ErrorCode::OUT_OF_BOUND, "Index ({}) for getting field is out of range",
                            n);
@@ -1046,7 +1074,7 @@ void ColumnVariant::get(size_t n, Field& res) const {
                                size());
     }
     res = Field::create_field<TYPE_VARIANT>(VariantMap());
-    auto& object = res.get<TYPE_VARIANT>();
+    auto& object = res.get<TYPE_VARIANT>().legacy_map();
 
     for (const auto& entry : subcolumns) {
         FieldWithDataType field;
@@ -1073,7 +1101,8 @@ void ColumnVariant::get(size_t n, Field& res) const {
                                               .num_dimensions = static_cast<uint8_t>(
                                                       data.second.num_dimensions),
                                               .precision = data.second.precision,
-                                              .scale = data.second.scale});
+                                              .scale = data.second.scale,
+                                              .need_convert = data.second.need_convert});
     }
     try_get_from_doc_value_column(n, res);
     if (object.empty()) {
@@ -1093,7 +1122,7 @@ void ColumnVariant::try_get_from_doc_value_column(size_t n, Field& res) const {
     CHECK(subcolumns.size() == 1) << "subcolumns size should be 1";
     FieldWithDataType field_with_data_type;
     serialized_doc_value_column->get(n, field_with_data_type.field);
-    auto& object = res.get<TYPE_VARIANT>();
+    auto& object = res.get<TYPE_VARIANT>().legacy_map();
     object.try_emplace(PathInData("__DORIS_VARIANT_DOC_VALUE__"), std::move(field_with_data_type));
 }
 
@@ -1674,31 +1703,6 @@ enum class NestedJsonSkipKind {
     kInvalidType,
 };
 
-static bool is_semantically_empty_jsonb_value(const JsonbValue* value) {
-    if (value == nullptr || value->isNull()) {
-        return true;
-    }
-    if (value->isArray()) {
-        const auto* array = value->unpack<ArrayVal>();
-        for (auto it = array->begin(); it != array->end(); ++it) {
-            if (!is_semantically_empty_jsonb_value(&*it)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    if (value->isObject()) {
-        const auto* object = value->unpack<ObjectVal>();
-        for (auto it = object->begin(); it != object->end(); ++it) {
-            if (!is_semantically_empty_jsonb_value(it->value())) {
-                return false;
-            }
-        }
-        return true;
-    }
-    return false;
-}
-
 static bool is_semantically_empty_nested_field(const Field& field) {
     switch (field.get_type()) {
     case PrimitiveType::TYPE_NULL:
@@ -1713,7 +1717,7 @@ static bool is_semantically_empty_nested_field(const Field& field) {
         return true;
     }
     case PrimitiveType::TYPE_VARIANT: {
-        const auto& object = field.get<TYPE_VARIANT>();
+        const auto& object = field.get<TYPE_VARIANT>().legacy_map();
         for (const auto& [_, value] : object) {
             if (!is_semantically_empty_nested_field(value.field)) {
                 return false;
@@ -1729,7 +1733,7 @@ static bool is_semantically_empty_nested_field(const Field& field) {
         if (!st.ok() || doc == nullptr) {
             return false;
         }
-        return is_semantically_empty_jsonb_value(doc->getValue());
+        return is_variant_jsonb_value_semantically_empty(doc->getValue());
     }
     default:
         return false;
@@ -1816,6 +1820,11 @@ bool ColumnVariant::is_visible_root_value(size_t nrow) const {
         if (!subcolumn->data.is_null_at(nrow)) {
             return false;
         }
+    }
+
+    const auto& sparse_offsets = serialized_sparse_column_offsets();
+    if (sparse_offsets[nrow - 1] != sparse_offsets[nrow]) {
+        return false;
     }
 
     const auto& doc_value_column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
@@ -2061,14 +2070,13 @@ Status ColumnVariant::serialize_sparse_columns(
 /// directly as NestedGroup data by the writer (VariantColumnWriterImpl).
 void ColumnVariant::unnest(Subcolumns::NodePtr& entry, Subcolumns& res_subcolumns) const {
     entry->data.finalize();
-    auto nested_column = entry->data.get_finalized_column_ptr()->assume_mutable();
+    auto nested_column = std::move(*entry->data.get_finalized_column_ptr()).mutate();
     auto* nested_column_nullable = assert_cast<ColumnNullable*>(nested_column.get());
     auto* nested_column_array =
-            assert_cast<ColumnArray*>(nested_column_nullable->get_nested_column_ptr().get());
+            assert_cast<ColumnArray*>(&nested_column_nullable->get_nested_column());
     auto& offset = nested_column_array->get_offsets_ptr();
 
-    auto* nested_object_nullable = assert_cast<ColumnNullable*>(
-            nested_column_array->get_data_ptr()->assume_mutable().get());
+    auto* nested_object_nullable = assert_cast<ColumnNullable*>(&nested_column_array->get_data());
     auto& nested_object_column =
             assert_cast<ColumnVariant&>(nested_object_nullable->get_nested_column());
     PathInData nested_path = entry->path;
@@ -2084,13 +2092,18 @@ void ColumnVariant::unnest(Subcolumns::NodePtr& entry, Subcolumns& res_subcolumn
         path_builder.append(nested_entry->path.get_parts(), true);
         auto subnested_column = ColumnArray::create(
                 ColumnNullable::create(nested_entry->data.get_finalized_column_ptr(),
-                                       nested_object_nullable->get_null_map_column_ptr()),
+                                       static_cast<const ColumnNullable*>(nested_object_nullable)
+                                               ->get_null_map_column()
+                                               .get_ptr()),
                 offset);
-        auto nullable_subnested_column = ColumnNullable::create(
-                std::move(subnested_column), nested_column_nullable->get_null_map_column_ptr());
+        auto nullable_subnested_column =
+                ColumnNullable::create(std::move(subnested_column),
+                                       static_cast<const ColumnNullable*>(nested_column_nullable)
+                                               ->get_null_map_column()
+                                               .get_ptr());
         auto type = make_nullable(
                 std::make_shared<DataTypeArray>(nested_entry->data.least_common_type.get()));
-        Subcolumn subcolumn(nullable_subnested_column->assume_mutable(), type, is_nullable);
+        Subcolumn subcolumn(std::move(nullable_subnested_column), type, is_nullable);
         res_subcolumns.add(path_builder.build(), subcolumn);
     }
 }
@@ -2103,7 +2116,24 @@ void ColumnVariant::clear_sparse_column() {
     }
 #endif
 
-    serialized_sparse_column->clear();
+    serialized_sparse_column = ColumnPtr(create_binary_column_fn());
+}
+
+void ColumnVariant::ensure_binary_columns_rows() {
+    auto resize_if_empty = [this](IColumn::WrappedPtr& column) {
+        const auto& const_column = static_cast<const IColumn::Ptr&>(column);
+        if (const_column->size() == num_rows) {
+            return;
+        }
+        CHECK(const_column->empty())
+                << "ColumnVariant binary column size mismatch, rows: " << num_rows
+                << ", column rows: " << const_column->size();
+        auto mutable_column = IColumn::mutate(std::move(static_cast<IColumn::Ptr&>(column)));
+        mutable_column->resize(num_rows);
+        column = std::move(mutable_column);
+    };
+    resize_if_empty(serialized_sparse_column);
+    resize_if_empty(serialized_doc_value_column);
 }
 
 Status ColumnVariant::convert_typed_path_to_storage_type(
@@ -2218,6 +2248,7 @@ Status ColumnVariant::pick_subcolumns_to_sparse_column(
 }
 
 void ColumnVariant::finalize(FinalizeMode mode) {
+    ensure_binary_columns_rows();
     if (is_finalized() && mode == FinalizeMode::READ_MODE) {
         _prev_positions.clear();
         ENABLE_CHECK_CONSISTENCY(this);
@@ -2265,6 +2296,7 @@ void ColumnVariant::finalize(FinalizeMode mode) {
     std::swap(subcolumns, new_subcolumns);
 
     _prev_positions.clear();
+    ensure_binary_columns_rows();
     ENABLE_CHECK_CONSISTENCY(this);
 }
 
@@ -2315,7 +2347,7 @@ ColumnPtr ColumnVariant::filter(const Filter& filter, ssize_t count) const {
         ENABLE_CHECK_CONSISTENCY(res.get());
         return res;
     }
-    auto new_root = get_root()->filter(filter, count)->assume_mutable();
+    auto new_root = std::move(*get_root()->filter(filter, count)).mutate();
     auto new_column = ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode,
                                             get_root_type(), std::move(new_root));
     for (const auto& entry : subcolumns) {
@@ -2323,7 +2355,7 @@ ColumnPtr ColumnVariant::filter(const Filter& filter, ssize_t count) const {
             continue;
         }
         auto subcolumn = entry->data.get_finalized_column().filter(filter, -1);
-        new_column->add_sub_column(entry->path, subcolumn->assume_mutable(),
+        new_column->add_sub_column(entry->path, std::move(*subcolumn).mutate(),
                                    entry->data.get_least_common_type());
     }
     new_column->serialized_sparse_column = serialized_sparse_column->filter(filter, count);
@@ -2370,8 +2402,10 @@ void ColumnVariant::clear() {
     // we must keep root column exist
     empty.create_root(Subcolumn(0, is_nullable, true));
     std::swap(empty, subcolumns);
-    serialized_sparse_column->clear();
-    serialized_doc_value_column->clear();
+    // Reassign to fresh empty columns to avoid requiring exclusive ownership.
+    // The existing columns may be shared (use_count > 1) so we cannot clear them in-place.
+    serialized_sparse_column = ColumnPtr(create_binary_column_fn());
+    serialized_doc_value_column = ColumnPtr(create_binary_column_fn());
     num_rows = 0;
     _prev_positions.clear();
     ENABLE_CHECK_CONSISTENCY(this);
@@ -2636,64 +2670,12 @@ bool ColumnVariant::try_insert_default_from_nested(const Subcolumns::NodePtr& en
     return true;
 }
 
-size_t ColumnVariant::find_path_lower_bound_in_sparse_data(StringRef path,
-                                                           const ColumnString& sparse_data_paths,
-                                                           size_t start, size_t end) {
-    // Simple random access iterator over values in ColumnString in specified range.
-    class Iterator {
-    public:
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-local-typedefs"
-        using difference_type = std::ptrdiff_t;
-        using value_type = StringRef;
-        using iterator_category = std::random_access_iterator_tag;
-        using pointer = StringRef*;
-        using reference = StringRef&;
-#pragma GCC diagnostic pop
-
-        Iterator() = delete;
-        Iterator(const ColumnString* data_, size_t index_) : data(data_), index(index_) {}
-        Iterator(const Iterator& rhs) = default;
-        Iterator& operator=(const Iterator& rhs) = default;
-        inline Iterator& operator+=(difference_type rhs) {
-            index += rhs;
-            return *this;
-        }
-        inline StringRef operator*() const { return data->get_data_at(index); }
-
-        inline Iterator& operator++() {
-            ++index;
-            return *this;
-        }
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-member-function"
-#endif
-        inline Iterator& operator--() {
-            --index;
-            return *this;
-        }
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
-        inline difference_type operator-(const Iterator& rhs) const { return index - rhs.index; }
-
-        const ColumnString* data;
-        size_t index;
-    };
-
-    Iterator start_it(&sparse_data_paths, start);
-    Iterator end_it(&sparse_data_paths, end);
-    auto it = std::lower_bound(start_it, end_it, path);
-    return it.index;
-}
-
 void ColumnVariant::Subcolumn::deserialize_from_binary_column(const ColumnString* value,
                                                               size_t row) {
     const auto& data_ref = value->get_data_at(row);
     const auto* start_data = reinterpret_cast<const uint8_t*>(data_ref.data);
     const PrimitiveType type =
-            TabletColumn::get_primitive_type_by_field_type(static_cast<FieldType>(*start_data));
+            storage_field_type_to_primitive_type(static_cast<FieldType>(*start_data));
     auto check_end = [&](const uint8_t* end_ptr) {
         DCHECK_EQ(end_ptr - reinterpret_cast<const uint8_t*>(data_ref.data), data_ref.size);
     };
@@ -2726,6 +2708,26 @@ void ColumnVariant::Subcolumn::deserialize_from_binary_column(const ColumnString
     }
 }
 
+void ColumnVariant::Subcolumn::deserialize_nullable_from_binary_column(const ColumnString* value,
+                                                                       size_t row) {
+    auto [field, info] = ColumnVariant::deserialize_from_binary_column(value, row);
+    bool is_null = field.get_type() == PrimitiveType::TYPE_NULL;
+    if (field.get_type() == PrimitiveType::TYPE_JSONB) {
+        const auto& jsonb = field.get<TYPE_JSONB>();
+        const JsonbDocument* document = nullptr;
+        const Status status = JsonbDocument::checkAndCreateDocument(jsonb.get_value(),
+                                                                    jsonb.get_size(), &document);
+        DORIS_CHECK(status.ok()) << status;
+        DORIS_CHECK(document != nullptr);
+        is_null = document->getValue()->isNull();
+    }
+    if (is_null) {
+        insert_default();
+    } else {
+        insert(std::move(field), std::move(info));
+    }
+}
+
 void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, NullMap* null_map,
                                                       StringRef path,
                                                       const ColumnPtr& sparse_data_column,
@@ -2748,13 +2750,14 @@ void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, Null
     for (size_t i = start; i != end; ++i) {
         size_t paths_start = sparse_data_offsets[static_cast<ssize_t>(i) - 1];
         size_t paths_end = sparse_data_offsets[static_cast<ssize_t>(i)];
-        auto lower_bound_path_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
-                path, sparse_data_paths, paths_start, paths_end);
+        auto lower_bound_path_index = find_variant_sparse_path_lower_bound(path, sparse_data_paths,
+                                                                           paths_start, paths_end);
         bool is_null = false;
         if (lower_bound_path_index != paths_end &&
             sparse_data_paths.get_data_at(lower_bound_path_index) == path) {
-            subcolumn.deserialize_from_binary_column(&sparse_data_values, lower_bound_path_index);
-            is_null = false;
+            subcolumn.deserialize_nullable_from_binary_column(&sparse_data_values,
+                                                              lower_bound_path_index);
+            is_null = subcolumn.is_null_at(subcolumn.size() - 1);
         } else {
             subcolumn.insert_default();
             is_null = true;
@@ -2767,10 +2770,26 @@ void ColumnVariant::fill_path_column_from_sparse_data(Subcolumn& subcolumn, Null
 
 MutableColumnPtr ColumnVariant::clone() const {
     auto res = ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode);
+    // Copy typed_path_count and nested_path_count so the subcolumn limit logic is consistent.
+    res->typed_path_count = typed_path_count;
+    res->nested_path_count = nested_path_count;
     Subcolumns new_subcolumns;
     for (const auto& subcolumn : subcolumns) {
-        auto new_subcolumn = subcolumn->data;
-        if (subcolumn->data.is_root) {
+        // Struct-copy all metadata (num_rows, num_of_defaults_in_prefix,
+        // current_num_of_defaults, data_types, etc.), then deep-clone data WrappedPtrs.
+        Subcolumn new_subcolumn = subcolumn->data;
+        for (auto& wp : new_subcolumn.data) {
+            static_cast<IColumn::Ptr&>(wp) =
+                    std::move(*static_cast<const IColumn::Ptr&>(wp)).mutate();
+        }
+        // Flush pending lazy defaults into actual data so that the cloned subcolumn
+        // is self-consistent (current_num_of_defaults == 0 after clone).
+        if (new_subcolumn.current_num_of_defaults > 0) {
+            size_t pending = new_subcolumn.current_num_of_defaults;
+            new_subcolumn.current_num_of_defaults = 0;
+            new_subcolumn.insert_many_defaults(pending);
+        }
+        if (subcolumn->data.is_root || subcolumn->path.empty()) {
             new_subcolumns.create_root(std::move(new_subcolumn));
         } else if (!new_subcolumns.add(subcolumn->path, std::move(new_subcolumn))) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "add path {} is error in clone()",
@@ -2781,13 +2800,8 @@ MutableColumnPtr ColumnVariant::clone() const {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "root is nullptr in clone()");
     }
     res->subcolumns = std::move(new_subcolumns);
-    auto&& column = serialized_sparse_column->get_ptr();
-    auto sparse_column = std::move(*column).mutate();
-    res->serialized_sparse_column = sparse_column->assume_mutable();
-
-    auto&& new_doc_value_column = serialized_doc_value_column->get_ptr();
-    auto doc_value_column = std::move(*new_doc_value_column).mutate();
-    res->serialized_doc_value_column = doc_value_column->assume_mutable();
+    res->serialized_sparse_column = IColumn::mutate(serialized_sparse_column->get_ptr());
+    res->serialized_doc_value_column = IColumn::mutate(serialized_doc_value_column->get_ptr());
     res->set_num_rows(num_rows);
 
     ENABLE_CHECK_CONSISTENCY(res.get());
