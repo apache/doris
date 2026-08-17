@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 #include <mysql/mysql.h>
 
+#include <cmath>
 #include <cstdint>
 #include <ctime>
 #include <memory>
@@ -468,9 +469,17 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                 const Field expected = (*expected_col_ptr)[i];
                 EXPECT_EQ(actual.is_null(), expected.is_null());
                 if (!actual.is_null() && !expected.is_null()) {
-                    EXPECT_DOUBLE_EQ(actual.get<TYPE_DOUBLE>(), expected.get<TYPE_DOUBLE>())
-                            << ", function " << func_name << ". input row:\n"
-                            << block.dump_data(i, 1);
+                    const auto actual_value = actual.get<TYPE_DOUBLE>();
+                    const auto expected_value = expected.get<TYPE_DOUBLE>();
+                    if (std::isnan(actual_value) || std::isnan(expected_value)) {
+                        EXPECT_TRUE(std::isnan(actual_value) && std::isnan(expected_value))
+                                << ", function " << func_name << ". input row:\n"
+                                << block.dump_data(i, 1);
+                    } else {
+                        EXPECT_DOUBLE_EQ(actual_value, expected_value)
+                                << ", function " << func_name << ". input row:\n"
+                                << block.dump_data(i, 1);
+                    }
                 }
                 continue;
             }
