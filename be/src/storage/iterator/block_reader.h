@@ -89,6 +89,8 @@ private:
 
     int _resolve_source_column_index(int idx, bool use_before) const;
 
+    bool _min_delta_values_equal(size_t last_row) const;
+
     void _init_pending_row_columns(const Block& block);
 
     bool _emit_pending_row(MutableColumns& target_columns, size_t& output_row_count);
@@ -179,6 +181,13 @@ private:
     // column (or itself if no BEFORE mirror exists). Built lazily by _ensure_binlog_column_pos
     // and consulted via _resolve_source_column_index when emitting BEFORE rows.
     std::vector<int> _before_column_idx;
+    // Physical AFTER/BEFORE column pairs used to compare the complete row image for MIN_DELTA.
+    // These include columns widened into the storage projection solely for comparison and are
+    // therefore independent of the SQL output projection.
+    std::vector<std::pair<int, int>> _min_delta_value_column_pairs;
+    // False when the source block does not carry a comparable BEFORE image for every value
+    // column. In that case MIN_DELTA retains UPDATE output conservatively.
+    bool _min_delta_value_comparison_complete = false;
     Arena _arena;
 };
 

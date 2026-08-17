@@ -79,6 +79,19 @@ struct Row {
     int64_t op;
 };
 
+TabletSchemaSPtr make_test_tablet_schema() {
+    auto schema = std::make_shared<TabletSchema>();
+    TabletColumn key_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_BIGINT, false);
+    key_column.set_unique_id(0);
+    key_column.set_name("key");
+    key_column.set_is_key(true);
+    key_column.set_length(sizeof(int64_t));
+    key_column.set_index_length(sizeof(int64_t));
+    schema->append_column(std::move(key_column));
+    return schema;
+}
+
 std::shared_ptr<Block> make_source_block(const std::vector<Row>& rows) {
     auto block = std::make_shared<Block>();
     auto type = std::make_shared<DataTypeInt64>();
@@ -139,7 +152,7 @@ public:
 
     Status next(Block* /*block*/) override { return Status::Error<END_OF_FILE>(""); }
 
-    RowLocation current_row_location() override { return RowLocation(); }
+    RowLocation current_row_location() override { return {}; }
     Status current_block_row_locations(std::vector<RowLocation>* /*loc*/) override {
         return Status::OK();
     }
@@ -161,9 +174,8 @@ void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t
     config::enable_adaptive_batch_size = false;
     reader._reader_context.batch_size = batch_size;
 
-    // The fake LevelIterator base ctor dereferences reader->tablet_schema(), so a
-    // schema must exist even though its contents are unused by these code paths.
-    reader._tablet_schema = std::make_shared<TabletSchema>();
+    // The fake LevelIterator and MIN_DELTA value-pair discovery both need the key count.
+    reader._tablet_schema = make_test_tablet_schema();
 
     // All 6 columns are "normal" columns and are returned in-place.
     reader._normal_columns_idx = {KEY_IDX, VAL_IDX, BEFORE_VAL_IDX, TSO_IDX, LSN_IDX, OP_IDX};
@@ -297,6 +309,86 @@ TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdateBeforeAfter) {
     EXPECT_EQ(out[0].val, 10); // before value from the first op
     EXPECT_EQ(out[1].op, binlog::STREAM_CHANGE_UPDATE_AFTER);
     EXPECT_EQ(out[1].val, 30); // after value from the last op
+}
+
+// A physical UPDATE whose complete BEFORE and AFTER row values are equal has no net delta.
+TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpUpdateIsSkipped) {
+    auto source = make_source_block({
+            {1, 20, 20, 1, 1, ROW_BINLOG_UPDATE},
+    });
+    BlockReader reader;
+    configure_reader(reader, source, 16);
+
+    auto out = drain(reader, &BlockReader::_min_delta_next_block);
+    EXPECT_TRUE(out.empty());
+}
+
+// The comparison is between the first BEFORE and last AFTER values, so A -> B -> A also has no
+// net delta even though neither individual row-binlog UPDATE is a no-op.
+TEST_F(BlockReaderChangeNextBlockTest, MinDeltaUpdatesReturningToOriginalAreSkipped) {
+    auto source = make_source_block({
+            {1, 20, 10, 1, 1, ROW_BINLOG_UPDATE},
+            {1, 10, 20, 2, 2, ROW_BINLOG_UPDATE},
+    });
+    BlockReader reader;
+    configure_reader(reader, source, 16);
+
+    auto out = drain(reader, &BlockReader::_min_delta_next_block);
+    EXPECT_TRUE(out.empty());
+}
+
+// Build a source block with a second value column that is present in the physical MIN_DELTA
+// projection but absent from the SQL output projection.
+std::shared_ptr<Block> make_two_value_source_block(int64_t val1, int64_t before_val1, int64_t val2,
+                                                   int64_t before_val2) {
+    auto block = std::make_shared<Block>();
+    auto type = std::make_shared<DataTypeInt64>();
+    auto add = [&](int64_t value, const std::string& name) {
+        auto column = ColumnInt64::create();
+        column->insert_value(value);
+        block->insert({std::move(column), type, name});
+    };
+    add(1, "key");
+    add(val1, "val");
+    add(val2, "val2");
+    add(before_val1, binlog::build_before_column_name("val"));
+    add(before_val2, binlog::build_before_column_name("val2"));
+    add(1, BINLOG_TSO_COL);
+    add(1, BINLOG_LSN_COL);
+    add(ROW_BINLOG_UPDATE, BINLOG_OP_COL);
+    return block;
+}
+
+void configure_two_value_reader(BlockReader& reader, std::shared_ptr<Block> source) {
+    configure_reader(reader, source, 16);
+    // Return key/val1/before-val1/meta only. val2 and before-val2 remain available internally
+    // at physical positions 2 and 4, with no target output position.
+    reader._normal_columns_idx = {0, 1, 3, 5, 6, 7};
+    reader._return_columns_loc = {0, 1, -1, 2, -1, 3, 4, 5};
+}
+
+TEST_F(BlockReaderChangeNextBlockTest, MinDeltaNoOpUpdateComparesAllValueColumns) {
+    auto source = make_two_value_source_block(/*val1=*/20, /*before_val1=*/20, /*val2=*/30,
+                                              /*before_val2=*/30);
+    BlockReader reader;
+    configure_two_value_reader(reader, source);
+
+    auto out = drain(reader, &BlockReader::_min_delta_next_block);
+    EXPECT_TRUE(out.empty());
+}
+
+TEST_F(BlockReaderChangeNextBlockTest, MinDeltaRetainsChangeInUnprojectedValueColumn) {
+    auto source = make_two_value_source_block(/*val1=*/20, /*before_val1=*/20, /*val2=*/31,
+                                              /*before_val2=*/30);
+    BlockReader reader;
+    configure_two_value_reader(reader, source);
+
+    auto out = drain(reader, &BlockReader::_min_delta_next_block);
+    ASSERT_EQ(out.size(), 2);
+    EXPECT_EQ(out[0].op, binlog::STREAM_CHANGE_UPDATE_BEFORE);
+    EXPECT_EQ(out[1].op, binlog::STREAM_CHANGE_UPDATE_AFTER);
+    EXPECT_EQ(out[0].val, 20);
+    EXPECT_EQ(out[1].val, 20);
 }
 
 // Multiple distinct keys, each in its own group, are folded independently.

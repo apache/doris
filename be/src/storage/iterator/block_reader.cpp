@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
+#include <numeric>
 #include <ostream>
 #include <string>
 
@@ -37,6 +38,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/primitive_type.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
 #include "exprs/function_filter.h"
 #include "runtime/runtime_state.h"
@@ -60,6 +62,18 @@ using namespace ErrorCode;
 
 static constexpr int32_t BLOCK_SIZE_CHECK_INTERVAL_ROWS = 64;
 
+namespace {
+
+// IColumn::compare_at is not implemented in production for these internal/opaque column
+// families. Row binlog currently rejects VARIANT, while the remaining types are kept here as a
+// conservative guard so an old or malformed schema cannot turn a MIN_DELTA query into an error.
+bool supports_min_delta_value_comparison(PrimitiveType type) {
+    return !is_var_len_object(type) && type != TYPE_VARIANT && type != TYPE_FIXED_LENGTH_OBJECT &&
+           type != TYPE_BINARY && type != INVALID_TYPE;
+}
+
+} // namespace
+
 BlockReader::~BlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
         _agg_functions[i]->destroy(_agg_places[i]);
@@ -78,8 +92,9 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
 }
 
 // Lazily resolves the positions of the binlog meta columns (tso / lsn / op) inside the
-// merged source block, and builds _before_column_idx mapping each non-meta column to its
-// __BEFORE__ mirror. The resolved positions are reused across blocks; if the column
+// merged source block, builds _before_column_idx mapping each non-meta column to its
+// __BEFORE__ mirror, and records the complete set of AFTER/BEFORE value pairs used by
+// MIN_DELTA equality checks. The resolved positions are reused across blocks; if the column
 // layout changes (detected via _binlog_op_pos sanity check), they are re-resolved.
 Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
     if (_binlog_column_pos_inited) {
@@ -95,6 +110,10 @@ Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
 
     const uint32_t col_num = src_block.columns();
     _before_column_idx.resize(col_num);
+    std::iota(_before_column_idx.begin(), _before_column_idx.end(), 0);
+    std::vector<bool> is_before_value_column(col_num, false);
+    _min_delta_value_column_pairs.clear();
+    _min_delta_value_comparison_complete = true;
     for (uint32_t i = 0; i < col_num; ++i) {
         const auto& name = src_block.get_by_position(i).name;
         if (name == BINLOG_TSO_COL) {
@@ -106,7 +125,30 @@ Status BlockReader::_ensure_binlog_column_pos(const Block& src_block) {
         } else {
             std::string before_name = binlog::build_before_column_name(name);
             int tmp_idx = src_block.get_position_by_name(before_name);
-            _before_column_idx[i] = tmp_idx < 0 ? i : tmp_idx;
+            if (tmp_idx >= 0) {
+                _before_column_idx[i] = tmp_idx;
+                is_before_value_column[tmp_idx] = true;
+                if (i >= _tablet_schema->num_key_columns()) {
+                    _min_delta_value_column_pairs.emplace_back(i, tmp_idx);
+                }
+            }
+        }
+    }
+
+    // OlapScanner places the full key prefix first for MIN_DELTA/DETAIL scans. Everything after
+    // that prefix which is neither metadata nor a BEFORE mirror is an AFTER value and must have
+    // a type-compatible mirror before a no-op UPDATE can be suppressed.
+    for (uint32_t i = static_cast<uint32_t>(_tablet_schema->num_key_columns()); i < col_num; ++i) {
+        if (_is_binlog_meta_column(i) || is_before_value_column[i]) {
+            continue;
+        }
+        int before_idx = _before_column_idx[i];
+        const auto& after = src_block.get_by_position(i);
+        if (before_idx == static_cast<int>(i) ||
+            !after.type->equals(*src_block.get_by_position(before_idx).type) ||
+            !supports_min_delta_value_comparison(after.type->get_primitive_type())) {
+            _min_delta_value_comparison_complete = false;
+            break;
         }
     }
     _binlog_column_pos_inited = true;
@@ -163,6 +205,19 @@ int BlockReader::_resolve_source_column_index(int idx, bool use_before) const {
     }
 
     return _before_column_idx[idx];
+}
+
+bool BlockReader::_min_delta_values_equal(size_t last_row) const {
+    if (!_min_delta_value_comparison_complete) {
+        return false;
+    }
+    for (const auto& [after_idx, before_idx] : _min_delta_value_column_pairs) {
+        if (_stored_data_columns[before_idx]->compare_at(
+                    0, last_row, *_stored_data_columns[after_idx], -1) != 0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void BlockReader::_init_pending_row_columns(const Block& block) {
@@ -255,6 +310,11 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
         auto first_op = _read_binlog_op(*_stored_data_columns[_binlog_op_pos], 0);
         auto last_op = _read_binlog_op(*_stored_data_columns[_binlog_op_pos], group_size - 1);
         auto result = binlog::AggregateFunctionMinDelta::calculate_result(first_op, last_op);
+        if (result == binlog::AggregateFunctionMinDelta::ResultType::UPDATE_BEFORE_AFTER &&
+            binlog::is_valid_row_binlog_op(first_op) && binlog::is_valid_row_binlog_op(last_op) &&
+            _min_delta_values_equal(group_size - 1)) {
+            result = binlog::AggregateFunctionMinDelta::ResultType::SKIP;
+        }
         switch (result) {
         case binlog::AggregateFunctionMinDelta::ResultType::SKIP:
             break;
