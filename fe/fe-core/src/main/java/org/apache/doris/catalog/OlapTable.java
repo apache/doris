@@ -1827,6 +1827,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return colocateGroup != null;
     }
 
+    public boolean isTenantLevelColocateTable() {
+        return Env.getCurrentTenantLevelColocateIndex().isColocateTable(getId());
+    }
+
     public String getColocateGroup() {
         return colocateGroup;
     }
@@ -2589,9 +2593,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         partitionInfo.refreshTableStoragePolicy("");
     }
 
-    public void checkChangeReplicaAllocation() throws DdlException {
+    public void checkChangeReplicaAllocation(ReplicaAllocation replicaAllocation) throws DdlException {
         if (isColocateTable()) {
             throw new DdlException("Cannot change replication allocation of colocate table.");
+        }
+        if (isTenantLevelColocateTable()) {
+            Env.getCurrentTenantLevelColocateIndex().checkReplica(getId(), replicaAllocation);
         }
     }
 

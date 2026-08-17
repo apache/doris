@@ -93,6 +93,7 @@ import org.apache.doris.thrift.TQueryCacheParam;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -693,6 +694,11 @@ public class NereidsPlanner extends Planner {
         for (int seq = 0; seq < fragments.size(); seq++) {
             PlanFragment fragment = fragments.get(seq);
             fragment.setFragmentSequenceNum(seq);
+            Optional<Map<String, List<List<Long>>>> colocateData = fragment.getColocateData();
+            if (colocateData.isPresent()) {
+                Map<String, List<List<Long>>> newColocateData = getFragmentColocateDataWithSameSize(colocateData.get());
+                fragment.setColocateData(newColocateData);
+            }
             if (enableQueryCache) {
                 try {
                     QueryCacheNormalizer normalizer = new QueryCacheNormalizer(fragment, descTable);
@@ -1338,5 +1344,25 @@ public class NereidsPlanner extends Planner {
     @Override
     public List<TopnFilter> getTopnFilters() {
         return cascadesContext.getTopnFilterContext().getTopnFilters();
+    }
+
+    private static Map<String, List<List<Long>>> getFragmentColocateDataWithSameSize(
+            Map<String, List<List<Long>>> colocateData) {
+        if (colocateData.size() <= 1) {
+            return colocateData;
+        }
+        // It is better to make sure each tenant of the user has the same size.
+        // But it is not, just select the biggest one.
+        int maxSize = 0;
+        for (Map.Entry<String, List<List<Long>>> entry : colocateData.entrySet()) {
+            maxSize = Math.max(maxSize, entry.getValue().size());
+        }
+        Map<String, List<List<Long>>> map = Maps.newHashMap();
+        for (Map.Entry<String, List<List<Long>>> entry : colocateData.entrySet()) {
+            if (maxSize == entry.getValue().size()) {
+                map.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return map;
     }
 }

@@ -182,6 +182,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private long copyTimeMs = 0;
 
     private Set<Long> colocateBackendsSet = null;
+    private Set<Tag> excludeTagSet = Collections.emptySet();
     private int tabletOrderIdx = -1;
 
     private SystemInfoService infoService;
@@ -538,6 +539,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 }
                 return true;
             }
+            if (excludeTagSet.contains(backend.getLocationTag())) {
+                return true;
+            }
         }
         return false;
     }
@@ -548,6 +552,14 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public Set<Long> getColocateBackendsSet() {
         return colocateBackendsSet;
+    }
+
+    public Set<Tag> getExcludeTagSet() {
+        return excludeTagSet;
+    }
+
+    public void setExcludeTagSet(Set<Tag> excludeTagSet) {
+        this.excludeTagSet = excludeTagSet;
     }
 
     public void setTabletOrderIdx(int idx) {

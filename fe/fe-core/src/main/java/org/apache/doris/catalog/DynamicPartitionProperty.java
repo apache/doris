@@ -118,13 +118,18 @@ public class DynamicPartitionProperty {
         return true;
     }
 
-    private ReplicaAllocation analyzeReplicaAllocation(Map<String, String> properties) {
+    public static ReplicaAllocation analyzeReplicaAllocation(Map<String, String> properties) {
         try {
             return PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
         } catch (AnalysisException e) {
             // should not happen
             return ReplicaAllocation.NOT_SET;
         }
+    }
+
+    public static ReplicaAllocation analyzeReplicaAllocation(Map<String, String> properties, boolean checkBackends)
+            throws AnalysisException {
+        return PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition", checkBackends);
     }
 
     private void createStartOfs(Map<String, String> properties) {

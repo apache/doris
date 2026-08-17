@@ -100,6 +100,7 @@ import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -128,6 +129,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -2393,6 +2395,14 @@ public class SchemaChangeHandler extends AlterHandler {
                     } else {
                         throw new DdlException("reduplicated PROPERTIES");
                     }
+                    if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)
+                            && properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_GROUP)) {
+                        throw new DdlException("colocate_with conflict with colocate_group");
+                    }
+                    if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)
+                            && properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_SLAVE)) {
+                        throw new DdlException("colocate_with conflict with colocate_slave");
+                    }
 
                     // modification of colocate property is handle alone.
                     // And because there should be only one colocate property modification clause in stmt,
@@ -2400,6 +2410,17 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
                         String colocateGroup = properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
                         Env.getCurrentEnv().modifyTableColocate(db, olapTable, colocateGroup, false, null);
+                        return;
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_GROUP)) {
+                        String colocateGroup = properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_GROUP);
+                        Map<Tag, String> map = PropertyAnalyzer.analyzeTenantLevelColocateMap(colocateGroup);
+                        Env.getCurrentEnv()
+                                .modifyTenantLevelMasterColocate(db, olapTable, map, false, Collections.emptyMap());
+                        return;
+                    } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_SLAVE)) {
+                        String colocateGroup = properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_SLAVE);
+                        Map<Tag, String> map = PropertyAnalyzer.analyzeTenantLevelColocateMap(colocateGroup);
+                        Env.getCurrentEnv().modifyTenantLevelSlaveColocate(db, olapTable, map, false);
                         return;
                     } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE)) {
                         String distributionType = properties.get(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE);

@@ -31,6 +31,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class ComputeGroup {
@@ -83,6 +84,13 @@ public class ComputeGroup {
         Set<String> cgSet = new HashSet<>();
         cgSet.add(name);
         return systemInfoService.getBackendListByComputeGroup(cgSet);
+    }
+
+    public Optional<Set<String>> getLocationTagSet() {
+        checkInvalidComputeGroup();
+        Set<String> cgSet = new HashSet<>();
+        cgSet.add(name);
+        return Optional.of(cgSet);
     }
 
     @Override

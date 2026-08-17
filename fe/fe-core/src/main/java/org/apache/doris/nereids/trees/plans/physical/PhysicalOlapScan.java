@@ -61,6 +61,7 @@ import java.util.stream.Collectors;
 public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapScan {
     private static final Logger LOG = LogManager.getLogger(PhysicalOlapScan.class);
     private final DistributionSpec distributionSpec;
+    private final Optional<Map<String, List<List<Long>>>> colocateData;
     private final long selectedIndexId;
     private final ImmutableList<Long> selectedTabletIds;
     private final ImmutableList<Long> selectedPartitionIds;
@@ -158,7 +159,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             List<OrderKey> scoreOrderKeys, Optional<Long> scoreLimit, Optional<ScoreRangeInfo> scoreRangeInfo,
             List<OrderKey> annOrderKeys, Optional<Long> annLimit, String tableAlias) {
         this(id, olapTable, qualifier, selectedIndexId, selectedTabletIds, selectedPartitionIds,
-                hasPartitionPredicate, distributionSpec, preAggStatus, baseOutputs, groupExpression,
+                hasPartitionPredicate, distributionSpec, Optional.empty(), preAggStatus, baseOutputs, groupExpression,
                 logicalProperties, physicalProperties, statistics, tableSample, operativeSlots, virtualColumns,
                 scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias,
                 Optional.empty(), Optional.empty());
@@ -169,7 +170,8 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
      */
     public PhysicalOlapScan(RelationId id, OlapTable olapTable, List<String> qualifier, long selectedIndexId,
             List<Long> selectedTabletIds, List<Long> selectedPartitionIds, boolean hasPartitionPredicate,
-            DistributionSpec distributionSpec, PreAggStatus preAggStatus, List<Slot> baseOutputs,
+            DistributionSpec distributionSpec, Optional<Map<String, List<List<Long>>>> colocateData,
+            PreAggStatus preAggStatus, List<Slot> baseOutputs,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics,
             Optional<TableSample> tableSample,
@@ -184,6 +186,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         this.selectedPartitionIds = ImmutableList.copyOf(selectedPartitionIds);
         this.hasPartitionPredicate = hasPartitionPredicate;
         this.distributionSpec = distributionSpec;
+        this.colocateData = colocateData;
         this.preAggStatus = preAggStatus;
         this.baseOutputs = ImmutableList.copyOf(baseOutputs);
         this.tableSample = tableSample;
@@ -232,7 +235,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             Optional<PartitionPrunablePredicate> partitionPrunablePredicates) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalOlapScan(relationId, getTable(), qualifier,
                 selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPredicate,
-                distributionSpec, preAggStatus, baseOutputs, groupExpression, getLogicalProperties(),
+                distributionSpec, colocateData, preAggStatus, baseOutputs, groupExpression, getLogicalProperties(),
                 getPhysicalProperties(), statistics, tableSample, operativeSlots, virtualColumns, scoreOrderKeys,
                 scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
                 scanParams));
@@ -382,7 +385,8 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     public PhysicalOlapScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalOlapScan(relationId, getTable(), qualifier,
                 selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPredicate,
-                distributionSpec, preAggStatus, baseOutputs, groupExpression, getLogicalProperties(), null, null,
+                distributionSpec, colocateData, preAggStatus, baseOutputs, groupExpression,
+                getLogicalProperties(), null, null,
                 tableSample, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, scoreRangeInfo,
                 annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
     }
@@ -392,7 +396,8 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalOlapScan(relationId, getTable(), qualifier,
                 selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPredicate,
-                distributionSpec, preAggStatus, baseOutputs, groupExpression, logicalProperties.get(), null, null,
+                distributionSpec, colocateData, preAggStatus, baseOutputs, groupExpression,
+                logicalProperties.get(), null, null,
                 tableSample, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, scoreRangeInfo,
                 annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
     }
@@ -402,7 +407,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
             PhysicalProperties physicalProperties, Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalOlapScan(relationId, getTable(), qualifier,
                 selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPredicate,
-                distributionSpec, preAggStatus, baseOutputs, groupExpression, getLogicalProperties(),
+                distributionSpec, colocateData, preAggStatus, baseOutputs, groupExpression, getLogicalProperties(),
                 physicalProperties, statistics, tableSample, operativeSlots, virtualColumns, scoreOrderKeys,
                 scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
                 scanParams));
@@ -414,6 +419,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
         JSONObject properties = new JSONObject();
         properties.put("OlapTable", ((OlapTable) table).toSimpleJson());
         properties.put("DistributionSpec", distributionSpec.toString());
+        properties.put("ColocateData", colocateData);
         properties.put("SelectedIndexId", Long.toString(selectedIndexId));
         properties.put("SelectedTabletIds", selectedTabletIds.toString());
         properties.put("SelectedPartitionIds", selectedPartitionIds.toString());
@@ -430,7 +436,7 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
     public CatalogRelation withOperativeSlots(Collection<Slot> operativeSlots) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalOlapScan(relationId, (OlapTable) table, qualifier,
                 selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPredicate,
-                distributionSpec, preAggStatus, baseOutputs, groupExpression, getLogicalProperties(),
+                distributionSpec, colocateData, preAggStatus, baseOutputs, groupExpression, getLogicalProperties(),
                 getPhysicalProperties(), statistics, tableSample, operativeSlots, virtualColumns, scoreOrderKeys,
                 scoreLimit,
                 scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
@@ -443,5 +449,9 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
 
     public Optional<TableScanParams> getScanParams() {
         return scanParams;
+    }
+
+    public Optional<Map<String, List<List<Long>>>> getColocateData() {
+        return colocateData;
     }
 }

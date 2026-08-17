@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedScan
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UninstancedScanSource;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
@@ -57,6 +58,13 @@ public interface ScanWorkerSelector {
             TScanRangeLocations tabletLocation, TScanRangeLocation replicaLocation) {
         TScanRangeParams replicaParam = new TScanRangeParams();
         replicaParam.scan_range = tabletLocation.scan_range;
+        return replicaParam;
+    }
+
+    static TScanRangeParams buildScanReplicaParams(
+            TScanRange scanRange, TScanRangeLocation replicaLocation) {
+        TScanRangeParams replicaParam = new TScanRangeParams();
+        replicaParam.scan_range = scanRange;
         return replicaParam;
     }
 }

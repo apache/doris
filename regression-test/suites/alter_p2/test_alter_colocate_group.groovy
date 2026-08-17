@@ -89,7 +89,7 @@ suite ("test_alter_colocate_group") {
             PARTITION p1 values less than('2020-02-01'),
             PARTITION p2 values less than('2020-03-01')
         )
-        DISTRIBUTED BY HASH(k2) BUCKETS 5
+        DISTRIBUTED BY HASH(k2) BUCKETS 12
         PROPERTIES
         (
             "colocate_with" = "group_2",
@@ -119,11 +119,14 @@ suite ("test_alter_colocate_group") {
          );
     """
 
-    def checkGroupsReplicaAlloc = { groupName, replicaNum ->
+    def checkGroupsReplicaAlloc = { groupName, replicaNum, isMaster ->
         // groupName -> replicaAlloc
         def allocMap = [:]
         def groups = sql """ show proc "/colocation_group" """
         for (def group : groups) {
+            if (!isMaster && group[6] == "true") {
+                continue
+            }
             allocMap[group[1]] = group[4]
         }
         log.info("allocMap: ${allocMap}")
@@ -151,7 +154,13 @@ suite ("test_alter_colocate_group") {
         }
     }
 
-    def beNum = sql_return_maparray("show backends").size()
+    def backends = sql_return_maparray("show backends");
+    def beNum = 0;
+    for (int i = 0; i < backends.size(); i++) {
+        if (backends[i]["Tag"].contains("""{"location" : "default"}""")) {
+            beNum += 1;
+        }
+    }
     def modifyReplicaNum = -1
     for (int i=1; i <= beNum; i++) {
         if (i != replication_num) {
@@ -163,7 +172,7 @@ suite ("test_alter_colocate_group") {
 
     for (int i = 1; i <= 3; i++) {
         def groupName = "regression_test_alter_p2.group_${i}"
-        checkGroupsReplicaAlloc(groupName, replication_num)
+        checkGroupsReplicaAlloc(groupName, replication_num, true)
 
         def tableName = "tbl${i}"
         def hasDynamicPart = i == 3
@@ -189,7 +198,17 @@ suite ("test_alter_colocate_group") {
             checkGroupsReplicaAlloc(groupName, modifyReplicaNum)
             checkTableReplicaAlloc(tableName, hasDynamicPart, modifyReplicaNum)
         }
+
+        sql """alter table ${tableName} set ("colocate_with" = "");"""
     }
+
+    sql """alter table tbl1 set ("colocate_group" = "tag.location.default: group_1");"""
+    sql """alter table tbl2 set ("colocate_slave" = "tag.location.default: group_1");"""
+    sql """alter table tbl3 set ("colocate_group" = "tag.location.default: group_3");"""
+
+    checkGroupsReplicaAlloc("group_1/default", replication_num, true)
+    checkGroupsReplicaAlloc("group_1/default", replication_num, false)
+    checkGroupsReplicaAlloc("group_3/default", replication_num, true)
 
     sql " DROP TABLE IF EXISTS tbl1 FORCE; "
     sql " DROP TABLE IF EXISTS tbl2 FORCE; "

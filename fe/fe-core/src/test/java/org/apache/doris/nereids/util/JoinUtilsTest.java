@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Reference;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -39,6 +40,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public class JoinUtilsTest {
 
@@ -79,22 +81,23 @@ public class JoinUtilsTest {
                 TinyIntType.INSTANCE, false, Lists.newArrayList());
 
         List<Expression> conjuncts;
+        Reference<Map<String, List<List<Long>>>> colocateData = new Reference<>();
 
         // key same with distribute key
         conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1));
-        Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, conjuncts));
+        Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
         // key contains distribute key, and have distribute key = distribute key
         conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1), new EqualTo(leftKey2, rightKey2));
-        Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, conjuncts));
+        Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
         // key contains distribute key, and NOT have distribute key = distribute key
         conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey2), new EqualTo(leftKey2, rightKey1));
-        Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+        Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
         // key not contains distribute key
         conjuncts = Lists.newArrayList(new EqualTo(leftKey2, rightKey2));
-        Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+        Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
     }
 
     @Test
@@ -126,22 +129,23 @@ public class JoinUtilsTest {
                     TinyIntType.INSTANCE, false, Lists.newArrayList());
 
             List<Expression> conjuncts;
+            Reference<Map<String, List<List<Long>>>> colocateData = new Reference<>();
 
             // key same with distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1));
-            Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
             // key contains distribute key, and have distribute key = distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1), new EqualTo(leftKey2, rightKey2));
-            Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
             // key contains distribute key, and NOT have distribute key = distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey2), new EqualTo(leftKey2, rightKey1));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
             // key not contains distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey2, rightKey2));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
         }
     }
 
@@ -174,22 +178,23 @@ public class JoinUtilsTest {
                     TinyIntType.INSTANCE, false, Lists.newArrayList());
 
             List<Expression> conjuncts;
+            Reference<Map<String, List<List<Long>>>> colocateData = new Reference<>();
 
             // key same with distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
             // key contains distribute key, and have distribute key = distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1), new EqualTo(leftKey2, rightKey2));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
             // key contains distribute key, and NOT have distribute key = distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey2), new EqualTo(leftKey2, rightKey1));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
             // key not contains distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey2, rightKey2));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
         }
     }
 
@@ -222,22 +227,23 @@ public class JoinUtilsTest {
                     TinyIntType.INSTANCE, false, Lists.newArrayList());
 
             List<Expression> conjuncts;
+            Reference<Map<String, List<List<Long>>>> colocateData = new Reference<>();
 
             // key same with distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
             // key contains distribute key, and have distribute key = distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1), new EqualTo(leftKey2, rightKey2));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
             // key contains distribute key, and NOT have distribute key = distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey2), new EqualTo(leftKey2, rightKey1));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
             // key not contains distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey2, rightKey2));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
         }
     }
 
@@ -270,22 +276,23 @@ public class JoinUtilsTest {
                     TinyIntType.INSTANCE, false, Lists.newArrayList());
 
             List<Expression> conjuncts;
+            Reference<Map<String, List<List<Long>>>> colocateData = new Reference<>();
 
             // key same with distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
             // key contains distribute key, and have distribute key = distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1), new EqualTo(leftKey2, rightKey2));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
             // key contains distribute key, and NOT have distribute key = distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey2), new EqualTo(leftKey2, rightKey1));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
 
             // key not contains distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey2, rightKey2));
-            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts));
+            Assertions.assertFalse(JoinUtils.couldColocateJoin(left, right, conjuncts, colocateData));
         }
     }
 }

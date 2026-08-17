@@ -100,6 +100,10 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
 
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
             // do nothing, colocate property will be processed in SchemaChangeHandler
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_GROUP)) {
+            // do nothing, colocate property will be processed in SchemaChangeHandler
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_SLAVE)) {
+            // do nothing, colocate property will be processed in SchemaChangeHandler
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE).equalsIgnoreCase("column")) {
                 throw new AnalysisException("Can only change storage type to COLUMN");

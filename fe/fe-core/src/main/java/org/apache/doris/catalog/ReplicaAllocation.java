@@ -34,6 +34,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * ReplicaAllocation is used to describe the distribution of replicas of a tablet.
@@ -92,6 +93,17 @@ public class ReplicaAllocation implements Writable {
 
     public Short getReplicaNumByTag(Tag tag) {
         return allocMap.getOrDefault(tag, (short) 0);
+    }
+
+    public ReplicaAllocation getSubMap(Set<Tag> tags) {
+        ReplicaAllocation result = new ReplicaAllocation();
+        for (Tag tag : tags) {
+            if (!allocMap.containsKey(tag)) {
+                continue;
+            }
+            result.put(tag, getReplicaNumByTag(tag));
+        }
+        return result;
     }
 
     public static ReplicaAllocation read(DataInput in) throws IOException {

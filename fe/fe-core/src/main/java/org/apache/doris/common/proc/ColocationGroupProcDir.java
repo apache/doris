@@ -27,6 +27,8 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TenantLevelColocateGroupSchema;
+import org.apache.doris.catalog.TenantLevelColocateTableIndex;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -50,7 +52,7 @@ import java.util.Set;
 public class ColocationGroupProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("GroupId").add("GroupName").add("TableIds")
-            .add("BucketsNum").add("ReplicaAllocation").add("DistCols").add("IsStable")
+            .add("BucketsNum").add("ReplicaAllocation").add("DistCols").add("IsMaster").add("IsStable")
             .add("ErrorMsg").build();
 
     @Override
@@ -78,6 +80,15 @@ public class ColocationGroupProcDir implements ProcDirInterface {
         ColocateTableIndex index = Env.getCurrentColocateIndex();
         Map<Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
         Map<String, List<List<Long>>> columns;
+        if ((beSeqs == null || beSeqs.isEmpty()) && !Config.isCloudMode() && dbId == 0) {
+            TenantLevelColocateTableIndex tenantLevelColocateIndex = Env.getCurrentTenantLevelColocateIndex();
+            TenantLevelColocateGroupSchema groupV2 = tenantLevelColocateIndex.getGroupSchema(grpId);
+            if (groupV2 != null) {
+                beSeqs = Maps.newLinkedHashMap();
+                List<List<Long>> beSeq = tenantLevelColocateIndex.getBackendsPerBucketSeqByGroup(groupV2.getGroupId());
+                beSeqs.put(groupV2.getTag(), beSeq);
+            }
+        }
         if ((beSeqs == null || beSeqs.isEmpty()) && Config.isCloudMode()) {
             // In cloud mode, legacy backend sequence metadata may be empty. Derive the
             // sequence from current tablets, one column per compute group. This path must
@@ -101,7 +112,10 @@ public class ColocationGroupProcDir implements ProcDirInterface {
         result.setNames(TITLE_NAMES);
 
         ColocateTableIndex index = Env.getCurrentColocateIndex();
-        List<List<String>> infos = index.getInfos();
+        List<List<String>> infos = new ArrayList<>();
+        infos.addAll(index.getInfos());
+        TenantLevelColocateTableIndex tenantLevelColocateIndex = Env.getCurrentTenantLevelColocateIndex();
+        infos.addAll(tenantLevelColocateIndex.getInfos());
         result.setRows(infos);
         return result;
     }

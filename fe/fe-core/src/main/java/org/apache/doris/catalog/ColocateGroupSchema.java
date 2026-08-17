@@ -96,26 +96,31 @@ public class ColocateGroupSchema implements Writable {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_BUCKET_NUM,
                         info.getBucketNum(), bucketsNum);
             }
-            // distribution col size
-            if (info.getDistributionColumns().size() != distributionColTypes.size()) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_SIZE,
-                        info.getDistributionColumns().size(), distributionColTypes.size());
+            checkDistributionTypes(info, distributionColTypes);
+        }
+    }
+
+    public static void checkDistributionTypes(HashDistributionInfo info, List<Type> distributionColTypes)
+            throws DdlException {
+        // distribution col size
+        if (info.getDistributionColumns().size() != distributionColTypes.size()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_SIZE,
+                    info.getDistributionColumns().size(), distributionColTypes.size());
+        }
+        // distribution col type
+        for (int i = 0; i < distributionColTypes.size(); i++) {
+            Type targetColType = distributionColTypes.get(i);
+            // varchar and string has same distribution hash value if it's data is same
+            if (targetColType.isVarcharOrStringType() && info.getDistributionColumns().get(i).getType()
+                    .isVarcharOrStringType()) {
+                continue;
             }
-            // distribution col type
-            for (int i = 0; i < distributionColTypes.size(); i++) {
-                Type targetColType = distributionColTypes.get(i);
-                // varchar and string has same distribution hash value if it's data is same
-                if (targetColType.isVarcharOrStringType() && info.getDistributionColumns().get(i).getType()
-                        .isVarcharOrStringType()) {
-                    continue;
-                }
-                if (!targetColType.equals(info.getDistributionColumns().get(i).getType())) {
-                    String typeName = info.getDistributionColumns().get(i).getType().toString();
-                    String colName = info.getDistributionColumns().get(i).getName();
-                    String formattedString = colName + "(" + typeName + ")";
-                    ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_TYPE,
-                                                formattedString, targetColType);
-                }
+            if (!targetColType.equals(info.getDistributionColumns().get(i).getType())) {
+                String typeName = info.getDistributionColumns().get(i).getType().toString();
+                String colName = info.getDistributionColumns().get(i).getName();
+                String formattedString = colName + "(" + typeName + ")";
+                ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_TYPE,
+                        formattedString, targetColType);
             }
         }
     }

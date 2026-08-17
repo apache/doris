@@ -69,6 +69,7 @@ import java.util.TreeSet;
 public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob {
     private final ScanWorkerSelector scanWorkerSelector;
     private final List<OlapScanNode> olapScanNodes;
+    private final int colocateBucketNum;
 
     /** UnassignedScanNativeTableJob */
     public UnassignedScanBucketOlapTableJob(
@@ -78,9 +79,14 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         super(statementContext, fragment, (List) olapScanNodes, exchangeToChildJob);
         this.scanWorkerSelector = Objects.requireNonNull(
                 scanWorkerSelector, "scanWorkerSelector cat not be null");
-
         Preconditions.checkArgument(!olapScanNodes.isEmpty(), "OlapScanNode is empty");
         this.olapScanNodes = olapScanNodes;
+        if (fragment.getColocateData().isPresent()) {
+            colocateBucketNum = fragment.getColocateData().get().values().iterator().next().size();
+            Preconditions.checkState(olapScanNodes.get(0).getBucketNum() % colocateBucketNum == 0);
+        } else {
+            colocateBucketNum = olapScanNodes.get(0).getBucketNum();
+        }
     }
 
     public List<OlapScanNode> getOlapScanNodes() {
@@ -620,5 +626,9 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
 
         int maxParallelism = (int) Math.max(tabletNum, fragment.getParallelExecNum());
         return Math.min(maxParallelism, colocateMaxParallelNum);
+    }
+
+    public int getColocateBucketNum() {
+        return colocateBucketNum;
     }
 }
