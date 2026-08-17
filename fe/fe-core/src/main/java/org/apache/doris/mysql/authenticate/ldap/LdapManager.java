@@ -122,18 +122,6 @@ public class LdapManager {
         return exists;
     }
 
-    /**
-     * LDAP treats a bind with an empty password as an unauthenticated bind and usually reports
-     * it as successful, so an empty password must be rejected before it reaches the LDAP server.
-     */
-    boolean isEmptyPasswordLoginAllowed(String fullName, String passwd) {
-        if (!Strings.isNullOrEmpty(passwd) || LdapConfig.ldap_allow_empty_pass) {
-            return true;
-        }
-        LOG.warn("Rejected LDAP login with empty password, user={}, ldapAllowEmptyPass=false", fullName);
-        return false;
-    }
-
     public boolean checkUserPasswd(String fullName, String passwd) {
         long start = System.currentTimeMillis();
         String userName = fullName;
@@ -142,8 +130,11 @@ public class LdapManager {
             return false;
         }
 
-        // extra check for PR 61440 to disable login with empty LDAP password in case when specific property is true
-        if (!isEmptyPasswordLoginAllowed(fullName, passwd)) {
+        // Reject an empty password here, before the cached-password comparison and the LDAP bind
+        // below: an empty password would otherwise reach the server as an unauthenticated bind,
+        // which LDAP reports as success. Opt out with ldap_allow_empty_pass = true.
+        if (passwd.isEmpty() && !LdapConfig.ldap_allow_empty_pass) {
+            LOG.warn("Rejected LDAP login with empty password, user={}, ldapAllowEmptyPass=false", fullName);
             return false;
         }
 

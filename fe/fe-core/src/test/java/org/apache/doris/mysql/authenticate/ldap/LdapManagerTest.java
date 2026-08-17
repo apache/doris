@@ -154,9 +154,27 @@ public class LdapManagerTest {
         //empty password succeeds and gets cached while the flag is still enabled.
         Assert.assertTrue(ldapManager.checkUserPasswd(USER1, ""));
         Assert.assertEquals("", ldapManager.getUserInfo(USER1).getPasswd());
+
+        //once disabled, the cached entry must not short-circuit the new check
+        LdapConfig.ldap_allow_empty_pass = false;
+        Assert.assertFalse(ldapManager.checkUserPasswd(USER1, ""));
+        //a non-empty password still authenticates against the same cached entry
+        Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
     }
 
-    // Once disabled, the cached entry must not short-circuit the new check.
+    @Test
+    public void testEmptyPasswordIsRejectedBeforeCacheLookup() throws Exception {
+        //the empty password check must run before getUserInfo(), which is what keeps a cached
+        //empty password from short-circuiting the check and letting the login through
+        LdapManager ldapManager = new LdapManager();
+        Deencapsulation.setField(ldapManager, "ldapClient", ldapClient);
+        mockClient(true, true);
+
+        LdapManager spyManager = Mockito.spy(ldapManager);
+        Assert.assertFalse(spyManager.checkUserPasswd(USER1, ""));
+        Mockito.verify(spyManager, Mockito.times(0)).getUserInfo(USER1);
+    }
+
     @Test
     public void testCheckUserNullPasswd() throws Exception {
         //test check existing feature that user with null ldap password can't login in any case

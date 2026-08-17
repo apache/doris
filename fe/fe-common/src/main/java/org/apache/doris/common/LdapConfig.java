@@ -200,7 +200,11 @@ public class LdapConfig extends ConfigBase {
     public static boolean ldap_use_ssl = false;
 
     /**
-     * Flag to enable login with empty pass.
+     * Allow LDAP users to log in with an empty password. Disabled by default: LDAP reports a bind
+     * with an empty password as a successful unauthenticated bind, so enabling this lets anyone
+     * who knows a valid LDAP user name log in without a password. Applies to the legacy LDAP
+     * authentication path only; the fe-authentication LDAP plugin always rejects empty passwords.
+     * Not runtime-mutable - changing it requires an FE restart.
      */
     @ConfigBase.ConfField
     public static boolean ldap_allow_empty_pass = false;
