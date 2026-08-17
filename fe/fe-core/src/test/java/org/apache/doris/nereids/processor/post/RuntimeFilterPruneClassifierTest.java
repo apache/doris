@@ -128,17 +128,28 @@ class RuntimeFilterPruneClassifierTest {
         directMvColumn.setDefineExpr(new SlotRef(baseSlotDescriptor));
         RuntimeFilterPruneClassifier.Classification directClassification = classifyBucket(
                 TRuntimeFilterType.IN, directMvColumn,
-                new HashDistributionInfo(8, ImmutableList.of(baseColumn)));
+                new HashDistributionInfo(8, ImmutableList.of(baseColumn)), 1L, 2L);
 
         Column computedMvColumn = new Column("base_col", PrimitiveType.INT);
         computedMvColumn.setDefineExpr(new FunctionCallExpr("abs",
                 ImmutableList.of(new SlotRef(baseSlotDescriptor)), true));
         RuntimeFilterPruneClassifier.Classification computedClassification = classifyBucket(
                 TRuntimeFilterType.IN, computedMvColumn,
-                new HashDistributionInfo(8, ImmutableList.of(baseColumn)));
+                new HashDistributionInfo(8, ImmutableList.of(baseColumn)), 1L, 2L);
 
         Assertions.assertTrue(directClassification.canPruneBuckets());
         Assertions.assertFalse(computedClassification.canPruneBuckets());
+    }
+
+    @Test
+    void testNonBaseIndexWithoutDirectDefinitionRejected() {
+        Column distributionColumn = new Column("dist_col", PrimitiveType.INT);
+        RuntimeFilterPruneClassifier.Classification classification = classifyBucket(
+                TRuntimeFilterType.IN, distributionColumn,
+                new HashDistributionInfo(8, ImmutableList.of(distributionColumn)), 1L, 2L);
+
+        Assertions.assertFalse(classification.canPruneBuckets());
+        Assertions.assertTrue(classification.getBucketUnsupportedReason().contains("no direct base-column"));
     }
 
     @Test
@@ -298,11 +309,19 @@ class RuntimeFilterPruneClassifierTest {
 
     private RuntimeFilterPruneClassifier.Classification classifyBucket(
             TRuntimeFilterType filterType, Column targetColumn, DistributionInfo distributionInfo) {
+        return classifyBucket(filterType, targetColumn, distributionInfo, 1L, 1L);
+    }
+
+    private RuntimeFilterPruneClassifier.Classification classifyBucket(
+            TRuntimeFilterType filterType, Column targetColumn, DistributionInfo distributionInfo,
+            long baseIndexId, long selectedIndexId) {
         OlapTable table = Mockito.mock(OlapTable.class);
         Partition partition = Mockito.mock(Partition.class);
+        Mockito.when(table.getBaseIndexId()).thenReturn(baseIndexId);
         Mockito.when(table.getPartition(1L)).thenReturn(partition);
         Mockito.when(partition.getDistributionInfo()).thenReturn(distributionInfo);
         PhysicalOlapScan scan = scan(table, ImmutableList.of(1L));
+        Mockito.when(scan.getSelectedIndexId()).thenReturn(selectedIndexId);
         SlotReference target = slot(targetColumn, table, 1);
         RuntimeFilter filter = newFilter(
                 filterType, target, target, target.getDataType(), scan);

@@ -89,6 +89,11 @@ final class RuntimeFilterPruneClassifier {
         if (table == null || scan.getSelectedPartitionIds().isEmpty()) {
             return BucketClassification.unsupported("target scan has no selected partitions");
         }
+        if (scan.getSelectedIndexId() != table.getBaseIndexId()
+                && targetColumn.getDefineExpr() == null) {
+            return BucketClassification.unsupported(
+                    "non-base-index target has no direct base-column definition");
+        }
 
         Column distributionColumn = null;
         for (Long partitionId : scan.getSelectedPartitionIds()) {
