@@ -180,10 +180,12 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                 storagePolicy.init(properties, ifNotExists);
                 return storagePolicy;
             case ROW:
+                // The predicate text goes in with the policy: this parse already has it, and recovering it
+                // later means parsing the request text again - a request that may hold several statements.
                 return new RowPolicy(policyId, policyName, tableNameInfo.getCtl(),
                         tableNameInfo.getDb(), tableNameInfo.getTbl(), user, roleName,
                         executor.getOriginStmt().originStmt, executor.getOriginStmt().idx, filterType.get(),
-                        wherePredicate.get());
+                        wherePredicate.get(), wherePredicateSql);
             default:
                 throw new AnalysisException("Unknown policy type: " + policyType);
         }

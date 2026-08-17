@@ -21,9 +21,12 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
@@ -102,9 +105,11 @@ public class RowPolicy extends Policy {
 
     private Expression wherePredicate = null;
 
-    // Derived from originStmt on first use, never persisted: see getFilterSql(). Excluded from equality and
-    // toString because it is a lazily filled cache - two policies created from the same statement must not
-    // compare differently depending on whether a query has already asked for the predicate text.
+    // The predicate as the administrator wrote it. Known without any parsing on the path that creates a
+    // policy - CREATE ROW POLICY already extracted it - and recovered from originStmt otherwise; never
+    // persisted, see getFilterSql(). Excluded from equality and toString because it is a lazily filled cache
+    // on the recovery path - two policies created from the same statement must not compare differently
+    // depending on whether a query has already asked for the predicate text.
     @EqualsAndHashCode.Exclude
     @ToString.Exclude
     private volatile String wherePredicateSql = null;
@@ -143,6 +148,22 @@ public class RowPolicy extends Policy {
     public RowPolicy(long policyId, final String policyName, String ctlName, String dbName, String tableName,
             UserIdentity user, String roleName,
             String originStmt, int stmtIdx, final FilterType filterType, final Expression wherePredicate) {
+        this(policyId, policyName, ctlName, dbName, tableName, user, roleName, originStmt, stmtIdx, filterType,
+                wherePredicate, null);
+    }
+
+    /**
+     * As above, with the predicate text the statement was parsed from already known.
+     *
+     * <p>Passing it is how {@code CREATE ROW POLICY} avoids ever recovering it: the parser had it and threw
+     * it away, and recovering it means re-parsing the whole statement text - which is not always the same
+     * statement, since a policy created inside a multi-statement request is one of several in
+     * {@code originStmt}.
+     */
+    public RowPolicy(long policyId, final String policyName, String ctlName, String dbName, String tableName,
+            UserIdentity user, String roleName,
+            String originStmt, int stmtIdx, final FilterType filterType, final Expression wherePredicate,
+            String wherePredicateSql) {
         super(policyId, PolicyTypeEnum.ROW, policyName);
         this.user = user;
         this.roleName = roleName;
@@ -153,6 +174,7 @@ public class RowPolicy extends Policy {
         this.originStmt = originStmt;
         this.stmtIdx = stmtIdx;
         this.wherePredicate = wherePredicate;
+        this.wherePredicateSql = StringUtils.isEmpty(wherePredicateSql) ? null : wherePredicateSql;
     }
 
     /**
@@ -170,21 +192,43 @@ public class RowPolicy extends Policy {
             return;
         }
         try {
-            NereidsParser nereidsParser = new NereidsParser();
-            String sql = getOriginStmt();
-            CreatePolicyCommand command = (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+            CreatePolicyCommand command = parseCreateStatement();
             Optional<Expression> wherePredicate = command.getWherePredicate();
             if (!wherePredicate.isPresent()) {
-                LOG.warn("Invalid row policy [" + getPolicyIdent() + "], " + sql);
+                LOG.warn("Invalid row policy [" + getPolicyIdent() + "], " + getOriginStmt());
                 return;
             }
             this.wherePredicate = wherePredicate.get();
+            if (!StringUtils.isEmpty(command.getWherePredicateSql())) {
+                this.wherePredicateSql = command.getWherePredicateSql();
+            }
         } catch (Exception e) {
             String errorMsg = String.format("table policy parse originStmt error, originStmt: %s, stmtIdx: %s.",
                     originStmt, stmtIdx);
             // Only print logs to avoid cluster failure to start
             LOG.warn(errorMsg, e);
         }
+    }
+
+    /**
+     * The {@code CREATE ROW POLICY} this policy was made by, out of the statement text stored with it.
+     *
+     * <p>{@code originStmt} holds the whole request, which is not necessarily one statement: a request may
+     * carry several separated by semicolons, and {@code stmtIdx} says which one this policy is. Parsing the
+     * text as a single statement therefore recovers the wrong policy, or nothing at all.
+     */
+    private CreatePolicyCommand parseCreateStatement() throws AnalysisException {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = getOriginStmt();
+        if (stmtIdx <= 0) {
+            return (CreatePolicyCommand) nereidsParser.parseSingle(sql);
+        }
+        List<Pair<LogicalPlan, StatementContext>> statements = nereidsParser.parseMultiple(sql);
+        if (stmtIdx >= statements.size()) {
+            throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "]: statement " + stmtIdx
+                    + " of " + statements.size() + " in " + sql);
+        }
+        return (CreatePolicyCommand) statements.get(stmtIdx).first;
     }
 
     @Override
@@ -249,7 +293,7 @@ public class RowPolicy extends Policy {
 
     private String parseWherePredicateSql() throws AnalysisException {
         try {
-            CreatePolicyCommand command = (CreatePolicyCommand) new NereidsParser().parseSingle(getOriginStmt());
+            CreatePolicyCommand command = parseCreateStatement();
             if (!StringUtils.isEmpty(command.getWherePredicateSql())) {
                 return command.getWherePredicateSql();
             }

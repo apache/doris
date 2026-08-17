@@ -97,6 +97,51 @@ public class RowPolicyFilterSqlTest {
                 "the error must name the broken policy so an operator can find it: " + thrown.getMessage());
     }
 
+    /**
+     * The same, for a policy that does have a predicate.
+     *
+     * <p>The case above stops at the null check and never reaches the recovery of the text, so it cannot see
+     * whether recovery fails safely. This one does reach it: the predicate is there, the statement it came
+     * from no longer parses, and the query has to be refused rather than read unfiltered.
+     */
+    @Test
+    public void testAPolicyWhoseStatementNoLongerParsesFailsEvenWithAPredicate() {
+        RowPolicy broken = new RowPolicy(1L, "p1", "internal", "db1", "t1", UserIdentity.ROOT, null,
+                "SELECT 1", 0, FilterType.RESTRICTIVE, PARSER.parseExpression("k1 = 1"));
+
+        AnalysisException thrown = Assertions.assertThrows(AnalysisException.class, broken::getFilterSql);
+        Assertions.assertTrue(thrown.getMessage().contains("Invalid row policy"),
+                "the error must name the broken policy so an operator can find it: " + thrown.getMessage());
+    }
+
+    /**
+     * A policy created inside a multi-statement request.
+     *
+     * <p>{@code originStmt} is the whole request, and {@code stmtIdx} says which statement of it this policy
+     * is; parsing the text as a single statement recovers the wrong policy or nothing at all. The creating
+     * path avoids the question by carrying the predicate text along, and the replay path has to honour the
+     * index.
+     */
+    @Test
+    public void testAPolicyFromAMultiStatementRequestRecoversItsOwnPredicate() throws Exception {
+        String request = "CREATE ROW POLICY p0 ON db1.t1 AS RESTRICTIVE TO root USING (k1 = 1);"
+                + "CREATE ROW POLICY p1 ON db1.t1 AS RESTRICTIVE TO root USING (k2 = 2)";
+
+        // As CREATE ROW POLICY builds it: the text is known, nothing is recovered.
+        RowPolicy created = new RowPolicy(1L, "p1", "internal", "db1", "t1", UserIdentity.ROOT, null,
+                request, 1, FilterType.RESTRICTIVE, PARSER.parseExpression("k2 = 2"), "k2 = 2");
+        Assertions.assertEquals(PARSER.parseExpression("k2 = 2"),
+                PARSER.parseExpression(created.getFilterSql()));
+
+        // As it comes back out of an image: no predicate and no text, both recovered from the statement.
+        RowPolicy replayed = new RowPolicy(1L, "p1", "internal", "db1", "t1", UserIdentity.ROOT, null,
+                request, 1, FilterType.RESTRICTIVE, null);
+        replayed.gsonPostProcess();
+        Assertions.assertFalse(replayed.isInvalid(), "the replayed policy lost its predicate");
+        Assertions.assertEquals(PARSER.parseExpression("k2 = 2"),
+                PARSER.parseExpression(replayed.getFilterSql()));
+    }
+
     /** Builds the policy the way CREATE ROW POLICY does: statement text plus the predicate parsed from it. */
     private RowPolicy policyOver(String predicate) {
         String statement = "CREATE ROW POLICY p1 ON db1.t1 AS RESTRICTIVE TO root USING (" + predicate + ")";
