@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/cache/async_cache_write_service.h"
+#include "io/cache/async_cache_write_manager.h"
 
 #include <algorithm>
 #include <array>
@@ -27,10 +27,11 @@
 #include <unordered_map>
 #include <utility>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "core/allocator.h"
 #include "cpp/sync_point.h"
-#include "io/cache/async_cache_write_service_metrics.h"
+#include "io/cache/async_cache_write_manager_metrics.h"
 #include "io/cache/block_file_cache.h"
 #include "runtime/thread_context.h"
 #include "util/countdown_latch.h"
@@ -241,16 +242,16 @@ Status resolve_async_file_cache_write_max_pending_bytes_per_disk(int64_t configu
     return Status::OK();
 }
 
-class AsyncCacheWriteService::Worker : public std::enable_shared_from_this<Worker> {
+class AsyncCacheWriteManager::Worker : public std::enable_shared_from_this<Worker> {
 public:
-    explicit Worker(AsyncCacheWriteService& service) : _service(service) {}
+    explicit Worker(AsyncCacheWriteManager& manager) : _manager(manager) {}
 
     Status start() {
         auto self = shared_from_this();
-        return _service._worker_pool->submit_func([self = std::move(self)]() { self->_run(); });
+        return _manager._worker_pool->submit_func([self = std::move(self)]() { self->_run(); });
     }
 
-    // The caller must hold the service queue mutex so changing the wait predicate cannot race
+    // The caller must hold the manager queue mutex so changing the wait predicate cannot race
     // with a worker between evaluating it and blocking on the condition variable.
     void request_stop() { _stop_requested.store(true, std::memory_order_release); }
 
@@ -258,30 +259,55 @@ public:
 
 private:
     void _run() {
-        _service._running_worker_count.fetch_add(1, std::memory_order_relaxed);
+        _manager._running_worker_count.fetch_add(1, std::memory_order_relaxed);
         Defer mark_finished {[this]() {
             const size_t old_running =
-                    _service._running_worker_count.fetch_sub(1, std::memory_order_relaxed);
+                    _manager._running_worker_count.fetch_sub(1, std::memory_order_relaxed);
             DCHECK_GT(old_running, 0);
             _stopped.count_down();
         }};
 
         while (!_stop_requested.load(std::memory_order_acquire)) {
             AsyncCacheWriteTask task;
-            if (_service._try_activate_task(&task)) {
-                _service._process_task(std::move(task));
+            if (_manager._try_activate_task(&task)) {
+                _process_task(std::move(task));
                 continue;
             }
 
-            std::unique_lock lock(_service._queue_mutex);
-            TEST_SYNC_POINT("AsyncCacheWriteService::Worker::_run:before_wait");
-            _service._queue_cv.wait(lock, [this]() {
-                return !_service._queue.empty() || _stop_requested.load(std::memory_order_acquire);
+            std::unique_lock lock(_manager._queue_mutex);
+            TEST_SYNC_POINT("AsyncCacheWriteManager::Worker::_run:before_wait");
+            _manager._queue_cv.wait(lock, [this]() {
+                return !_manager._queue.empty() || _stop_requested.load(std::memory_order_acquire);
             });
         }
     }
 
-    AsyncCacheWriteService& _service;
+    // A task is the worker loop's exception boundary. Its manager-side completion guard releases
+    // active accounting and owner state while this boundary keeps the long-lived worker alive.
+    void _process_task(AsyncCacheWriteTask task) {
+        const UInt128Wrapper cache_hash = task.cache_hash;
+        const size_t file_offset = task.file_offset;
+        const size_t write_size = task.write_size;
+        try {
+            _manager._process_task(std::move(task));
+        } catch (const Exception& exception) {
+            _record_task_exception(cache_hash, file_offset, write_size, exception.what());
+        } catch (const std::exception& exception) {
+            _record_task_exception(cache_hash, file_offset, write_size, exception.what());
+        } catch (...) {
+            _record_task_exception(cache_hash, file_offset, write_size, "unknown exception");
+        }
+    }
+
+    void _record_task_exception(const UInt128Wrapper& cache_hash, size_t file_offset,
+                                size_t write_size, const char* message) {
+        LOG(WARNING) << "Async file cache write task threw an exception, cache="
+                     << _manager._cache->get_base_path() << ", hash=" << cache_hash.to_string()
+                     << ", offset=" << file_offset << ", size=" << write_size
+                     << ", exception=" << message;
+    }
+
+    AsyncCacheWriteManager& _manager;
     std::atomic<bool> _stop_requested {false};
     CountDownLatch _stopped {1};
 };
@@ -299,10 +325,10 @@ AsyncCacheWriteBuffer::~AsyncCacheWriteBuffer() {
     allocator.free(_data, _size);
 }
 
-AsyncCacheWriteService::AsyncCacheWriteService(BlockFileCache* cache,
-                                               AsyncCacheWriteServiceOptions options)
+AsyncCacheWriteManager::AsyncCacheWriteManager(BlockFileCache* cache,
+                                               AsyncCacheWriteManagerOptions options)
         : _cache(cache),
-          _options(std::make_shared<const AsyncCacheWriteServiceOptions>(options)),
+          _options(std::make_shared<const AsyncCacheWriteManagerOptions>(options)),
           _write_epoch_registry(std::make_shared<AsyncCacheWriteEpochRegistry>()),
           _configured_worker_count(options.worker_count) {
     DORIS_CHECK(_cache != nullptr);
@@ -315,23 +341,23 @@ AsyncCacheWriteService::AsyncCacheWriteService(BlockFileCache* cache,
     _metrics = std::make_unique<Metrics>(*this, _cache->get_base_path().c_str());
 }
 
-AsyncCacheWriteService::~AsyncCacheWriteService() {
+AsyncCacheWriteManager::~AsyncCacheWriteManager() {
     shutdown();
 }
 
-AsyncCacheWriteEpoch AsyncCacheWriteService::current_write_epoch(const UInt128Wrapper& cache_hash) {
+AsyncCacheWriteEpoch AsyncCacheWriteManager::current_write_epoch(const UInt128Wrapper& cache_hash) {
     return AsyncCacheWriteEpoch {
             .cache_epoch = current_cache_epoch(),
             .key_token = _write_epoch_registry->capture(cache_hash),
     };
 }
 
-bool AsyncCacheWriteService::is_current_write_epoch(const AsyncCacheWriteEpoch& epoch) const {
+bool AsyncCacheWriteManager::is_current_write_epoch(const AsyncCacheWriteEpoch& epoch) const {
     DORIS_CHECK(epoch.key_token != nullptr);
     return epoch.cache_epoch == current_cache_epoch() && epoch.key_token->is_valid();
 }
 
-bool AsyncCacheWriteService::check_write_epoch(const AsyncCacheWriteEpoch& epoch) {
+bool AsyncCacheWriteManager::check_write_epoch(const AsyncCacheWriteEpoch& epoch) {
     DORIS_CHECK(epoch.key_token != nullptr);
     if (epoch.cache_epoch != current_cache_epoch()) {
         _metrics->record_stale_epoch(Metrics::StaleEpochReason::CACHE);
@@ -344,24 +370,24 @@ bool AsyncCacheWriteService::check_write_epoch(const AsyncCacheWriteEpoch& epoch
     return true;
 }
 
-void AsyncCacheWriteService::invalidate_pending_writes(const UInt128Wrapper& cache_hash) {
+void AsyncCacheWriteManager::invalidate_pending_writes(const UInt128Wrapper& cache_hash) {
     _metrics->record_epoch_invalidation(Metrics::EpochInvalidationScope::KEY);
     _write_epoch_registry->invalidate(cache_hash);
 }
 
-uint64_t AsyncCacheWriteService::invalidate_all_pending_writes() {
+uint64_t AsyncCacheWriteManager::invalidate_all_pending_writes() {
     _metrics->record_epoch_invalidation(Metrics::EpochInvalidationScope::CACHE);
     return _cache_epoch.fetch_add(1, std::memory_order_acq_rel) + 1;
 }
 
-size_t AsyncCacheWriteService::active_write_epoch_key_count() const {
+size_t AsyncCacheWriteManager::active_write_epoch_key_count() const {
     return _write_epoch_registry->active_key_count();
 }
 
-Status AsyncCacheWriteService::start() {
+Status AsyncCacheWriteManager::start() {
     std::lock_guard lifecycle_lock(_lifecycle_mutex);
     if (!_accepting.load(std::memory_order_acquire)) {
-        return Status::InternalError("async file cache write service is shutting down");
+        return Status::InternalError("async file cache write manager is shutting down");
     }
     if (_started.load(std::memory_order_acquire)) {
         return Status::OK();
@@ -385,14 +411,14 @@ Status AsyncCacheWriteService::start() {
     return Status::OK();
 }
 
-bool AsyncCacheWriteService::try_submit(AsyncCacheWriteTask task) {
+bool AsyncCacheWriteManager::try_submit(AsyncCacheWriteTask task) {
     task.validate();
     const int64_t submit_start_us = MonotonicMicros();
     Defer record_submit_latency {
             [&]() { _metrics->record_submit_latency(MonotonicMicros() - submit_start_us); }};
     _active_submitters.fetch_add(1, std::memory_order_acq_rel);
     Defer submitter_done {[&]() { _active_submitters.fetch_sub(1, std::memory_order_acq_rel); }};
-    TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteService::try_submit:after_register", &task);
+    TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteManager::try_submit:after_register", &task);
     if (!_started.load(std::memory_order_acquire) || !_accepting.load(std::memory_order_acquire)) {
         _metrics->record_task_rejected(Metrics::RejectionReason::NOT_RUNNING);
         return false;
@@ -441,7 +467,7 @@ bool AsyncCacheWriteService::try_submit(AsyncCacheWriteTask task) {
     return true;
 }
 
-Status AsyncCacheWriteService::allocate_tracked_buffer(size_t size,
+Status AsyncCacheWriteManager::allocate_tracked_buffer(size_t size,
                                                        AsyncCacheWriteBufferPtr* buffer) {
     DORIS_CHECK(buffer != nullptr);
     DORIS_CHECK(size > 0);
@@ -450,7 +476,7 @@ Status AsyncCacheWriteService::allocate_tracked_buffer(size_t size,
         _metrics->record_buffer_allocation_latency(MonotonicMicros() - allocation_start_us);
     }};
     Status injected_status;
-    TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteService::allocate_tracked_buffer:inject_failure",
+    TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteManager::allocate_tracked_buffer:inject_failure",
                              &injected_status);
     if (!injected_status.ok()) {
         _metrics->record_buffer_allocation_failure();
@@ -470,7 +496,7 @@ Status AsyncCacheWriteService::allocate_tracked_buffer(size_t size,
     return status;
 }
 
-void AsyncCacheWriteService::_process_task(AsyncCacheWriteTask task) {
+void AsyncCacheWriteManager::_process_task(AsyncCacheWriteTask task) {
     Defer complete {[&]() { _complete_active_task(std::move(task)); }};
 
     const int64_t age_us = MonotonicMicros() - task.submit_ts_us;
@@ -489,7 +515,7 @@ void AsyncCacheWriteService::_process_task(AsyncCacheWriteTask task) {
     }
 }
 
-bool AsyncCacheWriteService::_try_activate_task(AsyncCacheWriteTask* task) {
+bool AsyncCacheWriteManager::_try_activate_task(AsyncCacheWriteTask* task) {
     TimedQueueLock lock(_queue_mutex, _metrics->queue_lock_wait_latency(),
                         _metrics->queue_lock_hold_latency());
     if (_queue.empty()) {
@@ -505,7 +531,7 @@ bool AsyncCacheWriteService::_try_activate_task(AsyncCacheWriteTask* task) {
     return true;
 }
 
-Status AsyncCacheWriteService::_persist_task(const AsyncCacheWriteTask& task) {
+Status AsyncCacheWriteManager::_persist_task(const AsyncCacheWriteTask& task) {
     if (!check_write_epoch(task.write_epoch)) {
         return Status::OK();
     }
@@ -517,10 +543,10 @@ Status AsyncCacheWriteService::_persist_task(const AsyncCacheWriteTask& task) {
         const int64_t start_us = MonotonicMicros();
         Defer record_latency {
                 [&]() { _metrics->record_get_or_set_latency(MonotonicMicros() - start_us); }};
-        TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteService::_persist_task:before_get_or_set", &task);
+        TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteManager::_persist_task:before_get_or_set", &task);
         auto result =
                 _cache->get_or_set(task.cache_hash, task.file_offset, task.write_size, context);
-        TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteService::_persist_task:after_get_or_set", &task);
+        TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteManager::_persist_task:after_get_or_set", &task);
         return result;
     }();
 
@@ -565,7 +591,7 @@ Status AsyncCacheWriteService::_persist_task(const AsyncCacheWriteTask& task) {
         Status status;
         {
             ScopedActiveCounter active_append(_active_append_count);
-            TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteService::_persist_task:before_append", &task);
+            TEST_SYNC_POINT_CALLBACK("AsyncCacheWriteManager::_persist_task:before_append", &task);
             const int64_t start_us = MonotonicMicros();
             status = block->append(
                     Slice(task.buffer->data() + buffer_offset, block->range().size()));
@@ -600,7 +626,7 @@ Status AsyncCacheWriteService::_persist_task(const AsyncCacheWriteTask& task) {
     return Status::OK();
 }
 
-void AsyncCacheWriteService::_complete_active_task(AsyncCacheWriteTask task) {
+void AsyncCacheWriteManager::_complete_active_task(AsyncCacheWriteTask task) {
     const size_t task_buffer_bytes = task.buffer_size();
     bool became_empty = false;
     {
@@ -620,19 +646,19 @@ void AsyncCacheWriteService::_complete_active_task(AsyncCacheWriteTask task) {
     }
 }
 
-void AsyncCacheWriteService::_complete_task(AsyncCacheWriteTask task,
+void AsyncCacheWriteManager::_complete_task(AsyncCacheWriteTask task,
                                             TaskFinalizationReason reason) {
     _metrics->record_task_finalized(task, reason);
     task.finalize();
 }
 
-Status AsyncCacheWriteService::resize_workers(size_t worker_count) {
+Status AsyncCacheWriteManager::resize_workers(size_t worker_count) {
     if (worker_count == 0) {
         return Status::InvalidArgument("async file cache write worker count must be positive");
     }
     std::lock_guard lifecycle_lock(_lifecycle_mutex);
     if (!_accepting.load(std::memory_order_acquire)) {
-        return Status::InternalError("async file cache write service is shutting down");
+        return Status::InternalError("async file cache write manager is shutting down");
     }
     if (!_started.load(std::memory_order_acquire)) {
         _configured_worker_count.store(worker_count, std::memory_order_release);
@@ -642,7 +668,7 @@ Status AsyncCacheWriteService::resize_workers(size_t worker_count) {
     return _resize_workers_locked(worker_count);
 }
 
-Status AsyncCacheWriteService::_resize_workers_locked(size_t worker_count) {
+Status AsyncCacheWriteManager::_resize_workers_locked(size_t worker_count) {
     DORIS_CHECK(_worker_pool != nullptr);
     if (worker_count < _workers.size()) {
         _stop_workers_locked(worker_count);
@@ -659,19 +685,19 @@ Status AsyncCacheWriteService::_resize_workers_locked(size_t worker_count) {
     return Status::OK();
 }
 
-void AsyncCacheWriteService::_stop_workers_locked(size_t keep_worker_count) {
+void AsyncCacheWriteManager::_stop_workers_locked(size_t keep_worker_count) {
     DORIS_CHECK(keep_worker_count <= _workers.size());
     if (keep_worker_count == _workers.size()) {
         return;
     }
 
-    TEST_SYNC_POINT("AsyncCacheWriteService::_stop_workers_locked:before_request_stop");
+    TEST_SYNC_POINT("AsyncCacheWriteManager::_stop_workers_locked:before_request_stop");
     {
         std::lock_guard queue_lock(_queue_mutex);
         for (size_t index = keep_worker_count; index < _workers.size(); ++index) {
             _workers[index]->request_stop();
         }
-        TEST_SYNC_POINT("AsyncCacheWriteService::_stop_workers_locked:after_request_stop");
+        TEST_SYNC_POINT("AsyncCacheWriteManager::_stop_workers_locked:after_request_stop");
     }
     _queue_cv.notify_all();
     for (size_t index = keep_worker_count; index < _workers.size(); ++index) {
@@ -680,7 +706,7 @@ void AsyncCacheWriteService::_stop_workers_locked(size_t keep_worker_count) {
     _workers.resize(keep_worker_count);
 }
 
-Status AsyncCacheWriteService::update_options(const AsyncCacheWriteServiceOptions& options) {
+Status AsyncCacheWriteManager::update_options(const AsyncCacheWriteManagerOptions& options) {
     if (options.worker_count == 0) {
         return Status::InvalidArgument("async file cache write worker count must be positive");
     }
@@ -688,7 +714,7 @@ Status AsyncCacheWriteService::update_options(const AsyncCacheWriteServiceOption
         return Status::InvalidArgument(
                 "async file cache write pending byte limit must be positive");
     }
-    auto next_options = std::make_shared<const AsyncCacheWriteServiceOptions>(options);
+    auto next_options = std::make_shared<const AsyncCacheWriteManagerOptions>(options);
     RETURN_IF_ERROR(resize_workers(options.worker_count));
     {
         TimedQueueLock lock(_queue_mutex, _metrics->queue_lock_wait_latency(),
@@ -698,35 +724,35 @@ Status AsyncCacheWriteService::update_options(const AsyncCacheWriteServiceOption
     return Status::OK();
 }
 
-AsyncCacheWriteServiceOptions AsyncCacheWriteService::options() const {
-    AsyncCacheWriteServiceOptions result = *_options.load(std::memory_order_acquire);
+AsyncCacheWriteManagerOptions AsyncCacheWriteManager::options() const {
+    AsyncCacheWriteManagerOptions result = *_options.load(std::memory_order_acquire);
     result.worker_count = _configured_worker_count.load(std::memory_order_acquire);
     return result;
 }
 
-size_t AsyncCacheWriteService::queued_count() const {
+size_t AsyncCacheWriteManager::queued_count() const {
     std::lock_guard lock(_queue_mutex);
     return _queue.size();
 }
 
-int64_t AsyncCacheWriteService::queue_lock_wait_p99_us() const {
+int64_t AsyncCacheWriteManager::queue_lock_wait_p99_us() const {
     return _metrics->queue_lock_wait_p99_us();
 }
 
-int64_t AsyncCacheWriteService::queue_lock_hold_p99_us() const {
+int64_t AsyncCacheWriteManager::queue_lock_hold_p99_us() const {
     return _metrics->queue_lock_hold_p99_us();
 }
 
-uint64_t AsyncCacheWriteService::evicted_oldest_count() const {
+uint64_t AsyncCacheWriteManager::evicted_oldest_count() const {
     return _metrics->evicted_oldest_count();
 }
 
-void AsyncCacheWriteService::shutdown() {
+void AsyncCacheWriteManager::shutdown() {
     std::lock_guard lifecycle_lock(_lifecycle_mutex);
     if (!_accepting.exchange(false, std::memory_order_acq_rel)) {
         return;
     }
-    TEST_SYNC_POINT("AsyncCacheWriteService::shutdown:after_stop_accepting");
+    TEST_SYNC_POINT("AsyncCacheWriteManager::shutdown:after_stop_accepting");
     while (_active_submitters.load(std::memory_order_acquire) != 0) {
         std::this_thread::yield();
     }

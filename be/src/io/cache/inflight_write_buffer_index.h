@@ -29,7 +29,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "io/cache/async_cache_write_service.h"
+#include "io/cache/async_cache_write_manager.h"
 #include "io/cache/file_cache_common.h"
 
 namespace doris::io {

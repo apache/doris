@@ -64,7 +64,7 @@ public:
     size_t size() const { return _size; }
 
 private:
-    friend class AsyncCacheWriteService;
+    friend class AsyncCacheWriteManager;
 
     AsyncCacheWriteBuffer(size_t size, std::shared_ptr<MemTrackerLimiter> tracker);
 
@@ -122,7 +122,7 @@ struct AsyncCacheWriteTask {
     AsyncCacheWriteEpoch write_epoch;
     Finalizer on_finalized;
 
-    /// Assert the task contract at the service boundary.
+    /// Assert the task contract at the manager boundary.
     void validate() const;
 
     /// Return the full allocation capacity charged to pending-byte accounting.
@@ -132,9 +132,9 @@ struct AsyncCacheWriteTask {
     void finalize() const;
 };
 
-/// Complete per-cache-disk worker and memory settings. The service receives this value
+/// Complete per-cache-disk worker and memory settings. The manager receives this value
 /// explicitly at construction and through update_options(); it never reads global config.
-struct AsyncCacheWriteServiceOptions {
+struct AsyncCacheWriteManagerOptions {
     size_t worker_count {1};
     // Accepted queued+active buffer capacity. With fixed block-size buffers, any remainder smaller
     // than one block is intentionally unusable.
@@ -149,14 +149,14 @@ Status resolve_async_file_cache_write_max_pending_bytes_per_disk(int64_t configu
 
 /// Owns the bounded async-write queue and workers for one BlockFileCache (one cache disk).
 ///
-/// The referenced cache must outlive this service. Shutdown stops new producers, waits registered
+/// The referenced cache must outlive this manager. Shutdown stops new producers, waits registered
 /// producers, and drains all accepted tasks before worker resources are released.
-class AsyncCacheWriteService {
+class AsyncCacheWriteManager {
 public:
-    /// @param cache Non-owning target cache; it must outlive this service.
+    /// @param cache Non-owning target cache; it must outlive this manager.
     /// @param options Initial worker and pending-memory limits.
-    AsyncCacheWriteService(BlockFileCache* cache, AsyncCacheWriteServiceOptions options);
-    ~AsyncCacheWriteService();
+    AsyncCacheWriteManager(BlockFileCache* cache, AsyncCacheWriteManagerOptions options);
+    ~AsyncCacheWriteManager();
 
     /// Create the worker pool and schedule the configured long-running workers. Idempotent.
     Status start();
@@ -172,7 +172,7 @@ public:
     /// not invoked.
     bool try_submit(AsyncCacheWriteTask task);
 
-    /// Allocate `size` payload bytes charged to the service tracker and return them in `buffer`.
+    /// Allocate `size` payload bytes charged to the manager tracker and return them in `buffer`.
     Status allocate_tracked_buffer(size_t size, AsyncCacheWriteBufferPtr* buffer);
 
     /// Capture the disk-wide epoch and current live generation for `cache_hash`.
@@ -202,15 +202,15 @@ public:
     /// @param worker_count Positive target worker count for this cache disk.
     Status resize_workers(size_t worker_count);
 
-    /// Replace all mutable service settings with one coherent snapshot. Configuration adapters
-    /// call this method explicitly; the service itself has no dependency on global config.
+    /// Replace all mutable manager settings with one coherent snapshot. Configuration adapters
+    /// call this method explicitly; the manager itself has no dependency on global config.
     /// @param options Complete validated settings, including the desired worker count.
     /// @return OK after the new snapshot is active; InvalidArgument for invalid limits, or a
     /// worker-resize error when the requested concurrency cannot be applied.
-    Status update_options(const AsyncCacheWriteServiceOptions& options);
+    Status update_options(const AsyncCacheWriteManagerOptions& options);
 
     /// Return the currently active settings as a value snapshot.
-    AsyncCacheWriteServiceOptions options() const;
+    AsyncCacheWriteManagerOptions options() const;
 
     /// Stop submissions, drain all accepted tasks, and join worker loops. Idempotent.
     void shutdown();
@@ -258,7 +258,7 @@ private:
         EVICTED_OLDEST,
     };
 
-    /// Owns bvar registration and translates service events into coherent metric updates.
+    /// Owns bvar registration and translates manager events into coherent metric updates.
     class Metrics;
 
     /// Resize the owned worker set while `_lifecycle_mutex` is held and `_worker_pool` exists.
@@ -284,7 +284,7 @@ private:
     void _complete_task(AsyncCacheWriteTask task, TaskFinalizationReason reason);
 
     BlockFileCache* _cache;
-    atomic_shared_ptr<const AsyncCacheWriteServiceOptions> _options;
+    atomic_shared_ptr<const AsyncCacheWriteManagerOptions> _options;
     std::deque<AsyncCacheWriteTask> _queue;
     mutable std::mutex _queue_mutex;
     std::condition_variable _queue_cv;

@@ -23,13 +23,13 @@
 #include <cstdint>
 #include <memory>
 
-#include "io/cache/async_cache_write_service.h"
+#include "io/cache/async_cache_write_manager.h"
 
 namespace doris::io {
 
-/// Private observability component for AsyncCacheWriteService. Keeping bvar ownership and
-/// multi-counter event updates here leaves the service focused on queue and worker state changes.
-class AsyncCacheWriteService::Metrics {
+/// Private observability component for AsyncCacheWriteManager. Keeping bvar ownership and
+/// multi-counter event updates here leaves the manager focused on queue and worker state changes.
+class AsyncCacheWriteManager::Metrics {
 public:
     /// Read-only values used by focused unit tests without exposing individual bvar objects.
     struct Snapshot {
@@ -90,7 +90,7 @@ public:
         FINALIZE,
     };
 
-    Metrics(AsyncCacheWriteService& service, const char* prefix);
+    Metrics(AsyncCacheWriteManager& manager, const char* prefix);
 
     void record_stale_epoch(StaleEpochReason reason);
     void record_epoch_invalidation(EpochInvalidationScope scope);
@@ -118,16 +118,9 @@ public:
 private:
     std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_count_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_bytes_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _queued_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _queued_bytes_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_task_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_bytes_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _running_worker_count_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _configured_worker_count_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _max_pending_bytes_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_get_or_set_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_append_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_finalize_count_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _active_write_epoch_key_count_metric;
     std::shared_ptr<bvar::PassiveStatus<int64_t>> _buffer_memory_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _submitted_metric;

@@ -65,8 +65,11 @@ InflightWriteBufferIndex::InflightWriteBufferIndex(size_t shard_count, std::stri
     }
 
     const char* prefix = metric_prefix.c_str();
+    // The retained entry count and bytes are the operational signals needed to diagnose inflight
+    // memory. Keep operation breakdowns and lock timings unnamed so they do not add per-disk
+    // Prometheus series.
     _count_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
-            prefix, "inflight_write_buffer_index_count",
+            prefix, "inflight_write_buffer_index_entry_count",
             [](void* index) { return static_cast<InflightWriteBufferIndex*>(index)->count(); },
             this);
     _buffer_bytes_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
@@ -75,26 +78,16 @@ InflightWriteBufferIndex::InflightWriteBufferIndex(size_t shard_count, std::stri
                 return static_cast<InflightWriteBufferIndex*>(index)->buffer_bytes();
             },
             this);
-    _lookup_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "inflight_write_buffer_index_lookup_total");
-    _hit_metric = std::make_shared<bvar::Adder<uint64_t>>(prefix,
-                                                          "inflight_write_buffer_index_hit_total");
-    _miss_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "inflight_write_buffer_index_miss_total");
-    _insert_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "inflight_write_buffer_index_insert_total");
-    _insert_existing_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "inflight_write_buffer_index_insert_existing_total");
-    _remove_success_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "inflight_write_buffer_index_remove_if_success_total");
-    _remove_failed_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "inflight_write_buffer_index_remove_if_failed_total");
-    _rollback_on_backpressure_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "inflight_write_buffer_index_rollback_on_backpressure_total");
-    _lock_wait_latency_metric = std::make_shared<bvar::LatencyRecorder>(
-            prefix, "inflight_write_buffer_index_lock_wait_latency_us");
-    _lock_hold_latency_metric = std::make_shared<bvar::LatencyRecorder>(
-            prefix, "inflight_write_buffer_index_lock_hold_latency_us");
+    _lookup_metric = std::make_shared<bvar::Adder<uint64_t>>();
+    _hit_metric = std::make_shared<bvar::Adder<uint64_t>>();
+    _miss_metric = std::make_shared<bvar::Adder<uint64_t>>();
+    _insert_metric = std::make_shared<bvar::Adder<uint64_t>>();
+    _insert_existing_metric = std::make_shared<bvar::Adder<uint64_t>>();
+    _remove_success_metric = std::make_shared<bvar::Adder<uint64_t>>();
+    _remove_failed_metric = std::make_shared<bvar::Adder<uint64_t>>();
+    _rollback_on_backpressure_metric = std::make_shared<bvar::Adder<uint64_t>>();
+    _lock_wait_latency_metric = std::make_shared<bvar::LatencyRecorder>();
+    _lock_hold_latency_metric = std::make_shared<bvar::LatencyRecorder>();
 }
 
 std::shared_ptr<InflightWriteBufferEntry> InflightWriteBufferIndex::insert_if_absent(

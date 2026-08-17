@@ -47,7 +47,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
-#include "io/cache/async_cache_write_service.h"
+#include "io/cache/async_cache_write_manager.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/cached_remote_file_reader.h"
@@ -64,26 +64,26 @@
 #include "util/time.h"
 
 DEFINE_string(benchmark_mode, "all",
-              "Comma-separated benchmark groups: reader, service, index, or all");
+              "Comma-separated benchmark groups: reader, manager, index, or all");
 DEFINE_string(cache_path, "./output/async_file_cache_write_microbench",
               "Directory used by the real filesystem-backed BlockFileCache");
 DEFINE_uint64(block_size, 1024 * 1024,
               "File-cache block size and stride used by cold reader misses");
 DEFINE_uint64(request_size, 64 * 1024, "Bytes returned to the caller by each reader operation");
 DEFINE_uint64(reader_operations, 128, "Cold read operations in each sync/async reader case");
-DEFINE_uint64(service_task_size, 1024 * 1024, "Payload bytes in each direct service task");
-DEFINE_uint64(service_operations, 256, "Attempted tasks in each direct service case");
-DEFINE_uint64(service_key_count, 64, "Logical remote files spread across direct service tasks");
+DEFINE_uint64(manager_task_size, 1024 * 1024, "Payload bytes in each direct manager task");
+DEFINE_uint64(manager_operations, 256, "Attempted tasks in each direct manager case");
+DEFINE_uint64(manager_key_count, 64, "Logical remote files spread across direct manager tasks");
 DEFINE_uint64(index_operations_per_thread, 100000,
               "Inflight-index lookups performed by each producer thread");
 DEFINE_uint64(index_key_count, 4096, "Keys used by the representative sharded index case");
 DEFINE_int32(producer_threads, 16, "Concurrent foreground readers or task producers");
 DEFINE_int32(reader_workers, 16, "Async write workers used by the reader comparison");
 DEFINE_string(worker_counts, "1,4,16",
-              "Comma-separated async write worker counts used by service scaling cases");
+              "Comma-separated async write worker counts used by manager scaling cases");
 DEFINE_uint64(repetitions, 5, "Measured repetitions of every selected benchmark case");
 DEFINE_uint64(backpressure_pending_bytes, 64 * 1024 * 1024,
-              "Pending-buffer byte limit used by the saturated service case");
+              "Pending-buffer byte limit used by the saturated manager case");
 DEFINE_uint64(queue_sample_interval_us, 50,
               "Sampling interval for pending, queued, and inflight peak values");
 DEFINE_uint64(timeout_seconds, 120, "Maximum time to wait for one benchmark case to drain");
@@ -197,7 +197,7 @@ Status validate_flags(const std::vector<std::string>& modes,
         return Status::InvalidArgument("benchmark_mode cannot be empty");
     }
     for (const auto& mode : modes) {
-        if (mode != "all" && mode != "reader" && mode != "service" && mode != "index") {
+        if (mode != "all" && mode != "reader" && mode != "manager" && mode != "index") {
             return Status::InvalidArgument("unsupported benchmark mode: {}", mode);
         }
     }
@@ -209,16 +209,16 @@ Status validate_flags(const std::vector<std::string>& modes,
         return Status::InvalidArgument("sizes must satisfy 0 < request_size <= block_size");
     }
     if (FLAGS_reader_operations < static_cast<uint64_t>(FLAGS_producer_threads) ||
-        FLAGS_service_operations < static_cast<uint64_t>(FLAGS_producer_threads)) {
+        FLAGS_manager_operations < static_cast<uint64_t>(FLAGS_producer_threads)) {
         return Status::InvalidArgument(
-                "reader_operations and service_operations must be at least producer_threads");
+                "reader_operations and manager_operations must be at least producer_threads");
     }
-    if (FLAGS_service_task_size != FLAGS_block_size || FLAGS_service_key_count == 0 ||
+    if (FLAGS_manager_task_size != FLAGS_block_size || FLAGS_manager_key_count == 0 ||
         FLAGS_index_operations_per_thread == 0 || FLAGS_index_key_count == 0 ||
         FLAGS_backpressure_pending_bytes == 0 || FLAGS_queue_sample_interval_us == 0 ||
         FLAGS_timeout_seconds == 0 || FLAGS_repetitions == 0) {
         return Status::InvalidArgument(
-                "operation counts, timeouts, and service_task_size == block_size are required");
+                "operation counts, timeouts, and manager_task_size == block_size are required");
     }
     return Status::OK();
 }
@@ -309,11 +309,11 @@ private:
 /// Sample public queue gauges so short benchmark cases still report a meaningful high-water mark.
 class QueuePeakSampler {
 public:
-    /// @param service Service whose pending and queued gauges are sampled.
-    /// @param index Inflight index paired with the service.
-    QueuePeakSampler(AsyncCacheWriteService* service, InflightWriteBufferIndex* index)
-            : _service(service), _index(index) {
-        DORIS_CHECK(_service != nullptr);
+    /// @param manager Manager whose pending and queued gauges are sampled.
+    /// @param index Inflight index paired with the manager.
+    QueuePeakSampler(AsyncCacheWriteManager* manager, InflightWriteBufferIndex* index)
+            : _manager(manager), _index(index) {
+        DORIS_CHECK(_manager != nullptr);
         DORIS_CHECK(_index != nullptr);
     }
 
@@ -348,10 +348,10 @@ public:
 private:
     /// Capture one internally consistent set of independently sampled public gauges.
     void sample() {
-        update_max(&_peak_pending, _service->pending_count());
-        update_max(&_peak_queued, _service->queued_count());
+        update_max(&_peak_pending, _manager->pending_count());
+        update_max(&_peak_queued, _manager->queued_count());
         update_max(&_peak_inflight, _index->count());
-        const int64_t buffer_memory_bytes = _service->buffer_memory_bytes();
+        const int64_t buffer_memory_bytes = _manager->buffer_memory_bytes();
         DORIS_CHECK(buffer_memory_bytes >= 0);
         update_max(&_peak_buffer_bytes, static_cast<size_t>(buffer_memory_bytes));
     }
@@ -364,7 +364,7 @@ private:
         }
     }
 
-    AsyncCacheWriteService* _service;
+    AsyncCacheWriteManager* _manager;
     InflightWriteBufferIndex* _index;
     std::atomic<bool> _running {false};
     std::thread _thread;
@@ -473,7 +473,7 @@ public:
         config::file_cache_background_tablet_id_flush_interval_ms = 100;
         config::async_file_cache_write_workers_per_disk = FLAGS_reader_workers;
         config::async_file_cache_write_max_pending_bytes_per_disk = static_cast<int64_t>(
-                std::max(FLAGS_reader_operations, FLAGS_service_operations) * FLAGS_block_size);
+                std::max(FLAGS_reader_operations, FLAGS_manager_operations) * FLAGS_block_size);
 
         DORIS_CHECK(ExecEnv::GetInstance()->file_cache_factory() == nullptr);
         ExecEnv::GetInstance()->set_file_cache_open_fd_cache(std::make_unique<FDCache>());
@@ -493,7 +493,7 @@ public:
         settings.ttl_queue_elements = 128;
         settings.query_queue_size = cache_capacity - 3 * auxiliary_queue_size;
         settings.query_queue_elements = std::max<size_t>(
-                1024, 2 * std::max(FLAGS_reader_operations, FLAGS_service_operations));
+                1024, 2 * std::max(FLAGS_reader_operations, FLAGS_manager_operations));
 
         RETURN_IF_ERROR(_factory->create_file_cache(FLAGS_cache_path, settings));
         _cache = _factory->get_by_path(FLAGS_cache_path);
@@ -511,28 +511,28 @@ public:
         return wait_for_idle();
     }
 
-    /// Apply one explicit worker/queue snapshot to the production service.
+    /// Apply one explicit worker/queue snapshot to the production manager.
     /// @param workers Active background writer count.
     /// @param max_pending_bytes Maximum accepted buffer-capacity bytes, including active workers.
-    Status configure_service(size_t workers, size_t max_pending_bytes) {
-        auto options = service()->options();
+    Status configure_manager(size_t workers, size_t max_pending_bytes) {
+        auto options = manager()->options();
         options.worker_count = workers;
         options.max_pending_bytes = max_pending_bytes;
-        return service()->update_options(options);
+        return manager()->update_options(options);
     }
 
     /// Wait until both queue ownership and reader-visible inflight payloads are gone.
     Status wait_for_idle() {
         return wait_until(
                 [&]() {
-                    return service()->pending_count() == 0 && service()->queued_count() == 0 &&
+                    return manager()->pending_count() == 0 && manager()->queued_count() == 0 &&
                            index()->count() == 0;
                 },
                 "async write queue and inflight index to drain");
     }
 
     BlockFileCache* cache() const { return _cache; }
-    AsyncCacheWriteService* service() const { return _cache->async_write_service(); }
+    AsyncCacheWriteManager* manager() const { return _cache->async_write_manager(); }
     InflightWriteBufferIndex* index() const { return _cache->inflight_write_buffer_index(); }
 
 private:
@@ -563,7 +563,7 @@ Status verify_cached_range(BlockFileCache* cache, const UInt128Wrapper& hash, si
     return Status::OK();
 }
 
-/// Shared result fields printed for reader and direct-service cases.
+/// Shared result fields printed for reader and direct-manager cases.
 struct AsyncWriteResult {
     std::string benchmark;
     std::string variant;
@@ -628,7 +628,7 @@ Status run_reader_case(BenchmarkEnvironment* environment, CacheWriteMode mode, s
                        size_t repetition) {
     DORIS_CHECK(environment != nullptr);
     RETURN_IF_ERROR(environment->clear_cache());
-    RETURN_IF_ERROR(environment->configure_service(
+    RETURN_IF_ERROR(environment->configure_manager(
             static_cast<size_t>(FLAGS_reader_workers),
             static_cast<size_t>(FLAGS_reader_operations + FLAGS_reader_workers) *
                     FLAGS_block_size));
@@ -645,7 +645,7 @@ Status run_reader_case(BenchmarkEnvironment* environment, CacheWriteMode mode, s
     std::vector<FileCacheStatistics> statistics(producer_count);
     std::barrier start_barrier(static_cast<std::ptrdiff_t>(producer_count + 1));
     ConcurrentError error;
-    QueuePeakSampler sampler(environment->service(), environment->index());
+    QueuePeakSampler sampler(environment->manager(), environment->index());
     sampler.start();
 
     for (size_t producer = 0; producer < producer_count; ++producer) {
@@ -746,8 +746,8 @@ Status run_reader_case(BenchmarkEnvironment* environment, CacheWriteMode mode, s
     return Status::OK();
 }
 
-/// One accepted direct-service task retained for post-timing persistence verification.
-struct ServiceTaskRecord {
+/// One accepted direct-manager task retained for post-timing persistence verification.
+struct ManagerTaskRecord {
     UInt128Wrapper hash;
     size_t offset {0};
     size_t size {0};
@@ -756,28 +756,28 @@ struct ServiceTaskRecord {
 /// Exercise producer admission, inflight publication, locked FIFO consumption, and persistence.
 /// @param environment Shared real cache, cleared before the case.
 /// @param variant Stable output label.
-/// @param workers Active service consumers.
+/// @param workers Active manager consumers.
 /// @param max_pending_bytes Bounded pending-buffer byte limit.
 /// @param repetition One-based repetition index included in output.
-Status run_service_case(BenchmarkEnvironment* environment, std::string variant, size_t workers,
+Status run_manager_case(BenchmarkEnvironment* environment, std::string variant, size_t workers,
                         size_t max_pending_bytes, size_t repetition) {
     DORIS_CHECK(environment != nullptr);
     RETURN_IF_ERROR(environment->clear_cache());
-    RETURN_IF_ERROR(environment->configure_service(workers, max_pending_bytes));
+    RETURN_IF_ERROR(environment->configure_manager(workers, max_pending_bytes));
 
     const size_t producer_count = static_cast<size_t>(FLAGS_producer_threads);
-    const size_t operation_count = static_cast<size_t>(FLAGS_service_operations);
+    const size_t operation_count = static_cast<size_t>(FLAGS_manager_operations);
     std::vector<std::thread> producers;
     producers.reserve(producer_count);
     std::vector<std::vector<int64_t>> latencies(producer_count);
-    std::vector<std::vector<ServiceTaskRecord>> accepted_records(producer_count);
+    std::vector<std::vector<ManagerTaskRecord>> accepted_records(producer_count);
     std::barrier start_barrier(static_cast<std::ptrdiff_t>(producer_count + 1));
     std::atomic<size_t> accepted {0};
     std::atomic<size_t> rejected {0};
     std::atomic<size_t> completed {0};
     ConcurrentError error;
-    QueuePeakSampler sampler(environment->service(), environment->index());
-    const uint64_t baseline_evicted = environment->service()->evicted_oldest_count();
+    QueuePeakSampler sampler(environment->manager(), environment->index());
+    const uint64_t baseline_evicted = environment->manager()->evicted_oldest_count();
     sampler.start();
 
     for (size_t producer = 0; producer < producer_count; ++producer) {
@@ -793,22 +793,22 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
                 if (error.failed()) {
                     break;
                 }
-                const size_t key_index = operation % FLAGS_service_key_count;
-                const size_t block_index = operation / FLAGS_service_key_count;
-                const auto hash = BlockFileCache::hash("async_write_service_" + variant + "_" +
+                const size_t key_index = operation % FLAGS_manager_key_count;
+                const size_t block_index = operation / FLAGS_manager_key_count;
+                const auto hash = BlockFileCache::hash("async_write_manager_" + variant + "_" +
                                                        std::to_string(key_index));
                 const size_t offset = block_index * FLAGS_block_size;
                 const auto start = Clock::now();
 
                 AsyncCacheWriteBufferPtr buffer;
-                Status status = environment->service()->allocate_tracked_buffer(
-                        FLAGS_service_task_size, &buffer);
+                Status status = environment->manager()->allocate_tracked_buffer(
+                        FLAGS_manager_task_size, &buffer);
                 if (!status.ok()) {
                     error.set(std::move(status));
                     break;
                 }
                 std::memset(buffer->data(), static_cast<int>(operation % 251), buffer->size());
-                auto epoch = environment->service()->current_write_epoch(hash);
+                auto epoch = environment->manager()->current_write_epoch(hash);
                 auto entry = std::make_shared<InflightWriteBufferEntry>(
                         buffer, offset, buffer->size(), MonotonicMicros());
                 auto existing = environment->index()->insert_if_absent(hash, offset, entry);
@@ -833,13 +833,13 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
                                     completed.fetch_add(1, std::memory_order_release);
                                 },
                 };
-                const bool submitted = environment->service()->try_submit(std::move(task));
+                const bool submitted = environment->manager()->try_submit(std::move(task));
                 const auto elapsed = std::chrono::duration_cast<Nanoseconds>(Clock::now() - start);
                 latencies[producer].push_back(elapsed.count());
                 if (submitted) {
                     accepted.fetch_add(1, std::memory_order_relaxed);
-                    accepted_records[producer].push_back(ServiceTaskRecord {
-                            .hash = hash, .offset = offset, .size = FLAGS_service_task_size});
+                    accepted_records[producer].push_back(ManagerTaskRecord {
+                            .hash = hash, .offset = offset, .size = FLAGS_manager_task_size});
                 } else {
                     environment->index()->remove_if(hash, offset, entry);
                     environment->index()->record_backpressure_rollback();
@@ -862,12 +862,12 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
 
     RETURN_IF_ERROR(wait_until(
             [&]() {
-                return environment->service()->pending_count() == 0 &&
+                return environment->manager()->pending_count() == 0 &&
                        completed.load(std::memory_order_acquire) ==
                                accepted.load(std::memory_order_acquire) &&
                        environment->index()->count() == 0;
             },
-            "direct service tasks to complete"));
+            "direct manager tasks to complete"));
     const auto drain_end = Clock::now();
     sampler.stop();
 
@@ -884,7 +884,7 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
     const size_t accepted_count = accepted.load(std::memory_order_relaxed);
     DORIS_CHECK(persisted <= accepted_count);
     const size_t evicted =
-            static_cast<size_t>(environment->service()->evicted_oldest_count() - baseline_evicted);
+            static_cast<size_t>(environment->manager()->evicted_oldest_count() - baseline_evicted);
     if (accepted_count - persisted != evicted) {
         return Status::InternalError("{} accepted tasks produced {} persisted and {} evicted",
                                      accepted_count, persisted, evicted);
@@ -894,7 +894,7 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
             std::chrono::duration<double>(foreground_end - foreground_start).count();
     const double drain_seconds = std::chrono::duration<double>(drain_end - foreground_end).count();
     AsyncWriteResult result {
-            .benchmark = "service",
+            .benchmark = "manager",
             .variant = std::move(variant),
             .producers = producer_count,
             .workers = workers,
@@ -903,7 +903,7 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
             .rejected = rejected.load(std::memory_order_relaxed),
             .evicted = evicted,
             .persisted = persisted,
-            .bytes_per_operation = FLAGS_service_task_size,
+            .bytes_per_operation = FLAGS_manager_task_size,
             .foreground_seconds = foreground_seconds,
             .drain_seconds = drain_seconds,
             .total_seconds = foreground_seconds + drain_seconds,
@@ -911,8 +911,8 @@ Status run_service_case(BenchmarkEnvironment* environment, std::string variant, 
             .peak_queued = sampler.peak_queued(),
             .peak_inflight = sampler.peak_inflight(),
             .peak_buffer_bytes = sampler.peak_buffer_bytes(),
-            .queue_lock_wait_p99_us = environment->service()->queue_lock_wait_p99_us(),
-            .queue_lock_hold_p99_us = environment->service()->queue_lock_hold_p99_us(),
+            .queue_lock_wait_p99_us = environment->manager()->queue_lock_wait_p99_us(),
+            .queue_lock_hold_p99_us = environment->manager()->queue_lock_hold_p99_us(),
             .latency = summarize_latencies(latencies),
     };
     print_async_write_result(result, repetition);
@@ -948,7 +948,7 @@ Status run_index_case(BenchmarkEnvironment* environment, std::string variant, si
     std::vector<UInt128Wrapper> hashes;
     hashes.reserve(key_count);
     AsyncCacheWriteBufferPtr buffer;
-    RETURN_IF_ERROR(environment->service()->allocate_tracked_buffer(1, &buffer));
+    RETURN_IF_ERROR(environment->manager()->allocate_tracked_buffer(1, &buffer));
     auto entry = std::make_shared<InflightWriteBufferEntry>(buffer, 0, 1, MonotonicMicros());
     for (size_t key = 0; key < key_count; ++key) {
         hashes.emplace_back(
@@ -1002,8 +1002,8 @@ Status run_index_case(BenchmarkEnvironment* environment, std::string variant, si
 Status run_benchmarks(const std::vector<std::string>& modes,
                       const std::vector<size_t>& worker_counts) {
     const size_t reader_bytes = FLAGS_reader_operations * FLAGS_block_size;
-    const size_t service_bytes = FLAGS_service_operations * FLAGS_service_task_size;
-    const size_t workload_bytes = std::max(reader_bytes, service_bytes);
+    const size_t manager_bytes = FLAGS_manager_operations * FLAGS_manager_task_size;
+    const size_t workload_bytes = std::max(reader_bytes, manager_bytes);
     const size_t cache_capacity = std::max<size_t>(256 * kMiB, workload_bytes * 4);
     if (cache_capacity <= 3 * FLAGS_block_size) {
         return Status::InvalidArgument("calculated cache capacity is too small");
@@ -1023,18 +1023,18 @@ Status run_benchmarks(const std::vector<std::string>& modes,
             RETURN_IF_ERROR(run_reader_case(&environment, CacheWriteMode::ASYNC_WRITE,
                                             "async_write", repetition));
         }
-        if (mode_enabled(modes, "service")) {
+        if (mode_enabled(modes, "manager")) {
             for (size_t workers : worker_counts) {
-                RETURN_IF_ERROR(run_service_case(
+                RETURN_IF_ERROR(run_manager_case(
                         &environment, "drop_oldest_drain_workers_" + std::to_string(workers),
                         workers,
-                        static_cast<size_t>(FLAGS_service_operations + workers) * FLAGS_block_size,
+                        static_cast<size_t>(FLAGS_manager_operations + workers) * FLAGS_block_size,
                         repetition));
             }
             RETURN_IF_ERROR(
-                    run_service_case(&environment, "drop_oldest_backpressure", worker_counts.back(),
+                    run_manager_case(&environment, "drop_oldest_backpressure", worker_counts.back(),
                                      std::min<size_t>(FLAGS_backpressure_pending_bytes,
-                                                      FLAGS_service_operations * FLAGS_block_size),
+                                                      FLAGS_manager_operations * FLAGS_block_size),
                                      repetition));
         }
         if (mode_enabled(modes, "index")) {

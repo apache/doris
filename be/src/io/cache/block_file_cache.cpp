@@ -382,8 +382,9 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_cache_lock_wait_time_us");
     _get_or_set_latency_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_get_or_set_latency_us");
-    _probe_latency_us = std::make_shared<bvar::LatencyRecorder>(_cache_base_path.c_str(),
-                                                                "file_cache_probe_latency_us");
+    // Probe timing remains available to focused tests without adding another per-disk latency
+    // family to the Prometheus scrape surface.
+    _probe_latency_us = std::make_shared<bvar::LatencyRecorder>();
     _storage_sync_remove_latency_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_storage_sync_remove_latency_us");
     _storage_retry_sync_remove_latency_us = std::make_shared<bvar::LatencyRecorder>(
@@ -551,20 +552,20 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
             static_cast<size_t>(
                     config::async_file_cache_write_inflight_write_buffer_index_shard_count),
             _cache_base_path);
-    // BlockFileCache is the configuration boundary for a newly created per-disk service. Pass a
-    // value snapshot so AsyncCacheWriteService does not need to know where its settings came from.
-    AsyncCacheWriteServiceOptions async_write_options;
+    // BlockFileCache is the configuration boundary for a newly created per-disk manager. Pass a
+    // value snapshot so AsyncCacheWriteManager does not need to know where its settings came from.
+    AsyncCacheWriteManagerOptions async_write_options;
     async_write_options.worker_count =
             static_cast<size_t>(config::async_file_cache_write_workers_per_disk);
     RETURN_IF_ERROR(resolve_async_file_cache_write_max_pending_bytes_per_disk(
             config::async_file_cache_write_max_pending_bytes_per_disk, MemInfo::mem_limit(),
             &async_write_options.max_pending_bytes));
-    _async_write_service =
-            std::make_unique<AsyncCacheWriteService>(this, std::move(async_write_options));
+    _async_write_manager =
+            std::make_unique<AsyncCacheWriteManager>(this, std::move(async_write_options));
     // Do not create persistent per-disk workers while async writeback is disabled. The config
-    // update adapter starts existing services explicitly when the switch is enabled online.
+    // update adapter starts existing managers explicitly when the switch is enabled online.
     if (config::enable_async_file_cache_write) {
-        RETURN_IF_ERROR(_async_write_service->start());
+        RETURN_IF_ERROR(_async_write_manager->start());
     }
 
     if (auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(_storage.get())) {
@@ -958,8 +959,8 @@ std::string BlockFileCache::clear_file_cache_sync() {
 }
 
 std::string BlockFileCache::clear_file_cache_impl(bool sync_remove) {
-    DORIS_CHECK(_async_write_service != nullptr);
-    _async_write_service->invalidate_all_pending_writes();
+    DORIS_CHECK(_async_write_manager != nullptr);
+    _async_write_manager->invalidate_all_pending_writes();
     const char* action = sync_remove ? "clear_file_cache_sync" : "clear_file_cache_async";
     LOG(INFO) << "start " << action << ", path=" << _cache_base_path;
     _lru_dumper->remove_lru_dump_files();
@@ -1499,8 +1500,8 @@ void BlockFileCache::try_evict_in_advance(size_t size, std::lock_guard<std::mute
 // remove specific cache synchronously, for critical operations
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
-    DORIS_CHECK(_async_write_service != nullptr);
-    _async_write_service->invalidate_pending_writes(file_key);
+    DORIS_CHECK(_async_write_manager != nullptr);
+    _async_write_manager->invalidate_pending_writes(file_key);
     std::string reason = "remove_if_cached";
     SCOPED_CACHE_LOCK(_mutex, this);
     auto iter = _files.find(file_key);
@@ -1521,8 +1522,8 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
 // cache meta is deleted synchronously if not in use, and the block file is deleted asynchronously
 // if in use, cache meta will be deleted after use and the block file is then deleted asynchronously
 void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
-    DORIS_CHECK(_async_write_service != nullptr);
-    _async_write_service->invalidate_pending_writes(file_key);
+    DORIS_CHECK(_async_write_manager != nullptr);
+    _async_write_manager->invalidate_pending_writes(file_key);
     std::string reason = "remove_if_cached_async";
     SCOPED_CACHE_LOCK(_mutex, this);
 

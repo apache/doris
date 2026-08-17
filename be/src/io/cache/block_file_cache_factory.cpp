@@ -137,18 +137,18 @@ size_t FileCacheFactory::try_release(const std::string& base_path) {
     return 0;
 }
 
-Status FileCacheFactory::update_async_write_options(const AsyncCacheWriteServiceOptions& options) {
+Status FileCacheFactory::update_async_write_options(const AsyncCacheWriteManagerOptions& options) {
     std::lock_guard lock(_mtx);
     for (const auto& cache : _caches) {
-        RETURN_IF_ERROR(cache->async_write_service()->update_options(options));
+        RETURN_IF_ERROR(cache->async_write_manager()->update_options(options));
     }
     return Status::OK();
 }
 
-Status FileCacheFactory::start_async_write_services() {
+Status FileCacheFactory::start_async_write_managers() {
     std::lock_guard lock(_mtx);
     for (const auto& cache : _caches) {
-        RETURN_IF_ERROR(cache->async_write_service()->start());
+        RETURN_IF_ERROR(cache->async_write_manager()->start());
     }
     return Status::OK();
 }
@@ -508,7 +508,7 @@ namespace doris::config {
 namespace {
 
 /// Capture all mutable async-write fields after a config update into one coherent snapshot.
-Status load_async_write_options_from_config(io::AsyncCacheWriteServiceOptions* options) {
+Status load_async_write_options_from_config(io::AsyncCacheWriteManagerOptions* options) {
     DORIS_CHECK(options != nullptr);
     options->worker_count = static_cast<size_t>(async_file_cache_write_workers_per_disk);
     return io::resolve_async_file_cache_write_max_pending_bytes_per_disk(
@@ -516,9 +516,9 @@ Status load_async_write_options_from_config(io::AsyncCacheWriteServiceOptions* o
             &options->max_pending_bytes);
 }
 
-/// Forward one changed config field through the explicit factory/service update interface.
+/// Forward one changed config field through the explicit factory/manager update interface.
 /// @param config_name Name used only to identify failures in the log.
-/// @param old_value Previous config value; equal values require no service update.
+/// @param old_value Previous config value; equal values require no manager update.
 /// @param new_value Newly accepted config value.
 template <typename T>
 void update_async_write_options(const char* config_name, T old_value, T new_value) {
@@ -529,7 +529,7 @@ void update_async_write_options(const char* config_name, T old_value, T new_valu
     if (factory == nullptr) {
         return;
     }
-    io::AsyncCacheWriteServiceOptions options;
+    io::AsyncCacheWriteManagerOptions options;
     Status status = load_async_write_options_from_config(&options);
     if (status.ok()) {
         status = factory->update_async_write_options(options);
@@ -550,9 +550,9 @@ DEFINE_ON_UPDATE(enable_async_file_cache_write, [](bool old_value, bool new_valu
     if (factory == nullptr) {
         return;
     }
-    Status status = factory->start_async_write_services();
+    Status status = factory->start_async_write_managers();
     if (!status.ok()) {
-        LOG(WARNING) << "Failed to start async file cache write services: " << status.to_string();
+        LOG(WARNING) << "Failed to start async file cache write managers: " << status.to_string();
     }
 });
 

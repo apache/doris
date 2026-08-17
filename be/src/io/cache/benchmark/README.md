@@ -26,7 +26,7 @@ SyntheticRemoteFileReader
   -> BlockFileCache probe
   -> foreground remote fill
   -> InflightWriteBufferIndex publication
-  -> AsyncCacheWriteService admission and locked FIFO queue
+  -> AsyncCacheWriteManager admission and locked FIFO queue
   -> worker get_or_set, append, and finalize
   -> inflight entry cleanup
 ```
@@ -44,8 +44,8 @@ The benchmark groups are:
     the final cache state.
   - Separates caller-visible foreground time from the time needed to drain accepted asynchronous
     writes.
-- `service`
-  - Submits unique real buffers directly to `AsyncCacheWriteService` from concurrent producers.
+- `manager`
+  - Submits unique real buffers directly to `AsyncCacheWriteManager` from concurrent producers.
   - Measures the drop-oldest queue with 1, 4, and 16 workers by default, including allocation,
     inflight publication, queue admission, worker consumption, `get_or_set`, `append`, `finalize`,
     and completion cleanup.
@@ -59,7 +59,7 @@ The benchmark groups are:
   - `sharded_hit` spreads pre-populated keys across shards.
   - `hot_key_hit` sends all producers to one key to expose the upper bound of lock contention.
 
-The integrated reader and service groups cover index insertion and conditional removal. The index
+The integrated reader and manager groups cover index insertion and conditional removal. The index
 group intentionally measures only lookup contention so it does not duplicate those flows.
 
 ## Disk baseline
@@ -96,17 +96,17 @@ The defaults represent small reads that cause full 1 MiB cache-block writes:
 | `block_size` | 1 MiB | Cache alignment and persisted bytes per reader miss |
 | `request_size` | 64 KiB | Bytes returned by each caller read |
 | `reader_operations` | 128 | Cold blocks in each synchronous or asynchronous reader case |
-| `service_task_size` | 1 MiB | Payload in each direct service task |
-| `service_operations` | 256 | Attempts in each service case |
+| `manager_task_size` | 1 MiB | Payload in each direct manager task |
+| `manager_operations` | 256 | Attempts in each manager case |
 | `producer_threads` | 16 | Concurrent readers or submitters |
 | `reader_workers` | 16 | Workers in the asynchronous reader comparison |
-| `worker_counts` | 1, 4, 16 | Worker scaling points in the service group |
-| `backpressure_pending_bytes` | 67108864 | Pending-buffer byte limit in the saturated service case |
+| `worker_counts` | 1, 4, 16 | Worker scaling points in the manager group |
+| `backpressure_pending_bytes` | 67108864 | Pending-buffer byte limit in the saturated manager case |
 | `index_operations_per_thread` | 100,000 | Lookups performed by each index producer |
 | `index_key_count` | 4,096 | Keys in each sharded index case |
 | `repetitions` | 5 | Repeated executions of every selected case |
 
-Each repetition clears and drains the real cache before every reader or service case. The process
+Each repetition clears and drains the real cache before every reader or manager case. The process
 prints the one-based `repetition` on every `RESULT` line. Use the median across repetitions as the
 primary comparison and retain the minimum-to-maximum range to expose scheduler, filesystem, page
 cache, and background writeback noise. The first repetition is intentionally retained instead of
@@ -157,7 +157,7 @@ Each measured case emits one machine-readable `RESULT` line:
 - Timing: `foreground_seconds` ends when producer or reader calls return; `drain_seconds` is the
   remaining background completion time; `total_seconds` includes both.
 - Rates: `foreground_ops_per_sec` measures caller or submitter completion.
-- Queue contention: `queue_lock_wait_p99_us` and `queue_lock_hold_p99_us` expose the service's
+- Queue contention: `queue_lock_wait_p99_us` and `queue_lock_hold_p99_us` expose the manager's
   rolling P99 FIFO mutex acquisition and critical-section time.
 - Memory: `peak_buffer_bytes` samples tracked async-write buffer capacity alongside peak pending,
   queued, and inflight counts.
@@ -171,7 +171,7 @@ Each measured case emits one machine-readable `RESULT` line:
 - Index-only rates: `elapsed_seconds` and `operations_per_sec` replace write-specific rate fields.
 
 Use reader `foreground_ops_per_sec` and latency to quantify caller benefit from asynchronous
-writes. Use service `persisted_mib_per_sec`, `drain_seconds`, and peak gauges together to determine
+writes. Use manager `persisted_mib_per_sec`, `drain_seconds`, and peak gauges together to determine
 whether workers or admission are limiting progress. Use the saturated case's rejection and eviction
 ratios to validate bounded overload behavior, and compare sharded versus hot-key index results to
 quantify lock-contention sensitivity.
