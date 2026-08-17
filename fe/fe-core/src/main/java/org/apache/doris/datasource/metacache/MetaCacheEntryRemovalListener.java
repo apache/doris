@@ -20,14 +20,16 @@ package org.apache.doris.datasource.metacache;
 import javax.annotation.Nullable;
 
 /**
- * Receives a value that left the entry through the normal removal path (capacity or weight
- * eviction, expiry, soft-value collection, peer reclaim, explicit invalidation). Replacements are
- * reported through {@link MetaCacheEntryReplacementListener} instead. The callback runs
- * asynchronously after the removal, so it must be fenced by the removed value itself (its
- * generation) rather than by whatever the entry currently publishes; {@code removedValue} is
- * null when the value was already collected.
+ * Receives the token of a value that left the entry through the normal removal path (capacity or
+ * weight eviction, expiry, soft-value collection, peer reclaim, explicit invalidation).
+ * Replacements are reported through {@link MetaCacheEntryReplacementListener} instead. The
+ * callback runs asynchronously after the removal; only the small token extracted from the value
+ * at removal time is queued, never the value itself, so retired graphs are not kept alive outside
+ * the memory budget. The listener must therefore fence on that token (for example a generation)
+ * rather than on whatever the entry currently publishes; the token is null when the value was
+ * already collected.
  */
 @FunctionalInterface
-public interface MetaCacheEntryRemovalListener<K, V> {
-    void onRemoval(K key, @Nullable V removedValue);
+public interface MetaCacheEntryRemovalListener<K, T> {
+    void onRemoval(K key, @Nullable T removedToken);
 }

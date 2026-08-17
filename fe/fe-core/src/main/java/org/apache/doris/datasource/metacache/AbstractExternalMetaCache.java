@@ -443,7 +443,7 @@ public abstract class AbstractExternalMetaCache implements ExternalMetaCache {
                     cacheSpec,
                     refreshExecutor, entryDef.isAutoRefresh(), entryDef.isContextualOnly(),
                     entryDef.getSizeEstimator(), entryBudget, entryDef.getReplacementListener(),
-                    entryDef.getRemovalListener());
+                    entryDef.getRemovalTokenExtractor(), entryDef.getRemovalListener());
         } catch (RuntimeException | Error e) {
             if (entryBudget != null) {
                 entryBudget.close();

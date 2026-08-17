@@ -34,7 +34,10 @@ import org.apache.doris.datasource.metacache.paimon.PaimonTableLoader;
 import org.apache.paimon.table.Table;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nullable;
 
 /**
@@ -68,6 +71,10 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
     private final EntryHandle<PaimonSchemaCacheKey, SchemaCacheValue> schemaEntry;
     private final PaimonTableLoader tableLoader;
     private final PaimonLatestSnapshotProjectionLoader latestSnapshotProjectionLoader;
+    // Most recently observed latest fence per (table, generation); see getSnapshotCache.
+    private final AtomicLong fenceObservations = new AtomicLong();
+    private final ConcurrentHashMap<LatestFenceOwner, ObservedFence> latestObservedFences =
+            new ConcurrentHashMap<>();
 
     public PaimonExternalMetaCache(ExecutorService refreshExecutor) {
         this(refreshExecutor, new ExternalMetaCacheBudgetManager(java.util.OptionalLong.empty()));
@@ -83,7 +90,7 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
                 MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping))
                 .withSizeEstimator((key, value) -> value.prepareForCachePublication(key))
                 .withReplacementListener(this::retireTableGeneration)
-                .withRemovalListener(this::retireRemovedTableGeneration));
+                .withRemovalListener(PaimonTableCacheValue::getGeneration, this::retireRemovedTableGeneration));
         snapshotEntry = registerEntry(MetaCacheEntryDef.contextualOnly(ENTRY_SNAPSHOT,
                 PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(PaimonSnapshotEntryKey::getNameMapping))
@@ -104,20 +111,97 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
 
     public PaimonSnapshotCacheValue getSnapshotCache(ExternalTable dorisTable) {
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
-        PaimonTableCacheValue tableValue = tableEntry.get(nameMapping.getCtlId()).get(nameMapping);
+        MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables = tableEntry.get(nameMapping.getCtlId());
+        PaimonTableCacheValue tableValue = tables.get(nameMapping);
         PaimonSnapshot fence = loadLatestSnapshotFence(nameMapping, tableValue.getPaimonTable()).getSnapshot();
+        if (!tables.isEffectivelyEnabled()) {
+            // Projections are keyed by the synthetic generation of a published table handle. An
+            // ineffective table entry publishes nothing, so nothing keyed by this load could ever
+            // be looked up again: serve it directly instead of churning the snapshot entry.
+            return executeAuthenticated(nameMapping,
+                    () -> latestSnapshotProjectionLoader.loadAtFence(
+                            nameMapping, fence, tableValue.getGeneration()));
+        }
+        // Order fence observations, not snapshot ids: a rollback moves the latest snapshot
+        // backwards, and a concurrent call may finish after a later observation (reversed
+        // completion). Either way the most recently observed fence is the one future lookups read.
+        long observation = fenceObservations.incrementAndGet();
         PaimonSnapshotEntryKey key = PaimonSnapshotEntryKey.of(
                 nameMapping, fence, tableValue.getGeneration());
         MetaCacheEntry<PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> entry =
                 snapshotEntry.get(nameMapping.getCtlId());
+        AtomicBoolean loaded = new AtomicBoolean();
         PaimonSnapshotCacheValue snapshotValue = entry.get(key,
-                ignored -> executeAuthenticated(nameMapping,
-                        () -> latestSnapshotProjectionLoader.loadAtFence(
-                                nameMapping, fence, tableValue.getGeneration())));
+                ignored -> executeAuthenticated(nameMapping, () -> {
+                    loaded.set(true);
+                    return latestSnapshotProjectionLoader.loadAtFence(
+                            nameMapping, fence, tableValue.getGeneration());
+                }));
+        LatestFenceOwner owner = new LatestFenceOwner(nameMapping, tableValue.getGeneration());
+        ObservedFence latest = latestObservedFences.compute(owner, (ignored, current) ->
+                current == null || current.observation < observation ? new ObservedFence(observation, key) : current);
+        if (loaded.get()) {
+            retireSupersededLatestProjections(entry, owner, latest.key);
+        }
         if (!isCurrentTableGeneration(nameMapping, tableValue.getGeneration())) {
             entry.invalidateKeyIfSame(key, snapshotValue);
         }
         return snapshotValue;
+    }
+
+    /**
+     * Only the projection of the most recently observed latest fence of a table generation is
+     * reachable: every later call re-reads the fence and looks up that key. After a load, retire
+     * every other projection of the generation, including this load itself when a concurrent call
+     * observed a later fence and finished first, so a busy table never accumulates projections.
+     */
+    private static void retireSupersededLatestProjections(
+            MetaCacheEntry<PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> entry,
+            LatestFenceOwner owner, PaimonSnapshotEntryKey latestKey) {
+        entry.invalidateIf(key -> owner.owns(key) && !key.equals(latestKey));
+    }
+
+    private void forgetObservedFences(NameMapping nameMapping, java.util.function.LongPredicate retiredGeneration) {
+        latestObservedFences.keySet().removeIf(owner -> owner.nameMapping.equals(nameMapping)
+                && retiredGeneration.test(owner.generation));
+    }
+
+    private static final class LatestFenceOwner {
+        private final NameMapping nameMapping;
+        private final long generation;
+
+        private LatestFenceOwner(NameMapping nameMapping, long generation) {
+            this.nameMapping = nameMapping;
+            this.generation = generation;
+        }
+
+        private boolean owns(PaimonSnapshotEntryKey key) {
+            return key.getTableGeneration() == generation && key.getNameMapping().equals(nameMapping);
+        }
+
+        @Override
+        public boolean equals(Object object) {
+            if (!(object instanceof LatestFenceOwner)) {
+                return false;
+            }
+            LatestFenceOwner that = (LatestFenceOwner) object;
+            return generation == that.generation && nameMapping.equals(that.nameMapping);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(nameMapping, generation);
+        }
+    }
+
+    private static final class ObservedFence {
+        private final long observation;
+        private final PaimonSnapshotEntryKey key;
+
+        private ObservedFence(long observation, PaimonSnapshotEntryKey key) {
+            this.observation = observation;
+            this.key = key;
+        }
     }
 
     public PaimonSnapshotCacheValue loadSnapshotProjection(ExternalTable dorisTable, Table effectiveTable) {
@@ -156,7 +240,9 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
     PaimonSchemaCacheValue getPaimonSchemaCacheValue(
             NameMapping nameMapping, long schemaId, long tableGeneration, Table retainedTable) {
         PaimonSchemaCacheKey key = new PaimonSchemaCacheKey(nameMapping, tableGeneration, schemaId);
-        if (tableGeneration <= 0L) {
+        if (tableGeneration <= 0L || !tableEntry.get(nameMapping.getCtlId()).isEffectivelyEnabled()) {
+            // See getSnapshotCache: without a published table handle no generation-keyed
+            // projection is reachable again.
             return (PaimonSchemaCacheValue) executeAuthenticated(nameMapping,
                     () -> loadSchemaCacheValue(key, retainedTable));
         }
@@ -213,6 +299,7 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
 
     private void retireTableGeneration(NameMapping nameMapping,
             @Nullable PaimonTableCacheValue previousValue, PaimonTableCacheValue currentValue) {
+        forgetObservedFences(nameMapping, generation -> generation != currentValue.getGeneration());
         MetaCacheEntry<PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> snapshots =
                 snapshotEntry.getIfInitialized(nameMapping.getCtlId());
         if (snapshots != null) {
@@ -233,22 +320,21 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
      * looked up again, so the projections keyed by it are garbage. The callback is delayed and
      * fenced by the removed generation: it never touches the generation currently published.
      */
-    private void retireRemovedTableGeneration(NameMapping nameMapping,
-            @Nullable PaimonTableCacheValue removedValue) {
+    private void retireRemovedTableGeneration(NameMapping nameMapping, @Nullable Long removedGeneration) {
         MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
                 tableEntry.getIfInitialized(nameMapping.getCtlId());
         PaimonTableCacheValue currentValue = tables == null ? null : tables.peekIfPresent(nameMapping);
         long currentGeneration = currentValue == null ? -1L : currentValue.getGeneration();
-        long removedGeneration = removedValue == null ? -1L : removedValue.getGeneration();
-        if (removedValue != null && removedGeneration == currentGeneration) {
+        if (removedGeneration != null && removedGeneration == currentGeneration) {
             // The removed handle was republished; its projections are addressable again.
             return;
         }
-        // A collected (null) value has no generation left: everything that is not derived from
-        // the currently published handle is unreachable.
-        java.util.function.LongPredicate retired = removedValue == null
+        // A collected value left no generation behind: everything that is not derived from the
+        // currently published handle is unreachable.
+        java.util.function.LongPredicate retired = removedGeneration == null
                 ? generation -> generation != currentGeneration
                 : generation -> generation == removedGeneration;
+        forgetObservedFences(nameMapping, retired);
         MetaCacheEntry<PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> snapshots =
                 snapshotEntry.getIfInitialized(nameMapping.getCtlId());
         if (snapshots != null) {
@@ -261,6 +347,18 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
             schemas.invalidateIf(key -> key.getNameMapping().equals(nameMapping)
                     && retired.test(key.getTableGeneration()));
         }
+    }
+
+    @Override
+    public void invalidateCatalog(long catalogId) {
+        latestObservedFences.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
+        super.invalidateCatalog(catalogId);
+    }
+
+    @Override
+    public void invalidateCatalogEntries(long catalogId) {
+        latestObservedFences.keySet().removeIf(owner -> owner.nameMapping.getCtlId() == catalogId);
+        super.invalidateCatalogEntries(catalogId);
     }
 
     @Override

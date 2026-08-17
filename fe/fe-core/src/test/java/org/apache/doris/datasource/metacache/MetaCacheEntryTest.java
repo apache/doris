@@ -1852,7 +1852,7 @@ public class MetaCacheEntryTest {
                 "removal-listener", key -> 1,
                 CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
                 refreshExecutor, false, false, null, null, null,
-                (key, value) -> removed.add(key + "=" + value));
+                value -> value, (key, token) -> removed.add(key + "=" + token));
         try {
             entry.put("k", 1);
             entry.put("k", 2);
@@ -1873,6 +1873,68 @@ public class MetaCacheEntryTest {
             }
             Assert.assertEquals(java.util.Arrays.asList("gone=7", "k=2"), removed);
         } finally {
+            entry.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testQueuedRemovalNotificationsDoNotRetainRemovedValues() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        CountDownLatch listenerEntered = new CountDownLatch(1);
+        CountDownLatch releaseListener = new CountDownLatch(1);
+        java.util.List<Object> tokens = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        ExternalMetaCacheBudgetManager manager = new ExternalMetaCacheBudgetManager(OptionalLong.of(1L << 20));
+        ExternalMetaCacheBudgetManager.EntryBudget budget = manager.createEntryBudget(
+                1L, "test", "removal-token", OptionalLong.empty(), OptionalLong.empty());
+        MetaCacheEntry<String, byte[]> entry = new MetaCacheEntry<>(
+                "removal-token", key -> new byte[1],
+                CacheSpec.ofWeight(true, CacheSpec.CACHE_NO_TTL, 10L, 1L << 20),
+                refreshExecutor, false, false,
+                (key, value) -> MetaCacheSizeEstimate.complete(value.length), budget, null,
+                value -> (long) value.length, (key, token) -> {
+                    tokens.add(token);
+                    listenerEntered.countDown();
+                    try {
+                        releaseListener.await(5L, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+        try {
+            // Block the cleanup thread inside the first callback, then churn remove/refill cycles.
+            entry.put("blocker", new byte[8]);
+            entry.invalidateKey("blocker");
+            Assert.assertTrue(listenerEntered.await(3L, TimeUnit.SECONDS));
+
+            java.util.List<WeakReference<byte[]>> retired = new java.util.ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                byte[] value = new byte[64 * 1024];
+                retired.add(new WeakReference<>(value));
+                entry.put("k", value);
+                entry.invalidateKey("k");
+                value = null;
+            }
+            Assert.assertEquals("reservations are released with the removal", 0L, manager.getGlobalUsedWeight());
+            for (int attempt = 0; attempt < 5 && retired.stream().anyMatch(ref -> ref.get() != null); attempt++) {
+                System.gc();
+                Thread.sleep(50L);
+            }
+            // The queued notifications carry only the extracted tokens; the removed values are
+            // collectable while their reservations are already released.
+            Assert.assertTrue("queued removal notifications must not retain removed values",
+                    retired.stream().allMatch(ref -> ref.get() == null));
+
+            releaseListener.countDown();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3L);
+            while (tokens.size() < 9 && System.nanoTime() < deadline) {
+                Thread.sleep(10L);
+            }
+            Assert.assertEquals(9, tokens.size());
+            Assert.assertEquals(8L, tokens.get(0));
+            Assert.assertEquals((long) (64 * 1024), tokens.get(8));
+        } finally {
+            releaseListener.countDown();
             entry.close();
             refreshExecutor.shutdownNow();
         }

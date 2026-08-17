@@ -777,67 +777,99 @@ public class PaimonExternalMetaCacheTest {
         }
     }
 
+    /** Mocked catalog/env/table graph for the base-table + projection flows. */
+    private static final class MockedPaimonCatalog {
+        private final Env env = Mockito.mock(Env.class);
+        private final PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        private final FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
+        private final java.util.concurrent.atomic.AtomicLong latestSnapshotId =
+                new java.util.concurrent.atomic.AtomicLong(7L);
+        private final NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+        private final AtomicInteger partitionEnumerations = new AtomicInteger();
+        private final AtomicInteger schemaLoads = new AtomicInteger();
+        // When set, the next partition enumeration signals enumerationEntered and blocks on it.
+        private volatile java.util.concurrent.CountDownLatch blockNextEnumeration;
+        private final java.util.concurrent.CountDownLatch enumerationEntered =
+                new java.util.concurrent.CountDownLatch(1);
+
+        private MockedPaimonCatalog() {
+            PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.doReturn(catalog).when(catalogMgr)
+                    .getCatalogOrException(Mockito.eq(1L), Mockito.any());
+            Mockito.doReturn(catalog).when(catalogMgr).getCatalog(1L);
+            Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+                @Override
+                public <T> T execute(Callable<T> task) throws Exception {
+                    return task.call();
+                }
+            });
+            Mockito.doReturn(database).when(catalog).getDbNullable("db");
+            Mockito.when(database.getTableNullable("tbl")).thenReturn(externalTable);
+            Mockito.doReturn(Optional.of(database)).when(catalog).getDb("db");
+            Mockito.doReturn(Optional.of(externalTable)).when(database).getTable("tbl");
+            Column partitionColumn = new Column("part", Type.INT);
+            Mockito.doAnswer(invocation -> {
+                schemaLoads.incrementAndGet();
+                return new PaimonSchemaCacheValue(
+                        Collections.singletonList(partitionColumn),
+                        Collections.singletonList(partitionColumn), null);
+            }).when(externalTable).loadSchemaForCache(Mockito.any(), Mockito.anyLong());
+
+            FileStoreTable latestSchemaTable = Mockito.mock(FileStoreTable.class);
+            FileStoreTable fenceTable = Mockito.mock(FileStoreTable.class);
+            FileStoreTable snapshotTable = Mockito.mock(FileStoreTable.class);
+            Snapshot latestSnapshot = Mockito.mock(Snapshot.class);
+            SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
+            TableSchema latestSchema = Mockito.mock(TableSchema.class);
+            ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class);
+            TableScan tableScan = Mockito.mock(TableScan.class);
+            Mockito.when(baseTable.copyWithLatestSchema()).thenReturn(latestSchemaTable);
+            Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(latestSnapshot));
+            Mockito.when(latestSnapshot.id()).thenAnswer(invocation -> latestSnapshotId.get());
+            Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
+            Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
+            Mockito.when(latestSchema.id()).thenReturn(3L);
+            Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(fenceTable);
+            Mockito.when(fenceTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(snapshotTable);
+            Mockito.when(snapshotTable.options()).thenReturn(Collections.emptyMap());
+            Mockito.when(snapshotTable.newReadBuilder()).thenReturn(readBuilder);
+            Mockito.when(readBuilder.newScan()).thenReturn(tableScan);
+            Mockito.when(tableScan.listPartitionEntries()).thenAnswer(invocation -> {
+                partitionEnumerations.incrementAndGet();
+                java.util.concurrent.CountDownLatch block = blockNextEnumeration;
+                if (block != null) {
+                    blockNextEnumeration = null;
+                    enumerationEntered.countDown();
+                    Assert.assertTrue(block.await(5L, java.util.concurrent.TimeUnit.SECONDS));
+                }
+                return Collections.emptyList();
+            });
+            Mockito.when(catalog.getPaimonTable(mapping)).thenReturn(baseTable);
+        }
+
+        private ExternalTable dorisTable() {
+            ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+            return dorisTable;
+        }
+    }
+
     @Test
     public void testRejectedBaseTableDoesNotAccumulateSnapshotOrSchemaProjections() {
-        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
-        PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);
-        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
-        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
-        Env env = Mockito.mock(Env.class);
-        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
-        Mockito.doReturn(catalog).when(catalogMgr)
-                .getCatalogOrException(Mockito.eq(1L), Mockito.any());
-        Mockito.doReturn(catalog).when(catalogMgr).getCatalog(1L);
-        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
-            @Override
-            public <T> T execute(Callable<T> task) throws Exception {
-                return task.call();
-            }
-        });
-        Mockito.doReturn(database).when(catalog).getDbNullable("db");
-        Mockito.when(database.getTableNullable("tbl")).thenReturn(externalTable);
-        Mockito.doReturn(Optional.of(database)).when(catalog).getDb("db");
-        Mockito.doReturn(Optional.of(externalTable)).when(database).getTable("tbl");
-        Column partitionColumn = new Column("part", Type.INT);
-        Mockito.doReturn(new PaimonSchemaCacheValue(
-                Collections.singletonList(partitionColumn),
-                Collections.singletonList(partitionColumn), null))
-                .when(externalTable).loadSchemaForCache(Mockito.any(), Mockito.anyLong());
-
         // A mocked table has no supported layout, so its weight estimate is incomplete and every
         // load is rejected by the weight-bounded table entry.
-        FileStoreTable baseTable = Mockito.mock(FileStoreTable.class);
-        FileStoreTable latestSchemaTable = Mockito.mock(FileStoreTable.class);
-        FileStoreTable fenceTable = Mockito.mock(FileStoreTable.class);
-        FileStoreTable snapshotTable = Mockito.mock(FileStoreTable.class);
-        Snapshot latestSnapshot = Mockito.mock(Snapshot.class);
-        SchemaManager schemaManager = Mockito.mock(SchemaManager.class);
-        TableSchema latestSchema = Mockito.mock(TableSchema.class);
-        ReadBuilder readBuilder = Mockito.mock(ReadBuilder.class);
-        TableScan tableScan = Mockito.mock(TableScan.class);
-        Mockito.when(baseTable.copyWithLatestSchema()).thenReturn(latestSchemaTable);
-        Mockito.when(latestSchemaTable.latestSnapshot()).thenReturn(Optional.of(latestSnapshot));
-        Mockito.when(latestSnapshot.id()).thenReturn(7L);
-        Mockito.when(latestSchemaTable.schemaManager()).thenReturn(schemaManager);
-        Mockito.when(schemaManager.latest()).thenReturn(Optional.of(latestSchema));
-        Mockito.when(latestSchema.id()).thenReturn(3L);
-        Mockito.when(latestSchemaTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(fenceTable);
-        Mockito.when(fenceTable.copyWithoutTimeTravel(Mockito.anyMap())).thenReturn(snapshotTable);
-        Mockito.when(snapshotTable.options()).thenReturn(Collections.emptyMap());
-        Mockito.when(snapshotTable.newReadBuilder()).thenReturn(readBuilder);
-        Mockito.when(readBuilder.newScan()).thenReturn(tableScan);
-        Mockito.when(tableScan.listPartitionEntries()).thenReturn(Collections.emptyList());
-        NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
-        Mockito.when(catalog.getPaimonTable(mapping)).thenReturn(baseTable);
-
+        MockedPaimonCatalog mocked = new MockedPaimonCatalog();
+        NameMapping mapping = mocked.mapping;
         ExecutorService executor = Executors.newSingleThreadExecutor();
         PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(mocked.env);
             cache.initCatalog(1L, Collections.singletonMap(
                     "meta.cache.paimon.table.max-weight", "1MB"));
-            ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
-            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+            ExternalTable dorisTable = mocked.dorisTable();
             org.apache.doris.datasource.metacache.MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
                     cache.entry(1L, PaimonExternalMetaCache.ENTRY_TABLE,
                             NameMapping.class, PaimonTableCacheValue.class);
@@ -858,7 +890,141 @@ public class PaimonExternalMetaCacheTest {
                 Assert.assertEquals(0L, schemas.stats().getEstimatedSize());
             }
             Assert.assertEquals(10L, tables.stats().getWeightAdmissionRejectedCount());
-            Mockito.verify(catalog, Mockito.times(10)).getPaimonTable(mapping);
+            Mockito.verify(mocked.catalog, Mockito.times(10)).getPaimonTable(mapping);
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testIneffectiveBaseTableServesProjectionsWithoutChildCaching() {
+        // table.max-weight=0 (and table.enable=false with snapshot re-enabled) leave the base entry
+        // ineffective while the children report enabled: nothing keyed by an unpublished
+        // generation is reachable, so the children are bypassed instead of loaded and discarded.
+        assertIneffectiveBaseBypassesChildren(Collections.singletonMap("meta.cache.paimon.table.max-weight", "0"));
+        Map<String, String> explicitSnapshot = new HashMap<>();
+        explicitSnapshot.put("meta.cache.paimon.table.enable", "false");
+        explicitSnapshot.put("meta.cache.paimon.snapshot.enable", "true");
+        assertIneffectiveBaseBypassesChildren(explicitSnapshot);
+    }
+
+    private void assertIneffectiveBaseBypassesChildren(Map<String, String> catalogProperties) {
+        MockedPaimonCatalog mocked = new MockedPaimonCatalog();
+        NameMapping mapping = mocked.mapping;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(mocked.env);
+            cache.initCatalog(1L, catalogProperties);
+            ExternalTable dorisTable = mocked.dorisTable();
+            org.apache.doris.datasource.metacache.MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
+                    cache.entry(1L, PaimonExternalMetaCache.ENTRY_TABLE,
+                            NameMapping.class, PaimonTableCacheValue.class);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<
+                    PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> snapshots = cache.entry(
+                    1L, PaimonExternalMetaCache.ENTRY_SNAPSHOT,
+                    PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<PaimonSchemaCacheKey, SchemaCacheValue> schemas =
+                    cache.entry(1L, PaimonExternalMetaCache.ENTRY_SCHEMA,
+                            PaimonSchemaCacheKey.class, SchemaCacheValue.class);
+            Assert.assertFalse(tables.isEffectivelyEnabled());
+            Assert.assertTrue(snapshots.isEffectivelyEnabled());
+            Assert.assertTrue(schemas.isEffectivelyEnabled());
+
+            for (int i = 0; i < 3; i++) {
+                Assert.assertEquals(7L, cache.getSnapshotCache(dorisTable).getSnapshot().getSnapshotId());
+                Assert.assertNotNull(cache.getPaimonSchemaCacheValue(mapping, 3L));
+                Assert.assertNull(tables.peekIfPresent(mapping));
+                Assert.assertEquals(0L, snapshots.stats().getEstimatedSize());
+                Assert.assertEquals(0L, schemas.stats().getEstimatedSize());
+            }
+            Assert.assertEquals("no projection was ever admitted", 0L, snapshots.stats().getInvalidateCount());
+            Assert.assertEquals(0L, schemas.stats().getInvalidateCount());
+            Assert.assertTrue("no admission is attempted", tables.stats().getWeightAdmissionRejectedCount() <= 0L);
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testAdvancingLatestFenceKeepsOnlyNewestProjectionOfTableGeneration() throws Exception {
+        MockedPaimonCatalog mocked = new MockedPaimonCatalog();
+        NameMapping mapping = mocked.mapping;
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(mocked.env);
+            cache.initCatalog(1L, Collections.emptyMap());
+            ExternalTable dorisTable = mocked.dorisTable();
+            org.apache.doris.datasource.metacache.MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
+                    cache.entry(1L, PaimonExternalMetaCache.ENTRY_TABLE,
+                            NameMapping.class, PaimonTableCacheValue.class);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<
+                    PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> snapshots = cache.entry(
+                    1L, PaimonExternalMetaCache.ENTRY_SNAPSHOT,
+                    PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class);
+
+            PaimonSnapshotCacheValue at7 = cache.getSnapshotCache(dorisTable);
+            PaimonTableCacheValue tableValue = tables.peekIfPresent(mapping);
+            Assert.assertNotNull(tableValue);
+            PaimonSnapshotEntryKey key7 = new PaimonSnapshotEntryKey(mapping, 7L, 3L, tableValue.getGeneration());
+            Assert.assertSame(at7, snapshots.peekIfPresent(key7));
+            Assert.assertSame(at7, cache.getSnapshotCache(dorisTable));
+
+            // Commits observed before the table handle refreshes advance the fence: only the
+            // newest projection of this generation stays reachable.
+            mocked.latestSnapshotId.set(8L);
+            PaimonSnapshotCacheValue at8 = cache.getSnapshotCache(dorisTable);
+            PaimonSnapshotEntryKey key8 = new PaimonSnapshotEntryKey(mapping, 8L, 3L, tableValue.getGeneration());
+            Assert.assertEquals(8L, at8.getSnapshot().getSnapshotId());
+            Assert.assertNull(snapshots.peekIfPresent(key7));
+            Assert.assertSame(at8, snapshots.peekIfPresent(key8));
+            Assert.assertEquals(1L, snapshots.stats().getEstimatedSize());
+            Assert.assertSame("the table handle itself is not replaced", tableValue, tables.peekIfPresent(mapping));
+
+            // Reversed completion: a call that observed fence 8 is still enumerating partitions
+            // while a later call observes fence 9 and finishes first. The most recently observed
+            // fence wins; the older load must not survive next to it.
+            snapshots.invalidateKey(key8);
+            java.util.concurrent.CountDownLatch releaseOlderLoad = new java.util.concurrent.CountDownLatch(1);
+            mocked.blockNextEnumeration = releaseOlderLoad;
+            ExecutorService olderCall = Executors.newSingleThreadExecutor();
+            java.util.concurrent.Future<PaimonSnapshotCacheValue> older;
+            PaimonSnapshotEntryKey key9 = new PaimonSnapshotEntryKey(mapping, 9L, 3L, tableValue.getGeneration());
+            try {
+                older = olderCall.submit(() -> {
+                    try (MockedStatic<Env> workerEnv = Mockito.mockStatic(Env.class)) {
+                        workerEnv.when(Env::getCurrentEnv).thenReturn(mocked.env);
+                        return cache.getSnapshotCache(dorisTable);
+                    }
+                });
+                Assert.assertTrue(mocked.enumerationEntered.await(5L, java.util.concurrent.TimeUnit.SECONDS));
+                mocked.latestSnapshotId.set(9L);
+                PaimonSnapshotCacheValue at9 = cache.getSnapshotCache(dorisTable);
+                Assert.assertSame(at9, snapshots.peekIfPresent(key9));
+                releaseOlderLoad.countDown();
+                Assert.assertEquals(8L, older.get(5L, java.util.concurrent.TimeUnit.SECONDS)
+                        .getSnapshot().getSnapshotId());
+                Assert.assertNull(snapshots.peekIfPresent(key8));
+                Assert.assertSame(at9, snapshots.peekIfPresent(key9));
+                Assert.assertEquals(1L, snapshots.stats().getEstimatedSize());
+            } finally {
+                releaseOlderLoad.countDown();
+                olderCall.shutdownNow();
+            }
+
+            // Rollback: the latest snapshot moves backwards; the newly observed fence replaces the
+            // projection of the higher snapshot id instead of being retired by it.
+            mocked.latestSnapshotId.set(8L);
+            PaimonSnapshotCacheValue rolledBack = cache.getSnapshotCache(dorisTable);
+            Assert.assertEquals(8L, rolledBack.getSnapshot().getSnapshotId());
+            Assert.assertSame(rolledBack, snapshots.peekIfPresent(key8));
+            Assert.assertNull(snapshots.peekIfPresent(key9));
+            Assert.assertSame(rolledBack, cache.getSnapshotCache(dorisTable));
+            Assert.assertEquals(1L, snapshots.stats().getEstimatedSize());
+            Assert.assertEquals(5, mocked.partitionEnumerations.get());
         } finally {
             cache.close();
             executor.shutdownNow();

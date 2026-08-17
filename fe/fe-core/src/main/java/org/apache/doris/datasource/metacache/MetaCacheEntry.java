@@ -64,8 +64,7 @@ public class MetaCacheEntry<K, V> {
     private static final int REMOVAL_CLEANUP_BATCH_SIZE = 256;
     private static final long WEIGHT_REJECT_LOG_INTERVAL_MS = TimeUnit.MINUTES.toMillis(1L);
     // Direct Caffeine callbacks must not wait for admissionLock. A daemon drains one coalesced
-    // generation map per physical entry after callbacks return; reservation cleanups never capture
-    // values, removal-listener notifications hold the removed value only until they are drained.
+    // generation map per physical entry after callbacks return; cleanup tasks never capture values.
     private static final ExecutorService REMOVAL_CLEANUP_EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "external-meta-cache-removal-cleanup");
         thread.setDaemon(true);
@@ -90,10 +89,14 @@ public class MetaCacheEntry<K, V> {
     @Nullable
     private final MetaCacheEntryReplacementListener<K, V> replacementListener;
     @Nullable
-    private final MetaCacheEntryRemovalListener<K, V> removalListener;
-    // Removed (key, value) pairs awaiting the asynchronous removal listener; drained together with
-    // the reservation cleanups so Caffeine's synchronous callback stays lock-free.
-    private final ConcurrentLinkedQueue<RemovedValue<K, V>> pendingRemovalNotifications =
+    private final Function<V, Object> removalTokenExtractor;
+    @Nullable
+    private final MetaCacheEntryRemovalListener<K, Object> removalListener;
+    // Removed (key, token) pairs awaiting the asynchronous removal listener; drained together with
+    // the reservation cleanups so Caffeine's synchronous callback stays lock-free. Only the token
+    // is queued: the removed value's reservation is released with the removal, so keeping the
+    // value here would hold retired graphs outside every budget.
+    private final ConcurrentLinkedQueue<RemovedToken<K>> pendingRemovalNotifications =
             new ConcurrentLinkedQueue<>();
     private final boolean weightBounded;
     // Entries with publication-time work use the same generation-fenced refresh protocol even
@@ -169,14 +172,16 @@ public class MetaCacheEntry<K, V> {
             @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator, @Nullable EntryBudget entryBudget,
             @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener) {
         this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
-                sizeEstimator, entryBudget, replacementListener, null);
+                sizeEstimator, entryBudget, replacementListener, null, null);
     }
 
+    @SuppressWarnings("unchecked")
     public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
             @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator, @Nullable EntryBudget entryBudget,
             @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener,
-            @Nullable MetaCacheEntryRemovalListener<K, V> removalListener) {
+            @Nullable Function<V, ?> removalTokenExtractor,
+            @Nullable MetaCacheEntryRemovalListener<K, ?> removalListener) {
         this.name = name;
         if (contextualOnly) {
             if (loader != null) {
@@ -195,7 +200,11 @@ public class MetaCacheEntry<K, V> {
         this.sizeEstimator = sizeEstimator;
         this.entryBudget = entryBudget;
         this.replacementListener = replacementListener;
-        this.removalListener = removalListener;
+        if ((removalListener == null) != (removalTokenExtractor == null)) {
+            throw new IllegalArgumentException("removal listener requires a token extractor: " + name);
+        }
+        this.removalTokenExtractor = (Function<V, Object>) removalTokenExtractor;
+        this.removalListener = (MetaCacheEntryRemovalListener<K, Object>) removalListener;
         this.weightBounded = this.cacheSpec.isWeightBounded();
         this.generationFencedRefresh = autoRefresh
                 && (sizeEstimator != null || replacementListener != null || removalListener != null);
@@ -570,6 +579,15 @@ public class MetaCacheEntry<K, V> {
         return effectiveEnabled;
     }
 
+    /**
+     * True when publication sizing can lead to a weighted admission: an entry may be configured
+     * with a weight bound yet be ineffective (max-weight 0, disabled, zero TTL or capacity), in
+     * which case preparing values for publication is pure waste.
+     */
+    public boolean isWeightAccounting() {
+        return weightBounded && effectiveEnabled;
+    }
+
     private AdmissionResult admitWeightedValue(
             K key, V value, @Nullable V expectedCurrent, boolean requireExpected,
             @Nullable KeyMutationToken expectedMutation, long expectedReservationGeneration,
@@ -800,7 +818,7 @@ public class MetaCacheEntry<K, V> {
             return;
         }
         if (removalListener != null) {
-            pendingRemovalNotifications.add(new RemovedValue<>(key, value));
+            pendingRemovalNotifications.add(new RemovedToken<>(key, removalToken(value)));
             scheduleRemovalCleanup();
         }
         if (Thread.holdsLock(admissionLock)) {
@@ -905,17 +923,30 @@ public class MetaCacheEntry<K, V> {
         }
     }
 
+    @Nullable
+    private Object removalToken(@Nullable V value) {
+        if (value == null || removalTokenExtractor == null) {
+            return null;
+        }
+        try {
+            return removalTokenExtractor.apply(value);
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to extract the removal token of external metadata cache entry {}", name, e);
+            return null;
+        }
+    }
+
     private void drainRemovalNotifications() {
         if (removalListener == null) {
             return;
         }
         for (int processed = 0; processed < REMOVAL_CLEANUP_BATCH_SIZE; processed++) {
-            RemovedValue<K, V> removed = pendingRemovalNotifications.poll();
+            RemovedToken<K> removed = pendingRemovalNotifications.poll();
             if (removed == null || closed.get()) {
                 return;
             }
             try {
-                removalListener.onRemoval(removed.key, removed.value);
+                removalListener.onRemoval(removed.key, removed.token);
             } catch (RuntimeException e) {
                 LOG.warn("Failed to retire dependencies after removing external metadata cache entry {}",
                         name, e);
@@ -923,14 +954,14 @@ public class MetaCacheEntry<K, V> {
         }
     }
 
-    private static final class RemovedValue<K, V> {
+    private static final class RemovedToken<K> {
         private final K key;
         @Nullable
-        private final V value;
+        private final Object token;
 
-        private RemovedValue(K key, @Nullable V value) {
+        private RemovedToken(K key, @Nullable Object token) {
             this.key = key;
-            this.value = value;
+            this.token = token;
         }
     }
 

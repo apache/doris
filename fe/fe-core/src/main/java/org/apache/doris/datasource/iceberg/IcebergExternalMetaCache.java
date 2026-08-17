@@ -53,6 +53,7 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
@@ -154,7 +155,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     private Table createQueryTable(
             NameMapping nameMapping, IcebergTableCacheValue tableValue) {
         boolean isolateForQueries = tableValue.isQueryIsolationPrepared()
-                || snapshotEntry.get(nameMapping.getCtlId()).isWeightBounded();
+                || snapshotEntry.get(nameMapping.getCtlId()).isWeightAccounting();
         if (!isolateForQueries) {
             return tableValue.getIcebergTable();
         }
@@ -184,8 +185,8 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> entry =
                 snapshotEntry.get(nameMapping.getCtlId());
         boolean isolateForQueries = tableValue.isQueryIsolationPrepared()
-                || entry.isWeightBounded();
-        IcebergSnapshotCacheValue snapshotValue = entry.get(key,
+                || entry.isWeightAccounting();
+        Function<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> projectionLoader =
                 ignored -> executeAuthenticated(nameMapping.getCtlId(), () -> {
                     Table projectionTable = isolateForQueries
                             ? tableValue.newQueryScopedTable() : tableValue.getIcebergTable();
@@ -193,11 +194,19 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                             dorisTable, projectionTable,
                             tableValue.getRetainedIcebergTable(),
                             tableValue.getRetainedCurrentSnapshotJson(), isolateForQueries);
-                    if (entry.isWeightBounded()) {
+                    if (entry.isWeightAccounting()) {
                         value.prepareForCachePublication(key);
                     }
                     return value;
-                }));
+                });
+        IcebergSnapshotCacheValue snapshotValue = entry.get(key, projectionLoader);
+        if (!sharesOperationalResources(tableValue, snapshotValue)) {
+            // A hit frozen on a previous handle of the same metadata generation keeps that handle's
+            // FileIO (vended credentials). Whether or not the base entry publishes handles, scans
+            // bind to the projection, so rebuild it from the handle this lookup just obtained.
+            entry.invalidateKeyIfSame(key, snapshotValue);
+            snapshotValue = entry.get(key, projectionLoader);
+        }
         MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = tableEntry.get(nameMapping.getCtlId());
         IcebergTableCacheValue currentTable = tables.peekIfPresent(nameMapping);
         if (tables.isEffectivelyEnabled()
@@ -205,8 +214,9 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             // A query may have captured the previous table immediately before refresh publication,
             // or loaded through a table handle that was never admitted (weight rejection). It can
             // use that immutable value, but must not republish a projection no later lookup can
-            // reach or one frozen on superseded operational resources. (A disabled table entry
-            // never publishes; its physically keyed projections stay reusable.)
+            // reach or one frozen on superseded operational resources. (An ineffective table entry
+            // never publishes; its physically keyed projections stay reusable and are revalidated
+            // against the fresh handle above.)
             entry.invalidateKeyIfSame(key, snapshotValue);
         }
         return snapshotValue;
@@ -269,7 +279,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         }
         return manifestEntry.get(key,
                 ignored -> loadManifestCacheValue(
-                        manifest, icebergTable, key.getContent(), manifestEntry.isWeightBounded()));
+                        manifest, icebergTable, key.getContent(), manifestEntry.isWeightAccounting()));
     }
 
     @Override
@@ -297,7 +307,7 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             IcebergTableCacheValue value = new IcebergTableCacheValue(table);
             MetaCacheEntry<NameMapping, IcebergTableCacheValue> currentEntry =
                     tableEntry.getIfInitialized(nameMapping.getCtlId());
-            if (currentEntry != null && currentEntry.isWeightBounded()) {
+            if (currentEntry != null && currentEntry.isWeightAccounting()) {
                 prepareTableForCachePublication(nameMapping, value);
             }
             return value;
@@ -387,6 +397,10 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             IcebergTableCacheValue currentValue, @Nullable IcebergSnapshotCacheValue projection) {
         if (projection == null) {
             return false;
+        }
+        if (projection.getRetainedIcebergTable().map(table -> table == currentValue.getRetainedIcebergTable())
+                .orElse(false)) {
+            return true;
         }
         Optional<Table> retainedTable = projection.getRetainedIcebergTable();
         // Count-mode projections do not retain a table handle; nothing to rebind.

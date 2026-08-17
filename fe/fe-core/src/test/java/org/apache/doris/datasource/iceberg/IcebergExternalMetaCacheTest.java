@@ -74,6 +74,7 @@ import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -347,6 +348,139 @@ public class IcebergExternalMetaCacheTest {
             Assert.assertSame(schemaValue, cache.getIcebergSchemaCacheValue(
                     mapping, 0L, rejected.getRetainedIcebergTable()));
             Assert.assertNull(schemas.peekIfPresent(schemaKey));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testIneffectiveTableEntryRevalidatesSnapshotResourcesOnEveryLookup() {
+        // A base entry can be ineffective while the snapshot entry caches: the physical key hits,
+        // but the projection must be rebuilt as soon as the fresh handle rotates credentials.
+        assertIneffectiveBaseRebindsRotatedCredentials(
+                Collections.singletonMap("meta.cache.iceberg.table.max-weight", "0"));
+        Map<String, String> explicitSnapshot = new HashMap<>();
+        explicitSnapshot.put("meta.cache.iceberg.table.enable", "false");
+        explicitSnapshot.put("meta.cache.iceberg.snapshot.enable", "true");
+        assertIneffectiveBaseRebindsRotatedCredentials(explicitSnapshot);
+    }
+
+    private void assertIneffectiveBaseRebindsRotatedCredentials(Map<String, String> catalogProperties) {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        IcebergMetadataOps metadataOps = Mockito.mock(IcebergMetadataOps.class);
+        Mockito.when(catalog.getMetadataOps()).thenReturn(metadataOps);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                return task.call();
+            }
+        });
+        TableMetadata metadata = metadataWithLocation("/metadata/ineffective-base.json");
+        Table firstHandle = tableWithMetadata(metadata, new PropertiesFileIO("token", "one"));
+        Table sameCredentials = tableWithMetadata(metadata, new PropertiesFileIO("token", "one"));
+        Table rotatedHandle = tableWithMetadata(metadata, new PropertiesFileIO("token", "two"));
+        Mockito.when(metadataOps.loadTable("remote_db", "remote_tbl"))
+                .thenReturn(firstHandle, sameCredentials, rotatedHandle);
+        AtomicInteger preparations = new AtomicInteger();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor) {
+            @Override
+            protected CatalogIf<?> getCatalog(long catalogId) {
+                return catalog;
+            }
+
+            @Override
+            MetaCacheSizeEstimate prepareTableForCachePublication(
+                    NameMapping nameMapping, IcebergTableCacheValue value) {
+                preparations.incrementAndGet();
+                return super.prepareTableForCachePublication(nameMapping, value);
+            }
+        };
+        try {
+            cache.initCatalog(1L, catalogProperties);
+            MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = cache.entry(
+                    1L, IcebergExternalMetaCache.ENTRY_TABLE, NameMapping.class, IcebergTableCacheValue.class);
+            MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> snapshots = cache.entry(
+                    1L, IcebergExternalMetaCache.ENTRY_SNAPSHOT,
+                    IcebergSnapshotEntryKey.class, IcebergSnapshotCacheValue.class);
+            Assert.assertFalse(tables.isEffectivelyEnabled());
+            Assert.assertTrue(snapshots.isEffectivelyEnabled());
+            NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+            IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+
+            IcebergSnapshotCacheValue first = cache.getSnapshotCache(dorisTable);
+            Assert.assertNull(tables.peekIfPresent(mapping));
+            Assert.assertEquals(1L, snapshots.stats().getEstimatedSize());
+            // Same credentials on a new handle instance: the physically keyed projection is reused.
+            Assert.assertSame(first, cache.getSnapshotCache(dorisTable));
+            // Rotated credentials: the projection frozen on the first handle is rebuilt.
+            IcebergSnapshotCacheValue rebound = cache.getSnapshotCache(dorisTable);
+            Assert.assertNotSame(first, rebound);
+            Assert.assertSame(rotatedHandle.io(), rebound.getIcebergTable().get().io());
+            Assert.assertEquals(1L, snapshots.stats().getEstimatedSize());
+            Mockito.verify(metadataOps, Mockito.times(3)).loadTable("remote_db", "remote_tbl");
+            // An ineffective weighted entry never admits, so publication sizing is skipped.
+            Assert.assertEquals(0, preparations.get());
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testIneffectiveWeightedEntriesSkipPublicationSizing() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        IcebergMetadataOps metadataOps = Mockito.mock(IcebergMetadataOps.class);
+        Mockito.when(catalog.getMetadataOps()).thenReturn(metadataOps);
+        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
+            @Override
+            public <T> T execute(Callable<T> task) throws Exception {
+                return task.call();
+            }
+        });
+        Mockito.when(metadataOps.loadTable("remote_db", "remote_tbl")).thenAnswer(
+                invocation -> tableWithMetadataLocation("/metadata/ineffective-weighted.json"));
+        AtomicInteger preparations = new AtomicInteger();
+        IcebergExternalMetaCache cache = new IcebergExternalMetaCache(executor) {
+            @Override
+            protected CatalogIf<?> getCatalog(long catalogId) {
+                return catalog;
+            }
+
+            @Override
+            MetaCacheSizeEstimate prepareTableForCachePublication(
+                    NameMapping nameMapping, IcebergTableCacheValue value) {
+                preparations.incrementAndGet();
+                return super.prepareTableForCachePublication(nameMapping, value);
+            }
+        };
+        try {
+            Map<String, String> properties = new HashMap<>();
+            properties.put("meta.cache.iceberg.table.max-weight", "0");
+            properties.put("meta.cache.iceberg.snapshot.max-weight", "0");
+            properties.put("meta.cache.iceberg.manifest.enable", "true");
+            properties.put("meta.cache.iceberg.manifest.max-weight", "0");
+            cache.initCatalog(1L, properties);
+            for (String entryName : new String[] {IcebergExternalMetaCache.ENTRY_TABLE,
+                    IcebergExternalMetaCache.ENTRY_SNAPSHOT, IcebergExternalMetaCache.ENTRY_MANIFEST}) {
+                MetaCacheEntryStats stats = cache.stats(1L).get(entryName);
+                Assert.assertTrue(entryName, stats.isWeightBounded());
+                Assert.assertFalse(entryName, stats.isEffectiveEnabled());
+            }
+            NameMapping mapping = new NameMapping(1L, "db", "tbl", "remote_db", "remote_tbl");
+            IcebergExternalTable dorisTable = Mockito.mock(IcebergExternalTable.class);
+            Mockito.when(dorisTable.getOrBuildNameMapping()).thenReturn(mapping);
+
+            IcebergSnapshotCacheValue projection = cache.getSnapshotCache(dorisTable);
+            IcebergTableCacheValue tableValue = cache.entry(1L, IcebergExternalMetaCache.ENTRY_TABLE,
+                    NameMapping.class, IcebergTableCacheValue.class).get(mapping);
+            Assert.assertEquals(0, preparations.get());
+            Assert.assertFalse(tableValue.isQueryIsolationPrepared());
+            Assert.assertFalse(projection.getSizeEstimate().isComplete());
+            Assert.assertEquals("not_prepared", projection.getSizeEstimate().getIncompleteReason());
         } finally {
             cache.close();
             executor.shutdownNow();
