@@ -229,13 +229,21 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     /**
-     * Upper case, unlike the privilege checks above, which lower case the access type they ask with. That
-     * asymmetry is what a Hive service has always been asked, so it stays: which policies match is decided by
-     * the deployed Ranger service definition, and this is not the place to find out the hard way.
+     * Lower case, the same spelling the privilege checks above ask with - because that is the spelling the
+     * Hive service definition declares.
+     *
+     * <p>A Ranger service definition names its access types, and the policies of a service can only be
+     * written with the names it declares: Ranger's stock Hive definition declares {@code select}, and its
+     * {@code rowFilterDef} declares {@code select} as well, so a row filter or a column mask on a Hive
+     * service can only carry that spelling. Doris used to ask for these with a single hard-coded
+     * {@code "SELECT"} shared with the Doris service type - correct there, where the definition really does
+     * declare upper case, and never matching anything here. The effect was silent and one-directional: a
+     * row filter written in the Ranger UI against a Hive service simply never reached the query, which is
+     * the failure mode a data policy must not have.
      */
     @Override
     protected String readAccessTypeName() {
-        return HiveAccessType.SELECT.name();
+        return HiveAccessType.SELECT.name().toLowerCase();
     }
 
     @Override

@@ -101,6 +101,40 @@ public class RangerDorisAccessController extends RangerAccessController {
         return NAME;
     }
 
+    /**
+     * Lets go of this controller, shutting the Ranger plugin down once nothing holds it any more.
+     *
+     * <p>The factory hands the same controller to every binding of this source, so a binding going away is
+     * not on its own a reason to stop polling; the factory counts the holders and shuts it down when the last
+     * one lets go. Without this the controller could never be stopped at all: its policy refresher and its
+     * policy download timer would keep polling the Ranger service for as long as the FE runs.
+     */
+    @Override
+    public void close() {
+        if (RangerDorisAccessControllerFactory.release(this)) {
+            return;
+        }
+        // Built directly rather than through the factory, so there is nobody else to account for.
+        shutdown();
+    }
+
+    /**
+     * Stops the Ranger plugin's threads. Idempotent, and deliberately not fenced against a query that is
+     * still holding this controller: nothing reaches here until the last binding is gone.
+     */
+    synchronized void shutdown() {
+        if (dorisPlugin == null) {
+            return;
+        }
+        try {
+            dorisPlugin.cleanup();
+        } catch (Throwable e) {
+            LOG.warn("Failed to clean up the Ranger Doris plugin", e);
+        } finally {
+            dorisPlugin = null;
+        }
+    }
+
     @Override
     public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
             AccessRequirement requirement, AccessContext context) throws AccessDeniedException {

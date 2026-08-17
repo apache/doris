@@ -102,10 +102,14 @@ public class RangerHiveAccessControllerTest {
      * Which row-filter and masking policies a Hive service returns depends on the access type the lookup
      * asks with, and that string reaches a Ranger server nobody rebuilds when Doris changes.
      *
-     * <p>Pinned upper case on purpose. The privilege checks above ask with the access type lower cased, so
-     * the two paths disagree - and they have disagreed for as long as Doris has had a Hive Ranger source,
-     * because the shared lookup used to be written against the Doris service's spelling for both services.
-     * Making them agree is a change to which policies match on a deployed Ranger, not a tidy-up.
+     * <p>Pinned lower case, because that is the only spelling a Hive policy can carry: Ranger's stock Hive
+     * service definition declares its access types as {@code select}, {@code update}, ... and its
+     * {@code rowFilterDef} declares {@code select}, so the Ranger UI cannot write anything else. Doris used
+     * to ask with a single hard-coded {@code SELECT} shared with the Doris service type - right there, where
+     * the definition really is upper case, and matching nothing here. A row filter or column mask written
+     * against a Hive service therefore never reached the query, silently. The privilege checks above already
+     * lower case the access type they ask with; this makes the data-policy lookup agree with them and with
+     * the deployed service definition.
      */
     @Test
     public void testRowFilterLookupAsksWithTheReadAccessType() {
@@ -122,7 +126,7 @@ public class RangerHiveAccessControllerTest {
                 ArgumentCaptor<RangerAccessRequest> asked = ArgumentCaptor.forClass(RangerAccessRequest.class);
                 Mockito.verify(plugin.constructed().get(0))
                         .evalRowFilterPolicies(asked.capture(), Mockito.any());
-                Assert.assertEquals("SELECT", asked.getValue().getAccessType());
+                Assert.assertEquals("select", asked.getValue().getAccessType());
             } finally {
                 controller.close();
             }
