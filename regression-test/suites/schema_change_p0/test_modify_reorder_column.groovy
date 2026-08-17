@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_modify_reorder_column") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
 
     def getJobState = { tableName ->
          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
@@ -36,7 +37,7 @@ suite ("test_modify_reorder_column") {
         properties( "replication_num" = "1" ); """
 
     sql """insert into ${tbl1} values
-        (1, {"A", "B", 10, 3.14}, {"C", "D", 20, 8.343}, '{"a" : 1, "b" : [1], "c": 1.0}') """
+        (1, {"A", "B", 10, 3.14}, {"C", "D", 20, 8.343}, ${variantV2Function}('{"a" : 1, "b" : [1], "c": 1.0}')) """
     qt_dup """ select * from ${tbl1} order by k1;"""
 
     sql "ALTER TABLE ${tbl1} MODIFY COLUMN colnull STRUCT<f1: varchar(65533), f2: char(32), f3: int, f4: double> NULL AFTER v"
@@ -55,7 +56,7 @@ suite ("test_modify_reorder_column") {
     }
 
     sql """insert into ${tbl1} values
-        (2, {"E", "F", 30, 484.3234}, '{"a" : 1, "b" : [1], "c": 1.0}', null) """
+        (2, {"E", "F", 30, 484.3234}, ${variantV2Function}('{"a" : 1, "b" : [1], "c": 1.0}'), null) """
     qt_dup """ select * from ${tbl1} order by k1;"""
     sql """DROP TABLE IF EXISTS ${tbl1} FORCE; """
 
@@ -72,7 +73,7 @@ suite ("test_modify_reorder_column") {
         properties( "replication_num" = "1", "enable_unique_key_merge_on_write" = "false" ); """
 
     sql """insert into ${tbl2} values
-        (1, {"A", "B", 10, 3.14}, {"C", "D", 20, 8.343}, '{"a" : 1, "b" : [1], "c": 1.0}') """
+        (1, {"A", "B", 10, 3.14}, {"C", "D", 20, 8.343}, ${variantV2Function}('{"a" : 1, "b" : [1], "c": 1.0}')) """
     qt_mor """ select * from ${tbl2} order by k1;"""
 
     sql "ALTER TABLE ${tbl2} MODIFY COLUMN colnull STRUCT<f1: varchar(65533), f2: char(32), f3: int, f4: double> NULL AFTER v"
@@ -90,7 +91,7 @@ suite ("test_modify_reorder_column") {
     }
 
     sql """insert into ${tbl2} values
-        (2, {"E", "F", 30, 484.3234}, '{"a" : 1, "b" : [1], "c": 1.0}', null) """
+        (2, {"E", "F", 30, 484.3234}, ${variantV2Function}('{"a" : 1, "b" : [1], "c": 1.0}'), null) """
     qt_mor """ select * from ${tbl2} order by k1;"""
     sql """DROP TABLE IF EXISTS ${tbl2} FORCE; """
 
@@ -107,7 +108,7 @@ suite ("test_modify_reorder_column") {
         properties( "replication_num" = "1", "enable_unique_key_merge_on_write" = "false" ); """
 
     sql """insert into ${tbl3} values
-        (1, {"A", "B", 10, 3.14}, {"C", "D", 20, 8.343}, '{"a" : 1, "b" : [1], "c": 1.0}') """
+        (1, {"A", "B", 10, 3.14}, {"C", "D", 20, 8.343}, ${variantV2Function}('{"a" : 1, "b" : [1], "c": 1.0}')) """
     qt_mow """ select * from ${tbl3} order by k1;"""
 
     sql "ALTER TABLE ${tbl3} MODIFY COLUMN colnull STRUCT<f1: varchar(65533), f2: char(32), f3: int, f4: double> NULL AFTER v"
@@ -125,7 +126,7 @@ suite ("test_modify_reorder_column") {
     }
 
     sql """insert into ${tbl3} values
-        (2, {"E", "F", 30, 484.3234}, '{"a" : 1, "b" : [1], "c": 1.0}', null) """
+        (2, {"E", "F", 30, 484.3234}, ${variantV2Function}('{"a" : 1, "b" : [1], "c": 1.0}'), null) """
     qt_mow """ select * from ${tbl3} order by k1;"""
     sql """DROP TABLE IF EXISTS ${tbl3} FORCE; """
 }

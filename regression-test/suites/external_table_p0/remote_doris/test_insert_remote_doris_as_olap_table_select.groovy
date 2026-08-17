@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_insert_remote_doris_as_olap_table_select", "p0,external,doris,external_docker,external_docker_doris") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     String remote_doris_host = context.config.otherConfigs.get("extArrowFlightSqlHost")
     String remote_doris_arrow_port = context.config.otherConfigs.get("extArrowFlightSqlPort")
     String remote_doris_http_port = context.config.otherConfigs.get("extArrowFlightHttpPort")
@@ -361,12 +362,13 @@ suite("test_insert_remote_doris_as_olap_table_select", "p0,external,doris,extern
     """
     sql """
         INSERT INTO `${catalog_name}`.`${db_name}`.`remote_json_variant` VALUES
-        (1,'{"id":1,"message":"hello"}','{"id":1,"message":"hello","tags":["tag1","tag2"]}'),
-        (2,'{"id":2,"message":"world"}','{"id":2,"message":"world","tags":["tag3","tag4"]}'),
-        (3,'{"id":3,"message":"doris"}','{"id":3,"message":"doris","tags":["tag5","tag6"]}');
+        (1,'{"id":1,"message":"hello"}',${variantV2Function}('{"id":1,"message":"hello","tags":["tag1","tag2"]}')),
+        (2,'{"id":2,"message":"world"}',${variantV2Function}('{"id":2,"message":"world","tags":["tag3","tag4"]}')),
+        (3,'{"id":3,"message":"doris"}',${variantV2Function}('{"id":3,"message":"doris","tags":["tag5","tag6"]}'));
     """
     qt_json_variant """
-        select id, c_json, c_variant from `${catalog_name}`.`${db_name}`.`remote_json_variant` order by id
+        select id, c_json, json_parse(cast(c_variant as string))
+        from `${catalog_name}`.`${db_name}`.`remote_json_variant` order by id
     """
     qt_json_variant_function """
         select id,  JSON_EXTRACT_INT(c_json, '\$.id') as json_id, cast(c_variant['message'] as string) as v_msg from `${catalog_name}`.`${db_name}`.`remote_json_variant` order by id
