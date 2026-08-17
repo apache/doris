@@ -557,8 +557,10 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
     AsyncCacheWriteManagerOptions async_write_options;
     async_write_options.worker_count =
             static_cast<size_t>(config::async_file_cache_write_workers_per_disk);
-    RETURN_IF_ERROR(resolve_async_file_cache_write_max_pending_bytes_per_disk(
-            config::async_file_cache_write_max_pending_bytes_per_disk, MemInfo::mem_limit(),
+    // A standalone cache uses the complete BE-wide value. FileCacheFactory replaces this with an
+    // equal per-instance share after it knows how many cache paths initialized successfully.
+    RETURN_IF_ERROR(resolve_async_file_cache_write_max_pending_bytes(
+            config::async_file_cache_write_max_pending_bytes, MemInfo::mem_limit(),
             &async_write_options.max_pending_bytes));
     _async_write_manager =
             std::make_unique<AsyncCacheWriteManager>(this, std::move(async_write_options));

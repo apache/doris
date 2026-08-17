@@ -100,10 +100,10 @@ public:
 
     std::vector<std::string> get_base_paths();
 
-    /// Explicitly replace async-write manager settings on every initialized cache disk.
-    /// @param options Complete settings snapshot produced by the configuration adapter.
+    /// Re-read the BE-wide async-write settings, split the pending-byte ownership limit equally
+    /// across all initialized cache instances, and update every per-disk manager.
     /// @return OK after every manager is updated; otherwise the first manager update error.
-    Status update_async_write_options(const AsyncCacheWriteManagerOptions& options);
+    Status refresh_async_write_options();
 
     /// Start async-write workers for every initialized cache disk. Repeated calls are idempotent.
     /// @return OK after every manager is ready; otherwise the first startup error.
@@ -128,6 +128,8 @@ public:
     FileCacheFactory(const FileCacheFactory&) = delete;
 
 private:
+    Status _refresh_async_write_options_locked();
+
     std::mutex _mtx;
     std::vector<std::unique_ptr<BlockFileCache>> _caches;
     std::unordered_map<std::string, BlockFileCache*> _path_to_cache;

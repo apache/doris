@@ -137,8 +137,30 @@ size_t FileCacheFactory::try_release(const std::string& base_path) {
     return 0;
 }
 
-Status FileCacheFactory::update_async_write_options(const AsyncCacheWriteManagerOptions& options) {
+Status FileCacheFactory::refresh_async_write_options() {
     std::lock_guard lock(_mtx);
+    return _refresh_async_write_options_locked();
+}
+
+Status FileCacheFactory::_refresh_async_write_options_locked() {
+    if (_caches.empty()) {
+        return Status::OK();
+    }
+
+    size_t total_max_pending_bytes = 0;
+    RETURN_IF_ERROR(resolve_async_file_cache_write_max_pending_bytes(
+            config::async_file_cache_write_max_pending_bytes, MemInfo::mem_limit(),
+            &total_max_pending_bytes));
+    const size_t max_pending_bytes_per_instance = total_max_pending_bytes / _caches.size();
+    if (max_pending_bytes_per_instance == 0) {
+        return Status::InvalidArgument(
+                "async file cache write pending byte limit {} is smaller than {} cache instances",
+                total_max_pending_bytes, _caches.size());
+    }
+    AsyncCacheWriteManagerOptions options {
+            .worker_count = static_cast<size_t>(config::async_file_cache_write_workers_per_disk),
+            .max_pending_bytes = max_pending_bytes_per_instance,
+    };
     for (const auto& cache : _caches) {
         RETURN_IF_ERROR(cache->async_write_manager()->update_options(options));
     }
@@ -162,6 +184,7 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
         _path_to_cache[built_cache.cache_base_path] = built_cache.cache.get();
         _capacity += built_cache.settings.capacity;
         _caches.push_back(std::move(built_cache.cache));
+        RETURN_IF_ERROR(_refresh_async_write_options_locked());
     }
 
     return Status::OK();
@@ -228,6 +251,7 @@ Status FileCacheFactory::create_file_caches(
             _capacity += result.built_cache.settings.capacity;
             _caches.push_back(std::move(result.built_cache.cache));
         }
+        RETURN_IF_ERROR(_refresh_async_write_options_locked());
     }
 
     return Status::OK();
@@ -264,6 +288,7 @@ Status FileCacheFactory::reload_file_cache(const std::vector<CachePath>& cache_b
 
             RETURN_IF_ERROR(cache_iter->get()->initialize());
         }
+        RETURN_IF_ERROR(_refresh_async_write_options_locked());
     }
 
     return Status::OK();
@@ -507,15 +532,6 @@ namespace doris::config {
 
 namespace {
 
-/// Capture all mutable async-write fields after a config update into one coherent snapshot.
-Status load_async_write_options_from_config(io::AsyncCacheWriteManagerOptions* options) {
-    DORIS_CHECK(options != nullptr);
-    options->worker_count = static_cast<size_t>(async_file_cache_write_workers_per_disk);
-    return io::resolve_async_file_cache_write_max_pending_bytes_per_disk(
-            async_file_cache_write_max_pending_bytes_per_disk, MemInfo::mem_limit(),
-            &options->max_pending_bytes);
-}
-
 /// Forward one changed config field through the explicit factory/manager update interface.
 /// @param config_name Name used only to identify failures in the log.
 /// @param old_value Previous config value; equal values require no manager update.
@@ -529,11 +545,7 @@ void update_async_write_options(const char* config_name, T old_value, T new_valu
     if (factory == nullptr) {
         return;
     }
-    io::AsyncCacheWriteManagerOptions options;
-    Status status = load_async_write_options_from_config(&options);
-    if (status.ok()) {
-        status = factory->update_async_write_options(options);
-    }
+    Status status = factory->refresh_async_write_options();
     if (!status.ok()) {
         LOG(WARNING) << "Failed to apply async file cache write option " << config_name << " from "
                      << old_value << " to " << new_value << ": " << status.to_string();
@@ -559,9 +571,8 @@ DEFINE_ON_UPDATE(enable_async_file_cache_write, [](bool old_value, bool new_valu
 DEFINE_ON_UPDATE(async_file_cache_write_workers_per_disk, [](int32_t old_value, int32_t new_value) {
     update_async_write_options("async_file_cache_write_workers_per_disk", old_value, new_value);
 });
-DEFINE_ON_UPDATE(async_file_cache_write_max_pending_bytes_per_disk,
-                 [](int64_t old_value, int64_t new_value) {
-                     update_async_write_options("async_file_cache_write_max_pending_bytes_per_disk",
-                                                old_value, new_value);
-                 });
+DEFINE_ON_UPDATE(async_file_cache_write_max_pending_bytes, [](int64_t old_value,
+                                                              int64_t new_value) {
+    update_async_write_options("async_file_cache_write_max_pending_bytes", old_value, new_value);
+});
 } // namespace doris::config

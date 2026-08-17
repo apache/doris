@@ -223,9 +223,9 @@ AsyncCacheWriteEpochToken::~AsyncCacheWriteEpochToken() {
     }
 }
 
-Status resolve_async_file_cache_write_max_pending_bytes_per_disk(int64_t configured_bytes,
-                                                                 int64_t be_mem_limit,
-                                                                 size_t* resolved_bytes) {
+Status resolve_async_file_cache_write_max_pending_bytes(int64_t configured_bytes,
+                                                        int64_t be_mem_limit,
+                                                        size_t* resolved_bytes) {
     DORIS_CHECK(resolved_bytes != nullptr);
     if (configured_bytes > 0) {
         *resolved_bytes = static_cast<size_t>(configured_bytes);
@@ -237,7 +237,7 @@ Status resolve_async_file_cache_write_max_pending_bytes_per_disk(int64_t configu
     }
 
     DORIS_CHECK(be_mem_limit > 0);
-    constexpr int64_t kMinimumAutoPendingBytes = 512LL * 1024 * 1024;
+    constexpr int64_t kMinimumAutoPendingBytes = 1024LL * 1024 * 1024;
     *resolved_bytes = static_cast<size_t>(std::max(kMinimumAutoPendingBytes, be_mem_limit / 100));
     return Status::OK();
 }
