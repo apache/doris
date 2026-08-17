@@ -107,6 +107,12 @@ public class CloudTablet extends Tablet implements GsonPostProcessable {
     }
 
     @Override
+    public void clearReplicas() {
+        this.replica = null;
+        this.replicas = null;
+    }
+
+    @Override
     public List<Replica> getReplicas() {
         if (replica == null) {
             return Collections.emptyList();
