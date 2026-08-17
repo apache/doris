@@ -17,56 +17,77 @@
 
 package org.apache.doris.jni.bootstrap;
 
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
- * The default this class falls back to when start_be.sh did not set the property is a second,
- * independent copy of a path BE also holds in its own config. Nothing makes the compiler check
- * that the two agree, and a disagreement does not fail a build - it makes every plugin report
- * "is not deployed" at query time. These tests are what holds them together.
+ * The defaults this class falls back to when {@code JvmLauncher::_build_options()} did not set the
+ * properties are second, independent copies of paths BE also holds in its own config. Nothing makes
+ * the compiler check that the two agree, and a disagreement does not fail a build - it makes every
+ * plugin report "is not deployed" at query time, or a hadoop configuration file go unread. These
+ * tests are what holds them together.
  */
 public class PluginRegistryDefaultDirTest {
 
-    private static final String PROPERTY = "doris.jni.plugin.dir";
+    private static final String PLUGIN_DIR_PROPERTY = "doris.jni.plugin.dir";
+    private static final String HADOOP_CONF_DIR_PROPERTY = "doris.jni.hadoop.conf.dir";
 
-    private String saved;
+    private final Map<String, String> saved = new LinkedHashMap<>();
 
-    @Before
-    public void clearProperty() {
-        saved = System.getProperty(PROPERTY);
-        System.clearProperty(PROPERTY);
+    @BeforeEach
+    public void clearProperties() {
+        for (String property : new String[] {PLUGIN_DIR_PROPERTY, HADOOP_CONF_DIR_PROPERTY}) {
+            saved.put(property, System.getProperty(property));
+            System.clearProperty(property);
+        }
     }
 
-    @After
-    public void restoreProperty() {
-        if (saved == null) {
-            System.clearProperty(PROPERTY);
-        } else {
-            System.setProperty(PROPERTY, saved);
-        }
+    @AfterEach
+    public void restoreProperties() {
+        saved.forEach((property, value) -> {
+            if (value == null) {
+                System.clearProperty(property);
+            } else {
+                System.setProperty(property, value);
+            }
+        });
     }
 
     /**
      * lib/ is the engine tree a package upgrade replaces wholesale. A plugin deployed there would
      * not survive one, which is why the family root sits under plugins/ instead. An operator who
      * sets nothing gets exactly this path, so it is the one that has to be right.
+     *
+     * <p>Asserted as a suffix rather than as "does not contain /lib/": the latter also depends on
+     * where the code happens to be checked out.
      */
     @Test
-    public void defaultLivesUnderPluginsNotLib() {
+    public void defaultPluginDirLivesUnderPlugins() {
         Path dir = PluginRegistry.pluginDir();
-        Assert.assertTrue(dir.toString(), dir.endsWith("plugins/jni"));
-        Assert.assertFalse(dir.toString(), dir.toString().contains("/lib/"));
+        Assertions.assertTrue(dir.endsWith(Paths.get("plugins", "jni")), dir.toString());
+    }
+
+    /** Keep in sync with the BE config jni_plugin_hadoop_conf_dir. */
+    @Test
+    public void defaultHadoopConfDirLivesUnderPlugins() {
+        Path dir = PluginRegistry.hadoopConfDir();
+        Assertions.assertTrue(dir.endsWith(Paths.get("plugins", "hadoop_conf")), dir.toString());
     }
 
     /** An explicitly configured directory wins; the default is only a fallback. */
     @Test
     public void configuredPropertyWinsOverTheDefault() {
-        System.setProperty(PROPERTY, "/somewhere/else");
-        Assert.assertTrue(PluginRegistry.pluginDir().toString(), PluginRegistry.pluginDir().endsWith("somewhere/else"));
+        System.setProperty(PLUGIN_DIR_PROPERTY, "/somewhere/else");
+        System.setProperty(HADOOP_CONF_DIR_PROPERTY, "/somewhere/hadoop");
+
+        Assertions.assertEquals(Paths.get("/somewhere/else"), PluginRegistry.pluginDir());
+        Assertions.assertEquals(Paths.get("/somewhere/hadoop"), PluginRegistry.hadoopConfDir());
     }
 }

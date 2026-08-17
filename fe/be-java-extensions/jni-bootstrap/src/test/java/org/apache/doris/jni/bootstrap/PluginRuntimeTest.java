@@ -33,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -337,10 +338,122 @@ class PluginRuntimeTest {
     }
 
     @Test
+    void statusCountsWhatLoadedAndWhatIsDeployed(@TempDir Path plugins) throws IOException {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        Path broken = Files.createDirectories(plugins.resolve("broken"));
+        PluginJars.addRawJar(broken, "broken.jar", "nope".getBytes(StandardCharsets.UTF_8));
+        PluginRuntime runtime = runtimeOver(plugins);
+
+        // Deployed and known before anything is loaded, which is the state an operator asking
+        // "why is my plugin not listed" is actually in: plugins load on first use.
+        String beforeUse = runtime.statusJson();
+        Assertions.assertTrue(beforeUse.contains("\"deployed\":[\"broken\",\"sample\"]"), beforeUse);
+        Assertions.assertTrue(beforeUse.contains("\"loadedCount\":0"), beforeUse);
+        Assertions.assertTrue(beforeUse.contains("\"plugins\":[]"), beforeUse);
+
+        runtime.warmup();
+
+        String afterWarmup = runtime.statusJson();
+        Assertions.assertTrue(afterWarmup.contains("\"loadedCount\":1"), afterWarmup);
+        Assertions.assertTrue(afterWarmup.contains("\"failedCount\":1"), afterWarmup);
+    }
+
+    @Test
     void warmupOnAnAbsentDirectoryIsNotAnError(@TempDir Path parent) {
         PluginRuntime runtime = runtimeOver(parent.resolve("never-created"));
 
         Assertions.assertDoesNotThrow(runtime::warmup);
         Assertions.assertTrue(runtime.statusJson().contains("\"plugins\":[]"), runtime.statusJson());
+    }
+
+    // ------------------------------------------------------------------
+    // Names that come from SQL.
+    // ------------------------------------------------------------------
+
+    /**
+     * A plugin name reaches the runtime from the {@code writer_class} property, so it is user text.
+     * Resolving one that is a path rather than a name would load jars from somewhere else on the
+     * host and report it as a plugin.
+     */
+    @Test
+    void pluginNameThatIsAPathIsRejected(@TempDir Path plugins) {
+        PluginRuntime runtime = runtimeOver(plugins);
+
+        for (String name : new String[] {"", ".", "..", "../..", "/etc", "a/b", "a\\b"}) {
+            Assertions.assertThrows(IllegalArgumentException.class, () -> runtime.plugin(name),
+                    "accepted '" + name + "' as a plugin name");
+        }
+    }
+
+    /** ... and a name nobody deployed is answered without being remembered. */
+    @Test
+    void namesThatWereNeverDeployedDoNotAccumulate(@TempDir Path plugins) {
+        PluginRuntime runtime = runtimeOver(plugins);
+
+        for (int i = 0; i < 100; i++) {
+            Assertions.assertEquals(PluginHandle.State.NOT_DEPLOYED,
+                    runtime.plugin("made-up-" + i).state());
+        }
+
+        Assertions.assertTrue(runtime.statusJson().contains("\"plugins\":[]"), runtime.statusJson());
+    }
+
+    // ------------------------------------------------------------------
+    // Hadoop configuration files.
+    // ------------------------------------------------------------------
+
+    /**
+     * A plugin cannot reach BE's classpath, and conf/ is on it - so a hadoop Configuration built
+     * inside a plugin would find no core-site.xml at all. The conf drop point is the one place
+     * outside the plugin directory its classloader answers resources from.
+     */
+    @Test
+    void pluginsReadHadoopConfigurationFromTheConfDirectory(@TempDir Path root) throws IOException {
+        Path plugins = Files.createDirectories(root.resolve("jni"));
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        Path hadoopConf = Files.createDirectories(root.resolve("hadoop_conf"));
+        Files.write(hadoopConf.resolve("core-site.xml"),
+                "<configuration/>".getBytes(StandardCharsets.UTF_8));
+
+        PluginHandle handle =
+                new PluginRuntime(plugins, getClass().getClassLoader(), hadoopConf).plugin("sample");
+
+        Assertions.assertEquals(PluginHandle.State.READY, handle.state(), handle.failure());
+        URL found = handle.classLoader().getResource("core-site.xml");
+        Assertions.assertNotNull(found, "the plugin cannot see the hadoop conf drop point");
+        Assertions.assertTrue(found.toString().endsWith("hadoop_conf/core-site.xml"),
+                found.toString());
+    }
+
+    /** Resources only: the drop point must not become a second route to classes. */
+    @Test
+    void theConfDirectoryDoesNotLoadClasses(@TempDir Path root) throws IOException {
+        Path plugins = Files.createDirectories(root.resolve("jni"));
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        Path hadoopConf = Files.createDirectories(root.resolve("hadoop_conf"));
+        Files.write(hadoopConf.resolve("Marker.class"), "nope".getBytes(StandardCharsets.UTF_8));
+
+        PluginHandle handle =
+                new PluginRuntime(plugins, getClass().getClassLoader(), hadoopConf).plugin("sample");
+
+        Assertions.assertEquals(PluginHandle.State.READY, handle.state(), handle.failure());
+        // Visible as a resource, because that is what the directory is searched for...
+        Assertions.assertNotNull(handle.classLoader().getResource("Marker.class"));
+        // ... and not as a class, which is what keeps this from being a second class space.
+        Assertions.assertThrows(ClassNotFoundException.class,
+                () -> handle.classLoader().loadClass("Marker"));
+    }
+
+    /** A conf directory that does not exist is the ordinary case, not a failure. */
+    @Test
+    void anAbsentConfDirectoryIsFine(@TempDir Path root) throws IOException {
+        Path plugins = Files.createDirectories(root.resolve("jni"));
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+
+        PluginHandle handle = new PluginRuntime(plugins, getClass().getClassLoader(),
+                root.resolve("never-created")).plugin("sample");
+
+        Assertions.assertEquals(PluginHandle.State.READY, handle.state(), handle.failure());
+        Assertions.assertNull(handle.classLoader().getResource("core-site.xml"));
     }
 }
