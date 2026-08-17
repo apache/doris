@@ -125,8 +125,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyResult =
                                 simplifyConjunctWithMarkJoinSlot(conjunct, filter, ctx.cascadesContext,
                                         i, subqueryExprsList, null,
-                                        context.getSubqueryToMarkJoinSlot(), orderedSubqueryExprs,
-                                        collectGeneratedAssertionsOfLaterConjuncts(i, subqueryExprsList, null));
+                                        context.getSubqueryToMarkJoinSlot(), orderedSubqueryExprs);
                         conjunct = simplifyResult.first;
                         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo = simplifyResult.second;
                         Pair<LogicalPlan, Optional<Expression>> result = subqueryToApply(
@@ -243,9 +242,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                         Pair<Expression, Map<MarkJoinSlotReference, Pair<Boolean, Boolean>>> simplifyResult =
                                     simplifyConjunctWithMarkJoinSlot(conjunct, join, ctx.cascadesContext,
                                             i, subqueryExprsList, relatedInfoList,
-                                            context.getSubqueryToMarkJoinSlot(), orderedSubqueryExprs,
-                                            collectGeneratedAssertionsOfLaterConjuncts(i, subqueryExprsList,
-                                                    relatedInfoList));
+                                            context.getSubqueryToMarkJoinSlot(), orderedSubqueryExprs);
                         /*
                          * for each mark slot, Pair.first indicates whether the null and false
                          * values of the mark slot are indistinguishable in the conjunct. it's
@@ -579,10 +576,14 @@ public class SubqueryToApply implements AnalysisRuleFactory {
      * conjunct, and the caller can drop the mark join slot to turn the mark join into a plain
      * semi join.
      *
-     * extraEvaluationDomain extends the evaluation domain with expressions that are not yet
-     * part of the plan but will be evaluated on the same rows later, e.g. the generated
-     * assert_true(count(*) <= 1) that addApply synthesizes for a later correlated scalar
-     * subquery; see collectGeneratedAssertionsOfLaterConjuncts.
+     * the later conjuncts' generated assert_true(count(*) <= 1) — see
+     * collectGeneratedAssertionsOfLaterConjuncts — extend the evaluation domain with
+     * expressions that are not yet part of the plan but will be evaluated on the same rows
+     * later. they are collected LAZILY, only when the conjunct actually holds a mark slot: a
+     * bare top-level IN/EXISTS never holds one (ReplaceSubquery substitutes TRUE) and never
+     * reads them, so eagerly collecting them at the call site would still walk every later
+     * subquery set and allocate throwaway Count/AssertTrue trees, summing to O(N^2) for N
+     * bare subquery conjuncts even though no mark-slot inference runs.
      *
      * subqueryToMarkJoinSlot maps every subquery of the conjunct to its (optional) mark slot,
      * and currentConjunctSubqueryOrder lists them in the order subqueryToApply stacks the
@@ -600,11 +601,16 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             List<Set<SubqueryExpr>> subqueryExprsList,
             List<RelatedInfo> relatedInfoList,
             Map<SubqueryExpr, Optional<MarkJoinSlotReference>> subqueryToMarkJoinSlot,
-            List<SubqueryExpr> currentConjunctSubqueryOrder,
-            List<Expression> extraEvaluationDomain) {
+            List<SubqueryExpr> currentConjunctSubqueryOrder) {
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(plan, cascadesContext);
         Map<MarkJoinSlotReference, Pair<Boolean, Boolean>> markSlotsInfo;
         if (conjunct.containsType(MarkJoinSlotReference.class)) {
+            // only a conjunct that holds a mark slot runs the mark-slot inference, so the later
+            // conjuncts' generated assertions are collected here instead of eagerly at the call
+            // site: a bare top-level IN/EXISTS gets no MarkJoinSlotReference and never reads
+            // them (see the javadoc above)
+            List<Expression> extraEvaluationDomain =
+                    collectGeneratedAssertionsOfLaterConjuncts(currentIndex, subqueryExprsList, relatedInfoList);
             markSlotsInfo = ExpressionUtils.inferMarkSlotNotNullMap(conjunct, rewriteContext,
                     target -> collectTargetEvaluationDomain(plan, target, currentIndex, subqueryExprsList,
                             relatedInfoList, subqueryToMarkJoinSlot, currentConjunctSubqueryOrder,
