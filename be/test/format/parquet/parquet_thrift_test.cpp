@@ -222,6 +222,46 @@ TEST_F(ParquetThriftReaderTest, reject_decoded_container_that_exceeds_task_budge
     }
 }
 
+TEST_F(ParquetThriftReaderTest, retain_decoded_container_charge_until_output_is_destroyed) {
+    constexpr size_t element_count = 32;
+    tparquet::PageLocation page_location;
+    page_location.__set_offset(0);
+    page_location.__set_compressed_page_size(1);
+    page_location.__set_first_row_index(0);
+    tparquet::OffsetIndex source;
+    source.__set_page_locations(std::vector<tparquet::PageLocation>(element_count, page_location));
+    std::vector<uint8_t> bytes;
+    ThriftSerializer serializer(/*compact=*/true, 1024);
+    ASSERT_TRUE(serializer.serialize(&source, &bytes).ok());
+
+    const auto one_container_bytes =
+            static_cast<int64_t>(element_count * sizeof(tparquet::PageLocation));
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "RetainedThriftContainers",
+                                                    one_container_bytes * 3 / 2);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+
+    {
+        tparquet::OffsetIndex first;
+        uint32_t first_length = bytes.size();
+        ASSERT_TRUE(deserialize_thrift_msg(bytes.data(), &first_length, true, &first).ok());
+        ASSERT_EQ(first.page_locations.size(), element_count);
+
+        tparquet::OffsetIndex second;
+        uint32_t second_length = bytes.size();
+        const Status second_status =
+                deserialize_thrift_msg(bytes.data(), &second_length, true, &second);
+        EXPECT_TRUE(second_status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) << second_status;
+        EXPECT_TRUE(second.page_locations.empty());
+    }
+
+    // Destroying the retained output must return its charge so the same task can deserialize again.
+    tparquet::OffsetIndex after_release;
+    uint32_t after_release_length = bytes.size();
+    EXPECT_TRUE(
+            deserialize_thrift_msg(bytes.data(), &after_release_length, true, &after_release).ok());
+}
+
 TEST_F(ParquetThriftReaderTest, use_generated_target_type_for_container_budget) {
     constexpr int64_t memory_limit = 4 * 1024;
     // FileMetaData.schema is vector<SchemaElement>, but the forged compact wire tag advertises

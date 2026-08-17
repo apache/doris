@@ -34,9 +34,7 @@ CONTAINER_MEMORY_CHECK = ${CURDIR}/add_container_memory_check.py
 
 ${BUILD_DIR}/gen_cpp:
 	mkdir -p $@
-# handwrite thrift
-${BUILD_DIR}/gen_cpp/parquet_types.cpp: ${CONTAINER_MEMORY_CHECK}
 
-${BUILD_DIR}/gen_cpp/%_types.cpp: ${CURDIR}/%.thrift | ${BUILD_DIR}/gen_cpp
+${BUILD_DIR}/gen_cpp/%_types.cpp: ${CURDIR}/%.thrift ${CONTAINER_MEMORY_CHECK} | ${BUILD_DIR}/gen_cpp
 	${THRIFT} ${THRIFT_CPP_ARGS} $<
 	python3 ${CONTAINER_MEMORY_CHECK} $@

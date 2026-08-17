@@ -94,7 +94,8 @@ public:
         }
     }
 
-    void reserve_container_memory(uint32_t count, size_t element_size) override {
+    std::shared_ptr<ThriftContainerMemoryCharge> reserve_container_memory(
+            uint32_t count, size_t element_size) override {
         if (count > std::numeric_limits<size_t>::max() / element_size) {
             throw apache::thrift::protocol::TProtocolException(
                     apache::thrift::protocol::TProtocolException::SIZE_LIMIT,
@@ -110,13 +111,28 @@ public:
         if (!status.ok()) {
             throw Exception(status);
         }
+        return std::make_shared<ReservedMemoryCharge>(_memory_manager->take_reserved_memory());
+    }
+
+    void retain_temporary_container_charge(
+            std::shared_ptr<ThriftContainerMemoryCharge> charge) override {
+        _temporary_charges.emplace_back(std::move(charge));
     }
 
 private:
+    class ReservedMemoryCharge final : public ThriftContainerMemoryCharge {
+    public:
+        explicit ReservedMemoryCharge(ReservedMemoryToken token) : _token(std::move(token)) {}
+
+    private:
+        ReservedMemoryToken _token;
+    };
+
     ScopedThreadContextHandle _thread_context_handle;
     ThreadMemTrackerMgr* _memory_manager = nullptr;
     std::shared_ptr<MemTrackerLimiter> _fallback_tracker;
     ReservedMemoryToken _prior_reservation;
+    std::vector<std::shared_ptr<ThriftContainerMemoryCharge>> _temporary_charges;
     bool _switched_tracker = false;
 };
 
