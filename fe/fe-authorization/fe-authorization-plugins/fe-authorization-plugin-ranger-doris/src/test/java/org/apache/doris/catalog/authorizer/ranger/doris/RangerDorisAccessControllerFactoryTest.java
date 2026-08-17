@@ -19,6 +19,7 @@ package org.apache.doris.catalog.authorizer.ranger.doris;
 
 import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
+import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,9 +34,15 @@ public class RangerDorisAccessControllerFactoryTest {
 
     @BeforeEach
     public void forgetPreviouslyCreatedController() throws Exception {
-        Field instance = RangerDorisAccessControllerFactory.class.getDeclaredField("instance");
-        instance.setAccessible(true);
-        instance.set(null, null);
+        setStatic("instance", null);
+        setStatic("instanceProperties", null);
+        setStatic("holders", 0);
+    }
+
+    private static void setStatic(String name, Object value) throws Exception {
+        Field field = RangerDorisAccessControllerFactory.class.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(null, value);
     }
 
     /**
@@ -51,8 +58,8 @@ public class RangerDorisAccessControllerFactoryTest {
     public void testTheSelectorsThisSourceIsNamedBy() {
         RangerDorisAccessControllerFactory factory = new RangerDorisAccessControllerFactory();
 
-        Assert.assertEquals("ranger-doris", factory.name());
-        Assert.assertEquals(
+        Assertions.assertEquals("ranger-doris", factory.name());
+        Assertions.assertEquals(
                 "org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessControllerFactory",
                 factory.getClass().getName());
     }
@@ -60,19 +67,78 @@ public class RangerDorisAccessControllerFactoryTest {
     /**
      * One controller per FE, whoever asks for it: it starts a Ranger policy refresher, and a second one would
      * mean a second refresher polling the same service.
+     *
+     * <p>Two factory <em>instances</em> on purpose, and each one built the way the engine builds it. The
+     * factory class is loaded by a classloader per plugin directory, so "the same static field" is only
+     * shared by the bindings one manager makes; what a test can pin is that repeated bindings within one FE
+     * produce one controller, which is the case the deployments this source ships to are in.
      */
     @Test
-    public void testCreateReturnsSingleton() {
+    public void testEveryBindingSharesOneController() {
         AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
         try (MockedConstruction<RangerDorisAccessController> mockedConstruction =
                 Mockito.mockConstruction(RangerDorisAccessController.class)) {
             AuthorizationPlugin first = new RangerDorisAccessControllerFactory()
                     .create(Collections.emptyMap(), context);
             AuthorizationPlugin second = new RangerDorisAccessControllerFactory()
-                    .create(Collections.singletonMap("ranger.service.name", "other"), context);
+                    .create(Collections.emptyMap(), context);
 
             Assertions.assertEquals(1, mockedConstruction.constructed().size());
             Assertions.assertSame(first, second);
+        }
+    }
+
+    /**
+     * A second binding asking for a different configuration is refused, not quietly given the first one's.
+     *
+     * <p>There is one controller and it reads {@code ranger.defer_to_global_scope_authority} once, in its
+     * constructor. Serving the second binding from it would mean a catalog created with the deference
+     * switched off silently keeping it on because another catalog was created first - which is the same
+     * failure the strict parsing of that property exists to prevent, reached by another route.
+     */
+    @Test
+    public void testASecondBindingWithADifferentConfigurationIsRefused() {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        try (MockedConstruction<RangerDorisAccessController> mockedConstruction =
+                Mockito.mockConstruction(RangerDorisAccessController.class)) {
+            new RangerDorisAccessControllerFactory().create(Collections.emptyMap(), context);
+
+            IllegalArgumentException refused = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> new RangerDorisAccessControllerFactory().create(
+                            Collections.singletonMap(
+                                    RangerAccessController.DEFER_TO_GLOBAL_SCOPE_AUTHORITY, "false"),
+                            context));
+
+            Assertions.assertTrue(refused.getMessage(),
+                    refused.getMessage().contains(RangerAccessController.DEFER_TO_GLOBAL_SCOPE_AUTHORITY));
+            Assertions.assertEquals(1, mockedConstruction.constructed().size());
+        }
+    }
+
+    /**
+     * The shared controller is shut down when the last binding lets go of it, and not before.
+     *
+     * <p>Nothing else can stop it: the refresher and the policy download timer a Ranger plugin starts run
+     * until {@code cleanup()}, so a controller that no binding holds and that was never closed keeps polling
+     * the Ranger service for as long as the FE runs.
+     */
+    @Test
+    public void testTheControllerIsShutDownOnceNoBindingHoldsIt() {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        try (MockedConstruction<RangerDorisAccessController> mockedConstruction = Mockito.mockConstruction(
+                RangerDorisAccessController.class,
+                (mock, ctx) -> Mockito.doCallRealMethod().when(mock).close())) {
+            AuthorizationPlugin first = new RangerDorisAccessControllerFactory()
+                    .create(Collections.emptyMap(), context);
+            AuthorizationPlugin second = new RangerDorisAccessControllerFactory()
+                    .create(Collections.emptyMap(), context);
+            RangerDorisAccessController controller = mockedConstruction.constructed().get(0);
+
+            first.close();
+            Mockito.verify(controller, Mockito.never()).shutdown();
+
+            second.close();
+            Mockito.verify(controller).shutdown();
         }
     }
 }
