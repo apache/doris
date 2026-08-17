@@ -254,13 +254,13 @@ under the License.
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
         <commons-filerupload.version>1.6.0</commons-filerupload.version>
-        <commons-configuration2.version>2.11.0</commons-configuration2.version>
+        <commons-configuration2.version>2.15.1</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
         <commons-lang3.version>3.19.0</commons-lang3.version>
         <commons-net.version>3.13.0</commons-net.version>
         <commons-pool2.version>2.2</commons-pool2.version>
         <commons-pool.version>1.5.1</commons-pool.version>
-        <commons-text.version>1.10.0</commons-text.version>
+        <commons-text.version>1.15.0</commons-text.version>
         <commons-math3.version>3.6.1</commons-math3.version>
         <commons-validator.version>1.9.0</commons-validator.version>
         <gson.version>2.10.1</gson.version>
@@ -350,6 +350,7 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
+        <postgresql.version>42.7.13</postgresql.version>
         <hadoop.version>3.4.2</hadoop.version>
         <re2j.version>1.8</re2j.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
