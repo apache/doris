@@ -265,6 +265,11 @@ public class Config extends ConfigBase {
     public static int edit_log_roll_num = 50000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "The maximum interval in seconds between edit log rolls in cloud mode. "
+                    + "A non-positive value disables time-based edit log rolling"})
+    public static int cloud_edit_log_roll_interval_second = 3600;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "批量 BDBJE 日志包含的最大条目数", "The max number of log entries for batching BDBJE"})
     public static int batch_edit_log_max_item_num = 100;
 
