@@ -1407,11 +1407,10 @@ public:
 
     int64_t get_total_rows() const override { return _state->total_rows; }
 
-    Status build_physical_splits(const FileScanSplit& source_split,
-                                 std::vector<FileScanSplit>* splits,
+    Status build_physical_splits(std::vector<PhysicalFileSplit>* splits,
                                  bool* was_split) const override {
         if (_state->physical_split_count < 0) {
-            return FileReader::build_physical_splits(source_split, splits, was_split);
+            return FileReader::build_physical_splits(splits, was_split);
         }
         if (_state->lifecycle_delay.count() > 0) {
             std::this_thread::sleep_for(_state->lifecycle_delay);
@@ -1422,10 +1421,8 @@ public:
             return Status::InternalError("injected physical split planning failure");
         }
         splits->clear();
-        auto source_range = std::make_shared<TFileRangeDesc>(source_split.range);
         for (int index = 0; index < _state->physical_split_count; ++index) {
-            FileScanSplit child;
-            child.source_range = source_range;
+            PhysicalFileSplit child;
             child.start_offset = index * 100;
             child.size = 100;
             child.format_split_id = index;
@@ -1904,6 +1901,12 @@ TEST(TableReaderTest, PhysicalSplitPlanningProfilesZeroAndManyChildren) {
 
         SplitReadOptions split_options;
         split_options.current_range.__set_path("fake-table-reader-input");
+        split_options.current_range.__set_start_offset(17);
+        split_options.current_range.__set_size(400);
+        split_options.current_range.__set_file_size(400);
+        TTableFormatFileDesc table_format;
+        table_format.__set_table_level_row_count(123);
+        split_options.current_range.__set_table_format_params(table_format);
         ASSERT_TRUE(reader.prepare_split(split_options).ok());
         FileScanSplit source_split;
         source_split.range = split_options.current_range;
@@ -1913,6 +1916,22 @@ TEST(TableReaderTest, PhysicalSplitPlanningProfilesZeroAndManyChildren) {
         ASSERT_TRUE(reader.build_physical_splits(source_split, &children, &was_split).ok());
         EXPECT_TRUE(was_split);
         EXPECT_EQ(children.size(), child_count);
+        if (child_count > 1) {
+            ASSERT_NE(children[0].source_range, nullptr);
+            ASSERT_NE(children[0].condition_cache_split_context, nullptr);
+            for (size_t index = 0; index < children.size(); ++index) {
+                EXPECT_EQ(children[index].source_range, children[0].source_range);
+                EXPECT_EQ(children[index].condition_cache_split_context,
+                          children[0].condition_cache_split_context);
+                EXPECT_EQ(children[index].start_offset, cast_set<int64_t>(index * 100));
+                EXPECT_EQ(children[index].size, 100);
+                EXPECT_EQ(children[index].format_split_id, cast_set<int64_t>(index));
+                EXPECT_FALSE(children[index].is_source_split);
+                EXPECT_FALSE(children[index]
+                                     .materialize_range()
+                                     .table_format_params.__isset.table_level_row_count);
+            }
+        }
         EXPECT_TRUE(fake_state->physical_split_saw_open_request);
         EXPECT_EQ(fake_state->close_count, 1);
         for (const auto* counter_name : {"TableReader", "CreateReaderTime", "FileReader",

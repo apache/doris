@@ -54,8 +54,7 @@ public:
 
     Status init(RuntimeState* state) override;
 
-    Status build_physical_splits(const FileScanSplit& source_split,
-                                 std::vector<FileScanSplit>* splits,
+    Status build_physical_splits(std::vector<PhysicalFileSplit>* splits,
                                  bool* was_split) const override;
 
     void set_batch_size(size_t batch_size) override;

@@ -574,8 +574,7 @@ Status ParquetReader::init(RuntimeState* state) {
     return Status::OK();
 }
 
-Status ParquetReader::build_physical_splits(const FileScanSplit& source_split,
-                                            std::vector<FileScanSplit>* splits,
+Status ParquetReader::build_physical_splits(std::vector<PhysicalFileSplit>* splits,
                                             bool* was_split) const {
     DORIS_CHECK(splits != nullptr);
     DORIS_CHECK(was_split != nullptr);
@@ -595,11 +594,9 @@ Status ParquetReader::build_physical_splits(const FileScanSplit& source_split,
     }
 
     ParquetScanRange scan_range {
-            .start_offset =
-                    source_split.range.__isset.start_offset ? source_split.range.start_offset : 0,
-            .size = source_split.range.__isset.size ? source_split.range.size : -1,
-            .file_size = source_split.range.__isset.file_size ? source_split.range.file_size
-                                                              : _file_description->file_size,
+            .start_offset = _file_description->range_start_offset,
+            .size = _file_description->range_size,
+            .file_size = _file_description->file_size,
     };
     std::vector<int> selected_row_groups;
     if (_state->scan_plan != nullptr) {
@@ -617,7 +614,6 @@ Status ParquetReader::build_physical_splits(const FileScanSplit& source_split,
     const auto compat = native::parquet_reader_compat(
             metadata.__isset.created_by ? metadata.created_by : std::string {});
     const size_t file_size = _state->file_context.native_file->size();
-    auto shared_source_range = std::make_shared<TFileRangeDesc>(source_split.range);
     splits->reserve(selected_row_groups.size());
     for (const int row_group_id : selected_row_groups) {
         const auto& row_group = metadata.row_groups[row_group_id];
@@ -658,23 +654,12 @@ Status ParquetReader::build_physical_splits(const FileScanSplit& source_split,
             splits->clear();
             return Status::OK();
         }
-        FileScanSplit child;
-        child.source_range = shared_source_range;
+        PhysicalFileSplit child;
         child.start_offset = cast_set<int64_t>(group_start);
         child.size = cast_set<int64_t>(group_end - group_start);
-        // A source-level count is not valid for one generated row group. Child readers can still
-        // derive an exact count from the shared footer when aggregate pushdown is eligible.
-        child.clear_table_level_row_count = true;
         child.file_context = _state->file_context.shared_file_context;
         child.format_split_id = row_group_id;
         splits->push_back(std::move(child));
-    }
-    if (splits->size() > 1) {
-        auto condition_cache_split_context =
-                std::make_shared<ConditionCacheSplitContext>(splits->size());
-        for (auto& split : *splits) {
-            split.condition_cache_split_context = condition_cache_split_context;
-        }
     }
     *was_split = true;
     return Status::OK();

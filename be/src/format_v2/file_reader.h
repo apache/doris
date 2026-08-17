@@ -63,6 +63,15 @@ enum class FileFormat {
     LANCE,
 };
 
+// Format-local description of one independently readable part of a file. Scanner scheduling
+// policy is attached only after this descriptor crosses the TableReader boundary.
+struct PhysicalFileSplit {
+    int64_t start_offset = 0;
+    int64_t size = -1;
+    std::shared_ptr<const FileContext> file_context;
+    int64_t format_split_id = -1;
+};
+
 struct FileScanRequest {
     virtual ~FileScanRequest() = default;
 
@@ -357,12 +366,10 @@ public:
     // Initialize file reader and parse file metadata.
     virtual Status init(RuntimeState* state);
 
-    // Optionally refine one scheduler split into format-specific physical children after metadata
-    // initialization. The default keeps non-columnar formats on their original split.
-    virtual Status build_physical_splits(const FileScanSplit& source_split,
-                                         std::vector<FileScanSplit>* splits,
+    // Optionally refine the prepared file range into format-specific physical children after
+    // metadata initialization. The default keeps non-columnar formats on their original range.
+    virtual Status build_physical_splits(std::vector<PhysicalFileSplit>* splits,
                                          bool* was_split) const {
-        (void)source_split;
         DORIS_CHECK(splits != nullptr);
         DORIS_CHECK(was_split != nullptr);
         splits->clear();

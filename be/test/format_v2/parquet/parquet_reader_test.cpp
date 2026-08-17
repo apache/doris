@@ -1943,6 +1943,26 @@ protected:
     std::string _file_path;
 };
 
+TEST_F(NewParquetReaderTest, PhysicalSplitPlanningReturnsFormatLocalDescriptors) {
+    write_parquet_file(_file_path, 2);
+    constexpr int64_t TEST_MTIME = 414141;
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {},
+                                TEST_MTIME);
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::PhysicalFileSplit> splits;
+    bool was_split = false;
+    ASSERT_TRUE(reader->build_physical_splits(&splits, &was_split).ok());
+    ASSERT_TRUE(was_split);
+    ASSERT_EQ(splits.size(), 3);
+    for (size_t index = 0; index < splits.size(); ++index) {
+        EXPECT_EQ(splits[index].format_split_id, cast_set<int64_t>(index));
+        EXPECT_GT(splits[index].size, 0);
+        EXPECT_NE(splits[index].file_context, nullptr);
+    }
+}
+
 TEST_F(NewParquetReaderTest, RowGroupSplitsShareOneRegistryFooterContext) {
     write_parquet_file(_file_path, 2);
     constexpr int64_t TEST_MTIME = 424242;
@@ -1953,33 +1973,16 @@ TEST_F(NewParquetReaderTest, RowGroupSplitsShareOneRegistryFooterContext) {
                                 {}, TEST_MTIME, &registry);
     ASSERT_TRUE(parent->init(&state).ok());
 
-    FileScanSplit source;
-    source.range.__set_path(_file_path);
-    source.range.__set_start_offset(0);
-    source.range.__set_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.range.__set_modification_time(TEST_MTIME);
-    TTableFormatFileDesc table_format;
-    table_format.__set_table_level_row_count(5);
-    source.range.__set_table_format_params(table_format);
-    source.is_source_split = true;
-    std::vector<FileScanSplit> children;
+    std::vector<format::PhysicalFileSplit> children;
     bool was_split = false;
-    ASSERT_TRUE(parent->build_physical_splits(source, &children, &was_split).ok());
+    ASSERT_TRUE(parent->build_physical_splits(&children, &was_split).ok());
     ASSERT_TRUE(was_split);
     ASSERT_EQ(children.size(), 3);
     ASSERT_NE(children[0].file_context, nullptr);
-    ASSERT_NE(children[0].condition_cache_split_context, nullptr);
     for (size_t index = 0; index < children.size(); ++index) {
         EXPECT_EQ(children[index].file_context, children[0].file_context);
-        EXPECT_EQ(children[index].condition_cache_split_context,
-                  children[0].condition_cache_split_context);
         EXPECT_EQ(children[index].format_split_id, cast_set<int64_t>(index));
         EXPECT_GT(children[index].size, 0);
-        EXPECT_FALSE(children[index].is_source_split);
-        EXPECT_FALSE(children[index]
-                             .materialize_range()
-                             .table_format_params.__isset.table_level_row_count);
     }
     EXPECT_EQ(parent_profile.get_counter("FileFooterReadCalls")->value(), 1);
     EXPECT_EQ(parent_profile.get_counter("FileContextRegistryRequests")->value(), 1);
@@ -2001,8 +2004,7 @@ TEST_F(NewParquetReaderTest, RowGroupSplitsShareOneRegistryFooterContext) {
     EXPECT_EQ(sibling_profile.get_counter("FileContextRegistryBypasses")->value(), 0);
 
     RuntimeProfile child_profile("row_group_split_child");
-    auto child_range = children[0].materialize_range();
-    auto child = create_reader(child_range.start_offset, child_range.size, &child_profile, false,
+    auto child = create_reader(children[0].start_offset, children[0].size, &child_profile, false,
                                nullptr, std::nullopt, false, false, {}, TEST_MTIME, &registry,
                                children[0].file_context, children[0].format_split_id);
     ASSERT_TRUE(child->init(&state).ok());
@@ -2050,16 +2052,9 @@ TEST_F(NewParquetReaderTest, PhysicalSplitsApplyOpenedRequestFooterPruning) {
     request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 3));
     ASSERT_TRUE(reader->open(request).ok());
 
-    FileScanSplit source;
-    source.range.__set_path(_file_path);
-    source.range.__set_start_offset(0);
-    source.range.__set_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.range.__set_modification_time(TEST_MTIME);
-    source.is_source_split = true;
-    std::vector<FileScanSplit> children;
+    std::vector<format::PhysicalFileSplit> children;
     bool was_split = false;
-    ASSERT_TRUE(reader->build_physical_splits(source, &children, &was_split).ok());
+    ASSERT_TRUE(reader->build_physical_splits(&children, &was_split).ok());
     ASSERT_TRUE(was_split);
     ASSERT_EQ(children.size(), 2);
     EXPECT_EQ(children[0].format_split_id, 3);
@@ -2073,7 +2068,7 @@ TEST_F(NewParquetReaderTest, PhysicalSplitsApplyOpenedRequestFooterPruning) {
     ASSERT_TRUE(all_pruned->open(all_pruned_request).ok());
     children.clear();
     was_split = false;
-    ASSERT_TRUE(all_pruned->build_physical_splits(source, &children, &was_split).ok());
+    ASSERT_TRUE(all_pruned->build_physical_splits(&children, &was_split).ok());
     EXPECT_TRUE(was_split);
     EXPECT_TRUE(children.empty());
 }
@@ -2096,16 +2091,9 @@ TEST_F(NewParquetReaderTest, PhysicalSplitsDeclineWhenUnusedChunkHasInvalidEnvel
                                 TEST_MTIME);
     ASSERT_TRUE(reader->init(&state).ok());
 
-    FileScanSplit source;
-    source.range.__set_path(_file_path);
-    source.range.__set_start_offset(0);
-    source.range.__set_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.range.__set_modification_time(TEST_MTIME);
-    source.is_source_split = true;
-    std::vector<FileScanSplit> children;
+    std::vector<format::PhysicalFileSplit> children;
     bool was_split = false;
-    ASSERT_TRUE(reader->build_physical_splits(source, &children, &was_split).ok());
+    ASSERT_TRUE(reader->build_physical_splits(&children, &was_split).ok());
     EXPECT_FALSE(was_split);
     EXPECT_TRUE(children.empty());
 
@@ -2134,16 +2122,9 @@ TEST_F(NewParquetReaderTest, PhysicalSplitsSkipEmptyRowGroupsBeforeAndBetweenDat
                                 TEST_MTIME);
     ASSERT_TRUE(reader->init(&state).ok());
 
-    FileScanSplit source;
-    source.range.__set_path(_file_path);
-    source.range.__set_start_offset(0);
-    source.range.__set_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.range.__set_modification_time(TEST_MTIME);
-    source.is_source_split = true;
-    std::vector<FileScanSplit> children;
+    std::vector<format::PhysicalFileSplit> children;
     bool was_split = false;
-    ASSERT_TRUE(reader->build_physical_splits(source, &children, &was_split).ok());
+    ASSERT_TRUE(reader->build_physical_splits(&children, &was_split).ok());
     ASSERT_TRUE(was_split);
     ASSERT_EQ(children.size(), 2);
     EXPECT_EQ(children[0].format_split_id, 1);
@@ -2158,16 +2139,9 @@ TEST_F(NewParquetReaderTest, PhysicalSplitsCompleteAnAllEmptyFileWithoutChildren
                                 TEST_MTIME);
     ASSERT_TRUE(reader->init(&state).ok());
 
-    FileScanSplit source;
-    source.range.__set_path(_file_path);
-    source.range.__set_start_offset(0);
-    source.range.__set_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.range.__set_modification_time(TEST_MTIME);
-    source.is_source_split = true;
-    std::vector<FileScanSplit> children;
+    std::vector<format::PhysicalFileSplit> children;
     bool was_split = false;
-    ASSERT_TRUE(reader->build_physical_splits(source, &children, &was_split).ok());
+    ASSERT_TRUE(reader->build_physical_splits(&children, &was_split).ok());
     EXPECT_TRUE(was_split);
     EXPECT_TRUE(children.empty());
 }
@@ -2181,16 +2155,9 @@ TEST_F(NewParquetReaderTest, PositiveRowRootOnlyFileKeepsInitializedReaderForCou
                                 TEST_MTIME);
     ASSERT_TRUE(reader->init(&state).ok());
 
-    FileScanSplit source;
-    source.range.__set_path(_file_path);
-    source.range.__set_start_offset(0);
-    source.range.__set_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.range.__set_modification_time(TEST_MTIME);
-    source.is_source_split = true;
-    std::vector<FileScanSplit> children;
+    std::vector<format::PhysicalFileSplit> children;
     bool was_split = false;
-    ASSERT_TRUE(reader->build_physical_splits(source, &children, &was_split).ok());
+    ASSERT_TRUE(reader->build_physical_splits(&children, &was_split).ok());
     EXPECT_FALSE(was_split);
     EXPECT_TRUE(children.empty());
 
@@ -3873,15 +3840,9 @@ TEST_F(NewParquetReaderTest, MutableUnknownVersionDeclinesPhysicalSplitRefinemen
                                 &registry);
     ASSERT_TRUE(reader->init(&state).ok());
 
-    FileScanSplit source;
-    source.range.__set_path(_file_path);
-    source.range.__set_start_offset(0);
-    source.range.__set_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(_file_path)));
-    source.is_source_split = true;
-    std::vector<FileScanSplit> children;
+    std::vector<format::PhysicalFileSplit> children;
     bool was_split = false;
-    ASSERT_TRUE(reader->build_physical_splits(source, &children, &was_split).ok());
+    ASSERT_TRUE(reader->build_physical_splits(&children, &was_split).ok());
     EXPECT_FALSE(was_split);
     EXPECT_TRUE(children.empty());
 }

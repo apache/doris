@@ -1420,22 +1420,46 @@ Status TableReader::build_physical_splits(const FileScanSplit& source_split,
         return Status::OK();
     }
 
+    std::vector<PhysicalFileSplit> physical_splits;
     Status status;
     {
         SCOPED_TIMER(_profile.file_reader_total_timer);
-        status = _data_reader.reader->build_physical_splits(source_split, splits, was_split);
+        status = _data_reader.reader->build_physical_splits(&physical_splits, was_split);
     }
     if (!status.ok()) {
         static_cast<void>(close_current_reader());
         return status;
     }
-    if (!*was_split || splits->size() == 1) {
+    if (!*was_split || physical_splits.size() == 1) {
         // Reuse the fully planned reader when refinement is unnecessary. Besides avoiding another
         // footer parse, this preserves the request snapshot whose footer pruning selected the
         // single surviving row group.
         splits->clear();
         *was_split = false;
         return Status::OK();
+    }
+    // FileReader descriptors deliberately carry no scanner/table policy. Attach the FE source
+    // identity and shared child coordination here so format readers cannot accidentally own range
+    // progress, table metadata semantics, or Condition Cache publication.
+    const auto shared_source_range = std::make_shared<TFileRangeDesc>(source_split.range);
+    std::shared_ptr<ConditionCacheSplitContext> condition_cache_split_context;
+    if (physical_splits.size() > 1) {
+        condition_cache_split_context =
+                std::make_shared<ConditionCacheSplitContext>(physical_splits.size());
+    }
+    splits->reserve(physical_splits.size());
+    for (auto& physical_split : physical_splits) {
+        FileScanSplit child;
+        child.source_range = shared_source_range;
+        child.start_offset = physical_split.start_offset;
+        child.size = physical_split.size;
+        // A source-level count is not valid for one generated physical child. Child readers can
+        // still derive an exact count from shared format metadata when pushdown is eligible.
+        child.clear_table_level_row_count = true;
+        child.file_context = std::move(physical_split.file_context);
+        child.condition_cache_split_context = condition_cache_split_context;
+        child.format_split_id = physical_split.format_split_id;
+        splits->push_back(std::move(child));
     }
     return close_current_reader();
 }
