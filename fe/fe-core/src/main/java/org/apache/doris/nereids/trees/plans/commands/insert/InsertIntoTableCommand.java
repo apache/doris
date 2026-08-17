@@ -264,6 +264,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         int retryTimes = 0;
         ctx.getStatementContext().setIsInsert(true);
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
+            // Each attempt must repin MVCC metadata or it can reuse the schema that triggered the retry.
+            ctx.getStatementContext().resetMvccSnapshots();
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
             // check auth

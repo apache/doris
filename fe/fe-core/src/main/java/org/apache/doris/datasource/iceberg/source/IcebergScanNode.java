@@ -91,6 +91,8 @@ import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.ManifestFiles;
+import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionData;
@@ -148,7 +150,8 @@ public class IcebergScanNode extends FileQueryScanNode {
     private static final long MAX_RETAINED_SERIALIZED_TASK_BYTES = 16L * 1024 * 1024;
 
     public static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
-    static final int ICEBERG_SCAN_SEMANTICS_VERSION = 1;
+    // Version 2 opts BE into required-field rejection and typed nested initial-default handling.
+    static final int ICEBERG_SCAN_SEMANTICS_VERSION = 2;
     private static final Logger LOG = LogManager.getLogger(IcebergScanNode.class);
 
     private IcebergSource source;
@@ -294,6 +297,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         // This gate must run during shared initialization: batch split assignment bypasses
         // doGetSplits(), but it must never assign a semantic Variant projection to an old BE.
         checkVariantBackendCompatibilityForCurrentScan(backendPolicy.getBackends());
+        Iterable<Backend> backends = backendPolicy.getBackends();
+        if (hasSmoothUpgradeSource(backends)) {
+            // Delete-manifest inspection is only needed while old BEs can actually receive this scan.
+            checkIcebergScanSemanticsV2Compatibility(requiresIcebergScanSemanticsV2(), backends);
+        }
     }
 
     void checkVariantBackendCompatibilityForCurrentScan(Iterable<Backend> backends)
@@ -307,6 +315,214 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         boolean projectsVariant = !metadataCountProven && projectsVariant(desc);
         checkVariantBackendCompatibility(projectsVariant, backends);
+    }
+
+    private boolean requiresIcebergScanSemanticsV2() throws UserException {
+        if (isSystemTable) {
+            // position_deletes already has its stricter dedicated mixed-version gate.
+            return false;
+        }
+        TableScan scan = createTableScan();
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null) {
+            return false;
+        }
+        if (hasApplicableEqualityDeletes(scan)) {
+            return true;
+        }
+        Schema scanSchema = scan.schema();
+        Set<Integer> projectedFieldIds = projectedFieldIds(scanSchema);
+        Set<Integer> topLevelIds = new HashSet<>();
+        for (NestedField field : scanSchema.columns()) {
+            topLevelIds.add(field.fieldId());
+        }
+        Map<Integer, NestedField> fieldsById = TypeUtil.indexById(scanSchema.asStruct());
+        for (Integer fieldId : projectedFieldIds) {
+            NestedField field = fieldsById.get(fieldId);
+            if (field.initialDefault() != null
+                    && (!topLevelIds.contains(field.fieldId()) || field.type().isNestedType())) {
+                return true;
+            }
+        }
+        if (hasProjectedNameAliasCollision(scanSchema, projectedFieldIds, extractNameMapping())) {
+            return true;
+        }
+        return schemaHistoryRequiresMissingRequiredFieldRejection(
+                scanSchema, projectedFieldIds, icebergTable.schemas().values());
+    }
+
+    private boolean hasApplicableEqualityDeletes(TableScan scan) throws UserException {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null || "0".equals(snapshot.summary().get("total-equality-deletes"))) {
+            return false;
+        }
+        // Inspect only delete manifests, not data tasks: equality-delete semantics are snapshot-wide
+        // compatibility state even when the current predicate happens to prune their partitions.
+        for (ManifestFile manifest : snapshot.deleteManifests(icebergTable.io())) {
+            if (!manifest.hasAddedFiles() && !manifest.hasExistingFiles()) {
+                continue;
+            }
+            try (ManifestReader<DeleteFile> deletes = ManifestFiles.readDeleteManifest(
+                    manifest, icebergTable.io(), icebergTable.specs())) {
+                for (DeleteFile delete : deletes) {
+                    if (delete.content() == FileContent.EQUALITY_DELETES) {
+                        return true;
+                    }
+                }
+            } catch (IOException e) {
+                throw new UserException(
+                        "Failed to inspect Iceberg delete manifest " + manifest.path(), e);
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasSmoothUpgradeSource(Iterable<Backend> backends) {
+        for (Backend backend : backends) {
+            if (backend.isSmoothUpgradeSrc()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Set<Integer> projectedFieldIds(Schema scanSchema) {
+        Set<Integer> projected = new HashSet<>();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            int fieldId = slot.getColumn().getUniqueId();
+            // Stable Iceberg IDs prevent a dropped-and-readded name from selecting the wrong history.
+            NestedField field = fieldId >= 0 ? scanSchema.findField(fieldId)
+                    : scanSchema.caseInsensitiveFindField(slot.getColumn().getName());
+            if (field != null) {
+                projected.addAll(TypeUtil.indexById(
+                        org.apache.iceberg.types.Types.StructType.of(field)).keySet());
+            }
+        }
+        return projected;
+    }
+
+    @VisibleForTesting
+    static void checkIcebergScanSemanticsV2Compatibility(
+            boolean requiresV2, Iterable<Backend> backends) throws UserException {
+        if (!requiresV2) {
+            return;
+        }
+        for (Backend backend : backends) {
+            if (backend.isSmoothUpgradeSrc()) {
+                // A V1 BE accepts the Thrift field but does not enforce nested defaults/requiredness.
+                throw new UserException("Current Iceberg scan semantics are unavailable while backend "
+                        + backend.getId() + " is a smooth upgrade source");
+            }
+        }
+    }
+
+    @VisibleForTesting
+    static boolean schemaHistoryRequiresMissingRequiredFieldRejection(
+            Schema scanSchema, Iterable<Schema> historicalSchemas) {
+        return schemaHistoryRequiresMissingRequiredFieldRejection(
+                scanSchema, TypeUtil.indexById(scanSchema.asStruct()).keySet(), historicalSchemas);
+    }
+
+    private static boolean schemaHistoryRequiresMissingRequiredFieldRejection(
+            Schema scanSchema, Set<Integer> projectedFieldIds, Iterable<Schema> historicalSchemas) {
+        Map<Integer, NestedField> currentFields = TypeUtil.indexById(scanSchema.asStruct());
+        Map<Integer, Integer> parentById = TypeUtil.indexParents(scanSchema.asStruct());
+        Set<Integer> collectionWrapperIds = new HashSet<>();
+        collectCollectionWrapperFieldIds(scanSchema.asStruct(), collectionWrapperIds);
+        for (Schema historicalSchema : historicalSchemas) {
+            Map<Integer, NestedField> historicalFields = TypeUtil.indexById(historicalSchema.asStruct());
+            for (Integer fieldId : projectedFieldIds) {
+                NestedField field = currentFields.get(fieldId);
+                if (field == null || collectionWrapperIds.contains(field.fieldId())
+                        || field.initialDefault() != null || field.isOptional()) {
+                    continue;
+                }
+                NestedField historicalField = historicalFields.get(field.fieldId());
+                if (historicalField != null) {
+                    if (historicalField.isOptional()) {
+                        return true;
+                    }
+                    continue;
+                }
+                NestedField highestMissing = field;
+                Integer parentId = parentById.get(field.fieldId());
+                while (parentId != null && !historicalFields.containsKey(parentId)) {
+                    highestMissing = Objects.requireNonNull(currentFields.get(parentId),
+                            "Iceberg parent field " + parentId + " is absent from scan schema");
+                    parentId = parentById.get(parentId);
+                }
+                if (!collectionWrapperIds.contains(highestMissing.fieldId())
+                        && highestMissing.isRequired() && highestMissing.initialDefault() == null) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasProjectedNameAliasCollision(
+            Schema schema, Set<Integer> projectedFieldIds,
+            Optional<Map<Integer, List<String>>> nameMapping) {
+        if (!nameMapping.isPresent()) {
+            return false;
+        }
+        Set<Integer> collisions = new HashSet<>();
+        collectNameAliasCollisions(schema.asStruct(), nameMapping.get(), collisions);
+        collisions.retainAll(projectedFieldIds);
+        return !collisions.isEmpty();
+    }
+
+    private static void collectNameAliasCollisions(
+            Type type, Map<Integer, List<String>> nameMapping, Set<Integer> collisions) {
+        switch (type.typeId()) {
+            case STRUCT:
+                List<NestedField> fields = type.asStructType().fields();
+                for (NestedField field : fields) {
+                    for (String alias : nameMapping.getOrDefault(
+                            field.fieldId(), Collections.emptyList())) {
+                        for (NestedField sibling : fields) {
+                            if (sibling.fieldId() != field.fieldId()
+                                    && sibling.name().equalsIgnoreCase(alias)) {
+                                collisions.add(field.fieldId());
+                                collisions.add(sibling.fieldId());
+                            }
+                        }
+                    }
+                    collectNameAliasCollisions(field.type(), nameMapping, collisions);
+                }
+                break;
+            case LIST:
+                collectNameAliasCollisions(type.asListType().elementType(), nameMapping, collisions);
+                break;
+            case MAP:
+                collectNameAliasCollisions(type.asMapType().keyType(), nameMapping, collisions);
+                collectNameAliasCollisions(type.asMapType().valueType(), nameMapping, collisions);
+                break;
+            default:
+                break;
+        }
+    }
+
+    private static void collectCollectionWrapperFieldIds(Type type, Set<Integer> result) {
+        switch (type.typeId()) {
+            case STRUCT:
+                for (NestedField field : type.asStructType().fields()) {
+                    collectCollectionWrapperFieldIds(field.type(), result);
+                }
+                break;
+            case LIST:
+                result.add(type.asListType().elementId());
+                collectCollectionWrapperFieldIds(type.asListType().elementType(), result);
+                break;
+            case MAP:
+                result.add(type.asMapType().keyId());
+                result.add(type.asMapType().valueId());
+                collectCollectionWrapperFieldIds(type.asMapType().keyType(), result);
+                collectCollectionWrapperFieldIds(type.asMapType().valueType(), result);
+                break;
+            default:
+                break;
+        }
     }
 
     private Optional<Map<Integer, List<String>>> extractNameMapping() {

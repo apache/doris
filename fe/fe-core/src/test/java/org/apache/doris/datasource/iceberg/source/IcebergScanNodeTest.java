@@ -1910,6 +1910,39 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testRejectSmoothUpgradeSourceBackendForScanSemanticsV2() throws Exception {
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isSmoothUpgradeSrc()).thenReturn(false);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10004L);
+        List<Backend> backends = ImmutableList.of(currentBackend, smoothUpgradeSource);
+
+        IcebergScanNode.checkIcebergScanSemanticsV2Compatibility(false, backends);
+        try {
+            IcebergScanNode.checkIcebergScanSemanticsV2Compatibility(true, backends);
+            Assert.fail("nested default and requiredness semantics must not run on a V1 backend");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10004 is a smooth upgrade source"));
+        }
+    }
+
+    @Test
+    public void testRequirednessHistoryTriggersCurrentScanSemantics() {
+        Schema current = new Schema(2, ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.LongType.get())));
+        Schema historicalOptional = new Schema(1, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.LongType.get())));
+        Schema historicalRequired = new Schema(1, ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.LongType.get())));
+
+        Assert.assertTrue(IcebergScanNode.schemaHistoryRequiresMissingRequiredFieldRejection(
+                current, ImmutableList.of(historicalOptional)));
+        Assert.assertFalse(IcebergScanNode.schemaHistoryRequiresMissingRequiredFieldRejection(
+                current, ImmutableList.of(historicalRequired)));
+    }
+
+    @Test
     public void testBatchVariantProjectionUsesSharedCompatibilityGate() throws Exception {
         TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable(), false, true);
         node.addSlot(1, new Column("payload", Type.VARIANT));

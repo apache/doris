@@ -19,11 +19,17 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <cstdint>
+#include <memory>
+
 #include "io/fs/file_system.h"
 #include "io/fs/obj_storage_client.h"
 #include "util/s3_util.h"
 
 #ifdef USE_AZURE
+#include <aws/core/utils/HashingUtils.h>
+
 #include <azure/storage/blobs.hpp>
 #include <azure/storage/blobs/blob_client.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
@@ -33,6 +39,41 @@
 namespace doris {
 
 #ifdef USE_AZURE
+
+TEST(AzureObjStorageClientMultipartHelperTest, full_upload_uuid_isolates_writer_blocks) {
+    constexpr std::string_view first_upload = "09492e3d-e231-4ed9-bf84-b6fc772cda54";
+    constexpr std::string_view second_upload = "06996d15-1c2e-4ddd-8853-43816ea84a07";
+    auto first_block = io::azure_multipart_block_id(first_upload, 1);
+    auto second_block = io::azure_multipart_block_id(second_upload, 1);
+
+    EXPECT_NE(first_block, second_block);
+    EXPECT_EQ(first_block.size(), io::azure_multipart_block_id(first_upload, 999).size());
+    auto decoded = Aws::Utils::HashingUtils::Base64Decode(first_block);
+    ASSERT_EQ(first_upload.size() + sizeof(uint32_t), decoded.GetLength());
+    EXPECT_EQ(first_upload,
+              std::string_view(reinterpret_cast<const char*>(decoded.GetUnderlyingData()),
+                               first_upload.size()));
+    EXPECT_EQ(1, decoded.GetUnderlyingData()[first_upload.size()]);
+    EXPECT_EQ(0, decoded.GetUnderlyingData()[first_upload.size() + 1]);
+    EXPECT_EQ(0, decoded.GetUnderlyingData()[first_upload.size() + 2]);
+    EXPECT_EQ(0, decoded.GetUnderlyingData()[first_upload.size() + 3]);
+}
+
+TEST(AzureObjStorageClientMultipartHelperTest, create_upload_is_provider_free) {
+    io::AzureObjStorageClient client(
+            std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> {});
+
+    auto first = client.create_multipart_upload({});
+    auto second = client.create_multipart_upload({});
+
+    ASSERT_EQ(ErrorCode::OK, first.resp.status.code);
+    ASSERT_EQ(ErrorCode::OK, second.resp.status.code);
+    ASSERT_TRUE(first.upload_id.has_value());
+    ASSERT_TRUE(second.upload_id.has_value());
+    EXPECT_EQ(36, first.upload_id->size());
+    EXPECT_EQ(36, second.upload_id->size());
+    EXPECT_NE(first.upload_id, second.upload_id);
+}
 
 using namespace Azure::Storage::Blobs;
 
@@ -155,6 +196,39 @@ TEST_F(AzureObjStorageClientTest, delete_objects_recursively) {
     // clang-format on
     EXPECT_EQ(response.status.code, ErrorCode::OK);
     EXPECT_EQ(files.size(), 0);
+}
+
+TEST_F(AzureObjStorageClientTest, concurrent_multipart_uploads_do_not_share_staged_blocks) {
+    io::ObjectStoragePathOptions first {.key = "AzureObjStorageClientTest/concurrent_multipart"};
+    io::ObjectStoragePathOptions second = first;
+    auto first_create = obj_storage_client->create_multipart_upload(first);
+    auto second_create = obj_storage_client->create_multipart_upload(second);
+    ASSERT_EQ(first_create.resp.status.code, ErrorCode::OK);
+    ASSERT_EQ(second_create.resp.status.code, ErrorCode::OK);
+    ASSERT_TRUE(first_create.upload_id.has_value());
+    ASSERT_TRUE(second_create.upload_id.has_value());
+    ASSERT_NE(first_create.upload_id, second_create.upload_id);
+    first.upload_id = first_create.upload_id;
+    second.upload_id = second_create.upload_id;
+
+    auto first_part = obj_storage_client->upload_part(first, "first", 1);
+    auto second_part = obj_storage_client->upload_part(second, "second", 1);
+    ASSERT_EQ(first_part.resp.status.code, ErrorCode::OK);
+    ASSERT_EQ(second_part.resp.status.code, ErrorCode::OK);
+    ASSERT_NE(first_part.etag, second_part.etag);
+    ASSERT_EQ(obj_storage_client->complete_multipart_upload(first, {{.part_num = 1}}).status.code,
+              ErrorCode::OK);
+    ASSERT_NE(obj_storage_client->complete_multipart_upload(second, {{.part_num = 1}}).status.code,
+              ErrorCode::OK);
+
+    std::array<char, 5> contents {};
+    size_t size_return = 0;
+    ASSERT_EQ(obj_storage_client
+                      ->get_object(second, contents.data(), 0, contents.size(), &size_return)
+                      .status.code,
+              ErrorCode::OK);
+    EXPECT_EQ(std::string_view(contents.data(), size_return), "first");
+    EXPECT_EQ(obj_storage_client->delete_object(second).status.code, ErrorCode::OK);
 }
 #else
 

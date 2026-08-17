@@ -182,12 +182,38 @@ public class LoadProcessor extends AbstractJobProcessor {
             }
         }
 
-        if (!fragmentTask.processReportExecStatus(params)) {
+        if (!fragmentTask.processReportExecStatus(params, () -> acceptFinalReport(params))) {
+            if ((params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
+                    || params.isSetMcCommitDatas() || params.isSetPaimonCommitMessages())
+                    && !fragmentTask.isDone()) {
+                throw new IllegalStateException("External-file report was not a completed fragment report");
+            }
             LOG.debug("Fragment {} is not done, ignore report status: {}",
                     params.getFragmentId(), params.toString());
             return;
         }
 
+        if (fragmentTask.isDone()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Query {} fragment {} is marked done",
+                        DebugUtil.printId(coordinatorContext.queryId), params.getFragmentId());
+            }
+            MarkedCountDownLatch<Integer, Long> latch = this.latch.get();
+            latch.markedCountDown(params.getFragmentId(), params.getBackendId());
+
+            int topFragmentId = coordinatorContext.topDistributedPlan
+                    .getFragmentJob().getFragment().getFragmentId().asInt();
+            if (topFragmentId == params.getFragmentId()) {
+                MarkedCountDownLatch<Integer, Long> topFragmentLatch = this.topFragmentLatch.get();
+                topFragmentLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
+                if (topFragmentLatch.getCount() == 0) {
+                    tryFinishSchedule();
+                }
+            }
+        }
+    }
+
+    private void acceptFinalReport(TReportExecStatusParams params) {
         LoadContext loadContext = coordinatorContext.asLoadProcessor().loadContext;
         if (params.isSetDeltaUrls()) {
             loadContext.updateDeltaUrls(params.getDeltaUrls());
@@ -233,25 +259,6 @@ public class LoadProcessor extends AbstractJobProcessor {
             ((PaimonTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
                     .getTxnById(txnId))
                     .updateCommitMessages(params.getPaimonCommitMessages());
-        }
-
-        if (fragmentTask.isDone()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Query {} fragment {} is marked done",
-                        DebugUtil.printId(coordinatorContext.queryId), params.getFragmentId());
-            }
-            MarkedCountDownLatch<Integer, Long> latch = this.latch.get();
-            latch.markedCountDown(params.getFragmentId(), params.getBackendId());
-
-            int topFragmentId = coordinatorContext.topDistributedPlan
-                    .getFragmentJob().getFragment().getFragmentId().asInt();
-            if (topFragmentId == params.getFragmentId()) {
-                MarkedCountDownLatch<Integer, Long> topFragmentLatch = this.topFragmentLatch.get();
-                topFragmentLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
-                if (topFragmentLatch.getCount() == 0) {
-                    tryFinishSchedule();
-                }
-            }
         }
     }
 

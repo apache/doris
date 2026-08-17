@@ -45,8 +45,10 @@ import org.apache.iceberg.ReplacePartitions;
 import org.apache.iceberg.RewriteFiles;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
@@ -136,7 +138,6 @@ public class IcebergTransaction implements Transaction {
                 // Planning, BE serialization, and commit must share one Iceberg metadata
                 // generation even if the catalog refreshes between those phases.
                 this.table = targetTable;
-                this.baseSnapshotId = null;
                 // check branch
                 if (insertCtx != null && insertCtx.getBranchName().isPresent()) {
                     this.branchName = insertCtx.getBranchName().get();
@@ -148,6 +149,14 @@ public class IcebergTransaction implements Transaction {
                                 branchName
                                         + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
                     }
+                }
+                if (insertCtx != null && insertCtx.isOverwrite()) {
+                    // OVERWRITE must validate against the exact target branch generation retained at binding.
+                    Snapshot baseSnapshot = branchName == null
+                            ? table.currentSnapshot() : table.snapshot(branchName);
+                    this.baseSnapshotId = baseSnapshot == null ? null : baseSnapshot.snapshotId();
+                } else {
+                    this.baseSnapshotId = null;
                 }
                 this.transaction = createTransactionTable(dorisTable, table).newTransaction();
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
@@ -858,7 +867,13 @@ public class IcebergTransaction implements Transaction {
                     overwriteFiles = overwriteFiles.toBranch(branchName);
                 }
                 overwriteFiles = overwriteFiles.scanManifestsWith(ops.getThreadPoolWithPreAuth());
-                try (CloseableIterable<FileScanTask> fileScanTasks = table.newScan().planFiles()) {
+                overwriteFiles = validateOverwrite(overwriteFiles, Expressions.alwaysTrue());
+                TableScan overwriteScan = table.newScan();
+                if (branchName != null) {
+                    // The files removed must come from the same branch whose head anchors OCC validation.
+                    overwriteScan = overwriteScan.useRef(branchName);
+                }
+                try (CloseableIterable<FileScanTask> fileScanTasks = overwriteScan.planFiles()) {
                     OverwriteFiles finalOverwriteFiles = overwriteFiles;
                     fileScanTasks.forEach(f -> finalOverwriteFiles.deleteFile(f.file()));
                 } catch (IOException e) {
@@ -875,6 +890,11 @@ public class IcebergTransaction implements Transaction {
             appendPartitionOp = appendPartitionOp.toBranch(branchName);
         }
         appendPartitionOp = appendPartitionOp.scanManifestsWith(ops.getThreadPoolWithPreAuth());
+        // Partition replacement must not delete or revive files committed after sink binding.
+        if (baseSnapshotId != null) {
+            appendPartitionOp = appendPartitionOp.validateFromSnapshot(baseSnapshotId);
+        }
+        appendPartitionOp = appendPartitionOp.validateNoConflictingData().validateNoConflictingDeletes();
         for (WriteResult result : pendingResults) {
             Preconditions.checkState(result.referencedDataFiles().length == 0,
                     "Should have no referenced data files.");
@@ -905,6 +925,7 @@ public class IcebergTransaction implements Transaction {
 
         // Set partition filter to overwrite only matching partitions
         overwriteFiles = overwriteFiles.overwriteByRowFilter(partitionFilter);
+        overwriteFiles = validateOverwrite(overwriteFiles, partitionFilter);
 
         // Add new data files
         for (WriteResult result : pendingResults) {
@@ -915,6 +936,14 @@ public class IcebergTransaction implements Transaction {
 
         // Commit the overwrite operation
         overwriteFiles.commit();
+    }
+
+    private OverwriteFiles validateOverwrite(OverwriteFiles overwriteFiles, Expression conflictFilter) {
+        overwriteFiles = overwriteFiles.conflictDetectionFilter(conflictFilter);
+        if (baseSnapshotId != null) {
+            overwriteFiles = overwriteFiles.validateFromSnapshot(baseSnapshotId);
+        }
+        return overwriteFiles.validateNoConflictingData().validateNoConflictingDeletes();
     }
 
     /**

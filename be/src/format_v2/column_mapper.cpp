@@ -59,48 +59,6 @@ namespace doris::format {
 
 namespace {
 
-Status build_initial_default_column(const ColumnDefinition& column, ColumnPtr* value) {
-    DORIS_CHECK(value != nullptr);
-    *value = nullptr;
-    if (!column.initial_default_value.has_value()) {
-        return Status::OK();
-    }
-    const auto nested_type = remove_nullable(column.type);
-    Field parsed;
-    if (column.initial_default_value_is_base64 ||
-        nested_type->get_primitive_type() == TYPE_VARBINARY) {
-        std::string decoded;
-        if (!base64_decode(*column.initial_default_value, &decoded)) {
-            return Status::InvalidArgument("Invalid Base64 Iceberg initial default for field {}",
-                                           column.name);
-        }
-        parsed = nested_type->get_primitive_type() == TYPE_VARBINARY
-                         ? Field::create_field<TYPE_VARBINARY>(StringView(decoded))
-                         : Field::create_field<TYPE_STRING>(decoded);
-        // Variable-width Fields borrow their input. Materialize while decoded is alive so the
-        // resulting column owns the payload before it crosses a mapping/literal boundary.
-        *value = column.type->create_column_const(1, parsed);
-        return Status::OK();
-    } else {
-        RETURN_IF_ERROR(
-                nested_type->get_serde()->from_fe_string(*column.initial_default_value, parsed));
-    }
-    *value = column.type->create_column_const(1, parsed);
-    return Status::OK();
-}
-
-Status build_initial_default_literal(const ColumnDefinition& column, VExprContextSPtr* literal) {
-    DORIS_CHECK(literal != nullptr);
-    ColumnPtr owned_value;
-    RETURN_IF_ERROR(build_initial_default_column(column, &owned_value));
-    DORIS_CHECK(static_cast<bool>(owned_value));
-    Field value;
-    owned_value->get(0, value);
-    // VLiteral copies the borrowed Field into its own column while owned_value is still alive.
-    *literal = VExprContext::create_shared(VLiteral::create_shared(column.type, value));
-    return Status::OK();
-}
-
 bool has_shared_descendant_field_id(const ColumnDefinition& table, const ColumnDefinition& file) {
     const auto& table_children =
             table.identity_children.empty() ? table.children : table.identity_children;
@@ -397,6 +355,7 @@ static bool is_binary_comparison_predicate(const VExprSPtr& expr) {
 std::string TableColumnMapperOptions::debug_string() const {
     std::ostringstream out;
     out << "TableColumnMapperOptions{mode=" << mapping_mode_to_string(mode)
+        << ", reject_missing_required_field=" << reject_missing_required_field
         << ", allow_idless_complex_wrapper_projection=" << allow_idless_complex_wrapper_projection
         << ", enable_row_lineage_virtual_columns=" << enable_row_lineage_virtual_columns << "}";
     return out.str();
@@ -2204,15 +2163,15 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
         // Doris internal Iceberg row locator is never a physical Iceberg data column. It is built
         // from file path, row position and partition metadata for delete/update/merge.
         mapping->virtual_column_type = TableVirtualColumnType::ICEBERG_ROWID;
-    } else if (table_column.initial_default_value.has_value()) {
-        VExprContextSPtr initial_default;
-        RETURN_IF_ERROR(build_initial_default_literal(table_column, &initial_default));
-        // Iceberg metadata is the authoritative logical value for files written before the field
-        // existed; the generic FE expression may still contain its Base64 transport text.
-        _set_constant_mapping(mapping, std::move(initial_default));
     } else if (table_column.default_expr != nullptr) {
-        // Missing schema-evolution column with an explicit default expression.
+        // The table-format reader supplies a typed literal so complex and binary defaults stay exact.
         _set_constant_mapping(mapping, table_column.default_expr);
+    } else if (table_column.initial_default_value.has_value()) {
+        return Status::InvalidArgument(
+                "Missing typed initial-default expression for table field '{}'", table_column.name);
+    } else if (_options.reject_missing_required_field && table_column.is_optional.has_value() &&
+               !*table_column.is_optional) {
+        return Status::InvalidArgument("Missing required field: {}", table_column.name);
     } else {
         if (table_column.is_partition_key) {
             return Status::InvalidArgument(
@@ -2791,10 +2750,24 @@ Status TableColumnMapper::_create_direct_mapping(const ColumnDefinition& table_c
                 child_mapping.file_type = table_child.type;
                 child_mapping.variant_access_paths = table_child.variant_access_paths;
                 child_mapping.filter_conversion = FilterConversionType::FINALIZE_ONLY;
-                // A missing nested field still has its Iceberg initial-default value in every row
-                // written before the field was added; carry it into recursive materialization.
-                RETURN_IF_ERROR(build_initial_default_column(
-                        table_child, &child_mapping.initial_default_column));
+                if (table_child.default_expr != nullptr) {
+                    const auto* literal =
+                            dynamic_cast<const VLiteral*>(table_child.default_expr->root().get());
+                    if (literal == nullptr) {
+                        return Status::InvalidArgument(
+                                "Missing typed initial-default literal for table field '{}'",
+                                table_child.name);
+                    }
+                    // Keep the literal's owning column alive for recursive materialization.
+                    child_mapping.initial_default_column = literal->get_column_ptr();
+                } else if (table_child.initial_default_value.has_value()) {
+                    return Status::InvalidArgument(
+                            "Missing typed initial-default expression for table field '{}'",
+                            table_child.name);
+                } else if (_options.reject_missing_required_field &&
+                           table_child.is_optional.has_value() && !*table_child.is_optional) {
+                    return Status::InvalidArgument("Missing required field: {}", table_child.name);
+                }
                 mapping->child_mappings.push_back(std::move(child_mapping));
                 continue;
             }

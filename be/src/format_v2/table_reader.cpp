@@ -427,6 +427,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
                                              : std::nullopt,
             .initial_default_value_is_base64 = field.__isset.initial_default_value_is_base64 &&
                                                field.initial_default_value_is_base64,
+            .is_optional = field.__isset.is_optional ? std::make_optional(field.is_optional)
+                                                     : std::nullopt,
             .is_partition_key = false,
     };
     if (column.type == nullptr || !field.__isset.nestedField) {
@@ -750,6 +752,7 @@ Status TableReader::annotate_projected_column(const TFileScanSlotInfo& slot_info
     column->initial_default_value = context->schema_column->initial_default_value;
     column->initial_default_value_is_base64 =
             context->schema_column->initial_default_value_is_base64;
+    column->is_optional = context->schema_column->is_optional;
     return Status::OK();
 }
 

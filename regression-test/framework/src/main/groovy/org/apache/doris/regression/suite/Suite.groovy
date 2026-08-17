@@ -2239,10 +2239,16 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    static String buildJobNameQuery(String dbName, String mtmvName) {
+        return ("select Name from jobs('type'='mv') where MvDatabaseName = '${dbName}' "
+                + "and MvName = '${mtmvName}'")
+    }
+
     String getJobName(String dbName, String mtmvName) {
-        String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
-	    logger.info(showMTMV)
-        List<List<Object>> result = sql(showMTMV)
+        // Job lookup must not materialize unrelated MVs whose external metadata may be unavailable.
+        String showJob = buildJobNameQuery(dbName, mtmvName)
+        logger.info(showJob)
+        List<List<Object>> result = sql(showJob)
         logger.info("result: " + result.toString())
         if (result.isEmpty()) {
             Assert.fail();

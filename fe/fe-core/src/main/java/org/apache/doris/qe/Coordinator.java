@@ -254,7 +254,8 @@ public class Coordinator implements CoordInterface {
     private String trackingUrl;
     private String firstErrorMsg;
     // related txnId and label of group commit
-    private long txnId;
+    // Final reports race with status readers, so the transaction identity must be safely published.
+    private volatile long txnId;
     private String label;
 
     // for export
@@ -2567,7 +2568,7 @@ public class Coordinator implements CoordInterface {
     }
 
     // update job progress from BE
-    public void updateFragmentExecStatus(TReportExecStatusParams params) {
+    public boolean updateFragmentExecStatus(TReportExecStatusParams params) {
         if (params.isSetLoadedRows() && jobId != -1) {
             if (params.isSetFragmentInstanceReports()) {
                 for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
@@ -2587,87 +2588,108 @@ public class Coordinator implements CoordInterface {
         }
 
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
-        if (ctx == null || !ctx.updatePipelineStatus(params)) {
+        boolean hasExternalCommitData = params.isSetHivePartitionUpdates()
+                || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas()
+                || params.isSetPaimonCommitMessages();
+        if (ctx == null) {
+            if (hasExternalCommitData) {
+                throw new IllegalStateException("Missing fragment handler for external-file report");
+            }
+            return false;
+        }
+        if (!ctx.updatePipelineStatus(params)) {
+            if (hasExternalCommitData && !ctx.done) {
+                throw new IllegalStateException("External-file report was not a completed fragment report");
+            }
             LOG.debug("Fragment {} is not done, ignore report status: {}",
                     params.getFragmentId(), params.toString());
-            return;
+            return ctx.done;
         }
 
-        Status status = new Status(params.status);
-        // for now, abort the query if we see any error except if the error is cancelled
-        // and returned_all_results_ is true.
-        // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
-        if (!status.ok()) {
-            if (returnedAllResults && status.isCancelled()) {
-                LOG.warn("Query {} has returned all results, fragment_id={} instance_id={}, be={}"
-                        + " is reporting failed status {}",
-                        DebugUtil.printId(queryId), params.getFragmentId(),
-                        DebugUtil.printId(params.getFragmentInstanceId()),
-                        params.getBackendId(),
-                        status.toString());
-            } else {
-                LOG.warn("one instance report fail, query_id={} fragment_id={} instance_id={}, be={},"
-                                + " error message: {}",
-                        DebugUtil.printId(queryId), params.getFragmentId(),
-                        DebugUtil.printId(params.getFragmentInstanceId()),
-                        params.getBackendId(), status.toString());
-                updateStatus(status);
+        boolean accepted = false;
+        try {
+            Status status = new Status(params.status);
+            // for now, abort the query if we see any error except if the error is cancelled
+            // and returned_all_results_ is true.
+            // (UpdateStatus() initiates cancellation, if it hasn't already been initiated)
+            if (!status.ok()) {
+                if (returnedAllResults && status.isCancelled()) {
+                    LOG.warn("Query {} has returned all results, fragment_id={} instance_id={}, be={}"
+                            + " is reporting failed status {}",
+                            DebugUtil.printId(queryId), params.getFragmentId(),
+                            DebugUtil.printId(params.getFragmentInstanceId()),
+                            params.getBackendId(),
+                            status.toString());
+                } else {
+                    LOG.warn("one instance report fail, query_id={} fragment_id={} instance_id={}, be={},"
+                                    + " error message: {}",
+                            DebugUtil.printId(queryId), params.getFragmentId(),
+                            DebugUtil.printId(params.getFragmentInstanceId()),
+                            params.getBackendId(), status.toString());
+                    updateStatus(status);
+                }
             }
-        }
-        if (params.isSetDeltaUrls() && deltaUrls != null) {
-            updateDeltas(params.getDeltaUrls());
-        }
-        if (params.isSetLoadCounters() && loadCounters != null) {
-            updateLoadCounters(params.getLoadCounters());
-        }
-        if (params.isSetTrackingUrl()) {
-            LOG.info("query_id={} tracking_url: {}", DebugUtil.printId(queryId), params.getTrackingUrl());
-            trackingUrl = params.getTrackingUrl();
-        }
-        if (params.isSetFirstErrorMsg()) {
-            LOG.info("query_id={} first_error_msg: {}", DebugUtil.printId(queryId), params.getFirstErrorMsg());
-            firstErrorMsg = params.getFirstErrorMsg();
-        }
-        if (params.isSetTxnId()) {
-            txnId = params.getTxnId();
-        }
-        if (params.isSetLabel()) {
-            label = params.getLabel();
-        }
-        if (params.isSetExportFiles()) {
-            updateExportFiles(params.getExportFiles());
-        }
-        if (params.isSetCommitInfos()) {
-            updateCommitInfos(params.getCommitInfos());
-        }
-        if (params.isSetErrorTabletInfos()) {
-            updateErrorTabletInfos(params.getErrorTabletInfos());
-        }
-        if (params.isSetHivePartitionUpdates()) {
-            ((HMSTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
-                .updateHivePartitionUpdates(params.getHivePartitionUpdates());
-        }
-        if (params.isSetIcebergCommitDatas()) {
-            ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
-                .updateIcebergCommitData(params.getIcebergCommitDatas());
-        }
-        if (params.isSetMcCommitDatas()) {
-            ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
-                .updateMCCommitData(params.getMcCommitDatas());
-        }
-        if (params.isSetPaimonCommitMessages()) {
-            ((PaimonTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
-                    .getTxnById(txnId))
-                    .updateCommitMessages(params.getPaimonCommitMessages());
+            if (params.isSetDeltaUrls() && deltaUrls != null) {
+                updateDeltas(params.getDeltaUrls());
+            }
+            if (params.isSetLoadCounters() && loadCounters != null) {
+                updateLoadCounters(params.getLoadCounters());
+            }
+            if (params.isSetTrackingUrl()) {
+                LOG.info("query_id={} tracking_url: {}", DebugUtil.printId(queryId), params.getTrackingUrl());
+                trackingUrl = params.getTrackingUrl();
+            }
+            if (params.isSetFirstErrorMsg()) {
+                LOG.info("query_id={} first_error_msg: {}", DebugUtil.printId(queryId), params.getFirstErrorMsg());
+                firstErrorMsg = params.getFirstErrorMsg();
+            }
+            // Keep this report's identity local so another report cannot redirect its commit data.
+            long reportTxnId = params.isSetTxnId() ? params.getTxnId() : txnId;
+            if (params.isSetTxnId()) {
+                txnId = reportTxnId;
+            }
+            if (params.isSetLabel()) {
+                label = params.getLabel();
+            }
+            if (params.isSetExportFiles()) {
+                updateExportFiles(params.getExportFiles());
+            }
+            if (params.isSetCommitInfos()) {
+                updateCommitInfos(params.getCommitInfos());
+            }
+            if (params.isSetErrorTabletInfos()) {
+                updateErrorTabletInfos(params.getErrorTabletInfos());
+            }
+            if (params.isSetHivePartitionUpdates()) {
+                ((HMSTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
+                        .getTxnById(reportTxnId)).updateHivePartitionUpdates(params.getHivePartitionUpdates());
+            }
+            if (params.isSetIcebergCommitDatas()) {
+                ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
+                        .getTxnById(reportTxnId)).updateIcebergCommitData(params.getIcebergCommitDatas());
+            }
+            if (params.isSetMcCommitDatas()) {
+                ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
+                        .getTxnById(reportTxnId)).updateMCCommitData(params.getMcCommitDatas());
+            }
+            if (params.isSetPaimonCommitMessages()) {
+                ((PaimonTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr()
+                        .getTxnById(reportTxnId)).updateCommitMessages(params.getPaimonCommitMessages());
+            }
+
+            accepted = true;
+        } finally {
+            ctx.finishPipelineStatus(accepted);
         }
 
-        if (ctx.done) {
+        if (accepted) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Query {} fragment {} is marked done",
                         DebugUtil.printId(queryId), ctx.fragmentId);
             }
             fragmentsDoneLatch.markedCountDown(params.getFragmentId(), params.getBackendId());
         }
+        return accepted;
     }
 
     /*
@@ -3074,7 +3096,9 @@ public class Coordinator implements CoordInterface {
         TPipelineFragmentParams rpcParams;
         PlanFragmentId fragmentId;
         boolean initiated;
-        boolean done;
+        // Non-final reports read this outside the monitor after updatePipelineStatus returns.
+        volatile boolean done;
+        boolean processingDoneReport;
 
         TNetworkAddress brpcAddress;
         TNetworkAddress address;
@@ -3131,8 +3155,28 @@ public class Coordinator implements CoordInterface {
                 // duplicate packet
                 return false;
             }
-            this.done = true;
+            while (processingDoneReport) {
+                try {
+                    wait();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while waiting for a duplicate report", e);
+                }
+                if (this.done) {
+                    return false;
+                }
+            }
+            // Serialize ownership processing so no duplicate can be acknowledged before acceptance finishes.
+            processingDoneReport = true;
             return true;
+        }
+
+        public synchronized void finishPipelineStatus(boolean accepted) {
+            if (accepted) {
+                this.done = true;
+            }
+            processingDoneReport = false;
+            notifyAll();
         }
 
         public boolean isBackendStateHealthy() {

@@ -35,10 +35,12 @@
 #include <azure/storage/common/storage_exception.hpp>
 #include <cctype>
 #include <chrono>
+#include <cstdint>
 #include <exception>
 #include <iterator>
 #include <ranges>
 #include <string_view>
+#include <vector>
 
 #include "common/exception.h"
 #include "common/logging.h"
@@ -46,8 +48,8 @@
 #include "cpp/obj_retry_strategy.h"
 #include "io/fs/obj_storage_client.h"
 #include "util/bvar_helper.h"
-#include "util/coding.h"
 #include "util/s3_util.h"
+#include "util/uid_util.h"
 
 using namespace Azure::Storage::Blobs;
 
@@ -64,10 +66,16 @@ std::string to_lower_ascii(std::string_view input) {
     return lowered;
 }
 
-auto base64_encode_part_num(int part_num) {
-    uint8_t buf[4];
-    doris::encode_fixed32_le(buf, static_cast<uint32_t>(part_num));
-    return Aws::Utils::HashingUtils::Base64Encode({buf, sizeof(buf)});
+std::string encode_azure_block_id(std::string_view upload_id, int part_num) {
+    // Keep the full upload UUID in every block ID so independent writers cannot stage the
+    // same block IDs even though Azure has no per-upload multipart namespace.
+    std::vector<unsigned char> raw_id(upload_id.begin(), upload_id.end());
+    auto part = static_cast<uint32_t>(part_num);
+    for (size_t i = 0; i < sizeof(part); ++i) {
+        raw_id.push_back(static_cast<unsigned char>(part >> (i * 8)));
+    }
+    Aws::Utils::ByteBuffer bytes(raw_id.data(), raw_id.size());
+    return Aws::Utils::HashingUtils::Base64Encode(bytes);
 }
 
 // Rate limiting is applied by RateLimitedObjStorageClient, the decorator that
@@ -78,6 +86,10 @@ constexpr char BlobNotFound[] = "BlobNotFound";
 } // namespace
 
 namespace doris::io {
+
+std::string azure_multipart_block_id(std::string_view upload_id, int part_num) {
+    return encode_azure_block_id(upload_id, part_num);
+}
 
 // As Azure's doc said, the batch size is 256
 // You can find out the num in https://learn.microsoft.com/en-us/rest/api/storageservices/blob-batch?tabs=microsoft-entra-id
@@ -194,11 +206,12 @@ private:
     std::vector<Azure::Storage::DeferredResponse<Models::DeleteBlobResult>> deferred_resps;
 };
 
-// Azure would do nothing
 ObjectStorageUploadResponse AzureObjStorageClient::create_multipart_upload(
-        const ObjectStoragePathOptions& opts) {
+        const ObjectStoragePathOptions&) {
+    // Azure has no multipart session; this local UUID only namespaces the writer's block IDs.
     return ObjectStorageUploadResponse {
             .resp = ObjectStorageResponse::OK(),
+            .upload_id = generate_uuid_string(),
     };
 }
 
@@ -216,33 +229,40 @@ ObjectStorageResponse AzureObjStorageClient::put_object(const ObjectStoragePathO
 ObjectStorageUploadResponse AzureObjStorageClient::upload_part(const ObjectStoragePathOptions& opts,
                                                                std::string_view stream,
                                                                int part_num) {
+    DCHECK(opts.upload_id.has_value());
     auto client = _client->GetBlockBlobClient(opts.key);
+    std::string block_id = azure_multipart_block_id(*opts.upload_id, part_num);
     auto resp = do_azure_client_call(
             [&]() {
                 Azure::Core::IO::MemoryBodyStream memory_body(
                         reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
                 // The blockId must be base64 encoded
                 SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-                client.StageBlock(base64_encode_part_num(part_num), memory_body);
+                client.StageBlock(block_id, memory_body);
             },
             opts, _tls_debug_context);
     return ObjectStorageUploadResponse {
             .resp = resp,
+            // Hive defers completion to FE, so the exact staged ID must cross that boundary.
+            .etag = block_id,
     };
 }
 
 ObjectStorageResponse AzureObjStorageClient::complete_multipart_upload(
         const ObjectStoragePathOptions& opts,
         const std::vector<ObjectCompleteMultiPart>& completed_parts) {
-    auto client = _client->GetBlockBlobClient(opts.key);
+    DCHECK(opts.upload_id.has_value());
+    auto target_client = _client->GetBlockBlobClient(opts.key);
     std::vector<std::string> string_block_ids;
-    std::ranges::transform(
-            completed_parts, std::back_inserter(string_block_ids),
-            [](const ObjectCompleteMultiPart& i) { return base64_encode_part_num(i.part_num); });
+    std::ranges::transform(completed_parts, std::back_inserter(string_block_ids),
+                           [&opts](const ObjectCompleteMultiPart& part) {
+                               return azure_multipart_block_id(*opts.upload_id, part.part_num);
+                           });
     return do_azure_client_call(
             [&]() {
                 SCOPED_BVAR_LATENCY(s3_bvar::s3_multi_part_upload_latency);
-                client.CommitBlockList(string_block_ids);
+                // Committing the exact writer namespace atomically publishes only its blocks.
+                target_client.CommitBlockList(string_block_ids);
             },
             opts, _tls_debug_context);
 }

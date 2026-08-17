@@ -435,8 +435,8 @@ public class IcebergTransactionTest {
             IcebergTransaction txn = getTxn();
             txn.updateIcebergCommitData(ctdList);
             IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
-            txn.beginInsert(icebergExternalTable, table, Optional.of(ctx));
             ctx.setOverwrite(true);
+            txn.beginInsert(icebergExternalTable, table, Optional.of(ctx));
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
@@ -460,13 +460,52 @@ public class IcebergTransactionTest {
 
             IcebergTransaction txn = getTxn();
             IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
-            txn.beginInsert(icebergExternalTable, table, Optional.of(ctx));
             ctx.setOverwrite(true);
+            txn.beginInsert(icebergExternalTable, table, Optional.of(ctx));
             txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
             txn.commit();
         }
 
         checkSnapshotTotalProperties(table.currentSnapshot().summary(), "0", "0", "0");
+    }
+
+    @Test
+    public void testEmptyOverwriteReadsAndCommitsTheTargetBranch() throws UserException, IOException {
+        testUnPartitionedTable();
+
+        Table table = ops.getCatalog().loadTable(TableIdentifier.of(dbName, tbWithoutPartition));
+        String branch = "overwrite_branch";
+        table.manageSnapshots().createBranch(branch, table.currentSnapshot().snapshotId()).commit();
+        Path mainOnlyFile = Files.createTempFile("main-only-data-", ".parquet");
+        table.newFastAppend()
+                .appendFile(DataFiles.builder(table.spec())
+                        .withPath(mainOnlyFile.toString())
+                        .withFileSizeInBytes(1)
+                        .withRecordCount(1)
+                        .withFormat(FileFormat.PARQUET)
+                        .build())
+                .commit();
+        long mainSnapshotId = table.currentSnapshot().snapshotId();
+        IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
+        Mockito.when(icebergExternalTable.getCatalog()).thenReturn(spyExternalCatalog);
+        Mockito.when(icebergExternalTable.getDbName()).thenReturn(dbName);
+        Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithoutPartition);
+
+        try (MockedStatic<IcebergUtils> mockedStatic = Mockito.mockStatic(IcebergUtils.class)) {
+            mockedStatic.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(table);
+            IcebergInsertCommandContext ctx = new IcebergInsertCommandContext();
+            ctx.setOverwrite(true);
+            ctx.setBranchName(Optional.of(branch));
+            IcebergTransaction txn = getTxn();
+            txn.beginInsert(icebergExternalTable, table, Optional.of(ctx));
+            txn.finishInsert(NameMapping.createForTest(dbName, tbWithPartition));
+            txn.commit();
+        }
+
+        table.refresh();
+        Assert.assertEquals(mainSnapshotId, table.currentSnapshot().snapshotId());
+        checkSnapshotTotalProperties(table.snapshot(branch).summary(), "0", "0", "0");
     }
 
     @Test
