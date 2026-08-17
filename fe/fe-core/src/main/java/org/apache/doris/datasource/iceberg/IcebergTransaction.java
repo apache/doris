@@ -79,6 +79,7 @@ public class IcebergTransaction implements Transaction {
     private Table table;
 
     private org.apache.iceberg.Transaction transaction;
+    private IcebergCommitCoordinator.Guard commitGuard;
     private final List<TIcebergCommitData> commitDataList = Lists.newArrayList();
     private Optional<Expression> conflictDetectionFilter = Optional.empty();
 
@@ -133,6 +134,7 @@ public class IcebergTransaction implements Transaction {
     public void beginInsert(ExternalTable dorisTable, Table targetTable,
             Optional<InsertCommandContext> ctx) throws UserException {
         ctx.ifPresent(c -> this.insertCtx = (IcebergInsertCommandContext) c);
+        acquireCommitFence(targetTable);
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 // Planning, BE serialization, and commit must share one Iceberg metadata
@@ -162,6 +164,7 @@ public class IcebergTransaction implements Transaction {
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
             });
         } catch (Exception e) {
+            releaseCommitFence();
             throw new UserException("Failed to begin insert for iceberg table " + dorisTable.getName()
                     + " because: " + e.getMessage(), e);
         }
@@ -173,6 +176,7 @@ public class IcebergTransaction implements Transaction {
         // For rewrite operations, we work directly on the main table
         this.branchName = null;
         this.isRewriteMode = true;
+        acquireCommitFence(targetTable);
 
         try {
             ops.getExecutionAuthenticator().execute(() -> {
@@ -192,6 +196,7 @@ public class IcebergTransaction implements Transaction {
                 return null;
             });
         } catch (Exception e) {
+            releaseCommitFence();
             throw new UserException("Failed to begin rewrite for iceberg table " + dorisTable.getName()
                     + " because: " + e.getMessage(), e);
         }
@@ -277,6 +282,7 @@ public class IcebergTransaction implements Transaction {
      * Begin delete operation for Iceberg table
      */
     public void beginDelete(ExternalTable dorisTable, Table targetTable) throws UserException {
+        acquireCommitFence(targetTable);
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 // RowDelta's validation base must match the generation used to select row IDs;
@@ -296,6 +302,7 @@ public class IcebergTransaction implements Transaction {
                 LOG.info("Started delete transaction for table: {}", dorisTable.getName());
             });
         } catch (Exception e) {
+            releaseCommitFence();
             throw new UserException("Failed to begin delete for iceberg table " + dorisTable.getName()
                     + " because: " + e.getMessage(), e);
         }
@@ -313,6 +320,7 @@ public class IcebergTransaction implements Transaction {
 
     /** Begin UPDATE/MERGE against the metadata generation retained by the merge sink. */
     public void beginMerge(ExternalTable dorisTable, Table targetTable) throws UserException {
+        acquireCommitFence(targetTable);
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 this.branchName = null;
@@ -333,6 +341,7 @@ public class IcebergTransaction implements Transaction {
                 return null;
             });
         } catch (Exception e) {
+            releaseCommitFence();
             throw new UserException("Failed to begin merge for iceberg table " + dorisTable.getName()
                     + " because: " + e.getMessage(), e);
         }
@@ -561,23 +570,44 @@ public class IcebergTransaction implements Transaction {
 
     @Override
     public void commit() throws UserException {
-        // commit the iceberg transaction
-        transaction.commitTransaction();
+        try {
+            transaction.commitTransaction();
+        } finally {
+            releaseCommitFence();
+        }
     }
 
     @Override
     public void rollback() {
-        if (isRewriteMode) {
-            // Clear the collected files for rewrite mode
-            synchronized (filesToDelete) {
-                filesToDelete.clear();
+        try {
+            if (isRewriteMode) {
+                // Clear the collected files for rewrite mode
+                synchronized (filesToDelete) {
+                    filesToDelete.clear();
+                }
+                synchronized (filesToAdd) {
+                    filesToAdd.clear();
+                }
+                LOG.info("Rewrite transaction rolled back");
             }
-            synchronized (filesToAdd) {
-                filesToAdd.clear();
-            }
-            LOG.info("Rewrite transaction rolled back");
+            // For insert mode, do nothing as original implementation
+        } finally {
+            releaseCommitFence();
         }
-        // For insert mode, do nothing as original implementation
+    }
+
+    private void acquireCommitFence(Table targetTable) {
+        Preconditions.checkState(commitGuard == null, "Iceberg transaction fence is already held");
+        // Hold a shared fence before files can be selected or written. Destructive maintenance
+        // takes the exclusive side, while unrelated and concurrent table writes remain parallel.
+        commitGuard = IcebergCommitCoordinator.beginCommit(targetTable.location());
+    }
+
+    private void releaseCommitFence() {
+        if (commitGuard != null) {
+            commitGuard.close();
+            commitGuard = null;
+        }
     }
 
     public long getUpdateCnt() {

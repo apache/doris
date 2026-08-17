@@ -126,30 +126,37 @@ void RuntimeState::append_external_file_commit_data(TReportExecStatusParams* par
 }
 
 void RuntimeState::add_rejected_external_file_report_cleanup(std::function<void()> cleanup) {
+    add_external_file_report_finalizer(
+            [cleanup = std::move(cleanup)](ExternalFileReportOutcome outcome) {
+                if (outcome == ExternalFileReportOutcome::REJECTED) {
+                    cleanup();
+                }
+            });
+}
+
+void RuntimeState::add_external_file_report_finalizer(
+        std::function<void(ExternalFileReportOutcome)> finalizer) {
     std::lock_guard lock(_external_file_report_state->mutex);
-    _external_file_report_state->rejected_report_cleanups.emplace_back(std::move(cleanup));
+    _external_file_report_state->report_finalizers.emplace_back(std::move(finalizer));
 }
 
 void RuntimeState::finalize_external_file_report_cleanup(ExternalFileReportOutcome outcome) {
-    std::vector<std::function<void()>> cleanups;
+    std::vector<std::function<void(ExternalFileReportOutcome)>> finalizers;
     {
         std::lock_guard lock(_external_file_report_state->mutex);
-        if (outcome == ExternalFileReportOutcome::ACKNOWLEDGED) {
-            _external_file_report_state->rejected_report_cleanups.clear();
-            return;
-        }
         if (outcome == ExternalFileReportOutcome::AMBIGUOUS) {
             // Once an ACK can have been lost, a later rejection cannot prove FE never accepted the files.
             _external_file_report_state->ownership_may_have_transferred = true;
             return;
         }
-        if (_external_file_report_state->ownership_may_have_transferred) {
+        if (outcome == ExternalFileReportOutcome::REJECTED &&
+            _external_file_report_state->ownership_may_have_transferred) {
             return;
         }
-        cleanups.swap(_external_file_report_state->rejected_report_cleanups);
+        finalizers.swap(_external_file_report_state->report_finalizers);
     }
-    for (auto& cleanup : cleanups) {
-        cleanup();
+    for (auto& finalizer : finalizers) {
+        finalizer(outcome);
     }
 }
 

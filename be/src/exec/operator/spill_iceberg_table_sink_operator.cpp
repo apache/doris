@@ -17,6 +17,7 @@
 
 #include "exec/operator/spill_iceberg_table_sink_operator.h"
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
@@ -36,7 +37,22 @@ size_t iceberg_cold_writer_reserve_size(const Block& block, size_t writer_worksp
                                            ? std::numeric_limits<size_t>::max()
                                            : block_bytes * 4;
     size_t reserve = iceberg_saturating_add(writer_workspace_bytes, dispatch_copies);
-    // Transform, selected blocks, and retained sorters coexist during high-cardinality dispatch.
+    if (block.rows() > 0) {
+        size_t minimum_selected_block_bytes = 0;
+        for (const auto& column : block.get_columns_with_type_and_name()) {
+            minimum_selected_block_bytes =
+                    iceberg_saturating_add(minimum_selected_block_bytes,
+                                           column.column->clone_resized(1)->allocated_bytes());
+        }
+        const size_t max_partition_count = static_cast<size_t>(
+                std::max(1, config::table_sink_partition_write_max_partition_nums_per_writer));
+        const size_t touched_partitions = std::min(block.rows(), max_partition_count);
+        const size_t retained_sorter_capacity = iceberg_saturating_multiply(
+                iceberg_saturating_multiply(minimum_selected_block_bytes, touched_partitions), 2);
+        // Sorter append growth can retain twice the minimum selected-column capacity for every new
+        // partition even though only the current selection itself is temporary during dispatch.
+        reserve = iceberg_saturating_add(reserve, retained_sorter_capacity);
+    }
     return iceberg_saturating_add(reserve, row_index_bytes);
 }
 

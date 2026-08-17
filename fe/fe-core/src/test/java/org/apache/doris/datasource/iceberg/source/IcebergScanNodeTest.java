@@ -116,6 +116,13 @@ public class IcebergScanNodeTest {
         return (Table) method.invoke(node, table);
     }
 
+    private static boolean hasApplicableEqualityDeletes(IcebergScanNode node, TableScan scan)
+            throws Exception {
+        Method method = IcebergScanNode.class.getDeclaredMethod("hasApplicableEqualityDeletes", TableScan.class);
+        method.setAccessible(true);
+        return (boolean) method.invoke(node, scan);
+    }
+
     private static class TestIcebergScanNode extends IcebergScanNode {
         private final boolean enableMappingVarbinary;
         private final boolean batchMode;
@@ -215,6 +222,18 @@ public class IcebergScanNodeTest {
 
         Assert.assertEquals(IcebergScanNode.ICEBERG_SCAN_SEMANTICS_VERSION,
                 node.enableAndGetIcebergScanSemanticsVersion());
+    }
+
+    @Test
+    public void testPositiveEqualityDeleteSummaryAvoidsManifestIo() throws Exception {
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(snapshot.summary()).thenReturn(ImmutableMap.of("total-equality-deletes", "1"));
+        TableScan scan = Mockito.mock(TableScan.class);
+        Mockito.when(scan.snapshot()).thenReturn(snapshot);
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+
+        Assert.assertTrue(hasApplicableEqualityDeletes(node, scan));
+        Mockito.verify(snapshot, Mockito.never()).deleteManifests(Mockito.any());
     }
 
     @Test

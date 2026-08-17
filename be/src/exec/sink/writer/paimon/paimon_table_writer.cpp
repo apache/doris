@@ -24,6 +24,39 @@
 
 namespace doris {
 
+PaimonPreparedCommitOwner::PaimonPreparedCommitOwner(std::unique_ptr<IPaimonWriter> writer,
+                                                     std::unique_ptr<IPaimonWriteBackend> backend)
+        : _writer(std::move(writer)), _backend(std::move(backend)) {}
+
+PaimonPreparedCommitOwner::~PaimonPreparedCommitOwner() {
+    _close();
+}
+
+void PaimonPreparedCommitOwner::finalize(ExternalFileReportOutcome outcome) {
+    if (_finalized || outcome == ExternalFileReportOutcome::AMBIGUOUS) {
+        return;
+    }
+    _finalized = true;
+    if (outcome == ExternalFileReportOutcome::REJECTED && _writer) {
+        Status abort_status = _writer->abort();
+        if (!abort_status.ok()) {
+            LOG(WARNING) << "Paimon prepared writer abort failed: " << abort_status.to_string();
+        }
+    }
+    _close();
+}
+
+void PaimonPreparedCommitOwner::_close() {
+    _writer.reset();
+    if (_backend) {
+        Status close_status = _backend->close();
+        if (!close_status.ok()) {
+            LOG(WARNING) << "Paimon prepared backend close failed: " << close_status.to_string();
+        }
+        _backend.reset();
+    }
+}
+
 PaimonTableWriter::PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs,
                                      std::shared_ptr<Dependency> dep,
                                      std::shared_ptr<Dependency> fin_dep)
@@ -99,8 +132,8 @@ Status PaimonTableWriter::write(RuntimeState* state, Block& block) {
 Status PaimonTableWriter::close(Status status) {
     SCOPED_TIMER(_close_timer);
 
-    // Prepare messages first, but do not publish them until the backend confirms
-    // that every SDK user has stopped and its native backing memory is safe to release.
+    // Prepare messages while retaining the backend: report rejection still needs the live Java
+    // writer to abort, and the final report outcome becomes the backend close boundary.
     std::vector<TPaimonCommitMessage> messages;
     if (status.ok()) {
         DCHECK(_writer);
@@ -125,38 +158,35 @@ Status PaimonTableWriter::close(Status status) {
         }
     }
 
-    // The adapter only owns Arrow conversion resources. Release it before closing
-    // the backend, whose Java close is the authoritative SDK shutdown boundary.
-    _writer.reset();
-
-    if (_backend) {
-        Status close_st = _backend->close();
-        if (!close_st.ok()) {
-            if (status.ok()) {
-                status = close_st;
-            } else {
-                LOG(WARNING) << "Paimon backend close also failed: " << close_st.to_string();
+    if (!status.ok() || messages.empty()) {
+        _writer.reset();
+        if (_backend) {
+            Status close_st = _backend->close();
+            if (!close_st.ok()) {
+                if (status.ok()) {
+                    status = close_st;
+                } else {
+                    LOG(WARNING) << "Paimon backend close also failed: " << close_st.to_string();
+                }
             }
+            _backend.reset();
         }
-    }
-
-    // Only a fully prepared and cleanly stopped writer may contribute payloads
-    // to the FE transaction. A Java close failure therefore aborts the Doris
-    // transaction instead of allowing it to commit potentially unsafe output.
-    if (status.ok()) {
+    } else {
         COUNTER_UPDATE(_commit_payload_count, static_cast<int64_t>(messages.size()));
         for (const auto& msg : messages) {
             DORIS_CHECK(msg.__isset.payload);
             COUNTER_UPDATE(_commit_payload_bytes_counter, static_cast<int64_t>(msg.payload.size()));
         }
-        if (!messages.empty()) {
-            _state->add_paimon_commit_messages(messages);
-            LOG(INFO) << "Paimon writer closed: " << messages.size()
-                      << " commit messages, total rows=" << _written_rows;
-        }
+        auto owner = std::make_shared<PaimonPreparedCommitOwner>(std::move(_writer),
+                                                                 std::move(_backend));
+        // Paimon's abort API needs the prepared Java writer. Retain that owner until the shared
+        // final report is accepted or rejected instead of publishing an irreversible payload.
+        _state->add_external_file_report_finalizer(
+                [owner](ExternalFileReportOutcome outcome) { owner->finalize(outcome); });
+        _state->add_paimon_commit_messages(messages);
+        LOG(INFO) << "Paimon writer prepared: " << messages.size()
+                  << " commit messages, total rows=" << _written_rows;
     }
-
-    _backend.reset();
     return status;
 }
 

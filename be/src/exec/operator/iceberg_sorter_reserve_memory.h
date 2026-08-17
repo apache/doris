@@ -35,6 +35,12 @@ inline size_t iceberg_saturating_add(size_t lhs, size_t rhs) {
     return std::min(std::numeric_limits<size_t>::max() - lhs, rhs) + lhs;
 }
 
+inline size_t iceberg_saturating_multiply(size_t lhs, size_t rhs) {
+    return lhs != 0 && rhs > std::numeric_limits<size_t>::max() / lhs
+                   ? std::numeric_limits<size_t>::max()
+                   : lhs * rhs;
+}
+
 inline size_t bounded_iceberg_reserve_size(
         const std::vector<IcebergSorterReserveMemory>& per_partition_reservations,
         size_t incoming_rows = std::numeric_limits<size_t>::max(),
@@ -127,6 +133,12 @@ inline size_t iceberg_spill_merge_workspace(size_t spill_file_count, size_t spil
     // VSortedRunMerger materializes one block per input cursor plus the block being emitted.
     return input_bytes > max_size - spill_buffer_bytes ? max_size
                                                        : input_bytes + spill_buffer_bytes;
+}
+
+inline size_t iceberg_final_merge_batch_rows(size_t spill_buffer_rows, size_t runtime_batch_rows) {
+    // The output block is covered by one spill-buffer reservation, so its row count must use the
+    // observed spill bound instead of the unrelated query-wide batch size.
+    return std::max<size_t>(1, std::min(spill_buffer_rows, runtime_batch_rows));
 }
 
 } // namespace doris

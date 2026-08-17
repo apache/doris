@@ -95,6 +95,12 @@ TEST(SpillIcebergTableSinkOperatorTest, ReservesAllMergeInputsAndOutputAtEos) {
     EXPECT_EQ(32 * MB, iceberg_spill_merge_workspace(3, 8 * MB, 64 * MB));
 }
 
+TEST(SpillIcebergTableSinkOperatorTest, FinalMergeBatchFitsTheReservedSpillOutputBuffer) {
+    EXPECT_EQ(128, iceberg_final_merge_batch_rows(128, 4062));
+    EXPECT_EQ(64, iceberg_final_merge_batch_rows(128, 64));
+    EXPECT_EQ(1, iceberg_final_merge_batch_rows(0, 4062));
+}
+
 TEST(SpillIcebergTableSinkOperatorTest, WaitsUntilDequeuedBlockUpdatesSorterState) {
     AsyncWriterQueueAdmission stateful_admission;
     stateful_admission.wait_for_processing_before_next_sink();

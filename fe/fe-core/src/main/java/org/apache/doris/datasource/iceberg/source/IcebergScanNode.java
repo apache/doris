@@ -342,8 +342,18 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private boolean hasApplicableEqualityDeletes(TableScan scan) throws UserException {
         Snapshot snapshot = scan.snapshot();
-        if (snapshot == null || "0".equals(snapshot.summary().get("total-equality-deletes"))) {
+        if (snapshot == null) {
             return false;
+        }
+        String equalityDeleteCount = snapshot.summary().get("total-equality-deletes");
+        if (equalityDeleteCount != null) {
+            try {
+                // A positive snapshot total proves V2 semantics are required without opening every
+                // delete manifest; only old summaries that omit the counter need the fallback.
+                return Long.parseLong(equalityDeleteCount) > 0;
+            } catch (NumberFormatException ignored) {
+                // Fall through for non-standard summaries instead of weakening compatibility.
+            }
         }
         // Inspect only delete manifests, not data tasks: equality-delete semantics are snapshot-wide
         // compatibility state even when the current predicate happens to prune their partitions.

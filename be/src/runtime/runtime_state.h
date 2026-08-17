@@ -78,6 +78,8 @@ class TaskExecutionContext;
 // Keep RuntimeState self-contained without importing the full frontend Thrift service header.
 class TReportExecStatusParams;
 
+enum class ExternalFileReportOutcome { ACKNOWLEDGED, REJECTED, AMBIGUOUS };
+
 class ExternalFileReportState {
     friend class RuntimeState;
 
@@ -85,10 +87,8 @@ private:
     std::mutex mutex;
     size_t iceberg_serialized_bytes = 0;
     bool ownership_may_have_transferred = false;
-    std::vector<std::function<void()>> rejected_report_cleanups;
+    std::vector<std::function<void(ExternalFileReportOutcome)>> report_finalizers;
 };
-
-enum class ExternalFileReportOutcome { ACKNOWLEDGED, REJECTED, AMBIGUOUS };
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -559,6 +559,9 @@ public:
     void append_external_file_commit_data(TReportExecStatusParams* params, bool final_report) const;
 
     void add_rejected_external_file_report_cleanup(std::function<void()> cleanup);
+
+    void add_external_file_report_finalizer(
+            std::function<void(ExternalFileReportOutcome)> finalizer);
 
     void finalize_external_file_report_cleanup(ExternalFileReportOutcome outcome);
 
