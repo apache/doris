@@ -357,6 +357,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
         try {
             Table dataTable = PaimonTableResolver.resolveSystemSource(catalogOps, handle, context);
+            // System wrappers hide the fallback pair from instanceof checks. Retain the exact source
+            // resolved here so split-limit safety applies after transient handles are reloaded too.
+            handle.setSystemTableSource(dataTable);
             return PaimonReaderOptions.runtimeSafeSystemTable(
                     handle.getSysTableName(), systemTable, dataTable, scanOptions);
         } catch (IllegalArgumentException e) {
@@ -611,6 +614,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return Collections.emptyList();
         }
         Table table = resolveScanTable(paimonHandle);
+        Optional<Long> fileCreationTime = optionsPin
+                ? PaimonScanParams.getPinnedFileCreationTime(pinnedOptions)
+                : Optional.empty();
 
         // Build predicates from filter expression
         RowType rowType = table.rowType();
@@ -665,9 +671,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (projected.length > 0) {
             readBuilder.withProjection(projected);
         }
-        if (limit > 0 && limit <= Integer.MAX_VALUE) {
-            // Paimon's limit is an int and may prune whole splits; never narrow a larger Doris limit,
-            // because doing so could omit rows before the engine applies its authoritative long limit.
+        if (limit > 0 && limit <= Integer.MAX_VALUE
+                && filter.isEmpty()
+                && fileCreationTime.isEmpty()
+                && !usesFallbackRead(table, paimonHandle)) {
+            // Paimon 1.3.1 counts pre-filter rows and a truncated fallback main plan loses partition
+            // ownership. The file-creation SnapshotReader also ignores this TableScan entirely, so
+            // only ordinary unfiltered scans can safely prune splits by the Doris limit.
             readBuilder.withLimit((int) limit);
         }
         TableScan scan = readBuilder.newScan();
@@ -679,9 +689,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (scan instanceof InnerTableScan) {
             scan = ((InnerTableScan) scan).withMetricRegistry(metricRegistry);
         }
-        Optional<Long> fileCreationTime = optionsPin
-                ? PaimonScanParams.getPinnedFileCreationTime(pinnedOptions)
-                : Optional.empty();
         List<Split> paimonSplits = fileCreationTime.isPresent()
                 ? planFileCreationTimeSplits(table, pinnedOptions, predicates, fileCreationTime.get())
                 : planSplits(scan);
@@ -823,6 +830,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return ranges;
+    }
+
+    private static boolean usesFallbackRead(Table scanTable, PaimonTableHandle handle) {
+        return isFallbackFileStoreTable(scanTable)
+                || isFallbackFileStoreTable(handle.getSystemTableSource())
+                || isFallbackFileStoreTable(handle.getSysBaseTable());
+    }
+
+    private static boolean isFallbackFileStoreTable(Table table) {
+        return table instanceof FileStoreTable
+                && PaimonTableDecorators.unwrapToFallbackOrBase((FileStoreTable) table)
+                        instanceof FallbackReadFileStoreTable;
     }
 
     /**

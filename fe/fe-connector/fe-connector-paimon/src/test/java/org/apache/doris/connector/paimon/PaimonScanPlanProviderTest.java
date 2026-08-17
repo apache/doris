@@ -20,8 +20,13 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.filesystem.FileSystemType;
@@ -44,11 +49,18 @@ import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
+import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataInputViewStreamWrapper;
+import org.apache.paimon.predicate.Predicate;
+import org.apache.paimon.privilege.AllGrantedPrivilegeChecker;
+import org.apache.paimon.privilege.PrivilegedFileStoreTable;
+import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.SchemaManager;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchTableCommit;
@@ -317,6 +329,226 @@ public class PaimonScanPlanProviderTest {
                     "LIMIT 1 must let Paimon stop split planning after enough rows are covered");
             Assertions.assertEquals(unlimited.size(), oversized.size(),
                     "a Doris limit wider than Paimon's int must not be narrowed during split planning");
+        }
+    }
+
+    private static List<Split> deserializeJniSplits(List<ConnectorScanRange> ranges)
+            throws Exception {
+        List<Split> splits = new ArrayList<>();
+        for (ConnectorScanRange range : ranges) {
+            String encoded = range.getProperties().get("paimon.split");
+            Assertions.assertNotNull(encoded, "the result-bearing test requires JNI splits");
+            splits.add((Split) InstantiationUtil.deserializeObject(
+                    Base64.getDecoder().decode(encoded),
+                    PaimonScanPlanProviderTest.class.getClassLoader()));
+        }
+        return splits;
+    }
+
+    @Test
+    public void filteredLimitDoesNotDiscardLaterMatchingSplit(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "filtered_limit");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("pt", DataTypes.INT())
+                    .partitionKeys("pt")
+                    .primaryKey("id", "pt")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                // The first split's [1, 3] min/max admits id=2, but contains no matching row.
+                write.write(GenericRow.of(1, 2));
+                write.write(GenericRow.of(3, 2));
+                write.write(GenericRow.of(2, 1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "filtered_limit", Collections.emptyList(), Collections.emptyList());
+            ConnectorExpression filter = new ConnectorComparison(
+                    ConnectorComparison.Operator.EQ,
+                    new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                    ConnectorLiteral.ofInt(2));
+            List<ConnectorScanRange> ranges = provider.planScan(
+                    sessionWithProps(Collections.singletonMap("force_jni_scanner", "true")),
+                    ConnectorScanRequest.builder(handle, Collections.emptyList())
+                            .filter(Optional.of(filter))
+                            .limit(1)
+                            .build());
+
+            List<Predicate> predicates = new PaimonPredicateConverter(table.rowType()).convert(filter);
+            RecordReader<InternalRow> reader = table.newReadBuilder()
+                    .withFilter(predicates)
+                    .newRead()
+                    .executeFilter()
+                    .createReader(deserializeJniSplits(ranges));
+            List<Integer> ids = new ArrayList<>();
+            reader.forEachRemaining(row -> ids.add(row.getInt(0)));
+            Assertions.assertEquals(Collections.singletonList(2), ids,
+                    "LIMIT split pruning must not discard a later split containing the match");
+        }
+    }
+
+    @Test
+    public void fallbackLimitDoesNotExposeStaleFallbackRows(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Schema schema = Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("pt", DataTypes.INT())
+                    .column("val", DataTypes.INT())
+                    .partitionKeys("pt")
+                    .primaryKey("id", "pt")
+                    .option("bucket", "1")
+                    .build();
+            Identifier mainId = Identifier.create("db", "fallback_main");
+            Identifier fallbackId = Identifier.create("db", "fallback_old");
+            catalog.createTable(mainId, schema, false);
+            catalog.createTable(fallbackId, schema, false);
+            FileStoreTable main = (FileStoreTable) catalog.getTable(mainId);
+            FileStoreTable fallback = (FileStoreTable) catalog.getTable(fallbackId);
+
+            BatchWriteBuilder mainWriteBuilder = main.newBatchWriteBuilder();
+            try (BatchTableWrite write = mainWriteBuilder.newWrite()) {
+                write.write(GenericRow.of(1, 2, 200));
+                write.write(GenericRow.of(2, 1, 100));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = mainWriteBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            BatchWriteBuilder fallbackWriteBuilder = fallback.newBatchWriteBuilder();
+            try (BatchTableWrite write = fallbackWriteBuilder.newWrite()) {
+                write.write(GenericRow.of(2, 1, 50));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = fallbackWriteBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback);
+            FileStoreTable decorated = PrivilegedFileStoreTable.wrap(
+                    pair, new AllGrantedPrivilegeChecker(), mainId);
+            for (Table planningTable : Arrays.asList(pair, decorated)) {
+                RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+                ops.table = planningTable;
+                PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                        PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+                PaimonTableHandle handle = new PaimonTableHandle(
+                        "db", "fallback_main", Collections.emptyList(), Collections.emptyList());
+                List<ConnectorScanRange> ranges = provider.planScan(
+                        sessionWithProps(Collections.singletonMap("force_jni_scanner", "true")),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList())
+                                .limit(1)
+                                .build());
+
+                RecordReader<InternalRow> reader = pair.newReadBuilder()
+                        .newRead()
+                        .createReader(deserializeJniSplits(ranges));
+                List<Integer> values = new ArrayList<>();
+                reader.forEachRemaining(row -> values.add(row.getInt(2)));
+                values.sort(Integer::compareTo);
+                Assertions.assertEquals(Arrays.asList(100, 200), values,
+                        "direct and decorated fallback tables must never expose stale rows");
+            }
+
+            RecordingPaimonCatalogOps systemOps = new RecordingPaimonCatalogOps();
+            systemOps.table = pair;
+            PaimonScanPlanProvider systemProvider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), systemOps);
+            PaimonTableHandle systemHandle = PaimonTableHandle.forSystemTable(
+                    "db", "fallback_main", "ro", false);
+            systemHandle.setPaimonTable(new ReadOptimizedTable(pair));
+            systemHandle.setSysBaseTable(pair);
+            systemHandle.setSystemTableSource(decorated);
+            ConnectorSession forceJni = sessionWithProps(
+                    Collections.singletonMap("force_jni_scanner", "true"));
+            List<ConnectorScanRange> unlimitedSystemRanges = systemProvider.planScan(
+                    forceJni,
+                    ConnectorScanRequest.builder(systemHandle, Collections.emptyList()).build());
+            List<ConnectorScanRange> systemRanges = systemProvider.planScan(
+                    forceJni,
+                    ConnectorScanRequest.builder(systemHandle, Collections.emptyList())
+                            .limit(1)
+                            .build());
+            List<String> fallbackFiles = new ArrayList<>();
+            for (Split split : fallback.newReadBuilder().newScan().plan().splits()) {
+                for (DataFileMeta file : ((DataSplit) split).dataFiles()) {
+                    fallbackFiles.add(file.fileName());
+                }
+            }
+            List<Split> systemSplits = deserializeJniSplits(systemRanges);
+            Assertions.assertEquals(unlimitedSystemRanges.size(), systemSplits.size(),
+                    "the system wrapper must not hide fallback ownership from limit safety");
+            for (Split split : systemSplits) {
+                for (DataFileMeta file : ((DataSplit) split).dataFiles()) {
+                    Assertions.assertFalse(fallbackFiles.contains(file.fileName()),
+                            "a system wrapper must not hide fallback ownership from limit safety");
+                }
+            }
+        }
+    }
+
+    @Test
+    public void fileCreationTimeScanDoesNotApplyLimitToDiscardedTableScan(
+            @TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "creation_time_limit");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("pt", DataTypes.INT())
+                    .partitionKeys("pt")
+                    .primaryKey("id", "pt")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 1));
+                write.write(GenericRow.of(2, 2));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "creation_time_limit", Collections.emptyList(), Collections.emptyList());
+            Map<String, String> resolved = PaimonScanParams.markAsOptions(
+                    PaimonScanParams.resolveOptions(table, Collections.singletonMap(
+                            CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key(), "0")));
+            PaimonTableHandle pinned = handle.withScanOptions(resolved);
+            ConnectorSession session = sessionWithProps(Collections.emptyMap());
+
+            List<ConnectorScanRange> unlimited = provider.planScan(session,
+                    ConnectorScanRequest.builder(pinned, Collections.emptyList()).build());
+            List<ConnectorScanRange> limited = provider.planScan(session,
+                    ConnectorScanRequest.builder(pinned, Collections.emptyList()).limit(1).build());
+            Assertions.assertTrue(unlimited.size() >= 2,
+                    "fixture must include multiple file-creation-time splits");
+            Assertions.assertEquals(unlimited.size(), limited.size(),
+                    "the SnapshotReader path has no safe limit API and must retain its full plan");
         }
     }
 
