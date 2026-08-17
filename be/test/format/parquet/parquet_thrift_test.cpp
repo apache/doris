@@ -60,6 +60,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
 #include "util/slice.h"
+#include "util/thrift_util.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -70,6 +71,19 @@ public:
     void SetUp() override { TimezoneUtils::load_timezones_to_cache(); }
     void TearDown() override { TimezoneUtils::clear_timezone_caches(); }
 };
+
+TEST_F(ParquetThriftReaderTest, reject_compact_container_larger_than_input) {
+    // A tiny payload must not make generated Thrift code resize a container to an
+    // attacker-controlled length before the transport discovers that the bytes are absent.
+    std::vector<uint8_t> compact_metadata {0x29, 0xfc, 0x88, 0x27, 0x00};
+    uint32_t length = compact_metadata.size();
+    tparquet::FileMetaData metadata;
+
+    Status status = deserialize_thrift_msg(compact_metadata.data(), &length, true, &metadata);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(metadata.schema.empty());
+}
 
 TEST_F(ParquetThriftReaderTest, normal) {
     auto local_fs = io::global_local_filesystem();

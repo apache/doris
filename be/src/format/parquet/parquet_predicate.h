@@ -441,44 +441,76 @@ public:
     static Status read_bloom_filter(const tparquet::ColumnMetaData& column_meta_data,
                                     io::FileReaderSPtr file_reader, io::IOContext* io_ctx,
                                     ColumnStat* ans_stat) {
-        size_t size;
         if (!column_meta_data.__isset.bloom_filter_offset) {
             return Status::NotSupported("Can not use this parquet bloom filter.");
         }
-
-        if (column_meta_data.__isset.bloom_filter_length &&
-            column_meta_data.bloom_filter_length > 0) {
-            size = column_meta_data.bloom_filter_length;
-        } else {
-            size = BLOOM_FILTER_MAX_HEADER_LENGTH;
+        if (column_meta_data.bloom_filter_offset < 0 ||
+            (column_meta_data.__isset.bloom_filter_length &&
+             column_meta_data.bloom_filter_length <= 0)) {
+            return Status::Corruption("Invalid Parquet bloom filter offset or declared length");
         }
+
+        const uint64_t bloom_offset = static_cast<uint64_t>(column_meta_data.bloom_filter_offset);
+        if (bloom_offset >= file_reader->size()) {
+            return Status::Corruption("Parquet bloom filter offset exceeds file size");
+        }
+        const size_t available = file_reader->size() - bloom_offset;
+        const size_t declared_available =
+                column_meta_data.__isset.bloom_filter_length
+                        ? std::min<size_t>(column_meta_data.bloom_filter_length, available)
+                        : available;
+        const size_t header_read_size =
+                std::min<size_t>(declared_available, BLOOM_FILTER_MAX_HEADER_LENGTH);
         size_t bytes_read = 0;
-        std::vector<uint8_t> header_buffer(size);
+        std::vector<uint8_t> header_buffer(header_read_size);
         RETURN_IF_ERROR(file_reader->read_at(column_meta_data.bloom_filter_offset,
-                                             Slice(header_buffer.data(), size), &bytes_read,
-                                             io_ctx));
+                                             Slice(header_buffer.data(), header_buffer.size()),
+                                             &bytes_read, io_ctx));
 
         tparquet::BloomFilterHeader t_bloom_filter_header;
         uint32_t t_bloom_filter_header_size = static_cast<uint32_t>(bytes_read);
-        RETURN_IF_ERROR(deserialize_thrift_msg(header_buffer.data(), &t_bloom_filter_header_size,
-                                               true, &t_bloom_filter_header));
+        if (!deserialize_thrift_msg(header_buffer.data(), &t_bloom_filter_header_size, true,
+                                    &t_bloom_filter_header)
+                     .ok()) {
+            return Status::Corruption("Malformed Parquet bloom filter header");
+        }
 
         // TODO the bloom filter could be encrypted, too, so need to double check that this is NOT the case
         if (!t_bloom_filter_header.algorithm.__isset.BLOCK ||
             !t_bloom_filter_header.compression.__isset.UNCOMPRESSED ||
-            !t_bloom_filter_header.hash.__isset.XXHASH) {
+            !t_bloom_filter_header.hash.__isset.XXHASH || t_bloom_filter_header.numBytes <= 0) {
             return Status::NotSupported("Can not use this parquet bloom filter.");
         }
 
-        ans_stat->bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
+        const int64_t payload_size = t_bloom_filter_header.numBytes;
+        if (payload_size < segment_v2::BloomFilter::MINIMUM_BYTES ||
+            payload_size > segment_v2::BloomFilter::MAXIMUM_BYTES || payload_size % 32 != 0) {
+            return Status::Corruption("Invalid Parquet bloom filter payload size {}", payload_size);
+        }
+        const uint64_t total_size =
+                static_cast<uint64_t>(t_bloom_filter_header_size) + payload_size;
+        if (total_size > available) {
+            return Status::Corruption("Parquet bloom filter range exceeds file size");
+        }
+        if (column_meta_data.__isset.bloom_filter_length &&
+            (static_cast<uint64_t>(column_meta_data.bloom_filter_length) < total_size ||
+             static_cast<uint64_t>(column_meta_data.bloom_filter_length) > available)) {
+            return Status::Corruption("Invalid Parquet bloom filter declared length");
+        }
 
-        std::vector<uint8_t> data_buffer(t_bloom_filter_header.numBytes);
+        // Validate the full split-block layout before allocating or adding metadata-controlled
+        // offsets; the Bloom filter implementation assumes complete 32-byte blocks.
+        std::vector<uint8_t> data_buffer(static_cast<size_t>(payload_size));
         RETURN_IF_ERROR(file_reader->read_at(
-                column_meta_data.bloom_filter_offset + t_bloom_filter_header_size,
-                Slice(data_buffer.data(), t_bloom_filter_header.numBytes), &bytes_read, io_ctx));
+                static_cast<size_t>(bloom_offset) + t_bloom_filter_header_size,
+                Slice(data_buffer.data(), data_buffer.size()), &bytes_read, io_ctx));
+        if (bytes_read != data_buffer.size()) {
+            return Status::Corruption("Truncated Parquet bloom filter payload");
+        }
 
+        ans_stat->bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
         RETURN_IF_ERROR(ans_stat->bloom_filter->init(
-                reinterpret_cast<const char*>(data_buffer.data()), t_bloom_filter_header.numBytes,
+                reinterpret_cast<const char*>(data_buffer.data()), data_buffer.size(),
                 segment_v2::HashStrategyPB::XX_HASH_64));
 
         return Status::OK();

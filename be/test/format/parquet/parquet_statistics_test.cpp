@@ -17,15 +17,110 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstring>
+#include <memory>
 #include <regex>
+#include <vector>
 
 #include "format/parquet/parquet_predicate.h"
+#include "util/thrift_util.h"
 
 namespace doris {
+namespace {
+
+class BloomFilterFileReader final : public io::FileReader {
+public:
+    explicit BloomFilterFileReader(std::vector<uint8_t> data) : _data(std::move(data)) {}
+
+    Status close() override {
+        _closed = true;
+        return Status::OK();
+    }
+
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return _data.size(); }
+    bool closed() const override { return _closed; }
+    int64_t mtime() const override { return 0; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        if (offset > _data.size()) {
+            return Status::IOError("Out of bounds");
+        }
+        *bytes_read = std::min(result.size, _data.size() - offset);
+        memcpy(result.data, _data.data() + offset, *bytes_read);
+        return Status::OK();
+    }
+
+private:
+    std::vector<uint8_t> _data;
+    io::Path _path = "parquet_bloom_filter_test";
+    bool _closed = false;
+};
+
+Status read_test_bloom_filter(int32_t header_payload_size, size_t actual_payload_size,
+                              int32_t declared_length_adjustment = 0) {
+    tparquet::BloomFilterAlgorithm algorithm;
+    algorithm.__set_BLOCK(tparquet::SplitBlockAlgorithm());
+    tparquet::BloomFilterHash hash;
+    hash.__set_XXHASH(tparquet::XxHash());
+    tparquet::BloomFilterCompression compression;
+    compression.__set_UNCOMPRESSED(tparquet::Uncompressed());
+    tparquet::BloomFilterHeader header;
+    header.__set_numBytes(header_payload_size);
+    header.__set_algorithm(algorithm);
+    header.__set_hash(hash);
+    header.__set_compression(compression);
+
+    std::vector<uint8_t> file_bytes;
+    ThriftSerializer serializer(/*compact=*/true, /*initial_buffer_size=*/64);
+    RETURN_IF_ERROR(serializer.serialize(&header, &file_bytes));
+    const size_t header_size = file_bytes.size();
+    file_bytes.resize(header_size + actual_payload_size);
+
+    tparquet::ColumnMetaData metadata;
+    metadata.__set_bloom_filter_offset(0);
+    metadata.__set_bloom_filter_length(static_cast<int32_t>(file_bytes.size()) +
+                                       declared_length_adjustment);
+    auto reader = std::make_shared<BloomFilterFileReader>(std::move(file_bytes));
+    ParquetPredicate::ColumnStat stat;
+    return ParquetPredicate::read_bloom_filter(metadata, reader, nullptr, &stat);
+}
+
+} // namespace
+
 class ParquetStatisticsTest : public testing::Test {
 public:
     ParquetStatisticsTest() = default;
 };
+
+TEST_F(ParquetStatisticsTest, reject_truncated_bloom_filter_payload) {
+    // The reader may legally return a short read at EOF, so accepting it would initialize a
+    // Bloom filter whose missing bytes came from zero-filled process memory.
+    EXPECT_FALSE(
+            read_test_bloom_filter(/*header_payload_size=*/64, /*actual_payload_size=*/32).ok());
+}
+
+TEST_F(ParquetStatisticsTest, reject_invalid_bloom_filter_block_sizes) {
+    EXPECT_FALSE(
+            read_test_bloom_filter(/*header_payload_size=*/16, /*actual_payload_size=*/16).ok());
+    EXPECT_FALSE(
+            read_test_bloom_filter(/*header_payload_size=*/33, /*actual_payload_size=*/33).ok());
+}
+
+TEST_F(ParquetStatisticsTest, reject_nonpositive_bloom_filter_declared_length) {
+    const int32_t declared_length_adjustment = -1000;
+    EXPECT_FALSE(read_test_bloom_filter(/*header_payload_size=*/32, /*actual_payload_size=*/32,
+                                        declared_length_adjustment)
+                         .ok());
+}
+
+TEST_F(ParquetStatisticsTest, accept_valid_bloom_filter_layout) {
+    EXPECT_TRUE(
+            read_test_bloom_filter(/*header_payload_size=*/32, /*actual_payload_size=*/32).ok());
+}
 
 TEST_F(ParquetStatisticsTest, test_try_read_old_utf8_stats) {
     // [, bcé]: min is empty, max starts with ASCII

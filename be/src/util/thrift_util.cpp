@@ -71,15 +71,16 @@ ThriftSerializer::ThriftSerializer(bool compact, int initial_buffer_size)
 }
 
 std::shared_ptr<apache::thrift::protocol::TProtocol> create_deserialize_protocol(
-        std::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem, bool compact) {
+        std::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem, bool compact,
+        int32_t size_limit) {
     if (compact) {
-        apache::thrift::protocol::TCompactProtocolFactoryT<apache::thrift::transport::TMemoryBuffer>
-                tproto_factory;
-        return tproto_factory.getProtocol(mem);
+        return std::make_shared<apache::thrift::protocol::TCompactProtocolT<
+                apache::thrift::transport::TMemoryBuffer>>(mem, size_limit, size_limit);
     } else {
-        apache::thrift::protocol::TBinaryProtocolFactoryT<apache::thrift::transport::TMemoryBuffer>
-                tproto_factory;
-        return tproto_factory.getProtocol(mem);
+        return std::make_shared<apache::thrift::protocol::TBinaryProtocolT<
+                apache::thrift::transport::TMemoryBuffer>>(mem, size_limit, size_limit,
+                                                           /*strict_read=*/false,
+                                                           /*strict_write=*/true);
     }
 }
 
