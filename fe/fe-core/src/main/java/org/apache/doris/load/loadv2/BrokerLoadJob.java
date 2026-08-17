@@ -53,6 +53,7 @@ import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
@@ -91,6 +92,9 @@ public class BrokerLoadJob extends BulkLoadJob {
     protected Profile jobProfile;
     // If set to true, the profile of load job with be pushed to ProfileManager
     protected boolean enableProfile = false;
+
+    // Runtime-only selection result recorded by a loading task's coordinator.
+    private transient volatile String loadBackendSelectionSummary;
 
     private boolean enableMemTableOnSinkNode = false;
     private int batchSize = 0;
@@ -297,6 +301,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
 
         context.setComputeGroup(computeGroup);
+        BackendSelectionManager.restoreLoadSelection(context, getLoadBackendSelectionHint());
     }
 
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
@@ -309,6 +314,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
                 getPriority(), isEnableMemtableOnSinkNode, batchSize);
+        task.setLoadBackendSelectionHint(getLoadBackendSelectionHint());
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -317,6 +323,10 @@ public class BrokerLoadJob extends BulkLoadJob {
 
         task.init(loadId, attachment.getFileStatusByTable(aggKey),
                 attachment.getFileNumByTable(aggKey), getUserInfo());
+        ConnectContext context = ConnectContext.get();
+        if (context != null) {
+            recordLoadBackendSelectionSummary(context.getBackendSelectionProfile().getLoadSummary());
+        }
         task.settWorkloadGroups(tWorkloadGroups);
         return task;
     }
@@ -495,6 +505,17 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     protected void afterCommit() throws DdlException {}
 
+    void recordLoadBackendSelectionSummary(String summary) {
+        if (StringUtils.isEmpty(summary) || loadBackendSelectionSummary != null) {
+            return;
+        }
+        synchronized (this) {
+            if (loadBackendSelectionSummary == null) {
+                loadBackendSelectionSummary = summary;
+            }
+        }
+    }
+
     protected LoadJobFinalOperation getLoadJobFinalOperation() {
         return new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp, finishTimestamp, state,
                 failMsg);
@@ -521,6 +542,9 @@ public class BrokerLoadJob extends BulkLoadJob {
         builder.defaultCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
         builder.defaultDb(getDefaultDb());
         builder.sqlStatement(getOriginStmt().originStmt);
+        if (loadBackendSelectionSummary != null) {
+            builder.loadBackendSelection(loadBackendSelectionSummary);
+        }
         return builder.build();
     }
 

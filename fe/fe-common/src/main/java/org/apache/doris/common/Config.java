@@ -153,6 +153,17 @@ public class Config extends ConfigBase {
             description = {"是否检查 table 锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
 
+    @ConfField(mutable = false, description = "The Resource Group that the current FE node belongs to. It can be "
+            + "overridden by the `--local_resource_group` command line option or the "
+            + "`DORIS_LOCAL_RESOURCE_GROUP` environment variable. An empty string means unset.")
+    public static String local_resource_group = "";
+
+    @ConfField(mutable = false,
+            description = "Whether to enable replica filtering based on location resource tags. If disabled, "
+                    + "invalid compute groups are still rejected, but replicas are no longer filtered by the "
+                    + "user's location resource tag.")
+    public static boolean enable_resource_tag_location_check = true;
+
     @ConfField(mutable = true, masterOnly = false,
             description = {"PreparedStatement stmtId 起始位置，仅用于测试",
                     "PreparedStatement stmtId starting position, used for testing onl"})
@@ -1092,6 +1103,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long tablet_schedule_high_priority_second = 30 * 60;
+
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Whether optional backend selection policies may participate in repair clone source "
+                    + "selection. The default policy is a no-op and does not change repair behavior.")
+    public static boolean enable_repair_source_backend_selection = true;
 
     /**
      * publish version queue's size in be, report it to fe,
