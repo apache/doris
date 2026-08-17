@@ -25,7 +25,7 @@ suite("aggregate_without_roll_up") {
     sql "SET enable_dphyp_optimizer = false;"
     sql "SET max_table_count_use_cascades_join_reorder = 20;"
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
-
+    sql "set disable_nereids_rules='ELIMINATE_GROUP_BY_KEY'"
     sql """
     drop table if exists orders
     """
@@ -1688,7 +1688,7 @@ suite("aggregate_without_roll_up") {
     order_qt_query29_0_before "${query29_0}"
     async_mv_rewrite_success(db, mv29_0, query29_0, "mv29_0")
     order_qt_query29_0_after "${query29_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv29_0"""
+  //   sql """ DROP MATERIALIZED VIEW IF EXISTS mv29_0"""
 
 
     // query and mv has the same filter but position is different, should rewrite successfully
@@ -1839,13 +1839,13 @@ suite("aggregate_without_roll_up") {
       13, 
       14;
     """
+
     order_qt_query30_0_before "${query30_0}"
     async_mv_rewrite_success(db, mv30_0, query30_0, "mv30_0", [TRY_IN_RBO, FORCE_IN_RBO])
     // ELIMINATE_CONST_JOIN_CONDITION not work, so should success
     async_mv_rewrite_success(db, mv30_0, query30_0, "mv30_0", [NOT_IN_RBO])
     order_qt_query30_0_after "${query30_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv30_0"""
-
 
     // query and mv has the same filter but position is different, should rewrite successfully
     // query join condition has alias
