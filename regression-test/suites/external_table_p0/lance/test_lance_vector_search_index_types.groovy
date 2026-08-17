@@ -57,10 +57,10 @@ suite("test_lance_vector_search_index_types", "p0,external") {
     // ef is what a graph index cannot be searched without; refine_factor is what makes a
     // lossy index comparable to an exact distance. Both stay out of the discriminators.
     Map<String, String> refineOptions = [
-            "vs_ivf_sq_f32"       : """, "refine_factor"="10\"""",
-            "vs_ivf_hnsw_flat_f32": """, "refine_factor"="10", "ef"="100\"""",
-            "vs_ivf_hnsw_sq_f32"  : """, "refine_factor"="10", "ef"="100\"""",
-            "vs_ivf_hnsw_pq_f32"  : """, "refine_factor"="10", "ef"="100\"""",
+            "vs_ivf_sq_f32"       : ', "refine_factor"="10"',
+            "vs_ivf_hnsw_flat_f32": ', "refine_factor"="10", "ef"="100"',
+            "vs_ivf_hnsw_sq_f32"  : ', "refine_factor"="10", "ef"="100"',
+            "vs_ivf_hnsw_pq_f32"  : ', "refine_factor"="10", "ef"="100"',
     ]
 
     def search = { String table, String query, String topK, String nprobes, String extra ->
@@ -146,12 +146,12 @@ suite("test_lance_vector_search_index_types", "p0,external") {
     // this one can carry the assertion.
     def narrowEf = sql """
         SELECT row_id, _distance
-        FROM ${search("vs_ivf_hnsw_sq_f32", midQuery, "5", "4", """, "ef"="5\"""")}
+        FROM ${search("vs_ivf_hnsw_sq_f32", midQuery, "5", "4", ', "ef"="5"')}
         ORDER BY _distance, row_id
     """
     def wideEf = sql """
         SELECT row_id, _distance
-        FROM ${search("vs_ivf_hnsw_sq_f32", midQuery, "5", "4", """, "ef"="50\"""")}
+        FROM ${search("vs_ivf_hnsw_sq_f32", midQuery, "5", "4", ', "ef"="50"')}
         ORDER BY _distance, row_id
     """
     assertEquals(5, narrowEf.size())
@@ -162,12 +162,12 @@ suite("test_lance_vector_search_index_types", "p0,external") {
 
     qt_ivf_hnsw_sq_ef_5 """
         SELECT row_id, label, _distance
-        FROM ${search("vs_ivf_hnsw_sq_f32", midQuery, "5", "4", """, "ef"="5\"""")}
+        FROM ${search("vs_ivf_hnsw_sq_f32", midQuery, "5", "4", ', "ef"="5"')}
         ORDER BY _distance, row_id
     """
     qt_ivf_hnsw_sq_ef_50 """
         SELECT row_id, label, _distance
-        FROM ${search("vs_ivf_hnsw_sq_f32", midQuery, "5", "4", """, "ef"="50\"""")}
+        FROM ${search("vs_ivf_hnsw_sq_f32", midQuery, "5", "4", ', "ef"="50"')}
         ORDER BY _distance, row_id
     """
 
@@ -177,7 +177,7 @@ suite("test_lance_vector_search_index_types", "p0,external") {
     test {
         sql """
             SELECT row_id
-            FROM ${search("vs_ivf_hnsw_sq_f32", headQuery, "10", "4", """, "refine_factor"="10", "ef"="50\"""")}
+            FROM ${search("vs_ivf_hnsw_sq_f32", headQuery, "10", "4", ', "refine_factor"="10", "ef"="50"')}
         """
         exception "ef must be greater than or equal to k"
     }
