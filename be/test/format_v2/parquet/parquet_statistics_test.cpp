@@ -941,6 +941,23 @@ TEST(ParquetBloomFilterPruningTest, NativeUint32BloomUsesPhysicalInt32Hash) {
             bloom_filter));
 }
 
+TEST(ParquetBloomFilterPruningTest, NativeBloomRequiresExactDeclaredLength) {
+    constexpr int64_t offset = 10;
+    constexpr uint32_t header_size = 12;
+    constexpr int64_t payload_size = 32;
+    constexpr size_t file_size = 128;
+
+    EXPECT_TRUE(format::parquet::detail::validate_native_bloom_filter_layout(
+                        offset, header_size, payload_size, header_size + payload_size, file_size)
+                        .ok());
+    // A larger declared range can belong to a differently sized filter and must not be decoded
+    // using the smaller header payload size.
+    EXPECT_FALSE(
+            format::parquet::detail::validate_native_bloom_filter_layout(
+                    offset, header_size, payload_size, header_size + payload_size + 32, file_size)
+                    .ok());
+}
+
 TEST(ParquetBloomFilterPruningTest, NativeFloatingBloomPreservesDorisEquality) {
     const auto check_type = []<PrimitiveType Type, typename DataType>(
                                     tparquet::Type::type physical_type,
@@ -1276,7 +1293,12 @@ TEST(ParquetBloomFilterPruningTest, NativeBloomReportsConservativeReadOutcomes) 
     auto truncated = make_valid_bloom();
     truncated.resize(truncated.size() - 16);
     run_case(std::move(truncated), true, false, 1); // truncated payload
-    run_case(make_valid_bloom(), true, true, 0);    // I/O failure
+    auto contradictory = make_valid_bloom();
+    contradictory.resize(contradictory.size() + segment_v2::BloomFilter::MINIMUM_BYTES);
+    // The declared range contains two blocks while the header declares one. Falling back keeps the
+    // row group; decoding the first block could falsely prune values mapped to the second block.
+    run_case(std::move(contradictory), true, false, 1);
+    run_case(make_valid_bloom(), true, true, 0); // I/O failure
 }
 
 TEST(ParquetBloomFilterPruningTest, NativeBloomPreservesFirstLogicalProbeOrder) {

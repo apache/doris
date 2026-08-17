@@ -20,14 +20,18 @@
 #include <gen_cpp/Types_types.h>
 #include <thrift/TOutput.h>
 #include <thrift/protocol/TBinaryProtocol.h>
+#include <thrift/protocol/TProtocolDecorator.h>
+#include <thrift/protocol/TProtocolException.h>
 #include <thrift/transport/TSocket.h>
 #include <thrift/transport/TTransportException.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <limits>
 #include <string>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "runtime/thread_context.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet_info.h"
 #include "util/thrift_server.h"
@@ -56,6 +60,118 @@ class TProtocol;
 #include <thread>
 
 namespace doris {
+namespace {
+
+constexpr size_t DECODED_THRIFT_STRUCT_RESERVATION_BYTES = 1024;
+
+size_t decoded_thrift_value_reservation(apache::thrift::protocol::TType type) {
+    using apache::thrift::protocol::T_BOOL;
+    using apache::thrift::protocol::T_BYTE;
+    using apache::thrift::protocol::T_DOUBLE;
+    using apache::thrift::protocol::T_I16;
+    using apache::thrift::protocol::T_I32;
+    using apache::thrift::protocol::T_I64;
+    using apache::thrift::protocol::T_LIST;
+    using apache::thrift::protocol::T_MAP;
+    using apache::thrift::protocol::T_SET;
+    using apache::thrift::protocol::T_STRING;
+    using apache::thrift::protocol::T_STRUCT;
+    switch (type) {
+    case T_BOOL:
+    case T_BYTE:
+        return 1;
+    case T_I16:
+        return sizeof(int16_t);
+    case T_I32:
+        return sizeof(int32_t);
+    case T_I64:
+    case T_DOUBLE:
+        return sizeof(int64_t);
+    case T_STRING:
+        return sizeof(std::string);
+    case T_LIST:
+    case T_SET:
+    case T_MAP:
+        return sizeof(std::vector<uint8_t>);
+    case T_STRUCT:
+        // Generated structs vary in size. Reserving a conservative inline object budget keeps
+        // their eager vector resize inside task admission; the serialized-size reservation covers
+        // their dynamic field payloads.
+        return DECODED_THRIFT_STRUCT_RESERVATION_BYTES;
+    default:
+        return 1;
+    }
+}
+
+class MemoryBudgetProtocol final : public apache::thrift::protocol::TProtocolDecorator {
+public:
+    MemoryBudgetProtocol(std::shared_ptr<apache::thrift::protocol::TProtocol> protocol,
+                         int32_t serialized_size)
+            : TProtocolDecorator(std::move(protocol)),
+              _memory_manager(thread_context()->thread_mem_tracker_mgr.get()),
+              _prior_reservation(_memory_manager->take_reserved_memory()) {
+        reserve_or_throw(static_cast<size_t>(serialized_size), /*restore_prior_on_failure=*/true);
+    }
+
+    ~MemoryBudgetProtocol() override {
+        _memory_manager->shrink_reserved();
+        _memory_manager->adopt_reserved_memory(std::move(_prior_reservation));
+    }
+
+    uint32_t readMapBegin_virt(apache::thrift::protocol::TType& key_type,
+                               apache::thrift::protocol::TType& value_type,
+                               uint32_t& size) override {
+        const uint32_t consumed = TProtocolDecorator::readMapBegin_virt(key_type, value_type, size);
+        const uint32_t count = size;
+        const size_t element_size = decoded_thrift_value_reservation(key_type) +
+                                    decoded_thrift_value_reservation(value_type) +
+                                    4 * sizeof(void*);
+        reserve_container(count, element_size);
+        return consumed;
+    }
+
+    uint32_t readListBegin_virt(apache::thrift::protocol::TType& element_type,
+                                uint32_t& size) override {
+        const uint32_t consumed = TProtocolDecorator::readListBegin_virt(element_type, size);
+        reserve_container(size, decoded_thrift_value_reservation(element_type));
+        return consumed;
+    }
+
+    uint32_t readSetBegin_virt(apache::thrift::protocol::TType& element_type,
+                               uint32_t& size) override {
+        const uint32_t consumed = TProtocolDecorator::readSetBegin_virt(element_type, size);
+        reserve_container(size, decoded_thrift_value_reservation(element_type) + 4 * sizeof(void*));
+        return consumed;
+    }
+
+private:
+    void reserve_container(uint32_t count, size_t element_size) {
+        if (count > std::numeric_limits<size_t>::max() / element_size) {
+            throw apache::thrift::protocol::TProtocolException(
+                    apache::thrift::protocol::TProtocolException::SIZE_LIMIT,
+                    "Decoded Thrift container size overflows");
+        }
+        reserve_or_throw(static_cast<size_t>(count) * element_size,
+                         /*restore_prior_on_failure=*/false);
+    }
+
+    void reserve_or_throw(size_t bytes, bool restore_prior_on_failure) {
+        const Status status = _memory_manager->try_reserve(static_cast<int64_t>(bytes));
+        if (status.ok()) {
+            return;
+        }
+        if (restore_prior_on_failure) {
+            _memory_manager->adopt_reserved_memory(std::move(_prior_reservation));
+        }
+        throw apache::thrift::protocol::TProtocolException(
+                apache::thrift::protocol::TProtocolException::SIZE_LIMIT, status.to_string());
+    }
+
+    ThreadMemTrackerMgr* _memory_manager;
+    ReservedMemoryToken _prior_reservation;
+};
+
+} // namespace
 
 ThriftSerializer::ThriftSerializer(bool compact, int initial_buffer_size)
         : _mem_buffer(new apache::thrift::transport::TMemoryBuffer(initial_buffer_size)) {
@@ -73,15 +189,17 @@ ThriftSerializer::ThriftSerializer(bool compact, int initial_buffer_size)
 std::shared_ptr<apache::thrift::protocol::TProtocol> create_deserialize_protocol(
         std::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem, bool compact,
         int32_t size_limit) {
+    std::shared_ptr<apache::thrift::protocol::TProtocol> protocol;
     if (compact) {
-        return std::make_shared<apache::thrift::protocol::TCompactProtocolT<
+        protocol = std::make_shared<apache::thrift::protocol::TCompactProtocolT<
                 apache::thrift::transport::TMemoryBuffer>>(mem, size_limit, size_limit);
     } else {
-        return std::make_shared<apache::thrift::protocol::TBinaryProtocolT<
+        protocol = std::make_shared<apache::thrift::protocol::TBinaryProtocolT<
                 apache::thrift::transport::TMemoryBuffer>>(mem, size_limit, size_limit,
                                                            /*strict_read=*/false,
                                                            /*strict_write=*/true);
     }
+    return std::make_shared<MemoryBudgetProtocol>(std::move(protocol), size_limit);
 }
 
 // Comparator for THostPorts. Thrift declares this (in gen-cpp/Types_types.h) but

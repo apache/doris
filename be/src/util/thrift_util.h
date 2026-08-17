@@ -141,18 +141,16 @@ Status deserialize_thrift_msg(const uint8_t* buf, uint32_t* len, bool compact,
             *len == 0 ? 1
                       : static_cast<int32_t>(std::min<uint32_t>(
                                 *len, static_cast<uint32_t>(std::numeric_limits<int32_t>::max())));
-    // A serialized string or container cannot have more elements than the message has bytes.
-    // This bound preserves valid input while rejecting hostile lengths before generated readers
-    // allocate memory for them.
+    // Wire-size limits reject impossible prefixes, while the protocol wrapper separately reserves
+    // decoded container storage before generated readers resize their C++ containers.
     conf->setMaxMessageSize(size_limit);
     std::shared_ptr<apache::thrift::transport::TMemoryBuffer> tmem_transport(
             new apache::thrift::transport::TMemoryBuffer(
                     const_cast<uint8_t*>(buf), *len,
                     apache::thrift::transport::TMemoryBuffer::OBSERVE, conf));
-    std::shared_ptr<apache::thrift::protocol::TProtocol> tproto =
-            create_deserialize_protocol(tmem_transport, compact, size_limit);
-
     try {
+        std::shared_ptr<apache::thrift::protocol::TProtocol> tproto =
+                create_deserialize_protocol(tmem_transport, compact, size_limit);
         deserialized_msg->read(tproto.get());
     } catch (std::exception& e) {
         return Status::InternalError<false>("Couldn't deserialize thrift msg:\n{}", e.what());

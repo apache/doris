@@ -25,6 +25,7 @@
 #include <sys/types.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -59,11 +60,66 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/descriptors.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 #include "util/slice.h"
 #include "util/thrift_util.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
+namespace {
+
+struct LargeDecodedElement {
+    std::array<uint8_t, 1024> bytes {};
+};
+
+struct ThriftContainerProbe {
+    uint32_t read(apache::thrift::protocol::TProtocol* protocol) {
+        apache::thrift::protocol::TType element_type;
+        uint32_t size = 0;
+        uint32_t consumed = protocol->readListBegin(element_type, size);
+        elements.resize(size);
+        return consumed + protocol->readListEnd();
+    }
+
+    std::vector<LargeDecodedElement> elements;
+};
+
+struct ThriftStringProbe {
+    uint32_t read(apache::thrift::protocol::TProtocol* protocol) {
+        return protocol->readString(value);
+    }
+
+    std::string value;
+};
+
+std::vector<uint8_t> thrift_list_bytes(bool compact, uint32_t count, size_t total_size) {
+    std::vector<uint8_t> bytes;
+    if (compact) {
+        bytes = {0xfc, static_cast<uint8_t>(count)};
+    } else {
+        bytes = {static_cast<uint8_t>(apache::thrift::protocol::T_STRUCT),
+                 static_cast<uint8_t>(count >> 24), static_cast<uint8_t>(count >> 16),
+                 static_cast<uint8_t>(count >> 8), static_cast<uint8_t>(count)};
+    }
+    bytes.resize(std::max(bytes.size(), total_size));
+    return bytes;
+}
+
+std::vector<uint8_t> thrift_string_bytes(bool compact, std::string_view value) {
+    std::vector<uint8_t> bytes;
+    if (compact) {
+        bytes.push_back(static_cast<uint8_t>(value.size()));
+    } else {
+        const uint32_t size = value.size();
+        bytes = {static_cast<uint8_t>(size >> 24), static_cast<uint8_t>(size >> 16),
+                 static_cast<uint8_t>(size >> 8), static_cast<uint8_t>(size)};
+    }
+    bytes.insert(bytes.end(), value.begin(), value.end());
+    return bytes;
+}
+
+} // namespace
 
 class ParquetThriftReaderTest : public testing::Test {
 public:
@@ -83,6 +139,65 @@ TEST_F(ParquetThriftReaderTest, reject_compact_container_larger_than_input) {
 
     EXPECT_FALSE(status.ok());
     EXPECT_TRUE(metadata.schema.empty());
+}
+
+TEST_F(ParquetThriftReaderTest, reject_decoded_container_that_exceeds_task_budget) {
+    constexpr uint32_t element_count = 64;
+    constexpr int64_t memory_limit = 4 * 1024;
+    for (const bool compact : {true, false}) {
+        auto bytes = thrift_list_bytes(compact, element_count, element_count + 8);
+        uint32_t length = bytes.size();
+        ThriftContainerProbe probe;
+        auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                        "ThriftContainerProbe", memory_limit);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+
+        Status status = deserialize_thrift_msg(bytes.data(), &length, compact, &probe);
+
+        EXPECT_FALSE(status.ok()) << "compact=" << compact;
+        EXPECT_TRUE(probe.elements.empty()) << "compact=" << compact;
+    }
+}
+
+TEST_F(ParquetThriftReaderTest, bound_strings_and_accept_valid_controls_for_both_protocols) {
+    for (const bool compact : {true, false}) {
+        auto malformed_container = thrift_list_bytes(compact, /*count=*/64, /*total_size=*/8);
+        uint32_t malformed_container_length = malformed_container.size();
+        ThriftContainerProbe malformed_container_probe;
+        EXPECT_FALSE(deserialize_thrift_msg(malformed_container.data(), &malformed_container_length,
+                                            compact, &malformed_container_probe)
+                             .ok())
+                << "compact=" << compact;
+        EXPECT_TRUE(malformed_container_probe.elements.empty()) << "compact=" << compact;
+
+        std::vector<uint8_t> malformed_string =
+                compact ? std::vector<uint8_t> {0xff, 0xff, 0xff, 0xff, 0x07}
+                        : std::vector<uint8_t> {0x7f, 0xff, 0xff, 0xff};
+        uint32_t malformed_length = malformed_string.size();
+        ThriftStringProbe malformed_probe;
+        EXPECT_FALSE(deserialize_thrift_msg(malformed_string.data(), &malformed_length, compact,
+                                            &malformed_probe)
+                             .ok())
+                << "compact=" << compact;
+
+        auto valid_string = thrift_string_bytes(compact, "valid");
+        uint32_t valid_string_length = valid_string.size();
+        ThriftStringProbe valid_string_probe;
+        EXPECT_TRUE(deserialize_thrift_msg(valid_string.data(), &valid_string_length, compact,
+                                           &valid_string_probe)
+                            .ok())
+                << "compact=" << compact;
+        EXPECT_EQ(valid_string_probe.value, "valid");
+
+        auto valid_container = thrift_list_bytes(compact, /*count=*/1, /*total_size=*/8);
+        uint32_t valid_container_length = valid_container.size();
+        ThriftContainerProbe valid_container_probe;
+        EXPECT_TRUE(deserialize_thrift_msg(valid_container.data(), &valid_container_length, compact,
+                                           &valid_container_probe)
+                            .ok())
+                << "compact=" << compact;
+        EXPECT_EQ(valid_container_probe.elements.size(), 1);
+    }
 }
 
 TEST_F(ParquetThriftReaderTest, normal) {

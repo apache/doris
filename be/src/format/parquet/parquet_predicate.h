@@ -492,26 +492,25 @@ public:
         if (total_size > available) {
             return Status::Corruption("Parquet bloom filter range exceeds file size");
         }
+        const auto expected_declared_length = static_cast<int64_t>(total_size);
         if (column_meta_data.__isset.bloom_filter_length &&
-            (static_cast<uint64_t>(column_meta_data.bloom_filter_length) < total_size ||
-             static_cast<uint64_t>(column_meta_data.bloom_filter_length) > available)) {
+            column_meta_data.bloom_filter_length != expected_declared_length) {
             return Status::Corruption("Invalid Parquet bloom filter declared length");
         }
 
-        // Validate the full split-block layout before allocating or adding metadata-controlled
-        // offsets; the Bloom filter implementation assumes complete 32-byte blocks.
-        std::vector<uint8_t> data_buffer(static_cast<size_t>(payload_size));
+        auto bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
+        // Read directly into one tracked allocation so a valid maximum-size filter is admitted
+        // against the task budget without doubling its peak memory during initialization.
+        RETURN_IF_ERROR(bloom_filter->init_for_read(static_cast<size_t>(payload_size),
+                                                    segment_v2::HashStrategyPB::XX_HASH_64));
         RETURN_IF_ERROR(file_reader->read_at(
                 static_cast<size_t>(bloom_offset) + t_bloom_filter_header_size,
-                Slice(data_buffer.data(), data_buffer.size()), &bytes_read, io_ctx));
-        if (bytes_read != data_buffer.size()) {
+                Slice(bloom_filter->mutable_data(), bloom_filter->size()), &bytes_read, io_ctx));
+        if (bytes_read != bloom_filter->size()) {
             return Status::Corruption("Truncated Parquet bloom filter payload");
         }
 
-        ans_stat->bloom_filter = std::make_unique<ParquetBlockSplitBloomFilter>();
-        RETURN_IF_ERROR(ans_stat->bloom_filter->init(
-                reinterpret_cast<const char*>(data_buffer.data()), data_buffer.size(),
-                segment_v2::HashStrategyPB::XX_HASH_64));
+        ans_stat->bloom_filter = std::move(bloom_filter);
 
         return Status::OK();
     }

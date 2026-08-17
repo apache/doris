@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "core/custom_allocator.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 
 namespace doris::format::parquet::native {
@@ -28,8 +29,11 @@ namespace doris::format::parquet::native {
 // legacy Parquet reader merely to evaluate footer Bloom filters.
 class BlockSplitBloomFilter final : public segment_v2::BloomFilter {
 public:
+    ~BlockSplitBloomFilter() override;
     Status init(uint64_t filter_size, segment_v2::HashStrategyPB strategy) override;
     Status init(const char* buf, size_t size, segment_v2::HashStrategyPB strategy) override;
+    Status init_for_read(size_t size, segment_v2::HashStrategyPB strategy);
+    char* mutable_data() { return _data; }
     void add_bytes(const char* buf, size_t size) override;
     bool test_bytes(const char* buf, size_t size) const override;
     void set_has_null(bool has_null) override;
@@ -38,6 +42,8 @@ public:
     bool test_hash(uint64_t hash) const override;
 
 private:
+    DorisUniqueBufferPtr<char> _owned_data;
+
     static constexpr int BYTES_PER_BLOCK = 32;
     static constexpr int BITS_SET_PER_BLOCK = 8;
     static constexpr uint32_t SALT[BITS_SET_PER_BLOCK] = {0x47b6137bU, 0x44974d91U, 0x8824ad5bU,

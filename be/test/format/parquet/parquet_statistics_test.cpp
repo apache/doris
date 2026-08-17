@@ -31,7 +31,9 @@ namespace {
 
 class BloomFilterFileReader final : public io::FileReader {
 public:
-    explicit BloomFilterFileReader(std::vector<uint8_t> data) : _data(std::move(data)) {}
+    explicit BloomFilterFileReader(std::vector<uint8_t> data, size_t logical_size = 0)
+            : _data(std::move(data)),
+              _logical_size(logical_size == 0 ? _data.size() : logical_size) {}
 
     Status close() override {
         _closed = true;
@@ -39,9 +41,10 @@ public:
     }
 
     const io::Path& path() const override { return _path; }
-    size_t size() const override { return _data.size(); }
+    size_t size() const override { return _logical_size; }
     bool closed() const override { return _closed; }
     int64_t mtime() const override { return 0; }
+    bool returned_short_nonzero_offset_read() const { return _returned_short_nonzero_offset_read; }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -51,17 +54,22 @@ protected:
         }
         *bytes_read = std::min(result.size, _data.size() - offset);
         memcpy(result.data, _data.data() + offset, *bytes_read);
+        _returned_short_nonzero_offset_read |= offset > 0 && *bytes_read != result.size;
         return Status::OK();
     }
 
 private:
     std::vector<uint8_t> _data;
+    size_t _logical_size;
     io::Path _path = "parquet_bloom_filter_test";
     bool _closed = false;
+    bool _returned_short_nonzero_offset_read = false;
 };
 
 Status read_test_bloom_filter(int32_t header_payload_size, size_t actual_payload_size,
-                              int32_t declared_length_adjustment = 0) {
+                              int32_t declared_length_adjustment = 0,
+                              size_t logical_payload_size = 0, bool* returned_short_read = nullptr,
+                              bool* installed_bloom_filter = nullptr) {
     tparquet::BloomFilterAlgorithm algorithm;
     algorithm.__set_BLOCK(tparquet::SplitBlockAlgorithm());
     tparquet::BloomFilterHash hash;
@@ -84,9 +92,18 @@ Status read_test_bloom_filter(int32_t header_payload_size, size_t actual_payload
     metadata.__set_bloom_filter_offset(0);
     metadata.__set_bloom_filter_length(static_cast<int32_t>(file_bytes.size()) +
                                        declared_length_adjustment);
-    auto reader = std::make_shared<BloomFilterFileReader>(std::move(file_bytes));
+    const size_t logical_size =
+            logical_payload_size == 0 ? file_bytes.size() : header_size + logical_payload_size;
+    auto reader = std::make_shared<BloomFilterFileReader>(std::move(file_bytes), logical_size);
     ParquetPredicate::ColumnStat stat;
-    return ParquetPredicate::read_bloom_filter(metadata, reader, nullptr, &stat);
+    Status status = ParquetPredicate::read_bloom_filter(metadata, reader, nullptr, &stat);
+    if (returned_short_read != nullptr) {
+        *returned_short_read = reader->returned_short_nonzero_offset_read();
+    }
+    if (installed_bloom_filter != nullptr) {
+        *installed_bloom_filter = stat.bloom_filter != nullptr;
+    }
+    return status;
 }
 
 } // namespace
@@ -99,8 +116,31 @@ public:
 TEST_F(ParquetStatisticsTest, reject_truncated_bloom_filter_payload) {
     // The reader may legally return a short read at EOF, so accepting it would initialize a
     // Bloom filter whose missing bytes came from zero-filled process memory.
+    bool returned_short_read = false;
+    bool installed_bloom_filter = true;
+    EXPECT_FALSE(read_test_bloom_filter(/*header_payload_size=*/64, /*actual_payload_size=*/32,
+                                        /*declared_length_adjustment=*/32,
+                                        /*logical_payload_size=*/64, &returned_short_read,
+                                        &installed_bloom_filter)
+                         .ok());
+    EXPECT_TRUE(returned_short_read);
+    EXPECT_FALSE(installed_bloom_filter);
+}
+
+TEST_F(ParquetStatisticsTest, reject_bloom_filter_range_beyond_file) {
+    bool returned_short_read = false;
+    EXPECT_FALSE(read_test_bloom_filter(/*header_payload_size=*/64, /*actual_payload_size=*/32,
+                                        /*declared_length_adjustment=*/0,
+                                        /*logical_payload_size=*/0, &returned_short_read)
+                         .ok());
+    EXPECT_FALSE(returned_short_read);
+}
+
+TEST_F(ParquetStatisticsTest, reject_declared_bloom_filter_length_mismatch) {
+    // A present length describes exactly one header and payload. Treating it as an upper bound can
+    // reinterpret a multi-block filter as a smaller filter and cause false-negative pruning.
     EXPECT_FALSE(
-            read_test_bloom_filter(/*header_payload_size=*/64, /*actual_payload_size=*/32).ok());
+            read_test_bloom_filter(/*header_payload_size=*/32, /*actual_payload_size=*/64).ok());
 }
 
 TEST_F(ParquetStatisticsTest, reject_invalid_bloom_filter_block_sizes) {
