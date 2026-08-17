@@ -527,8 +527,11 @@ TEST_F(MSBackpressureHandlerTest, UpgradeIntervalWithRepeatTrigger) {
 
 TEST_F(MSBackpressureHandlerTest, DowngradeAfterInterval) {
     config::enable_ms_backpressure_handling = true;
-    config::ms_backpressure_upgrade_interval_ms = 0;      // No cooldown
-    config::ms_backpressure_downgrade_interval_ms = 1000; // 1s downgrade
+    config::ms_backpressure_upgrade_interval_ms = 0; // No cooldown
+    // Keep downgrade disabled until the upgrade has been observed. The tick thread's
+    // phase is independent of this test, so a one-second interval could expire before
+    // the assertion below on a slow sanitizer build.
+    config::ms_backpressure_downgrade_interval_ms = 600000;
     config::ms_backpressure_upgrade_top_k = 3;
     config::ms_backpressure_throttle_ratio = 0.5;
     config::ms_rpc_table_qps_limit_floor = 1.0;
@@ -548,8 +551,15 @@ TEST_F(MSBackpressureHandlerTest, DowngradeAfterInterval) {
     EXPECT_TRUE(handler.on_ms_busy());
     EXPECT_EQ(handler.upgrade_level(), 1);
 
-    // Wait for tick thread to advance past downgrade interval
-    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+    handler.update_coordinator_params({
+            .upgrade_cooldown_ticks = 0,
+            .downgrade_after_ticks = 1000,
+    });
+
+    // Wait for the periodic tick to trigger downgrade without depending on its phase.
+    for (int i = 0; i < 30 && handler.upgrade_level() != 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
 
     // After downgrade triggered, upgrade level should have decremented
     EXPECT_EQ(handler.upgrade_level(), 0);
