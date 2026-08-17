@@ -127,8 +127,12 @@ public final class AccessTranslation {
         for (Field field : PrivPredicate.class.getDeclaredFields()) {
             if (Modifier.isStatic(field.getModifiers()) && field.getType() == PrivPredicate.class) {
                 try {
+                    // Made readable rather than assumed to be: a constant added as anything but public would
+                    // otherwise fail this class's initialization, and this class initializing is what every
+                    // privilege check in the FE goes through.
+                    field.setAccessible(true);
                     constants.put(field.getName(), (PrivPredicate) field.get(null));
-                } catch (IllegalAccessException e) {
+                } catch (IllegalAccessException | RuntimeException e) {
                     throw new IllegalStateException("cannot read PrivPredicate." + field.getName(), e);
                 }
             }

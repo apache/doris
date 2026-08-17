@@ -19,10 +19,13 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authorization.AccessContext;
+import org.apache.doris.authorization.AccessDeniedException;
 import org.apache.doris.authorization.AccessRequirement;
 import org.apache.doris.authorization.AuthorizedResource;
 import org.apache.doris.authorization.AuthorizedSubject;
+import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
+import org.apache.doris.authorization.spi.AuthorizationPluginFactory;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -39,21 +42,25 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class AccessControllerManagerTest {
 
     private boolean originalSkipCatalogPrivCheck;
+    private String originalAccessControllerType;
 
     @Before
     public void setUp() {
         originalSkipCatalogPrivCheck = Config.skip_catalog_priv_check;
+        originalAccessControllerType = Config.access_controller_type;
     }
 
     @After
     public void tearDown() {
         Config.skip_catalog_priv_check = originalSkipCatalogPrivCheck;
+        Config.access_controller_type = originalAccessControllerType;
     }
 
     @Test
@@ -371,6 +378,109 @@ public class AccessControllerManagerTest {
         }
     }
 
+    /**
+     * A checkpoint {@link Env} builds no authorization source, at startup or when it replays a CREATE CATALOG.
+     *
+     * <p>Such an {@code Env} only replays metadata to write an image; it authorizes nothing. A source, on the
+     * other hand, starts threads that nothing stops - a Ranger one starts a policy refresher and a policy
+     * download timer - and a checkpoint {@code Env} is built and discarded once per checkpoint round for as
+     * long as the FE runs, so one source per round accumulates without bound.
+     *
+     * <p>The configured source here names nothing this FE has: an ordinary manager refuses to start on that,
+     * so a constructor that swept and loaded anything at all could not reach the assertions below.
+     */
+    @Test
+    public void testACheckpointEnvBuildsNoAuthorizationSource() {
+        Config.access_controller_type = "a-source-no-fe-has";
+        Assert.assertThrows("a manager that authorizes for real must refuse a source it cannot find",
+                RuntimeException.class, () -> new AccessControllerManager(new Auth()));
+
+        AccessControllerManager manager = new AccessControllerManager(new Auth(), true);
+        AuthorizationPlugin governing = Deencapsulation.getField(manager, "defaultAccessController");
+        Assert.assertTrue("a checkpoint Env built something other than the built-in model: " + governing,
+                governing instanceof InternalAuthorizationPlugin);
+
+        ExternalCatalog replayed = mockCatalog("replayed_on_a_checkpoint", 40L);
+        withCurrentCatalog(replayed, () -> Assert.assertSame(governing,
+                manager.getAccessControllerOrDefault("replayed_on_a_checkpoint")));
+
+        Mockito.verify(replayed, Mockito.never()).initAccessController(Mockito.anyBoolean());
+        Assert.assertFalse(manager.checkIfAccessControllerExist("replayed_on_a_checkpoint"));
+    }
+
+    /**
+     * A question a source puts back to the engine while answering a check is about the same statement, so it
+     * carries that check's circumstances - not whatever connection happens to be on the thread.
+     *
+     * <p>The source bound to the catalog here defers to whoever governs instance scope, as both Ranger sources
+     * do, and the source that answers for instance scope decides from the client address. The check is handed a
+     * connection explicitly while the thread carries a different one, which is the shape of the HTTP paths: a
+     * check can run before its connection is installed on the thread, and a thread out of a pool carries
+     * whatever the request before it left behind.
+     */
+    @Test
+    public void testANestedGlobalScopeQuestionSeesTheContextOfTheCheck() {
+        AtomicReference<String> seenByTheAuthority = new AtomicReference<>();
+        AccessControllerManager manager = new AccessControllerManager(new Auth());
+        Deencapsulation.setField(manager, "defaultAccessController", recordsClientIp(seenByTheAuthority));
+        ConcurrentHashMap<String, AuthorizationPluginFactory> factories =
+                Deencapsulation.getField(manager, "authorizationPluginFactories");
+        factories.put(DEFERRING_SOURCE, defersToInstanceScope());
+
+        ExternalCatalog catalog = mockCatalog("bound_to_a_deferring_source", 50L);
+        ConnectContext leftOnTheThread = new ConnectContext();
+        leftOnTheThread.setRemoteIP("10.0.0.1");
+        leftOnTheThread.setCurrentUserIdentity(UserIdentity.ROOT);
+        leftOnTheThread.setThreadLocalInfo();
+        try {
+            withCurrentCatalog(catalog, () -> {
+                manager.createAccessController(catalog, DEFERRING_SOURCE, ImmutableMap.of(), false);
+                ConnectContext handedOver = new ConnectContext();
+                handedOver.setRemoteIP("10.0.0.2");
+                handedOver.setCurrentUserIdentity(UserIdentity.ROOT);
+
+                Assert.assertTrue(manager.checkTblPriv(handedOver, catalog.getName(), "db", "tbl",
+                        PrivPredicate.SELECT));
+            });
+
+            Assert.assertEquals("the nested question was answered about another connection",
+                    "10.0.0.2", seenByTheAuthority.get());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    private static final String DEFERRING_SOURCE = "defers-to-instance-scope";
+
+    /** A source of the current contract whose whole rule is "whoever governs instance scope decides". */
+    private static AuthorizationPluginFactory defersToInstanceScope() {
+        return new AuthorizationPluginFactory() {
+            @Override
+            public String name() {
+                return DEFERRING_SOURCE;
+            }
+
+            @Override
+            public AuthorizationPlugin create(Map<String, String> properties, AuthorizationContext context) {
+                return new AuthorizationPlugin() {
+                    @Override
+                    public String name() {
+                        return DEFERRING_SOURCE;
+                    }
+
+                    @Override
+                    public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
+                            AccessRequirement requirement, AccessContext checkContext)
+                            throws AccessDeniedException {
+                        if (!context.grantedByGlobalScopeAuthority(subject, requirement)) {
+                            throw AccessDeniedException.of(subject, resource, requirement, name());
+                        }
+                    }
+                };
+            }
+        };
+    }
+
     /** A source that answers yes and remembers the client address it was told about. */
     private static AuthorizationPlugin recordsClientIp(AtomicReference<String> seenClientIp) {
         return new AuthorizationPlugin() {
@@ -409,7 +519,7 @@ public class AccessControllerManagerTest {
         AccessControllerManager accessControllerManager = new AccessControllerManager(new Auth());
         Deencapsulation.setField(accessControllerManager, "defaultAccessController",
                 new LegacyAccessControllerPlugin("mock", defaultAccessController,
-                        (subject, requirement) -> false));
+                        (subject, requirement, context) -> false));
         return accessControllerManager;
     }
 

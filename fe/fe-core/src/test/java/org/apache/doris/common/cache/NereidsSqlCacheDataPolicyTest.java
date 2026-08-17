@@ -26,13 +26,18 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.nereids.SqlCacheContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Before serving a cached result, {@link NereidsSqlCacheManager} re-evaluates the row-filter and data-mask
@@ -82,10 +87,23 @@ public class NereidsSqlCacheDataPolicyTest {
         })
                 .when(accessManager).evalRowFilterPolicies(ArgumentMatchers.any(UserIdentity.class),
                         ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString());
-        Mockito.doAnswer(invocation -> dataMaskSupplier.get())
-                .when(accessManager).evalDataMaskPolicy(ArgumentMatchers.any(UserIdentity.class),
+        // The masks of one table are asked for in one call, keyed by the lower-cased column name: that is
+        // what the planner records and what a cache hit re-checks, so this is the method to answer.
+        Mockito.doAnswer(invocation -> {
+            Set<String> columns = invocation.getArgument(4);
+            Optional<DataMaskSpec> evaluated = dataMaskSupplier.get();
+            if (!evaluated.isPresent()) {
+                return ImmutableMap.<String, DataMaskSpec>of();
+            }
+            Map<String, DataMaskSpec> masks = new LinkedHashMap<>();
+            for (String column : columns) {
+                masks.put(column.toLowerCase(Locale.ROOT), evaluated.get());
+            }
+            return masks;
+        })
+                .when(accessManager).evalDataMaskPolicies(ArgumentMatchers.any(UserIdentity.class),
                         ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
-                        ArgumentMatchers.anyString());
+                        ArgumentMatchers.anySet());
 
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getAccessManager()).thenReturn(accessManager);
@@ -173,6 +191,29 @@ public class NereidsSqlCacheDataPolicyTest {
 
         Assertions.assertTrue(dataMaskPoliciesChanged(env, context),
                 "dropping a column mask changes the values the query returns");
+    }
+
+    /**
+     * The one answer covering a whole table is read back per column: a mask on one column of it is not a
+     * change on a column that has none, and each cached column is compared with what the source now says
+     * about that same column rather than with the answer as a whole.
+     */
+    @Test
+    public void testEachColumnOfATableIsComparedWithItsOwnMask() {
+        SqlCacheContext context = new SqlCacheContext(USER);
+        context.addDataMaskPolicy(CTL, DB, TBL, COL, Optional.of(dataMask(3L, "NULL")));
+        context.addDataMaskPolicy(CTL, DB, TBL, "email", Optional.empty());
+
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        Mockito.doAnswer(invocation -> ImmutableMap.of(COL, dataMask(3L, "NULL")))
+                .when(accessManager).evalDataMaskPolicies(ArgumentMatchers.any(UserIdentity.class),
+                        ArgumentMatchers.anyString(), ArgumentMatchers.anyString(), ArgumentMatchers.anyString(),
+                        ArgumentMatchers.anySet());
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+
+        Assertions.assertFalse(dataMaskPoliciesChanged(env, context),
+                "the mask on one column read as a policy change on a column that has none");
     }
 
     /** A column that never had a mask must not keep evicting the cache either. */

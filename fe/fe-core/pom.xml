@@ -801,12 +801,21 @@ under the License.
             Test scope, because the access-control behaviour baseline records what a Ranger-governed
             instance decides for every user and every privilege, and the only way to record that is to run
             the production controller. Same shape as the connector and filesystem plugin modules below.
-            Only the doris-service source is needed: what the hive-service source decides is covered by that
-            module's own tests.
+
+            The doris-service source is the one the baseline runs; the hive-service source is here so that
+            the module's own tests run at all. run-fe-ut.sh builds `-pl fe-common,fe-core -am`, which pulls in
+            what fe-core depends on and nothing else - so a plugin module no module in that set depends on
+            never reaches the reactor, and its tests are never executed by any pipeline.
         -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-authorization-plugin-ranger-doris</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authorization-plugin-ranger-hive</artifactId>
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>

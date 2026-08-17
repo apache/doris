@@ -85,6 +85,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
@@ -566,7 +567,7 @@ public class NereidsSqlCacheManager {
             Map<String, DataMaskSpec> masks = env.getAccessManager().evalDataMaskPolicies(
                     currentUserIdentity, table.catalog, table.db, table.table, kv.getValue());
             for (String column : kv.getValue()) {
-                Optional<DataMaskSpec> now = Optional.ofNullable(masks.get(column.toLowerCase()));
+                Optional<DataMaskSpec> now = Optional.ofNullable(masks.get(column.toLowerCase(Locale.ROOT)));
                 FullColumnName qualifiedColumn =
                         new FullColumnName(table.catalog, table.db, table.table, column);
                 if (!Objects.equals(cached.get(qualifiedColumn), now)) {

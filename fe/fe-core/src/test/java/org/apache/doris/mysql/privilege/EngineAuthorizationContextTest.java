@@ -127,7 +127,7 @@ public class EngineAuthorizationContextTest {
                 .thenReturn(true);
         Deencapsulation.setField(manager, "defaultAccessController",
                 new LegacyAccessControllerPlugin("authority", controller,
-                        (subject, requirement) -> false));
+                        (subject, requirement, context1) -> false));
 
         EngineAuthorizationContext context = new EngineAuthorizationContext(manager, auth);
         context.servedBy(new Recording());

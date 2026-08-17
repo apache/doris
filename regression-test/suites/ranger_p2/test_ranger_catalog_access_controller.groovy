@@ -233,8 +233,7 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	// Hive access types are lower case; RangerHiveAccessController maps a Doris SELECT onto this.
 	grant(HIVE_SERVICE_NAME, hivePolicyName, hiveResources, ["select"], { readable(boundCatalog) })
 	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
-		def rows = sql """SELECT * FROM ${boundCatalog}.${dbName}.${tblName}"""
-		assertEquals(4, rows.size())
+		order_qt_opened_by_the_hive_policy """SELECT * FROM ${boundCatalog}.${dbName}.${tblName}"""
 	}
 
 	// case 3: the catalog itself is a different question, and the bound source never sees it.
@@ -275,8 +274,7 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 		'access_controller.properties.ranger.service.name' = '${HIVE_SERVICE_NAME}'
 	)"""
 	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
-		def rows = sql """SELECT * FROM ${fqcnCatalog}.${dbName}.${tblName}"""
-		assertEquals(4, rows.size())
+		order_qt_selected_by_the_factory_class_name """SELECT * FROM ${fqcnCatalog}.${dbName}.${tblName}"""
 	}
 
 	// case 6: a row filter is decided by the same source as the read it applies to, so writing
@@ -302,12 +300,10 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	awaitPolicyEffect("the row filter to reach the bound catalog", { visibleRows(boundCatalog) == 2 })
 
 	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
-		def filtered = sql """SELECT id FROM ${boundCatalog}.${dbName}.${tblName}"""
-		assertEquals(2, filtered.size())
-		filtered.each { assertTrue(it[0] >= 3, "row ${it[0]} should have been filtered out") }
-
-		def whole = sql """SELECT id FROM ${plainCatalog}.${dbName}.${tblName}"""
-		assertEquals(4, whole.size())
+		// The same table, read through the two authorities: filtered by the one whose service the filter
+		// was written in, whole through the one that has no source of its own.
+		order_qt_row_filter_through_the_bound_catalog """SELECT id FROM ${boundCatalog}.${dbName}.${tblName}"""
+		order_qt_row_filter_through_the_plain_catalog """SELECT id FROM ${plainCatalog}.${dbName}.${tblName}"""
 	}
 	dropPolicyQuietly(HIVE_SERVICE_NAME, hiveRowFilterName)
 	awaitPolicyEffect("the row filter to be gone again", { visibleRows(boundCatalog) == 4 })
@@ -335,12 +331,7 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	awaitPolicyEffect("the column mask to reach the bound catalog", { usernamesMasked(boundCatalog) })
 
 	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
-		def masked = sql """SELECT username FROM ${boundCatalog}.${dbName}.${tblName}"""
-		assertEquals(4, masked.size())
-		masked.each { assertTrue(it[0] == null, "username should have been masked, got ${it[0]}") }
-
-		def clear = sql """SELECT username FROM ${plainCatalog}.${dbName}.${tblName}"""
-		assertEquals(4, clear.size())
-		clear.each { assertTrue(it[0] != null, "username should not be masked here") }
+		order_qt_mask_through_the_bound_catalog """SELECT username FROM ${boundCatalog}.${dbName}.${tblName}"""
+		order_qt_mask_through_the_plain_catalog """SELECT username FROM ${plainCatalog}.${dbName}.${tblName}"""
 	}
 }

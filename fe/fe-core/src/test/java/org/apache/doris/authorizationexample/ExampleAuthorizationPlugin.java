@@ -36,10 +36,11 @@ import java.util.Set;
 /**
  * A worked example of an authorization source, complete enough to govern a running FE.
  *
- * <p>It grants by Doris role and knows two of them: whoever holds the admin role may do anything, whoever
- * holds the reader role may read and nothing else, and then only the rows matching one predicate. Everyone
- * else is refused - <em>including</em> an account holding a built-in {@code GRANT}, because the source
- * governing a resource is the only thing consulted about it and this source has never heard of that grant.
+ * <p>It grants by Doris role and knows three of them: whoever holds the admin role may do anything, whoever
+ * holds the reader role may read and nothing else, and then only the rows matching one predicate, and whoever
+ * holds the auditor role may read the same things with no predicate over them. Everyone else is refused -
+ * <em>including</em> an account holding a built-in {@code GRANT}, because the source governing a resource is
+ * the only thing consulted about it and this source has never heard of that grant.
  *
  * <p>Read it together with {@code fe-authorization-spi/README.md}. Three things here are worth copying
  * beyond the shape:
@@ -82,6 +83,16 @@ public class ExampleAuthorizationPlugin implements AuthorizationPlugin {
     public static final String READER_ROLE_PROPERTY = "example.reader_role";
     public static final String DEFAULT_READER_ROLE = "example_reader";
 
+    /**
+     * Doris role whose holders may read too, with no row filter over what they read.
+     *
+     * <p>Here because "who gets a filter" is a decision, and a source that returned the same filter to
+     * everybody would be indistinguishable from this one without a second account it treats differently. Not a
+     * privilege distinction: an auditor may read exactly what a reader may.
+     */
+    public static final String AUDITOR_ROLE_PROPERTY = "example.auditor_role";
+    public static final String DEFAULT_AUDITOR_ROLE = "example_auditor";
+
     /** SQL predicate in Doris dialect, restricting which rows a reader sees. */
     public static final String READER_ROW_FILTER_PROPERTY = "example.reader_row_filter";
     public static final String DEFAULT_READER_ROW_FILTER = "region = 'EU'";
@@ -97,12 +108,14 @@ public class ExampleAuthorizationPlugin implements AuthorizationPlugin {
     private final AuthorizationContext context;
     private final String adminRole;
     private final String readerRole;
+    private final String auditorRole;
     private final String readerRowFilter;
 
     ExampleAuthorizationPlugin(Map<String, String> properties, AuthorizationContext context) {
         this.context = context;
         this.adminRole = properties.getOrDefault(ADMIN_ROLE_PROPERTY, DEFAULT_ADMIN_ROLE);
         this.readerRole = properties.getOrDefault(READER_ROLE_PROPERTY, DEFAULT_READER_ROLE);
+        this.auditorRole = properties.getOrDefault(AUDITOR_ROLE_PROPERTY, DEFAULT_AUDITOR_ROLE);
         this.readerRowFilter =
                 properties.getOrDefault(READER_ROW_FILTER_PROPERTY, DEFAULT_READER_ROW_FILTER);
     }
@@ -144,7 +157,7 @@ public class ExampleAuthorizationPlugin implements AuthorizationPlugin {
         if (roles.contains(adminRole)) {
             return EVERY_ACTION;
         }
-        if (roles.contains(readerRole)) {
+        if (roles.contains(readerRole) || roles.contains(auditorRole)) {
             return READ_ONLY;
         }
         return Collections.emptySet();
@@ -152,6 +165,6 @@ public class ExampleAuthorizationPlugin implements AuthorizationPlugin {
 
     private boolean isReader(AuthorizedSubject subject) {
         Set<String> roles = context.rolesOf(subject);
-        return !roles.contains(adminRole) && roles.contains(readerRole);
+        return !roles.contains(adminRole) && !roles.contains(auditorRole) && roles.contains(readerRole);
     }
 }

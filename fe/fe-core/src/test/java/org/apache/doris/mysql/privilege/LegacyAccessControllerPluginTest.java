@@ -28,6 +28,7 @@ import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.ResourceKind;
 import org.apache.doris.common.AuthorizationException;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.junit.Assert;
 import org.junit.Test;
@@ -37,6 +38,7 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A controller written against the older per-scope interface, asked the way an authorization source is asked.
@@ -57,7 +59,7 @@ public class LegacyAccessControllerPluginTest {
     // What the instance-scope source answers, which the adapter grants on; false unless a case says so.
     private boolean grantedAtGlobalScope;
     private final LegacyAccessControllerPlugin plugin = new LegacyAccessControllerPlugin("legacy", controller,
-            (subject, requirement) -> grantedAtGlobalScope);
+            (subject, requirement, context) -> grantedAtGlobalScope);
 
     private boolean allows(AuthorizedResource resource) {
         try {
@@ -227,8 +229,44 @@ public class LegacyAccessControllerPluginTest {
         Assert.assertFalse(allows(AuthorizedResource.resource("name")));
         Assert.assertFalse(allows(AuthorizedResource.workloadGroup("name")));
         Assert.assertFalse(allows(AuthorizedResource.storageVault("name")));
+        // The cloud kinds too, all four of them: they are system-wide names as well, and none of them had a
+        // hasGlobal form either - checkCloudPriv came in one shape only.
+        for (ResourceKind kind : ImmutableList.of(ResourceKind.CLOUD_GENERAL, ResourceKind.CLOUD_COMPUTE_GROUP,
+                ResourceKind.CLOUD_STAGE, ResourceKind.CLOUD_STORAGE_VAULT)) {
+            Assert.assertFalse(kind.name(), allows(AuthorizedResource.cloud(kind, "name")));
+        }
 
         Mockito.verify(controller).checkGlobalPriv(USER, PrivPredicate.SELECT);
+    }
+
+    /**
+     * The global-scope question this adapter asks on the controller's behalf is about the same statement the
+     * controller was asked about, so it carries that check's circumstances rather than reading the thread.
+     *
+     * <p>Whoever governs instance scope may be a source that decides from more than the subject - the client
+     * address, say - and a check can arrive before its connection is on the thread, where the thread holds
+     * another request's or none at all.
+     */
+    @Test
+    public void testTheGlobalScopeQuestionCarriesTheContextOfTheCheck() {
+        AtomicReference<AccessContext> seenByTheAuthority = new AtomicReference<>();
+        LegacyAccessControllerPlugin adapter = new LegacyAccessControllerPlugin("legacy", controller,
+                (subject, requirement, context) -> {
+                    seenByTheAuthority.set(context);
+                    return false;
+                });
+        AccessContext given = new AccessContext() {
+            @Override
+            public Optional<String> getClientIp() {
+                return Optional.of("10.0.0.7");
+            }
+        };
+
+        Assert.assertThrows(AccessDeniedException.class, () -> adapter.checkPrivilege(SUBJECT,
+                AuthorizedResource.table("ctl", "db", "tbl"), SELECT, given));
+
+        Assert.assertSame("the question was asked about circumstances nobody stated",
+                given, seenByTheAuthority.get());
     }
 
     @Test

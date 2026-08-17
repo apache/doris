@@ -23,8 +23,6 @@ import org.apache.doris.authorization.AccessRequirement;
 import org.apache.doris.authorization.AccessRequirements;
 import org.apache.doris.authorization.AuthorizedResource;
 import org.apache.doris.authorization.AuthorizedSubject;
-import org.apache.doris.authorization.DataMaskSpec;
-import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 
@@ -42,15 +40,12 @@ import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * A Hive Ranger service governing one catalog: it knows databases, tables and columns, and nothing else Doris
@@ -80,13 +75,12 @@ public class RangerHiveAccessController extends RangerAccessController {
     /** The name this source is selected by in catalog properties. */
     public static final String NAME = "ranger-hive";
 
-    private RangerHivePlugin hivePlugin;
-    private RangerHiveAuditHandler auditHandler;
+    // Never cleared once set: the manager can remove a controller while a query still holds its reference,
+    // and the lifecycle fence in RangerAccessController - not a null field - is what keeps that query from
+    // reaching a cleaned plugin.
+    private final RangerHivePlugin hivePlugin;
+    private final RangerHiveAuditHandler auditHandler;
     private ScheduledFuture<?> logFlushFuture;
-    // The manager can remove a controller while a query still holds its reference. Keep the plugin alive
-    // until that query completes, then prevent any later authorization from using the cleaned plugin.
-    private final ReentrantReadWriteLock lifecycleLock = new ReentrantReadWriteLock();
-    private boolean closed;
 
     public RangerHiveAccessController(Map<String, String> properties, AuthorizationContext context) {
         this(properties, null, context);
@@ -110,39 +104,33 @@ public class RangerHiveAccessController extends RangerAccessController {
 
     @Override
     public void close() {
-        lifecycleLock.writeLock().lock();
+        if (!markClosed()) {
+            return;
+        }
+        // Everything below runs with no lock held. cleanup() stops the policy refresher by interrupting it
+        // and joining without a timeout, so against an unreachable Ranger admin it takes the whole REST
+        // timeout; holding the fence across it would queue every check on this source behind it instead of
+        // refusing them, which is what the fence is for.
+        if (logFlushFuture != null) {
+            logFlushFuture.cancel(false);
+            logFlushFuture = null;
+        }
+        // flushAudit atomically drains the handler. This preserves events produced before close without
+        // racing the periodic flusher or re-emitting events it has already sent.
         try {
-            if (closed) {
-                return;
-            }
-            closed = true;
-            if (logFlushFuture != null) {
-                logFlushFuture.cancel(false);
-                logFlushFuture = null;
-            }
-            // flushAudit atomically drains the handler. This preserves events produced before close without
-            // racing the periodic flusher or re-emitting events it has already sent.
-            try {
-                auditHandler.flushAudit();
-            } catch (Throwable e) {
-                LOG.warn("Failed to flush Ranger Hive audit events while closing the access controller", e);
-            }
-            if (hivePlugin != null) {
-                try {
-                    hivePlugin.cleanup();
-                } catch (Throwable e) {
-                    LOG.warn("Failed to clean up Ranger Hive plugin", e);
-                } finally {
-                    hivePlugin = null;
-                }
-            }
-        } finally {
-            lifecycleLock.writeLock().unlock();
+            auditHandler.flushAudit();
+        } catch (Throwable e) {
+            LOG.warn("Failed to flush Ranger Hive audit events while closing the access controller", e);
+        }
+        try {
+            hivePlugin.cleanup();
+        } catch (Throwable e) {
+            LOG.warn("Failed to clean up Ranger Hive plugin", e);
         }
     }
 
     @Override
-    public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
+    protected void checkPrivilegeInternal(AuthorizedSubject subject, AuthorizedResource resource,
             AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
         switch (resource.getKind()) {
             case GLOBAL:
@@ -263,12 +251,7 @@ public class RangerHiveAccessController extends RangerAccessController {
 
     private void checkPrivileges(AuthorizedSubject subject, HiveAccessType accessType,
             List<RangerHiveResource> hiveResources, AuthorizedResource asked) throws AccessDeniedException {
-        lifecycleLock.readLock().lock();
-        try {
-            if (closed) {
-                throw AccessDeniedException.withMessage("Ranger Hive access controller has been closed",
-                        asked, NAME);
-            }
+        checkWhileOpen(asked, () -> {
             List<RangerAccessRequest> requests = new ArrayList<>();
             for (RangerHiveResource resource : hiveResources) {
                 RangerAccessRequestImpl request = createRequest(subject, accessType);
@@ -278,26 +261,18 @@ public class RangerHiveAccessController extends RangerAccessController {
 
             Collection<RangerAccessResult> results = hivePlugin.isAccessAllowed(requests, auditHandler);
             checkRequestResults(results, accessType.name(), asked);
-        } finally {
-            lifecycleLock.readLock().unlock();
-        }
+        });
     }
 
     private boolean checkPrivilege(AuthorizedSubject subject, HiveAccessType accessType,
             RangerHiveResource resource) {
-        lifecycleLock.readLock().lock();
-        try {
-            if (closed) {
-                return false;
-            }
+        return decideWhileOpen(() -> {
             RangerAccessRequestImpl request = createRequest(subject, accessType);
             request.setResource(resource);
 
             RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
             return checkRequestResult(request, result, accessType.name());
-        } finally {
-            lifecycleLock.readLock().unlock();
-        }
+        });
     }
 
     /**
@@ -329,28 +304,9 @@ public class RangerHiveAccessController extends RangerAccessController {
         }
     }
 
-    @Override
-    public List<RowFilterSpec> getRowFilters(AuthorizedSubject subject, AuthorizedResource.Table table,
-            AccessContext context) {
-        lifecycleLock.readLock().lock();
-        try {
-            return closed ? new ArrayList<>() : super.getRowFilters(subject, table, context);
-        } finally {
-            lifecycleLock.readLock().unlock();
-        }
-    }
-
-    @Override
-    public Map<String, DataMaskSpec> getDataMasks(AuthorizedSubject subject, AuthorizedResource.Table table,
-            Set<String> columns, AccessContext context) {
-        lifecycleLock.readLock().lock();
-        try {
-            return closed ? Collections.<String, DataMaskSpec>emptyMap()
-                    : super.getDataMasks(subject, table, columns, context);
-        } finally {
-            lifecycleLock.readLock().unlock();
-        }
-    }
+    // getRowFilters and getDataMasks are fenced by RangerAccessController itself, which refuses rather than
+    // answering "no policy" once this controller is closed. Overriding them to return an empty answer is what
+    // this class used to do, and it made a closed controller indistinguishable from an unrestricted table.
 
     @Override
     protected RangerHiveResource createResource(String ctl, String db, String tbl) {

@@ -109,6 +109,20 @@ import java.util.stream.Collectors;
  *       with a flat yes.</li>
  * </ul>
  *
+ * <p><b>What it does not cover.</b> Worth knowing before trusting a green run as "authorization is unchanged":
+ * <ul>
+ *   <li>the row-filter and data-mask rows were recorded <em>after</em> those payloads became SQL text, so
+ *       they pin the current values, not the ones from before that rework;</li>
+ *   <li>the {@code ext_legacy} column was added last, after the routing rework, so it attests to the adapter's
+ *       behaviour today rather than to its having survived that rework unchanged;</li>
+ *   <li>the Ranger data policy cells say only "a policy came back": {@link StubRangerPolicyEngine} answers on
+ *       user, resource and access type, not on Ranger's own matching semantics, so nothing here would notice a
+ *       real Ranger service declining to match what these rows claim;</li>
+ *   <li>the probes go through {@link AccessControllerManager} directly, which leaves out everything the
+ *       planner decides: {@code isSkipAuth}, the root/admin exemption from data policies, and the multi-column
+ *       mask lookup a query actually makes.</li>
+ * </ul>
+ *
  * <p><b>Regenerating.</b> Run this test; on mismatch it writes the full current matrix next to the build
  * output and names the path. Copy it over {@code src/test/resources/access-control-behavior-baseline.txt}
  * only together with a justification for every changed line - each one is a user-visible privilege change.
