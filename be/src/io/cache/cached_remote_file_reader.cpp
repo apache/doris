@@ -1309,9 +1309,11 @@ void CachedRemoteFileReader::prefetch_range(size_t offset, size_t size, const IO
         dryrun_ctx = *io_ctx;
     }
     dryrun_ctx.is_dryrun = true;
-    // Completion of the prefetch task is the cache-population boundary. An asynchronous cache
-    // write could still be queued, evicted, or rejected after the prefetch task reports completion,
-    // so explicit prefetch keeps persistence synchronous.
+    // prefetch_range() is fire-and-forget: its caller does not explicitly wait for this task. It
+    // relies on synchronous cache writes for coordination instead. A concurrent read of the same
+    // cache block observes DOWNLOADING and waits for this prefetch task to finish populating it. An
+    // asynchronous cache write could return after merely queueing the write and would break that
+    // implicit completion barrier.
     dryrun_ctx.cache_write_mode_override = CacheWriteMode::SYNC_WRITE;
     dryrun_ctx.query_id = nullptr;
     dryrun_ctx.file_cache_stats = nullptr;
