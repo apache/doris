@@ -7,6 +7,13 @@ This file contains version of the third-party dependency libraries in the build-
 - Removed: hadoop-libs 3.3.6.6, along with the `installed/{include,lib}/hadoop_hdfs/`
   prefix it produced. hadoop-libs 3.4.2.4 under `hadoop_hdfs_3_4/` is the only libhdfs
   built now.
+- Modified: azure-core 1.16.0 is now built on aarch64 and macOS as well, and only the
+  parts Doris links (azure-core, azure-identity, azure-storage-common,
+  azure-storage-blobs) are built. Its vcpkg dependency closure no longer contains
+  opentelemetry-cpp, protobuf, abseil, utf8-range, uAMQP, and vcpkg builds the
+  remaining ports release-only. `DISABLE_THIRDPARTY_BUILD_AZURE=ON` skips the package
+  during a third-party build; `DISABLE_BUILD_AZURE` now only decides whether BE and
+  the cloud meta-service link it.
 
 ## 20260816
 
