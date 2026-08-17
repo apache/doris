@@ -596,7 +596,10 @@ struct TTVFTableSink {
     12: optional PlanNodes.TFileCompressType compression_type
     13: optional i64 backend_id              // local TVF: specify BE
     14: optional TTVFWriterType writer_type   // NATIVE or JNI
-    15: optional string writer_class          // Java class name (required when writer_type=JNI)
+    // "<plugin>:<factory>", e.g. "java-writer:local-file" (required when writer_type=JNI). Not a
+    // Java class name: a plugin's classes are private to its own classloader, so BE addresses a
+    // writer by the plugin directory it is deployed in and the factory name within it.
+    15: optional string writer_class
 }
 
 struct TMCCommitData {

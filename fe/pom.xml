@@ -360,9 +360,6 @@ under the License.
         <adbc.version>0.24.0</adbc.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
-        <!-- lakesoul -->
-        <lakesoul.version>2.6.2</lakesoul.version>
-
 
         <commons-collections.version>4.5.0</commons-collections.version>
         <commons-compress.version>1.27.1</commons-compress.version>

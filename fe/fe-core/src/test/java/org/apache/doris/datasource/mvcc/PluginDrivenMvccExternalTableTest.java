@@ -863,12 +863,14 @@ public class PluginDrivenMvccExternalTableTest {
         // The returned pin carries the connector-resolved snapshot.
         Assertions.assertSame(f.resolvedSnapshot, pin.getConnectorSnapshot());
         Assertions.assertEquals(Fixture.TT_SCHEMA_ID, pin.getSchemaId());
-        // MUTATION: listing partitions for time-travel makes these maps non-empty (red) and the
-        // verify(never) below catches the listPartitions call.
+        // The fixture's connector does not claim listsPartitionsAtSnapshot, so the maps stay empty:
+        // listing at LATEST would be the wrong universe for a pinned read, and an empty one means
+        // scan-all. MUTATION: listing partitions for a snapshot-blind connector makes these maps
+        // non-empty (red) and the verify(never) below catches the listPartitions call.
         Assertions.assertTrue(pin.getNameToPartitionItem().isEmpty(),
-                "time-travel reads must NOT list partitions");
+                "a connector that cannot list AT the pin must not have its partitions listed");
         Assertions.assertTrue(pin.getNameToLastModifiedMillis().isEmpty(),
-                "time-travel reads must NOT list partitions");
+                "a connector that cannot list AT the pin must not have its partitions listed");
         Mockito.verify(f.metadata, Mockito.never())
                 .listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
 
@@ -880,6 +882,39 @@ public class PluginDrivenMvccExternalTableTest {
         Assertions.assertEquals(1, pinned.getSchema().size());
         Assertions.assertEquals("v1", pinned.getSchema().get(0).getName(),
                 "the pinned schema must reflect getTableSchema(..., snapshot), not the latest schema");
+    }
+
+    /**
+     * The other half of the same decision: a connector whose listing IS snapshot-exact gets its real
+     * partition set into the pin, listed on the SNAPSHOT-APPLIED handle. Without this the pin would carry
+     * an empty set for a connector that can do better, every time-travel query would read every partition,
+     * and EXPLAIN would report partition=0/0 - which is indistinguishable from "pruned to nothing".
+     */
+    @Test
+    public void testTimeTravelPinsTheRealPartitionSetOfASnapshotAwareConnector() {
+        Fixture f = Fixture.timeTravel();
+        Mockito.when(f.metadata.listsPartitionsAtSnapshot(Mockito.any(), Mockito.eq(f.pinnedHandle)))
+                .thenReturn(true);
+        // What the table held AT the pin: one partition, where it has two today. Listing the unpinned
+        // handle would produce both, so the assertion below is also what proves which handle was used.
+        Mockito.when(f.metadata.listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(Collections.singletonList(cpi("dt=2024-01-01", TS_2024_01_01)));
+
+        PluginDrivenMvccSnapshot pin = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.of(TableSnapshot.versionOf("7")), Optional.empty());
+
+        Assertions.assertEquals(Collections.singleton("dt=2024-01-01"),
+                pin.getNameToPartitionItem().keySet(),
+                "the pin must carry the partition set listed at the snapshot");
+        Assertions.assertEquals(Collections.singleton("dt=2024-01-01"),
+                pin.getNameToLastModifiedMillis().keySet());
+        Mockito.verify(f.metadata).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+        // The pinned schema is unaffected by which listing was used.
+        Assertions.assertEquals(Fixture.TT_SCHEMA_ID, pin.getSchemaId());
     }
 
     @Test

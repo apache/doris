@@ -191,6 +191,14 @@
 1	Alice	2023-12-01T08:00
 2	Bob	2023-12-01T08:00
 
+-- !dropped_partition_latest --
+1	keep1	KEEP
+
+-- !dropped_partition_at_insert --
+1	keep1	KEEP
+2	gone1	GONE
+
+
 -- !one_partition_1_1 --
 1	Alice	2024
 2	Bob	2024
@@ -383,3 +391,9 @@
 1	Alice	2023-12-01T08:00
 2	Bob	2023-12-01T08:00
 
+-- !dropped_partition_latest --
+1	keep1	KEEP
+
+-- !dropped_partition_at_insert --
+1	keep1	KEEP
+2	gone1	GONE

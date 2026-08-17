@@ -220,7 +220,7 @@ suite("test_insert_into_local_tvf_jni", "p0,external") {
                 "file_path"    = "${basePath}/rejected",
                 "backend_id"   = "${be_id}",
                 "format"       = "csv",
-                "writer_class" = "org.apache.doris.common.jni.LocalFileJniWriter"
+                "writer_class" = "org.apache.doris.writer.LocalFileJniWriter"
             ) SELECT * FROM test_local_tvf_jni_src;
         """
         exception "writer_class must name a plugin factory"
@@ -277,6 +277,6 @@ suite("test_insert_into_local_tvf_jni", "p0,external") {
         """
         exception "Java plugin 'no-such-plugin' is not deployed"
     }
-
-    sshExec("root", be_host, "rm -rf ${basePath}", false)
+    // No cleanup here on purpose: the directory is wiped at the start of the suite instead, so the
+    // files a failing run wrote are still there to look at.
 }
