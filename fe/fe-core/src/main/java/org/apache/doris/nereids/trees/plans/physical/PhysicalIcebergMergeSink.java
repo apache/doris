@@ -235,12 +235,13 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
         // Distribution and writer serialization must read the same retained spec/schema.
         List<Column> partitionColumns = getRetainedPartitionColumns();
         Map<String, ExprId> columnExprIdMap = buildColumnExprIdMap(outputSlots, nameToExprId);
+        Map<Integer, ExprId> columnIdToExprId = buildColumnIdExprIdMap(outputSlots);
         boolean insertExprsOk = false;
         if (!partitionColumns.isEmpty()) {
             insertExprsOk = buildInsertPartitionExprIds(insertPartitionExprIds, partitionColumns, columnExprIdMap);
         }
         InsertPartitionFieldResult fieldResult = buildInsertPartitionFields(
-                insertPartitionFields, targetIcebergTable, columnExprIdMap);
+                insertPartitionFields, targetIcebergTable, columnIdToExprId);
         boolean insertFieldsOk = fieldResult.success;
         boolean hasNonIdentity = fieldResult.hasNonIdentity;
         if (insertFieldsOk) {
@@ -317,7 +318,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
     private InsertPartitionFieldResult buildInsertPartitionFields(
             List<DistributionSpecMerge.IcebergPartitionField> insertPartitionFields,
             Table table,
-            Map<String, ExprId> columnExprIdMap) {
+            Map<Integer, ExprId> columnIdToExprId) {
         PartitionSpec spec = table.spec();
         if (spec == null || !spec.isPartitioned()) {
             return new InsertPartitionFieldResult(false, false, null);
@@ -339,20 +340,98 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
                 insertPartitionFields.clear();
                 return new InsertPartitionFieldResult(false, hasNonIdentity, spec.specId());
             }
-            ExprId exprId = columnExprIdMap.get(sourceField.name());
+            Column rootColumn = findSourceRootColumn(cols, field.sourceId());
+            // Nested routing must bind through stable Iceberg IDs; a name fallback can target a
+            // different field after rename/drop-and-add schema evolution.
+            ExprId exprId = rootColumn == null || rootColumn.getUniqueId() < 0
+                    ? null : columnIdToExprId.get(rootColumn.getUniqueId());
             if (exprId == null) {
                 insertPartitionFields.clear();
                 return new InsertPartitionFieldResult(false, hasNonIdentity, spec.specId());
             }
             String transform = field.transform().toString();
             Integer param = parseTransformParam(transform);
+            List<Integer> sourceFieldPath = resolveSourceFieldPath(rootColumn, field.sourceId());
+            if (sourceFieldPath == null) {
+                insertPartitionFields.clear();
+                return new InsertPartitionFieldResult(false, hasNonIdentity, spec.specId());
+            }
             insertPartitionFields.add(new DistributionSpecMerge.IcebergPartitionField(
-                    transform, exprId, param, field.name(), field.sourceId()));
+                    transform, exprId, param, field.name(), field.sourceId(), sourceFieldPath));
         }
         if (insertPartitionFields.isEmpty()) {
             return new InsertPartitionFieldResult(false, hasNonIdentity, spec.specId());
         }
         return new InsertPartitionFieldResult(true, hasNonIdentity, spec.specId());
+    }
+
+    private Map<Integer, ExprId> buildColumnIdExprIdMap(List<Slot> outputSlots) {
+        Map<Integer, ExprId> result = new java.util.HashMap<>();
+        List<Column> visibleColumns = new ArrayList<>();
+        for (Column column : cols) {
+            if (column.isVisible()) {
+                visibleColumns.add(column);
+            }
+        }
+        List<Slot> dataSlots = getDataSlots(outputSlots);
+        if (visibleColumns.size() != dataSlots.size()) {
+            return result;
+        }
+        for (int i = 0; i < visibleColumns.size(); i++) {
+            if (visibleColumns.get(i).getUniqueId() >= 0) {
+                result.put(visibleColumns.get(i).getUniqueId(), dataSlots.get(i).getExprId());
+            }
+        }
+        return result;
+    }
+
+    private static Column findSourceRootColumn(List<Column> columns, int sourceId) {
+        for (Column column : columns) {
+            if (column.getUniqueId() == sourceId || containsFieldId(column.getChildren(), sourceId)) {
+                return column;
+            }
+        }
+        return null;
+    }
+
+    private static boolean containsFieldId(List<Column> columns, int sourceId) {
+        if (columns == null) {
+            return false;
+        }
+        for (Column column : columns) {
+            if (column.getUniqueId() == sourceId || containsFieldId(column.getChildren(), sourceId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<Integer> resolveSourceFieldPath(Column root, int sourceId) {
+        if (root == null) {
+            return null;
+        }
+        if (root.getUniqueId() == sourceId) {
+            return ImmutableList.of();
+        }
+        List<Integer> path = new ArrayList<>();
+        return findSourceFieldPath(root.getChildren(), sourceId, path)
+                ? ImmutableList.copyOf(path) : null;
+    }
+
+    private static boolean findSourceFieldPath(List<Column> columns, int sourceId, List<Integer> path) {
+        if (columns == null) {
+            return false;
+        }
+        for (int index = 0; index < columns.size(); index++) {
+            Column column = columns.get(index);
+            path.add(index);
+            if (column.getUniqueId() == sourceId
+                    || findSourceFieldPath(column.getChildren(), sourceId, path)) {
+                return true;
+            }
+            path.remove(path.size() - 1);
+        }
+        return false;
     }
 
     private List<Column> getRetainedPartitionColumns() {

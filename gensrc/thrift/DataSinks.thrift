@@ -384,6 +384,7 @@ struct THiveTableSink {
     10: optional bool overwrite
     11: optional THiveSerDeProperties serde_properties
     12: optional list<Types.TNetworkAddress> broker_addresses;
+    13: optional bool supports_deferred_azure_multipart
 }
 
 enum TUpdateMode {

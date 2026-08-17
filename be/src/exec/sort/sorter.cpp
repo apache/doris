@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -38,6 +39,20 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
+
+namespace {
+
+size_t saturating_add_size(size_t lhs, size_t rhs) {
+    return std::min(std::numeric_limits<size_t>::max() - lhs, rhs) + lhs;
+}
+
+size_t saturating_multiply_size(size_t lhs, size_t rhs) {
+    return lhs == 0 || rhs <= std::numeric_limits<size_t>::max() / lhs
+                   ? lhs * rhs
+                   : std::numeric_limits<size_t>::max();
+}
+
+} // namespace
 
 namespace doris {
 class RowDescriptor;
@@ -184,35 +199,62 @@ bool FullSorter::has_enough_capacity(Block* input_block, Block* unsorted_block) 
 }
 
 size_t FullSorter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
-    size_t size_to_reserve = 0;
+    return get_reserve_mem_size_components(state, eos).total();
+}
+
+SorterReserveMemory FullSorter::get_reserve_mem_size_components(RuntimeState* state,
+                                                                bool eos) const {
+    const auto rows = _state->unsorted_block()->rows();
+    const auto bytes = _state->unsorted_block()->bytes();
+    const auto bytes_per_row = rows == 0 ? 0 : bytes / rows;
+    return get_reserve_mem_size_components(
+            state, eos, state->batch_size(),
+            saturating_multiply_size(bytes_per_row, state->batch_size()));
+}
+
+SorterReserveMemory FullSorter::get_reserve_mem_size_components(RuntimeState* state, bool eos,
+                                                                size_t incoming_rows,
+                                                                size_t incoming_bytes) const {
+    SorterReserveMemory reserve;
     const auto rows = _state->unsorted_block()->rows();
     if (rows != 0) {
         const auto bytes = _state->unsorted_block()->bytes();
         const auto allocated_bytes = _state->unsorted_block()->allocated_bytes();
-        const auto bytes_per_row = bytes / rows;
-        const auto estimated_size_of_next_block = bytes_per_row * state->batch_size();
-        auto new_block_bytes = estimated_size_of_next_block + bytes;
-        auto new_rows = rows + state->batch_size();
+        auto new_block_bytes = saturating_add_size(bytes, incoming_bytes);
+        auto new_rows = saturating_add_size(rows, incoming_rows);
         // If the new size is greater than 85% of allocalted bytes, it maybe need to realloc.
-        if ((new_block_bytes * 100 / allocated_bytes) >= 85) {
-            size_to_reserve += (size_t)(allocated_bytes * 1.15);
+        const auto growth_threshold = static_cast<size_t>(
+                (static_cast<unsigned __int128>(allocated_bytes) * 85 + 99) / 100);
+        const size_t growth_trigger_bytes = growth_threshold > bytes ? growth_threshold - bytes : 0;
+        if (incoming_rows > 0 && growth_trigger_bytes <= incoming_bytes) {
+            reserve.retained_growth = static_cast<size_t>(std::min<unsigned __int128>(
+                    (static_cast<unsigned __int128>(allocated_bytes) * 115 + 99) / 100,
+                    std::numeric_limits<size_t>::max()));
+            reserve.retained_growth_trigger_bytes = growth_trigger_bytes;
         }
-        auto sort = new_rows > _buffered_block_size || new_block_bytes > _buffered_block_bytes;
+        // Iceberg close forces every nonempty pending run to sort at EOS, even when the generic
+        // append thresholds are not reached, so admission must cover that final allocation too.
+        auto sort = (eos && new_rows > 0) || new_rows > _buffered_block_size ||
+                    new_block_bytes > _buffered_block_bytes;
         if (sort) {
-            // new column is created when doing sort, reserve average size of one column
-            // for estimation
-            size_to_reserve += new_block_bytes / _state->unsorted_block()->columns();
+            // sort_block keeps the source columns live while materializing a fully permuted destination.
+            reserve.transient_workspace =
+                    saturating_add_size(reserve.transient_workspace, new_block_bytes);
 
             // helping data structures used during sorting
-            size_to_reserve += new_rows * sizeof(IColumn::Permutation::value_type);
+            reserve.transient_workspace = saturating_add_size(
+                    reserve.transient_workspace,
+                    saturating_multiply_size(new_rows, sizeof(IColumn::Permutation::value_type)));
 
             auto sort_columns_count = _ordering_expr_ctxs.size();
             if (1 != sort_columns_count) {
-                size_to_reserve += new_rows * sizeof(EqualRangeIterator);
+                reserve.transient_workspace = saturating_add_size(
+                        reserve.transient_workspace,
+                        saturating_multiply_size(new_rows, sizeof(EqualRangeIterator)));
             }
         }
     }
-    return size_to_reserve;
+    return reserve;
 }
 
 Status FullSorter::append_block(Block* block) {

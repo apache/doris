@@ -25,6 +25,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/be_mock_util.h"
@@ -39,6 +40,42 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+class ReservedMemoryToken {
+public:
+    ReservedMemoryToken() = default;
+    ReservedMemoryToken(const ReservedMemoryToken&) = delete;
+    ReservedMemoryToken& operator=(const ReservedMemoryToken&) = delete;
+    ReservedMemoryToken(ReservedMemoryToken&& other) noexcept { *this = std::move(other); }
+    ReservedMemoryToken& operator=(ReservedMemoryToken&& other) noexcept {
+        if (this != &other) {
+            release();
+            _limiter_tracker = std::move(other._limiter_tracker);
+            _wg_wptr = std::move(other._wg_wptr);
+            _bytes = std::exchange(other._bytes, 0);
+            _untracked_bytes = std::exchange(other._untracked_bytes, 0);
+        }
+        return *this;
+    }
+    ~ReservedMemoryToken() { release(); }
+    [[nodiscard]] int64_t bytes() const { return _bytes; }
+
+private:
+    friend class ThreadMemTrackerMgr;
+    ReservedMemoryToken(std::shared_ptr<MemTrackerLimiter> limiter_tracker,
+                        std::weak_ptr<WorkloadGroup> wg_wptr, int64_t bytes,
+                        int64_t untracked_bytes)
+            : _limiter_tracker(std::move(limiter_tracker)),
+              _wg_wptr(std::move(wg_wptr)),
+              _bytes(bytes),
+              _untracked_bytes(untracked_bytes) {}
+    void release();
+
+    std::shared_ptr<MemTrackerLimiter> _limiter_tracker;
+    std::weak_ptr<WorkloadGroup> _wg_wptr;
+    int64_t _bytes = 0;
+    int64_t _untracked_bytes = 0;
+};
 
 constexpr size_t SYNC_PROC_RESERVED_INTERVAL_BYTES = (1ULL << 20); // 1M
 static std::string MEMORY_ORPHAN_CHECK_MSG =
@@ -99,6 +136,9 @@ public:
                                   TryReserveChecker::CHECK_TASK_AND_WORKLOAD_GROUP_AND_PROCESS);
 
     void shrink_reserved();
+
+    ReservedMemoryToken take_reserved_memory();
+    void adopt_reserved_memory(ReservedMemoryToken&& token);
 
     MemTrackerLimiter* limiter_mem_tracker() {
         CHECK(init());

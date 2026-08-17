@@ -5548,6 +5548,9 @@ public class SessionVariable implements Serializable, Writable {
      */
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
+        // BE must size ownership-bearing reports against the receiving FE's actual Thrift limit.
+        tResult.setCoordinatorThriftMaxMessageSize(Config.thrift_max_message_size);
+        tResult.setSupportsExternalFileReportAck(true);
         tResult.setMemLimit(maxExecMemByte);
         tResult.setLocalExchangeFreeBlocksLimit(localExchangeFreeBlocksLimit);
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);

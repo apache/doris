@@ -18,6 +18,7 @@
 #include "exec/operator/spill_iceberg_table_sink_operator.h"
 
 #include "common/status.h"
+#include "core/block/block.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/operator/spill_utils.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
@@ -26,12 +27,27 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
+size_t iceberg_cold_writer_reserve_size(const Block& block, size_t writer_workspace_bytes) {
+    const size_t block_bytes = block.allocated_bytes();
+    const size_t row_index_bytes =
+            std::min(std::numeric_limits<size_t>::max() / sizeof(size_t), block.rows()) *
+            sizeof(size_t);
+    const size_t dispatch_copies = block_bytes > std::numeric_limits<size_t>::max() / 4
+                                           ? std::numeric_limits<size_t>::max()
+                                           : block_bytes * 4;
+    size_t reserve = iceberg_saturating_add(writer_workspace_bytes, dispatch_copies);
+    // Transform, selected blocks, and retained sorters coexist during high-cardinality dispatch.
+    return iceberg_saturating_add(reserve, row_index_bytes);
+}
+
 SpillIcebergTableSinkLocalState::SpillIcebergTableSinkLocalState(DataSinkOperatorXBase* parent,
                                                                  RuntimeState* state)
         : Base(parent, state) {}
 
 Status SpillIcebergTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+    // Admission samples async sorter state, so wait until the prior append has published it.
+    _writer->wait_for_processing_before_next_sink();
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
 
@@ -53,30 +69,49 @@ bool SpillIcebergTableSinkLocalState::is_blockable() const {
     return true;
 }
 
-size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
+size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos,
+                                                             const Block* block) {
     if (!_writer) {
         return 0;
     }
-    auto current_writer = _writer->current_writer();
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
-    if (!sort_writer) {
-        return 0;
+    std::vector<IcebergSorterReserveMemory> per_partition_reservations;
+    const size_t incoming_rows = block == nullptr ? 0 : block->rows();
+    const size_t incoming_bytes = block == nullptr ? 0 : block->allocated_bytes();
+    auto active_writers = _writer->active_writers();
+    per_partition_reservations.reserve(active_writers->size());
+    for (const auto& writer : *active_writers) {
+        if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
+            auto reservation = sort_writer->get_reserve_mem_size_components(
+                    state, eos, incoming_rows, incoming_bytes);
+            per_partition_reservations.push_back(
+                    {.retained_growth = reservation.retained_growth,
+                     .retained_growth_trigger_bytes = reservation.retained_growth_trigger_bytes,
+                     .transient_workspace = reservation.transient_workspace});
+        }
     }
-
-    return sort_writer->get_reserve_mem_size(state, eos);
+    // Column growth remains in every touched sorter, while sorting workspace is reused by serial dispatch.
+    // The final queued item may contain rows and also owns the reservation used by async finish().
+    const size_t incoming_reserve =
+            block == nullptr ? state->minimum_operator_memory_required_bytes()
+                             : iceberg_cold_writer_reserve_size(
+                                       *block, state->minimum_operator_memory_required_bytes());
+    return iceberg_reserve_size(per_partition_reservations, incoming_reserve, incoming_rows,
+                                incoming_bytes);
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {
     if (!_writer) {
         return 0;
     }
-    auto current_writer = _writer->current_writer();
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
-    if (!sort_writer) {
-        return 0;
+    size_t revocable_size = 0;
+    // Retain the published container while the async writer may replace the current snapshot.
+    auto active_writers = _writer->active_writers();
+    for (const auto& writer : *active_writers) {
+        if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
+            revocable_size += sort_writer->data_size();
+        }
     }
-
-    return sort_writer->data_size();
+    return revocable_size;
 }
 
 Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
@@ -84,20 +119,25 @@ Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
     if (!_writer) {
         return Status::OK();
     }
-    auto current_writer = _writer->current_writer();
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
-    if (!sort_writer) {
-        return Status::OK();
+    std::shared_ptr<IPartitionWriterBase> largest_writer;
+    size_t largest_size = 0;
+    // Retain the snapshot while the async writer may publish a replacement.
+    auto active_writers = _writer->active_writers();
+    for (const auto& writer : *active_writers) {
+        if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
+            size_t size = sort_writer->data_size();
+            if (size > largest_size) {
+                largest_size = size;
+                largest_writer = writer;
+            }
+        }
     }
-
-    auto exception_catch_func = [current_writer, sort_writer]() {
-        auto status = [&]() {
-            RETURN_IF_CATCH_EXCEPTION({ return sort_writer->trigger_spill(); });
-        }();
-        return status;
-    };
-
-    return run_spill_task(state, exception_catch_func);
+    if (largest_writer != nullptr) {
+        // Drain one largest partition per revocation to avoid launching O(P) spill tasks.
+        auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(largest_writer.get());
+        RETURN_IF_CATCH_EXCEPTION({ RETURN_IF_ERROR(sort_writer->trigger_spill()); });
+    }
+    return Status::OK();
 }
 
 SpillIcebergTableSinkOperatorX::SpillIcebergTableSinkOperatorX(
@@ -127,9 +167,10 @@ Status SpillIcebergTableSinkOperatorX::sink_impl(RuntimeState* state, Block* in_
     return local_state.sink(state, in_block, eos);
 }
 
-size_t SpillIcebergTableSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
+size_t SpillIcebergTableSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos,
+                                                            const Block* block) {
     auto& local_state = get_local_state(state);
-    return local_state.get_reserve_mem_size(state, eos);
+    return local_state.get_reserve_mem_size(state, eos, block);
 }
 
 size_t SpillIcebergTableSinkOperatorX::revocable_mem_size(RuntimeState* state) const {

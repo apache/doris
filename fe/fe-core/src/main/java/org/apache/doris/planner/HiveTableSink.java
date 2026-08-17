@@ -93,6 +93,9 @@ public class HiveTableSink extends BaseExternalTableDataSink {
     public void bindDataSink(Optional<InsertCommandContext> insertCtx)
             throws AnalysisException {
         THiveTableSink tSink = new THiveTableSink();
+        // The legacy planner uses the same deferred Azure protocol as the connector planner, so the BE
+        // must not fall back to publishing blocks before FE has durably accepted the commit records.
+        tSink.setSupportsDeferredAzureMultipart(true);
         tSink.setDbName(targetTable.getDbName());
         tSink.setTableName(targetTable.getName());
         Set<String> partNames = new HashSet<>(targetTable.getPartitionColumnNames());
