@@ -91,10 +91,6 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
     @SerializedName(value = "svs")
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
-    public Map<String, String> getSessionVariables() {
-        return sessionVariables;
-    }
-
     public BulkLoadJob(EtlJobType jobType) {
         super(jobType);
     }
@@ -112,13 +108,10 @@ public abstract class BulkLoadJob extends LoadJob implements GsonPostProcessable
             sessionVariables.put(SessionVariable.AUTO_PROFILE_THRESHOLD_MS,
                                     Long.toString(var.getAutoProfileThresholdMs()));
             sessionVariables.put(SessionVariable.PROFILE_LEVEL, Long.toString(var.getProfileLevel()));
-            sessionVariables.put(SessionVariable.ENABLE_HYPERSCAN_FALLBACK,
-                    Boolean.toString(var.enableHyperscanFallback));
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
             sessionVariables.put(SessionVariable.AUTO_PROFILE_THRESHOLD_MS, Long.toString(-1));
             sessionVariables.put(SessionVariable.PROFILE_LEVEL, Long.toString(1));
-            sessionVariables.put(SessionVariable.ENABLE_HYPERSCAN_FALLBACK, Boolean.toString(true));
         }
     }
 

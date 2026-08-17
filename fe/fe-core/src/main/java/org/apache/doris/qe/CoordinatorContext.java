@@ -304,7 +304,7 @@ public class CoordinatorContext {
             DescriptorTable descTable,
             String timezone, boolean loadZeroTolerance,
             boolean enableProfile) {
-        TQueryOptions queryOptions = ConnectContext.get().getSessionVariable().toThrift();
+        TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setEnableProfile(enableProfile);
         queryOptions.setProfileLevel(2);
         queryOptions.setBeExecVersion(Config.be_exec_version);

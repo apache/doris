@@ -65,7 +65,6 @@ public class CloudEnvFactoryTest {
         try {
             ConnectContext context = new ConnectContext();
             context.getSessionVariable().setEnableNereidsDistributePlanner(false);
-            context.getSessionVariable().enableHyperscanFallback = false;
             context.setThreadLocalInfo();
             Coordinator coordinator = new CloudEnvFactory().createCoordinator(
                     1L, new TUniqueId(1L, 1L), new DescriptorTable(),
@@ -78,7 +77,6 @@ public class CloudEnvFactoryTest {
             Assert.assertTrue(coordinator.getQueryOptions().isNewVersionPercentile());
             Assert.assertTrue(coordinator.getQueryOptions().isSetNewVersionBitmapOpCount());
             Assert.assertTrue(coordinator.getQueryOptions().isNewVersionBitmapOpCount());
-            Assert.assertFalse(coordinator.getQueryOptions().isEnableHyperscanFallback());
         } finally {
             ConnectContext.remove();
             FeConstants.runningUnitTest = runningUnitTest;

@@ -34,7 +34,6 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUniqueKeyUpdateMode;
@@ -87,28 +86,6 @@ public class NereidsLoadScanProviderTest {
         try {
             NereidsStreamLoadTask task = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request);
             Assertions.assertFalse(NereidsStreamLoadPlanner.getQueryOptions(task).isEnableHyperscanFallback());
-        } finally {
-            ConnectContext.remove();
-        }
-    }
-
-    @Test
-    public void testRoutineLoadUsesPersistedSessionVariableSnapshot() {
-        SessionVariable sessionVariable = new SessionVariable();
-        sessionVariable.enableHyperscanFallback = true;
-        ConnectContext context = new ConnectContext();
-        context.setSessionVariable(sessionVariable);
-        context.setThreadLocalInfo();
-        try {
-            NereidsRoutineLoadTaskInfo task = new NereidsRoutineLoadTaskInfo(
-                    1024L, Collections.emptyMap(), 10L, null, LoadTask.MergeType.APPEND,
-                    null, null, 0.0, null, null, null, null, null, (byte) 0, (byte) 0,
-                    1, false, TUniqueKeyUpdateMode.UPSERT, TPartialUpdateNewRowPolicy.APPEND, false);
-            task.setSessionVariables(Collections.singletonMap(
-                    SessionVariable.ENABLE_HYPERSCAN_FALLBACK, Boolean.toString(false)));
-
-            Assertions.assertFalse(NereidsStreamLoadPlanner.getQueryOptions(task).isEnableHyperscanFallback());
-            Assertions.assertTrue(context.getSessionVariable().enableHyperscanFallback);
         } finally {
             ConnectContext.remove();
         }

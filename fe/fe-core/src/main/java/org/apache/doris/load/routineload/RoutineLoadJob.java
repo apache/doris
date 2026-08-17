@@ -320,8 +320,6 @@ public abstract class RoutineLoadJob
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
-            sessionVariables.put(SessionVariable.ENABLE_HYPERSCAN_FALLBACK,
-                    Boolean.toString(var.enableHyperscanFallback));
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
             if (Config.isCloudMode()) {
                 try {
@@ -332,13 +330,7 @@ public abstract class RoutineLoadJob
             }
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
-            sessionVariables.put(SessionVariable.ENABLE_HYPERSCAN_FALLBACK, Boolean.toString(true));
         }
-    }
-
-    @Override
-    public Map<String, String> getSessionVariables() {
-        return sessionVariables;
     }
 
     /**
@@ -357,8 +349,6 @@ public abstract class RoutineLoadJob
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
-            sessionVariables.put(SessionVariable.ENABLE_HYPERSCAN_FALLBACK,
-                    Boolean.toString(var.enableHyperscanFallback));
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
             try {
                 this.cloudCluster = ConnectContext.get().getCloudCluster();
@@ -367,7 +357,6 @@ public abstract class RoutineLoadJob
             }
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
-            sessionVariables.put(SessionVariable.ENABLE_HYPERSCAN_FALLBACK, Boolean.toString(true));
         }
     }
 

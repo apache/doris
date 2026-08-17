@@ -41,7 +41,6 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
-import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
@@ -345,9 +344,9 @@ public class NereidsStreamLoadPlanner {
     }
 
     static TQueryOptions getQueryOptions(NereidsLoadTaskInfo taskInfo) {
-        try (AutoCloseSessionVariable ignored = new AutoCloseSessionVariable(
-                ConnectContext.get(), taskInfo.getSessionVariables())) {
-            return ConnectContext.get().getSessionVariable().toThrift();
+        if (taskInfo instanceof NereidsRoutineLoadTaskInfo) {
+            return new TQueryOptions();
         }
+        return ConnectContext.get().getSessionVariable().toThrift();
     }
 }

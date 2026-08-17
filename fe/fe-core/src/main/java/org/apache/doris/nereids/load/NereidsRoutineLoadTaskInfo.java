@@ -33,8 +33,6 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Strings;
 
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -71,7 +69,6 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     protected TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
     protected TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
     protected boolean memtableOnSinkNode;
-    protected Map<String, String> sessionVariables = Collections.emptyMap();
     protected int timeoutSec;
 
     /**
@@ -105,15 +102,6 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
         this.partialUpdateNewKeyPolicy = partialUpdateNewKeyPolicy;
         this.memtableOnSinkNode = memtableOnSinkNode;
         this.timeoutSec = calTimeoutSec();
-    }
-
-    @Override
-    public Map<String, String> getSessionVariables() {
-        return sessionVariables;
-    }
-
-    public void setSessionVariables(Map<String, String> sessionVariables) {
-        this.sessionVariables = new HashMap<>(sessionVariables);
     }
 
     @Override

@@ -32,8 +32,8 @@ public class AutoCloseSessionVariable implements AutoCloseable {
 
     /** if argument connectContext is not null, must be same with value of ConnectContext.get();
      * if argument connectContext is null, value of ConnectContext.get() must be null*/
-    public AutoCloseSessionVariable(ConnectContext connectContext, Map<String, String> sessionVariables) {
-        if (sessionVariables == null || sessionVariables.isEmpty()) {
+    public AutoCloseSessionVariable(ConnectContext connectContext, Map<String, String> affectQueryResultVariables) {
+        if (affectQueryResultVariables == null || affectQueryResultVariables.isEmpty()) {
             return;
         }
         if (connectContext == null) {
@@ -46,7 +46,7 @@ public class AutoCloseSessionVariable implements AutoCloseable {
             previousVariable = connectContext.getSessionVariable();
         }
         SessionVariable sessionVariable = new SessionVariable();
-        sessionVariable.setForwardedSessionVariables(sessionVariables);
+        sessionVariable.setAffectQueryResultInPlanSessionVariables(affectQueryResultVariables);
         currentConnectContext.setSessionVariable(sessionVariable);
     }
 

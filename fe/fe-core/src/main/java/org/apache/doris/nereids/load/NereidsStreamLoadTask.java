@@ -42,10 +42,7 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import com.google.common.base.Strings;
 
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -102,7 +99,6 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     private String groupCommit;
 
     private boolean emptyFieldAsNull = false;
-    private Map<String, String> sessionVariables = Collections.emptyMap();
 
     /**
      * NereidsStreamLoadTask
@@ -368,11 +364,6 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         return streamLoadTask;
     }
 
-    @Override
-    public Map<String, String> getSessionVariables() {
-        return sessionVariables;
-    }
-
     /**
      * setMultiTableBaseTaskInfo
      */
@@ -394,7 +385,6 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         this.jsonRoot = task.getJsonRoot();
         this.sendBatchParallelism = task.getSendBatchParallelism();
         this.loadToSingleTablet = task.isLoadToSingleTablet();
-        this.sessionVariables = new HashMap<>(task.getSessionVariables());
     }
 
     private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {

@@ -394,7 +394,7 @@ public class Coordinator implements CoordInterface {
         this.descTable = DescriptorToThriftConverter.toThrift(descTable);
         this.fragments = fragments;
         this.scanNodes = scanNodes;
-        this.queryOptions = ConnectContext.get().getSessionVariable().toThrift();
+        this.queryOptions = new TQueryOptions();
         this.queryOptions.setEnableProfile(enableProfile);
         this.queryOptions.setProfileLevel(2);
         this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));

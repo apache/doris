@@ -151,15 +151,6 @@ public class CoordinatorTest extends TestWithFeService {
         Mockito.verify(sortNode).setHasRuntimePredicate();
     }
 
-    @Test
-    public void testBrokerLoadPreservesHyperscanFallbackOption() {
-        connectContext.getSessionVariable().enableHyperscanFallback = false;
-        connectContext.setThreadLocalInfo();
-        Coordinator coordinator = new Coordinator(0L, new TUniqueId(1L, 1L), new DescriptorTable(),
-                Collections.emptyList(), Collections.emptyList(), "UTC", false, false);
-        Assertions.assertFalse(coordinator.getQueryOptions().isEnableHyperscanFallback());
-    }
-
     private NereidsPlanner plan(String sql) throws IOException {
         connectContext.getSessionVariable().setDisableNereidsRules(
                 "PRUNE_EMPTY_PARTITION,OLAP_SCAN_TABLET_PRUNE");

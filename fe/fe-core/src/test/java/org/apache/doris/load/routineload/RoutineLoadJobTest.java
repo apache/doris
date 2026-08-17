@@ -34,7 +34,6 @@ import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.thrift.TLoadSourceType;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
@@ -59,21 +58,6 @@ import java.util.List;
 import java.util.Map;
 
 public class RoutineLoadJobTest {
-
-    @Test
-    public void testHyperscanFallbackReplayCompatibility() {
-        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob();
-        Map<String, String> sessionVariables = Maps.newHashMap();
-        Deencapsulation.setField(job, "sessionVariables", sessionVariables);
-        SessionVariable sessionVariable = new SessionVariable();
-        sessionVariable.setForwardedSessionVariables(job.getSessionVariables());
-        Assert.assertTrue(sessionVariable.enableHyperscanFallback);
-
-        sessionVariables.put(SessionVariable.ENABLE_HYPERSCAN_FALLBACK, Boolean.toString(false));
-        sessionVariable.setForwardedSessionVariables(job.getSessionVariables());
-        Assert.assertFalse(sessionVariable.enableHyperscanFallback);
-    }
-
     @Test
     public void testFirstErrorMsgInTxnCommitAttachment() {
         String overlongFirstErrorMsg = Strings.repeat("x", Config.first_error_msg_max_length + 1);
