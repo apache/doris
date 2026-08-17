@@ -188,10 +188,10 @@ public class RoutineLoadManager implements Writable {
                     InternalCatalog.INTERNAL_CATALOG_NAME,
                     info.getDBName(),
                     PrivPredicate.LOAD)) {
-                // todo add new error code
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                // A database-scoped code for a database-scoped refusal: the table one renders the database
+                // name as "for table 'mydb'".
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                         ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(),
                         info.getDBName());
             }
         } else if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
@@ -298,10 +298,9 @@ public class RoutineLoadManager implements Writable {
                     InternalCatalog.INTERNAL_CATALOG_NAME,
                     dbFullName,
                     PrivPredicate.LOAD)) {
-                // todo add new error code
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                // As above: a database-scoped refusal gets the database-scoped code.
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                         ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(),
                         dbFullName);
             }
             return routineLoadJob;
@@ -336,9 +335,17 @@ public class RoutineLoadManager implements Writable {
             for (RoutineLoadJob job : jobs) {
                 if (!job.getState().isFinalState()) {
                     String tableName = job.getTableName();
-                    if (!job.isMultiTable() && !Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                                    tableName, PrivPredicate.LOAD)) {
+                    // A multi table job names no table, so LOAD has to be held on the database or above -
+                    // the same rule checkPrivAndGetJob() applies to a single job. Without it the && below
+                    // short-circuits and a multi table job is returned to PAUSE/RESUME ALL ROUTINE LOAD
+                    // without any check at all.
+                    boolean allowed = job.isMultiTable()
+                            ? Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, PrivPredicate.LOAD)
+                            : Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+                                    InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName,
+                                    PrivPredicate.LOAD);
+                    if (!allowed) {
                         continue;
                     }
                     result.add(job);
