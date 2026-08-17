@@ -1,0 +1,473 @@
+diff --git a/include/lance/lance.h b/include/lance/lance.h
+index 1de72fa..a0a8b5e 100644
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -750,6 +750,31 @@ int32_t lance_dataset_take(
+     struct ArrowArrayStream* out
+ );
+ 
++/**
++ * Take rows by dataset row IDs.
++ *
++ * Row IDs are values from the `_rowid` scanner column, not zero-based row
++ * offsets. They must belong to the same dataset snapshot used for this read.
++ * Missing or deleted row IDs may be omitted from the result. For found rows,
++ * input order and duplicates are preserved.
++ *
++ * @param dataset      Open dataset snapshot.
++ * @param row_ids      Array of dataset row IDs. May be NULL only when
++ *                     `num_row_ids` is zero.
++ * @param num_row_ids  Length of `row_ids`.
++ * @param columns      NULL-terminated column names, or NULL for all. The
++ *                     system column `_rowid` may be requested explicitly.
++ * @param out          Pointer to caller-allocated ArrowArrayStream.
++ * @return 0 on success, -1 on error.
++ */
++int32_t lance_dataset_take_rows(
++    const LanceDataset* dataset,
++    const uint64_t* row_ids,
++    size_t num_row_ids,
++    const char* const* columns,
++    struct ArrowArrayStream* out
++);
++
+ /* ─── Scanner builder ─── */
+ 
+ /**
+diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
+index 40aa9e3..d54dc5a 100644
+--- a/include/lance/lance.hpp
++++ b/include/lance/lance.hpp
+@@ -652,6 +652,30 @@ public:
+         }
+     }
+ 
++    /// Take rows by dataset row IDs. Results exported as ArrowArrayStream.
++    void take_rows(const uint64_t* row_ids, size_t num_row_ids,
++                   const std::vector<std::string>& columns,
++                   ArrowArrayStream* out) const {
++        std::vector<const char*> col_ptrs;
++        for (auto& c : columns) col_ptrs.push_back(c.c_str());
++        col_ptrs.push_back(nullptr);
++        const char* const* cols_ptr = columns.empty() ? nullptr : col_ptrs.data();
++
++        if (lance_dataset_take_rows(
++                handle_.get(), row_ids, num_row_ids, cols_ptr, out) != 0) {
++            check_error();
++        }
++    }
++
++    /// Take all columns by dataset row IDs.
++    void take_rows(const uint64_t* row_ids, size_t num_row_ids,
++                   ArrowArrayStream* out) const {
++        if (lance_dataset_take_rows(
++                handle_.get(), row_ids, num_row_ids, nullptr, out) != 0) {
++            check_error();
++        }
++    }
++
+     /// Create a Scanner builder for this dataset.
+     Scanner scan() const;
+ 
+diff --git a/src/dataset.rs b/src/dataset.rs
+index 91a735f..a7b9e13 100644
+--- a/src/dataset.rs
++++ b/src/dataset.rs
+@@ -261,6 +261,85 @@ unsafe fn dataset_take_inner(
+     Ok(0)
+ }
+ 
++/// Take rows by dataset row IDs, returning results as an ArrowArrayStream.
++///
++/// - `row_ids`: array of dataset row IDs, such as values returned in the
++///   `_rowid` scanner column
++/// - `num_row_ids`: length of the row ID array
++/// - `columns`: NULL-terminated column name array, or NULL for all columns
++/// - `out`: pointer to a stack-allocated `ArrowArrayStream`
++///
++/// `row_ids` may be NULL only when `num_row_ids` is zero. Row IDs must belong
++/// to the same dataset snapshot used for this read. Missing or deleted row IDs
++/// may be omitted from the result by the upstream Lance implementation.
++///
++/// Returns 0 on success, -1 on error.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_dataset_take_rows(
++    dataset: *const LanceDataset,
++    row_ids: *const u64,
++    num_row_ids: usize,
++    columns: *const *const c_char,
++    out: *mut FFI_ArrowArrayStream,
++) -> i32 {
++    ffi_try!(
++        unsafe { dataset_take_rows_inner(dataset, row_ids, num_row_ids, columns, out) },
++        neg
++    )
++}
++
++unsafe fn dataset_take_rows_inner(
++    dataset: *const LanceDataset,
++    row_ids: *const u64,
++    num_row_ids: usize,
++    columns: *const *const c_char,
++    out: *mut FFI_ArrowArrayStream,
++) -> Result<i32> {
++    if dataset.is_null() {
++        return Err(lance_core::Error::InvalidInput {
++            source: "dataset must not be NULL".into(),
++            location: snafu::location!(),
++        });
++    }
++    if out.is_null() {
++        return Err(lance_core::Error::InvalidInput {
++            source: "out must not be NULL".into(),
++            location: snafu::location!(),
++        });
++    }
++    if num_row_ids > 0 && row_ids.is_null() {
++        return Err(lance_core::Error::InvalidInput {
++            source: format!("row_ids must not be NULL when num_row_ids = {num_row_ids}").into(),
++            location: snafu::location!(),
++        });
++    }
++
++    let ds = unsafe { &*dataset };
++    let row_id_slice = if num_row_ids == 0 {
++        &[]
++    } else {
++        unsafe { std::slice::from_raw_parts(row_ids, num_row_ids) }
++    };
++    let col_names = unsafe { helpers::parse_c_string_array(columns)? };
++
++    let snap = ds.snapshot();
++    let projection = match &col_names {
++        Some(cols) => lance::dataset::ProjectionRequest::from_columns(cols.iter(), snap.schema()),
++        None => lance::dataset::ProjectionRequest::from_schema(snap.schema().clone()),
++    };
++
++    let batch = block_on(snap.take_rows(row_id_slice, projection))?;
++
++    // Match lance_dataset_take: export the single RecordBatch as an Arrow stream.
++    let schema = batch.schema();
++    let reader = arrow::record_batch::RecordBatchIterator::new(vec![Ok(batch)], schema);
++    let ffi_stream = FFI_ArrowArrayStream::new(Box::new(reader));
++    unsafe {
++        std::ptr::write_unaligned(out, ffi_stream);
++    }
++    Ok(0)
++}
++
+ // ---------------------------------------------------------------------------
+ // Fragment enumeration
+ // ---------------------------------------------------------------------------
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+index f184bbe..0818c6e 100644
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -15,7 +15,7 @@ use arrow::ffi::from_ffi;
+ use arrow::ffi_stream::ArrowArrayStreamReader;
+ use arrow::ffi_stream::FFI_ArrowArrayStream;
+ use arrow::record_batch::RecordBatchReader;
+-use arrow_array::{Array, Float32Array, Int32Array, RecordBatch, StringArray};
++use arrow_array::{Array, Float32Array, Int32Array, RecordBatch, StringArray, UInt64Array};
+ use arrow_schema::{DataType, Field, Schema};
+ use lance::Dataset;
+ use lance_c::*;
+@@ -391,6 +391,50 @@ fn test_dataset_take() {
+     unsafe { lance_dataset_close(ds) };
+ }
+ 
++#[test]
++fn test_dataset_take_rows_empty_and_null_validation() {
++    let (_tmp, uri) = create_test_dataset();
++    let c_uri = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++
++    let mut empty_stream = FFI_ArrowArrayStream::empty();
++    assert_eq!(
++        unsafe { lance_dataset_take_rows(ds, ptr::null(), 0, ptr::null(), &mut empty_stream) },
++        0
++    );
++    let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut empty_stream) }.unwrap();
++    assert_eq!(
++        reader.map(|batch| batch.unwrap().num_rows()).sum::<usize>(),
++        0
++    );
++
++    let mut invalid_stream = FFI_ArrowArrayStream::empty();
++    assert_eq!(
++        unsafe { lance_dataset_take_rows(ds, ptr::null(), 1, ptr::null(), &mut invalid_stream) },
++        -1
++    );
++    let message = unsafe { std::ffi::CStr::from_ptr(lance_last_error_message()) }.to_string_lossy();
++    assert!(
++        message.contains("row_ids must not be NULL when num_row_ids = 1"),
++        "unexpected error: {message}"
++    );
++
++    let row_id = 0_u64;
++    assert_eq!(
++        unsafe {
++            lance_dataset_take_rows(ptr::null(), &row_id, 1, ptr::null(), &mut invalid_stream)
++        },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_dataset_take_rows(ds, &row_id, 1, ptr::null(), ptr::null_mut()) },
++        -1
++    );
++
++    unsafe { lance_dataset_close(ds) };
++}
++
+ // ---------------------------------------------------------------------------
+ // Error handling tests
+ // ---------------------------------------------------------------------------
+@@ -2500,6 +2544,7 @@ fn create_vector_dataset(num_rows: i32, dim: i32) -> (tempfile::TempDir, String)
+ fn create_multi_fragment_vector_dataset(
+     rows_per_fragment: i32,
+     dim: i32,
++    enable_stable_row_ids: bool,
+ ) -> (tempfile::TempDir, String) {
+     use arrow_array::builder::{FixedSizeListBuilder, Float32Builder};
+ 
+@@ -2544,7 +2589,10 @@ fn create_multi_fragment_vector_dataset(
+         Dataset::write(
+             arrow::record_batch::RecordBatchIterator::new(vec![Ok(first)], schema.clone()),
+             &uri,
+-            None,
++            Some(lance::dataset::WriteParams {
++                enable_stable_row_ids,
++                ..Default::default()
++            }),
+         )
+         .await
+         .unwrap();
+@@ -2553,6 +2601,7 @@ fn create_multi_fragment_vector_dataset(
+             &uri,
+             Some(lance::dataset::WriteParams {
+                 mode: lance::dataset::WriteMode::Append,
++                enable_stable_row_ids,
+                 ..Default::default()
+             }),
+         )
+@@ -2789,6 +2838,105 @@ fn test_scanner_nearest_brute_force() {
+     unsafe { lance_dataset_close(ds) };
+ }
+ 
++fn assert_dataset_take_rows_from_multi_fragment_ann_result(enable_stable_row_ids: bool) {
++    let (_tmp, uri) = create_multi_fragment_vector_dataset(32, 8, enable_stable_row_ids);
++    let uri_c = c_str(&uri);
++    let ds = unsafe { lance_dataset_open(uri_c.as_ptr(), ptr::null(), 0) };
++    assert!(!ds.is_null());
++
++    // A non-NULL array whose first element is NULL is an explicit empty
++    // projection. The ANN result should therefore contain only _distance and
++    // the explicitly requested _rowid system column.
++    let no_columns: [*const c_char; 1] = [ptr::null()];
++    let scanner = unsafe { lance_scanner_new(ds, no_columns.as_ptr(), ptr::null()) };
++    assert!(!scanner.is_null());
++    assert_eq!(unsafe { lance_scanner_with_row_id(scanner, true) }, 0);
++
++    let column = c_str("embedding");
++    let query = [40.0_f32; 8];
++    assert_eq!(
++        unsafe {
++            lance_scanner_nearest(
++                scanner,
++                column.as_ptr(),
++                query.as_ptr().cast(),
++                query.len(),
++                LanceDataType::Float32 as i32,
++                1,
++            )
++        },
++        0
++    );
++    assert_eq!(unsafe { lance_scanner_set_use_index(scanner, false) }, 0);
++
++    let mut ann_stream = FFI_ArrowArrayStream::empty();
++    assert_eq!(
++        unsafe { lance_scanner_to_arrow_stream(scanner, &mut ann_stream) },
++        0
++    );
++    let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut ann_stream) }.unwrap();
++    let ann_batches = reader.map(|batch| batch.unwrap()).collect::<Vec<_>>();
++    assert_eq!(
++        ann_batches.iter().map(RecordBatch::num_rows).sum::<usize>(),
++        1
++    );
++    assert_eq!(ann_batches[0].num_columns(), 2);
++
++    let distance = ann_batches[0]
++        .column_by_name("_distance")
++        .unwrap()
++        .as_any()
++        .downcast_ref::<Float32Array>()
++        .unwrap()
++        .value(0);
++    assert_eq!(distance, 0.0);
++    let row_id = ann_batches[0]
++        .column_by_name("_rowid")
++        .unwrap()
++        .as_any()
++        .downcast_ref::<UInt64Array>()
++        .unwrap()
++        .value(0);
++    if !enable_stable_row_ids {
++        assert_ne!(
++            row_id >> 32,
++            0,
++            "expected an address-style row ID from the second fragment"
++        );
++    }
++
++    let id_column = c_str("id");
++    let columns = [id_column.as_ptr(), ptr::null()];
++    let mut take_stream = FFI_ArrowArrayStream::empty();
++    assert_eq!(
++        unsafe { lance_dataset_take_rows(ds, &row_id, 1, columns.as_ptr(), &mut take_stream) },
++        0
++    );
++    let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut take_stream) }.unwrap();
++    let batches = reader.map(|batch| batch.unwrap()).collect::<Vec<_>>();
++    assert_eq!(batches.len(), 1);
++    let ids = batches[0]
++        .column_by_name("id")
++        .unwrap()
++        .as_any()
++        .downcast_ref::<Int32Array>()
++        .unwrap();
++    assert_eq!(ids.values(), &[40]);
++
++    unsafe { lance_scanner_close(scanner) };
++    unsafe { lance_dataset_close(ds) };
++}
++
++#[test]
++fn test_dataset_take_rows_from_multi_fragment_ann_result() {
++    assert_dataset_take_rows_from_multi_fragment_ann_result(false);
++}
++
++#[test]
++fn test_dataset_take_rows_from_multi_fragment_ann_result_with_stable_row_ids() {
++    assert_dataset_take_rows_from_multi_fragment_ann_result(true);
++}
++
+ #[test]
+ fn test_scanner_nearest_with_ivf_pq_index() {
+     let (_tmp, uri) = create_vector_dataset(512, 16);
+@@ -2923,7 +3071,7 @@ fn test_scanner_nearest_filter_postfilter() {
+ 
+ #[test]
+ fn test_scanner_nearest_prefilter_with_fragment_ids_next() {
+-    let (_tmp, uri) = create_multi_fragment_vector_dataset(32, 8);
++    let (_tmp, uri) = create_multi_fragment_vector_dataset(32, 8, false);
+     let uri_c = c_str(&uri);
+     let ds = unsafe { lance_dataset_open(uri_c.as_ptr(), ptr::null(), 0) };
+     assert!(!ds.is_null());
+@@ -2986,7 +3134,7 @@ fn test_scanner_nearest_prefilter_with_fragment_ids_next() {
+ 
+ #[test]
+ fn test_scanner_nearest_prefilter_with_fragment_ids_arrow_stream() {
+-    let (_tmp, uri) = create_multi_fragment_vector_dataset(32, 8);
++    let (_tmp, uri) = create_multi_fragment_vector_dataset(32, 8, false);
+     let uri_c = c_str(&uri);
+     let ds = unsafe { lance_dataset_open(uri_c.as_ptr(), ptr::null(), 0) };
+     assert!(!ds.is_null());
+diff --git a/tests/cpp/test_cpp_api.cpp b/tests/cpp/test_cpp_api.cpp
+index 43491f2..444fbdc 100644
+--- a/tests/cpp/test_cpp_api.cpp
++++ b/tests/cpp/test_cpp_api.cpp
+@@ -122,6 +122,35 @@ static void test_dataset_take(const std::string& uri) {
+     PASS();
+ }
+ 
++static void test_dataset_take_rows(const std::string& uri) {
++    TEST(test_dataset_take_rows);
++
++    auto ds = lance::Dataset::open(uri);
++
++    // The smoke fixture has one fragment, so its first row IDs are 0, 1, 2.
++    uint64_t row_ids[] = {0, 1, 2};
++    ArrowArrayStream stream;
++    memset(&stream, 0, sizeof(stream));
++    ds.take_rows(row_ids, 3, &stream);
++
++    uint64_t total = 0;
++    while (true) {
++        ArrowArray arr;
++        memset(&arr, 0, sizeof(arr));
++        int rc = stream.get_next(&stream, &arr);
++        assert(rc == 0);
++        if (!arr.release) break;
++        total += (uint64_t)arr.length;
++        arr.release(&arr);
++    }
++
++    assert(total == 3);
++    printf("rows=%llu... ", (unsigned long long)total);
++
++    if (stream.release) stream.release(&stream);
++    PASS();
++}
++
+ static void test_raii_cleanup(const std::string& uri) {
+     TEST(test_raii_cleanup);
+ 
+@@ -693,6 +722,7 @@ int main(int argc, char** argv) {
+     test_dataset_schema(uri);
+     test_scanner_fluent(uri);
+     test_dataset_take(uri);
++    test_dataset_take_rows(uri);
+     test_raii_cleanup(uri);
+     test_versions(uri);
+     test_restore_to_current(uri);
+diff --git a/src/scanner.rs b/src/scanner.rs
+--- a/src/scanner.rs
++++ b/src/scanner.rs
+@@ -158,6 +158,12 @@ impl LanceScanner {
+                 location: snafu::location!(),
+             });
+         }
++        // Lance validates fragment-scoped nearest searches when nearest() is
++        // configured. Such searches are supported when the fragment scan is
++        // the input to a prefilter, so this flag must be set first.
++        if self.prefilter {
++            scanner.prefilter(true);
++        }
+         if let Some(n) = &self.nearest {
+             scanner.nearest(&n.column, n.query.as_ref(), n.k as usize)?;
+             if let Some(np) = self.nprobes {
+@@ -175,9 +181,6 @@ impl LanceScanner {
+             if let Some(ui) = self.use_index {
+                 scanner.use_index(ui);
+             }
+-            if self.prefilter {
+-                scanner.prefilter(true);
+-            }
+             if let Some(segments) = &self.index_segments {
+                 scanner.with_index_segments(segments.clone())?;
+             }
+@@ -219,6 +222,11 @@ impl LanceScanner {
+                 location: snafu::location!(),
+             });
+         }
++        // nearest() checks the current prefilter setting before accepting a
++        // fragment-scoped search. Enable it before installing the query.
++        if self.prefilter {
++            scanner.prefilter(true);
++        }
+         if let Some(n) = &self.nearest {
+             scanner.nearest(&n.column, n.query.as_ref(), n.k as usize)?;
+             if let Some(np) = self.nprobes {
+@@ -236,9 +244,6 @@ impl LanceScanner {
+             if let Some(ui) = self.use_index {
+                 scanner.use_index(ui);
+             }
+-            if self.prefilter {
+-                scanner.prefilter(true);
+-            }
+             if let Some(segments) = &self.index_segments {
+                 scanner.with_index_segments(segments.clone())?;
+             }

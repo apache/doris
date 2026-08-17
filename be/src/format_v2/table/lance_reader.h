@@ -37,6 +37,8 @@ struct LanceDataset;
 struct LanceScanner;
 
 namespace arrow {
+class Array;
+class RecordBatch;
 class Schema;
 } // namespace arrow
 
@@ -65,6 +67,11 @@ public:
     Status init(TableReadOptions&& options) override;
     Status prepare_split(const SplitReadOptions& options) override;
     Status get_block(Block* block, bool* eos) override;
+    // Fetch top-level projected columns by native Lance row IDs from one fixed dataset snapshot.
+    // Input order and duplicates are preserved by lance-c. Missing rows are rejected because row
+    // IDs produced by phase one must still exist in the same snapshot during materialization.
+    Status read_by_row_ids(const TFileRangeDesc& range, const std::vector<uint64_t>& row_ids,
+                           Block* block);
     Status abort_split() override;
     Status close() override;
 
@@ -76,12 +83,17 @@ private:
         bool operator==(const DatasetKey&) const = default;
     };
 
+    Status _ensure_dataset_open(const TFileRangeDesc& range);
     Status _open_dataset(const DatasetKey& key);
     Status _open_scanner(const TFileRangeDesc& range);
     Status _configure_vector_search(LanceScanner* scanner) const;
     void _close_scanner();
     void _close_dataset();
-    Status _fill_block_from_arrow(LanceBatch* batch, Block* block, size_t* rows);
+    Status _fill_block_from_lance_batch(LanceBatch* batch, Block* block, size_t* rows);
+    Status _fill_block_from_record_batch(const std::shared_ptr<arrow::RecordBatch>& record_batch,
+                                         Block* block, size_t* rows);
+    Status _append_global_row_ids(const std::shared_ptr<arrow::Array>& row_ids,
+                                  MutableColumnPtr& output_column) const;
     static std::vector<std::string> _storage_options(const TFileScanRangeParams* scan_params);
     DatasetKey _dataset_key(const TFileRangeDesc& range) const;
     static Status _lance_error(std::string_view operation);
@@ -90,6 +102,7 @@ private:
     LanceScanner* _scanner = nullptr;
     std::optional<DatasetKey> _opened_dataset_key;
     std::unordered_map<std::string, size_t> _output_name_to_idx;
+    std::optional<size_t> _global_rowid_output_idx;
     cctz::time_zone _ctz;
     size_t _scanner_batch_size = 0;
     bool _vector_search = false;

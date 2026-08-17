@@ -17,6 +17,7 @@
 
 #include "format_v2/table/lance_reader.h"
 
+#include <arrow/array.h>
 #include <arrow/c/bridge.h>
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
@@ -28,12 +29,16 @@
 #include <limits>
 #include <memory>
 
+#include "common/consts.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nothing.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/common/endian.h"
+#include "storage/utils.h"
 
 namespace doris::format::lance {
 namespace {
@@ -51,23 +56,8 @@ struct LanceBatchDeleter {
 };
 
 constexpr std::string_view DISTANCE_COLUMN = "_distance";
+constexpr std::string_view ROW_ID_COLUMN = "_rowid";
 constexpr std::string_view ARROW_EXTENSION_NAME = "ARROW:extension:name";
-
-std::string vector_metric_name(TVectorMetric::type metric) {
-    switch (metric) {
-    case TVectorMetric::DEFAULT:
-        return "default";
-    case TVectorMetric::L2:
-        return "l2";
-    case TVectorMetric::COSINE:
-        return "cosine";
-    case TVectorMetric::DOT_PRODUCT:
-        return "dot";
-    case TVectorMetric::HAMMING:
-        return "hamming";
-    }
-    return "unknown";
-}
 
 int arrow_time_precision(arrow::TimeUnit::type unit) {
     switch (unit) {
@@ -300,13 +290,8 @@ Status LanceTableReader::init(TableReadOptions&& options) {
     if (_vector_search) {
         const auto& vector =
                 _scan_params->external_search_request.search_query.vector_search;
-        _scanner_profile->add_info_string("ExternalSearchType", "VECTOR");
-        _scanner_profile->add_info_string("LanceVectorColumn", vector.column);
-        _scanner_profile->add_info_string("LanceTopK", std::to_string(vector.top_k));
-        _scanner_profile->add_info_string("LanceOffset", std::to_string(vector.offset));
-        _scanner_profile->add_info_string("LanceMetric", vector.__isset.metric
-                                                                 ? vector_metric_name(vector.metric)
-                                                                 : "default");
+        _scanner_profile->add_info_string("LanceFragmentTopK", std::to_string(vector.top_k));
+        _scanner_profile->add_info_string("LanceFragmentOffset", std::to_string(vector.offset));
         _scanner_profile->add_info_string("LanceVectorDimension",
                                           std::to_string(vector.query_vector.dimension));
     }
@@ -319,10 +304,28 @@ Status LanceTableReader::init(TableReadOptions&& options) {
 
     _output_name_to_idx.clear();
     _output_name_to_idx.reserve(_projected_columns.size());
+    _global_rowid_output_idx.reset();
     for (size_t idx = 0; idx < _projected_columns.size(); ++idx) {
         const auto& column = _projected_columns[idx];
         if (column.type == nullptr) {
             return Status::InvalidArgument("Lance projected column '{}' has no type", column.name);
+        }
+        if (column.name.starts_with(BeConsts::GLOBAL_ROWID_COL)) {
+            if (!_vector_search) {
+                return Status::NotSupported(
+                        "Lance global row id is currently supported only for vector search");
+            }
+            if (_global_rowid_output_idx.has_value()) {
+                return Status::InvalidArgument(
+                        "duplicate Lance global row id projected column: {}", column.name);
+            }
+            if (remove_nullable(column.type)->get_primitive_type() != TYPE_STRING) {
+                return Status::InvalidArgument(
+                        "Lance global row id column '{}' must have Doris STRING type, but was {}",
+                        column.name, column.type->get_name());
+            }
+            _global_rowid_output_idx = idx;
+            continue;
         }
         if (!_output_name_to_idx.emplace(column.name, idx).second) {
             return Status::InvalidArgument("duplicate Lance projected column: {}", column.name);
@@ -350,16 +353,12 @@ Status LanceTableReader::prepare_split(const SplitReadOptions& options) {
     if (current_split_pruned()) {
         return Status::OK();
     }
-
-    const auto key = _dataset_key(options.current_range);
-    if (_dataset == nullptr) {
-        RETURN_IF_ERROR(_open_dataset(key));
-        _opened_dataset_key = key;
-    } else if (!_opened_dataset_key.has_value() || *_opened_dataset_key != key) {
+    if (_global_rowid_output_idx.has_value() && !_global_rowid_context.has_value()) {
         return Status::InvalidArgument(
-                "Lance reader cannot mix dataset snapshots or storage options in one scan");
+                "Lance global row id requested without global row id context");
     }
 
+    RETURN_IF_ERROR(_ensure_dataset_open(options.current_range));
     RETURN_IF_ERROR(_open_scanner(options.current_range));
     return Status::OK();
 }
@@ -403,7 +402,7 @@ Status LanceTableReader::get_block(Block* block, bool* eos) {
 
             std::unique_ptr<LanceBatch, LanceBatchDeleter> batch(raw_batch);
             size_t rows = 0;
-            RETURN_IF_ERROR(_fill_block_from_arrow(batch.get(), block, &rows));
+            RETURN_IF_ERROR(_fill_block_from_lance_batch(batch.get(), block, &rows));
             _record_scan_rows(rows);
             raw_rows += rows;
         }
@@ -426,6 +425,63 @@ Status LanceTableReader::get_block(Block* block, bool* eos) {
     }
 }
 
+Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
+                                         const std::vector<uint64_t>& row_ids, Block* block) {
+    DORIS_CHECK(block != nullptr);
+    DORIS_CHECK(block->columns() == _projected_columns.size());
+    if (row_ids.empty()) {
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(_ensure_dataset_open(range));
+    std::vector<const char*> columns;
+    columns.reserve(_projected_columns.size() + 1);
+    for (const auto& column : _projected_columns) {
+        columns.emplace_back(column.name.c_str());
+    }
+    columns.emplace_back(nullptr);
+
+    ArrowArrayStream stream {};
+    if (lance_dataset_take_rows(_dataset, row_ids.data(), row_ids.size(), columns.data(),
+                                &stream) != 0) {
+        if (stream.release != nullptr) {
+            stream.release(&stream);
+        }
+        return _lance_error("take Lance rows by row id");
+    }
+    auto imported_reader = arrow::ImportRecordBatchReader(&stream);
+    if (!imported_reader.ok()) {
+        if (stream.release != nullptr) {
+            stream.release(&stream);
+        }
+        return Status::InternalError("import Lance take-rows stream failed: {}",
+                                     imported_reader.status().message());
+    }
+
+    size_t fetched_rows = 0;
+    auto batch_reader = std::move(imported_reader).ValueUnsafe();
+    while (true) {
+        std::shared_ptr<arrow::RecordBatch> record_batch;
+        const auto read_status = batch_reader->ReadNext(&record_batch);
+        if (!read_status.ok()) {
+            return Status::InternalError("read Lance take-rows batch failed: {}",
+                                         read_status.message());
+        }
+        if (record_batch == nullptr) {
+            break;
+        }
+        size_t rows = 0;
+        RETURN_IF_ERROR(_fill_block_from_record_batch(record_batch, block, &rows));
+        fetched_rows += rows;
+    }
+    if (fetched_rows != row_ids.size()) {
+        return Status::InternalError(
+                "Lance row-id fetch returned {} rows for {} requested row ids",
+                fetched_rows, row_ids.size());
+    }
+    return Status::OK();
+}
+
 Status LanceTableReader::abort_split() {
     _close_scanner();
     _eof = true;
@@ -438,6 +494,18 @@ Status LanceTableReader::close() {
     _opened_dataset_key.reset();
     _eof = true;
     return TableReader::close();
+}
+
+Status LanceTableReader::_ensure_dataset_open(const TFileRangeDesc& range) {
+    const auto key = _dataset_key(range);
+    if (_dataset == nullptr) {
+        RETURN_IF_ERROR(_open_dataset(key));
+        _opened_dataset_key = key;
+    } else if (!_opened_dataset_key.has_value() || *_opened_dataset_key != key) {
+        return Status::InvalidArgument(
+                "Lance reader cannot mix dataset snapshots or storage options");
+    }
+    return Status::OK();
 }
 
 Status LanceTableReader::_open_dataset(const DatasetKey& key) {
@@ -460,10 +528,16 @@ Status LanceTableReader::_open_dataset(const DatasetKey& key) {
 Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
     std::vector<const char*> columns;
     columns.reserve(_projected_columns.size() + 1);
-    for (const auto& column : _projected_columns) {
+    for (size_t idx = 0; idx < _projected_columns.size(); ++idx) {
+        if (_global_rowid_output_idx == idx) {
+            continue;
+        }
+        const auto& column = _projected_columns[idx];
         columns.emplace_back(column.name.c_str());
     }
-    if (_vector_search && _projected_columns.empty()) {
+    if (_vector_search && columns.empty()) {
+        // Keep an explicit empty user projection from becoming `nullptr`, which means all dataset
+        // columns to lance-c. nearest() already returns this optional system column.
         columns.emplace_back(DISTANCE_COLUMN.data());
     }
     columns.emplace_back(nullptr);
@@ -482,6 +556,10 @@ Status LanceTableReader::_open_scanner(const TFileRangeDesc& range) {
         return _lance_error("create Lance scanner");
     }
     std::unique_ptr<LanceScanner, LanceScannerDeleter> scanner_guard(scanner);
+
+    if (_global_rowid_output_idx.has_value() && lance_scanner_with_row_id(scanner, true) != 0) {
+        return _lance_error("enable Lance row id output");
+    }
 
     if (_scan_params->__isset.lance_substrait_filter &&
         !_scan_params->lance_substrait_filter.empty()) {
@@ -674,7 +752,8 @@ void LanceTableReader::_close_dataset() {
     }
 }
 
-Status LanceTableReader::_fill_block_from_arrow(LanceBatch* batch, Block* block, size_t* rows) {
+Status LanceTableReader::_fill_block_from_lance_batch(LanceBatch* batch, Block* block,
+                                                      size_t* rows) {
     DORIS_CHECK(batch != nullptr);
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(rows != nullptr);
@@ -695,7 +774,52 @@ Status LanceTableReader::_fill_block_from_arrow(LanceBatch* batch, Block* block,
                                      result.status().message());
     }
 
-    const auto record_batch = std::move(result).ValueUnsafe();
+    return _fill_block_from_record_batch(std::move(result).ValueUnsafe(), block, rows);
+}
+
+Status LanceTableReader::_append_global_row_ids(const std::shared_ptr<arrow::Array>& row_ids,
+                                                MutableColumnPtr& output_column) const {
+    DORIS_CHECK(row_ids != nullptr);
+    DORIS_CHECK(_global_rowid_context.has_value());
+    if (row_ids->type_id() != arrow::Type::UINT64) {
+        return Status::InternalError("Lance row id column must be Arrow UINT64, but was {}",
+                                     row_ids->type()->ToString());
+    }
+
+    ColumnString* data_column = nullptr;
+    ColumnUInt8::Container* null_map = nullptr;
+    if (auto* nullable = check_and_get_column<ColumnNullable>(*output_column)) {
+        data_column = check_and_get_column<ColumnString>(nullable->get_nested_column());
+        null_map = &nullable->get_null_map_data();
+    } else {
+        data_column = check_and_get_column<ColumnString>(*output_column);
+    }
+    if (data_column == nullptr) {
+        return Status::InternalError("Lance global row id output column must be STRING");
+    }
+
+    const auto typed_row_ids = std::static_pointer_cast<arrow::UInt64Array>(row_ids);
+    if (typed_row_ids->null_count() != 0) {
+        return Status::InternalError("Lance returned null row id");
+    }
+    const auto row_count = static_cast<size_t>(typed_row_ids->length());
+    if (null_map != nullptr) {
+        null_map->resize_fill(null_map->size() + row_count, 0);
+    }
+    const auto& context = *_global_rowid_context;
+    for (size_t row = 0; row < row_count; ++row) {
+        const GlobalRowLocationV3 location(context.backend_id, context.file_id,
+                                           typed_row_ids->Value(row));
+        data_column->insert_data(reinterpret_cast<const char*>(&location), sizeof(location));
+    }
+    return Status::OK();
+}
+
+Status LanceTableReader::_fill_block_from_record_batch(
+        const std::shared_ptr<arrow::RecordBatch>& record_batch, Block* block, size_t* rows) {
+    DORIS_CHECK(record_batch != nullptr);
+    DORIS_CHECK(block != nullptr);
+    DORIS_CHECK(rows != nullptr);
     const auto row_count = static_cast<size_t>(record_batch->num_rows());
     std::unordered_set<std::string> materialized_columns;
     materialized_columns.reserve(record_batch->num_columns());
@@ -703,6 +827,17 @@ Status LanceTableReader::_fill_block_from_arrow(LanceBatch* batch, Block* block,
     auto& columns = columns_guard.mutable_columns();
     for (int arrow_idx = 0; arrow_idx < record_batch->num_columns(); ++arrow_idx) {
         const auto& field = record_batch->schema()->field(arrow_idx);
+        if (field->name() == ROW_ID_COLUMN && _global_rowid_output_idx.has_value()) {
+            const auto output_idx = *_global_rowid_output_idx;
+            const auto& output_name = _projected_columns[output_idx].name;
+            if (!materialized_columns.emplace(output_name).second) {
+                return Status::InternalError("Lance returned duplicate column '{}'",
+                                             ROW_ID_COLUMN);
+            }
+            RETURN_IF_ERROR(
+                    _append_global_row_ids(record_batch->column(arrow_idx), columns[output_idx]));
+            continue;
+        }
         const auto output_it = _output_name_to_idx.find(field->name());
         if (output_it == _output_name_to_idx.end()) {
             if (_vector_search && field->name() == DISTANCE_COLUMN) {

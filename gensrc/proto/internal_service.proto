@@ -841,7 +841,8 @@ message PRequestBlockDesc {
     repeated PSlotDescriptor slots = 2;
     repeated ColumnPB column_descs = 3;
     repeated uint32 file_id = 4;
-    repeated uint32 row_id = 5;
+    // V2 row locations use uint32 values; V3 preserves native uint64 external row IDs.
+    repeated uint64 row_id = 5;
     optional PTupleDescriptor desc = 6;
     repeated uint32 column_idxs = 7;
 }

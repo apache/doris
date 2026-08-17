@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <sys/time.h>
 
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <iterator>
@@ -239,6 +240,8 @@ struct GlobalRowLoacation {
 };
 
 struct GlobalRowLoacationV2 {
+    static constexpr uint8_t VERSION = 0;
+
     GlobalRowLoacationV2(uint8_t ver, uint64_t bid, uint32_t fid, uint32_t rid)
             : version(ver), backend_id(bid), file_id(fid), row_id(rid) {}
     uint8_t version;
@@ -248,5 +251,25 @@ struct GlobalRowLoacationV2 {
 
     auto operator<=>(const GlobalRowLoacationV2&) const = default;
 };
+
+// Global row location for data sources whose native row ID is wider than the
+// uint32_t row ordinal carried by GlobalRowLoacationV2. Keep V2 unchanged for
+// existing internal, Parquet, and ORC readers.
+struct GlobalRowLocationV3 {
+    static constexpr uint8_t VERSION = 1;
+
+    GlobalRowLocationV3(int64_t bid, uint32_t fid, uint64_t rid)
+            : version(VERSION), backend_id(bid), file_id(fid), row_id(rid) {}
+    uint8_t version;
+    std::array<uint8_t, 7> reserved_before_backend_id {};
+    int64_t backend_id;
+    uint32_t file_id;
+    std::array<uint8_t, 4> reserved_before_row_id {};
+    uint64_t row_id;
+
+    auto operator<=>(const GlobalRowLocationV3&) const = default;
+};
+
+static_assert(sizeof(GlobalRowLocationV3) == 32);
 
 } // namespace doris
