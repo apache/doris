@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTabletCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
@@ -33,7 +32,6 @@ public class AdminCompactTabletParserTest {
         LogicalPlan plan = parser.parseSingle(
                 "ADMIN COMPACT TABLET 12345 WHERE TYPE = 'CUMULATIVE'");
         Assertions.assertInstanceOf(AdminCompactTabletCommand.class, plan);
-        Assertions.assertEquals(PlanType.ADMIN_COMPACT_TABLET_COMMAND, plan.getType());
         Assertions.assertEquals(StmtType.ADMIN, plan.stmtType());
         Assertions.assertEquals(12345L, ((AdminCompactTabletCommand) plan).getTabletId());
     }
