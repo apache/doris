@@ -31,6 +31,22 @@ Four design rules shape everything in this directory:
    (fe-core) is pure routing — it establishes no privilege of its own and never
    combines two verdicts — which is what makes the policies in force on an
    object readable from the configuration.
+
+   Three exemptions predate this rule and are the whole of the list. Each one
+   grants without asking any source, and each is the engine's own, not something
+   a plugin can influence:
+
+   - `ConnectContext.isSkipAuth()` — a statement the engine runs on behalf of one
+     the caller was already authorized for. Honoured by `checkTblPriv` and
+     `checkColumnsPriv`, and only by their `ConnectContext` overloads. Set in
+     five places, all of them inside an already-authorized statement.
+   - `Config.skip_catalog_priv_check` on a catalog bound to a source of its own,
+     in `checkCtlPriv`: such a catalog keeps no catalog-level grant anywhere, so
+     with the check switched off there is nobody left to ask.
+   - The literal accounts `root@'%'` and `admin@'%'` — not everyone holding
+     `ADMIN_PRIV` — are subject to no row filter and no column mask, dropped by
+     `LogicalCheckPolicy.findPolicy` before any source is consulted. A plugin
+     cannot give those two accounts a data policy.
 2. **Refusing is throwing, and silence refuses.** A check that returns has
    allowed the access; a check that refuses throws `AccessDeniedException`.
    There is no third outcome and no boolean for a caller to ignore. Every check
@@ -295,14 +311,19 @@ manifest entry from `fe-authorization-spi/README.md`.
    on the subject, because listing what an account may see walks thousands of
    objects per statement.
 9. **Row filters and column masks.** Both are SQL text in Doris dialect; the
-   engine parses, type-checks and plans them. Give every spec a `policyIdent`
-   that **changes when the policy changes** (`<policyId>:<version>` is the
-   shape): the SQL result cache decides "did the policies move?" by comparing
-   specs, so a constant ident makes an edited policy look unchanged, while a
-   spec that does not compare equal to an identical one evicts the cache on
-   every lookup. Restrictive filters are ANDed and permissive ones ORed — the
-   engine owns the merge. Returning nothing means "no policy here", never a
-   refusal.
+   engine parses, type-checks and plans them. What the SQL result cache needs is
+   that **the spec as a whole compares unequal once the policy changes**: it
+   decides "did the policies move?" by comparing specs, so two specs that are
+   equal while the policy underneath is not make a stale plan look current,
+   while a spec that does not compare equal to an identical one evicts the cache
+   on every lookup. `policyIdent` is the part of a spec that carries identity
+   for auditing; whether it also has to carry the version depends on the rest.
+   Ranger edits a policy in place keeping its id, so its ident is
+   `<policyId>:<version>`; the built-in `CREATE ROW POLICY` has no in-place edit
+   and its `filterSql` moves whenever the predicate does, so the policy name
+   alone is enough there. Restrictive filters are ANDed and permissive ones ORed
+   — the engine owns the merge. Returning nothing means "no policy here", never
+   a refusal.
 10. **Caching.** Inside the plugin, invalidated on your source's terms. The
     engine adds none and cannot. Your instance is long-lived, so instance state
     is the place for it.

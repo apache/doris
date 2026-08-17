@@ -1765,12 +1765,15 @@ download_ranger_artifacts() {
 start_ranger() {
     echo "RUN_RANGER"
     export CONTAINER_UID=${CONTAINER_UID}
-    download_ranger_artifacts
     . "${ROOT}/docker-compose/ranger/ranger_settings.env"
     envsubst <"${ROOT}"/docker-compose/ranger/ranger.yaml.tpl >"${ROOT}"/docker-compose/ranger/ranger.yaml
     register_stack_metadata "ranger" "${ROOT}/docker-compose/ranger/ranger.yaml" "${ROOT}/docker-compose/ranger/ranger_settings.env"
     compose_down_stack "${ROOT}/docker-compose/ranger/ranger.yaml" "${ROOT}/docker-compose/ranger/ranger_settings.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
+        # Inside the start branch: this function also handles `--stop`, and under `set -e` an
+        # unreachable bucket turns stopping the stack into minutes of curl retries followed by an
+        # exit, with the containers left running.
+        download_ranger_artifacts
         compose_up_stack "${ROOT}/docker-compose/ranger/ranger.yaml" "${ROOT}/docker-compose/ranger/ranger_settings.env" -d --wait --remove-orphans
     fi
 }

@@ -1327,6 +1327,8 @@ Common Development and Distribution License (CDDL) v1.1 -- licenses/LICENSE-CDDL
         - com.sun.xml.bind:jaxb-impl:2.2.3-1 (http://jaxb.java.net/)
     * jersey-client:
         - com.sun.jersey:jersey-client:1.9 (https://jersey.java.net/jersey-client/)
+    * jsr311-api:
+        - javax.ws.rs:jsr311-api:1.1.1 (https://jsr311.java.net)
 
 Creative Commons Zero -- licenses/LICENSE-CC0.txt
     * reactive-streams:
