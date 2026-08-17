@@ -91,6 +91,7 @@ public class LoadLoadingTask extends LoadTask {
     private long beginTime;
 
     private List<TPipelineWorkloadGroup> tWorkloadGroups = null;
+
     protected UserIdentity userInfo;
 
     public LoadLoadingTask(UserIdentity userInfo, Database db, OlapTable table,

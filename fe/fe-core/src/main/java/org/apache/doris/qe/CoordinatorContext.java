@@ -302,7 +302,8 @@ public class CoordinatorContext {
             List<PipelineDistributedPlan> distributedPlans,
             List<ScanNode> scanNodes,
             DescriptorTable descTable,
-            String timezone, boolean loadZeroTolerance, boolean enableProfile) {
+            String timezone, boolean loadZeroTolerance,
+            boolean enableProfile) {
         TQueryOptions queryOptions = ConnectContext.get().getSessionVariable().toThrift();
         queryOptions.setEnableProfile(enableProfile);
         queryOptions.setProfileLevel(2);

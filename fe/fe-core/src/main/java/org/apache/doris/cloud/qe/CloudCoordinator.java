@@ -51,7 +51,8 @@ public class CloudCoordinator extends Coordinator {
     }
 
     public CloudCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable, List<PlanFragment> fragments,
-                       List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance, boolean enbaleProfile) {
+                       List<ScanNode> scanNodes, String timezone, boolean loadZeroTolerance,
+                    boolean enbaleProfile) {
         super(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enbaleProfile);
     }
 
