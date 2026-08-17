@@ -54,7 +54,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -118,7 +118,10 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         List<List<Expression>> groupingSets = repeat.getGroupingSets();
         ImmutableList.Builder<List<Expression>> builder = ImmutableList.builder();
         for (List<Expression> sets : groupingSets) {
-            List<Expression> newList = ImmutableList.copyOf(ImmutableSet.copyOf(sets));
+            // Dedup with LinkedHashSet to keep first-occurrence column order inside each grouping
+            // set: repeat column order determines group-by order, which IVM hashes for row-id and
+            // therefore must be stable across parses (HashSet order depends on hashCode/ExprId).
+            List<Expression> newList = ImmutableList.copyOf(new LinkedHashSet<>(sets));
             builder.add(newList);
         }
         return repeat.withGroupSets(builder.build());
@@ -378,7 +381,9 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
             return aggregate;
         }
         // modify repeat child to a new project with more projections
-        Set<Alias> newAliases = new HashSet<>(commonSlotToAliasMap.values());
+        // Iterate in commonSlotToAliasMap insertion order: repeat output column order must be stable
+        // across parses, since IVM row-id hashes the group-by keys in order.
+        Set<Alias> newAliases = new LinkedHashSet<>(commonSlotToAliasMap.values());
         List<Slot> originSlots = repeat.child().getOutput();
         ImmutableList<NamedExpression> newProjects =
                 ImmutableList.<NamedExpression>builder().addAll(originSlots).addAll(newAliases).build();
@@ -424,9 +429,11 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         }
         ImmutableSet<Slot> groupingSetsUsedSlot = groupingSetsUsedSlotBuilder.build();
 
-        Set<Slot> resSet = new HashSet<>(aggUsedSlots);
+        // retainAll preserves resSet iteration order (first occurrence in aggUsedSlots); the resulting
+        // common-slot order feeds repeat output, which must stay stable for IVM row-id.
+        Set<Slot> resSet = new LinkedHashSet<>(aggUsedSlots);
         resSet.retainAll(groupingSetsUsedSlot);
-        Map<Slot, Alias> commonSlotToAliasMap = Maps.newHashMap();
+        Map<Slot, Alias> commonSlotToAliasMap = Maps.newLinkedHashMap();
         for (Slot key : resSet) {
             Alias alias = new Alias(key);
             commonSlotToAliasMap.put(key, alias);
