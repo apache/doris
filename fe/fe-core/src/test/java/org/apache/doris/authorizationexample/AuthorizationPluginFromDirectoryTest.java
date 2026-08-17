@@ -69,10 +69,12 @@ import java.util.List;
  * external source and is then ignored. Making it an error is later work, and this test is where that change
  * will announce itself.
  *
- * <p>What is not covered here, honestly: the properties an instance-wide source is configured with. Their
- * file path is built from the {@code DORIS_HOME} environment variable, which a unit test does not have, so
- * {@link ExampleAuthorizationPlugin} runs on its defaults. The per-catalog property channel is a catalog
- * property and is exercised by the Ranger tests.
+ * <p>What is not covered here, honestly: the properties an instance-wide source is configured with.
+ * {@link ExampleAuthorizationPlugin} runs on its defaults, and it does so because this test points
+ * {@code authorization_config_file_path} at a file that does not exist - the run does export
+ * {@code DORIS_HOME} (see {@code run-fe-ut.sh}), so leaving the path at its default would read whatever
+ * {@code <repo-root>/conf/authorization.conf} happens to hold on the machine running the tests. The
+ * per-catalog property channel is a catalog property and is exercised by the Ranger tests.
  */
 public class AuthorizationPluginFromDirectoryTest extends TestWithFeService {
 
@@ -88,6 +90,7 @@ public class AuthorizationPluginFromDirectoryTest extends TestWithFeService {
     private Path pluginRoot;
     private String originalPluginsDir;
     private String originalControllerType;
+    private String originalConfigFilePath;
 
     /**
      * Runs before the FE exists, which is the only moment this is configurable: the manager reading
@@ -104,8 +107,12 @@ public class AuthorizationPluginFromDirectoryTest extends TestWithFeService {
 
         originalPluginsDir = Config.authorization_plugins_dir;
         originalControllerType = Config.access_controller_type;
+        originalConfigFilePath = Config.authorization_config_file_path;
         Config.authorization_plugins_dir = pluginRoot.toString();
         Config.access_controller_type = ExampleAuthorizationPluginFactory.NAME;
+        // Named so it cannot exist: the source has to run on its defaults for the assertions below to mean
+        // what they say, and the default path is a real file an FE checkout may well have.
+        Config.authorization_config_file_path = "/conf/authorization-absent-in-this-test.conf";
     }
 
     /**
@@ -141,6 +148,7 @@ public class AuthorizationPluginFromDirectoryTest extends TestWithFeService {
     protected void runAfterAll() throws Exception {
         Config.authorization_plugins_dir = originalPluginsDir;
         Config.access_controller_type = originalControllerType;
+        Config.authorization_config_file_path = originalConfigFilePath;
         // loadPlugins writes rows into a process-wide registry backing information_schema.extensions;
         // leaving them there would make other classes' assertions depend on execution order.
         PluginRegistry.getInstance().clearForTest();
