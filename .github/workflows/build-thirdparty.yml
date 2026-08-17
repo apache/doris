@@ -55,16 +55,22 @@ jobs:
         run: |
           git clone -b v7 https://github.com/easimon/maximize-build-space
 
-      - name: Maximize build space
-        uses: ./maximize-build-space
-        with:
-            root-reserve-mb: 4096
-            swap-size-mb: 8192
-            remove-dotnet: 'true'
-            remove-android: 'true'
-            remove-haskell: 'true'
-            remove-codeql: 'true'
-            remove-docker-images: 'true'
+      # Disabled, as on master and branch-4.0. The runner already boots with
+      # ~88G free on /, and this action hands that space to an LVM on the
+      # workspace while leaving / at 100% full (100M). gcc writes its assembler
+      # temporaries to /tmp on /, so the build then dies on "No space left on
+      # device" partway through aws-sdk-cpp.
+      #- name: Maximize build space
+      #  uses: ./maximize-build-space
+      #  with:
+      #      root-reserve-mb: 4096
+      #      temp-reserve-mb: 4096
+      #      swap-size-mb: 8192
+      #      remove-dotnet: 'true'
+      #      remove-android: 'true'
+      #      remove-haskell: 'true'
+      #      remove-codeql: 'true'
+      #      remove-docker-images: 'true'
 
       - name: Checkout ${{ github.ref }}
         uses: actions/checkout@v4
