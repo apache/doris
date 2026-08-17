@@ -35,6 +35,11 @@ public:
         return std::make_shared<ASCIIFoldingFilter>(in, _preserve_original);
     }
 
+    PositionCapability position_capability() const override {
+        return _preserve_original ? PositionCapability::kUnknown
+                                  : PositionCapability::kAlwaysUnitIncrement;
+    }
+
 private:
     bool _preserve_original = false;
 };

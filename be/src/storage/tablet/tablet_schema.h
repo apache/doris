@@ -553,6 +553,31 @@ public:
         }
         return inverted_indexes;
     }
+    // True when anything at all lives in this schema's inverted index FILE.
+    //
+    // Spelled out as `has_inverted_index() || has_ann_index()` at ~27 call sites
+    // before this existed -- rowset writers, segment creation, segcompaction,
+    // snapshot and migration, and most of the cloud paths. Every one of them is
+    // asking the same question ("is there an index file to carry, warm, link or
+    // rewrite?"), and each open-coded copy is a place a third index type would
+    // have to be remembered.
+    bool has_inverted_or_ann_index() const { return has_inverted_index() || has_ann_index(); }
+
+    // Both index types that live in the inverted index FILE, in schema order.
+    // Every storage format stores them together: V1/V2/V3 as CLucene directories,
+    // SNII as text metadata groups plus an ANN blob logical index. A rewrite that
+    // enumerated only the inverted ones would seal a file missing every ANN index
+    // while the schema still claimed them.
+    const std::vector<const TabletIndex*> inverted_and_ann_indexes() const {
+        std::vector<const TabletIndex*> indexes;
+        for (const auto& index : _indexes) {
+            if (index->index_type() == IndexType::INVERTED ||
+                index->index_type() == IndexType::ANN) {
+                indexes.emplace_back(index.get());
+            }
+        }
+        return indexes;
+    }
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
             DBUG_EXECUTE_IF("tablet_schema::has_inverted_index", {

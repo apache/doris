@@ -524,6 +524,13 @@ struct TQueryOptions {
   1002: optional bool enable_file_scanner_v2 = false
   1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
   1004: optional i64 file_cache_query_limit_bytes = -1
+  // SNII inverted index query reads take the REMOTE_ONLY_ON_MISS file-cache
+  // policy: cache hits are served, but a miss reads remote directly and writes
+  // nothing back into the file cache. Data (.dat) and segment-meta reads keep
+  // the normal read-through-and-write-back path, and so do CLucene (V1/V2/V3)
+  // index reads -- the two formats amplify write-back differently, so each
+  // needs its own switch.
+  1005: optional bool inverted_index_snii_read_no_write_file_cache = false
 }
 
 
