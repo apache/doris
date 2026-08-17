@@ -1,5 +1,11 @@
 # Doris FE Authorization SPI
 
+This is the plugin author's quickstart: what to implement, how to package it and
+how to install it. For the framework around it — the module map, how the engine
+discovers and routes to a source, and a step-by-step walkthrough for a new
+source — read `../README.md`; for build recipes and the obligations a change
+here carries, `../AGENTS.md`.
+
 ## Overview
 
 `fe-authorization-spi` defines the plugin contract for authorization in Doris FE: an *authorization source*
