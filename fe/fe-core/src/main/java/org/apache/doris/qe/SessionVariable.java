@@ -531,6 +531,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FILE_CACHE_QUERY_LIMIT_BYTES =
             "file_cache_query_limit_bytes";
 
+    public static final String INVERTED_INDEX_SNII_READ_NO_WRITE_FILE_CACHE =
+            "inverted_index_snii_read_no_write_file_cache";
+
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
@@ -3023,6 +3026,15 @@ public class SessionVariable implements Serializable, Writable {
                     + "> 0 disables file cache writes after the threshold is reached.")
     public long fileCacheQueryLimitBytes = -1;
 
+    @VarAttrDef.VarAttr(name = INVERTED_INDEX_SNII_READ_NO_WRITE_FILE_CACHE, needForward = true,
+            description = "SNII inverted index reads take the remote-only-on-miss file cache "
+                    + "policy: hits are still served from cache, but a miss reads the "
+                    + "remote object directly without writing back into the file cache. "
+                    + "Data (.dat) and segment-meta reads are unaffected, and so are "
+                    + "CLucene (V1/V2/V3) index reads. "
+                    + "Intended for one-shot / ad-hoc cold queries.")
+    public boolean invertedIndexSniiReadNoWriteFileCache = false;
+
     public void setAggPhase(int phase) {
         aggPhase = phase;
     }
@@ -3565,13 +3577,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
     @VarAttrDef.VarAttr(name = IGNORE_ICEBERG_DANGLING_DELETE,
-            description = " Whether to ignore the impact of dangling delete files in Iceberg tables on COUNT(*) "
-                    + "statistics. "
-                    + "The default is true, COUNT(*) will directly obtain the number of rows from metadata, "
-                    + "which has better performance, but if there are dangling deletes, "
-                    + "the result may be inaccurate. "
-                    + "When set to false, COUNT(*) will scan data files "
-                    + "to exclude the impact of dangling delete files.")
+            description = "Whether Iceberg metadata COUNT(*) may subtract position-delete record counts from "
+                    + "current data-manifest rows. This improves performance but can be inaccurate for dangling "
+                    + "delete entries. Equality deletes always disable metadata COUNT(*).")
     public boolean ignoreIcebergDanglingDelete = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_ICEBERG_MERGE_PARTITIONING,
@@ -5607,6 +5615,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableLocalShufflePlanner(enableLocalShufflePlanner);
         tResult.setFileCacheQueryLimitBytes(fileCacheQueryLimitBytes);
+        tResult.setInvertedIndexSniiReadNoWriteFileCache(invertedIndexSniiReadNoWriteFileCache);
         return tResult;
     }
 

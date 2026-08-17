@@ -28,6 +28,7 @@ public:
     ~TokenFilterFactory() override = default;
 
     virtual TokenFilterPtr create(const TokenStreamPtr& in) = 0;
+    virtual PositionCapability position_capability() const { return PositionCapability::kUnknown; }
 };
 using TokenFilterFactoryPtr = std::shared_ptr<TokenFilterFactory>;
 

@@ -1804,6 +1804,11 @@ struct DateTraits<uint64_t> {
     using DateType = DataTypeDateTimeV2;
 };
 #include "common/compile_check_avoid_end.h"
+
+/// Instantiated once in vdatetime_value.cpp; suppresses per-TU implicit instantiation.
+extern template class DateV2Value<DateV2ValueType>;
+extern template class DateV2Value<DateTimeV2ValueType>;
+
 } // namespace doris
 
 template <>

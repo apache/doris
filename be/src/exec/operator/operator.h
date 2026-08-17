@@ -1260,4 +1260,44 @@ private:
 };
 #endif
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class PipelineXSinkLocalState<HashJoinSharedState>;
+extern template class PipelineXSinkLocalState<PartitionedHashJoinSharedState>;
+extern template class PipelineXSinkLocalState<SortSharedState>;
+extern template class PipelineXSinkLocalState<SpillSortSharedState>;
+extern template class PipelineXSinkLocalState<NestedLoopJoinSharedState>;
+extern template class PipelineXSinkLocalState<AnalyticSharedState>;
+extern template class PipelineXSinkLocalState<AggSharedState>;
+extern template class PipelineXSinkLocalState<BucketedAggSharedState>;
+extern template class PipelineXSinkLocalState<PartitionedAggSharedState>;
+extern template class PipelineXSinkLocalState<FakeSharedState>;
+extern template class PipelineXSinkLocalState<UnionSharedState>;
+extern template class PipelineXSinkLocalState<PartitionSortNodeSharedState>;
+extern template class PipelineXSinkLocalState<MultiCastSharedState>;
+extern template class PipelineXSinkLocalState<SetSharedState>;
+extern template class PipelineXSinkLocalState<LocalExchangeSharedState>;
+extern template class PipelineXSinkLocalState<BasicSharedState>;
+extern template class PipelineXSinkLocalState<DataQueueSharedState>;
+extern template class PipelineXLocalState<HashJoinSharedState>;
+extern template class PipelineXLocalState<PartitionedHashJoinSharedState>;
+extern template class PipelineXLocalState<SortSharedState>;
+extern template class PipelineXLocalState<SpillSortSharedState>;
+extern template class PipelineXLocalState<NestedLoopJoinSharedState>;
+extern template class PipelineXLocalState<AnalyticSharedState>;
+extern template class PipelineXLocalState<AggSharedState>;
+extern template class PipelineXLocalState<BucketedAggSharedState>;
+extern template class PipelineXLocalState<PartitionedAggSharedState>;
+extern template class PipelineXLocalState<FakeSharedState>;
+extern template class PipelineXLocalState<UnionSharedState>;
+extern template class PipelineXLocalState<DataQueueSharedState>;
+extern template class PipelineXLocalState<MultiCastSharedState>;
+extern template class PipelineXLocalState<PartitionSortNodeSharedState>;
+extern template class PipelineXLocalState<SetSharedState>;
+extern template class PipelineXLocalState<LocalExchangeSharedState>;
+extern template class PipelineXLocalState<BasicSharedState>;
+#ifdef BE_TEST
+extern template class OperatorX<DummyOperatorLocalState>;
+extern template class DataSinkOperatorX<DummySinkLocalState>;
+#endif
+
 } // namespace doris
