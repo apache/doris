@@ -21,7 +21,6 @@
 #include <re2/stringpiece.h>
 
 #include <charconv>
-#include <string>
 
 namespace doris {
 namespace {
@@ -32,50 +31,6 @@ bool is_larger_than_fifty(std::string_view str) {
     return error == std::errc() && number > 50;
 }
 
-std::string mask_escaped_characters_and_character_classes(std::string_view regexp) {
-    std::string masked_regexp(regexp);
-    bool escaped = false;
-    bool in_character_class = false;
-    bool character_class_can_close = false;
-    bool character_class_can_negate = false;
-    for (char& masked_character : masked_regexp) {
-        const char current = masked_character;
-        if (escaped) {
-            masked_character = ' ';
-            escaped = false;
-            if (in_character_class) {
-                character_class_can_close = true;
-                character_class_can_negate = false;
-            }
-            continue;
-        }
-        if (current == '\\') {
-            masked_character = ' ';
-            escaped = true;
-            continue;
-        }
-        if (in_character_class) {
-            masked_character = ' ';
-            if (current == ']' && character_class_can_close) {
-                in_character_class = false;
-            } else if (current == '^' && character_class_can_negate) {
-                character_class_can_negate = false;
-            } else {
-                character_class_can_close = true;
-                character_class_can_negate = false;
-            }
-            continue;
-        }
-        if (current == '[') {
-            masked_character = ' ';
-            in_character_class = true;
-            character_class_can_close = false;
-            character_class_can_negate = true;
-        }
-    }
-    return masked_regexp;
-}
-
 class SlowWithHyperscanChecker {
 public:
     SlowWithHyperscanChecker()
@@ -83,8 +38,7 @@ public:
               _searcher_two_repeats(R"(\{\s*([\d]+)\s*,\s*([\d]+)\s*\})") {}
 
     bool is_slow(std::string_view regexp) const {
-        const std::string masked_regexp = mask_escaped_characters_and_character_classes(regexp);
-        return is_slow_one_repeat(masked_regexp) || is_slow_two_repeats(masked_regexp);
+        return is_slow_one_repeat(regexp) || is_slow_two_repeats(regexp);
     }
 
 private:

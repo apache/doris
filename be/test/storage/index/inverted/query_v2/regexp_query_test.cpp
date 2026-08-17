@@ -139,11 +139,13 @@ TEST_F(RegexpQueryV2Test, test_rejects_expensive_bounded_repeat) {
     context->collection_similarity = std::make_shared<CollectionSimilarity>();
 
     std::wstring field = StringHelper::to_wstring("content");
-    auto query = std::make_shared<query_v2::RegexpQuery>(context, field, "(ab?c?d){1000,5000}");
-    auto weight = query->weight(false);
-    query_v2::QueryExecutionContext exec_ctx;
-
-    EXPECT_THROW(weight->scorer(exec_ctx), Exception);
+    for (const char* pattern : {"(ab?c?d){1000,5000}", "(?# [)(ab?c?d){1000,5000}"}) {
+        SCOPED_TRACE(pattern);
+        auto query = std::make_shared<query_v2::RegexpQuery>(context, field, pattern);
+        auto weight = query->weight(false);
+        query_v2::QueryExecutionContext exec_ctx;
+        EXPECT_THROW(weight->scorer(exec_ctx), Exception);
+    }
 }
 
 // Test regexp query with scoring enabled

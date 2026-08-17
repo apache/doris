@@ -75,8 +75,12 @@ TEST_F(FunctionMultiMatchTest, EvaluateInvertedIndexWithNullIterator) {
 }
 
 TEST_F(FunctionMultiMatchTest, RejectsExpensiveBoundedRepeat) {
-    std::vector<String> patterns = {"(ab?c?d){1000,5000}"};
-    EXPECT_THROW((multiregexps::constructRegexps<false, false>(patterns, std::nullopt)), Exception);
+    for (const char* pattern : {"(ab?c?d){1000,5000}", "(?# [)(ab?c?d){1000,5000}"}) {
+        SCOPED_TRACE(pattern);
+        std::vector<String> patterns = {pattern};
+        EXPECT_THROW((multiregexps::constructRegexps<false, false>(patterns, std::nullopt)),
+                     Exception);
+    }
 }
 
 } // namespace doris

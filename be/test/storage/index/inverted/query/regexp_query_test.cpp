@@ -233,10 +233,13 @@ TEST_F(RegexpQueryTest, AddRejectsExpensiveBoundedRepeat) {
     context->stats = &stats;
     RegexpQuery regexp_query(searcher, context);
 
-    InvertedIndexQueryInfo query_info;
-    query_info.field_name = L"test_field";
-    query_info.term_infos.push_back({"(ab?c?d){1000,5000}", 0});
-    EXPECT_THROW(regexp_query.add(query_info), Exception);
+    for (const char* pattern : {"(ab?c?d){1000,5000}", "(?# [)(ab?c?d){1000,5000}"}) {
+        SCOPED_TRACE(pattern);
+        InvertedIndexQueryInfo query_info;
+        query_info.field_name = L"test_field";
+        query_info.term_infos.push_back({pattern, 0});
+        EXPECT_THROW(regexp_query.add(query_info), Exception);
+    }
 }
 
 TEST_F(RegexpQueryTest, AddWithInvalidPattern) {

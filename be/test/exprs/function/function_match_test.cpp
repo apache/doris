@@ -97,10 +97,13 @@ TEST(FunctionMatchTest, regexp_rejects_expensive_bounded_repeat) {
     ColumnUInt8::Container result(1, 0);
 
     FunctionMatchRegexp function;
-    Status status = function.execute_match(context.get(), "test_column", "(ab?c?d){1000,5000}", 1,
-                                           string_col.get(), nullptr, nullptr, result);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("bounded repetition exceeds 50"), std::string::npos);
+    for (const char* pattern : {"(ab?c?d){1000,5000}", "(?# [)(ab?c?d){1000,5000}"}) {
+        SCOPED_TRACE(pattern);
+        Status status = function.execute_match(context.get(), "test_column", pattern, 1,
+                                               string_col.get(), nullptr, nullptr, result);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("bounded repetition exceeds 50"), std::string::npos);
+    }
 }
 
 // Test FunctionMatchAny::execute_match

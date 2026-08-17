@@ -205,7 +205,9 @@ TEST(FunctionLikeTest, hyperscan_bounded_repeat_threshold) {
     EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{51,51}"));
     EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("a{ 0, 1000 }"));
     EXPECT_FALSE(FunctionLikeTestHelper::should_fallback_to_re2(R"(a\{51\})"));
-    EXPECT_FALSE(FunctionLikeTestHelper::should_fallback_to_re2("[a{51}]"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("[a{51}]"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("(?# note{51})a"));
+    EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("(?# [)(ab?c?d){1000,5000}"));
     EXPECT_TRUE(FunctionLikeTestHelper::should_fallback_to_re2("[^^](ab?c?d){1000,5000}"));
 }
 
@@ -222,6 +224,11 @@ TEST(FunctionLikeTest, hyperscan_bounded_repeat_fallback_disabled) {
                 "^abc", "[^^](ab?c?d){1000,5000}", constant_known_at_open);
         EXPECT_FALSE(status.ok());
         EXPECT_NE(status.to_string().find("bounded repetition exceeds 50"), std::string::npos);
+
+        status = execute_pattern_with_fallback_disabled<FunctionRegexpLike>(
+                "abcd", "(?# [)(ab?c?d){1000,5000}", constant_known_at_open);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("bounded repetition exceeds 50"), std::string::npos);
     }
 }
 
@@ -230,9 +237,6 @@ TEST(FunctionLikeTest, hyperscan_bounded_repeat_literal_with_fallback_disabled) 
         SCOPED_TRACE(constant_known_at_open ? "prepare during open" : "prepare during execute");
         EXPECT_TRUE(execute_pattern_with_fallback_disabled<FunctionRegexpLike>(
                             "a{51}", R"(a\{51\})", constant_known_at_open)
-                            .ok());
-        EXPECT_TRUE(execute_pattern_with_fallback_disabled<FunctionRegexpLike>(
-                            "a", "[a{51}]", constant_known_at_open)
                             .ok());
         EXPECT_TRUE(execute_pattern_with_fallback_disabled<FunctionLike>("a{51}", "_{51}",
                                                                          constant_known_at_open)
