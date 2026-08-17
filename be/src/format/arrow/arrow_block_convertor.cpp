@@ -34,8 +34,6 @@
 #include <cctz/time_zone.h>
 #include <glog/logging.h>
 
-#include <array>
-#include <cstring>
 #include <ctime>
 #include <memory>
 #include <utility>
@@ -44,8 +42,6 @@
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
-#include "core/column/column_nullable.h"
-#include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
@@ -61,17 +57,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace {
-
-constexpr const char* ICEBERG_ORIGINAL_TYPE_KEY = "originalType";
-constexpr const char* ICEBERG_UUID_TYPE_VALUE = "uuid";
-
-bool is_iceberg_uuid_field(const std::shared_ptr<arrow::Field>& field) {
-    if (field == nullptr || !field->HasMetadata()) {
-        return false;
-    }
-    const auto result = field->metadata()->Get(ICEBERG_ORIGINAL_TYPE_KEY);
-    return result.ok() && result.ValueUnsafe() == ICEBERG_UUID_TYPE_VALUE;
-}
 
 bool contains_extension_type(const std::shared_ptr<arrow::DataType>& type) {
     if (type->id() == arrow::Type::EXTENSION) {
@@ -115,6 +100,33 @@ std::shared_ptr<arrow::DataType> extension_storage_type(
     default:
         return type;
     }
+}
+
+bool is_declared_canonical_binding(const DataTypePtr& type,
+                                   const std::shared_ptr<arrow::DataType>& canonical_type,
+                                   const std::shared_ptr<arrow::DataType>& target_type) {
+    if (canonical_type->Equals(target_type)) {
+        return true;
+    }
+    const PrimitiveType primitive = remove_nullable(type)->get_primitive_type();
+    if (is_string_type(primitive)) {
+        return target_type->id() == arrow::Type::STRING ||
+               target_type->id() == arrow::Type::LARGE_STRING ||
+               target_type->id() == arrow::Type::BINARY ||
+               target_type->id() == arrow::Type::LARGE_BINARY ||
+               target_type->id() == arrow::Type::FIXED_SIZE_BINARY;
+    }
+    if (primitive == TYPE_VARBINARY) {
+        return target_type->id() == arrow::Type::STRING ||
+               target_type->id() == arrow::Type::BINARY ||
+               target_type->id() == arrow::Type::LARGE_BINARY ||
+               target_type->id() == arrow::Type::FIXED_SIZE_BINARY;
+    }
+    if (primitive == TYPE_VARIANT) {
+        return target_type->id() == arrow::Type::STRING ||
+               target_type->id() == arrow::Type::LARGE_STRING;
+    }
+    return false;
 }
 
 Status wrap_extension_arrays(const std::shared_ptr<arrow::DataType>& target_type,
@@ -165,101 +177,61 @@ Status wrap_extension_arrays(const std::shared_ptr<arrow::DataType>& target_type
     return Status::OK();
 }
 
-int hex_value(char c) {
-    if (c >= '0' && c <= '9') {
-        return c - '0';
-    }
-    if (c >= 'a' && c <= 'f') {
-        return c - 'a' + 10;
-    }
-    if (c >= 'A' && c <= 'F') {
-        return c - 'A' + 10;
-    }
-    return -1;
+} // namespace
+
+Status ArrowWriteConverter::write_type_serde_column(const std::shared_ptr<const IDataType>& type,
+                                                    const DataTypeSerDe& serde,
+                                                    const IColumn& column, const NullMap* null_map,
+                                                    const std::shared_ptr<arrow::Field>& field,
+                                                    arrow::ArrayBuilder* array_builder,
+                                                    int64_t start, int64_t end,
+                                                    const cctz::time_zone& ctz) const {
+    const auto storage_field = field->WithType(extension_storage_type(field->type()));
+    return serde.write_column_to_arrow(type, column, null_map, storage_field, array_builder, start,
+                                       end, ctz, *this);
 }
 
-Status parse_uuid_to_bytes(StringRef uuid, std::array<uint8_t, 16>* bytes) {
-    if (uuid.size == 16) {
-        std::memcpy(bytes->data(), uuid.data, bytes->size());
-        return Status::OK();
-    }
-    if (uuid.size != 32 && uuid.size != 36) {
-        return Status::InvalidArgument("Invalid UUID string length: {}", uuid.size);
-    }
-
-    int hex_count = 0;
-    int high_nibble = -1;
-    int byte_index = 0;
-    for (size_t i = 0; i < uuid.size; ++i) {
-        char c = uuid.data[i];
-        if (uuid.size == 36 && (i == 8 || i == 13 || i == 18 || i == 23)) {
-            if (c != '-') {
-                return Status::InvalidArgument("Invalid UUID string format");
-            }
-            continue;
-        }
-        if (c == '-') {
-            return Status::InvalidArgument("Invalid UUID string format");
-        }
-
-        int value = hex_value(c);
-        if (value < 0) {
-            return Status::InvalidArgument("Invalid UUID string format");
-        }
-        if (hex_count % 2 == 0) {
-            high_nibble = value;
-        } else {
-            (*bytes)[byte_index++] = static_cast<uint8_t>((high_nibble << 4) | value);
-        }
-        ++hex_count;
-    }
-
-    if (hex_count != 32 || byte_index != 16) {
-        return Status::InvalidArgument("Invalid UUID string format");
-    }
-    return Status::OK();
-}
-
-Status write_iceberg_uuid_string_column_to_arrow(const IColumn& column, const DataTypePtr& type,
-                                                 arrow::ArrayBuilder* array_builder, int64_t start,
-                                                 int64_t end) {
-    if (array_builder->type()->id() != arrow::Type::FIXED_SIZE_BINARY) {
-        return Status::InvalidArgument("Iceberg UUID must be written to fixed size binary");
-    }
-    const int byte_width =
-            static_cast<const arrow::FixedSizeBinaryType&>(*array_builder->type()).byte_width();
-    if (byte_width != 16) {
-        return Status::InvalidArgument("Iceberg UUID expects 16 bytes, got {}", byte_width);
-    }
-
-    auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
-    const IColumn* data_column = &column;
-    const NullMap* null_map = nullptr;
-    if (type->is_nullable()) {
-        const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
-        data_column = &nullable_column.get_nested_column();
-        null_map = &nullable_column.get_null_map_data();
-    }
-    if (!data_column->is_column_string()) {
+Status ArrowWriteConverter::write_canonical_column(const std::shared_ptr<const IDataType>& type,
+                                                   const DataTypeSerDe& serde,
+                                                   const IColumn& column, const NullMap* null_map,
+                                                   const std::shared_ptr<arrow::Field>& field,
+                                                   arrow::ArrayBuilder* array_builder,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
+    std::shared_ptr<arrow::DataType> canonical_type;
+    RETURN_IF_ERROR(convert_to_arrow_type(type, &canonical_type, ctz.name()));
+    const auto storage_type = extension_storage_type(field->type());
+    // This is an exact binding check selected by the target converter, not a recovery path. A
+    // mismatch returns without invoking SerDe, and a SerDe error is never retried elsewhere.
+    if (!is_declared_canonical_binding(type, canonical_type, storage_type)) {
         return Status::InvalidArgument(
-                "Iceberg UUID string conversion expects string column, got {}",
-                data_column->get_name());
+                "Canonical Arrow writer is not bound for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
     }
-
-    const auto& string_column = assert_cast<const ColumnString&>(*data_column);
-    for (size_t row = start; row < end; ++row) {
-        if (null_map != nullptr && (*null_map)[row]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
-            continue;
-        }
-        std::array<uint8_t, 16> bytes;
-        RETURN_IF_ERROR(parse_uuid_to_bytes(string_column.get_data_at(row), &bytes));
-        RETURN_IF_ERROR(checkArrowStatus(builder.Append(bytes.data()), column, builder));
-    }
-    return Status::OK();
+    return write_type_serde_column(type, serde, column, null_map, field, array_builder, start, end,
+                                   ctz);
 }
+
+namespace {
+
+class CanonicalArrowWriteConverter final : public ArrowWriteConverter {
+public:
+    Status write_column(const std::shared_ptr<const IDataType>& type, const DataTypeSerDe& serde,
+                        const IColumn& column, const NullMap* null_map,
+                        const std::shared_ptr<arrow::Field>& field,
+                        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                        const cctz::time_zone& ctz) const override {
+        return write_canonical_column(type, serde, column, null_map, field, array_builder, start,
+                                      end, ctz);
+    }
+};
 
 } // namespace
+
+const ArrowWriteConverter& canonical_arrow_write_converter() {
+    static const CanonicalArrowWriteConverter converter;
+    return converter;
+}
 
 Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
     int num_fields = _schema->num_fields();
@@ -306,15 +278,10 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         }
         _cur_builder = builder.get();
         try {
-            if (is_iceberg_uuid_field(_schema->field(idx)) &&
-                is_string_type(remove_nullable(_cur_type)->get_primitive_type())) {
-                RETURN_IF_ERROR(write_iceberg_uuid_string_column_to_arrow(
-                        *column, _cur_type, _cur_builder, _cur_start, _cur_start + _cur_rows));
-            } else {
-                RETURN_IF_ERROR(_cur_type->get_serde()->write_column_to_arrow(
-                        *column, nullptr, _cur_builder, _cur_start, _cur_start + _cur_rows,
-                        _timezone_obj));
-            }
+            const auto serde = _cur_type->get_serde();
+            RETURN_IF_ERROR(_write_converter.write_column(
+                    _cur_type, *serde, *column, nullptr, _schema->field(idx), _cur_builder,
+                    _cur_start, _cur_start + _cur_rows, _timezone_obj));
         } catch (std::exception& e) {
             return Status::InternalError(
                     "Fail to convert block data to arrow data, type: {}, name: {}, error: {}",
@@ -364,6 +331,15 @@ Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::S
                               arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj) {
     FromBlockToRecordBatchConverter converter(block, schema, pool, timezone_obj);
+    return converter.convert(result);
+}
+
+Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
+                              arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
+                              const cctz::time_zone& timezone_obj, size_t start_row, size_t end_row,
+                              const ArrowWriteConverter& write_converter) {
+    FromBlockToRecordBatchConverter converter(block, schema, pool, timezone_obj, start_row, end_row,
+                                              write_converter);
     return converter.convert(result);
 }
 

@@ -30,6 +30,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
@@ -360,6 +361,20 @@ Status DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const
     return nested_serde->write_column_to_arrow(column_nullable.get_nested_column(),
                                                &column_nullable.get_null_map_data(), array_builder,
                                                start, end, ctz);
+}
+
+Status DataTypeNullableSerDe::write_column_to_arrow(const std::shared_ptr<const IDataType>& type,
+                                                    const IColumn& column, const NullMap*,
+                                                    const std::shared_ptr<arrow::Field>& field,
+                                                    arrow::ArrayBuilder* array_builder,
+                                                    int64_t start, int64_t end,
+                                                    const cctz::time_zone& ctz,
+                                                    const ArrowWriteContext& context) const {
+    const auto& nullable_type = assert_cast<const DataTypeNullable&>(*type);
+    const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
+    return context.write_column(
+            nullable_type.get_nested_type(), *nested_serde, column_nullable.get_nested_column(),
+            &column_nullable.get_null_map_data(), field, array_builder, start, end, ctz);
 }
 
 Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,

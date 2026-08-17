@@ -70,7 +70,7 @@ import java.util.Set;
  *   C++ Block → Arrow IPC Stream → JNI direct ByteBuffer
  *   → PaimonJniWriter.write(directBuffer)
  *   → ArrowStreamReader → VectorSchemaRoot
- *   → PaimonArrowConverter (row-at-a-time typed extraction)
+ *   → PaimonArrowConverter (strict schema binding and mechanical row materialization)
  *   → PaimonWriteSchema.tableRow() (canonical table-schema order)
  *   → Paimon SDK bucket assignment and table write
  * </pre>

@@ -89,6 +89,7 @@
 #include "exprs/function/parse/variant_string_parse.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
+#include "format/table/iceberg/iceberg_arrow_write_converter.h"
 #include "runtime/descriptors.cpp"
 #include "util/string_parser.hpp"
 
@@ -548,7 +549,8 @@ TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
     std::shared_ptr<arrow::RecordBatch> record_batch;
     cctz::time_zone default_timezone;
     Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
-                                           &record_batch, default_timezone);
+                                           &record_batch, default_timezone, 0, block->rows(),
+                                           iceberg::iceberg_arrow_write_converter());
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_NE(nullptr, record_batch);
     ASSERT_EQ(2, record_batch->num_rows());
@@ -563,6 +565,24 @@ TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
                                  0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
     EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(0), expected0, sizeof(expected0)));
     EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(1), expected1, sizeof(expected1)));
+}
+
+TEST(DataTypeSerDeArrowTest, CanonicalConverterDoesNotInferIcebergUuid) {
+    Block block;
+    auto column = ColumnString::create();
+    column->insert_data("550e8400-e29b-41d4-a716-446655440000", 36);
+    block.insert(ColumnWithTypeAndName(column->get_ptr(), std::make_shared<DataTypeString>(),
+                                       "uuid_col"));
+    auto metadata = arrow::KeyValueMetadata::Make({"originalType"}, {"uuid"});
+    auto schema =
+            arrow::schema({arrow::field("uuid_col", arrow::fixed_size_binary(16), true, metadata)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    const Status status = convert_to_arrow_batch(block, schema, arrow::default_memory_pool(),
+                                                 &record_batch, cctz::utc_time_zone());
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(std::string::npos,
+              status.to_string().find("Fixed size binary column expects 16 bytes"));
 }
 
 TEST(DataTypeSerDeArrowTest, IcebergVariantExtensionAndParquetSchema) {
@@ -613,7 +633,8 @@ TEST(DataTypeSerDeArrowTest, IcebergVariantExtensionAndParquetSchema) {
     std::shared_ptr<arrow::RecordBatch> record_batch;
     cctz::time_zone default_timezone;
     Status status = convert_to_arrow_batch(block, schema, arrow::default_memory_pool(),
-                                           &record_batch, default_timezone);
+                                           &record_batch, default_timezone, 0, block.rows(),
+                                           iceberg::iceberg_arrow_write_converter());
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_NE(nullptr, record_batch);
     ASSERT_TRUE(record_batch->ValidateFull().ok());
@@ -751,7 +772,8 @@ TEST(DataTypeSerDeArrowTest, NestedIcebergVariantExtensionsAndParquetSchema) {
     std::shared_ptr<arrow::RecordBatch> record_batch;
     cctz::time_zone default_timezone;
     Status status = convert_to_arrow_batch(block, schema, arrow::default_memory_pool(),
-                                           &record_batch, default_timezone);
+                                           &record_batch, default_timezone, 0, block.rows(),
+                                           iceberg::iceberg_arrow_write_converter());
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_NE(nullptr, record_batch);
     ASSERT_TRUE(record_batch->ValidateFull().ok()) << record_batch->ValidateFull();
@@ -831,7 +853,8 @@ TEST(DataTypeSerDeArrowTest, NestedIcebergUuidStringToFixedSizeBinary) {
     std::shared_ptr<arrow::RecordBatch> record_batch;
     cctz::time_zone default_timezone;
     Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
-                                           &record_batch, default_timezone);
+                                           &record_batch, default_timezone, 0, block->rows(),
+                                           iceberg::iceberg_arrow_write_converter());
     ASSERT_TRUE(status.ok()) << status;
 
     auto struct_array = std::static_pointer_cast<arrow::StructArray>(record_batch->column(0));

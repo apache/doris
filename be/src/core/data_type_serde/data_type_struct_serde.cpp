@@ -25,6 +25,7 @@
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_struct.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -412,6 +413,31 @@ Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const N
             auto* elem_builder = builder.field_builder(ei);
             RETURN_IF_ERROR(elem_serdes_ptrs[ei]->write_column_to_arrow(
                     struct_column.get_column(ei), nullptr, elem_builder, r, r + 1, ctz));
+        }
+    }
+    return Status::OK();
+}
+
+Status DataTypeStructSerDe::write_column_to_arrow(const std::shared_ptr<const IDataType>& type,
+                                                  const IColumn& column, const NullMap* null_map,
+                                                  const std::shared_ptr<arrow::Field>& field,
+                                                  arrow::ArrayBuilder* array_builder, int64_t start,
+                                                  int64_t end, const cctz::time_zone& ctz,
+                                                  const ArrowWriteContext& context) const {
+    const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
+    auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
+    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    for (auto r = start; r < end; ++r) {
+        if (null_map != nullptr && (*null_map)[r]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), struct_column, builder));
+            continue;
+        }
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column, builder));
+        for (size_t element = 0; element < struct_column.tuple_size(); ++element) {
+            RETURN_IF_ERROR(context.write_column(
+                    struct_type.get_element(element), *elem_serdes_ptrs[element],
+                    struct_column.get_column(element), nullptr, field->type()->field(element),
+                    builder.field_builder(element), r, r + 1, ctz));
         }
     }
     return Status::OK();

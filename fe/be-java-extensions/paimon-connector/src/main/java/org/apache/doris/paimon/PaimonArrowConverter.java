@@ -44,20 +44,30 @@ import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.variant.GenericVariant;
 import org.apache.paimon.types.ArrayType;
+import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BinaryType;
+import org.apache.paimon.types.BooleanType;
+import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DateType;
+import org.apache.paimon.types.DecimalType;
+import org.apache.paimon.types.DoubleType;
+import org.apache.paimon.types.FloatType;
+import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.SmallIntType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarBinaryType;
+import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.types.VariantType;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteOrder;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -83,180 +93,151 @@ final class PaimonArrowConverter {
         if (fields.size() != targetTypes.length) {
             throw new IllegalArgumentException("Arrow column count does not match Paimon write type");
         }
-        return new RowReader(fields, vectors, targetTypes);
+        ValueReader[] readers = new ValueReader[vectors.size()];
+        for (int column = 0; column < vectors.size(); column++) {
+            try {
+                readers[column] = bindReader(vectors.get(column), targetTypes[column]);
+            } catch (RuntimeException e) {
+                throw new IllegalArgumentException(
+                        "Failed to bind Arrow column '" + fields.get(column).getName()
+                                + "' to Paimon " + targetTypes[column],
+                        e);
+            }
+        }
+        return new RowReader(fields, readers);
+    }
+
+    @FunctionalInterface
+    private interface ValueReader {
+        Object read(int index);
     }
 
     /** Bound view of one Arrow batch which converts only the requested row. */
     final class RowReader {
         private final List<Field> fields;
-        private final List<FieldVector> vectors;
-        private final DataType[] targetTypes;
+        private final ValueReader[] readers;
+        private final Object[] reusableValues;
 
-        private RowReader(
-                List<Field> fields, List<FieldVector> vectors, DataType[] targetTypes) {
+        private RowReader(List<Field> fields, ValueReader[] readers) {
             this.fields = fields;
-            this.vectors = vectors;
-            this.targetTypes = targetTypes;
+            this.readers = readers;
+            this.reusableValues = new Object[readers.length];
         }
 
         Object[] values(int rowIndex) {
-            Object[] values = new Object[vectors.size()];
-            for (int column = 0; column < vectors.size(); column++) {
+            for (int column = 0; column < readers.length; column++) {
                 try {
-                    values[column] = convertVectorValue(
-                            vectors.get(column), rowIndex, fields.get(column), targetTypes[column]);
+                    reusableValues[column] = readers[column].read(rowIndex);
                 } catch (RuntimeException e) {
                     throw new IllegalArgumentException(
                             "Failed to convert Arrow column '" + fields.get(column).getName()
-                                    + "' at row " + rowIndex + " to Paimon "
-                                    + targetTypes[column],
+                                    + "' at row " + rowIndex,
                             e);
                 }
             }
-            return values;
+            return reusableValues;
         }
     }
 
-    private Object convertVectorValue(
-            FieldVector vector, int index, Field arrowField, DataType targetType) {
+    private ValueReader bindReader(FieldVector vector, DataType targetType) {
         if (targetType instanceof VariantType) {
-            if (!(vector instanceof StructVector)) {
-                throw new IllegalArgumentException(
-                        "Paimon VARIANT write only supports Variant V2 Arrow "
-                                + "struct<value: binary, metadata: binary>, but got "
-                                + vector.getField());
-            }
-            return vector.isNull(index)
-                    ? null
-                    : convertVariantVector((StructVector) vector, index);
-        }
-        if (vector.isNull(index)) {
-            return null;
+            return bindVariantReader(requireVector(vector, StructVector.class, targetType));
         }
         if (vector instanceof StructVector && targetType instanceof RowType) {
-            return convertStructVector((StructVector) vector, index, (RowType) targetType);
+            return bindStructReader((StructVector) vector, (RowType) targetType);
         }
         if (vector instanceof MapVector && targetType instanceof MapType) {
-            return convertMapVector((MapVector) vector, index, (MapType) targetType);
+            return bindMapReader((MapVector) vector, (MapType) targetType);
         }
         if (vector instanceof ListVector && targetType instanceof ArrayType) {
-            return convertArrayVector((ListVector) vector, index, (ArrayType) targetType);
+            return bindArrayReader((ListVector) vector, (ArrayType) targetType);
         }
-        if (vector instanceof IntVector) {
-            return ((IntVector) vector).get(index);
+        if (vector instanceof IntVector && targetType instanceof IntType) {
+            IntVector typed = (IntVector) vector;
+            return index -> typed.isNull(index) ? null : typed.get(index);
         }
-        if (vector instanceof BigIntVector) {
-            return ((BigIntVector) vector).get(index);
+        if (vector instanceof BigIntVector && targetType instanceof BigIntType) {
+            BigIntVector typed = (BigIntVector) vector;
+            return index -> typed.isNull(index) ? null : typed.get(index);
         }
-        if (vector instanceof SmallIntVector) {
-            return ((SmallIntVector) vector).get(index);
+        if (vector instanceof SmallIntVector && targetType instanceof SmallIntType) {
+            SmallIntVector typed = (SmallIntVector) vector;
+            return index -> typed.isNull(index) ? null : typed.get(index);
         }
-        if (vector instanceof TinyIntVector) {
-            return ((TinyIntVector) vector).get(index);
+        if (vector instanceof TinyIntVector && targetType instanceof TinyIntType) {
+            TinyIntVector typed = (TinyIntVector) vector;
+            return index -> typed.isNull(index) ? null : typed.get(index);
         }
-        if (vector instanceof Float4Vector) {
-            return ((Float4Vector) vector).get(index);
+        if (vector instanceof Float4Vector && targetType instanceof FloatType) {
+            Float4Vector typed = (Float4Vector) vector;
+            return index -> typed.isNull(index) ? null : typed.get(index);
         }
-        if (vector instanceof Float8Vector) {
-            return ((Float8Vector) vector).get(index);
+        if (vector instanceof Float8Vector && targetType instanceof DoubleType) {
+            Float8Vector typed = (Float8Vector) vector;
+            return index -> typed.isNull(index) ? null : typed.get(index);
         }
-        if (vector instanceof BitVector) {
-            return ((BitVector) vector).get(index) == 1;
+        if (vector instanceof BitVector && targetType instanceof BooleanType) {
+            BitVector typed = (BitVector) vector;
+            return index -> typed.isNull(index) ? null : typed.get(index) == 1;
         }
-        if (vector instanceof DateDayVector) {
-            return ((DateDayVector) vector).get(index);
+        if (vector instanceof DateDayVector && targetType instanceof DateType) {
+            DateDayVector typed = (DateDayVector) vector;
+            return index -> typed.isNull(index) ? null : typed.get(index);
         }
-        if (vector instanceof VarCharVector) {
-            byte[] value = ((VarCharVector) vector).get(index);
-            return convertText(value, targetType);
+        if (vector instanceof VarCharVector
+                && (targetType instanceof CharType || targetType instanceof VarCharType)) {
+            VarCharVector typed = (VarCharVector) vector;
+            return index -> typed.isNull(index) ? null : BinaryString.fromBytes(typed.get(index));
         }
-        if (vector instanceof VarBinaryVector) {
-            return ((VarBinaryVector) vector).get(index);
+        if (vector instanceof VarBinaryVector
+                && (targetType instanceof BinaryType || targetType instanceof VarBinaryType)) {
+            VarBinaryVector typed = (VarBinaryVector) vector;
+            return index -> typed.isNull(index) ? null : typed.get(index);
         }
-        if (vector instanceof TimeStampVector) {
-            ArrowType.Timestamp timestampType = (ArrowType.Timestamp) arrowField.getType();
-            return toPaimonTimestamp(
-                    arrowTimestampToMicros(((TimeStampVector) vector).get(index), timestampType),
-                    timestampType, targetType);
+        if (vector instanceof TimeStampVector
+                && (targetType instanceof TimestampType
+                        || targetType instanceof LocalZonedTimestampType)) {
+            TimeStampVector typed = (TimeStampVector) vector;
+            ArrowType.Timestamp arrowType = (ArrowType.Timestamp) typed.getField().getType();
+            validateTimestampBinding(arrowType, targetType);
+            return index -> typed.isNull(index) ? null : toPaimonTimestamp(
+                    arrowTimestampToMicros(typed.get(index), arrowType), arrowType, targetType);
         }
-        if (vector instanceof DecimalVector) {
+        if (vector instanceof DecimalVector && targetType instanceof DecimalType) {
             DecimalVector decimalVector = (DecimalVector) vector;
+            DecimalType decimalType = (DecimalType) targetType;
             int precision = decimalVector.getPrecision();
             int scale = decimalVector.getScale();
-            BigDecimal decimal = getBigDecimalFromArrowBuf(
-                    decimalVector.getDataBuffer(), index, scale, DecimalVector.TYPE_WIDTH);
-            return Decimal.fromBigDecimal(decimal, precision, scale);
+            if (precision != decimalType.getPrecision() || scale != decimalType.getScale()) {
+                throw unsupportedBinding(vector, targetType);
+            }
+            return index -> {
+                if (decimalVector.isNull(index)) {
+                    return null;
+                }
+                BigDecimal decimal = getBigDecimalFromArrowBuf(
+                        decimalVector.getDataBuffer(), index, scale, DecimalVector.TYPE_WIDTH);
+                return Decimal.fromBigDecimal(decimal, precision, scale);
+            };
         }
-        return convertToPaimonType(vector.getObject(index), arrowField, targetType);
+        throw unsupportedBinding(vector, targetType);
     }
 
-    private Object convertToPaimonType(Object value, Field arrowField, DataType targetType) {
-        if (value == null) {
-            return null;
+    private static <T extends FieldVector> T requireVector(
+            FieldVector vector, Class<T> vectorClass, DataType targetType) {
+        if (!vectorClass.isInstance(vector)) {
+            throw unsupportedBinding(vector, targetType);
         }
-        if (targetType instanceof BinaryType || targetType instanceof VarBinaryType) {
-            if (value instanceof byte[]) {
-                return value;
-            }
-            if (value instanceof BinaryString) {
-                return ((BinaryString) value).toBytes();
-            }
-            if (value instanceof org.apache.arrow.vector.util.Text) {
-                return ((org.apache.arrow.vector.util.Text) value).copyBytes();
-            }
-            if (value instanceof String) {
-                return ((String) value).getBytes(StandardCharsets.UTF_8);
-            }
-            return value.toString().getBytes(StandardCharsets.UTF_8);
-        }
-        if (value instanceof BinaryString) {
-            return value;
-        }
-        if (value instanceof byte[]) {
-            return BinaryString.fromBytes((byte[]) value);
-        }
-        if (value instanceof org.apache.arrow.vector.util.Text) {
-            return BinaryString.fromBytes(((org.apache.arrow.vector.util.Text) value).copyBytes());
-        }
-        if (value instanceof org.apache.hadoop.io.Text) {
-            org.apache.hadoop.io.Text text = (org.apache.hadoop.io.Text) value;
-            return BinaryString.fromBytes(text.getBytes(), 0, text.getLength());
-        }
-        if (value instanceof CharSequence) {
-            return BinaryString.fromString(value.toString());
-        }
-
-        ArrowType.ArrowTypeID typeId = arrowField == null
-                ? null : arrowField.getType().getTypeID();
-        if (value instanceof LocalDateTime) {
-            return toPaimonTimestamp((LocalDateTime) value, targetType);
-        }
-        if (value instanceof Long && typeId == ArrowType.ArrowTypeID.Timestamp) {
-            ArrowType.Timestamp timestampType = (ArrowType.Timestamp) arrowField.getType();
-            return toPaimonTimestamp(
-                    arrowTimestampToMicros((Long) value, timestampType), timestampType, targetType);
-        }
-        if (value instanceof Integer && typeId == ArrowType.ArrowTypeID.Date) {
-            return value;
-        }
-        if (value instanceof java.time.LocalDate) {
-            return (int) ((java.time.LocalDate) value).toEpochDay();
-        }
-        if (value instanceof BigDecimal) {
-            BigDecimal decimal = (BigDecimal) value;
-            return Decimal.fromBigDecimal(decimal, decimal.precision(), decimal.scale());
-        }
-        return value;
+        return vectorClass.cast(vector);
     }
 
-    static Object convertText(byte[] value, DataType targetType) {
-        if (targetType instanceof BinaryType || targetType instanceof VarBinaryType) {
-            return value;
-        }
-        return BinaryString.fromBytes(value);
+    private static IllegalArgumentException unsupportedBinding(
+            FieldVector vector, DataType targetType) {
+        return new IllegalArgumentException(
+                "No Doris-Paimon Arrow binding for " + vector.getField() + " -> " + targetType);
     }
 
-    private GenericVariant convertVariantVector(StructVector vector, int index) {
+    private ValueReader bindVariantReader(StructVector vector) {
         List<FieldVector> children = vector.getChildrenFromFields();
         if (children.size() != 2
                 || !VARIANT_VALUE_FIELD.equals(children.get(0).getName())
@@ -270,28 +251,37 @@ final class PaimonArrowConverter {
         }
         VarBinaryVector valueVector = (VarBinaryVector) children.get(0);
         VarBinaryVector metadataVector = (VarBinaryVector) children.get(1);
-        if (valueVector.isNull(index) || metadataVector.isNull(index)) {
-            throw new IllegalArgumentException(
-                    "A non-null Paimon VARIANT struct requires non-null value and metadata");
-        }
-        // BE validates the complete Variant value for Paimon before Arrow transport.
-        // Keep this JNI boundary allocation-only instead of traversing the same tree again.
-        return new GenericVariant(valueVector.get(index), metadataVector.get(index));
+        return index -> {
+            if (vector.isNull(index)) {
+                return null;
+            }
+            if (valueVector.isNull(index) || metadataVector.isNull(index)) {
+                throw new IllegalArgumentException(
+                        "A non-null Paimon VARIANT struct requires non-null value and metadata");
+            }
+            // BE validates the complete Variant value for Paimon before Arrow transport.
+            return new GenericVariant(valueVector.get(index), metadataVector.get(index));
+        };
     }
 
-    private GenericRow convertStructVector(
-            StructVector vector, int index, RowType rowType) {
+    private ValueReader bindStructReader(StructVector vector, RowType rowType) {
         List<DataField> childFields = rowType.getFields();
         List<FieldVector> childVectors = vector.getChildrenFromFields();
         validateStructVectors(childFields, childVectors);
-        GenericRow row = new GenericRow(childFields.size());
+        ValueReader[] childReaders = new ValueReader[childFields.size()];
         for (int i = 0; i < childFields.size(); i++) {
-            DataField childField = childFields.get(i);
-            FieldVector childVector = childVectors.get(i);
-            row.setField(i, convertVectorValue(
-                    childVector, index, childVector.getField(), childField.type()));
+            childReaders[i] = bindReader(childVectors.get(i), childFields.get(i).type());
         }
-        return row;
+        return index -> {
+            if (vector.isNull(index)) {
+                return null;
+            }
+            GenericRow row = new GenericRow(childReaders.length);
+            for (int i = 0; i < childReaders.length; i++) {
+                row.setField(i, childReaders[i].read(index));
+            }
+            return row;
+        };
     }
 
     private static void validateStructVectors(
@@ -330,41 +320,61 @@ final class PaimonArrowConverter {
         }
     }
 
-    private GenericMap convertMapVector(
-            MapVector vector, int index, MapType mapType) {
+    private ValueReader bindMapReader(MapVector vector, MapType mapType) {
         StructVector entries = (StructVector) vector.getDataVector();
         List<FieldVector> entryVectors = entries.getChildrenFromFields();
-        if (entryVectors.size() < 2) {
-            throw new IllegalArgumentException("Arrow map must contain key and value vectors");
+        if (entryVectors.size() != 2) {
+            throw new IllegalArgumentException("Arrow map must contain exactly key and value vectors");
         }
-        FieldVector keyVector = entryVectors.get(0);
-        FieldVector valueVector = entryVectors.get(1);
-        int start = vector.getElementStartIndex(index);
-        int end = vector.getElementEndIndex(index);
-        Map<Object, Object> converted = new HashMap<>();
-        for (int entryIndex = start; entryIndex < end; entryIndex++) {
-            converted.put(
-                    convertVectorValue(
-                            keyVector, entryIndex, keyVector.getField(), mapType.getKeyType()),
-                    convertVectorValue(
-                            valueVector, entryIndex, valueVector.getField(),
-                            mapType.getValueType()));
-        }
-        return new GenericMap(converted);
+        ValueReader keyReader = bindReader(entryVectors.get(0), mapType.getKeyType());
+        ValueReader valueReader = bindReader(entryVectors.get(1), mapType.getValueType());
+        return index -> {
+            if (vector.isNull(index)) {
+                return null;
+            }
+            int start = vector.getElementStartIndex(index);
+            int end = vector.getElementEndIndex(index);
+            Map<Object, Object> converted = new HashMap<>();
+            for (int entryIndex = start; entryIndex < end; entryIndex++) {
+                converted.put(keyReader.read(entryIndex), valueReader.read(entryIndex));
+            }
+            return new GenericMap(converted);
+        };
     }
 
-    private GenericArray convertArrayVector(
-            ListVector vector, int index, ArrayType arrayType) {
+    private ValueReader bindArrayReader(ListVector vector, ArrayType arrayType) {
         FieldVector elementVector = vector.getDataVector();
-        int start = vector.getElementStartIndex(index);
-        int end = vector.getElementEndIndex(index);
-        Object[] converted = new Object[end - start];
-        for (int elementIndex = start; elementIndex < end; elementIndex++) {
-            converted[elementIndex - start] = convertVectorValue(
-                    elementVector, elementIndex, elementVector.getField(),
-                    arrayType.getElementType());
+        ValueReader elementReader = bindReader(elementVector, arrayType.getElementType());
+        return index -> {
+            if (vector.isNull(index)) {
+                return null;
+            }
+            int start = vector.getElementStartIndex(index);
+            int end = vector.getElementEndIndex(index);
+            Object[] converted = new Object[end - start];
+            for (int elementIndex = start; elementIndex < end; elementIndex++) {
+                converted[elementIndex - start] = elementReader.read(elementIndex);
+            }
+            return new GenericArray(converted);
+        };
+    }
+
+    private void validateTimestampBinding(ArrowType.Timestamp arrowType, DataType targetType) {
+        arrowTimestampToMicros(0, arrowType);
+        toPaimonTimestamp(0, arrowType, targetType);
+        int precision = targetType instanceof TimestampType
+                ? ((TimestampType) targetType).getPrecision()
+                : ((LocalZonedTimestampType) targetType).getPrecision();
+        org.apache.arrow.vector.types.TimeUnit expectedUnit = precision > 3
+                ? org.apache.arrow.vector.types.TimeUnit.MICROSECOND
+                : precision > 0
+                        ? org.apache.arrow.vector.types.TimeUnit.MILLISECOND
+                        : org.apache.arrow.vector.types.TimeUnit.SECOND;
+        if (arrowType.getUnit() != expectedUnit) {
+            throw new IllegalArgumentException(
+                    "Arrow timestamp unit " + arrowType.getUnit()
+                            + " does not match Paimon precision " + precision);
         }
-        return new GenericArray(converted);
     }
 
     private static BigDecimal getBigDecimalFromArrowBuf(

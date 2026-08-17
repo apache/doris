@@ -107,13 +107,11 @@ public class PaimonArrowConverterTest {
             vector.setSafe(0, "{\"legacy\":true}".getBytes(StandardCharsets.UTF_8));
             root.setRowCount(1);
 
-            PaimonArrowConverter.RowReader rows =
-                    new PaimonArrowConverter(ZoneId.of("UTC")).rows(
-                            root, new org.apache.paimon.types.DataType[] {new VariantType()});
             IllegalArgumentException exception = Assertions.assertThrows(
-                    IllegalArgumentException.class, () -> rows.values(0));
-            Assertions.assertTrue(exception.getCause().getMessage().contains(
-                    "only supports Variant V2"));
+                    IllegalArgumentException.class,
+                    () -> new PaimonArrowConverter(ZoneId.of("UTC")).rows(
+                            root, new org.apache.paimon.types.DataType[] {new VariantType()}));
+            Assertions.assertTrue(exception.getMessage().contains("Failed to bind"));
         }
     }
 

@@ -124,67 +124,8 @@ private:
 
 namespace {
 
-int hex_value(char c) {
-    if (c >= '0' && c <= '9') {
-        return c - '0';
-    }
-    if (c >= 'a' && c <= 'f') {
-        return c - 'a' + 10;
-    }
-    if (c >= 'A' && c <= 'F') {
-        return c - 'A' + 10;
-    }
-    return -1;
-}
-
-Status parse_uuid_to_bytes(StringRef uuid, std::array<uint8_t, 16>* bytes) {
-    if (uuid.size != 32 && uuid.size != 36) {
-        return Status::InvalidArgument("Invalid UUID string length: {}", uuid.size);
-    }
-
-    int hex_count = 0;
-    int high_nibble = -1;
-    int byte_index = 0;
-    for (size_t i = 0; i < uuid.size; ++i) {
-        char c = uuid.data[i];
-        if (uuid.size == 36 && (i == 8 || i == 13 || i == 18 || i == 23)) {
-            if (c != '-') {
-                return Status::InvalidArgument("Invalid UUID string format");
-            }
-            continue;
-        }
-        if (c == '-') {
-            return Status::InvalidArgument("Invalid UUID string format");
-        }
-
-        int value = hex_value(c);
-        if (value < 0) {
-            return Status::InvalidArgument("Invalid UUID string format");
-        }
-        if (hex_count % 2 == 0) {
-            high_nibble = value;
-        } else {
-            (*bytes)[byte_index++] = static_cast<uint8_t>((high_nibble << 4) | value);
-        }
-        ++hex_count;
-    }
-
-    if (hex_count != 32 || byte_index != 16) {
-        return Status::InvalidArgument("Invalid UUID string format");
-    }
-    return Status::OK();
-}
-
 Status append_fixed_size_binary(arrow::FixedSizeBinaryBuilder& builder, const IColumn& column,
-                                StringRef string_ref, int byte_width, bool pad_char_value,
-                                bool convert_uuid_string) {
-    if (convert_uuid_string && byte_width == 16 &&
-        (string_ref.size == 32 || string_ref.size == 36)) {
-        std::array<uint8_t, 16> bytes;
-        RETURN_IF_ERROR(parse_uuid_to_bytes(string_ref, &bytes));
-        return checkArrowStatus(builder.Append(bytes.data()), column, builder);
-    }
-
+                                StringRef string_ref, int byte_width, bool pad_char_value) {
     if (string_ref.size == byte_width) {
         return checkArrowStatus(builder.Append(reinterpret_cast<const uint8_t*>(string_ref.data)),
                                 column, builder);
@@ -455,7 +396,7 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow(
             }
             auto string_ref = string_column.get_data_at(string_i);
             RETURN_IF_ERROR(append_fixed_size_binary(builder, column, string_ref, byte_width,
-                                                     _type == TYPE_CHAR, _type != TYPE_CHAR));
+                                                     _type == TYPE_CHAR));
         }
         return Status::OK();
     } else {
