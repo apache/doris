@@ -1904,24 +1904,6 @@ build_fast_float() {
     cp -r ./include/fast_float "${TP_INSTALL_DIR}/include/"
 }
 
-# hadoop_libs
-build_hadoop_libs() {
-    check_if_source_exist "${HADOOP_LIBS_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${HADOOP_LIBS_SOURCE}"
-    echo "THIRDPARTY_INSTALLED=${TP_INSTALL_DIR}" >env.sh
-    ./build.sh
-
-    rm -rf "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
-    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    mkdir -p "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
-    mkdir -p "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.6/* "${TP_INSTALL_DIR}/lib/hadoop_hdfs/"
-    cp -r ./hadoop-dist/target/hadoop-libhdfs-3.3.6/include/hdfs.h "${TP_INSTALL_DIR}/include/hadoop_hdfs/"
-    rm -rf "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/*.a"
-    find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type f ! -name '*.a' -exec cp {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
-    find ./hadoop-dist/target/hadoop-3.3.6/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
-}
-
 # hadoop_libs_3_4
 build_hadoop_libs_3_4() {
     check_if_source_exist "${HADOOP_LIBS_3_4_SOURCE}"
@@ -2372,14 +2354,10 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
-        # hadoop_libs, the 3.3.6 fork, stays Linux-only: it carries none of the macOS fixes
-        # apache/doris-thirdparty#407 made to the 3.4 fork, and nothing built here reads its
-        # hadoop_hdfs/ prefix - the cloud module, its only other consumer, is Linux-only too.
-        read -r -a packages <<<"${packages[*]} hadoop_libs_3_4"
-    elif [[ "$(uname -s)" == 'Linux' ]]; then
-        read -r -a packages <<<"${packages[*]} hadoop_libs"
-        read -r -a packages <<<"${packages[*]} hadoop_libs_3_4"
     fi
+    # hadoop_libs_3_4 runs last on every platform: its native build links against
+    # what the packages above install into ${TP_INSTALL_DIR}.
+    read -r -a packages <<<"${packages[*]} hadoop_libs_3_4"
 fi
 
 # Map a package name to its source directory variable(s) and remove them to free disk space.
@@ -2457,7 +2435,6 @@ cleanup_package_source() {
         xxhash)          src_var="XXHASH_SOURCE" ;;
         concurrentqueue) src_var="CONCURRENTQUEUE_SOURCE" ;;
         fast_float)      src_var="FAST_FLOAT_SOURCE" ;;
-        hadoop_libs)     src_var="HADOOP_LIBS_SOURCE" ;;
         hadoop_libs_3_4) src_var="HADOOP_LIBS_3_4_SOURCE" ;;
         avx2neon)        src_var="AVX2NEON_SOURCE" ;;
         libdeflate)      src_var="LIBDEFLATE_SOURCE" ;;

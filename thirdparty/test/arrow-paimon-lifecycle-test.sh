@@ -161,14 +161,14 @@ exercise_generic_recovery_dispatch() {
     local package2
     local extra
 
-    mkdir -p "${thirdparty_dir}/installed/lib/hadoop_hdfs/native" \
-        "${external_thirdparty_dir}/installed/lib/hadoop_hdfs/native" \
+    mkdir -p "${thirdparty_dir}/installed/lib/hadoop_hdfs_3_4/native" \
+        "${external_thirdparty_dir}/installed/lib/hadoop_hdfs_3_4/native" \
         "${generic}/gensrc" "${generic}/fe" "${generic}/be/build_Release" \
         "${generic}/be/output"
     cp "${ROOT}/../build.sh" "${generic}/build.sh"
     cp "${ROOT}/arrow-paimon-vars.sh" "${thirdparty_dir}/arrow-paimon-vars.sh"
-    touch "${thirdparty_dir}/installed/lib/hadoop_hdfs/native/libhdfs.a"
-    touch "${external_thirdparty_dir}/installed/lib/hadoop_hdfs/native/libhdfs.a"
+    touch "${thirdparty_dir}/installed/lib/hadoop_hdfs_3_4/native/libhdfs.a"
+    touch "${external_thirdparty_dir}/installed/lib/hadoop_hdfs_3_4/native/libhdfs.a"
     printf '%s\n' 'clean: ; @:' >"${generic}/gensrc/Makefile"
     # shellcheck disable=SC2016
     printf '%s\n' '#!/usr/bin/env bash' '[[ "$1" == "clean" ]]' >"${fake_mvn}"
