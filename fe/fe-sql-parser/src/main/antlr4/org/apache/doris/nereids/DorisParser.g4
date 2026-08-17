@@ -1189,8 +1189,7 @@ replayCommand
     : PLAN REPLAYER replayType;
 
 replayType
-    : DUMP query
-    | PLAY filePath=STRING_LITERAL;
+    : DUMP query;
 
 mergeType
     : APPEND
