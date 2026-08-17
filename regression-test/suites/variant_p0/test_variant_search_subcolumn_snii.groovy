@@ -37,6 +37,7 @@
 // disabled test9) as additional SNII-specific coverage; that group has no counterpart in the V2
 // baseline to diff against, so it does not affect the byte-identical claim above.
 suite("test_variant_search_subcolumn_snii") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def table_name = "test_variant_search_subcolumn_snii"
     sql "set default_variant_doc_materialization_min_rows = 0"
 
@@ -64,12 +65,12 @@ suite("test_variant_search_subcolumn_snii") {
     // Insert test data
     sql """
         INSERT INTO ${table_name} VALUES
-        (1, '{"string4": "0ff dpr test"}'),
-        (2, '{"string4": "hello world"}'),
-        (3, '{"string4": "0ff test"}'),
-        (4, '{"string5": "0ff dpr"}'),
-        (5, '{"string4": "dpr only"}'),
-        (6, '{"nested": {"field": "0ff dpr"}}')
+        (1, ${variantV2Function}('{"string4": "0ff dpr test"}')),
+        (2, ${variantV2Function}('{"string4": "hello world"}')),
+        (3, ${variantV2Function}('{"string4": "0ff test"}')),
+        (4, ${variantV2Function}('{"string5": "0ff dpr"}')),
+        (5, ${variantV2Function}('{"string4": "dpr only"}')),
+        (6, ${variantV2Function}('{"nested": {"field": "0ff dpr"}}'))
     """
 
     // Wait for data to be flushed and index to be built
@@ -141,7 +142,7 @@ suite("test_variant_search_subcolumn_snii") {
     logger.info("Test 8: Quoted field names")
     sql """
         INSERT INTO ${table_name} VALUES
-        (7, '{"field-name": "test value"}')
+        (7, ${variantV2Function}('{"field-name": "test value"}'))
     """
     Thread.sleep(5000)
 

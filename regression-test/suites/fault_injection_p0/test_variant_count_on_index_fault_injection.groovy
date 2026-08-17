@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_variant_count_on_index_fault_injection", "p0, nonConcurrent") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def tbl = "test_variant_count_on_index_tbl"
 
     def toInt = { v -> Integer.parseInt(v.toString()) }
@@ -50,11 +51,11 @@ suite("test_variant_count_on_index_fault_injection", "p0, nonConcurrent") {
 
     sql """
         INSERT INTO ${tbl} VALUES
-            (1, '{"a":"hello","b":"world","c":1}', '{"b":"foo"}'),
-            (2, '{"a":"hello","b":"world","c":2}', '{"b":"world"}'),
-            (3, '{"a":"hello","b":"xxx","c":1}',   '{"c":1}'),
-            (4, '{"a":"xxx","b":"world","c":3}',  '{"b":"bar"}'),
-            (5, '{"a":"hello hello","b":"world world","c":1}', '{"b":"baz"}');
+            (1, ${variantV2Function}('{"a":"hello","b":"world","c":1}'), ${variantV2Function}('{"b":"foo"}')),
+            (2, ${variantV2Function}('{"a":"hello","b":"world","c":2}'), ${variantV2Function}('{"b":"world"}')),
+            (3, ${variantV2Function}('{"a":"hello","b":"xxx","c":1}'),   ${variantV2Function}('{"c":1}')),
+            (4, ${variantV2Function}('{"a":"xxx","b":"world","c":3}'),  ${variantV2Function}('{"b":"bar"}')),
+            (5, ${variantV2Function}('{"a":"hello hello","b":"world world","c":1}'), ${variantV2Function}('{"b":"baz"}'));
     """
 
     sql "sync"

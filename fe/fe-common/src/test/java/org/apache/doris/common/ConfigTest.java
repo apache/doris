@@ -101,6 +101,11 @@ public class ConfigTest {
     }
 
     @Test
+    public void testVariantV2IsEnabledByDefault() {
+        Assert.assertTrue("ColumnVariantV2 should be enabled by default", Config.enable_variant_v2);
+    }
+
+    @Test
     public void testConfFieldDescriptionsAreEnglishStrings() throws Exception {
         for (Field field : Config.class.getFields()) {
             ConfigBase.ConfField confField = field.getAnnotation(ConfigBase.ConfField.class);

@@ -19,6 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.awaitility.Awaitility
 
 suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
@@ -88,18 +89,18 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
             // 1. simple cases
             create_table.call(tableName, "1", key_types[i])
             def insert = {
-                sql """insert into ${tableName} values (1,  '{"x" : [1]}'),(13,  '{"a" : 1}');"""
-                sql """insert into ${tableName} values (2,  '{"a" : "1"}'),(14,  '{"a" : [[[1]]]}');"""
-                sql """insert into ${tableName} values (3,  '{"x" : [3]}'),(15,  '{"a" : 1}')"""
-                sql """insert into ${tableName} values (4,  '{"y": 1}'),(16,  '{"a" : "1223"}');"""
-                sql """insert into ${tableName} values (5,  '{"z" : 2.0}'),(17,  '{"a" : [1]}');"""
-                sql """insert into ${tableName} values (6,  '{"x" : 111}'),(18,  '{"a" : ["1", 2, 1.1]}');"""
-                sql """insert into ${tableName} values (7,  '{"m" : 1}'),(19,  '{"a" : 1, "b" : {"c" : 1}}');"""
-                sql """insert into ${tableName} values (8,  '{"l" : 2}'),(20,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-                sql """insert into ${tableName} values (9,  '{"g" : 1.11}'),(21,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-                sql """insert into ${tableName} values (10, '{"z" : 1.1111}'),(22,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
-                sql """insert into ${tableName} values (11, '{"sala" : 0}'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
-                sql """insert into ${tableName} values (12, '{"dddd" : 0.1}'),(1022,  '{"a" : 1, "b" : 10}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
+                sql """insert into ${tableName} values (1,  ${variantV2Function}('{"x" : [1]}')),(13,  ${variantV2Function}('{"a" : 1}'));"""
+                sql """insert into ${tableName} values (2,  ${variantV2Function}('{"a" : "1"}')),(14,  ${variantV2Function}('{"a" : [[[1]]]}'));"""
+                sql """insert into ${tableName} values (3,  ${variantV2Function}('{"x" : [3]}')),(15,  ${variantV2Function}('{"a" : 1}'))"""
+                sql """insert into ${tableName} values (4,  ${variantV2Function}('{"y": 1}')),(16,  ${variantV2Function}('{"a" : "1223"}'));"""
+                sql """insert into ${tableName} values (5,  ${variantV2Function}('{"z" : 2.0}')),(17,  ${variantV2Function}('{"a" : [1]}'));"""
+                sql """insert into ${tableName} values (6,  ${variantV2Function}('{"x" : 111}')),(18,  ${variantV2Function}('{"a" : ["1", 2, 1.1]}'));"""
+                sql """insert into ${tableName} values (7,  ${variantV2Function}('{"m" : 1}')),(19,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'));"""
+                sql """insert into ${tableName} values (8,  ${variantV2Function}('{"l" : 2}')),(20,  ${variantV2Function}('{"a" : 1, "b" : {"c" : [{"a" : 1}]}}'));"""
+                sql """insert into ${tableName} values (9,  ${variantV2Function}('{"g" : 1.11}')),(21,  ${variantV2Function}('{"a" : 1, "b" : {"c" : [{"a" : 1}]}}'));"""
+                sql """insert into ${tableName} values (10, ${variantV2Function}('{"z" : 1.1111}')),(22,  ${variantV2Function}('{"a" : 1, "b" : {"c" : [{"a" : 1}]}}'));"""
+                sql """insert into ${tableName} values (11, ${variantV2Function}('{"sala" : 0}')),(1999,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}')),(19921,  ${variantV2Function}('{"a" : 1, "b" : 10}'));"""
+                sql """insert into ${tableName} values (12, ${variantV2Function}('{"dddd" : 0.1}')),(1022,  ${variantV2Function}('{"a" : 1, "b" : 10}')),(1029,  ${variantV2Function}('{"a" : 1, "b" : {"c" : 1}}'));"""
             }
             insert.call();
             insert.call();
@@ -156,7 +157,7 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
     // here will always true
-    sql """insert into tn_simple_variant_DUPLICATE values (1, '{"a" : 1, "b" : 2}');"""
+    sql """insert into tn_simple_variant_DUPLICATE values (1, ${variantV2Function}('{"a" : 1, "b" : 2}'));"""
     GetDebugPoint().enableDebugPointForAllBEs("exceeded_sparse_column_limit_must_be_false")
     test {
         sql """ select v['a'] from tn_simple_variant_DUPLICATE where k = 1"""
@@ -165,7 +166,7 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
 
     // here will always false
     sql """ truncate table tn_simple_variant_DUPLICATE --force ; """
-    sql """insert into tn_simple_variant_DUPLICATE values (1, '{"d" : "ddd",  "s" : "fff", "da": "ddd", "m": 111}');"""
+    sql """insert into tn_simple_variant_DUPLICATE values (1, ${variantV2Function}('{"d" : "ddd",  "s" : "fff", "da": "ddd", "m": 111}'));"""
     test {
         sql """ select v['m'] from tn_simple_variant_DUPLICATE"""
         exception "exceeded_sparse_column_limit_must_be_false"

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_create_view_variant_nested_field") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql "SET enable_nereids_planner=true;"
     sql "SET enable_fallback_to_original_planner=false;"
 
@@ -61,7 +62,7 @@ suite("test_create_view_variant_nested_field") {
 
     sql """
         INSERT INTO ${tableName} VALUES
-        (1, '2026-04-21 00:00:00', 'watch_time', '{"video_id":100,"duration":15000}', '{"user_client":"ios"}')
+        (1, '2026-04-21 00:00:00', 'watch_time', ${variantV2Function}('{"video_id":100,"duration":15000}'), ${variantV2Function}('{"user_client":"ios"}'))
     """
     sql "INSERT INTO ${videoMetaTableName} VALUES (100, 60)"
 

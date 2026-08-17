@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_array_function_doc", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     
     def tableName = "array_table"
     sql """
@@ -216,7 +217,7 @@ suite("test_array_function_doc", "p0") {
     """
 
     sql """ INSERT INTO ${tableName2} (id, boolean_column, tinyint_column, smallint_column, int_column, bigint_column, largeint_column, float_column, double_column, decimal32_column, decimal64_column, decimal128_column, decimal256_column, string_column, varchar_column, char_column, date_column, datetime_column, ipv4_column, ipv6_column, struct_column, array_column, map_column, json_column, variant_column) VALUES
-    (1, true, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 'hello', 'hello', 'hello', '2021-01-01', '2021-01-01 00:00:00', '192.168.1.1', '::1', STRUCT(1, 'John'), [1, 2, 3], MAP('key1', 1), '{"a": 1}', '{"b" : "c"}'); """
+    (1, true, 1, 1, 1, 1, 1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 'hello', 'hello', 'hello', '2021-01-01', '2021-01-01 00:00:00', '192.168.1.1', '::1', STRUCT(1, 'John'), [1, 2, 3], MAP('key1', 1), '{"a": 1}', ${variantV2Function}('{"b" : "c"}')); """
 
     qt_sql """ SELECT ARRAY_WITH_CONSTANT(2, boolean_column) from ${tableName2}; """
 

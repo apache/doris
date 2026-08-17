@@ -34,6 +34,7 @@
  * After fix:  search() returns matching rows (correct FULLTEXT reader selected)
  */
 suite("test_search_variant_dual_index_reader", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def tableName = "test_variant_dual_index_reader"
 
     sql """ set enable_match_without_inverted_index = false """
@@ -72,11 +73,11 @@ suite("test_search_variant_dual_index_reader", "p0") {
     """
 
     sql """INSERT INTO ${tableName} VALUES
-        (1, '{"string_8": "admin user"}'),
-        (2, '{"string_8": "readonly access"}'),
-        (3, '{"string_8": "admin access granted"}'),
-        (4, '{"string_1": "hello world"}'),
-        (5, '{"string_8": "guest only"}')
+        (1, ${variantV2Function}('{"string_8": "admin user"}')),
+        (2, ${variantV2Function}('{"string_8": "readonly access"}')),
+        (3, ${variantV2Function}('{"string_8": "admin access granted"}')),
+        (4, ${variantV2Function}('{"string_1": "hello world"}')),
+        (5, ${variantV2Function}('{"string_8": "guest only"}'))
     """
 
     sql "sync"

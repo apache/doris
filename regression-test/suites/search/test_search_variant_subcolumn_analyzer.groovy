@@ -29,6 +29,7 @@
  * the index_properties via TSearchFieldBinding to BE.
  */
 suite("test_search_variant_subcolumn_analyzer", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def tableName = "test_variant_subcolumn_analyzer"
 
     sql """ set enable_match_without_inverted_index = false """
@@ -66,12 +67,12 @@ suite("test_search_variant_subcolumn_analyzer", "p0") {
 
     // Insert test data
     sql """INSERT INTO ${tableName} VALUES
-        (1, '{"string_8": "admin only"}'),
-        (2, '{"string_8": "user access"}'),
-        (3, '{"string_8": "admin access granted"}'),
-        (4, '{"string_1": "hello world"}'),
-        (5, '{"string_8": "readonly user"}'),
-        (6, '{"number_1": 42}')
+        (1, ${variantV2Function}('{"string_8": "admin only"}')),
+        (2, ${variantV2Function}('{"string_8": "user access"}')),
+        (3, ${variantV2Function}('{"string_8": "admin access granted"}')),
+        (4, ${variantV2Function}('{"string_1": "hello world"}')),
+        (5, ${variantV2Function}('{"string_8": "readonly user"}')),
+        (6, ${variantV2Function}('{"number_1": 42}'))
     """
 
     // Wait for data to be flushed and indexes built
@@ -159,9 +160,9 @@ suite("test_search_variant_subcolumn_analyzer", "p0") {
     """
 
     sql """INSERT INTO ${tableName2} VALUES
-        (1, '{"name": "admin only"}'),
-        (2, '{"name": "user access"}'),
-        (3, '{"name": "admin access granted"}')
+        (1, ${variantV2Function}('{"name": "admin only"}')),
+        (2, ${variantV2Function}('{"name": "user access"}')),
+        (3, ${variantV2Function}('{"name": "admin access granted"}'))
     """
 
     sql "sync"
