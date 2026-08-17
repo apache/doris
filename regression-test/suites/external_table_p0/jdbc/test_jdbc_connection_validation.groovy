@@ -161,7 +161,6 @@ suite("test_jdbc_connection_validation", "p0,external") {
     def catalogs = sql """ show catalogs """
     assertTrue(catalogs.collect { it[1] }.contains("jdbc_conn_no_test"),
             "test_connection=false should have created the catalog despite bad credentials")
-    sql """ drop catalog jdbc_conn_no_test """
 
     // 6. The BE-side assertion. test_connection defaults to true, so returning from
     //    this statement means executePendingBeTests() reached (jdbc, connection-tester)
@@ -177,8 +176,10 @@ suite("test_jdbc_connection_validation", "p0,external") {
             "driver_class" = "${driver_class}"
         );
     """
-    def rows = sql """ select count(*) from jdbc_conn_ok.doris_test.ex_tb0 """
-    assertTrue(rows[0][0] > 0, "expected rows from ex_tb0 after a passing connectivity test")
+    // Pinned rather than asserted non-empty: doris_test.ex_tb0 is created and filled by the docker
+    // fixture with exactly five rows, so reading a different number means the catalog the tester
+    // validated is not the one being read.
+    qt_rows_after_default_test """ select count(*) from jdbc_conn_ok.doris_test.ex_tb0 """
 
     // 7. Same, but re-created explicitly with test_connection=true, so the BE test is
     //    requested rather than defaulted into.
@@ -194,7 +195,7 @@ suite("test_jdbc_connection_validation", "p0,external") {
             "test_connection" = "true"
         );
     """
-    rows = sql """ select count(*) from jdbc_conn_ok.doris_test.ex_tb0 """
-    assertTrue(rows[0][0] > 0, "expected rows from ex_tb0 with test_connection=true")
-    sql """ drop catalog jdbc_conn_ok """
+    qt_rows_after_explicit_test """ select count(*) from jdbc_conn_ok.doris_test.ex_tb0 """
+    // No drops here on purpose: every catalog this suite uses is dropped at the top instead, so a
+    // failing run leaves its catalogs behind to be inspected.
 }

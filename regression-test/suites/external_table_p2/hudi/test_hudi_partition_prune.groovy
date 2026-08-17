@@ -358,6 +358,30 @@ suite("test_hudi_partition_prune", "p2,external") {
             contains "partition=1/2"
         }
 
+        // A partition that was dropped after the instant being read.
+        //
+        // Every other table here only ever gains partitions, so "the partitions now" and "the
+        // partitions at that instant" are the same set and a listing that ignores the pin still
+        // looks right. This one loses a partition: dropped_partition_tb is written once into KEEP
+        // and GONE, then GONE is dropped, which also unsyncs it from HMS. Reading at the insert
+        // commit must therefore still return the GONE row - a listing that starts from what HMS
+        // holds NOW can only subtract from it, so claiming such a listing is snapshot-exact prunes
+        // that partition away and the query silently comes back short, with a normal EXPLAIN.
+        //
+        // Asserted on the rows rather than on partition=N/M on purpose: the two values of
+        // use_hive_sync_partition reach the same rows through different partition universes (an
+        // exact set vs. an empty one, which means scan-all), and it is the rows that must not differ.
+        def dropped_partition_latest = "SELECT id,name,part1 FROM dropped_partition_tb ORDER BY id;"
+        qt_dropped_partition_latest dropped_partition_latest
+
+        def timestamps_dropped_partition = getCommitTimestamps("dropped_partition_tb")
+        if (timestamps_dropped_partition.size() >= 1) {
+            def insert_commit = timestamps_dropped_partition[0]
+            def dropped_partition_at_insert = "SELECT id,name,part1 FROM dropped_partition_tb " +
+                    "FOR TIME AS OF '${insert_commit}' ORDER BY id;"
+            qt_dropped_partition_at_insert dropped_partition_at_insert
+        }
+
         sql """drop catalog if exists ${catalog_name};"""
 
 
