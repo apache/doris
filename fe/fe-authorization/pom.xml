@@ -51,9 +51,12 @@ under the License.
             <!--
               Stamps the declared AUTHORIZATION plugin API version into every jar built here.
 
-              Nothing in this tree READS the attribute yet - a third-party plugin stamps its own, and the
-              in-tree Ranger sources are still classpath-discovered, which is deliberately not gated (see
-              AccessControllerManager). The block is still mandatory, for a reason that is not obvious:
+              The attribute is read on the way in: the release installs both Ranger plugins under
+              plugins/authorization/ (see build.sh), and DirectoryPluginRuntimeManager refuses a plugin
+              directory whose jar does not declare a compatible one. Deleting this block therefore does not
+              merely leave a stale version in the manifest - it makes the two Ranger sources shipped with the
+              release fail the gate and disappear. The block is also mandatory for a second, less obvious
+              reason:
               maven-build-cache-extension (enabled in fe/.mvn) hashes a module from its src/** files, its
               dependencies and its <build><plugins>, and NOT from <properties>. The filtered resource's
               source text is the literal ${...} placeholder, whose hash never moves. Without the value

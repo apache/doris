@@ -37,7 +37,9 @@ public final class DataMaskSpec {
 
     /**
      * @param policyIdent identifies the policy that produced this mask, for auditing and for change
-     *         detection; it must change when the policy changes (e.g. {@code "<policyId>:<version>"})
+     *         detection. The spec as a whole has to compare unequal once the policy changes; carry the
+     *         version here when nothing else moves (e.g. {@code "<policyId>:<version>"} for a source whose
+     *         policies are edited in place)
      * @param maskSql a scalar SQL expression in Doris dialect yielding the value the subject may see
      */
     public DataMaskSpec(String policyIdent, String maskSql) {

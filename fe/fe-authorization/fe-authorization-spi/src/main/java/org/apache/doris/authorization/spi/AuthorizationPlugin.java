@@ -44,6 +44,14 @@ import java.util.Set;
  * why exemptions that used to be the engine's ("an administrator may go anywhere") are each plugin's own to
  * grant or refuse, with {@link AuthorizationContext} there to ask the questions such a decision needs.</p>
  *
+ * <p>Three exemptions predate that rule and remain the engine's, so a plugin is never asked about them:
+ * a statement the engine runs on behalf of one the caller was already authorized for
+ * ({@code ConnectContext.isSkipAuth()}); {@code skip_catalog_priv_check} on a catalog bound to a source of
+ * its own, which keeps no catalog-level grant for anybody to hold; and the two literal accounts
+ * {@code root@'%'} and {@code admin@'%'}, which are subject to no row filter and no column mask whatever
+ * this plugin returns from {@link #getRowFilters} and {@link #getDataMasks}. They are enumerated in
+ * {@code fe/fe-authorization/README.md} and there are no others.</p>
+ *
  * <h2>Refusing</h2>
  *
  * <p>A check that returns has allowed the access; a check that refuses throws {@link

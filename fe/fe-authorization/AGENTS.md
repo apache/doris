@@ -24,8 +24,8 @@ mvn -f fe/pom.xml -pl :fe-authorization-plugin-ranger-doris -am package \
     -Dmaven.build.cache.enabled=false
 
 # The engine side: routing, the behaviour baseline, the installed-plugin e2e
-mvn -f fe/pom.xml -pl :fe-core -am test \
-    -Dtest=AccessControlBehaviorBaselineTest -DfailIfNoTests=false
+mvn -f fe/pom.xml -pl :fe-core -am test -DfailIfNoTests=false \
+    -Dtest='AccessControllerManagerTest,AccessTranslationTest,LegacyAccessControllerPluginTest,AccessControlBehaviorBaselineTest,AuthorizationPluginFromDirectoryTest'
 ```
 
 Three things about the build cache (`fe/.mvn/maven-build-cache-config.xml`),
@@ -130,7 +130,11 @@ concrete failure mode.
   whole of it. No source-name branching anywhere else, no second opinion, no
   privilege established before a source is asked. Combining two sources or
   granting first would have to happen there, and deliberately does not — the
-  behaviour baseline is what would catch it.
+  behaviour baseline is what would catch it. Three exemptions predate the rule
+  and are listed in `README.md`: `isSkipAuth()`, `skip_catalog_priv_check` on a
+  catalog with its own source, and the two literal `root`/`admin` accounts being
+  exempt from data policies in `LogicalCheckPolicy`. Adding a fourth means
+  amending that list, not quietly widening one of these.
 - **A source installed instance-wide answers for administration itself.**
   `grantedByGlobalScopeAuthority` answers false when the asking source *is* the
   instance-scope authority, on purpose: it would otherwise ask itself a question
@@ -152,11 +156,15 @@ concrete failure mode.
   thrown once per object a user may not see. Do not let it acquire a stack
   trace, do not wrap it in an exception that fills one in, and do not build its
   message eagerly to log it.
-- **`policyIdent` carries a version token.** `RowFilterSpec` and `DataMaskSpec`
-  are values with real equality because the SQL result cache compares them to
-  detect a policy change. An ident that does not move when the policy is edited
-  in place makes a stale plan look current; specs that do not compare equal when
-  identical evict the cache on every lookup.
+- **A spec compares unequal once its policy changes.** `RowFilterSpec` and
+  `DataMaskSpec` are values with real equality because the SQL result cache
+  compares them to detect a policy change. Two specs that stay equal while the
+  policy underneath moves make a stale plan look current; specs that do not
+  compare equal when identical evict the cache on every lookup. Which field
+  carries the change is the source's business: Ranger edits a policy in place
+  keeping its id, so its `policyIdent` is `<policyId>:<version>`; `RowPolicy`
+  has no in-place edit and its `filterSql` moves with the predicate, so its
+  ident is the policy name.
 - **Security-relevant flags parse strictly.** A property that switches an
   exemption on or off must reject anything that is not exactly its allowed
   values. Reading a typo leniently silently changes who may reach what — see

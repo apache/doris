@@ -69,8 +69,13 @@ public final class AccessRequirements {
     public static final AccessRequirement ADMINISTRATION = AccessRequirement.of(AccessAction.ADMIN);
 
     /**
-     * Does the subject hold any privilege at all on the object. Asked where a statement needs the object to
-     * be usable without knowing yet what will be done with it.
+     * Does the subject hold any of the privileges that make an object usable. Asked where a statement needs
+     * the object to be usable without knowing yet what will be done with it.
+     *
+     * <p>Not literally every action: granting and seeing a view's definition are not on the list, because
+     * neither makes an object usable on its own. The set is the one Doris has always asked here and is not
+     * open to adjustment - it has to keep matching {@code PrivPredicate.ALL}, which is what the built-in
+     * model translates it back into.</p>
      */
     public static final AccessRequirement ANY_PRIVILEGE = AccessRequirement.anyOf(AccessAction.NODE,
             AccessAction.ADMIN, AccessAction.SELECT, AccessAction.LOAD, AccessAction.ALTER,

@@ -45,7 +45,10 @@ jobs:
           # that same dual license; only the client half is missing, because #37575 excluded the
           # jersey-bundle Ranger declares against. Ranger's RangerAdminRESTClient is Jersey 1.x,
           # so the Ranger authorization plugins need it to reach a Ranger admin at all.
-          allow-dependencies-licenses: pkg:maven/com.sun.jersey/jersey-client
+          # javax.ws.rs:jsr311-api (CDDL-1.0): the JAX-RS 1.1 API jersey-client compiles and links
+          # against, so it comes with it into the distribution. Same Category B reasoning, and it is
+          # recorded next to jersey-client in dist/LICENSE-dist.txt.
+          allow-dependencies-licenses: pkg:maven/com.sun.jersey/jersey-client, pkg:maven/javax.ws.rs/jsr311-api
           # ([String]). Acknowledged advisories that must not fail the review (optional)
           # org.codehaus.jackson:jackson-mapper-asl (GHSA-c27h-mcmw-48hv, GHSA-r6j9-8759-g62w):
           # legacy Jackson 1.x is EOL and neither advisory has a fixed version. Hive's metastore
