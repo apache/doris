@@ -82,6 +82,13 @@ import java.util.stream.Collectors;
  * {@link org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController} over the deterministic
  * {@link StubRangerPolicyEngine}; only the policy engine is a stub.
  *
+ * <p><b>The four catalog columns.</b> Internal, an external one with no source of its own, one bound to a
+ * source of the current contract, and one bound to {@link StubLegacyAccessControllerFactory} - a source of
+ * the deprecated {@link CatalogAccessController} shape, reached through {@link LegacyAccessControllerPlugin}.
+ * The fourth is here because that adapter is the one route whose behaviour a rework of this layer can change
+ * while every source of the current contract behaves identically: the exemption it reproduces for a caller
+ * granted at global scope is a decision no plugin makes and no other column records.
+ *
  * <p><b>Reading a row.</b> {@code <default controller> | <scope> | <user> | <probe> | <verdict>}. For the
  * check probes the verdict lists exactly the actions that were allowed, so a single flipped cell shows up as
  * one action name appearing or disappearing on one line. {@code -} means "nothing allowed" / "no policy".
@@ -118,8 +125,10 @@ public class AccessControlBehaviorBaselineTest extends TestWithFeService {
 
     private static final String CTL_PLAIN = "ext_plain";
     private static final String CTL_RANGER = "ext_ranger";
+    /** Bound to a source of the deprecated shape, which is the only route whose behaviour changed. */
+    private static final String CTL_LEGACY = "ext_legacy";
     private static final List<String> CATALOGS =
-            ImmutableList.of(InternalCatalog.INTERNAL_CATALOG_NAME, CTL_PLAIN, CTL_RANGER);
+            ImmutableList.of(InternalCatalog.INTERNAL_CATALOG_NAME, CTL_PLAIN, CTL_RANGER, CTL_LEGACY);
 
     private static final String ADMIN_USER = "admin_user";
     private static final String NODE_USER = "node_user";
@@ -159,6 +168,14 @@ public class AccessControlBehaviorBaselineTest extends TestWithFeService {
                 + "\"type\"=\"test\", \"catalog_provider.class\"=\"" + provider + "\","
                 + "\"" + CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP + "\"=\""
                 + StubRangerAccessControllerFactory.class.getName() + "\")");
+        // The fourth column: a source implementing the deprecated CatalogAccessController, reached through
+        // LegacyAccessControllerPlugin. Without it the baseline holds nothing about that adapter, and the
+        // adapter is where a rework can change behaviour while every plugin of the current contract is
+        // untouched - the exemption it reproduces for a caller granted at global scope shows up here.
+        createCatalog("create catalog " + CTL_LEGACY + " properties("
+                + "\"type\"=\"test\", \"catalog_provider.class\"=\"" + provider + "\","
+                + "\"" + CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP + "\"=\""
+                + StubLegacyAccessControllerFactory.NAME + "\")");
 
         for (String user : USERS) {
             addUser(user, true);
