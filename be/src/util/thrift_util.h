@@ -31,7 +31,9 @@
 #include <string>
 #include <vector>
 
+#include "common/exception.h"
 #include "common/status.h"
+#include "util/defer_op.h"
 
 namespace apache::thrift::protocol {
 class TProtocol;
@@ -149,9 +151,15 @@ Status deserialize_thrift_msg(const uint8_t* buf, uint32_t* len, bool compact,
                     const_cast<uint8_t*>(buf), *len,
                     apache::thrift::transport::TMemoryBuffer::OBSERVE, conf));
     try {
+        // Thrift-generated standard containers can throw Doris memory exceptions through the
+        // allocation hooks; preserve their original status for callers that must not retry OOM.
+        enable_thread_catch_bad_alloc++;
+        Defer defer_catch_bad_alloc {[&]() { enable_thread_catch_bad_alloc--; }};
         std::shared_ptr<apache::thrift::protocol::TProtocol> tproto =
                 create_deserialize_protocol(tmem_transport, compact, size_limit);
         deserialized_msg->read(tproto.get());
+    } catch (const doris::Exception& e) {
+        return e.to_status();
     } catch (std::exception& e) {
         return Status::InternalError<false>("Couldn't deserialize thrift msg:\n{}", e.what());
     } catch (...) {

@@ -1299,6 +1299,59 @@ TEST(ParquetBloomFilterPruningTest, NativeBloomReportsConservativeReadOutcomes) 
     // row group; decoding the first block could falsely prune values mapped to the second block.
     run_case(std::move(contradictory), true, false, 1);
     run_case(make_valid_bloom(), true, true, 0); // I/O failure
+
+    const auto run_without_declared_length = [&](int32_t predicate_value, bool expected_pruned) {
+        auto bytes = make_valid_bloom();
+        bytes.resize(bytes.size() + segment_v2::BloomFilter::MINIMUM_BYTES);
+        auto type = std::make_shared<DataTypeInt32>();
+        auto column_schema = std::make_unique<format::parquet::ParquetColumnSchema>();
+        column_schema->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+        column_schema->local_id = 0;
+        column_schema->leaf_column_id = 0;
+        column_schema->type = type;
+        column_schema->type_descriptor.doris_type = type;
+        column_schema->type_descriptor.physical_type = tparquet::Type::INT32;
+
+        tparquet::ColumnMetaData column_metadata;
+        column_metadata.__set_type(tparquet::Type::INT32);
+        column_metadata.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+        column_metadata.__set_num_values(1);
+        column_metadata.__set_total_compressed_size(0);
+        column_metadata.__set_data_page_offset(0);
+        column_metadata.__set_bloom_filter_offset(0);
+        tparquet::ColumnChunk chunk;
+        chunk.__set_meta_data(column_metadata);
+        tparquet::RowGroup row_group;
+        row_group.__set_columns({chunk});
+        row_group.__set_total_byte_size(0);
+        row_group.__set_num_rows(1);
+        tparquet::FileMetaData metadata;
+        metadata.__set_version(1);
+        metadata.__set_num_rows(1);
+        metadata.__set_row_groups({row_group});
+
+        auto request =
+                request_with_bloom_conjunct(type, {Field::create_field<TYPE_INT>(predicate_value)});
+        std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+        schema.push_back(std::move(column_schema));
+        format::parquet::ParquetFileContext file_context;
+        file_context.native_file = std::make_shared<StatisticsMemoryFileReader>(std::move(bytes));
+        std::vector<int> selected_row_groups;
+        format::parquet::ParquetPruningStats pruning_stats;
+        ASSERT_TRUE(format::parquet::select_row_groups_by_metadata(
+                            metadata, schema, request, nullptr, &selected_row_groups, true,
+                            &pruning_stats, nullptr, nullptr, &file_context)
+                            .ok());
+        EXPECT_EQ(selected_row_groups.empty(), expected_pruned);
+        EXPECT_EQ(pruning_stats.filtered_row_groups_by_bloom_filter, expected_pruned ? 1 : 0);
+        EXPECT_EQ(pruning_stats.bloom_filter_probe_successes, 1);
+        EXPECT_EQ(pruning_stats.bloom_filter_corrupt_rejections, 0);
+    };
+
+    // The header's numBytes bounds the filter when the optional metadata length is absent; bytes
+    // belonging to later file structures must not change present or absent probe outcomes.
+    run_without_declared_length(/*predicate_value=*/1, /*expected_pruned=*/false);
+    run_without_declared_length(/*predicate_value=*/2, /*expected_pruned=*/true);
 }
 
 TEST(ParquetBloomFilterPruningTest, NativeBloomPreservesFirstLogicalProbeOrder) {

@@ -162,6 +162,47 @@ TEST_F(ParquetStatisticsTest, accept_valid_bloom_filter_layout) {
             read_test_bloom_filter(/*header_payload_size=*/32, /*actual_payload_size=*/32).ok());
 }
 
+TEST_F(ParquetStatisticsTest, accept_bloom_filter_without_declared_length_before_trailing_bytes) {
+    constexpr int32_t present_value = 1;
+    ParquetBlockSplitBloomFilter source;
+    ASSERT_TRUE(source.init(segment_v2::BloomFilter::MINIMUM_BYTES,
+                            segment_v2::HashStrategyPB::XX_HASH_64)
+                        .ok());
+    source.add_bytes(reinterpret_cast<const char*>(&present_value), sizeof(present_value));
+    int32_t absent_value = 2;
+    while (source.test_bytes(reinterpret_cast<const char*>(&absent_value), sizeof(absent_value))) {
+        ++absent_value;
+    }
+
+    tparquet::BloomFilterAlgorithm algorithm;
+    algorithm.__set_BLOCK(tparquet::SplitBlockAlgorithm());
+    tparquet::BloomFilterHash hash;
+    hash.__set_XXHASH(tparquet::XxHash());
+    tparquet::BloomFilterCompression compression;
+    compression.__set_UNCOMPRESSED(tparquet::Uncompressed());
+    tparquet::BloomFilterHeader header;
+    header.__set_numBytes(static_cast<int32_t>(source.size()));
+    header.__set_algorithm(algorithm);
+    header.__set_hash(hash);
+    header.__set_compression(compression);
+    std::vector<uint8_t> file_bytes;
+    ThriftSerializer serializer(/*compact=*/true, /*initial_buffer_size=*/64);
+    ASSERT_TRUE(serializer.serialize(&header, &file_bytes).ok());
+    file_bytes.insert(file_bytes.end(), source.data(), source.data() + source.size());
+    file_bytes.resize(file_bytes.size() + 64);
+
+    tparquet::ColumnMetaData metadata;
+    metadata.__set_bloom_filter_offset(0);
+    auto reader = std::make_shared<BloomFilterFileReader>(std::move(file_bytes));
+    ParquetPredicate::ColumnStat stat;
+    ASSERT_TRUE(ParquetPredicate::read_bloom_filter(metadata, reader, nullptr, &stat).ok());
+    ASSERT_NE(stat.bloom_filter, nullptr);
+    EXPECT_TRUE(stat.bloom_filter->test_bytes(reinterpret_cast<const char*>(&present_value),
+                                              sizeof(present_value)));
+    EXPECT_FALSE(stat.bloom_filter->test_bytes(reinterpret_cast<const char*>(&absent_value),
+                                               sizeof(absent_value)));
+}
+
 TEST_F(ParquetStatisticsTest, test_try_read_old_utf8_stats) {
     // [, bcé]: min is empty, max starts with ASCII
     {

@@ -34,6 +34,7 @@
 #include "runtime/thread_context.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet_info.h"
+#include "util/thrift_container_size.h"
 #include "util/thrift_server.h"
 
 namespace apache::thrift::protocol {
@@ -62,113 +63,61 @@ class TProtocol;
 namespace doris {
 namespace {
 
-constexpr size_t DECODED_THRIFT_STRUCT_RESERVATION_BYTES = 1024;
-
-size_t decoded_thrift_value_reservation(apache::thrift::protocol::TType type) {
-    using apache::thrift::protocol::T_BOOL;
-    using apache::thrift::protocol::T_BYTE;
-    using apache::thrift::protocol::T_DOUBLE;
-    using apache::thrift::protocol::T_I16;
-    using apache::thrift::protocol::T_I32;
-    using apache::thrift::protocol::T_I64;
-    using apache::thrift::protocol::T_LIST;
-    using apache::thrift::protocol::T_MAP;
-    using apache::thrift::protocol::T_SET;
-    using apache::thrift::protocol::T_STRING;
-    using apache::thrift::protocol::T_STRUCT;
-    switch (type) {
-    case T_BOOL:
-    case T_BYTE:
-        return 1;
-    case T_I16:
-        return sizeof(int16_t);
-    case T_I32:
-        return sizeof(int32_t);
-    case T_I64:
-    case T_DOUBLE:
-        return sizeof(int64_t);
-    case T_STRING:
-        return sizeof(std::string);
-    case T_LIST:
-    case T_SET:
-    case T_MAP:
-        return sizeof(std::vector<uint8_t>);
-    case T_STRUCT:
-        // Generated structs vary in size. Reserving a conservative inline object budget keeps
-        // their eager vector resize inside task admission; the serialized-size reservation covers
-        // their dynamic field payloads.
-        return DECODED_THRIFT_STRUCT_RESERVATION_BYTES;
-    default:
-        return 1;
-    }
-}
-
-class MemoryBudgetProtocol final : public apache::thrift::protocol::TProtocolDecorator {
+class ScopedThreadContextHandle {
 public:
-    MemoryBudgetProtocol(std::shared_ptr<apache::thrift::protocol::TProtocol> protocol,
-                         int32_t serialized_size)
-            : TProtocolDecorator(std::move(protocol)),
-              _memory_manager(thread_context()->thread_mem_tracker_mgr.get()),
-              _prior_reservation(_memory_manager->take_reserved_memory()) {
-        reserve_or_throw(static_cast<size_t>(serialized_size), /*restore_prior_on_failure=*/true);
+    ScopedThreadContextHandle() { ThreadLocalHandle::create_thread_local_if_not_exits(); }
+    ~ScopedThreadContextHandle() { ThreadLocalHandle::del_thread_local_if_count_is_zero(); }
+};
+
+class MemoryBudgetProtocol final : public apache::thrift::protocol::TProtocolDecorator,
+                                   public ThriftContainerMemoryChecker {
+public:
+    explicit MemoryBudgetProtocol(std::shared_ptr<apache::thrift::protocol::TProtocol> protocol)
+            : TProtocolDecorator(std::move(protocol)) {
+        _memory_manager = thread_context()->thread_mem_tracker_mgr.get();
+        if (_memory_manager->limiter_mem_tracker()->label() == "Orphan") {
+            // Apache Thrift worker threads have no Doris task context. Attach a process-accounted
+            // limiter so reservation checks never run against the forbidden orphan tracker.
+            _fallback_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                                 "ThriftDeserialize");
+            _memory_manager->attach_limiter_tracker(_fallback_tracker);
+            _switched_tracker = true;
+        }
+        _prior_reservation = _memory_manager->take_reserved_memory();
     }
 
     ~MemoryBudgetProtocol() override {
         _memory_manager->shrink_reserved();
         _memory_manager->adopt_reserved_memory(std::move(_prior_reservation));
+        if (_switched_tracker) {
+            _memory_manager->detach_limiter_tracker();
+        }
     }
 
-    uint32_t readMapBegin_virt(apache::thrift::protocol::TType& key_type,
-                               apache::thrift::protocol::TType& value_type,
-                               uint32_t& size) override {
-        const uint32_t consumed = TProtocolDecorator::readMapBegin_virt(key_type, value_type, size);
-        const uint32_t count = size;
-        const size_t element_size = decoded_thrift_value_reservation(key_type) +
-                                    decoded_thrift_value_reservation(value_type) +
-                                    4 * sizeof(void*);
-        reserve_container(count, element_size);
-        return consumed;
-    }
-
-    uint32_t readListBegin_virt(apache::thrift::protocol::TType& element_type,
-                                uint32_t& size) override {
-        const uint32_t consumed = TProtocolDecorator::readListBegin_virt(element_type, size);
-        reserve_container(size, decoded_thrift_value_reservation(element_type));
-        return consumed;
-    }
-
-    uint32_t readSetBegin_virt(apache::thrift::protocol::TType& element_type,
-                               uint32_t& size) override {
-        const uint32_t consumed = TProtocolDecorator::readSetBegin_virt(element_type, size);
-        reserve_container(size, decoded_thrift_value_reservation(element_type) + 4 * sizeof(void*));
-        return consumed;
-    }
-
-private:
-    void reserve_container(uint32_t count, size_t element_size) {
+    void reserve_container_memory(uint32_t count, size_t element_size) override {
         if (count > std::numeric_limits<size_t>::max() / element_size) {
             throw apache::thrift::protocol::TProtocolException(
                     apache::thrift::protocol::TProtocolException::SIZE_LIMIT,
                     "Decoded Thrift container size overflows");
         }
-        reserve_or_throw(static_cast<size_t>(count) * element_size,
-                         /*restore_prior_on_failure=*/false);
-    }
-
-    void reserve_or_throw(size_t bytes, bool restore_prior_on_failure) {
+        const size_t bytes = static_cast<size_t>(count) * element_size;
+        if (bytes > static_cast<size_t>(std::numeric_limits<int64_t>::max())) {
+            throw apache::thrift::protocol::TProtocolException(
+                    apache::thrift::protocol::TProtocolException::SIZE_LIMIT,
+                    "Decoded Thrift container size exceeds reservation range");
+        }
         const Status status = _memory_manager->try_reserve(static_cast<int64_t>(bytes));
-        if (status.ok()) {
-            return;
+        if (!status.ok()) {
+            throw Exception(status);
         }
-        if (restore_prior_on_failure) {
-            _memory_manager->adopt_reserved_memory(std::move(_prior_reservation));
-        }
-        throw apache::thrift::protocol::TProtocolException(
-                apache::thrift::protocol::TProtocolException::SIZE_LIMIT, status.to_string());
     }
 
-    ThreadMemTrackerMgr* _memory_manager;
+private:
+    ScopedThreadContextHandle _thread_context_handle;
+    ThreadMemTrackerMgr* _memory_manager = nullptr;
+    std::shared_ptr<MemTrackerLimiter> _fallback_tracker;
     ReservedMemoryToken _prior_reservation;
+    bool _switched_tracker = false;
 };
 
 } // namespace
@@ -199,7 +148,7 @@ std::shared_ptr<apache::thrift::protocol::TProtocol> create_deserialize_protocol
                                                            /*strict_read=*/false,
                                                            /*strict_write=*/true);
     }
-    return std::make_shared<MemoryBudgetProtocol>(std::move(protocol), size_limit);
+    return std::make_shared<MemoryBudgetProtocol>(std::move(protocol));
 }
 
 // Comparator for THostPorts. Thrift declares this (in gen-cpp/Types_types.h) but
