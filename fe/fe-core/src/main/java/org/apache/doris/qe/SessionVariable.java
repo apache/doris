@@ -1773,9 +1773,9 @@ public class SessionVariable implements Serializable, Writable {
     public long runtimeFilterMaxBuildRowCount = 64L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(name = ENABLE_IGNORE_RUNTIME_FILTER_FOR_LARGE_SHUFFLE_JOIN, needForward = true,
-            description = {"是否忽略 build 侧行数未知或超过 runtime_filter_max_build_row_count 的 shuffle join Bloom Filter",
-                    "Whether to ignore Bloom filters for shuffle joins whose build-side row count is unknown or "
-                            + "exceeds runtime_filter_max_build_row_count"})
+            description = {"是否忽略 build 侧行数未知或超过 runtime_filter_max_build_row_count 的双边 shuffle join Bloom Filter",
+                    "Whether to ignore Bloom filters for two-sided shuffle joins whose build-side row count is "
+                            + "unknown or exceeds runtime_filter_max_build_row_count"})
     private boolean enableIgnoreRuntimeFilterForLargeShuffleJoin = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)

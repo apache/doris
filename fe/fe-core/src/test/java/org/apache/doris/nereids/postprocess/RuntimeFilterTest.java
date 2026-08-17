@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
@@ -89,9 +90,12 @@ public class RuntimeFilterTest extends SSBTestBase {
     public void testIgnoreRuntimeFilterForLargeShuffleJoin() {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         long originalMaxBuildRowCount = sessionVariable.runtimeFilterMaxBuildRowCount;
+        double originalBroadcastRowCountLimit = sessionVariable.getBroadcastRowCountLimit();
         boolean originalEnableIgnore = sessionVariable.isEnableIgnoreRuntimeFilterForLargeShuffleJoin();
         String shuffleSql = "SELECT * FROM lineorder JOIN [shuffle] customer"
                 + " ON c_custkey = lo_custkey";
+        String bucketShuffleSql = "SELECT * FROM lineorder JOIN customer"
+                + " ON c_custkey = lo_orderkey";
         String broadcastSql = "SELECT * FROM lineorder JOIN [broadcast] customer"
                 + " ON c_custkey = lo_custkey";
         Consumer<PhysicalPlan> setLargeBuildSide = plan -> {
@@ -100,20 +104,32 @@ public class RuntimeFilterTest extends SSBTestBase {
             AbstractPlan buildSide = (AbstractPlan) join.right();
             buildSide.setStatistics(buildSide.getStats().withRowCount(2));
         };
+        Consumer<PhysicalPlan> setLargeBucketShuffleBuildSide = plan -> {
+            PhysicalHashJoin<?, ?> join = (PhysicalHashJoin<?, ?>) plan.collect(PhysicalHashJoin.class::isInstance)
+                    .iterator().next();
+            Assertions.assertTrue(join.shuffleType() == Join.ShuffleType.bucketShuffle
+                    || join.shuffleType() == Join.ShuffleType.shuffleBucket);
+            AbstractPlan buildSide = (AbstractPlan) join.right();
+            buildSide.setStatistics(buildSide.getStats().withRowCount(2));
+        };
         try {
             sessionVariable.runtimeFilterMaxBuildRowCount = 1;
+            sessionVariable.setBroadcastRowCountLimit(0);
 
             sessionVariable.setEnableIgnoreRuntimeFilterForLargeShuffleJoin(false);
             Assertions.assertEquals(1, getRuntimeFilters(shuffleSql, setLargeBuildSide).get().size());
 
             sessionVariable.setEnableIgnoreRuntimeFilterForLargeShuffleJoin(true);
             Assertions.assertEquals(0, getRuntimeFilters(shuffleSql, setLargeBuildSide).get().size());
+            Assertions.assertEquals(1,
+                    getRuntimeFilters(bucketShuffleSql, setLargeBucketShuffleBuildSide).get().size());
             Assertions.assertEquals(1, getRuntimeFilters(broadcastSql, setLargeBuildSide).get().size());
 
             sessionVariable.runtimeFilterMaxBuildRowCount = 0;
             Assertions.assertEquals(1, getRuntimeFilters(shuffleSql, setLargeBuildSide).get().size());
         } finally {
             sessionVariable.runtimeFilterMaxBuildRowCount = originalMaxBuildRowCount;
+            sessionVariable.setBroadcastRowCountLimit(originalBroadcastRowCountLimit);
             sessionVariable.setEnableIgnoreRuntimeFilterForLargeShuffleJoin(originalEnableIgnore);
         }
     }

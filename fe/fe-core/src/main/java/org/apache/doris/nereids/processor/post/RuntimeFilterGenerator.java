@@ -303,10 +303,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         if (!ctx.getSessionVariable().isEnableIgnoreRuntimeFilterForLargeShuffleJoin()) {
             return false;
         }
-        Join.ShuffleType shuffleType = join.shuffleType();
-        if (shuffleType != Join.ShuffleType.shuffle
-                && shuffleType != Join.ShuffleType.bucketShuffle
-                && shuffleType != Join.ShuffleType.shuffleBucket) {
+        if (join.shuffleType() != Join.ShuffleType.shuffle) {
             return false;
         }
         long maxBuildRowCount = ctx.getSessionVariable().runtimeFilterMaxBuildRowCount;
