@@ -25,6 +25,7 @@ suite("test_async_file_cache_write", "docker") {
     options.msNum = 1
     options.beConfigs += [
         "enable_file_cache=true",
+        "enable_file_cache_write_from_s3_file_writer=false",
         "enable_async_file_cache_write=true",
         "enable_async_file_cache_write_inflight_write_buffer_index=true",
         "enable_read_cache_file_directly=false",
