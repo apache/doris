@@ -143,6 +143,40 @@ TEST(RuntimeStateIcebergCommitDataTest, AmbiguousOwnershipCannotBecomeRejected) 
     EXPECT_EQ(0, cleanup_count);
 }
 
+TEST(RuntimeStateIcebergCommitDataTest, FinalizersKeepOwnersUntilAReportOutcome) {
+    RuntimeState state;
+    int acknowledged_count = 0;
+    int rejected_count = 0;
+    state.add_external_file_report_finalizer([&](ExternalFileReportOutcome outcome) {
+        if (outcome == ExternalFileReportOutcome::ACKNOWLEDGED) {
+            ++acknowledged_count;
+        } else if (outcome == ExternalFileReportOutcome::REJECTED) {
+            ++rejected_count;
+        }
+    });
+
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::ACKNOWLEDGED);
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+
+    EXPECT_EQ(1, acknowledged_count);
+    EXPECT_EQ(0, rejected_count);
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, AcknowledgementAfterAmbiguityReleasesOwner) {
+    RuntimeState state;
+    int acknowledged_count = 0;
+    state.add_external_file_report_finalizer([&](ExternalFileReportOutcome outcome) {
+        if (outcome == ExternalFileReportOutcome::ACKNOWLEDGED) {
+            ++acknowledged_count;
+        }
+    });
+
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::AMBIGUOUS);
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::ACKNOWLEDGED);
+
+    EXPECT_EQ(1, acknowledged_count);
+}
+
 // ---------------------------------------------------------------------------
 // RuntimeState::batch_size()
 // ---------------------------------------------------------------------------

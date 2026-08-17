@@ -30,6 +30,23 @@
 namespace doris {
 
 class RuntimeState;
+enum class ExternalFileReportOutcome;
+
+class PaimonPreparedCommitOwner {
+public:
+    PaimonPreparedCommitOwner(std::unique_ptr<IPaimonWriter> writer,
+                              std::unique_ptr<IPaimonWriteBackend> backend);
+    ~PaimonPreparedCommitOwner();
+
+    void finalize(ExternalFileReportOutcome outcome);
+
+private:
+    void _close();
+
+    std::unique_ptr<IPaimonWriter> _writer;
+    std::unique_ptr<IPaimonWriteBackend> _backend;
+    bool _finalized = false;
+};
 
 /// Each PaimonTableSinkLocalState owns one PaimonTableWriter, which in turn
 /// owns one IPaimonWriteBackend and one IPaimonWriter. Pipeline parallelism
@@ -55,11 +72,12 @@ class RuntimeState;
 ///     │    → selected SDK owns row normalization, routing, buffering,
 ///     │      file writing, and compaction
 ///     ▼
-///   close() → prepareCommit() → CommitMessage[]
+///   close() → prepareCommit() → retain abort owner → CommitMessage[]
 ///
 /// Commit flow (BE only prepares messages; FE is the commit coordinator):
 ///   close() → writer->prepare_commit()
 ///          → collect TPaimonCommitMessage[] (DPCM-framed serialized messages)
+///          → retain writer/backend until final report ACK or rejection
 ///          → RuntimeState::add_paimon_commit_messages()
 ///          → RPC to FE Coordinator → PaimonTransaction
 class PaimonTableWriter final {

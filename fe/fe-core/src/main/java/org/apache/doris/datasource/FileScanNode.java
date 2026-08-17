@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.CascadesContext;
@@ -30,6 +31,8 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -304,11 +307,7 @@ public abstract class FileScanNode extends ExternalScanNode {
             Expr expr;
             Expression expression;
             if (column.getDefaultValue() != null) {
-                expression = new NereidsParser().parseExpression(
-                        column.getDefaultValueSql());
-                ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
-                        null, new Scope(ImmutableList.of()), null, true, true);
-                expression = analyzer.analyze(expression);
+                expression = buildDefaultValueExpression(column);
             } else {
                 if (column.isAllowNull()) {
                     // For load, use Varchar as Null, for query, use column type.
@@ -352,6 +351,27 @@ public abstract class FileScanNode extends ExternalScanNode {
                 }
             }
         }
+    }
+
+    private Expression buildDefaultValueExpression(Column column) {
+        if (column.getType().isFloatingPointType()) {
+            try {
+                double value = Double.parseDouble(column.getDefaultValue());
+                if (!Double.isFinite(value)) {
+                    // NaN and infinities are identifiers in SQL text, so construct a typed literal
+                    // before expression name resolution while leaving other SQL defaults intact.
+                    return column.getType().getPrimitiveType() == PrimitiveType.FLOAT
+                            ? new FloatLiteral(Float.parseFloat(column.getDefaultValue()))
+                            : new DoubleLiteral(value);
+                }
+            } catch (NumberFormatException ignored) {
+                // A floating-point column may still use a general SQL default expression.
+            }
+        }
+        Expression expression = new NereidsParser().parseExpression(column.getDefaultValueSql());
+        ExpressionAnalyzer analyzer = new ExpressionAnalyzer(
+                null, new Scope(ImmutableList.of()), null, true, true);
+        return analyzer.analyze(expression);
     }
 
     protected void addFileCacheAdmissionLog(String userIdentity, Boolean admitted, String reason, double durationMs) {

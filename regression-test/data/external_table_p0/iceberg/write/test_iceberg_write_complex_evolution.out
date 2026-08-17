@@ -13,16 +13,22 @@
 3	\N	\N	\N	\N	\N
 4	6000000000	7000000000	7.5	["x", null, "z"]	{"a":8000000000, "b":null}
 5	50	5	\N	\N	{"null-value":null}
+6	\N	\N	\N	\N	\N
 
 -- !complex_nulls --
 1
 2
 3
 5
+6
 
 -- !complex_partition_specs --
 0	3
-2	2
+3	5
+
+-- !complex_nested_partition_pruning --
+4
+6
 
 -- !complex_base_tag --
 1	[1, null, 3]	{"x":10, "null-value":null}	10	old-a	1	\N

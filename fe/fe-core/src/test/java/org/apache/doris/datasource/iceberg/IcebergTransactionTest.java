@@ -70,9 +70,30 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.StampedLock;
 
 public class IcebergTransactionTest {
+    @Test
+    public void testCleanupAndCommitAliasesShareCrossThreadFence() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        IcebergCommitCoordinator.Guard commit =
+                IcebergCommitCoordinator.beginCommit("s3://bucket/path/table");
+        try {
+            StampedLock fence = IcebergCommitCoordinator.lockFor("s3a://BUCKET/path/table/");
+            Assert.assertEquals(0, fence.tryWriteLock());
+            executor.submit(commit::close).get(5, TimeUnit.SECONDS);
+            long maintenanceStamp = fence.tryWriteLock();
+            Assert.assertNotEquals(0, maintenanceStamp);
+            fence.unlockWrite(maintenanceStamp);
+        } finally {
+            commit.close();
+            executor.shutdownNow();
+        }
+    }
 
     private static String dbName = "db3";
     private static String tbWithPartition = "tbWithPartition";
@@ -601,6 +622,7 @@ public class IcebergTransactionTest {
         IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
 
         PartitionSpec spec = PartitionSpec.unpartitioned();
+        Mockito.when(icebergTable.location()).thenReturn("s3a://warehouse/wh/db3/tbWithoutPartition");
         Mockito.when(icebergTable.newTransaction()).thenReturn(icebergTxn);
         Mockito.when(icebergTable.currentSnapshot()).thenReturn(null);
         Mockito.when(icebergTable.spec()).thenReturn(spec);
@@ -649,6 +671,7 @@ public class IcebergTransactionTest {
         Mockito.verify(rowDelta).removeDeletes(oldDeleteFile1);
         Mockito.verify(rowDelta).removeDeletes(oldDeleteFile2);
         Mockito.verify(rowDelta).commit();
+        txn.rollback();
     }
 
     private void verifyFinishDeleteRewriteBehavior(int formatVersion, boolean expectRewrite)
@@ -663,6 +686,7 @@ public class IcebergTransactionTest {
         IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
 
         PartitionSpec spec = PartitionSpec.unpartitioned();
+        Mockito.when(icebergTable.location()).thenReturn("s3a://warehouse/wh/db3/tbWithoutPartition");
         Mockito.when(icebergTable.newTransaction()).thenReturn(icebergTxn);
         Mockito.when(icebergTable.currentSnapshot()).thenReturn(null);
         Mockito.when(icebergTable.spec()).thenReturn(spec);
@@ -713,6 +737,7 @@ public class IcebergTransactionTest {
             Mockito.verify(rowDelta, Mockito.never()).removeDeletes(ArgumentMatchers.any(DeleteFile.class));
         }
         Mockito.verify(rowDelta).commit();
+        txn.rollback();
     }
 
     @Test
@@ -722,12 +747,14 @@ public class IcebergTransactionTest {
         Table retainedTable = Mockito.mock(Table.class);
         org.apache.iceberg.Transaction retainedTransaction =
                 Mockito.mock(org.apache.iceberg.Transaction.class);
+        Mockito.when(retainedTable.location()).thenReturn("s3a://warehouse/retained_target");
         Mockito.when(retainedTable.newTransaction()).thenReturn(retainedTransaction);
 
         IcebergTransaction txn = getTxn();
         txn.beginInsert(dorisTable, retainedTable, Optional.empty());
 
         Mockito.verify(retainedTable).newTransaction();
+        txn.rollback();
     }
 
     @Test
@@ -737,12 +764,14 @@ public class IcebergTransactionTest {
         Table retainedTable = Mockito.mock(Table.class);
         org.apache.iceberg.Transaction retainedTransaction =
                 Mockito.mock(org.apache.iceberg.Transaction.class);
+        Mockito.when(retainedTable.location()).thenReturn("s3a://warehouse/retained_delete_target");
         Mockito.when(retainedTable.newTransaction()).thenReturn(retainedTransaction);
 
         IcebergTransaction txn = getTxn();
         txn.beginDelete(dorisTable, retainedTable);
 
         Mockito.verify(retainedTable).newTransaction();
+        txn.rollback();
     }
 
     @Test

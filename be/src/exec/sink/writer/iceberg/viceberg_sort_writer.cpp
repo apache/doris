@@ -181,8 +181,9 @@ void VIcebergSortWriter::_update_spill_block_batch_row_count(const Block& block)
     if (rows > 0 && 0 == _avg_row_bytes) {
         _avg_row_bytes = std::max(1UL, block.bytes() / rows);
         int64_t spill_batch_bytes = _runtime_state->spill_buffer_size_bytes(); // default 8MB
-        // Calculate how many rows fit in one spill batch (ceiling division)
-        _spill_block_batch_row_count = (spill_batch_bytes + _avg_row_bytes - 1) / _avg_row_bytes;
+        // Keep the merge output inside the spill-buffer reservation; a single oversized row is the
+        // only unavoidable exception and is still admitted as one row.
+        _spill_block_batch_row_count = std::max<size_t>(1, spill_batch_bytes / _avg_row_bytes);
     }
 }
 
@@ -384,8 +385,11 @@ Status VIcebergSortWriter::_create_merger(bool is_final_merge, size_t batch_size
 }
 
 Status VIcebergSortWriter::_create_final_merger() {
-    // Final merger uses the runtime batch size and merges all remaining streams
-    return _create_merger(true, _runtime_state->batch_size(), 1);
+    return _create_merger(
+            true,
+            iceberg_final_merge_batch_rows(_spill_block_batch_row_count,
+                                           static_cast<size_t>(_runtime_state->batch_size())),
+            1);
 }
 
 void VIcebergSortWriter::_cleanup_spill_streams() {

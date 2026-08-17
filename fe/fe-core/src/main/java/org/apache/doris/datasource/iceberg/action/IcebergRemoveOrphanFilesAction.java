@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ArgumentParsers;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.IcebergCommitCoordinator;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -100,6 +101,30 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
     @Override
     protected List<String> executeAction(TableIf tableIf) throws UserException {
         Table table = ((IcebergExternalTable) tableIf).getIcebergTable();
+        long olderThan = namedArguments.getLong(OLDER_THAN);
+        // Reject an unsafe cutoff before opening any metadata or manifest file.
+        if (olderThan > System.currentTimeMillis() - MIN_RETENTION_MS) {
+            throw new UserException("older_than must retain at least 24 hours of files");
+        }
+
+        try {
+            if (namedArguments.getBoolean(DRY_RUN)) {
+                return scanAndDeleteOrphans(table, olderThan, true);
+            }
+            // Refresh only after acquiring the commit fence, then keep the same metadata generation
+            // stable until deletion finishes so an old imported file cannot become reachable midway.
+            try (IcebergCommitCoordinator.Guard ignored =
+                    IcebergCommitCoordinator.beginMaintenance(table.location())) {
+                table.refresh();
+                return scanAndDeleteOrphans(table, olderThan, false);
+            }
+        } catch (Exception e) {
+            throw new UserException("Failed to remove orphan files: " + e.getMessage(), e);
+        }
+    }
+
+    private List<String> scanAndDeleteOrphans(Table table, long olderThan, boolean dryRun)
+            throws IOException, UserException {
         if (!(table.io() instanceof SupportsPrefixOperations)) {
             throw new UserException("remove_orphan_files requires FileIO prefix listing support");
         }
@@ -108,38 +133,27 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
             // A GC-disabled table may share files with another table, so no destructive scan is safe.
             throw new UserException("Cannot remove orphan files: Iceberg GC is disabled");
         }
-        long olderThan = namedArguments.getLong(OLDER_THAN);
-        // Reject an unsafe cutoff before opening any metadata or manifest file.
-        if (olderThan > System.currentTimeMillis() - MIN_RETENTION_MS) {
-            throw new UserException("older_than must retain at least 24 hours of files");
-        }
         List<ScanScope> scanScopes = resolveScanScopes(table);
-
-        try {
-            ReachableIndex reachable = collectReachableFiles(table);
-            long orphanCount = 0;
-            long deletedCount = 0;
-            boolean dryRun = namedArguments.getBoolean(DRY_RUN);
-            for (ScanScope scope : scanScopes) {
-                // Object stores use raw prefix matching, so the separator excludes sibling prefixes.
-                String listingPrefix = scope.root.endsWith("/") ? scope.root : scope.root + "/";
-                for (FileInfo file : ((SupportsPrefixOperations) table.io()).listPrefix(listingPrefix)) {
-                    // Unknown creation time cannot prove the file predates every in-flight writer.
-                    if (scope.owns(file.location()) && file.createdAtMillis() > 0
-                            && file.createdAtMillis() < olderThan
-                            && !isReachable(file.location(), reachable)) {
-                        orphanCount++;
-                        if (!dryRun) {
-                            table.io().deleteFile(file.location());
-                            deletedCount++;
-                        }
+        ReachableIndex reachable = collectReachableFiles(table);
+        long orphanCount = 0;
+        long deletedCount = 0;
+        for (ScanScope scope : scanScopes) {
+            // Object stores use raw prefix matching, so the separator excludes sibling prefixes.
+            String listingPrefix = scope.root.endsWith("/") ? scope.root : scope.root + "/";
+            for (FileInfo file : ((SupportsPrefixOperations) table.io()).listPrefix(listingPrefix)) {
+                // Unknown creation time cannot prove the file predates every in-flight writer.
+                if (scope.owns(file.location()) && file.createdAtMillis() > 0
+                        && file.createdAtMillis() < olderThan
+                        && !isReachable(file.location(), reachable)) {
+                    orphanCount++;
+                    if (!dryRun) {
+                        table.io().deleteFile(file.location());
+                        deletedCount++;
                     }
                 }
             }
-            return Lists.newArrayList(String.valueOf(orphanCount), String.valueOf(deletedCount));
-        } catch (Exception e) {
-            throw new UserException("Failed to remove orphan files: " + e.getMessage(), e);
         }
+        return Lists.newArrayList(String.valueOf(orphanCount), String.valueOf(deletedCount));
     }
 
     private List<ScanScope> resolveScanScopes(Table table) throws UserException {
