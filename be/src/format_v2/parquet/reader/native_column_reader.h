@@ -25,6 +25,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -68,9 +69,10 @@ inline int64_t bounded_native_lazy_skip_rows(int64_t rows) {
 class NativeColumnReader final : public ParquetColumnReader {
 public:
     static Status create(const ParquetColumnSchema& column_schema,
-                         const format::LocalColumnIndex* projection, io::FileReaderSPtr file,
-                         const NativeParquetMetadata* metadata, int row_group_id,
-                         const std::vector<RowRange>& selected_ranges,
+                         const format::LocalColumnIndex* projection,
+                         const format::VariantAccessPaths* variant_access_paths,
+                         io::FileReaderSPtr file, const NativeParquetMetadata* metadata,
+                         int row_group_id, const std::vector<RowRange>& selected_ranges,
                          const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
                          const cctz::time_zone* timezone, io::IOContext* io_ctx,
                          RuntimeState* runtime_state, bool enable_page_cache,

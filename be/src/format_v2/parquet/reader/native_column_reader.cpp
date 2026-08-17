@@ -136,13 +136,18 @@ DataTypePtr projected_type(const ParquetColumnSchema& schema,
 }
 
 std::unique_ptr<VariantMaterializationNode> build_variant_plan(
-        const ParquetColumnSchema& schema, const format::LocalColumnIndex* projection) {
+        const ParquetColumnSchema& schema, const format::LocalColumnIndex* projection,
+        const format::VariantAccessPaths* variant_access_paths = nullptr) {
     auto plan = std::make_unique<VariantMaterializationNode>();
     plan->schema = &schema;
     if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
         plan->contains_variant = true;
         if (projection != nullptr) {
             plan->variant_projection = *projection;
+        }
+        if (variant_access_paths != nullptr && !variant_access_paths->empty()) {
+            plan->variant_access_paths =
+                    std::make_shared<const format::VariantAccessPaths>(*variant_access_paths);
         }
         plan->variant_state_schema = create_variant_state_schema(schema, projection);
         return plan;
@@ -260,7 +265,8 @@ NativeColumnReader::~NativeColumnReader() {
 
 Status NativeColumnReader::create(
         const ParquetColumnSchema& column_schema, const format::LocalColumnIndex* projection,
-        io::FileReaderSPtr file, const NativeParquetMetadata* metadata, int row_group_id,
+        const format::VariantAccessPaths* variant_access_paths, io::FileReaderSPtr file,
+        const NativeParquetMetadata* metadata, int row_group_id,
         const std::vector<RowRange>& selected_ranges,
         const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
         const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
@@ -298,7 +304,7 @@ Status NativeColumnReader::create(
         // Native readers are instantiated per projected column and row group. Keep Variant tree
         // construction out of ordinary scans instead of charging that setup cost at every split.
         native_type = projected_type(column_schema, projection, true);
-        variant_plan = build_variant_plan(column_schema, projection);
+        variant_plan = build_variant_plan(column_schema, projection, variant_access_paths);
     }
     std::shared_ptr<NativeSchemaNode> schema_node;
     RETURN_IF_ERROR(build_native_schema_node(native_type, column_schema, &schema_node));

@@ -2008,6 +2008,32 @@ static Status build_scan_projection(ColumnMapping* mapping, bool force_full_comp
     return Status::OK();
 }
 
+static void merge_variant_access_paths(VariantAccessPaths* target,
+                                       const VariantAccessPaths& source) {
+    DORIS_CHECK(target != nullptr);
+    target->insert(target->end(), source.begin(), source.end());
+    std::ranges::sort(*target);
+    target->erase(std::unique(target->begin(), target->end()), target->end());
+}
+
+static void register_root_variant_access_paths(FileScanRequest* file_request,
+                                               const ColumnMapping& mapping,
+                                               bool is_predicate_column) {
+    DORIS_CHECK(file_request != nullptr);
+    if (!mapping.file_local_id.has_value() || mapping.table_type == nullptr ||
+        mapping.variant_access_paths.empty() ||
+        remove_nullable(mapping.table_type)->get_primitive_type() != TYPE_VARIANT) {
+        return;
+    }
+    const auto column_id = LocalColumnId(*mapping.file_local_id);
+    merge_variant_access_paths(&file_request->variant_access_paths[column_id],
+                               mapping.variant_access_paths);
+    if (is_predicate_column) {
+        merge_variant_access_paths(&file_request->predicate_variant_access_paths[column_id],
+                                   mapping.variant_access_paths);
+    }
+}
+
 static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapping,
                               bool is_predicate_column, bool force_full_complex_scan_projection,
                               bool enable_variant_leaf_projection) {
@@ -2015,10 +2041,15 @@ static Status add_scan_column(FileScanRequest* file_request, ColumnMapping* mapp
     RETURN_IF_ERROR(build_scan_projection(mapping, force_full_complex_scan_projection,
                                           enable_variant_leaf_projection, &projection));
     FileScanRequestBuilder builder(file_request);
+    Status status;
     if (is_predicate_column) {
-        return builder.add_predicate_column(std::move(projection));
+        status = builder.add_predicate_column(std::move(projection));
+    } else {
+        status = builder.add_non_predicate_column(std::move(projection));
     }
-    return builder.add_non_predicate_column(std::move(projection));
+    RETURN_IF_ERROR(status);
+    register_root_variant_access_paths(file_request, *mapping, is_predicate_column);
+    return Status::OK();
 }
 
 static const LocalColumnIndex* find_scan_projection(
@@ -2351,6 +2382,8 @@ Status TableColumnMapper::create_scan_request(
     file_request->non_predicate_columns.clear();
     file_request->predicate_only_columns.clear();
     file_request->local_positions.clear();
+    file_request->variant_access_paths.clear();
+    file_request->predicate_variant_access_paths.clear();
     if (fixed_local_positions != nullptr) {
         // A refreshed predicate may promote a lazy column, but the active split's block slots are
         // immutable. Seed their positions before rebuilding expressions so every rewritten SlotRef
@@ -2488,6 +2521,10 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
                 mapping == output_mapping || !output_mapping->file_local_id.has_value()) {
                 continue;
             }
+            // Even when the predicate and final output have the same physical metadata/value
+            // projection, the shared Variant state must retain the union of their logical paths.
+            register_root_variant_access_paths(file_request, *output_mapping,
+                                               /*is_predicate_column=*/false);
             LocalColumnIndex output_projection;
             RETURN_IF_ERROR(
                     build_scan_projection(output_mapping, force_full_complex_scan_projection(),

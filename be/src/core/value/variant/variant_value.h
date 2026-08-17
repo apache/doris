@@ -20,6 +20,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 #include "core/custom_allocator.h"
 #include "core/string_ref.h"
@@ -76,6 +77,8 @@ private:
     uint32_t _object_field_id(const ContainerLayout& layout, uint32_t index) const;
     bool _object_find_by_id(const ContainerLayout& layout, uint32_t field_id, VariantRef* out,
                             uint32_t* index_out = nullptr) const;
+    bool _object_index_by_id(const ContainerLayout& layout, uint32_t field_id,
+                             uint32_t* index_out) const;
     VariantRef _container_value_at(const ContainerLayout& layout, uint32_t index,
                                    bool require_array_boundary) const;
 
@@ -94,12 +97,22 @@ public:
 
     bool object_find_by_id(int64_t field_id, VariantRef* out, size_t maximum_offset_index_bytes = 0,
                            size_t* allocated_offset_index_bytes = nullptr);
+    // Returns the exact child interval derived from the already validated object offset table,
+    // without parsing the child payload. The caller must validate the returned subtree before
+    // observing or publishing it.
+    bool object_find_raw_by_id(int64_t field_id, VariantRef* out) const;
+    // Resolves a key-sorted set of metadata ids in one merge scan over the validated object field
+    // table. Negative ids represent keys absent from metadata and remain not found.
+    void object_find_raw_many_by_id(std::span<const int64_t> field_ids, std::span<VariantRef> out,
+                                    std::span<uint8_t> found) const;
     bool array_find(int64_t index, VariantRef* out) const;
     size_t allocated_bytes() const noexcept;
 
 private:
     size_t _object_offset_index_bytes_required() const noexcept;
     size_t _promote_object_offset_index(size_t maximum_bytes);
+    VariantRef _object_raw_value_at(const VariantRef::ContainerLayout& layout,
+                                    uint32_t selected_index) const;
 
     VariantRef _value;
     VariantBasicType _basic_type;

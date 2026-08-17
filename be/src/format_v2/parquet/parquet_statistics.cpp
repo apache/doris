@@ -1218,7 +1218,7 @@ ParquetRowGroupPruneReason native_dictionary_prune_reason(
         // Metadata pruning uses the real native reader, so its page work must be attributed to the
         // scan profile even when the row group is eliminated before execution readers are built.
         const auto status = NativeColumnReader::create(
-                *column_schema, projection, file_context->native_file,
+                *column_schema, projection, nullptr, file_context->native_file,
                 file_context->native_metadata, row_group_idx, ranges, offset_indexes, timezone,
                 file_context->native_io_ctx, nullptr, file_context->native_page_cache_enabled,
                 file_context->native_page_cache_file_key, true, column_reader_profile, &reader);

@@ -305,11 +305,6 @@ void validate_variant_payload(VariantRef value, uint32_t initial_depth) {
     require_exact_value(value, initial_depth);
 }
 
-VariantBasicType validate_variant_payload_shallow(VariantRef value, uint32_t depth) {
-    require_non_null(value.value, "value");
-    return require_shallow_value(value, depth);
-}
-
 VariantField::VariantField(std::unique_ptr<char[]> data, size_t size) noexcept
         : _data(std::move(data)), _size(size) {}
 

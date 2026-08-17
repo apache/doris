@@ -269,6 +269,16 @@ std::vector<format::LocalColumnIndex> physical_non_predicate_columns(
     return columns;
 }
 
+const format::VariantAccessPaths* variant_access_paths_for_reader(
+        const format::FileScanRequest& request, format::LocalColumnId column_id,
+        bool predicate_reader) {
+    const auto& paths = predicate_reader && request.has_deferred_non_predicate_column(column_id)
+                                ? request.predicate_variant_access_paths
+                                : request.variant_access_paths;
+    const auto it = paths.find(column_id);
+    return it == paths.end() ? nullptr : &it->second;
+}
+
 const ParquetColumnSchema* projection_schema_child(const ParquetColumnSchema& schema,
                                                    int32_t local_id) {
     const auto child = std::ranges::find_if(schema.children, [local_id](const auto& candidate) {
@@ -1506,8 +1516,10 @@ Status ParquetScanScheduler::open_next_row_group(
         DORIS_CHECK(column_schema != nullptr);
         std::unique_ptr<ParquetColumnReader> column_reader;
         RETURN_IF_ERROR(NativeColumnReader::create(
-                *column_schema, &col, file_context.native_data_file(), file_context.native_metadata,
-                row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
+                *column_schema, &col,
+                variant_access_paths_for_reader(request, local_id, /*predicate_reader=*/true),
+                file_context.native_data_file(), file_context.native_metadata, row_group_idx,
+                _current_selected_ranges, _current_offset_indexes, _timezone,
                 file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
                 file_context.native_page_cache_file_key,
                 _current_dictionary_filters.contains(local_id), _scan_profile.column_reader_profile,
@@ -1546,8 +1558,10 @@ Status ParquetScanScheduler::open_next_row_group(
         DORIS_CHECK(column_schema != nullptr);
         std::unique_ptr<ParquetColumnReader> column_reader;
         RETURN_IF_ERROR(NativeColumnReader::create(
-                *column_schema, &col, file_context.native_data_file(), file_context.native_metadata,
-                row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
+                *column_schema, &col,
+                variant_access_paths_for_reader(request, local_id, /*predicate_reader=*/false),
+                file_context.native_data_file(), file_context.native_metadata, row_group_idx,
+                _current_selected_ranges, _current_offset_indexes, _timezone,
                 file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
                 file_context.native_page_cache_file_key, false, _scan_profile.column_reader_profile,
                 &column_reader));
@@ -2089,11 +2103,11 @@ Status ParquetScanScheduler::prepare_current_dictionary_filters(
 
         std::unique_ptr<ParquetColumnReader> column_reader;
         RETURN_IF_ERROR(NativeColumnReader::create(
-                *column_schema, &col, file_context.native_file, file_context.native_metadata,
-                row_group_idx, _current_selected_ranges, _current_offset_indexes, _timezone,
-                file_context.native_io_ctx, _runtime_state, file_context.native_page_cache_enabled,
-                file_context.native_page_cache_file_key, true, _scan_profile.column_reader_profile,
-                &column_reader));
+                *column_schema, &col, nullptr, file_context.native_file,
+                file_context.native_metadata, row_group_idx, _current_selected_ranges,
+                _current_offset_indexes, _timezone, file_context.native_io_ctx, _runtime_state,
+                file_context.native_page_cache_enabled, file_context.native_page_cache_file_key,
+                true, _scan_profile.column_reader_profile, &column_reader));
         MutableColumnPtr dictionary_values;
         {
             SCOPED_TIMER(_scan_profile.dict_filter_read_dict_time);

@@ -79,6 +79,12 @@ struct FileScanRequest {
     std::vector<LocalColumnId> predicate_only_columns;
     // file-local column id -> file-local output block position.
     std::map<LocalColumnId, LocalIndex> local_positions;
+    // Logical Variant object paths retained after table-to-file mapping. Parquet uses these only
+    // to batch direct seeks over a complete unshredded metadata/value root; other readers may
+    // ignore them. The all-path map is the union required from a physical column, while the
+    // predicate map is the eager subset used with an independent deferred output projection.
+    std::map<LocalColumnId, VariantAccessPaths> variant_access_paths;
+    std::map<LocalColumnId, VariantAccessPaths> predicate_variant_access_paths;
     // Optional output position for a root that has independent eager-predicate and deferred-output
     // projections. local_positions continues to identify the position referenced by localized
     // predicate expressions.

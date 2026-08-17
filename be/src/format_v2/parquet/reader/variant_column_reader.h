@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "common/status.h"
@@ -38,6 +39,10 @@ struct VariantMaterializationNode {
     bool contains_variant = false;
     std::optional<format::LocalColumnIndex> variant_projection;
     std::shared_ptr<const ParquetColumnSchema> variant_state_schema;
+    // Logical object paths requested from this root Variant. The native physical projection alone
+    // cannot retain them for a pure unshredded metadata/value wrapper because every path reads the
+    // same two leaves.
+    std::shared_ptr<const format::VariantAccessPaths> variant_access_paths;
 };
 
 // Builds the immutable schema retained by a shredded state in the exact order of the decoded

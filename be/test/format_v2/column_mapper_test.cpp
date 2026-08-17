@@ -4113,6 +4113,59 @@ TEST(ColumnMapperTest, VariantAccessPathProjectsOnlyPhysicalTypedLeaf) {
     ASSERT_EQ(root.children[0].children[0].children.size(), 1);
     EXPECT_EQ(root.children[0].children[0].children[0].local_id(), 1);
     EXPECT_TRUE(root.children[0].children[0].children[0].project_all_children);
+    EXPECT_EQ(request.variant_access_paths.at(LocalColumnId(0)),
+              (VariantAccessPaths {{"typed_col"}}));
+    EXPECT_FALSE(request.predicate_variant_access_paths.contains(LocalColumnId(0)));
+}
+
+TEST(ColumnMapperTest, RetainsPlannedUnshreddedVariantPathsForFileReader) {
+    auto table_variant = field_id_col("v", 10, variant_v2());
+    table_variant.variant_access_paths = {{"b"}, {"a"}, {"b"}};
+
+    auto file_variant = field_id_col("v", 10, variant_v2(), 0);
+    file_variant.children = {name_col("metadata", varbinary(), 0),
+                             name_col("value", varbinary(), 1)};
+
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_variant}, {}, {file_variant}).ok());
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_variant}, &request).ok());
+    ASSERT_EQ(request.non_predicate_columns.size(), 1);
+    EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
+    EXPECT_EQ(request.variant_access_paths.at(LocalColumnId(0)),
+              (VariantAccessPaths {{"a"}, {"b"}}));
+    EXPECT_FALSE(request.predicate_variant_access_paths.contains(LocalColumnId(0)));
+}
+
+TEST(ColumnMapperTest, SharedUnshreddedPredicateReaderRetainsAllVariantPaths) {
+    auto table_variant = field_id_col("v", 10, variant_v2());
+    table_variant.variant_access_paths = {{"a"}, {"b"}};
+    table_variant.has_predicate_access_paths = true;
+    table_variant.predicate_variant_access_paths = {{"b"}};
+
+    auto file_variant = field_id_col("v", 10, variant_v2(), 0);
+    file_variant.children = {name_col("metadata", varbinary(), 0),
+                             name_col("value", varbinary(), 1)};
+
+    ParquetColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
+    ASSERT_TRUE(mapper.create_mapping({table_variant}, {}, {file_variant}).ok());
+
+    auto b = element_at(table_slot(0, 0, table_variant.type, "v"), variant_v2(), "b");
+    auto predicate = binary_predicate(TExprOpcode::GT, cast_expr(b, i64()),
+                                      literal(i64(), Field::create_field<TYPE_BIGINT>(0)));
+    TableFilter filter {.conjunct = VExprContext::create_shared(predicate),
+                        .global_indices = {GlobalIndex(0)}};
+
+    FileScanRequest request;
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_variant}, &request).ok());
+    ASSERT_EQ(request.predicate_columns.size(), 1);
+    EXPECT_TRUE(request.non_predicate_columns.empty()) << request.debug_string();
+    EXPECT_FALSE(request.has_deferred_non_predicate_column(LocalColumnId(0)));
+    EXPECT_EQ(request.variant_access_paths.at(LocalColumnId(0)),
+              (VariantAccessPaths {{"a"}, {"b"}}));
+    EXPECT_EQ(request.predicate_variant_access_paths.at(LocalColumnId(0)),
+              (VariantAccessPaths {{"b"}}));
 }
 
 TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredStructOutputProjection) {
@@ -4145,6 +4198,10 @@ TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredStructOutputProjection)
     EXPECT_EQ(request.local_positions.at(LocalColumnId(0)), LocalIndex(0));
     EXPECT_EQ(request.non_predicate_position(LocalColumnId(0)), LocalIndex(1));
     EXPECT_TRUE(request.is_predicate_only(LocalColumnId(0)));
+    EXPECT_EQ(request.variant_access_paths.at(LocalColumnId(0)),
+              (VariantAccessPaths {{"typed_col"}}));
+    EXPECT_EQ(request.predicate_variant_access_paths.at(LocalColumnId(0)),
+              (VariantAccessPaths {{"typed_col"}}));
 }
 
 TEST(ColumnMapperTest, PredicateAccessPathsCreateDeferredVariantRootProjection) {
