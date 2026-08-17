@@ -199,10 +199,12 @@ public class RoutineLoadManager implements Writable {
                 info.getDBName(),
                 info.getTableName(),
                 PrivPredicate.LOAD)) {
+            // Four arguments for the four placeholders this code has: a fifth would be dropped, and it would
+            // be the one naming the table - leaving "for table 'mydb'", the very defect the comment above
+            // describes.
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
-                    info.getDBName(),
                     info.getDBName() + ": " + info.getTableName());
         }
 

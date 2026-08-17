@@ -84,6 +84,8 @@ public class AuthorizationPluginFromDirectoryTest extends TestWithFeService {
 
     /** Holds the role the example source grants reading to, and nothing the built-in model ever granted. */
     private static final String READER = "example_reader_user";
+    /** Holds the role the example source lets read without a row filter; the control for the filter case. */
+    private static final String AUDITOR = "example_auditor_user";
     /** Holds a real built-in SELECT grant on the table, and no role the example source has heard of. */
     private static final String GRANTED_BY_DORIS = "granted_by_doris_user";
 
@@ -132,6 +134,10 @@ public class AuthorizationPluginFromDirectoryTest extends TestWithFeService {
         createRole(ExampleAuthorizationPlugin.DEFAULT_READER_ROLE);
         addUser(READER, true);
         grantRole("GRANT '" + ExampleAuthorizationPlugin.DEFAULT_READER_ROLE + "' TO '" + READER + "'@'%'");
+
+        createRole(ExampleAuthorizationPlugin.DEFAULT_AUDITOR_ROLE);
+        addUser(AUDITOR, true);
+        grantRole("GRANT '" + ExampleAuthorizationPlugin.DEFAULT_AUDITOR_ROLE + "' TO '" + AUDITOR + "'@'%'");
 
         addUser(GRANTED_BY_DORIS, true);
         grantPriv("GRANT SELECT_PRIV ON " + QUALIFIED_TBL + " TO '" + GRANTED_BY_DORIS + "'@'%'");
@@ -201,11 +207,16 @@ public class AuthorizationPluginFromDirectoryTest extends TestWithFeService {
 
         // The same query by an account the source imposes no filter on. Without this the assertion above
         // would also pass if every plan carried the predicate regardless of who asked.
-        useUser("root");
-        List<Expression> adminFilters = filterConjunctsOf(rewrite("select id, region from " + QUALIFIED_TBL));
+        //
+        // Deliberately not root: the planner exempts the literal root and admin accounts from every row filter
+        // and column mask before any source is asked (LogicalCheckPolicy#findPolicy), so with root here this
+        // would hold for any implementation whatsoever - including one that returns the same filter to
+        // everybody. The auditor account is one the source itself answers about, and answers differently.
+        useUser(AUDITOR);
+        List<Expression> auditorFilters = filterConjunctsOf(rewrite("select id, region from " + QUALIFIED_TBL));
 
-        Assertions.assertTrue(adminFilters.stream().noneMatch(this::isTheExampleRowFilter),
-                "an account the source returns no filter for was filtered anyway: " + adminFilters);
+        Assertions.assertTrue(auditorFilters.stream().noneMatch(this::isTheExampleRowFilter),
+                "an account the source returns no filter for was filtered anyway: " + auditorFilters);
     }
 
     private Plan rewrite(String sql) {

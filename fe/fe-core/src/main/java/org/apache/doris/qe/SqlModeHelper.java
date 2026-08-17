@@ -229,8 +229,16 @@ public class SqlModeHelper {
      *
      * <p>An override rather than a parameter because the mode is not threaded through the parser: the lexer
      * reads it when it is built and the plan builder reads it again when it reaches a {@code ||}, both from
-     * the session variable. A statement is planned on one thread, so nothing else reads the variable while it
-     * is swapped.
+     * the session variable. A statement is planned on one thread, and nothing outside that thread reads this
+     * session's {@code sql_mode} while it is swapped - the one thing that writes it from elsewhere is
+     * {@code WorkloadActionSetSessionVar}, which sets session variables by name on a policy's behalf; a write
+     * landing inside this window is restored on the way out, the same as it would be lost to any other
+     * concurrent {@code SET}.
+     *
+     * <p>With no connection on the thread this is a no-op, and what the parser then reads is the <em>global</em>
+     * {@code sql_mode} - {@code VariableMgr.newSessionVariable()} clones the defaults an operator can set - not
+     * {@link #MODE_FOR_POLICY_TEXT}. That is where a replay thread recovering a stored policy stands, so a
+     * global {@code sql_mode} still decides what such a policy's text means until a session reads it again.
      */
     public static <T> T withSqlMode(long sqlMode, Supplier<T> parse) {
         ConnectContext context = ConnectContext.get();

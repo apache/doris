@@ -23,9 +23,11 @@ import org.apache.doris.authorization.spi.AuthorizationPluginFactory;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -33,23 +35,36 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
     private static final Logger LOG = LogManager.getLogger(RangerDorisAccessControllerFactory.class);
     private static final String SERVICE_NAME = "doris";
 
+    /** Guards everything below; held only long enough to hand a controller out or account for one going away. */
+    private static final Object LOCK = new Object();
+
     /**
-     * The one controller every binding of this source shares, and the configuration it was built with.
+     * The Ranger plugin every binding of this source reads policies out of, and one entry per configuration a
+     * binding asked for.
      *
-     * <p>Shared because each controller starts a Ranger policy refresher and a policy download timer against
-     * the same service: a second controller would poll the same policies twice and answer from a second copy
-     * of them.
+     * <p>The plugin is what polling the Ranger service costs: it starts a policy refresher and a policy
+     * download timer, so a second one would poll the same service twice and answer from a second copy of the
+     * same policies. Everything a binding configures - {@code ranger.defer_to_global_scope_authority} - belongs
+     * to the controller instead, which is why a binding configured differently gets a controller of its own
+     * over that same plugin rather than being refused or quietly served somebody else's configuration.
      *
-     * <p>Sharing means the configuration cannot be per binding, and this source has a configuration that
-     * decides who may read what - {@code ranger.defer_to_global_scope_authority} is read once, in the
-     * constructor. So a binding whose configuration is not the one in force is refused rather than quietly
-     * served the other one's: an operator who switched the deference off for one catalog must not get it back
-     * on because another catalog was created first.
+     * <p>Bindings configured alike still share one controller, so a catalog bound to this source while it also
+     * governs the instance is the identical object in both places - which is what lets the engine recognise
+     * that asking about instance scope would be asking this very source.
      */
-    private static RangerDorisAccessController instance;
-    private static Map<String, String> instanceProperties;
-    /** How many bindings hold {@link #instance}; the last one to let go shuts it down. */
-    private static int holders;
+    private static RangerBasePlugin sharedPlugin;
+    private static final Map<Map<String, String>, Held> byConfiguration = new LinkedHashMap<>();
+
+    /** One controller and the number of bindings holding it; the last one to let go takes it out. */
+    private static final class Held {
+        private final RangerDorisAccessController controller;
+        private int holders;
+
+        private Held(RangerDorisAccessController controller) {
+            this.controller = controller;
+            this.holders = 1;
+        }
+    }
 
     @Override
     public String name() {
@@ -63,49 +78,81 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
 
     @Override
     public AuthorizationPlugin create(Map<String, String> properties, AuthorizationContext context) {
-        return singleton(properties, context);
+        return acquire(properties, context);
     }
 
-    private static synchronized RangerDorisAccessController singleton(Map<String, String> properties,
+    private static RangerDorisAccessController acquire(Map<String, String> properties,
             AuthorizationContext context) {
-        Map<String, String> wanted = normalize(properties);
-        if (instance == null) {
-            instance = new RangerDorisAccessController(SERVICE_NAME, properties, context);
-            instanceProperties = wanted;
-            holders = 1;
-            return instance;
+        synchronized (LOCK) {
+            Map<String, String> configuration = normalize(properties);
+            Held held = byConfiguration.get(configuration);
+            if (held != null) {
+                held.holders++;
+                return held.controller;
+            }
+            if (sharedPlugin == null) {
+                sharedPlugin = new RangerDorisPlugin(SERVICE_NAME);
+            }
+            held = new Held(new RangerDorisAccessController(sharedPlugin, properties, context));
+            byConfiguration.put(configuration, held);
+            LOG.info("Built a Ranger controller for {} with {}; {} configuration(s) of this source in use.",
+                    RangerDorisAccessController.NAME, describe(configuration), byConfiguration.size());
+            return held.controller;
         }
-        if (!instanceProperties.equals(wanted)) {
-            throw new IllegalArgumentException("Ranger Doris authorization is already configured with "
-                    + describe(instanceProperties) + " and there is one controller for the whole FE, so a"
-                    + " second configuration cannot be applied. This binding asks for "
-                    + describe(wanted) + ". Give every binding of '" + RangerDorisAccessController.NAME
-                    + "' the same access_controller.properties.*, or bind only one.");
-        }
-        holders++;
-        return instance;
     }
 
     /**
-     * Gives up one binding's hold on the shared controller.
+     * Gives up one binding's hold on a controller, fencing it off and stopping the shared Ranger plugin once
+     * nothing holds it any more.
      *
      * @return whether this factory owned {@code controller}; false means it was built some other way and its
-     *         caller has to shut it down itself.
+     *         caller has to stop it itself.
      */
-    static synchronized boolean release(RangerDorisAccessController controller) {
-        if (controller == null || controller != instance) {
+    static boolean release(RangerDorisAccessController controller) {
+        if (controller == null) {
             return false;
         }
-        if (--holders > 0) {
-            return true;
+        RangerBasePlugin pluginToStop;
+        synchronized (LOCK) {
+            Map<String, String> configuration = configurationOf(controller);
+            if (configuration == null) {
+                return false;
+            }
+            Held held = byConfiguration.get(configuration);
+            if (--held.holders > 0) {
+                return true;
+            }
+            byConfiguration.remove(configuration);
+            // The plugin outlives any single controller: it goes only when no configuration is left in use.
+            pluginToStop = byConfiguration.isEmpty() ? sharedPlugin : null;
+            if (pluginToStop != null) {
+                sharedPlugin = null;
+            }
         }
-        RangerDorisAccessController released = instance;
-        instance = null;
-        instanceProperties = null;
-        LOG.info("Last binding of {} released; shutting the Ranger controller down.",
-                RangerDorisAccessController.NAME);
-        released.shutdown();
+        // Fence first, and with no lock held: from here nothing reaches the plugin through this controller,
+        // whether or not the plugin itself is going away. A query that is still holding it is refused rather
+        // than answered out of a plugin being cleaned up.
+        controller.fenceOff();
+        if (pluginToStop != null) {
+            LOG.info("Last binding of {} released; shutting the Ranger controller down.",
+                    RangerDorisAccessController.NAME);
+            try {
+                pluginToStop.cleanup();
+            } catch (Throwable e) {
+                LOG.warn("Failed to clean up the Ranger Doris plugin", e);
+            }
+        }
         return true;
+    }
+
+    /** The configuration {@code controller} was built for, or null when this factory did not build it. */
+    private static Map<String, String> configurationOf(RangerDorisAccessController controller) {
+        for (Map.Entry<Map<String, String>, Held> entry : byConfiguration.entrySet()) {
+            if (entry.getValue().controller == controller) {
+                return entry.getKey();
+            }
+        }
+        return null;
     }
 
     /** Sorted and null-free, so that two property maps compare on content alone. */

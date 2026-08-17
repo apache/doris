@@ -54,8 +54,13 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 public class CheckRowPolicyTest extends TestWithFeService {
 
@@ -102,17 +107,25 @@ public class CheckRowPolicyTest extends TestWithFeService {
         Env.getCurrentEnv().getAuth().grantTablePrivilegeCommand(grantTablePrivilegeCommand);
 
         AccessControllerManager spyAcm = Mockito.spy(Env.getCurrentEnv().getAccessManager());
+        // Masks are asked for one table at a time, keyed by the lower-cased column name - that is the shape
+        // the planner asks in and reads back, so a stub on the per-column method would never be reached.
         Mockito.doAnswer(invocation -> {
             String tbl = invocation.getArgument(3);
-            String col = invocation.getArgument(4);
-            return tbl.equalsIgnoreCase(tableNameRanddomDist)
-                    ? Optional.of(new DataMaskSpec(
-                            String.format("custom policy: concat(%s, '_****_', %s)", col, col),
-                            String.format("concat(%s, '_****_', %s)", col, col)))
-                    : Optional.empty();
-        }).when(spyAcm).evalDataMaskPolicy(
+            Set<String> cols = invocation.getArgument(4);
+            if (!tbl.equalsIgnoreCase(tableNameRanddomDist)) {
+                return Collections.<String, DataMaskSpec>emptyMap();
+            }
+            Map<String, DataMaskSpec> masks = new LinkedHashMap<>();
+            for (String col : cols) {
+                String column = col.toLowerCase(Locale.ROOT);
+                masks.put(column, new DataMaskSpec(
+                        String.format("custom policy: concat(%s, '_****_', %s)", column, column),
+                        String.format("concat(%s, '_****_', %s)", column, column)));
+            }
+            return masks;
+        }).when(spyAcm).evalDataMaskPolicies(
                 Mockito.any(UserIdentity.class), Mockito.anyString(),
-                Mockito.anyString(), Mockito.anyString(), Mockito.anyString());
+                Mockito.anyString(), Mockito.anyString(), Mockito.anySet());
         Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", spyAcm);
     }
 

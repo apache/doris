@@ -62,7 +62,12 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
      */
     @FunctionalInterface
     public interface GlobalScopeAuthority {
-        boolean grants(AuthorizedSubject subject, AccessRequirement requirement);
+        /**
+         * @param context the circumstances of the check that provoked this question, carried along rather than
+         *         read off the thread: whoever governs instance scope may be a source that decides from more
+         *         than the subject, and this is a question about the same statement.
+         */
+        boolean grants(AuthorizedSubject subject, AccessRequirement requirement, AccessContext context);
     }
 
     private final String name;
@@ -97,7 +102,7 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
                 refuseUnless(controller.checkGlobalPriv(currentUser, wanted), subject, resource, requirement);
                 return;
             case CATALOG:
-                if (grantedAtGlobalScope(subject, requirement)) {
+                if (grantedAtGlobalScope(subject, requirement, context)) {
                     return;
                 }
                 refuseUnless(controller.checkCtlPriv(currentUser,
@@ -105,7 +110,7 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
                         subject, resource, requirement);
                 return;
             case DATABASE: {
-                if (grantedAtGlobalScope(subject, requirement)) {
+                if (grantedAtGlobalScope(subject, requirement, context)) {
                     return;
                 }
                 AuthorizedResource.Database database = (AuthorizedResource.Database) resource;
@@ -114,7 +119,7 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
                 return;
             }
             case TABLE: {
-                if (grantedAtGlobalScope(subject, requirement)) {
+                if (grantedAtGlobalScope(subject, requirement, context)) {
                     return;
                 }
                 AuthorizedResource.Table table = (AuthorizedResource.Table) resource;
@@ -123,7 +128,7 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
                 return;
             }
             case COLUMNS: {
-                if (grantedAtGlobalScope(subject, requirement)) {
+                if (grantedAtGlobalScope(subject, requirement, context)) {
                     return;
                 }
                 AuthorizedResource.Columns columns = (AuthorizedResource.Columns) resource;
@@ -169,8 +174,9 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
     }
 
     /** The {@code hasGlobal} the deleted default methods were handed; see this class's own documentation. */
-    private boolean grantedAtGlobalScope(AuthorizedSubject subject, AccessRequirement requirement) {
-        return globalScope.grants(subject, requirement);
+    private boolean grantedAtGlobalScope(AuthorizedSubject subject, AccessRequirement requirement,
+            AccessContext context) {
+        return globalScope.grants(subject, requirement, context);
     }
 
     private void refuseUnless(boolean allowed, AuthorizedSubject subject, AuthorizedResource resource,

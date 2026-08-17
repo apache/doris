@@ -111,10 +111,11 @@ first `ServiceLoader` on the classpath (built-ins and tests), then
 `DirectoryPluginRuntimeManager` over the roots named by
 `Config.authorization_plugins_dir` (production). A classpath factory keeps its
 name against a directory one, so dropping a jar into the plugin directory can
-never displace a source shipped with the FE. Directory plugins pass an API
-version gate; classpath ones deliberately do not — what is on the classpath was
-built from this same source tree, so the version there would be a number
-compared against itself. A directory that fails is logged and skipped, because
+never displace a source shipped with the FE. Both channels pass the same API
+version gate: nothing in this source tree publishes an `AuthorizationPluginFactory`
+on the classpath any more, so in a release package the only thing that channel can
+find is a jar somebody added to `fe/lib`, built against another Doris release —
+exactly what the gate is for. A directory that fails is logged and skipped, because
 one unusable plugin must not stop an FE from starting; if the failed one is the
 source the configuration names, the manager's constructor refuses right
 afterwards with the rejection reason appended to the error.
@@ -122,9 +123,11 @@ afterwards with the rejection reason appended to the error.
 There is also a deprecated channel: `AccessControllerFactory` (fe-core), read
 from loose jars at the *root* of the same directory. It is still loaded and
 wrapped in `LegacyAccessControllerPlugin`, and a name published both ways
-resolves to the newer publication — but it carries no declared API version, so a
-plugin built against an older Doris is admitted with no diagnosis. Do not write
-new sources against it.
+resolves to the newer publication; a jar of this shape in the plugin directory
+gives up a name the classpath already publishes, under either contract, so the
+"cannot displace a source shipped with the FE" rule holds here too. What it does
+not have is a declared API version, so a plugin built against an older Doris is
+admitted with no diagnosis. Do not write new sources against it.
 
 **Selection.** Two channels, both naming the source by the string
 `AuthorizationPluginFactory.name()` returns:
@@ -282,9 +285,11 @@ manifest entry from `fe-authorization-spi/README.md`.
    exactly one class, and exactly one such descriptor per plugin directory.
    Do not implement the no-arg `create()`; the SPI default already refuses it
    with the right message. If your source starts background threads (a policy
-   refresher, say), decide explicitly whether a second binding gets a second
-   instance — ranger-doris returns a singleton and warns that the later
-   properties are ignored.
+   refresher, say), decide explicitly what a second binding shares with the
+   first: `ranger-doris` shares the Ranger plugin, because that is what polling
+   the service costs, and gives a binding configured differently a controller of
+   its own over it — configuration that decides who may read what belongs to the
+   binding that asked for it, never to whichever binding was created first.
 5. **Plugin.** Implement `AuthorizationPlugin`. Override `checkPrivilege` when
    your source can answer about a set of actions in one pass — a bit set, or a
    walk down a resource hierarchy that remembers what an outer level already

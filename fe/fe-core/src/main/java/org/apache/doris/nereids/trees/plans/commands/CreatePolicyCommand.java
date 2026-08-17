@@ -32,6 +32,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -41,6 +42,7 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.RowPolicy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.apache.commons.lang3.StringUtils;
@@ -64,6 +66,17 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
     // The row predicate exactly as written, null for a storage policy.
     private final String wherePredicateSql;
     private final Map<String, String> properties;
+    /**
+     * The predicate as it will be understood, which is what this statement accepts, stores and shows.
+     *
+     * <p>Not the one the parser handed over: that one was read under the creator's {@code sql_mode}, and the
+     * text is re-read under {@link SqlModeHelper#MODE_FOR_POLICY_TEXT} every time the policy is applied to a
+     * query. Two bits of {@code sql_mode} change what the same text means, so accepting it under one mode and
+     * enforcing it under another lets a policy mean one thing in {@code SHOW ROW POLICY} and another in the
+     * queries it restricts - or, with {@code NO_BACKSLASH_ESCAPES}, be accepted here and fail to parse on
+     * every query it governs from then on. Settled once, in {@link #validate}.
+     */
+    private Optional<Expression> policyPredicate = Optional.empty();
 
     /**
      * ctor of this command.
@@ -155,11 +168,12 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                 if (!wherePredicate.isPresent()) {
                     throw new AnalysisException("wherePredicate can not be null");
                 }
+                policyPredicate = Optional.of(predicateUnderPolicyMode());
                 TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
                         .getCatalogOrAnalysisException(tableNameInfo.getCtl())
                         .getDbOrAnalysisException(tableNameInfo.getDb())
                         .getTableOrAnalysisException(tableNameInfo.getTbl());
-                wherePredicate.get().foreach(expr -> {
+                policyPredicate.get().foreach(expr -> {
                     if (expr instanceof UnboundSlot) {
                         UnboundSlot slot = (UnboundSlot) expr;
                         if (tableIf.getColumn(slot.getName()) == null) {
@@ -169,6 +183,33 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                     }
                 });
 
+        }
+    }
+
+    /**
+     * The stored predicate text read under the mode a security policy's text is read under.
+     *
+     * <p>Re-parsed rather than reused because {@code sql_mode} is a session variable any account may set with
+     * no privilege at all, and the account creating a row policy is not the one it restricts: taking the
+     * creator's reading of {@code ||} or of a backslash and enforcing a different one is a policy that does not
+     * say what it was accepted as saying. Text the fixed mode cannot read is refused here, which is the whole
+     * point of doing this at creation time - the alternative is a policy that stores fine and then fails every
+     * single query it governs.
+     */
+    private Expression predicateUnderPolicyMode() throws AnalysisException {
+        if (StringUtils.isEmpty(wherePredicateSql)) {
+            // Nothing to re-read: no statement text was recorded, so the parse that produced the predicate is
+            // all there is. Not reachable from CREATE ROW POLICY, which always records it.
+            return wherePredicate.get();
+        }
+        try {
+            return SqlModeHelper.withSqlMode(SqlModeHelper.MODE_FOR_POLICY_TEXT,
+                    () -> new NereidsParser().parseExpression(wherePredicateSql));
+        } catch (Exception e) {
+            throw new AnalysisException("the predicate of a row policy is read under the default sql_mode"
+                    + " rather than this session's, because it is read again on every query the policy"
+                    + " restricts, on the thread of the very user it restricts. Under that mode this predicate"
+                    + " cannot be parsed: " + wherePredicateSql, e);
         }
     }
 
@@ -182,10 +223,13 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
             case ROW:
                 // The predicate text goes in with the policy: this parse already has it, and recovering it
                 // later means parsing the request text again - a request that may hold several statements.
+                // The predicate stored alongside it is the one read under the policy-text mode, so that what
+                // SHOW ROW POLICY renders is what the queries this policy restricts will actually be filtered
+                // by. See predicateUnderPolicyMode().
                 return new RowPolicy(policyId, policyName, tableNameInfo.getCtl(),
                         tableNameInfo.getDb(), tableNameInfo.getTbl(), user, roleName,
                         executor.getOriginStmt().originStmt, executor.getOriginStmt().idx, filterType.get(),
-                        wherePredicate.get(), wherePredicateSql);
+                        policyPredicate.get(), wherePredicateSql);
             default:
                 throw new AnalysisException("Unknown policy type: " + policyType);
         }

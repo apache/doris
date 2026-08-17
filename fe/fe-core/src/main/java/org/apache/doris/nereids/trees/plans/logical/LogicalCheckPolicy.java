@@ -55,6 +55,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -195,7 +196,7 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
                 currentUserIdentity, ctlName, dbName, tableName, outputColumns);
         for (Slot slot : logicalPlan.getOutput()) {
             Optional<DataMaskSpec> dataMaskPolicy = Optional.ofNullable(
-                    masksByColumn.get(slot.getName().toLowerCase()));
+                    masksByColumn.get(slot.getName().toLowerCase(Locale.ROOT)));
             if (dataMaskPolicy.isPresent()) {
                 Expression unboundExpr = parsePolicyExpression(nereidsParser, dataMaskPolicy.get().getMaskSql());
                 Expression childOfAlias

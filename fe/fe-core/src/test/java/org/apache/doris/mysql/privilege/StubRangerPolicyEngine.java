@@ -47,7 +47,11 @@ import java.util.List;
  *   <li>a subtree probe (the request Ranger sends for SHOW: no access type, SELF_OR_DESCENDANTS) succeeds for
  *       {@code ranger_user} on any ancestor of {@code pdb.ptbl};</li>
  *   <li>{@code ranger_user} reading {@code pdb.ptbl} gets the row filter {@code pcol1 = 1} and a MASK_NULL
- *       mask on {@code pcol1};</li>
+ *       mask on {@code pcol1} - both only when the lookup is made with the read access type this service
+ *       type declares, which is how Ranger itself matches them: a service definition names its access types
+ *       and the {@code rowFilterDef}/{@code dataMaskDef} of a policy can only carry a name it declares, so a
+ *       lookup asking with any other spelling matches nothing. Doris shipped exactly that bug against Hive
+ *       services, and a stub that ignored the access type could not have caught it;</li>
  *   <li>every other user - including the ones holding built-in ADMIN_PRIV and NODE_PRIV - is denied
  *       everywhere, and gets no filter and no mask.</li>
  * </ul>
@@ -104,7 +108,8 @@ public class StubRangerPolicyEngine extends RangerBasePlugin {
         result.setPolicyId(ROW_FILTER_POLICY_ID);
         result.setPolicyVersion(ROW_FILTER_POLICY_VERSION);
         RangerAccessResource resource = request.getResource();
-        if (ALLOWED_USER.equals(request.getUser())
+        if (SELECT_ACCESS_TYPE.equals(request.getAccessType())
+                && ALLOWED_USER.equals(request.getUser())
                 && ALLOWED_DB.equals(value(resource, RangerDorisResource.KEY_DATABASE))
                 && ALLOWED_TABLE.equals(value(resource, RangerDorisResource.KEY_TABLE))) {
             result.setFilterExpr(ROW_FILTER_EXPR);
@@ -119,7 +124,8 @@ public class StubRangerPolicyEngine extends RangerBasePlugin {
         result.setPolicyId(DATA_MASK_POLICY_ID);
         result.setPolicyVersion(DATA_MASK_POLICY_VERSION);
         RangerAccessResource resource = request.getResource();
-        if (ALLOWED_USER.equals(request.getUser())
+        if (SELECT_ACCESS_TYPE.equals(request.getAccessType())
+                && ALLOWED_USER.equals(request.getUser())
                 && ALLOWED_DB.equals(value(resource, RangerDorisResource.KEY_DATABASE))
                 && ALLOWED_TABLE.equals(value(resource, RangerDorisResource.KEY_TABLE))
                 && ALLOWED_COLUMN.equals(value(resource, RangerDorisResource.KEY_COLUMN))) {

@@ -27,7 +27,6 @@ import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest.ResourceMatchingScope;
@@ -41,6 +40,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * A Doris Ranger service: it answers about every kind of object Doris has, which is why it is also the one
@@ -65,7 +65,13 @@ public class RangerDorisAccessController extends RangerAccessController {
      */
     private static final String ENGINE_DEFAULT_WORKLOAD_GROUP = "normal";
 
-    private RangerBasePlugin dorisPlugin;
+    /**
+     * The Ranger plugin this controller reads policies out of, shared with every other controller of this
+     * source; never cleared, because a query can still be holding this controller when the manager removes it
+     * and the lifecycle fence in {@link RangerAccessController} - not a null field - is what stops it from
+     * reaching a plugin that has been cleaned up.
+     */
+    private final RangerBasePlugin dorisPlugin;
     // private static ScheduledThreadPoolExecutor logFlushTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
     //        "ranger-doris-audit-log-flusher-timer", true);
     // private RangerHiveAuditHandler auditHandler;
@@ -77,23 +83,25 @@ public class RangerDorisAccessController extends RangerAccessController {
 
     public RangerDorisAccessController(String serviceName, RangerAuthContextListener rangerAuthContextListener,
             Map<String, String> properties, AuthorizationContext context) {
-        super(properties, context);
-        dorisPlugin = new RangerDorisPlugin(serviceName, rangerAuthContextListener);
+        this(new RangerDorisPlugin(serviceName, rangerAuthContextListener), properties, context);
         // auditHandler = new RangerHiveAuditHandler(dorisPlugin.getConfig());
         // start a timed log flusher
         // logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
     }
 
-    @VisibleForTesting
     public RangerDorisAccessController(RangerBasePlugin plugin, AuthorizationContext context) {
         this(plugin, Collections.emptyMap(), context);
     }
 
-    @VisibleForTesting
+    /**
+     * A controller over a Ranger plugin somebody else owns, which is how the factory builds every one it hands
+     * out: the plugin is what polling the Ranger service costs, so it is shared, while everything a binding
+     * configures - {@link #DEFER_TO_GLOBAL_SCOPE_AUTHORITY} - belongs to the controller and so to the binding.
+     */
     public RangerDorisAccessController(RangerBasePlugin plugin, Map<String, String> properties,
             AuthorizationContext context) {
         super(properties, context);
-        dorisPlugin = plugin;
+        dorisPlugin = Objects.requireNonNull(plugin, "ranger plugin is required");
     }
 
     @Override
@@ -102,41 +110,48 @@ public class RangerDorisAccessController extends RangerAccessController {
     }
 
     /**
-     * Lets go of this controller, shutting the Ranger plugin down once nothing holds it any more.
+     * Lets go of this controller, stopping the shared Ranger plugin once nothing holds it any more.
      *
-     * <p>The factory hands the same controller to every binding of this source, so a binding going away is
-     * not on its own a reason to stop polling; the factory counts the holders and shuts it down when the last
-     * one lets go. Without this the controller could never be stopped at all: its policy refresher and its
-     * policy download timer would keep polling the Ranger service for as long as the FE runs.
+     * <p>The factory hands one controller to every binding configured alike, and one Ranger plugin to all of
+     * them, so a binding going away is on its own no reason to stop polling: the factory counts the holders and
+     * stops the plugin when the last one lets go. Without this nothing could stop it at all - its policy
+     * refresher and its policy download timer would keep polling the Ranger service for as long as the FE runs.
+     *
+     * <p>What this does do immediately is fence this controller off, before the factory decides anything: from
+     * here on it refuses every check instead of answering out of a plugin that may be on its way down.
      */
     @Override
     public void close() {
         if (RangerDorisAccessControllerFactory.release(this)) {
             return;
         }
-        // Built directly rather than through the factory, so there is nobody else to account for.
-        shutdown();
+        // Built directly rather than through the factory - a test, or an embedding that owns its own plugin -
+        // so there is nobody else to account for and the plugin is ours to stop.
+        if (markClosed()) {
+            stopPlugin();
+        }
     }
 
     /**
-     * Stops the Ranger plugin's threads. Idempotent, and deliberately not fenced against a query that is
-     * still holding this controller: nothing reaches here until the last binding is gone.
+     * Fences this controller off so nothing reaches the Ranger plugin through it again. Idempotent, and the
+     * only thing the factory needs from a controller it is releasing - stopping the plugin is the factory's
+     * own call, because the plugin outlives any single controller.
      */
-    synchronized void shutdown() {
-        if (dorisPlugin == null) {
-            return;
-        }
+    void fenceOff() {
+        markClosed();
+    }
+
+    /** Stops the Ranger plugin's threads; called with no lock held, see {@link #markClosed()}. */
+    private void stopPlugin() {
         try {
             dorisPlugin.cleanup();
         } catch (Throwable e) {
             LOG.warn("Failed to clean up the Ranger Doris plugin", e);
-        } finally {
-            dorisPlugin = null;
         }
     }
 
     @Override
-    public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
+    protected void checkPrivilegeInternal(AuthorizedSubject subject, AuthorizedResource resource,
             AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
         switch (resource.getKind()) {
             case GLOBAL:
@@ -245,26 +260,34 @@ public class RangerDorisAccessController extends RangerAccessController {
         return request;
     }
 
+    // Both of the two places this source reaches its Ranger plugin go through the lifecycle fence, rather than
+    // only the public entry points: the manager can close this controller while a query is part way down the
+    // global-then-catalog-then-database-then-table cascade, and each step of that cascade arrives here.
+
     private boolean checkPrivilegeByPlugin(AuthorizedSubject subject, DorisAccessType accessType,
             RangerDorisResource resource) {
-        RangerAccessRequestImpl request = createRequest(subject, accessType);
-        request.setResource(resource);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("ranger request: {}", request);
-        }
-        RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
-        return checkRequestResult(request, result, accessType.name());
+        return decideWhileOpen(() -> {
+            RangerAccessRequestImpl request = createRequest(subject, accessType);
+            request.setResource(resource);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("ranger request: {}", request);
+            }
+            RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
+            return checkRequestResult(request, result, accessType.name());
+        });
     }
 
     private boolean checkShowPrivilegeByPlugin(AuthorizedSubject subject, RangerDorisResource resource) {
-        RangerAccessRequestImpl request = createRequest(subject);
-        request.setResource(resource);
-        request.setResourceMatchingScope(ResourceMatchingScope.SELF_OR_DESCENDANTS);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("ranger request: {}", request);
-        }
-        RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
-        return checkRequestResult(request, result, DorisAccessType.NONE.name());
+        return decideWhileOpen(() -> {
+            RangerAccessRequestImpl request = createRequest(subject);
+            request.setResource(resource);
+            request.setResourceMatchingScope(ResourceMatchingScope.SELF_OR_DESCENDANTS);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("ranger request: {}", request);
+            }
+            RangerAccessResult result = dorisPlugin.isAccessAllowed(request);
+            return checkRequestResult(request, result, DorisAccessType.NONE.name());
+        });
     }
 
     /**

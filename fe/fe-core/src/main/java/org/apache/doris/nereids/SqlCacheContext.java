@@ -279,10 +279,6 @@ public class SqlCacheContext {
         rowPolicies.put(new FullTableName(catalog, db, table), Utils.fastToImmutableList(rowFilterPolicy));
     }
 
-    public synchronized Map<FullTableName, List<RowFilterSpec>> getRowFilterPolicies() {
-        return ImmutableMap.copyOf(rowPolicies);
-    }
-
     public synchronized void addDataMaskPolicy(
             String catalog, String db, String table, String columnName, Optional<DataMaskSpec> dataMaskPolicy) {
         dataMaskPolicies.put(

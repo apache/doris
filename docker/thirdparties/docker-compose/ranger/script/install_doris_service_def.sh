@@ -24,9 +24,12 @@ SERVICE_DEF=/opt/doris-ranger-artifacts/ranger-servicedef-doris.json
 DORIS_JDBC_URL="${DORIS_JDBC_URL:-jdbc:mysql://host.docker.internal:9030}"
 DORIS_JDBC_USER="${DORIS_JDBC_USER:-root}"
 
+# Polled far more often than the container healthcheck's own 30s interval on purpose: `--wait` on the
+# compose stack returns as soon as that healthcheck passes, so anything slower here can hand a "ready"
+# stack back to the caller with neither the Doris service definition nor its instance registered yet.
 until curl -f "${ADMIN}"; do
     echo "Waiting for service to be healthy..."
-    sleep 30
+    sleep 2
 done
 
 # Both steps are idempotent: this script reruns on every container restart, and
