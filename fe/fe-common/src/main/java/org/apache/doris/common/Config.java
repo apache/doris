@@ -138,6 +138,11 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(mutable = false,
+            description = "The local resource group passed when forwarding requests between frontend nodes. "
+                    + "An empty string means unset.")
+    public static String local_resource_group = "";
+
     @ConfField(description = {"启用的数据血缘插件列表，需要填写 LineagePlugin.name() 返回的名称，",
             "Active lineage plugins, need to fill in the name returned by LineagePlugin.name()"})
     public static String[] activate_lineage_plugin = {};
@@ -152,6 +157,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false,
             description = {"是否检查 table 锁泄漏", "Whether to check table lock leaky"})
     public static boolean check_table_lock_leaky = false;
+
+    @ConfField(mutable = false,
+            description = "Whether to enable replica filtering based on location resource tags. If disabled, "
+                    + "invalid compute groups are still rejected, but replicas are no longer filtered by the "
+                    + "user's location resource tag.")
+    public static boolean enable_resource_tag_location_check = true;
 
     @ConfField(mutable = true, masterOnly = false,
             description = {"PreparedStatement stmtId 起始位置，仅用于测试",
@@ -1175,6 +1186,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long tablet_schedule_high_priority_second = 30 * 60;
+
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Whether optional backend selection policies may participate in repair clone source "
+                    + "selection. The default policy is a no-op and does not change repair behavior.")
+    public static boolean enable_repair_source_backend_selection = true;
 
     /**
      * publish version queue's size in be, report it to fe,

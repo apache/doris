@@ -67,6 +67,9 @@ import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.executor.PlSqlOperation;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
+import org.apache.doris.resource.BackendSelectionProfile;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
@@ -240,6 +243,7 @@ public class ConnectContext {
 
     // The FE ip current connected
     private String currentConnectedFEIp = "";
+    private transient String connectingFeLocalResourceGroup = "";
 
     private InsertResult insertResult;
 
@@ -255,6 +259,13 @@ public class ConnectContext {
 
     private String workloadGroupName = "";
     private boolean isGroupCommit;
+    private BackendSelection.SelectionHint queryBackendSelectionDecision;
+    private BackendSelection.SelectionHint loadBackendSelectionDecision;
+    // A replayed async load owns this hint independently of the statement lifecycle. The
+    // statement-level decision is reset by setStartTime(), but the persisted load intent must
+    // remain available while the load planner is being rebuilt.
+    private BackendSelection.SelectionHint loadBackendSelectionHint;
+    private final BackendSelectionProfile backendSelectionProfile = new BackendSelectionProfile();
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
@@ -806,6 +817,51 @@ public class ConnectContext {
     public void setStartTime() {
         startTime = System.currentTimeMillis();
         returnRows = 0;
+        queryBackendSelectionDecision = null;
+        loadBackendSelectionDecision = null;
+        backendSelectionProfile.reset();
+    }
+
+    public BackendSelection.SelectionHint getQueryBackendSelectionDecision() {
+        if (queryBackendSelectionDecision == null) {
+            queryBackendSelectionDecision = BackendSelectionManager.getQuerySelectionHint(this);
+        }
+        return queryBackendSelectionDecision;
+    }
+
+    // Audit runs for every statement type, so it must not create a query selection hint.
+    public BackendSelection.SelectionHint getQueryBackendSelectionDecisionForAudit() {
+        return queryBackendSelectionDecision == null
+                ? BackendSelection.SelectionHint.noSelection()
+                : queryBackendSelectionDecision;
+    }
+
+    // Load hints are resolved at several scheduling sites (sink, coordinator, group commit);
+    // each records the statement-level hint here so the audit reflects the load decision
+    // instead of the scan-side query decision.
+    public void recordLoadBackendSelectionDecision(BackendSelection.SelectionHint hint) {
+        loadBackendSelectionDecision = hint;
+    }
+
+    public void recordLoadBackendSelectionHint(BackendSelection.SelectionHint hint) {
+        loadBackendSelectionHint = hint;
+    }
+
+    public BackendSelection.SelectionHint getLoadBackendSelectionHint() {
+        return loadBackendSelectionHint;
+    }
+
+    public BackendSelection.SelectionHint getLoadBackendSelectionDecision() {
+        return loadBackendSelectionDecision;
+    }
+
+    public BackendSelection.SelectionHint getLoadBackendSelectionDecisionForAudit() {
+        return loadBackendSelectionDecision != null
+                ? loadBackendSelectionDecision : loadBackendSelectionHint;
+    }
+
+    public BackendSelectionProfile getBackendSelectionProfile() {
+        return backendSelectionProfile;
     }
 
     public void updateReturnRows(int returnRows) {
@@ -966,6 +1022,8 @@ public class ConnectContext {
     public void clear() {
         executor = null;
         statementContext = null;
+        loadBackendSelectionDecision = null;
+        loadBackendSelectionHint = null;
     }
 
     public PlSqlOperation getPlSqlOperation() {
@@ -1325,6 +1383,14 @@ public class ConnectContext {
 
     public String getCurrentConnectedFEIp() {
         return currentConnectedFEIp;
+    }
+
+    public void setConnectingFeLocalResourceGroup(String connectingFeLocalResourceGroup) {
+        this.connectingFeLocalResourceGroup = Strings.nullToEmpty(connectingFeLocalResourceGroup);
+    }
+
+    public String getConnectingFeLocalResourceGroup() {
+        return connectingFeLocalResourceGroup;
     }
 
     /**

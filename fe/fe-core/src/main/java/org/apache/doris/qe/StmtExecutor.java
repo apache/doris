@@ -338,6 +338,14 @@ public class StmtExecutor {
         builder.defaultCatalog(context.getCurrentCatalog().getName());
         builder.defaultDb(context.getDatabase());
         builder.workloadGroup(context.getWorkloadGroupName());
+        String queryBackendSelection = context.getBackendSelectionProfile().getQuerySummary();
+        if (queryBackendSelection != null) {
+            builder.queryBackendSelection(queryBackendSelection);
+        }
+        String loadBackendSelection = context.getBackendSelectionProfile().getLoadSummary();
+        if (loadBackendSelection != null) {
+            builder.loadBackendSelection(loadBackendSelection);
+        }
         builder.sqlStatement(originStmt == null ? "" : originStmt.originStmt);
         builder.isCached(isCached ? "Yes" : "No");
 
