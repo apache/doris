@@ -82,6 +82,7 @@ import org.apache.logging.log4j.Logger;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -550,15 +551,27 @@ public class NereidsSqlCacheManager {
 
     private boolean dataMaskPoliciesChanged(
             UserIdentity currentUserIdentity, Env env, SqlCacheContext sqlCacheContext) {
-        for (Entry<FullColumnName, Optional<DataMaskSpec>> kv : sqlCacheContext.getDataMaskPolicies().entrySet()) {
-            FullColumnName qualifiedColumn = kv.getKey();
-            Optional<DataMaskSpec> cachedPolicy = kv.getValue();
-
-            Optional<DataMaskSpec> dataMaskPolicy = env.getAccessManager()
-                    .evalDataMaskPolicy(currentUserIdentity, qualifiedColumn.catalog,
-                            qualifiedColumn.db, qualifiedColumn.table, qualifiedColumn.column);
-            if (!Objects.equals(cachedPolicy, dataMaskPolicy)) {
-                return true;
+        // Grouped by table so the source is asked once per table, not once per cached column - the same
+        // reason the planner asks that way. A hit has to re-check every column it planned with, so this runs
+        // on the cheapest path there is.
+        Map<FullTableName, Set<String>> columnsByTable = new LinkedHashMap<>();
+        for (FullColumnName qualifiedColumn : sqlCacheContext.getDataMaskPolicies().keySet()) {
+            columnsByTable.computeIfAbsent(
+                    new FullTableName(qualifiedColumn.catalog, qualifiedColumn.db, qualifiedColumn.table),
+                    table -> new LinkedHashSet<>()).add(qualifiedColumn.column);
+        }
+        Map<FullColumnName, Optional<DataMaskSpec>> cached = sqlCacheContext.getDataMaskPolicies();
+        for (Entry<FullTableName, Set<String>> kv : columnsByTable.entrySet()) {
+            FullTableName table = kv.getKey();
+            Map<String, DataMaskSpec> masks = env.getAccessManager().evalDataMaskPolicies(
+                    currentUserIdentity, table.catalog, table.db, table.table, kv.getValue());
+            for (String column : kv.getValue()) {
+                Optional<DataMaskSpec> now = Optional.ofNullable(masks.get(column.toLowerCase()));
+                FullColumnName qualifiedColumn =
+                        new FullColumnName(table.catalog, table.db, table.table, column);
+                if (!Objects.equals(cached.get(qualifiedColumn), now)) {
+                    return true;
+                }
             }
         }
         return false;

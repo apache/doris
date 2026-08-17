@@ -27,6 +27,7 @@ import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
+import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.PluginRegistry;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.fs.FileSystemPluginManager;
@@ -63,10 +64,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * AUTHENTICATION half of the same contract lives in {@code AuthenticationPluginManagerTest}, next to the
  * lazy-load path that has to carry the rejection reason into its exception.
  *
- * <p>What no unit test can check: that the {@code <manifestEntries>} element name written in
- * {@code fe/fe-connector/pom.xml} and {@code fe/fe-filesystem/pom.xml} equals the attribute name derived
- * here. That name appears once as XML and once as a derivation rule, and nothing links them at build time —
- * so the derived names are pinned literally below, to be read against the poms in review.
+ * <p>What no unit test can check: that the {@code <manifestEntries>} element name written in each family's
+ * pom - {@code fe/fe-authentication}, {@code fe/fe-authorization}, {@code fe/fe-connector},
+ * {@code fe/fe-filesystem} and the lineage family in {@code fe/fe-core} - equals the attribute name
+ * derived here. That name appears once as XML and once as a derivation rule, and nothing links them at
+ * build time — so the derived names are pinned literally below, to be read against the poms in review.
  */
 public class PluginApiVersionWiringTest {
 
@@ -200,8 +202,10 @@ public class PluginApiVersionWiringTest {
         String failure = refusalOf(otherMajor + ".0");
 
         // Refusing is not enough: an operator has to be able to tell "installed but incompatible" from
-        // "never installed", which is the same message with nothing appended.
-        Assertions.assertTrue(failure.contains("refused on their declared API version"), failure);
+        // "never installed", which is the same message with nothing appended. The stage is named too, so
+        // that a plugin refused for some other reason is equally distinguishable.
+        Assertions.assertTrue(failure.contains("refused while loading"), failure);
+        Assertions.assertTrue(failure.contains(LoadFailure.STAGE_API_VERSION), failure);
         Assertions.assertTrue(failure.contains(otherMajor + ".0"), failure);
         Assertions.assertTrue(failure.contains(gate.getExpectedVersion()), failure);
     }
@@ -212,7 +216,8 @@ public class PluginApiVersionWiringTest {
         // against must not inherit the kernel's own answer and be admitted.
         String failure = refusalOf(null);
 
-        Assertions.assertTrue(failure.contains("refused on their declared API version"), failure);
+        Assertions.assertTrue(failure.contains("refused while loading"), failure);
+        Assertions.assertTrue(failure.contains(LoadFailure.STAGE_API_VERSION), failure);
         Assertions.assertTrue(failure.contains("Doris-Authorization-Plugin-Api-Version"), failure);
     }
 

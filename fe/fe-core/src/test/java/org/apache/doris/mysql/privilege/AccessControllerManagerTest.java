@@ -18,12 +18,18 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.AccessContext;
+import org.apache.doris.authorization.AccessRequirement;
+import org.apache.doris.authorization.AuthorizedResource;
+import org.apache.doris.authorization.AuthorizedSubject;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.After;
@@ -331,6 +337,56 @@ public class AccessControllerManagerTest {
         Mockito.verify(defaultAccessController, Mockito.never()).close();
     }
 
+    /**
+     * The circumstances of a check come from the connection the caller handed over, not from the thread.
+     *
+     * <p>A check can run before its connection is installed on the thread - {@code BaseController.checkCookie}
+     * authorizes before it builds one - and a thread out of a pool carries whatever the request before it
+     * left behind, so reading the thread there yields not "no circumstances" but another client's.
+     */
+    @Test
+    public void testACheckSeesTheConnectionItWasGivenNotTheOneOnTheThread() {
+        AtomicReference<String> seenClientIp = new AtomicReference<>();
+        AccessControllerManager manager = new AccessControllerManager(new Auth());
+        Deencapsulation.setField(manager, "defaultAccessController", recordsClientIp(seenClientIp));
+
+        ConnectContext leftOnTheThread = new ConnectContext();
+        leftOnTheThread.setRemoteIP("10.0.0.1");
+        leftOnTheThread.setCurrentUserIdentity(UserIdentity.ROOT);
+        leftOnTheThread.setThreadLocalInfo();
+        try {
+            ConnectContext handedOver = new ConnectContext();
+            handedOver.setRemoteIP("10.0.0.2");
+            handedOver.setCurrentUserIdentity(UserIdentity.ROOT);
+
+            manager.checkGlobalPriv(handedOver, PrivPredicate.ADMIN);
+            Assert.assertEquals("10.0.0.2", seenClientIp.get());
+
+            // And the thread is still the fallback for the callers that have no connection to hand over.
+            seenClientIp.set(null);
+            manager.checkGlobalPriv(UserIdentity.ROOT, PrivPredicate.ADMIN);
+            Assert.assertEquals("10.0.0.1", seenClientIp.get());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    /** A source that answers yes and remembers the client address it was told about. */
+    private static AuthorizationPlugin recordsClientIp(AtomicReference<String> seenClientIp) {
+        return new AuthorizationPlugin() {
+            @Override
+            public String name() {
+                return "records-client-ip";
+            }
+
+            @Override
+            public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
+                    AccessRequirement requirement, AccessContext context) {
+                seenClientIp.set(context.getClientIp().orElse(null));
+            }
+        };
+    }
+
     private ExternalCatalog mockCatalog(String name, long id) {
         ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
         Mockito.when(catalog.getName()).thenReturn(name);
@@ -352,7 +408,8 @@ public class AccessControllerManagerTest {
     private AccessControllerManager createAccessControllerManager(CatalogAccessController defaultAccessController) {
         AccessControllerManager accessControllerManager = new AccessControllerManager(new Auth());
         Deencapsulation.setField(accessControllerManager, "defaultAccessController",
-                new LegacyAccessControllerPlugin("mock", defaultAccessController));
+                new LegacyAccessControllerPlugin("mock", defaultAccessController,
+                        (subject, requirement) -> false));
         return accessControllerManager;
     }
 

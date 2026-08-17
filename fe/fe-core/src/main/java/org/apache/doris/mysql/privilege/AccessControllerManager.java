@@ -19,6 +19,7 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.AccessContext;
 import org.apache.doris.authorization.AccessDeniedException;
 import org.apache.doris.authorization.AccessRequirement;
 import org.apache.doris.authorization.AuthorizedResource;
@@ -61,6 +62,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -69,6 +72,7 @@ import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Supplier;
 
 /**
  * AccessControllerManager is the entry point of privilege authentication.
@@ -79,6 +83,21 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * source that catalog is bound to. Whatever that source answers is the answer. The manager establishes no
  * privilege of its own beforehand and never combines two sources' verdicts, so which policies apply to a
  * resource is readable from which source the catalog is bound to.
+ *
+ * <p><b>The exemptions to that.</b> Three places grant access without asking any source, and they are the
+ * whole of the list:
+ * <ul>
+ *   <li>{@link ConnectContext#isSkipAuth()} - a statement the engine is running on its own behalf inside
+ *       another statement the caller was already authorized for. Honoured by {@link #checkTblPriv} and
+ *       {@link #checkColumnsPriv}, and only by the overloads that take a {@code ConnectContext};</li>
+ *   <li>{@link Config#skip_catalog_priv_check} on a catalog bound to a source of its own, in
+ *       {@link #checkCtlPriv}: such a catalog stores no catalog level grant anywhere, so with the check
+ *       switched off there is nobody left to ask;</li>
+ *   <li>the literal {@code root} and {@code admin} accounts are exempt from row filters and column masks -
+ *       not here but in the planner, see
+ *       {@code LogicalCheckPolicy#findPolicy}. That one is the engine's own and is not offered to a source
+ *       to decide.</li>
+ * </ul>
  */
 public class AccessControllerManager {
     private static final Logger LOG = LogManager.getLogger(AccessControllerManager.class);
@@ -139,20 +158,44 @@ public class AccessControllerManager {
     private final DirectoryPluginRuntimeManager<AuthorizationPluginFactory> pluginDirectoryRuntime =
             new DirectoryPluginRuntimeManager<>();
     /**
-     * Plugin directories refused on the API version they declared.
+     * Plugins the startup sweep refused, whatever it refused them on.
      *
      * <p>Kept because the refusal and the complaint happen in different places: the load is a startup sweep
      * that logs and carries on, while what an operator sees is "no authorization plugin factory found for
-     * {@code <name>}" from whoever asked for that name. Without this, a plugin refused on its version would be
-     * indistinguishable from one that was never installed.
+     * {@code <name>}" from whoever asked for that name. Without this, a plugin that was refused would be
+     * indistinguishable from one that was never installed - which is just as true of a plugin whose jars
+     * would not resolve or whose factory would not instantiate as it is of one built against another
+     * release, so every stage is collected here and each entry says which stage it came from.
      */
-    private final List<String> apiVersionRejections = new CopyOnWriteArrayList<>();
+    private final List<String> pluginLoadRejections = new CopyOnWriteArrayList<>();
+
+    /**
+     * A manager that authorizes nothing loads nothing: see {@link #AccessControllerManager(Auth, boolean)}.
+     * Kept as a field because the catalog-bound sources are built lazily, long after the constructor.
+     */
+    private final boolean authorizesNothing;
 
     public AccessControllerManager(Auth auth) {
+        this(auth, false);
+    }
+
+    /**
+     * @param isCheckpointCatalog whether this belongs to a checkpoint {@link Env}, which only replays
+     *         metadata to write an image and authorizes nothing. Such an {@code Env} must neither sweep the
+     *         plugin directory nor build an authorization source: a source starts threads - a Ranger one
+     *         starts a policy refresher and a policy download timer - that nothing ever stops, and a
+     *         checkpoint {@code Env} is built and discarded twice per checkpoint round, forever.
+     */
+    public AccessControllerManager(Auth auth, boolean isCheckpointCatalog) {
         this.auth = auth;
-        loadAccessControllerPlugins();
-        String accessControllerName = Config.access_controller_type;
-        this.defaultAccessController = loadAccessControllerOrThrow(accessControllerName);
+        this.authorizesNothing = isCheckpointCatalog;
+        if (isCheckpointCatalog) {
+            this.defaultAccessController = new InternalAuthorizationPlugin(auth);
+        } else {
+            loadAccessControllerPlugins();
+            String accessControllerName = Config.access_controller_type;
+            this.defaultAccessController = loadAccessControllerOrThrow(accessControllerName);
+        }
         ctlToCtlAccessController.put(InternalCatalog.INTERNAL_CATALOG_NAME,
                 new CatalogAccessControllerEntry(
                         InternalCatalog.INTERNAL_CATALOG_ID, defaultAccessController, false));
@@ -179,7 +222,7 @@ public class AccessControllerManager {
         }
         if (!isKnownAuthorizationSource(accessControllerName)) {
             throw new RuntimeException("No authorization plugin factory found for " + accessControllerName
-                    + "." + pluginLocationHint() + apiVersionRejectionHint());
+                    + "." + pluginLocationHint() + pluginLoadRejectionHint());
         }
         Map<String, String> prop;
         try {
@@ -206,49 +249,125 @@ public class AccessControllerManager {
      * after the swap is undone.
      */
     private AuthorizationPlugin create(String name, Map<String, String> properties) {
+        if (InternalAuthorizationPlugin.NAME.equalsIgnoreCase(name)) {
+            // The built-in model is published by no factory, so it is named here rather than looked up.
+            return new InternalAuthorizationPlugin(auth);
+        }
         AuthorizationPluginFactory factory = authorizationPluginFactories.get(name);
         if (factory == null) {
             return adapt(name, accessControllerFactoriesCache.get(name).createAccessController(properties));
         }
         EngineAuthorizationContext context = new EngineAuthorizationContext(this, auth);
-        Thread current = Thread.currentThread();
-        ClassLoader callerLoader = current.getContextClassLoader();
-        AuthorizationPlugin plugin;
-        try {
-            current.setContextClassLoader(factory.getClass().getClassLoader());
-            plugin = factory.create(properties == null ? Collections.emptyMap() : properties, context);
-        } finally {
-            current.setContextClassLoader(callerLoader);
-        }
+        Map<String, String> pluginProperties = properties == null ? Collections.emptyMap() : properties;
+        AuthorizationPlugin plugin = inClassLoaderOf(factory,
+                () -> factory.create(pluginProperties, context));
         context.servedBy(plugin);
         return plugin;
     }
 
+    /**
+     * Runs one call into a plugin with that plugin's own classloader as the thread context one, and puts back
+     * whatever was there afterwards.
+     *
+     * <p>Every crossing into plugin code goes through here or through {@link #checkInClassLoaderOf}, not just
+     * the one that builds it. A plugin that bundles a library resolving class names through the context
+     * classloader - Hadoop's Configuration is the one both Ranger sources drag in - would otherwise load the
+     * name from the engine's copy of that library and get back a class its own copy does not recognise as
+     * implementing its interface. The same reasoning makes the connector family wrap all of its boundaries;
+     * leaving one unwrapped is a defect that only shows up with a plugin that happens to resolve something
+     * there.
+     */
+    private static <T> T inClassLoaderOf(Object plugin, Supplier<T> call) {
+        Thread current = Thread.currentThread();
+        ClassLoader callerLoader = current.getContextClassLoader();
+        try {
+            current.setContextClassLoader(plugin.getClass().getClassLoader());
+            return call.get();
+        } finally {
+            current.setContextClassLoader(callerLoader);
+        }
+    }
+
+    /** {@link #inClassLoaderOf} for the one boundary that may refuse. */
+    private static void checkInClassLoaderOf(AuthorizationPlugin plugin, PluginCheck check)
+            throws AccessDeniedException {
+        Thread current = Thread.currentThread();
+        ClassLoader callerLoader = current.getContextClassLoader();
+        try {
+            current.setContextClassLoader(plugin.getClass().getClassLoader());
+            check.run();
+        } finally {
+            current.setContextClassLoader(callerLoader);
+        }
+    }
+
+    /** One check inside a plugin; refusing is the only thing it may fail with. */
+    @FunctionalInterface
+    private interface PluginCheck {
+        void run() throws AccessDeniedException;
+    }
+
     /** Presents a controller written against the older per-scope interface as an authorization source. */
     private AuthorizationPlugin adapt(String name, CatalogAccessController controller) {
-        return new LegacyAccessControllerPlugin(name, controller);
+        // The global verdict the older interface was handed alongside every scoped question. Routed like any
+        // other global check, which is where the engine read it from before.
+        return new LegacyAccessControllerPlugin(name, controller,
+                (subject, requirement) -> decide(AccessTranslation.userIdentityOf(subject),
+                        AuthorizedResource.global(), requirement));
     }
 
     private boolean isKnownAuthorizationSource(String name) {
-        return authorizationPluginFactories.containsKey(name) || accessControllerFactoriesCache.containsKey(name);
+        return InternalAuthorizationPlugin.NAME.equalsIgnoreCase(name)
+                || authorizationPluginFactories.containsKey(name)
+                || accessControllerFactoriesCache.containsKey(name);
     }
 
+    /**
+     * Loads every source this FE can select, class path before directory in both contracts.
+     *
+     * <p>The order is what makes "a jar dropped into the plugin directory can never displace a source shipped
+     * with the FE" true: the directory sweep skips a name that is taken, so every name the class path
+     * publishes has to be registered before it runs - under either contract, since the two share one
+     * namespace.
+     */
     private void loadAccessControllerPlugins() {
-        // Sources shipped with the FE, and any on its class path. Deliberately not held to the plugin API
-        // version: what is on the class path was built from this same source tree in the same build, so the
-        // version there would be a number compared against itself. The gate exists for the directory
-        // channel below, where a jar built against some other Doris release can turn up.
-        for (AuthorizationPluginFactory factory : ServiceLoader.load(AuthorizationPluginFactory.class)) {
+        // The built-in model is published by no factory, so nothing else would give it an inventory row -
+        // leaving information_schema.extensions listing the sources that are installed but idle, and not the
+        // one that decides every check on a default FE.
+        PluginRegistry.getInstance().register(PLUGIN_FAMILY, InternalAuthorizationPlugin.NAME,
+                PluginRegistry.implementationVersionOf(InternalAuthorizationPlugin.class),
+                "The privilege model Doris ships with: users, roles and GRANT statements",
+                PluginRegistry.PluginSource.BUILTIN);
+        // Sources on the FE's class path. Held to the plugin API version like the directory channel: nothing
+        // in this source tree publishes an AuthorizationPluginFactory here any more - the Ranger sources are
+        // installed as plugins - so in a release package the only thing this channel can find is a jar
+        // someone added to fe/lib, built against some other Doris release.
+        Iterator<ServiceLoader.Provider<AuthorizationPluginFactory>> providers =
+                ServiceLoader.load(AuthorizationPluginFactory.class).stream().iterator();
+        while (providers.hasNext()) {
+            ServiceLoader.Provider<AuthorizationPluginFactory> descriptor = providers.next();
+            Class<? extends AuthorizationPluginFactory> factoryClass = descriptor.type();
+            String rejection = API_VERSION_GATE.rejectionReasonForClass(factoryClass);
+            if (rejection != null) {
+                // Refuse the descriptor before get(): an incompatible factory's constructor may link against
+                // an API this FE must never execute.
+                LOG.warn("Skip authorization plugin factory {} from class path: {}",
+                        factoryClass.getName(), rejection);
+                pluginLoadRejections.add(factoryClass.getName() + " (class path): " + rejection);
+                continue;
+            }
+            AuthorizationPluginFactory factory = descriptor.get();
             LOG.info("Found authorization plugin factory: {} from class path.", factory.name());
-            registerPluginFactory(factory);
-            PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, factory);
+            if (registerPluginFactory(factory)) {
+                PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, factory);
+            }
         }
-        loadAuthorizationPluginsFromDirectory();
         ServiceLoader<AccessControllerFactory> loaderFromClasspath = ServiceLoader.load(AccessControllerFactory.class);
         for (AccessControllerFactory factory : loaderFromClasspath) {
-            LOG.info("Found Authentication Plugin Factories: {} from class path.", factory.factoryIdentifier());
+            LOG.info("Found Access Controller Plugin Factory: {} from class path.", factory.factoryIdentifier());
             registerLegacyFactory(factory);
         }
+        loadAuthorizationPluginsFromDirectory();
         List<AccessControllerFactory> loader = null;
         try {
             loader = ClassLoaderUtils.loadServicesFromDirectory(AccessControllerFactory.class);
@@ -268,7 +387,7 @@ public class AccessControllerManager {
      * <p>A directory that fails is logged and skipped: one unusable plugin must not stop an FE from
      * starting, and if the failed one is the very source {@code access_controller_type} names, the
      * constructor refuses right afterwards anyway - with the reason attached, see
-     * {@link #apiVersionRejectionHint()}.
+     * {@link #pluginLoadRejectionHint()}.
      *
      * <p>This is a different layout from the one the deprecated {@link AccessControllerFactory} channel
      * reads out of the same directory, which takes jars lying loose at its root. The two cannot collide:
@@ -295,26 +414,31 @@ public class AccessControllerManager {
                 new ClassLoadingPolicy(AUTHORIZATION_PARENT_FIRST_PREFIXES),
                 API_VERSION_GATE);
 
-        apiVersionRejections.clear();
         for (LoadFailure failure : report.getFailures()) {
             LOG.warn("Skip authorization plugin directory: pluginDir={}, stage={}, message={}",
                     failure.getPluginDir(), failure.getStage(), failure.getMessage(), failure.getCause());
-            if (LoadFailure.STAGE_API_VERSION.equals(failure.getStage())) {
-                apiVersionRejections.add(failure.getMessage());
-            }
+            pluginLoadRejections.add(failure.getPluginDir() + " (" + failure.getStage() + "): "
+                    + failure.getMessage());
         }
 
         for (PluginHandle<AuthorizationPluginFactory> handle : report.getSuccesses()) {
             String name = handle.getPluginName();
-            if (authorizationPluginFactories.containsKey(name)) {
+            if (isKnownAuthorizationSource(name)) {
                 // Whatever is already installed under this name keeps it, so that dropping a jar into the
-                // plugin directory can never displace a source shipped with the FE.
-                LOG.warn("Skip authorization plugin '{}' from {}: that name is already taken by a plugin on"
+                // plugin directory can never displace a source shipped with the FE. Both contracts publish
+                // into the same namespace, so both tables have to be consulted - and so does the name the
+                // built-in model is selected by.
+                LOG.warn("Skip authorization plugin '{}' from {}: that name is already taken by a source on"
                         + " the class path", name, handle.getPluginDir());
+                pluginLoadRejections.add(handle.getPluginDir() + " (name): '" + name
+                        + "' is already taken by a source on the class path");
                 pluginDirectoryRuntime.discard(name);
                 continue;
             }
-            registerPluginFactory(handle.getFactory());
+            if (!registerPluginFactory(handle.getFactory())) {
+                pluginDirectoryRuntime.discard(name);
+                continue;
+            }
             // Only a plugin that was actually admitted gets an inventory row, so
             // information_schema.extensions never lists an authorization source nothing can reach.
             PluginRegistry.getInstance().registerExternal(PLUGIN_FAMILY, handle);
@@ -323,16 +447,30 @@ public class AccessControllerManager {
         }
     }
 
-    private void registerPluginFactory(AuthorizationPluginFactory factory) {
+    /** @return whether the source was registered; a source claiming a reserved name is refused. */
+    private boolean registerPluginFactory(AuthorizationPluginFactory factory) {
         String name = factory.name();
+        if (isReservedSourceName(name)) {
+            LOG.warn("Skip authorization plugin factory {}: '{}' is the name the built-in privilege model is"
+                    + " selected by and cannot be published by a plugin.", factory.getClass().getName(), name);
+            pluginLoadRejections.add(factory.getClass().getName() + " (name): '" + name + "' is reserved");
+            return false;
+        }
         authorizationPluginFactories.put(name, factory);
         // Keeps `access_controller.class = <factory class name>` working for a source published this way,
         // which is how a catalog written before plugin names existed still names its source.
         accessControllerClassNameMapping.put(factory.getClass().getName(), name);
+        return true;
     }
 
     private void registerLegacyFactory(AccessControllerFactory factory) {
         String name = factory.factoryIdentifier();
+        if (isReservedSourceName(name)) {
+            LOG.warn("Skip access controller factory {}: '{}' is the name the built-in privilege model is"
+                    + " selected by and cannot be published by a plugin.", factory.getClass().getName(), name);
+            pluginLoadRejections.add(factory.getClass().getName() + " (name): '" + name + "' is reserved");
+            return;
+        }
         if (authorizationPluginFactories.containsKey(name)) {
             // Both were found, so say which one answers rather than letting the loser look installed.
             LOG.warn("Authorization source {} is published both as a plugin and as an access controller"
@@ -344,26 +482,42 @@ public class AccessControllerManager {
                     name, AccessControllerFactory.class.getName(), AuthorizationPluginFactory.class.getName(),
                     Config.authorization_plugins_dir, API_VERSION_GATE.getManifestAttribute(),
                     API_VERSION_GATE.getExpectedVersion());
+            // An inventory row of its own, so that information_schema.extensions answers "which sources can
+            // this FE select" rather than "which of them happen to use the current contract".
+            PluginRegistry.getInstance().register(PLUGIN_FAMILY, name,
+                    PluginRegistry.implementationVersionOf(factory.getClass()),
+                    "Access controller implementing the deprecated " + AccessControllerFactory.class.getName(),
+                    PluginRegistry.PluginSource.EXTERNAL);
         }
         accessControllerFactoriesCache.put(name, factory);
         accessControllerClassNameMapping.put(factory.getClass().getName(), name);
     }
 
     /**
-     * A clause naming any plugin the startup sweep refused on its declared API version, or the empty string
-     * when there was none.
+     * Whether {@code name} is the one the built-in privilege model answers to.
      *
-     * <p>Appended to "no authorization plugin factory found for {@code <name>}". A refused plugin never reaches the
-     * factory table, and the sweep itself does not fail, so without this the version rejection would only
-     * ever be an FE log line nobody correlates with the failure they are looking at.
+     * <p>Reserved in both selectors, not just in {@code access_controller_type}: a plugin publishing it would
+     * be selectable by a catalog's {@code access_controller.class} and unselectable for the instance, which
+     * is the same name meaning two different sources depending on where it is written.
      */
-    private String apiVersionRejectionHint() {
-        if (apiVersionRejections.isEmpty()) {
+    private static boolean isReservedSourceName(String name) {
+        return InternalAuthorizationPlugin.NAME.equalsIgnoreCase(name);
+    }
+
+    /**
+     * A clause naming whatever the startup sweep refused, or the empty string when it refused nothing.
+     *
+     * <p>Appended to "no authorization plugin factory found for {@code <name>}". A refused plugin never reaches
+     * the factory table, and the sweep itself does not fail, so without this a refusal would only ever be an
+     * FE log line nobody correlates with the failure they are looking at.
+     */
+    private String pluginLoadRejectionHint() {
+        if (pluginLoadRejections.isEmpty()) {
             return "";
         }
-        return " Note that " + apiVersionRejections.size()
-                + " plugin(s) were refused on their declared API version: "
-                + String.join("; ", apiVersionRejections);
+        return " Note that " + pluginLoadRejections.size()
+                + " plugin(s) were refused while loading: "
+                + String.join("; ", pluginLoadRejections);
     }
 
     /** The authorization source governing the objects inside {@code ctl}. */
@@ -388,6 +542,11 @@ public class AccessControllerManager {
     }
 
     private void lazyLoadCtlAccessController(ExternalCatalog catalog) {
+        if (authorizesNothing) {
+            // Same reason the constructor loaded nothing: a checkpoint Env replays a CREATE CATALOG but never
+            // authorizes against it, and the source it would build here starts threads nothing stops.
+            return;
+        }
         CatalogAccessControllerEntry staleEntry = null;
         synchronized (this) {
             if (!isCurrentCatalog(catalog)) {
@@ -500,7 +659,7 @@ public class AccessControllerManager {
         }
         if (null == pluginIdentifier || !isKnownAuthorizationSource(pluginIdentifier)) {
             throw new RuntimeException("Access Controller Plugin Factory not found for " + acClassName
-                    + "." + pluginLocationHint() + apiVersionRejectionHint());
+                    + "." + pluginLocationHint() + pluginLoadRejectionHint());
         }
         return pluginIdentifier;
     }
@@ -540,20 +699,46 @@ public class AccessControllerManager {
     }
 
     private void closeEntry(String ctl, CatalogAccessControllerEntry entry) {
-        if (entry == null || !entry.owned || entry.accessController == defaultAccessController) {
+        if (entry == null || !entry.owned) {
             return;
         }
         closeAccessController(ctl, entry.accessController);
     }
 
     private void closeAccessController(String ctl, AuthorizationPlugin accessController) {
+        if (isSharedDefault(accessController)) {
+            // The instance-wide source is shared with the internal catalog and outlives every catalog, so
+            // detaching one must never close it. The guard lives here rather than in closeEntry() alone
+            // because the dry run of a CREATE CATALOG closes what it built without going through an entry.
+            return;
+        }
         try {
-            accessController.close();
+            inClassLoaderOf(accessController, () -> {
+                accessController.close();
+                return null;
+            });
         } catch (Throwable e) {
             // Access-controller plugins are external code. A faulty cleanup must not prevent the catalog
             // lifecycle from releasing its own resources.
             LOG.warn("Failed to close access controller for catalog {}", ctl, e);
         }
+    }
+
+    /**
+     * Whether closing {@code candidate} would close the source governing instance scope.
+     *
+     * <p>Object identity is not enough: a source published by the deprecated factory is handed out wrapped,
+     * and the wrapper is built fresh per binding, so two bindings of one legacy source share the controller
+     * while their wrappers never compare equal. Closing the wrapper closes that shared controller.
+     */
+    private boolean isSharedDefault(AuthorizationPlugin candidate) {
+        if (candidate == defaultAccessController) {
+            return true;
+        }
+        return candidate instanceof LegacyAccessControllerPlugin
+                && defaultAccessController instanceof LegacyAccessControllerPlugin
+                && ((LegacyAccessControllerPlugin) candidate).getController()
+                        == ((LegacyAccessControllerPlugin) defaultAccessController).getController();
     }
 
     public Auth getAuth() {
@@ -572,17 +757,36 @@ public class AccessControllerManager {
      * <p>Columns are not decided here: see {@link #decideColumns}.
      */
     public boolean decide(UserIdentity subject, AuthorizedResource resource, AccessRequirement requirement) {
+        return decide(subject, resource, requirement, ConnectionAccessContext.current());
+    }
+
+    /**
+     * As {@link #decide(UserIdentity, AuthorizedResource, AccessRequirement)}, with the circumstances of the
+     * check stated rather than read off the thread.
+     *
+     * <p>Worth stating wherever the caller holds them: a check can run before the connection it belongs to is
+     * installed on the thread - the HTTP cookie path does exactly that - and a thread from a pool carries
+     * whatever the request before it left there, so the fallback is not merely "no circumstances" but
+     * possibly another client's.
+     */
+    public boolean decide(UserIdentity subject, AuthorizedResource resource, AccessRequirement requirement,
+            AccessContext context) {
         if (resource.getKind() == ResourceKind.COLUMNS) {
             throw new IllegalArgumentException("column access is decided by decideColumns(), which"
                     + " reports which column was refused instead of a yes or no");
         }
         try {
-            ask(subject, resource, requirement);
+            ask(subject, resource, requirement, context);
             return true;
         } catch (AccessDeniedException e) {
-            // The reason travels no further for now: every caller of the boolean facades phrases its own
-            // error message. It is carried this far so that the day one of them stops doing so, there is
-            // something to phrase it from.
+            if (LOG.isDebugEnabled()) {
+                // Which source refused is the first question a deployment with both an instance-wide source
+                // and a catalog-bound one has to answer, and the boolean facades throw it away: each phrases
+                // its own error message. Building this costs nothing while debug logging is off - the
+                // exception carries no stack and composes its message lazily.
+                LOG.debug("Access denied by source {}: subject={}, resource={}, requirement={}, reason={}",
+                        e.getDeniedBy(), subject, resource, requirement, e.getMessage());
+            }
             return false;
         }
     }
@@ -595,17 +799,24 @@ public class AccessControllerManager {
      */
     public void decideColumns(UserIdentity subject, AuthorizedResource.Columns columns,
             AccessRequirement requirement) throws AuthorizationException {
+        decideColumns(subject, columns, requirement, ConnectionAccessContext.current());
+    }
+
+    /** As {@link #decideColumns}, with the circumstances of the check stated rather than read off the thread. */
+    public void decideColumns(UserIdentity subject, AuthorizedResource.Columns columns,
+            AccessRequirement requirement, AccessContext context) throws AuthorizationException {
         try {
-            ask(subject, columns, requirement);
+            ask(subject, columns, requirement, context);
         } catch (AccessDeniedException e) {
             throw new AuthorizationException(e.getMessage());
         }
     }
 
-    private void ask(UserIdentity subject, AuthorizedResource resource, AccessRequirement requirement)
-            throws AccessDeniedException {
-        controllerOf(resource).checkPrivilege(AccessTranslation.subjectOf(subject), resource, requirement,
-                ConnectionAccessContext.current());
+    private void ask(UserIdentity subject, AuthorizedResource resource, AccessRequirement requirement,
+            AccessContext context) throws AccessDeniedException {
+        AuthorizationPlugin controller = controllerOf(resource);
+        checkInClassLoaderOf(controller, () ->
+                controller.checkPrivilege(AccessTranslation.subjectOf(subject), resource, requirement, context));
     }
 
     /**
@@ -660,7 +871,8 @@ public class AccessControllerManager {
 
     // ==== Global ====
     public boolean checkGlobalPriv(ConnectContext ctx, PrivPredicate wanted) {
-        return checkGlobalPriv(ctx.getCurrentUserIdentity(), wanted);
+        return decide(ctx.getCurrentUserIdentity(), AuthorizedResource.global(),
+                AccessTranslation.requirementOf(wanted), ConnectionAccessContext.of(ctx));
     }
 
     public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
@@ -669,7 +881,7 @@ public class AccessControllerManager {
 
     // ==== Catalog ====
     public boolean checkCtlPriv(ConnectContext ctx, String ctl, PrivPredicate wanted) {
-        return checkCtlPriv(ctx.getCurrentUserIdentity(), ctl, wanted);
+        return checkCtlPriv(ctx.getCurrentUserIdentity(), ctl, wanted, ConnectionAccessContext.of(ctx));
     }
 
     private boolean canSkipCatalogPrivCheck(PrivPredicate wanted) {
@@ -681,6 +893,11 @@ public class AccessControllerManager {
     }
 
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+        return checkCtlPriv(currentUser, ctl, wanted, ConnectionAccessContext.current());
+    }
+
+    private boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted,
+            AccessContext context) {
         if (shouldSkipCatalogPrivCheck(wanted)) {
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctl);
             if (catalog == null) {
@@ -695,12 +912,14 @@ public class AccessControllerManager {
                 return true;
             }
         }
-        return decide(currentUser, AuthorizedResource.catalog(ctl), AccessTranslation.requirementOf(wanted));
+        return decide(currentUser, AuthorizedResource.catalog(ctl), AccessTranslation.requirementOf(wanted),
+                context);
     }
 
     // ==== Database ====
     public boolean checkDbPriv(ConnectContext ctx, String ctl, String db, PrivPredicate wanted) {
-        return checkDbPriv(ctx.getCurrentUserIdentity(), ctl, db, wanted);
+        return decide(ctx.getCurrentUserIdentity(), AuthorizedResource.database(ctl, db),
+                AccessTranslation.requirementOf(wanted), ConnectionAccessContext.of(ctx));
     }
 
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
@@ -716,9 +935,12 @@ public class AccessControllerManager {
     public boolean checkTblPriv(ConnectContext ctx, String qualifiedCtl,
                                 String qualifiedDb, String tbl, PrivPredicate wanted) {
         if (ctx.isSkipAuth()) {
+            // One of the exemptions listed on this class: the engine is running this statement on behalf of
+            // one the caller was already authorized for.
             return true;
         }
-        return checkTblPriv(ctx.getCurrentUserIdentity(), qualifiedCtl, qualifiedDb, tbl, wanted);
+        return decide(ctx.getCurrentUserIdentity(), AuthorizedResource.table(qualifiedCtl, qualifiedDb, tbl),
+                AccessTranslation.requirementOf(wanted), ConnectionAccessContext.of(ctx));
     }
 
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
@@ -732,15 +954,21 @@ public class AccessControllerManager {
         if (ctx.isSkipAuth()) {
             return;
         }
-        checkColumnsPriv(ctx.getCurrentUserIdentity(), ctl, qualifiedDb, tbl, cols, wanted);
+        checkColumnsPriv(ctx.getCurrentUserIdentity(), ctl, qualifiedDb, tbl, cols, wanted,
+                ConnectionAccessContext.of(ctx));
     }
 
     public void checkColumnsPriv(UserIdentity currentUser, String
             ctl, String qualifiedDb, String tbl, Set<String> cols,
                                  PrivPredicate wanted) throws UserException {
+        checkColumnsPriv(currentUser, ctl, qualifiedDb, tbl, cols, wanted, ConnectionAccessContext.current());
+    }
+
+    private void checkColumnsPriv(UserIdentity currentUser, String ctl, String qualifiedDb, String tbl,
+            Set<String> cols, PrivPredicate wanted, AccessContext context) throws UserException {
         long start = System.currentTimeMillis();
         decideColumns(currentUser, AuthorizedResource.columns(ctl, qualifiedDb, tbl, cols),
-                AccessTranslation.requirementOf(wanted));
+                AccessTranslation.requirementOf(wanted), context);
         if (LOG.isDebugEnabled()) {
             LOG.debug("checkColumnsPriv use {} mills, user: {}, ctl: {}, db: {}, table: {}, cols: {}",
                     System.currentTimeMillis() - start, currentUser, ctl, qualifiedDb, tbl, cols);
@@ -749,7 +977,8 @@ public class AccessControllerManager {
 
     // ==== Resource ====
     public boolean checkResourcePriv(ConnectContext ctx, String resourceName, PrivPredicate wanted) {
-        return checkResourcePriv(ctx.getCurrentUserIdentity(), resourceName, wanted);
+        return decide(ctx.getCurrentUserIdentity(), AuthorizedResource.resource(resourceName),
+                AccessTranslation.requirementOf(wanted), ConnectionAccessContext.of(ctx));
     }
 
     public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
@@ -759,7 +988,9 @@ public class AccessControllerManager {
 
     // ==== Cloud ====
     public boolean checkCloudPriv(ConnectContext ctx, String cloudName, PrivPredicate wanted, ResourceTypeEnum type) {
-        return checkCloudPriv(ctx.getCurrentUserIdentity(), cloudName, wanted, type);
+        return decide(ctx.getCurrentUserIdentity(),
+                AuthorizedResource.cloud(AccessTranslation.cloudKindOf(type), cloudName),
+                AccessTranslation.requirementOf(wanted), ConnectionAccessContext.of(ctx));
     }
 
     public boolean checkCloudPriv(UserIdentity currentUser, String cloudName,
@@ -769,7 +1000,8 @@ public class AccessControllerManager {
     }
 
     public boolean checkStorageVaultPriv(ConnectContext ctx, String storageVaultName, PrivPredicate wanted) {
-        return checkStorageVaultPriv(ctx.getCurrentUserIdentity(), storageVaultName, wanted);
+        return decide(ctx.getCurrentUserIdentity(), AuthorizedResource.storageVault(storageVaultName),
+                AccessTranslation.requirementOf(wanted), ConnectionAccessContext.of(ctx));
     }
 
     public boolean checkStorageVaultPriv(UserIdentity currentUser, String storageVaultName, PrivPredicate wanted) {
@@ -778,7 +1010,8 @@ public class AccessControllerManager {
     }
 
     public boolean checkWorkloadGroupPriv(ConnectContext ctx, String workloadGroupName, PrivPredicate wanted) {
-        return checkWorkloadGroupPriv(ctx.getCurrentUserIdentity(), workloadGroupName, wanted);
+        return decide(ctx.getCurrentUserIdentity(), AuthorizedResource.workloadGroup(workloadGroupName),
+                AccessTranslation.requirementOf(wanted), ConnectionAccessContext.of(ctx));
     }
 
     public boolean checkWorkloadGroupPriv(UserIdentity currentUser, String workloadGroupName, PrivPredicate wanted) {
@@ -808,19 +1041,38 @@ public class AccessControllerManager {
 
     public Optional<DataMaskSpec> evalDataMaskPolicy(UserIdentity currentUser, String
             ctl, String db, String tbl, String col) {
+        Objects.requireNonNull(col, "require col object");
+        return Optional.ofNullable(evalDataMaskPolicies(currentUser, ctl, db, tbl,
+                Collections.singleton(col)).get(col.toLowerCase()));
+    }
+
+    /**
+     * The masks in force on {@code cols} of one table, asked for in one call.
+     *
+     * <p>One call rather than one per column because that is what the contract offers and why it offers it:
+     * a source answering over the network would otherwise be reached once per column of every table in the
+     * statement. Keyed by the lower-cased column name, which is how the sources that store policies per
+     * column have them written and therefore how they are asked.
+     */
+    public Map<String, DataMaskSpec> evalDataMaskPolicies(UserIdentity currentUser, String ctl, String db,
+            String tbl, Set<String> cols) {
         Objects.requireNonNull(currentUser, "require currentUser object");
         Objects.requireNonNull(ctl, "require ctl object");
         Objects.requireNonNull(db, "require db object");
         Objects.requireNonNull(tbl, "require tbl object");
-        Objects.requireNonNull(col, "require col object");
-        // Sources are asked about columns in lower case, which is how the ones that store policies per
-        // column have them written.
-        String column = col.toLowerCase();
+        Objects.requireNonNull(cols, "require cols object");
+        if (cols.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Set<String> columns = new LinkedHashSet<>();
+        for (String col : cols) {
+            columns.add(col.toLowerCase());
+        }
         AuthorizedResource.Table table = AuthorizedResource.table(ctl, db, tbl);
-        return Optional.ofNullable(controllerOf(table)
-                .getDataMasks(AccessTranslation.subjectOf(currentUser), table,
-                        Collections.singleton(column), ConnectionAccessContext.current())
-                .get(column));
+        AuthorizationPlugin controller = controllerOf(table);
+        AccessContext context = ConnectionAccessContext.current();
+        return inClassLoaderOf(controller, () -> controller.getDataMasks(
+                AccessTranslation.subjectOf(currentUser), table, columns, context));
     }
 
     public List<RowFilterSpec> evalRowFilterPolicies(UserIdentity currentUser, String
@@ -830,7 +1082,9 @@ public class AccessControllerManager {
         Objects.requireNonNull(db, "require db object");
         Objects.requireNonNull(tbl, "require tbl object");
         AuthorizedResource.Table table = AuthorizedResource.table(ctl, db, tbl);
-        return controllerOf(table).getRowFilters(AccessTranslation.subjectOf(currentUser), table,
-                ConnectionAccessContext.current());
+        AuthorizationPlugin controller = controllerOf(table);
+        AccessContext context = ConnectionAccessContext.current();
+        return inClassLoaderOf(controller, () -> controller.getRowFilters(
+                AccessTranslation.subjectOf(currentUser), table, context));
     }
 }
