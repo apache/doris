@@ -62,7 +62,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -324,11 +323,6 @@ public abstract class PlanVisitor<R, C> implements CommandVisitor<R, C>, Relatio
     }
 
     public R visitPhysicalHashAggregate(PhysicalHashAggregate<? extends Plan> agg, C context) {
-        return visit(agg, context);
-    }
-
-    public R visitPhysicalBucketedHashAggregate(
-            PhysicalBucketedHashAggregate<? extends Plan> agg, C context) {
         return visit(agg, context);
     }
 
