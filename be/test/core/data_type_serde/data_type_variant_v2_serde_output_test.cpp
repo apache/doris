@@ -40,10 +40,12 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/string_buffer.hpp"
 #include "core/value/variant/variant_parquet_encoding.h"
+#include "exec/sink/writer/paimon/paimon_arrow_write_converter.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "util/mysql_row_buffer.h"
 
@@ -213,12 +215,15 @@ std::unique_ptr<arrow::StructBuilder> binary_variant_arrow_builder() {
                     std::make_shared<arrow::BinaryBuilder>(arrow::default_memory_pool())});
 }
 
-void expect_binary_variant_bytes(const DataTypeVariantV2SerDe& serde, const IColumn& column,
-                                 const ColumnVariantV2& encoded,
+void expect_paimon_variant_bytes(const IColumn& column, const ColumnVariantV2& encoded,
                                  const NullMap* null_map = nullptr) {
     auto builder = binary_variant_arrow_builder();
-    const Status status = serde.write_column_to_arrow(column, null_map, builder.get(), 0,
-                                                      column.size(), cctz::utc_time_zone());
+    DataTypePtr type = std::make_shared<DataTypeVariantV2>();
+    const auto serde = type->get_serde();
+    const auto field = arrow::field("payload", binary_variant_arrow_type(), true);
+    const Status status = paimon_arrow_write_converter().write_column(
+            type, *serde, column, null_map, field, builder.get(), 0, column.size(),
+            cctz::utc_time_zone());
     ASSERT_TRUE(status.ok()) << status;
 
     std::shared_ptr<arrow::Array> output;
@@ -443,21 +448,19 @@ TEST(DataTypeVariantV2SerdeOutputTest, ConstNullableAndOuterMasksPreserveBoundar
     EXPECT_TRUE(invalid_dates->is_typed());
 }
 
-TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructPreservesEncodedAndTypedBytesAndOuterNulls) {
-    DataTypeVariantV2SerDe serde;
+TEST(PaimonArrowWriteConverterTest, BinaryStructPreservesEncodedAndTypedBytesAndOuterNulls) {
     auto documents = encoded_json({R"({"a":[1,null,"x"]})", R"({"hidden":true})", "null"});
     NullMap mask {0, 1, 0};
-    expect_binary_variant_bytes(serde, *documents, *documents, &mask);
+    expect_paimon_variant_bytes(*documents, *documents, &mask);
 
     auto typed = typed_strings(
             {std::string_view("plain"), std::nullopt, std::string_view(R"({"text":"value"})")});
     ColumnPtr encoded = encoded_copy(*typed);
-    expect_binary_variant_bytes(serde, *typed, assert_cast<const ColumnVariantV2&>(*encoded));
+    expect_paimon_variant_bytes(*typed, assert_cast<const ColumnVariantV2&>(*encoded));
     EXPECT_TRUE(typed->is_typed());
 }
 
-TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructRejectsUnsupportedPaimonPrimitive) {
-    DataTypeVariantV2SerDe serde;
+TEST(PaimonArrowWriteConverterTest, BinaryStructRejectsUnsupportedPaimonPrimitive) {
     VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
     auto row = builder.begin_row();
     row.add_time_ntz_micros(1'500'000);
@@ -465,8 +468,12 @@ TEST(DataTypeVariantV2SerdeOutputTest, BinaryStructRejectsUnsupportedPaimonPrimi
     auto encoded = ColumnVariantV2::create();
     encoded->insert_encoded_batch(builder.finish_batch());
     auto arrow_builder = binary_variant_arrow_builder();
-    const Status status = serde.write_column_to_arrow(*encoded, nullptr, arrow_builder.get(), 0,
-                                                      encoded->size(), cctz::utc_time_zone());
+    DataTypePtr type = std::make_shared<DataTypeVariantV2>();
+    const auto serde = type->get_serde();
+    const auto field = arrow::field("payload", binary_variant_arrow_type(), true);
+    const Status status = paimon_arrow_write_converter().write_column(
+            type, *serde, *encoded, nullptr, field, arrow_builder.get(), 0, encoded->size(),
+            cctz::utc_time_zone());
     EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
     EXPECT_NE(status.to_string().find("Paimon does not support Variant primitive id 17"),
               std::string::npos);
