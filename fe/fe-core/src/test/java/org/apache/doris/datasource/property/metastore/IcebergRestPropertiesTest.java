@@ -578,12 +578,12 @@ public class IcebergRestPropertiesTest {
         props.put("iceberg.rest.sigv4-enabled", "true");
         props.put("iceberg.rest.view-enabled", "false");
         props.put("io-impl", "org.apache.iceberg.aws.s3.S3FileIO");
-        props.put("s3.endpoint", "https://oss-cn-hangzhou.aliyuncs.com");
-        props.put("s3.region", "cn-hangzhou");
-        props.put("s3.access_key", "oss-access-key");
-        props.put("s3.secret_key", "oss-secret-key");
-        props.put("s3.session_token", "oss-session-token");
-        props.put("s3.path-style-access", "true");
+        props.put("oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com");
+        props.put("oss.region", "cn-hangzhou");
+        props.put("oss.access_key", "oss-access-key");
+        props.put("oss.secret_key", "oss-secret-key");
+        props.put("oss.session_token", "oss-session-token");
+        props.put("oss.use_path_style", "true");
 
         IcebergRestProperties restProps = new IcebergRestProperties(props);
         restProps.initNormalizeAndCheckProps();

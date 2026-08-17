@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.metastore;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
+import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.ConnectorProperty;
@@ -49,6 +50,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     private Map<String, String> icebergRestCatalogProperties;
     private S3Properties s3Properties;
+    private OSSProperties ossProperties;
 
     @Getter
     @ConnectorProperty(names = {"iceberg.rest.uri", "uri"},
@@ -214,7 +216,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
                 AwsCredentialsProviderMode.fromString(icebergRestCredentialsProviderType);
         buildRules().validate();
         if (shouldUseS3PropertiesForRestCredentials()) {
-            s3Properties = S3Properties.of(origProps);
+            if (isOssTables()) {
+                ossProperties = OSSProperties.of(origProps);
+            } else {
+                s3Properties = S3Properties.of(origProps);
+            }
         }
         initIcebergRestCatalogProperties();
     }
@@ -356,8 +362,14 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             icebergRestCatalogProperties.put("rest.signing-region", icebergRestSigningRegion);
 
             if (shouldUseS3PropertiesForRestCredentials()) {
-                IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
-                        icebergRestCatalogProperties, s3Properties);
+                if (isOssTables()) {
+                    IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
+                            icebergRestCatalogProperties, ossProperties.getAccessKey(), ossProperties.getSecretKey(),
+                            ossProperties.getSessionToken(), icebergRestCredentialsProviderMode);
+                } else {
+                    IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
+                            icebergRestCatalogProperties, s3Properties);
+                }
             } else {
                 IcebergAwsClientCredentialsProperties.putCredentialProviderProperties(
                         icebergRestCatalogProperties, icebergRestAccessKeyId,
@@ -370,6 +382,10 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         return "glue".equals(icebergRestSigningName)
                 || "s3tables".equals(icebergRestSigningName)
                 || "osstables".equals(icebergRestSigningName);
+    }
+
+    private boolean isOssTables() {
+        return "osstables".equals(icebergRestSigningName);
     }
 
     public Map<String, String> getIcebergRestCatalogProperties() {
