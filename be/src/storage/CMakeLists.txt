@@ -70,7 +70,7 @@ set(STORAGE_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/predicate/predicate_creator_comparison.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/predicate/predicate_creator_in_list_in.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/predicate/predicate_creator_in_list_not_in.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/compaction/collection_statistics.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/similarity/collection_statistics.cpp)
 if (ENABLE_VARIANT_NESTED_GROUP)
     # Out-of-tree module sources swapped into this target: unity hygiene
     # unaudited, keep them individual.
