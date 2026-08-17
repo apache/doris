@@ -121,6 +121,10 @@ struct FileScanRequest {
     // Variant. Keeping this explicit prevents generic Parquet scans from guessing based on names.
     std::vector<LocalColumnIndex> variant_schema_overrides;
 
+    // Digest of the exact table-predicate snapshot used to build this immutable request. Format
+    // readers use it to prevent late runtime filters from inheriting stale adaptive state.
+    std::optional<uint64_t> predicate_snapshot_digest;
+
     bool is_count_star_placeholder(LocalColumnId column_id) const {
         return std::ranges::find(count_star_placeholder_columns, column_id) !=
                count_star_placeholder_columns.end();
@@ -433,6 +437,11 @@ public:
     virtual Status get_aggregate_result(const FileAggregateRequest& request,
                                         FileAggregateResult* result) {
         return Status::NotSupported("FileReader does not support aggregate pushdown");
+    }
+
+    virtual Status get_metadata_aggregate_result(const FileAggregateRequest& request,
+                                                 FileAggregateResult* result) {
+        return Status::NotSupported("FileReader does not support metadata-only aggregate pushdown");
     }
 
     // Condition cache is managed by TableReader and consumed by physical file readers.

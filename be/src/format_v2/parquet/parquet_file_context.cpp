@@ -27,6 +27,7 @@
 #include "common/cast_set.h"
 #include "common/check.h"
 #include "common/config.h"
+#include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "io/cache/cached_remote_file_reader.h"
@@ -335,6 +336,7 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
             enable_mapping_varbinary, enable_mapping_timestamp_tz);
     auto load_context = [&](std::shared_ptr<const FileContext>* result) -> Status {
         auto loaded = std::make_shared<ParquetSharedFileContext>();
+        loaded->adaptive_scan_context = std::make_shared<ParquetAdaptiveContext>();
         loaded->registry_key = registry_key;
         loaded->has_stable_identity = has_stable_meta_cache_identity;
         if (has_stable_meta_cache_identity && meta_cache != nullptr && meta_cache->enabled() &&

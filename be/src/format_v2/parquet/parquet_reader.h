@@ -74,6 +74,8 @@ public:
 
     Status get_aggregate_result(const format::FileAggregateRequest& request,
                                 format::FileAggregateResult* result) override;
+    Status get_metadata_aggregate_result(const format::FileAggregateRequest& request,
+                                         format::FileAggregateResult* result) override;
 
     void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override;
 

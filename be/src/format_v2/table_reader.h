@@ -471,6 +471,7 @@ protected:
         auto file_request = std::make_shared<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
                 _table_filters, _projected_columns, file_request.get(), _runtime_state));
+        file_request->predicate_snapshot_digest = _predicate_snapshot_digest;
         _constant_pruning_safe_filter_count =
                 std::min(_constant_pruning_safe_filter_count,
                          file_request->constant_pruning_safe_table_filter_count);
@@ -1071,7 +1072,11 @@ protected:
         RETURN_IF_ERROR(_build_file_aggregate_request(_push_down_agg_type, &file_request));
         FileAggregateResult file_result;
         Status status;
-        {
+        if (_metadata_aggregate_result.has_value()) {
+            file_result = std::move(*_metadata_aggregate_result);
+            _metadata_aggregate_result.reset();
+            status = Status::OK();
+        } else {
             SCOPED_TIMER(_profile.file_reader_total_timer);
             SCOPED_TIMER(_profile.file_reader_aggregate_timer);
             status = _data_reader.reader->get_aggregate_result(file_request, &file_result);
@@ -1948,6 +1953,7 @@ protected:
     FileContextRegistry* _file_context_registry = nullptr;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
     std::optional<std::vector<GlobalIndex>> _push_down_count_columns;
+    std::optional<uint64_t> _predicate_snapshot_digest;
     size_t _batch_size = 0;
     uint64_t _initial_condition_cache_digest = 0;
     uint64_t _condition_cache_digest = 0;
@@ -1976,6 +1982,7 @@ protected:
     bool _all_runtime_filters_applied_for_split = true;
     std::optional<GlobalRowIdContext> _global_rowid_context;
     bool _aggregate_pushdown_tried = false;
+    std::optional<FileAggregateResult> _metadata_aggregate_result;
     bool _current_split_pruned = false;
     TableColumnMapperOptions _mapper_options;
 

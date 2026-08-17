@@ -721,6 +721,30 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
 
 } // namespace detail
 
+detail::ParquetAdaptiveSnapshot ParquetAdaptiveContext::restore(uint64_t predicate_digest) const {
+    std::lock_guard lock(_lock);
+    const auto snapshot = _snapshots.find(predicate_digest);
+    return snapshot == _snapshots.end() ? detail::ParquetAdaptiveSnapshot {} : snapshot->second;
+}
+
+void ParquetAdaptiveContext::publish(uint64_t predicate_digest,
+                                     const detail::ParquetAdaptiveSnapshot& incoming_snapshot) {
+    std::lock_guard lock(_lock);
+    auto& current = _snapshots[predicate_digest];
+    for (const auto& [position, incoming_stats] : incoming_snapshot.predicate_runtime_stats) {
+        auto& current_stats = current.predicate_runtime_stats[position];
+        if (incoming_stats.samples >= current_stats.samples) {
+            current_stats = incoming_stats;
+        }
+    }
+    if (incoming_snapshot.predicate_batch_sequence >= current.predicate_batch_sequence) {
+        current.predicate_batch_sequence = incoming_snapshot.predicate_batch_sequence;
+        current.predicate_survival_ratio = incoming_snapshot.predicate_survival_ratio;
+    }
+    current.empty_predicate_batch_rows = std::max(current.empty_predicate_batch_rows,
+                                                  incoming_snapshot.empty_predicate_batch_rows);
+}
+
 namespace {
 
 std::vector<RowRange> intersect_row_ranges(const std::vector<RowRange>& left,
@@ -1232,6 +1256,7 @@ void ParquetScanScheduler::set_scan_request(std::shared_ptr<format::FileScanRequ
     _active_request = std::move(request);
     _pending_request.reset();
     _predicate_schedule_request = nullptr;
+    _restore_adaptive_state(*_active_request);
 }
 
 void ParquetScanScheduler::queue_scan_request(std::shared_ptr<format::FileScanRequest> request) {
@@ -1257,9 +1282,35 @@ void ParquetScanScheduler::activate_pending_scan_request_at_row_group_boundary()
     _predicate_indices_by_position_scratch.clear();
     _materialized_predicate_positions_scratch.clear();
     _ordered_predicate_positions_scratch.clear();
+    _restore_adaptive_state(*_active_request);
+}
+
+void ParquetScanScheduler::_restore_adaptive_state(const format::FileScanRequest& request) {
     _predicate_runtime_stats.clear();
     _predicate_batch_sequence = 0;
     _predicate_survival_ratio = -1;
+    _empty_predicate_batch_rows = 0;
+    if (_adaptive_context == nullptr || !request.predicate_snapshot_digest.has_value()) {
+        return;
+    }
+    const auto snapshot = _adaptive_context->restore(*request.predicate_snapshot_digest);
+    _predicate_runtime_stats = snapshot.predicate_runtime_stats;
+    _predicate_batch_sequence = snapshot.predicate_batch_sequence;
+    _predicate_survival_ratio = snapshot.predicate_survival_ratio;
+    _empty_predicate_batch_rows = snapshot.empty_predicate_batch_rows;
+}
+
+void ParquetScanScheduler::_publish_adaptive_state(const format::FileScanRequest& request) {
+    if (_adaptive_context == nullptr || !request.predicate_snapshot_digest.has_value()) {
+        return;
+    }
+    // Concurrent children may publish in either order. The adaptive context keeps only monotonic
+    // sample progress for this exact predicate digest, so a cold sibling cannot erase warm state.
+    _adaptive_context->publish(*request.predicate_snapshot_digest,
+                               {.predicate_runtime_stats = _predicate_runtime_stats,
+                                .predicate_survival_ratio = _predicate_survival_ratio,
+                                .predicate_batch_sequence = _predicate_batch_sequence,
+                                .empty_predicate_batch_rows = _empty_predicate_batch_rows});
 }
 
 void ParquetScanScheduler::reset_current_row_group() {
@@ -2922,6 +2973,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(
     _predicate_survival_ratio = _predicate_survival_ratio < 0
                                         ? batch_survival
                                         : 0.25 * batch_survival + 0.75 * _predicate_survival_ratio;
+    _publish_adaptive_state(request);
     if (_scan_profile.selected_rows != nullptr) {
         COUNTER_UPDATE(_scan_profile.selected_rows, selected_rows);
     }
@@ -3133,7 +3185,7 @@ Status ParquetScanScheduler::read_next_batch(
         *eof = false;
         return Status::OK();
     }
-    int64_t predicate_batch_rows = _batch_size;
+    int64_t predicate_batch_rows = std::max(_batch_size, _empty_predicate_batch_rows);
     const int64_t max_predicate_batch_rows = std::min<int64_t>(
             std::numeric_limits<uint16_t>::max(),
             std::max<int64_t>(DEFAULT_READ_BATCH_SIZE, _runtime_state == nullptr
@@ -3203,6 +3255,8 @@ Status ParquetScanScheduler::read_next_batch(
             // long empty prefixes cheaply; a later non-empty probe is sliced before lazy columns
             // are materialized, so this internal width cannot escape the caller's row cap.
             predicate_batch_rows = grow_empty_predicate_batch(predicate_batch_rows);
+            _empty_predicate_batch_rows = predicate_batch_rows;
+            _publish_adaptive_state(*_active_request);
             continue;
         }
         *eof = false;

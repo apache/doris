@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -78,6 +79,13 @@ struct AdaptivePredicateStats {
     size_t samples = 0;
 };
 
+struct ParquetAdaptiveSnapshot {
+    std::unordered_map<size_t, AdaptivePredicateStats> predicate_runtime_stats;
+    double predicate_survival_ratio = -1;
+    size_t predicate_batch_sequence = 0;
+    int64_t empty_predicate_batch_rows = 0;
+};
+
 size_t finalize_variant_leaf_projection_for_row_group(const tparquet::RowGroup& row_group,
                                                       const ParquetColumnSchema& schema,
                                                       format::LocalColumnIndex* projection,
@@ -115,6 +123,19 @@ void reset_physical_leaf_set_build_count();
 size_t physical_leaf_set_build_count();
 #endif
 } // namespace detail
+
+// One instance follows a registry-scoped file context into every row-group child. Snapshots are
+// keyed by predicate digest because late runtime filters can change both order and selectivity.
+class ParquetAdaptiveContext final {
+public:
+    detail::ParquetAdaptiveSnapshot restore(uint64_t predicate_digest) const;
+    void publish(uint64_t predicate_digest,
+                 const detail::ParquetAdaptiveSnapshot& incoming_snapshot);
+
+private:
+    mutable std::mutex _lock;
+    std::unordered_map<uint64_t, detail::ParquetAdaptiveSnapshot> _snapshots;
+};
 
 // ============================================================================
 // ============================================================================
@@ -220,6 +241,9 @@ public:
     void set_runtime_state(RuntimeState* runtime_state) { _runtime_state = runtime_state; }
     void set_scan_request(std::shared_ptr<format::FileScanRequest> request);
     void queue_scan_request(std::shared_ptr<format::FileScanRequest> request);
+    void set_adaptive_context(std::shared_ptr<ParquetAdaptiveContext> adaptive_context) {
+        _adaptive_context = std::move(adaptive_context);
+    }
     // Release row-group readers before the owning RuntimeProfile is reported. Native readers
     // publish their accumulated page/decode statistics from their destructor.
     void close() { reset_current_row_group(); }
@@ -243,6 +267,8 @@ private:
 
     void reset_current_row_group();
     void activate_pending_scan_request_at_row_group_boundary();
+    void _restore_adaptive_state(const format::FileScanRequest& request);
+    void _publish_adaptive_state(const format::FileScanRequest& request);
     void flush_current_reader_profiles();
     bool finish_current_reader_batch_profiles();
     const detail::PredicateConjunctSchedule& predicate_conjunct_schedule(
@@ -363,6 +389,8 @@ private:
     size_t _batches_since_profile_flush = 0;
     std::unordered_map<size_t, detail::AdaptivePredicateStats> _predicate_runtime_stats;
     double _predicate_survival_ratio = -1;
+    int64_t _empty_predicate_batch_rows = 0;
+    std::shared_ptr<ParquetAdaptiveContext> _adaptive_context;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     int64_t _condition_cache_filtered_rows = 0;
     int64_t _predicate_filtered_rows = 0;

@@ -24,6 +24,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -83,8 +84,28 @@ public:
         return previous == 1;
     }
 
+    std::optional<double> adaptive_batch_bytes_per_row() const {
+        std::lock_guard lock(_adaptive_batch_lock);
+        return _adaptive_batch_bytes_per_row;
+    }
+
+    bool update_adaptive_batch_bytes_per_row(double bytes_per_row) {
+        DORIS_CHECK(bytes_per_row > 0);
+        std::lock_guard lock(_adaptive_batch_lock);
+        // Sibling scanners can finish probes concurrently. Merge their samples under the source
+        // lock so later row-group children never regress to a fresh small probe.
+        const bool first_source_sample = !_adaptive_batch_bytes_per_row.has_value();
+        _adaptive_batch_bytes_per_row =
+                _adaptive_batch_bytes_per_row.has_value()
+                        ? 0.9 * *_adaptive_batch_bytes_per_row + 0.1 * bytes_per_row
+                        : bytes_per_row;
+        return first_source_sample;
+    }
+
 private:
     std::atomic<size_t> _remaining {1};
+    mutable std::mutex _adaptive_batch_lock;
+    std::optional<double> _adaptive_batch_bytes_per_row;
 };
 
 // BE-local scheduling envelope. It deliberately carries no Thrift fields: FE ranges remain the

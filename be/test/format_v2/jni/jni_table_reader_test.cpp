@@ -224,6 +224,8 @@ TEST(JniTableReaderTest, AdaptiveProbeSetBeforePrepareControlsFirstJniOpen) {
     ASSERT_TRUE(init_reader(&reader, nullptr).ok());
 
     reader.set_batch_size(32);
+    // Keep this aggregate initializer exhaustive because BE UT promotes omitted split-contract
+    // fields to compile errors, catching JNI callers that drift from scanner-created options.
     ASSERT_TRUE(reader.prepare_split({
                                              .partition_values = {},
                                              .conjuncts = std::nullopt,
@@ -234,6 +236,8 @@ TEST(JniTableReaderTest, AdaptiveProbeSetBeforePrepareControlsFirstJniOpen) {
                                              .current_range = {},
                                              .current_split_format = FileFormat::JNI,
                                              .file_context = nullptr,
+                                             .condition_cache_source_range = std::nullopt,
+                                             .condition_cache_split_context = nullptr,
                                              .format_split_id = -1,
                                              .global_rowid_context = std::nullopt,
                                      })
@@ -256,6 +260,8 @@ TEST(JniTableReaderTest, RefreshedConjunctIsReadyBeforeFilteringOpenScanner) {
                                              .current_range = {},
                                              .current_split_format = FileFormat::JNI,
                                              .file_context = nullptr,
+                                             .condition_cache_source_range = std::nullopt,
+                                             .condition_cache_split_context = nullptr,
                                              .format_split_id = -1,
                                              .global_rowid_context = std::nullopt,
                                      })
@@ -288,6 +294,8 @@ TEST(JniTableReaderTest, CommonLifecycleTimersContainJniLifecycleWork) {
                                              .current_range = {},
                                              .current_split_format = FileFormat::JNI,
                                              .file_context = nullptr,
+                                             .condition_cache_source_range = std::nullopt,
+                                             .condition_cache_split_context = nullptr,
                                              .format_split_id = -1,
                                              .global_rowid_context = std::nullopt,
                                      })

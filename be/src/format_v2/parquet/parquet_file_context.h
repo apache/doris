@@ -44,6 +44,7 @@ class RuntimeProfile;
 namespace doris::format::parquet {
 
 struct NativeParquetPageIndex;
+class ParquetAdaptiveContext;
 
 // V2-owned footer/schema tree. Production planning and decoding consume this object directly;
 // Arrow metadata is intentionally not materialized from the serialized footer.
@@ -67,14 +68,17 @@ private:
     size_t _parsed_size = 0;
 };
 
-// The registry shares only immutable footer metadata. Every ParquetReader still owns its file and
-// row-group state, which avoids sharing mutable page-index and merge-reader state across scanners.
+// The registry shares immutable footer metadata and explicitly synchronized adaptive hints. Every
+// ParquetReader still owns its file, page-index, merge-reader, and row-group execution state.
 struct ParquetSharedFileContext final : public FileContext {
     std::string registry_key;
     bool has_stable_identity = false;
     const NativeParquetMetadata* metadata = nullptr;
     std::unique_ptr<NativeParquetMetadata> metadata_owner;
     ObjLRUCache::CacheHandle metadata_cache_handle;
+    // The registry is local to one scan instance. Predicate-keyed adaptive state can therefore be
+    // shared by row-group readers without leaking across queries or mutable file identities.
+    std::shared_ptr<ParquetAdaptiveContext> adaptive_scan_context;
 };
 
 struct ParquetPageCacheRange {

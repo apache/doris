@@ -58,6 +58,19 @@
 namespace doris::format {
 namespace {
 
+std::optional<uint64_t> build_predicate_snapshot_digest(const VExprContextSPtrs& conjuncts) {
+    // Adaptive state must remain independent of the optional Condition Cache seed. A zero result
+    // means an expression cannot provide a stable semantic digest, so sharing is disabled.
+    uint64_t digest = 0xcbf29ce484222325ULL;
+    for (const auto& conjunct : conjuncts) {
+        digest = conjunct->get_digest(digest);
+        if (digest == 0) {
+            return std::nullopt;
+        }
+    }
+    return digest;
+}
+
 template <typename T, typename Formatter>
 std::string join_table_reader_debug_strings(const std::vector<T>& values, Formatter formatter) {
     std::ostringstream out;
@@ -781,6 +794,7 @@ Status TableReader::init(TableReadOptions&& options) {
     _system_properties = create_system_properties(_scan_params);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;
     _conjuncts = std::move(options.conjuncts);
+    _predicate_snapshot_digest = build_predicate_snapshot_digest(_conjuncts);
     return Status::OK();
 }
 
@@ -890,6 +904,10 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.refresh_conjuncts_timer);
     _conjuncts = std::move(conjuncts);
+    _predicate_snapshot_digest = build_predicate_snapshot_digest(_conjuncts);
+    // A prepared footer result belongs to the prior immutable predicate snapshot. Discard it
+    // before a refresh can make the planning reader resume ordinary row production.
+    _metadata_aggregate_result.reset();
     if (all_runtime_filters_applied) {
         // A refresh can prove the last pending RF has arrived, but a later partial refresh must
         // never make the same split incomplete again.
@@ -922,6 +940,7 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
     RETURN_IF_ERROR(refreshed_mapper->create_scan_request(
             _table_filters, _projected_columns, refreshed_request.get(), _runtime_state,
             _file_scan_request == nullptr ? nullptr : &_file_scan_request->local_positions));
+    refreshed_request->predicate_snapshot_digest = _predicate_snapshot_digest;
     // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
     // available whenever the split started with pending filters.
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
@@ -1313,6 +1332,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     }
     if (options.conjuncts.has_value()) {
         _conjuncts = *options.conjuncts;
+        _predicate_snapshot_digest = build_predicate_snapshot_digest(_conjuncts);
     }
     // Update to current split format to handle ORC/PARQUET files in one table.
     _format = options.current_split_format;
@@ -1330,6 +1350,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _delete_rows = nullptr;
     _deletion_vector = nullptr;
     _aggregate_pushdown_tried = false;
+    _metadata_aggregate_result.reset();
     _remaining_table_level_count = -1;
     _remaining_file_level_count = -1;
     _current_split_uses_metadata_count = false;
@@ -1418,6 +1439,34 @@ Status TableReader::build_physical_splits(const FileScanSplit& source_split,
         // source so scanners do not recreate and reopen the same already-rejected file.
         *was_split = true;
         return Status::OK();
+    }
+
+    if (_supports_aggregate_pushdown(_push_down_agg_type)) {
+        FileAggregateRequest aggregate_request;
+        const auto request_status =
+                _build_file_aggregate_request(_push_down_agg_type, &aggregate_request);
+        if (!request_status.ok()) {
+            static_cast<void>(close_current_reader());
+            return request_status;
+        }
+        FileAggregateResult aggregate_result;
+        Status aggregate_status;
+        {
+            SCOPED_TIMER(_profile.file_reader_total_timer);
+            SCOPED_TIMER(_profile.file_reader_aggregate_timer);
+            aggregate_status = _data_reader.reader->get_metadata_aggregate_result(
+                    aggregate_request, &aggregate_result);
+        }
+        if (aggregate_status.ok()) {
+            // The planning reader already owns the exact pruned row-group set. Retaining it avoids
+            // replacing one footer-only aggregate with N children that repeat the same reduction.
+            _metadata_aggregate_result = std::move(aggregate_result);
+            return Status::OK();
+        }
+        if (!aggregate_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) {
+            static_cast<void>(close_current_reader());
+            return aggregate_status;
+        }
     }
 
     std::vector<PhysicalFileSplit> physical_splits;

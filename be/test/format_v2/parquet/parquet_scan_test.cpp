@@ -2229,6 +2229,9 @@ TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
     format::FileAggregateResult count_result;
     format::FileAggregateRequest count_request;
     count_request.agg_type = TPushAggOp::COUNT;
+    format::FileAggregateResult metadata_count_result;
+    ASSERT_TRUE(reader->get_metadata_aggregate_result(count_request, &metadata_count_result).ok());
+    EXPECT_EQ(metadata_count_result.count, 6);
     ASSERT_TRUE(reader->get_aggregate_result(count_request, &count_result).ok());
     EXPECT_EQ(count_result.count, 6);
     EXPECT_TRUE(count_result.columns.empty());
@@ -2237,6 +2240,11 @@ TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
     format::FileAggregateRequest required_count_request;
     required_count_request.agg_type = TPushAggOp::COUNT;
     required_count_request.columns.push_back({.projection = field_projection(0)});
+    format::FileAggregateResult metadata_required_count_result;
+    ASSERT_TRUE(reader->get_metadata_aggregate_result(required_count_request,
+                                                      &metadata_required_count_result)
+                        .ok());
+    EXPECT_EQ(metadata_required_count_result.count, 6);
     ASSERT_TRUE(reader->get_aggregate_result(required_count_request, &required_count_result).ok());
     // The required scalar projection is retained for logical-type validation, but after that
     // validation COUNT(id) can reuse the same selected-row-group footer count as COUNT(*).
@@ -2247,6 +2255,10 @@ TEST_F(ParquetScanTest, AggregateCountAndMinMaxUseAllSelectedRowGroups) {
     minmax_request.agg_type = TPushAggOp::MINMAX;
     minmax_request.columns.push_back({.projection = field_projection(0)});
     minmax_request.columns.push_back({.projection = field_projection(1)});
+    format::FileAggregateResult metadata_minmax_result;
+    ASSERT_TRUE(
+            reader->get_metadata_aggregate_result(minmax_request, &metadata_minmax_result).ok());
+    ASSERT_EQ(metadata_minmax_result.columns.size(), 2);
     ASSERT_TRUE(reader->get_aggregate_result(minmax_request, &minmax_result).ok());
     EXPECT_EQ(minmax_result.count, 6);
     ASSERT_EQ(minmax_result.columns.size(), 2);
@@ -2438,6 +2450,11 @@ TEST_F(ParquetScanTest, AggregateCountOnStructRecordsSelectedRowsRead) {
     format::FileAggregateRequest aggregate_request;
     aggregate_request.agg_type = TPushAggOp::COUNT;
     aggregate_request.columns.push_back({.projection = field_projection(0)});
+    format::FileAggregateResult metadata_result;
+    const auto metadata_status =
+            reader->get_metadata_aggregate_result(aggregate_request, &metadata_result);
+    EXPECT_TRUE(metadata_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << metadata_status;
+    EXPECT_EQ(file_reader_stats.read_rows, 0);
     format::FileAggregateResult result;
     ASSERT_TRUE(reader->get_aggregate_result(aggregate_request, &result).ok());
     EXPECT_EQ(result.count, 4);

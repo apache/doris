@@ -1233,6 +1233,7 @@ struct FakeFileReaderState {
     int refresh_count = 0;
     int64_t total_rows = 2;
     int64_t aggregate_count = -1;
+    int64_t metadata_aggregate_count = -1;
     int64_t condition_cache_base_granule = 0;
     size_t condition_cache_num_granules = 0;
     bool eof_with_first_batch = true;
@@ -1392,6 +1393,19 @@ public:
         result->columns.clear();
         _record_scan_rows(_state->aggregate_count);
         _eof = true;
+        return Status::OK();
+    }
+
+    Status get_metadata_aggregate_result(const FileAggregateRequest& request,
+                                         FileAggregateResult* result) override {
+        if (_state->metadata_aggregate_count < 0) {
+            return FileReader::get_metadata_aggregate_result(request, result);
+        }
+        if (request.agg_type != TPushAggOp::type::COUNT) {
+            return Status::NotSupported("fake reader only supports metadata COUNT pushdown");
+        }
+        result->count = _state->metadata_aggregate_count;
+        result->columns.clear();
         return Status::OK();
     }
 
@@ -1871,6 +1885,52 @@ TEST(TableReaderTest, SinglePhysicalSplitReusesPlanningReader) {
     EXPECT_EQ(fake_state->init_count, 1);
     EXPECT_EQ(fake_state->open_count, 1);
     ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, MetadataAggregateKeepsPlanningReaderInsteadOfGeneratingChildren) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->physical_split_count = 3;
+    fake_state->metadata_aggregate_count = 7;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                                    .push_down_count_columns = std::vector<GlobalIndex> {},
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    FileScanSplit source_split;
+    source_split.range = split_options.current_range;
+    source_split.is_source_split = true;
+    std::vector<FileScanSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(reader.build_physical_splits(source_split, &children, &was_split).ok());
+    EXPECT_FALSE(was_split);
+    EXPECT_TRUE(children.empty());
+    EXPECT_EQ(fake_state->build_physical_splits_count, 0);
+    EXPECT_EQ(fake_state->close_count, 0);
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(block.rows(), 7);
+    EXPECT_EQ(fake_state->close_count, 1);
 }
 
 TEST(TableReaderTest, PhysicalSplitPlanningProfilesZeroAndManyChildren) {

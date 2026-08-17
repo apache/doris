@@ -1132,6 +1132,14 @@ void FileScannerV2::_init_adaptive_batch_size_state(TFileFormatType::type format
     _block_size_predictor = std::make_unique<AdaptiveBlockSizePredictor>(
             _state->preferred_block_size_bytes(), 0.0, ADAPTIVE_BATCH_INITIAL_PROBE_ROWS,
             _state->batch_size());
+    if (_current_split.source_progress != nullptr) {
+        const auto source_history = _current_split.source_progress->adaptive_batch_bytes_per_row();
+        if (source_history.has_value()) {
+            // Generated children share one FE source budget. Seed the per-scanner predictor from
+            // that source so row-group refinement does not restart the probe for every child.
+            _block_size_predictor->seed_history(*source_history);
+        }
+    }
 }
 
 bool FileScannerV2::_should_enable_adaptive_batch_size(TFileFormatType::type format_type) const {
@@ -1193,10 +1201,17 @@ void FileScannerV2::_update_adaptive_batch_size(const Block& block) {
     // The sample is taken after TableReader has finalized file-local columns to table columns.
     // This matches the memory shape seen by upstream operators and catches very wide nested
     // columns, such as map/string payloads, after the first probe batch.
-    if (!_block_size_predictor->has_history()) {
+    bool first_history_sample = !_block_size_predictor->has_history();
+    _block_size_predictor->update(block);
+    if (_current_split.source_progress != nullptr) {
+        first_history_sample = _current_split.source_progress->update_adaptive_batch_bytes_per_row(
+                static_cast<double>(block.bytes()) / static_cast<double>(block.rows()));
+    }
+    if (first_history_sample) {
+        // Concurrent children may all start before the first sample is visible. Count the source's
+        // synchronized first sample once instead of reporting one cold probe per racing child.
         COUNTER_UPDATE(_adaptive_batch_probe_count_counter, 1);
     }
-    _block_size_predictor->update(block);
 }
 
 Status FileScannerV2::close(RuntimeState* state) {

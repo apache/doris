@@ -806,6 +806,32 @@ TEST(FileScannerV2Test, GeneratedChildrenCompleteSourceProgressOnlyOnce) {
     EXPECT_TRUE(second.source_progress->complete_one());
 }
 
+TEST(FileScannerV2Test, GeneratedChildrenShareAdaptiveBatchHistory) {
+    SourceSplitProgress source_progress;
+    EXPECT_FALSE(source_progress.adaptive_batch_bytes_per_row().has_value());
+
+    EXPECT_TRUE(source_progress.update_adaptive_batch_bytes_per_row(128.0));
+    ASSERT_TRUE(source_progress.adaptive_batch_bytes_per_row().has_value());
+    EXPECT_DOUBLE_EQ(*source_progress.adaptive_batch_bytes_per_row(), 128.0);
+
+    EXPECT_FALSE(source_progress.update_adaptive_batch_bytes_per_row(256.0));
+    ASSERT_TRUE(source_progress.adaptive_batch_bytes_per_row().has_value());
+    EXPECT_DOUBLE_EQ(*source_progress.adaptive_batch_bytes_per_row(), 140.8);
+
+    SourceSplitProgress concurrent_progress;
+    std::atomic<int> first_samples = 0;
+    std::vector<std::thread> publishers;
+    for (int index = 0; index < 8; ++index) {
+        publishers.emplace_back([&] {
+            first_samples += concurrent_progress.update_adaptive_batch_bytes_per_row(64.0);
+        });
+    }
+    for (auto& publisher : publishers) {
+        publisher.join();
+    }
+    EXPECT_EQ(first_samples.load(), 1);
+}
+
 TEST(FileScannerV2Test, PhysicalChildrenDoNotChangeFileNumber) {
     RuntimeProfile profile("source_file_counter");
     auto* file_counter = ADD_COUNTER(&profile, "FileNumber", TUnit::UNIT);

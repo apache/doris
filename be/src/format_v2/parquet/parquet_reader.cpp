@@ -801,6 +801,9 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     }
     _state->scheduler.set_global_rowid_context(_global_rowid_context);
     _state->scheduler.set_scan_profile(_parquet_profile.scan_profile());
+    DORIS_CHECK(_state->file_context.shared_file_context != nullptr);
+    _state->scheduler.set_adaptive_context(
+            _state->file_context.shared_file_context->adaptive_scan_context);
     _state->scheduler.set_plan(std::move(row_group_plan));
     _state->scheduler.set_scan_request(request_snapshot);
     _eof = _state->scheduler.empty();
@@ -1087,6 +1090,25 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         }
     }
     return Status::OK();
+}
+
+Status ParquetReader::get_metadata_aggregate_result(const format::FileAggregateRequest& request,
+                                                    format::FileAggregateResult* result) {
+    if (request.agg_type == TPushAggOp::type::COUNT && !request.columns.empty()) {
+        if (request.columns.size() != 1 || _state == nullptr ||
+            _state->file_context.native_metadata == nullptr) {
+            return Status::NotSupported("Parquet COUNT requires row data");
+        }
+        const auto& projection = request.columns.front().projection;
+        const auto& root_schema = projected_root_schema(_state->file_schema, projection);
+        if (root_schema.kind != ParquetColumnSchemaKind::PRIMITIVE ||
+            root_schema.max_definition_level != 0) {
+            // Nullable and nested COUNT semantics come from definition/repetition levels. Do not
+            // suppress row-group children unless the already-open reader can stay footer-only.
+            return Status::NotSupported("Parquet COUNT requires definition levels");
+        }
+    }
+    return get_aggregate_result(request, result);
 }
 
 Status ParquetReader::close() {
