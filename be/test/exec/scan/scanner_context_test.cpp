@@ -23,12 +23,18 @@
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <thread>
 #include <tuple>
 
+#include "common/cast_set.h"
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "exec/operator/olap_scan_operator.h"
@@ -37,6 +43,7 @@
 #include "exec/scan/olap_scanner.h"
 #include "exec/scan/scan_node.h"
 #include "exec/scan/scanner_scheduler.h"
+#include "exec/scan/task_executor/task_handle.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
 #include "storage/options.h"
@@ -44,8 +51,33 @@
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/defer_op.h"
 
 namespace doris {
+class YieldingScanner final : public Scanner {
+public:
+    YieldingScanner(RuntimeState* state, ScanLocalStateBase* local_state, RuntimeProfile* profile,
+                    std::atomic<int>* produced_rows)
+            : Scanner(state, local_state, -1, profile), _produced_rows(produced_rows) {}
+
+protected:
+    Status _get_block_impl(RuntimeState* /*state*/, Block* block, bool* eof) override {
+        if (_has_returned_block) {
+            *eof = true;
+            return Status::OK();
+        }
+        block->get_by_position(0).column->assert_mutable()->insert_data("x", 1);
+        _produced_rows->fetch_add(cast_set<int>(block->rows()), std::memory_order_relaxed);
+        _has_returned_block = true;
+        *eof = false;
+        return Status::OK();
+    }
+
+private:
+    std::atomic<int>* _produced_rows;
+    bool _has_returned_block = false;
+};
+
 class ScannerContextTest : public testing::Test {
 public:
     void SetUp() override {
@@ -664,11 +696,18 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
             nullptr, scanner_context->_max_scan_concurrency - 1);
     EXPECT_EQ(pull_scan_task, nullptr);
 
-    scanner_context->_pending_tasks.push(
-            std::make_shared<ScanTask>(std::make_shared<ScannerDelegate>(scanner)));
+    auto first_schedule_task =
+            std::make_shared<ScanTask>(std::make_shared<ScannerDelegate>(scanner));
+    scanner_context->_pending_tasks.push(first_schedule_task);
     pull_scan_task = scanner_context->_pull_next_scan_task(
-            nullptr, scanner_context->_max_scan_concurrency - 1);
-    EXPECT_NE(pull_scan_task, nullptr);
+            nullptr, scanner_context->_max_scan_concurrency - 1, true);
+    EXPECT_EQ(pull_scan_task, nullptr);
+    EXPECT_EQ(scanner_context->_pending_tasks.top(), first_schedule_task);
+
+    first_schedule_task->is_first_schedule = false;
+    pull_scan_task = scanner_context->_pull_next_scan_task(
+            nullptr, scanner_context->_max_scan_concurrency - 1, true);
+    EXPECT_EQ(pull_scan_task, first_schedule_task);
 }
 
 TEST_F(ScannerContextTest, schedule_scan_task) {
@@ -784,6 +823,101 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
     // If current scan task has cached block, it should not be called with this methods.
     EXPECT_ANY_THROW(std::ignore = scanner_context->schedule_scan_task(scan_task, transfer_lock,
                                                                        scheduler_lock));
+}
+
+// Keep the end-to-end scheduler lifecycle in one test so the admission queue and scanner state
+// transitions share the same fixture and executor instance.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(ScannerContextTest, task_executor_admission_queue_keeps_scanners_live) {
+    constexpr int scanner_count = 6;
+    constexpr int context_limit = 4;
+    constexpr int task_handle_limit = 2;
+
+    const int old_initial_concurrency = config::task_executor_initial_max_concurrency_per_task;
+    const int old_max_concurrency = config::task_executor_max_concurrency_per_task;
+    config::task_executor_initial_max_concurrency_per_task = task_handle_limit;
+    config::task_executor_max_concurrency_per_task = task_handle_limit;
+    Defer restore_config {[&] {
+        config::task_executor_initial_max_concurrency_per_task = old_initial_concurrency;
+        config::task_executor_max_concurrency_per_task = old_max_concurrency;
+    }};
+
+    auto task_exec_ctx = std::make_shared<TaskExecutionContext>();
+    state->set_task_execution_context(task_exec_ctx);
+    auto scheduler = std::make_unique<TaskExecutorSimplifiedScanScheduler>("scanner_liveness_test",
+                                                                           cgroup_cpu_ctl);
+    ASSERT_TRUE(scheduler->start(task_handle_limit, task_handle_limit, 100, 0).ok());
+    Defer stop_scheduler {[&] {
+        state->get_query_ctx()->_scan_task_scheduler = nullptr;
+        scheduler->stop();
+    }};
+    state->get_query_ctx()->_scan_task_scheduler = scheduler.get();
+
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             scanner_count, TQueryCacheParam {});
+    scan_operator->_shared_scan_limit.store(-1, std::memory_order_relaxed);
+    auto olap_scan_local_state =
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    olap_scan_local_state->_max_scan_concurrency = max_concurrency_counter.get();
+    olap_scan_local_state->_min_scan_concurrency = min_concurrency_counter.get();
+    olap_scan_local_state->_scan_cpu_timer = profile->add_counter("ScanCpuTime", TUnit::TIME_NS);
+    olap_scan_local_state->_rows_read_counter = profile->add_counter("RowsRead", TUnit::UNIT);
+    olap_scan_local_state->_parent = scan_operator.get();
+
+    std::atomic<int> produced_rows = 0;
+    std::list<std::shared_ptr<ScannerDelegate>> scanners;
+    for (int i = 0; i < scanner_count; ++i) {
+        ScannerSPtr scanner = std::make_shared<YieldingScanner>(
+                state.get(), olap_scan_local_state.get(), profile.get(), &produced_rows);
+        scanner->_output_tuple_desc = output_tuple_desc;
+        scanner->_output_row_descriptor = nullptr;
+        ASSERT_TRUE(scanner->init(state.get(), {}).ok());
+        scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
+    }
+
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
+            scanners, -1, scan_dependency, &shared_limit, nullptr, nullptr, 0, false,
+            context_limit);
+    scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
+    scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
+    scanner_context->_min_scan_concurrency = 1;
+    // Force one initial submission batch above the TaskHandle limit, then remove the scheduler
+    // demand so a non-EOS scanner needs a free ScannerContext slot to be re-enqueued.
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = scanner_count;
+
+    ASSERT_TRUE(scanner_context->init().ok());
+    EXPECT_EQ(scanner_context->_max_scan_concurrency, context_limit);
+    EXPECT_EQ(scanner_context->task_handle()->queued_leaf_splits(),
+              context_limit - task_handle_limit);
+    EXPECT_EQ(scanner_context->_pending_tasks.size(), scanner_count - context_limit);
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = 0;
+
+    bool eos = false;
+    bool checked_submission_backlog = false;
+    int peak_in_flight_tasks = scanner_context->num_scheduled_scanners();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!eos && std::chrono::steady_clock::now() < deadline) {
+        if (!scan_dependency->ready()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
+        Block block;
+        ASSERT_TRUE(scanner_context->get_block_from_queue(state.get(), &block, &eos, 0).ok());
+        if (!checked_submission_backlog) {
+            // The yielded scanner is parked while another completed task occupies the last
+            // context slot; the two never-submitted scanners must remain pending as well.
+            EXPECT_EQ(scanner_context->_pending_tasks.size(), scanner_count - context_limit + 1);
+            checked_submission_backlog = true;
+        }
+        peak_in_flight_tasks =
+                std::max(peak_in_flight_tasks, scanner_context->num_scheduled_scanners());
+    }
+
+    EXPECT_TRUE(eos) << scanner_context->debug_string();
+    EXPECT_EQ(produced_rows.load(std::memory_order_relaxed), scanner_count);
+    EXPECT_TRUE(checked_submission_backlog);
+    EXPECT_LE(peak_in_flight_tasks, context_limit);
 }
 
 TEST_F(ScannerContextTest, scan_queue_mem_limit) {
