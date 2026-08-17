@@ -689,7 +689,7 @@ public class MTMVTaskTest {
     }
 
     @Test
-    public void testStrictIncrementalRejectsPendingBaselineBeforeIvm() throws Exception {
+    public void testStrictIncrementalRejectsPendingBaselineBeforePartitionSync() throws Exception {
         Mockito.when(mtmv.isIvm()).thenReturn(true);
         IvmInfo ivmInfo = new IvmInfo();
         ivmInfo.requireCompleteBaselineRebuild();
@@ -697,19 +697,14 @@ public class MTMVTaskTest {
         Mockito.when(mtmv.getPartitionNames()).thenReturn(Collections.singleton(poneName));
         MTMVTask task = new MTMVTask(mtmv, relation, MTMVTaskContext.of(
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.INCREMENTAL, false, null));
-        MTMVRefreshContext refreshContext = Mockito.mock(MTMVRefreshContext.class);
-        Mockito.when(refreshContext.getMtmv()).thenReturn(mtmv);
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
 
         JobException exception = Assert.assertThrows(JobException.class,
-                () -> Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild", refreshContext, request,
-                        new ConnectContext()));
+                () -> Deencapsulation.invoke(task, "validateIvmBaselineBeforePartitionSync", request));
 
         Assert.assertTrue(exception.getMessage().contains("run an AUTO or COMPLETE refresh first"));
         Assert.assertEquals(IvmFailureReason.BINLOG_BROKEN.name(),
                 Deencapsulation.getField(task, "ivmFallbackReason"));
-        mtmvPartitionUtilStatic.verify(() -> MTMVPartitionUtil.getMTMVNeedRefreshPartitions(
-                Mockito.same(refreshContext), Mockito.nullable(Set.class)), Mockito.never());
     }
 
     @Test
@@ -723,8 +718,7 @@ public class MTMVTaskTest {
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
 
         JobException exception = Assert.assertThrows(JobException.class,
-                () -> Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild",
-                        Mockito.mock(MTMVRefreshContext.class), request, new ConnectContext()));
+                () -> Deencapsulation.invoke(task, "validateIvmBaselineBeforePartitionSync", request));
 
         Assert.assertTrue(exception.getMessage().contains("run a PARTITIONS FALLBACK, AUTO, or COMPLETE refresh"));
     }
@@ -740,6 +734,7 @@ public class MTMVTaskTest {
                 MTMVTaskTriggerMode.MANUAL, null, RefreshMode.PARTITIONS, true, null));
         Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
 
+        Deencapsulation.invoke(task, "validateIvmBaselineBeforePartitionSync", request);
         Assert.assertTrue(Deencapsulation.invoke(task, "handlePendingIvmBaselineRebuild",
                 Mockito.mock(MTMVRefreshContext.class), request, new ConnectContext()));
         Assert.assertEquals(MTMVTask.MTMVTaskRefreshMode.NOT_REFRESH,
