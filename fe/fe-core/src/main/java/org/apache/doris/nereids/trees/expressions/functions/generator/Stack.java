@@ -32,18 +32,22 @@ import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.LazyCompute;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * stack(n, expr1, ..., exprk) separates the expressions into n rows in row-major order.
  * Missing values in the last row are padded with nulls.
  */
 public class Stack extends TableGeneratingFunction implements CustomSignature, ComputePrecision, AlwaysNullable {
+
+    private final Supplier<Integer> numRows = LazyCompute.of(this::computeNumRows);
 
     /** constructor with two or more arguments. */
     public Stack(Expression numRows, Expression argument, Expression... otherArguments) {
@@ -96,6 +100,10 @@ public class Stack extends TableGeneratingFunction implements CustomSignature, C
     }
 
     private int getNumRows() {
+        return numRows.get();
+    }
+
+    private int computeNumRows() {
         Expression numRowsArgument = getArgument(0);
         if (!numRowsArgument.isConstant()) {
             throw new AnalysisException("The first argument of stack must be a positive constant integer, but got: "
@@ -106,12 +114,12 @@ public class Stack extends TableGeneratingFunction implements CustomSignature, C
             throw new AnalysisException("The first argument of stack must be a positive constant integer, but got: "
                     + numRowsArgument.toSql());
         }
-        long numRows = ((IntegerLikeLiteral) evaluated).getLongValue();
-        if (numRows <= 0 || numRows > Integer.MAX_VALUE) {
+        long numRowsValue = ((IntegerLikeLiteral) evaluated).getLongValue();
+        if (numRowsValue <= 0 || numRowsValue > Integer.MAX_VALUE) {
             throw new AnalysisException("The first argument of stack must be in (0, " + Integer.MAX_VALUE
-                    + "], but got: " + numRows);
+                    + "], but got: " + numRowsValue);
         }
-        return (int) numRows;
+        return (int) numRowsValue;
     }
 
     /** Return the number of logical output columns derived from the row count and value arguments. */

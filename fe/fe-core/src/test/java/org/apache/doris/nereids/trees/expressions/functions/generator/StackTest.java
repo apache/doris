@@ -39,7 +39,28 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 public class StackTest {
+
+    @Test
+    public void testNumRowsLazyCompute() {
+        AtomicInteger computeCount = new AtomicInteger();
+        IntegerLiteral numRows = new IntegerLiteral(2) {
+            @Override
+            public boolean isConstant() {
+                computeCount.incrementAndGet();
+                return super.isConstant();
+            }
+        };
+        Stack stack = new Stack(numRows, new IntegerLiteral(1),
+                new IntegerLiteral(2), new IntegerLiteral(3));
+
+        Assertions.assertEquals(0, computeCount.get());
+        Assertions.assertEquals(2, stack.getOutputColumnCount());
+        Assertions.assertEquals(2, stack.getOutputColumnCount());
+        Assertions.assertEquals(1, computeCount.get());
+    }
 
     @Test
     public void testMultiColumnSignature() {
