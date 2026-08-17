@@ -472,7 +472,7 @@ public:
         config::file_cache_background_ttl_info_update_interval_ms = 100;
         config::file_cache_background_tablet_id_flush_interval_ms = 100;
         config::async_file_cache_write_workers_per_disk = FLAGS_reader_workers;
-        config::async_file_cache_write_max_pending_bytes_per_disk = static_cast<int64_t>(
+        config::async_file_cache_write_max_pending_bytes = static_cast<int64_t>(
                 std::max(FLAGS_reader_operations, FLAGS_manager_operations) * FLAGS_block_size);
 
         DORIS_CHECK(ExecEnv::GetInstance()->file_cache_factory() == nullptr);

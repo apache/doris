@@ -152,29 +152,25 @@ private:
     bool _released {false};
 };
 
-TEST(AsyncCacheWriteConfigTest, ResolveMaxPendingBytesPerDisk) {
+TEST(AsyncCacheWriteConfigTest, ResolveMaxPendingBytes) {
     constexpr int64_t kMiB = 1024 * 1024;
     constexpr int64_t kGiB = 1024 * kMiB;
 
     size_t resolved_bytes = 0;
-    ASSERT_TRUE(resolve_async_file_cache_write_max_pending_bytes_per_disk(123 * kMiB, 100 * kGiB,
-                                                                          &resolved_bytes)
+    ASSERT_TRUE(resolve_async_file_cache_write_max_pending_bytes(123 * kMiB, 100 * kGiB,
+                                                                 &resolved_bytes)
                         .ok());
     EXPECT_EQ(resolved_bytes, 123 * kMiB);
-    ASSERT_TRUE(resolve_async_file_cache_write_max_pending_bytes_per_disk(-1, 32 * kGiB,
-                                                                          &resolved_bytes)
-                        .ok());
-    EXPECT_EQ(resolved_bytes, 512 * kMiB);
-    ASSERT_TRUE(resolve_async_file_cache_write_max_pending_bytes_per_disk(-1, 100 * kGiB,
-                                                                          &resolved_bytes)
-                        .ok());
+    ASSERT_TRUE(
+            resolve_async_file_cache_write_max_pending_bytes(-1, 32 * kGiB, &resolved_bytes).ok());
     EXPECT_EQ(resolved_bytes, 1 * kGiB);
-    EXPECT_FALSE(resolve_async_file_cache_write_max_pending_bytes_per_disk(0, 100 * kGiB,
-                                                                           &resolved_bytes)
-                         .ok());
-    EXPECT_FALSE(resolve_async_file_cache_write_max_pending_bytes_per_disk(-2, 100 * kGiB,
-                                                                           &resolved_bytes)
-                         .ok());
+    ASSERT_TRUE(
+            resolve_async_file_cache_write_max_pending_bytes(-1, 200 * kGiB, &resolved_bytes).ok());
+    EXPECT_EQ(resolved_bytes, 2 * kGiB);
+    EXPECT_FALSE(
+            resolve_async_file_cache_write_max_pending_bytes(0, 100 * kGiB, &resolved_bytes).ok());
+    EXPECT_FALSE(
+            resolve_async_file_cache_write_max_pending_bytes(-2, 100 * kGiB, &resolved_bytes).ok());
 }
 
 TEST_F(AsyncCacheWriteManagerTest, WriteEpochRegistryReusesAndReclaimsLiveKey) {
@@ -1859,14 +1855,15 @@ TEST_F(AsyncCacheWriteManagerTest, MutableConfigUpdatesManagersExplicitly) {
 
     const bool old_enable = config::enable_async_file_cache_write;
     const int32_t old_workers = config::async_file_cache_write_workers_per_disk;
-    const int64_t old_max_pending_bytes = config::async_file_cache_write_max_pending_bytes_per_disk;
-    const auto path = caches_dir / "async_write_manager_config_update";
+    const int64_t old_max_pending_bytes = config::async_file_cache_write_max_pending_bytes;
+    const auto path1 = caches_dir / "async_write_manager_config_update_1";
+    const auto path2 = caches_dir / "async_write_manager_config_update_2";
     std::error_code error;
     Defer restore {[&]() {
         EXPECT_TRUE(config::set_config("async_file_cache_write_workers_per_disk",
                                        std::to_string(old_workers))
                             .ok());
-        EXPECT_TRUE(config::set_config("async_file_cache_write_max_pending_bytes_per_disk",
+        EXPECT_TRUE(config::set_config("async_file_cache_write_max_pending_bytes",
                                        std::to_string(old_max_pending_bytes))
                             .ok());
         EXPECT_TRUE(
@@ -1875,25 +1872,41 @@ TEST_F(AsyncCacheWriteManagerTest, MutableConfigUpdatesManagersExplicitly) {
         factory->_caches.clear();
         factory->_path_to_cache.clear();
         factory->_capacity = 0;
-        fs::remove_all(path, error);
+        fs::remove_all(path1, error);
+        fs::remove_all(path2, error);
     }};
 
     ASSERT_TRUE(config::set_config("enable_async_file_cache_write", "false").ok());
-    ASSERT_TRUE(config::set_config("async_file_cache_write_max_pending_bytes_per_disk", "-1").ok());
-    fs::remove_all(path, error);
-    fs::create_directories(path);
-    ASSERT_TRUE(factory->create_file_cache(path.string(), async_write_cache_settings()).ok());
-    auto* cache = factory->get_by_path(path.string());
-    ASSERT_NE(cache, nullptr);
-    wait_until_cache_ready(*cache);
-    ASSERT_FALSE(cache->async_write_manager()->_started.load(std::memory_order_acquire));
-    size_t auto_max_pending_bytes = 0;
-    ASSERT_TRUE(resolve_async_file_cache_write_max_pending_bytes_per_disk(-1, MemInfo::mem_limit(),
-                                                                          &auto_max_pending_bytes)
+    ASSERT_TRUE(config::set_config("async_file_cache_write_max_pending_bytes", "-1").ok());
+    fs::remove_all(path1, error);
+    fs::remove_all(path2, error);
+    fs::create_directories(path1);
+    fs::create_directories(path2);
+    ASSERT_TRUE(factory->create_file_cache(path1.string(), async_write_cache_settings()).ok());
+    auto* cache1 = factory->get_by_path(path1.string());
+    ASSERT_NE(cache1, nullptr);
+    wait_until_cache_ready(*cache1);
+    size_t auto_total_max_pending_bytes = 0;
+    ASSERT_TRUE(resolve_async_file_cache_write_max_pending_bytes(-1, MemInfo::mem_limit(),
+                                                                 &auto_total_max_pending_bytes)
                         .ok());
-    EXPECT_EQ(cache->async_write_manager()->options().max_pending_bytes, auto_max_pending_bytes);
+    EXPECT_EQ(cache1->async_write_manager()->options().max_pending_bytes,
+              auto_total_max_pending_bytes);
+
+    ASSERT_TRUE(factory->create_file_cache(path2.string(), async_write_cache_settings()).ok());
+    auto* cache2 = factory->get_by_path(path2.string());
+    ASSERT_NE(cache2, nullptr);
+    wait_until_cache_ready(*cache2);
+    const size_t auto_max_pending_bytes_per_instance = auto_total_max_pending_bytes / 2;
+    for (auto* cache : {cache1, cache2}) {
+        ASSERT_FALSE(cache->async_write_manager()->_started.load(std::memory_order_acquire));
+        EXPECT_EQ(cache->async_write_manager()->options().max_pending_bytes,
+                  auto_max_pending_bytes_per_instance);
+    }
+
     AsyncCacheWriteBufferPtr disabled_buffer;
-    ASSERT_TRUE(cache->async_write_manager()->allocate_tracked_buffer(4096, &disabled_buffer).ok());
+    ASSERT_TRUE(
+            cache1->async_write_manager()->allocate_tracked_buffer(4096, &disabled_buffer).ok());
     const auto disabled_hash = BlockFileCache::hash("disabled_async_write_manager");
     AsyncCacheWriteTask disabled_task {
             .cache_hash = disabled_hash,
@@ -1902,29 +1915,34 @@ TEST_F(AsyncCacheWriteManagerTest, MutableConfigUpdatesManagersExplicitly) {
             .buffer = disabled_buffer,
             .admission_ctx = {},
             .submit_ts_us = MonotonicMicros(),
-            .write_epoch = cache->async_write_manager()->current_write_epoch(disabled_hash),
+            .write_epoch = cache1->async_write_manager()->current_write_epoch(disabled_hash),
             .on_finalized = nullptr,
     };
-    EXPECT_FALSE(cache->async_write_manager()->try_submit(std::move(disabled_task)));
-    EXPECT_EQ(cache->async_write_manager()->pending_count(), 0);
+    EXPECT_FALSE(cache1->async_write_manager()->try_submit(std::move(disabled_task)));
+    EXPECT_EQ(cache1->async_write_manager()->pending_count(), 0);
 
     const int32_t new_workers = old_workers == 1 ? 2 : 1;
-    constexpr int64_t new_max_pending_bytes = 64 * 1024 * 1024 + 4096;
+    constexpr int64_t new_total_max_pending_bytes = 64 * 1024 * 1024 + 8192;
     ASSERT_TRUE(config::set_config("async_file_cache_write_workers_per_disk",
                                    std::to_string(new_workers))
                         .ok());
-    ASSERT_TRUE(config::set_config("async_file_cache_write_max_pending_bytes_per_disk",
-                                   std::to_string(new_max_pending_bytes))
+    ASSERT_TRUE(config::set_config("async_file_cache_write_max_pending_bytes",
+                                   std::to_string(new_total_max_pending_bytes))
                         .ok());
     ASSERT_TRUE(config::set_config("enable_async_file_cache_write", "true").ok());
 
-    const auto updated = cache->async_write_manager()->options();
-    EXPECT_TRUE(cache->async_write_manager()->_started.load(std::memory_order_acquire));
-    EXPECT_EQ(updated.worker_count, new_workers);
-    EXPECT_EQ(updated.max_pending_bytes, new_max_pending_bytes);
+    for (auto* cache : {cache1, cache2}) {
+        const auto updated = cache->async_write_manager()->options();
+        EXPECT_TRUE(cache->async_write_manager()->_started.load(std::memory_order_acquire));
+        EXPECT_EQ(updated.worker_count, new_workers);
+        EXPECT_EQ(updated.max_pending_bytes, new_total_max_pending_bytes / 2);
+    }
 
-    ASSERT_TRUE(config::set_config("async_file_cache_write_max_pending_bytes_per_disk", "-1").ok());
-    EXPECT_EQ(cache->async_write_manager()->options().max_pending_bytes, auto_max_pending_bytes);
+    ASSERT_TRUE(config::set_config("async_file_cache_write_max_pending_bytes", "-1").ok());
+    for (auto* cache : {cache1, cache2}) {
+        EXPECT_EQ(cache->async_write_manager()->options().max_pending_bytes,
+                  auto_max_pending_bytes_per_instance);
+    }
 }
 
 TEST_F(AsyncCacheWriteManagerTest, ShutdownWaitsForConcurrentReplacementAndDrains) {
