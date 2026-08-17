@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -61,16 +60,9 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
                 (PhysicalHashAggregate<? extends Plan>) super.visit(aggregate, ctx));
     }
 
-    @Override
-    public Plan visitPhysicalBucketedHashAggregate(
-            PhysicalBucketedHashAggregate<? extends Plan> aggregate, CascadesContext ctx) {
-        return projectAggregateCse(
-                (PhysicalBucketedHashAggregate<? extends Plan>) super.visit(aggregate, ctx));
-    }
-
     /**
-     * Shared CSE projection logic for both PhysicalHashAggregate and
-     * PhysicalBucketedHashAggregate. Extracts common sub-expressions from
+     * Shared CSE projection logic for PhysicalHashAggregate.
+     * Extracts common sub-expressions from
      * aggregate function arguments into a project node beneath the aggregate.
      */
     private <T extends AbstractPhysicalPlan & Aggregate<? extends Plan>>

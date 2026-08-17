@@ -119,6 +119,18 @@ public class PlanTranslatorContext {
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
     private final RuntimeFilterContextV2 runtimeFilterV2Context;
 
+    /**
+     * Depth of fragment-merging binary nodes (hash join / nested loop join /
+     * set operation) whose children are being visited right now. Bucketed fusion
+     * removes the exchange node that would otherwise keep an olap scan in its own
+     * fragment; when the fused fragment is consumed by such a node the scan gets
+     * merged into a fragment that already contains other scans, which the
+     * scan-assignment jobs reject ("Not supported multiple scan multiple
+     * OlapTable but not contains colocate join or bucket shuffle join"). The
+     * translator therefore skips bucketed fusion while inside a merge child.
+     */
+    private int fragmentMergeChildDepth = 0;
+
     private boolean isTopMaterializeNode = true;
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
@@ -267,6 +279,18 @@ public class PlanTranslatorContext {
 
     public void addExprIdColumnRefPair(ExprId exprId, ColumnRefExpr columnRefExpr) {
         exprIdToColumnRef.put(exprId, columnRefExpr);
+    }
+
+    public void enterFragmentMergeChild() {
+        fragmentMergeChildDepth++;
+    }
+
+    public void exitFragmentMergeChild() {
+        fragmentMergeChildDepth--;
+    }
+
+    public boolean isInFragmentMergeChild() {
+        return fragmentMergeChildDepth > 0;
     }
 
     /**
