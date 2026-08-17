@@ -1444,6 +1444,8 @@ DEFINE_mInt64(s3_write_buffer_size, "5242880");
 // Log interval when doing s3 upload task
 DEFINE_mInt32(s3_file_writer_log_interval_second, "60");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
+// When file cache is enabled, the configured bytes must be divisible by
+// file_cache_each_block_size so every non-EOF HDFS cache block is canonical.
 DEFINE_mInt64(hdfs_write_batch_buffer_size_mb, "1"); // 1MB
 
 //disable shrink memory by default
