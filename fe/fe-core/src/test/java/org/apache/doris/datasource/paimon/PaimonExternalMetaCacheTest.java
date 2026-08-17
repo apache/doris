@@ -334,6 +334,87 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testTableEntryWeightCoversBaseOnlyScanAndReleasesOnInvalidate() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try {
+            long catalogId = 1L;
+            cache.initCatalog(catalogId, Collections.singletonMap(
+                    "meta.cache.paimon.table.max-weight", "8MB"));
+            Assert.assertTrue(cache.stats(catalogId).get(PaimonExternalMetaCache.ENTRY_TABLE).isWeightBounded());
+
+            NameMapping mapping = new NameMapping(catalogId, "db", "tbl", "db", "tbl");
+            FileStoreTable table = newTableWithExtraFields("table_entry_weight", 64, true, 8);
+            Object lazyStoreBefore = readField(table, table.getClass(), "lazyStore");
+            PaimonTableCacheValue value = new PaimonTableCacheValue(table);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
+                    cache.entry(catalogId, PaimonExternalMetaCache.ENTRY_TABLE,
+                            NameMapping.class, PaimonTableCacheValue.class);
+            tables.put(mapping, value);
+
+            Assert.assertSame(value, tables.peekIfPresent(mapping));
+            Assert.assertTrue(value.getSizeEstimate().getIncompleteReason(),
+                    value.getSizeEstimate().isComplete());
+            long estimate = value.getSizeEstimate().getBytes();
+            Assert.assertTrue(estimate > 0L);
+            MetaCacheEntryStats stats = cache.stats(catalogId).get(PaimonExternalMetaCache.ENTRY_TABLE);
+            // The entry adds a fixed per-record overhead on top of the value estimate.
+            long reservedWeight = stats.getEstimatedWeight();
+            Assert.assertTrue(reservedWeight >= estimate);
+            Assert.assertSame("table publication must not materialize FileStoreTable.store()",
+                    lazyStoreBefore, readField(table, table.getClass(), "lazyStore"));
+
+            // A base-only scan (fetchRowCount, table-only paths) opens the store and its RowType
+            // indexes on the admitted handle; the reserved weight already covers that graph.
+            long beforeScan = EstimatorCalibrationAssertions.graphSize(value);
+            materializeStoreGraph(table);
+            materializeRowTypeIndexes(table.schema());
+            long afterScan = EstimatorCalibrationAssertions.graphSize(value);
+            Assert.assertTrue("scan must grow the retained graph", afterScan > beforeScan);
+            Assert.assertTrue("estimate " + estimate + " must cover the grown graph " + afterScan,
+                    estimate >= afterScan);
+            Assert.assertEquals(reservedWeight,
+                    cache.stats(catalogId).get(PaimonExternalMetaCache.ENTRY_TABLE).getEstimatedWeight());
+
+            tables.invalidateKey(mapping);
+            Assert.assertNull(tables.peekIfPresent(mapping));
+            Assert.assertEquals(0L,
+                    cache.stats(catalogId).get(PaimonExternalMetaCache.ENTRY_TABLE).getEstimatedWeight());
+
+            // Unsupported table implementations fail closed and stay outside the cache.
+            PaimonTableCacheValue unsupported = new PaimonTableCacheValue(Mockito.mock(Table.class));
+            tables.put(mapping, unsupported);
+            Assert.assertNull(tables.peekIfPresent(mapping));
+            Assert.assertFalse(unsupported.getSizeEstimate().isComplete());
+            Assert.assertTrue(unsupported.getSizeEstimate().getIncompleteReason()
+                    .startsWith("unsupported_paimon_table:"));
+            MetaCacheEntryStats rejected = cache.stats(catalogId).get(PaimonExternalMetaCache.ENTRY_TABLE);
+            Assert.assertEquals(1L, rejected.getWeightAdmissionRejectedCount());
+            Assert.assertEquals(0L, rejected.getEstimatedWeight());
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testTableEntryFormulaAgainstJolOwnedGraph() throws Exception {
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        FileStoreTable smallTable = newTableWithExtraFields("jol_table_entry_narrow", 10, true, 0);
+        FileStoreTable populatedTable = newTableWithExtraFields("jol_table_entry_wide", 300, true, 50);
+        PaimonTableCacheValue small = new PaimonTableCacheValue(smallTable);
+        PaimonTableCacheValue populated = new PaimonTableCacheValue(populatedTable);
+        long smallEstimate = small.prepareForCachePublication(mapping).getBytes();
+        long populatedEstimate = populated.prepareForCachePublication(mapping).getBytes();
+        materializeRowTypeIndexes(smallTable.schema());
+        materializeRowTypeIndexes(populatedTable.schema());
+        materializeStoreGraph(smallTable);
+        materializeStoreGraph(populatedTable);
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "paimon table entry", smallEstimate, populatedEstimate, small, populated);
+    }
+
+    @Test
     public void testSnapshotWeightEntryAndPrecomputedEstimate() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {

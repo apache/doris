@@ -81,6 +81,7 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
         tableEntry = registerEntry(MetaCacheEntryDef.of(ENTRY_TABLE, NameMapping.class, PaimonTableCacheValue.class,
                 this::loadTableCacheValue, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping))
+                .withSizeEstimator((key, value) -> value.prepareForCachePublication(key))
                 .withReplacementListener(this::retireTableGeneration));
         snapshotEntry = registerEntry(MetaCacheEntryDef.contextualOnly(ENTRY_SNAPSHOT,
                 PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class, defaultEntryCacheSpec(),

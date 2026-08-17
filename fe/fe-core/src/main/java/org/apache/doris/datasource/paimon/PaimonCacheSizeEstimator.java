@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
 import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 
@@ -56,7 +57,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Publication-time retained-weight formula for Paimon snapshot projections. */
+/** Publication-time retained-weight formulas for Paimon table handles and snapshot projections. */
 final class PaimonCacheSizeEstimator {
     // Calibrated against JOL retained-graph deltas in PaimonExternalMetaCacheTest.
     private static final long MAX_TABLE_ACCOUNTING_ELEMENTS = 50_000L;
@@ -64,6 +65,8 @@ final class PaimonCacheSizeEstimator {
     private static final long KEY_BASE_BYTES = objectBytes(128L);
     private static final long SNAPSHOT_BASE_BYTES = objectBytes(4L * 1024L);
     private static final long TABLE_BASE_BYTES = objectBytes(16L * 1024L);
+    // PaimonTableCacheValue: table ref, generation, payload bytes, estimate ref (+ estimate object).
+    private static final long TABLE_VALUE_BASE_BYTES = objectBytes(96L);
     // A top-level DataField, its list slot and shared per-field overhead; the DataType instance
     // is accounted separately by addTypePayload.
     private static final long TABLE_FIELD_BYTES = objectBytes(40L);
@@ -206,18 +209,43 @@ final class PaimonCacheSizeEstimator {
                         "lazyStore:KeyValueFileStore");
     }
 
-    static MetaCacheSizeEstimate estimateSnapshotEntry(
-            PaimonSnapshotEntryKey key, PaimonSnapshotCacheValue value) {
+    /**
+     * Retained weight of the base table entry. The table handle is owned independently of the
+     * snapshot projections that reference it (they may pin an older generation), so the same
+     * table graph is charged to both owners rather than shared.
+     */
+    static MetaCacheSizeEstimate estimateTableEntry(NameMapping key, PaimonTableCacheValue value) {
+        String unsupported = unsupportedReason(value.getPaimonTable());
+        if (unsupported != null) {
+            return MetaCacheSizeEstimate.incomplete(unsupported);
+        }
+        long bytes = MetaCacheWeightUtils.saturatedAdd(
+                KEY_BASE_BYTES, MetaCacheWeightUtils.estimatedNameMappingBytes(key));
+        bytes = MetaCacheWeightUtils.saturatedAdd(bytes, TABLE_VALUE_BASE_BYTES);
+        bytes = MetaCacheWeightUtils.saturatedAdd(bytes, value.getRetainedTablePayloadBytes());
+        return MetaCacheSizeEstimate.complete(
+                MetaCacheWeightUtils.saturatedAdd(bytes, estimateTable(value.getPaimonTable())));
+    }
+
+    private static String unsupportedReason(Table table) {
         if (!MetaCacheWeightUtils.isSupportedJvmObjectLayout()) {
-            return MetaCacheSizeEstimate.incomplete("unsupported_jvm_object_alignment");
+            return "unsupported_jvm_object_alignment";
         }
         if (!PAIMON_TYPE_LAYOUT_SUPPORTED || !PAIMON_TABLE_LAYOUT_SUPPORTED) {
-            return MetaCacheSizeEstimate.incomplete("unsupported_paimon_layout");
+            return "unsupported_paimon_layout";
         }
-        Table table = value.getSnapshot().getTable();
         if (!isSupportedTable(table)) {
-            return MetaCacheSizeEstimate.incomplete("unsupported_paimon_table:"
-                    + (table == null ? "null" : table.getClass().getName()));
+            return "unsupported_paimon_table:" + (table == null ? "null" : table.getClass().getName());
+        }
+        return null;
+    }
+
+    static MetaCacheSizeEstimate estimateSnapshotEntry(
+            PaimonSnapshotEntryKey key, PaimonSnapshotCacheValue value) {
+        Table table = value.getSnapshot().getTable();
+        String unsupported = unsupportedReason(table);
+        if (unsupported != null) {
+            return MetaCacheSizeEstimate.incomplete(unsupported);
         }
 
         long bytes = MetaCacheWeightUtils.saturatedAdd(
