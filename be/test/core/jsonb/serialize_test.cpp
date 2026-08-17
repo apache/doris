@@ -724,7 +724,15 @@ TEST(BlockSerializeTest, Array) {
             col_uid_to_idx, new_block, default_values, {}));
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
-    EXPECT_EQ(block.dump_data(), new_block.dump_data());
+    ASSERT_EQ(block.columns(), new_block.columns());
+    ASSERT_EQ(block.rows(), new_block.rows());
+    for (size_t column = 0; column < block.columns(); ++column) {
+        const auto& input = *block.get_by_position(column).column;
+        const auto& output = *new_block.get_by_position(column).column;
+        for (size_t row = 0; row < block.rows(); ++row) {
+            EXPECT_EQ(0, input.compare_at(row, row, output, -1));
+        }
+    }
 }
 
 TEST(BlockSerializeTest, Map) {

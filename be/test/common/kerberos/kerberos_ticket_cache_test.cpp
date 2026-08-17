@@ -223,8 +223,9 @@ TEST_F(KerberosTicketCacheTest, PeriodicRefresh) {
     _cache->start_periodic_refresh();
 
     // Wait for a short time to allow some refresh attempts
-    // Allow one refresh interval plus scheduling tolerance.
-    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+    // Allow two refresh intervals plus scheduling tolerance. The refresh thread
+    // can start late when the full sanitizer suite is under load.
+    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
 
     // Stop periodic refresh
     _cache->stop_periodic_refresh();

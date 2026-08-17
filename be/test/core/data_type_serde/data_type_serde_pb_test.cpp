@@ -64,7 +64,7 @@
 
 namespace doris {
 
-inline void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
+static void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
     const DataTypeSerDeSPtr serde = data_type->get_serde();
     Status st = serde->write_column_to_pb(col, *result, 0, col.size());
     if (!st.ok()) {
@@ -73,7 +73,7 @@ inline void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValue
     }
 }
 
-inline bool pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
+static bool pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
     auto serde = data_type->get_serde();
     Status st = serde->read_column_from_pb(col, result);
     if (!st.ok()) {
@@ -84,7 +84,7 @@ inline bool pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& 
     return true;
 }
 
-inline void check_pb_col(const DataTypePtr data_type, const IColumn& input_column) {
+static void check_pb_col(const DataTypePtr data_type, const IColumn& input_column) {
     PValues pv = PValues();
     column_to_pb(data_type, input_column, &pv);
     int s1 = pv.bytes_value_size();
@@ -96,14 +96,13 @@ inline void check_pb_col(const DataTypePtr data_type, const IColumn& input_colum
     int s2 = as_pv.bytes_value_size();
     EXPECT_EQ(s1, s2);
 
-    Block block_out, block_input;
-    block_input.insert({input_column.get_ptr(), data_type, ""});
-    std::string input_str = block_input.dump_data();
-    block_out.insert({std::move(except_column), data_type, ""});
-    std::string output_str = block_out.dump_data();
-    //input column data should same as output column data of deserialize
+    // The serialized representation of set-like values can differ while the
+    // values remain equal. Compare cells instead of their debug bytes.
     if (success_deserialized) {
-        EXPECT_EQ(input_str, output_str);
+        ASSERT_EQ(input_column.size(), except_column->size());
+        for (size_t i = 0; i < input_column.size(); ++i) {
+            EXPECT_EQ(0, input_column.compare_at(i, i, *except_column, -1));
+        }
     } else {
         EXPECT_TRUE(false);
     }

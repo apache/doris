@@ -274,7 +274,12 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
 #ifndef __APPLE__
         EXPECT_EQ(s1, s2);
 #endif
-        EXPECT_EQ(block.dump_data_json(0, 1024), block2.dump_data_json(0, 1024));
+        const auto& input = assert_cast<const ColumnBitmap&>(*block.get_by_position(0).column);
+        const auto& output = assert_cast<const ColumnBitmap&>(*block2.get_by_position(0).column);
+        ASSERT_EQ(input.size(), output.size());
+        for (size_t i = 0; i < input.size(); ++i) {
+            EXPECT_EQ(0, input.compare_at(i, i, output, -1));
+        }
     }
     // nullable string
     {

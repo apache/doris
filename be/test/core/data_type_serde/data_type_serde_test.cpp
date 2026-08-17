@@ -60,28 +60,27 @@
 
 namespace doris {
 
-inline void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
+static void column_to_pb(const DataTypePtr data_type, const IColumn& col, PValues* result) {
     const DataTypeSerDeSPtr serde = data_type->get_serde();
     static_cast<void>(serde->write_column_to_pb(col, *result, 0, col.size()));
 }
 
-inline void pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
+static void pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& col) {
     auto serde = data_type->get_serde();
     static_cast<void>(serde->read_column_from_pb(col, result));
 }
 
-inline void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
+static void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
     PValues pv = PValues();
     column_to_pb(data_type, col, &pv);
-    std::string s1 = pv.DebugString();
 
     auto col1 = data_type->create_column();
     pb_to_column(data_type, pv, *col1);
-    PValues as_pv = PValues();
-    column_to_pb(data_type, *col1, &as_pv);
 
-    std::string s2 = as_pv.DebugString();
-    EXPECT_EQ(s1, s2);
+    ASSERT_EQ(col.size(), col1->size());
+    for (size_t i = 0; i < col.size(); ++i) {
+        EXPECT_EQ(0, col.compare_at(i, i, *col1, -1));
+    }
 }
 
 inline void serialize_and_deserialize_pb_test() {
