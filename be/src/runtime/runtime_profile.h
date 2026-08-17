@@ -614,6 +614,13 @@ public:
         return add_counter(name, type, RuntimeProfile::ROOT_COUNTER, level);
     }
 
+    // Add a counter whose storage may outlive this profile. Repeated registration returns the same
+    // shared counter, matching add_counter() semantics for reused scanner profiles.
+    std::shared_ptr<Counter> add_shared_counter(
+            const std::string& name, TUnit::type type,
+            const std::string& parent_counter_name = RuntimeProfile::ROOT_COUNTER,
+            int64_t level = 2);
+
     NonZeroCounter* add_nonzero_counter(
             const std::string& name, TUnit::type type,
             const std::string& parent_counter_name = RuntimeProfile::ROOT_COUNTER,
@@ -737,7 +744,7 @@ private:
     std::unique_ptr<ObjectPool> _pool;
 
     // Pool for allocated counters. These counters are shared with some other objects.
-    std::map<std::string, std::shared_ptr<HighWaterMarkCounter>> _shared_counter_pool;
+    std::map<std::string, std::shared_ptr<Counter>> _shared_counter_pool;
 
     // Name for this runtime profile.
     std::string _name;
