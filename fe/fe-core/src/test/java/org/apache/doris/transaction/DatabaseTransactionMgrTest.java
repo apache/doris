@@ -244,32 +244,32 @@ public class DatabaseTransactionMgrTest {
     }
 
     @Test
-    public void testCrossAzSuccessQuorum() throws UserException {
+    public void testResourceGroupSuccessQuorum() throws UserException {
         FakeEnv.setEnv(masterEnv);
-        String[] originalCrossAzSuccQuorum = Config.cross_az_succ_quorum;
+        String[] originalResourceGroupSuccQuorum = Config.resource_group_succ_quorum;
         Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
         Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
         Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
         Map<String, String> backend1TagMap = ImmutableMap.copyOf(backend1.getTagMap());
         Map<String, String> backend2TagMap = ImmutableMap.copyOf(backend2.getTagMap());
         Map<String, String> backend3TagMap = ImmutableMap.copyOf(backend3.getTagMap());
-        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
-        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
-        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az2"));
+        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
         OlapTable table = (OlapTable) masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         ReplicaAllocation originalAllocation = table.getPartitionInfo()
                 .getReplicaAllocation(CatalogTestUtil.testPartitionId1);
         table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1,
                 new ReplicaAllocation(ImmutableMap.of(
-                        Tag.createNotCheck(Tag.TYPE_LOCATION, "az1"), (short) 2,
-                        Tag.createNotCheck(Tag.TYPE_LOCATION, "az2"), (short) 1)));
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group1"), (short) 2,
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group2"), (short) 1)));
 
         try {
-            Config.cross_az_succ_quorum = new String[] {"az1:2", "az2:1"};
-            Assert.assertEquals(ImmutableMap.of("az1", 2, "az2", 1), Config.getCrossAzSuccQuorum());
+            Config.resource_group_succ_quorum = new String[] {"group1:2", "group2:1"};
             long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
-                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_failure", transactionSource,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_failure",
+                    transactionSource,
                     LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
             List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
                     CatalogTestUtil.testTabletId1,
@@ -279,11 +279,12 @@ public class DatabaseTransactionMgrTest {
                         transactionId, commitInfos, null);
                 Assert.fail();
             } catch (TabletQuorumFailedException e) {
-                Assert.assertTrue(e.getMessage().contains("cross AZ success quorum failed for az1"));
+                Assert.assertTrue(e.getMessage().contains("resource group success quorum failed for group1"));
             }
 
             transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
-                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_az2_failure", transactionSource,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_group2_failure",
+                    transactionSource,
                     LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
             commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1,
                     Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2));
@@ -292,16 +293,16 @@ public class DatabaseTransactionMgrTest {
                         transactionId, commitInfos, null);
                 Assert.fail();
             } catch (TabletQuorumFailedException e) {
-                Assert.assertTrue(e.getMessage().contains("cross AZ success quorum failed for az2"));
+                Assert.assertTrue(e.getMessage().contains("resource group success quorum failed for group2"));
             }
 
-            backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az2"));
+            backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
             table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1,
                     new ReplicaAllocation(ImmutableMap.of(
-                            Tag.createNotCheck(Tag.TYPE_LOCATION, "az1"), (short) 1,
-                            Tag.createNotCheck(Tag.TYPE_LOCATION, "az2"), (short) 2)));
+                            Tag.createNotCheck(Tag.TYPE_LOCATION, "group1"), (short) 1,
+                            Tag.createNotCheck(Tag.TYPE_LOCATION, "group2"), (short) 2)));
             transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
-                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_clamp", transactionSource,
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_clamp", transactionSource,
                     LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
             commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1,
                     Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2));
@@ -310,23 +311,26 @@ public class DatabaseTransactionMgrTest {
 
             // Invalid items are ignored. The parse result is cached, so only the first commit after
             // a config change may warn; later commits on the hot path must stay silent.
-            Config.cross_az_succ_quorum = new String[] {"invalid", "az1:not-a-number"};
-            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
-                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_invalid_0",
-                    transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
-            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
-                    transactionId, commitInfos, null);
-            try (TestLogAppender appender = TestLogAppender.attach(Config.class, Level.WARN)) {
+            Config.resource_group_succ_quorum = new String[] {"invalid", "group1:not-a-number"};
+            try (TestLogAppender appender = TestLogAppender.attach(DatabaseTransactionMgr.class, Level.WARN)) {
                 transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
-                        Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_invalid_1",
+                        Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_invalid_0",
                         transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
                 masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
                         transactionId, commitInfos, null);
-                Assert.assertFalse(appender.contains(Level.WARN, "Invalid cross_az_succ_quorum item"));
+                Assert.assertTrue(appender.contains(Level.WARN, "Invalid resource_group_succ_quorum item"));
+            }
+            try (TestLogAppender appender = TestLogAppender.attach(DatabaseTransactionMgr.class, Level.WARN)) {
+                transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                        Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_invalid_1",
+                        transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        transactionId, commitInfos, null);
+                Assert.assertFalse(appender.contains(Level.WARN, "Invalid resource_group_succ_quorum item"));
             }
 
         } finally {
-            Config.cross_az_succ_quorum = originalCrossAzSuccQuorum;
+            Config.resource_group_succ_quorum = originalResourceGroupSuccQuorum;
             table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1, originalAllocation);
             backend1.setTagMap(backend1TagMap);
             backend2.setTagMap(backend2TagMap);
@@ -335,18 +339,18 @@ public class DatabaseTransactionMgrTest {
     }
 
     @Test
-    public void testCrossAzSuccessQuorumDoesNotShrinkAfterReplicaBecomesUnavailable() throws UserException {
+    public void testResourceGroupSuccessQuorumDoesNotShrinkAfterReplicaBecomesUnavailable() throws UserException {
         FakeEnv.setEnv(masterEnv);
-        String[] originalCrossAzSuccQuorum = Config.cross_az_succ_quorum;
+        String[] originalResourceGroupSuccQuorum = Config.resource_group_succ_quorum;
         Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
         Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
         Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
         Map<String, String> backend1TagMap = ImmutableMap.copyOf(backend1.getTagMap());
         Map<String, String> backend2TagMap = ImmutableMap.copyOf(backend2.getTagMap());
         Map<String, String> backend3TagMap = ImmutableMap.copyOf(backend3.getTagMap());
-        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
-        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
-        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az2"));
+        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
         OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
                 .getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
@@ -354,19 +358,19 @@ public class DatabaseTransactionMgrTest {
                 .getReplicaAllocation(CatalogTestUtil.testPartitionId1);
         table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1,
                 new ReplicaAllocation(ImmutableMap.of(
-                        Tag.createNotCheck(Tag.TYPE_LOCATION, "az1"), (short) 2,
-                        Tag.createNotCheck(Tag.TYPE_LOCATION, "az2"), (short) 1)));
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group1"), (short) 2,
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group2"), (short) 1)));
         Replica backend2Replica = table.getPartition(CatalogTestUtil.testPartitionId1)
                 .getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1)
                 .getReplicaByBackendId(CatalogTestUtil.testBackendId2);
 
         try {
-            Config.cross_az_succ_quorum = new String[] {"az1:2"};
+            Config.resource_group_succ_quorum = new String[] {"group1:2"};
             List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
                     CatalogTestUtil.testTabletId1,
                     Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId3));
             long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
-                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_dead_after_begin",
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_dead_after_begin",
                     transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
             backend2.setAlive(false);
             try {
@@ -374,12 +378,12 @@ public class DatabaseTransactionMgrTest {
                         transactionId, commitInfos, null);
                 Assert.fail();
             } catch (TabletQuorumFailedException e) {
-                Assert.assertTrue(e.getMessage().contains("cross AZ success quorum failed for az1"));
+                Assert.assertTrue(e.getMessage().contains("resource group success quorum failed for group1"));
             }
             backend2.setAlive(true);
 
             transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
-                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_bad_after_begin",
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_bad_after_begin",
                     transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
             backend2Replica.setBad(true);
             try {
@@ -387,10 +391,10 @@ public class DatabaseTransactionMgrTest {
                         transactionId, commitInfos, null);
                 Assert.fail();
             } catch (TabletQuorumFailedException e) {
-                Assert.assertTrue(e.getMessage().contains("cross AZ success quorum failed for az1"));
+                Assert.assertTrue(e.getMessage().contains("resource group success quorum failed for group1"));
             }
         } finally {
-            Config.cross_az_succ_quorum = originalCrossAzSuccQuorum;
+            Config.resource_group_succ_quorum = originalResourceGroupSuccQuorum;
             backend2.setAlive(true);
             backend2Replica.setBad(false);
             table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1, originalAllocation);
@@ -401,22 +405,22 @@ public class DatabaseTransactionMgrTest {
     }
 
     @Test
-    public void testCrossAzSuccessQuorumIgnoresExtraReplicaBeyondAllocation() throws UserException {
+    public void testResourceGroupSuccessQuorumIgnoresExtraReplicaBeyondAllocation() throws UserException {
         FakeEnv.setEnv(masterEnv);
-        String[] originalCrossAzSuccQuorum = Config.cross_az_succ_quorum;
+        String[] originalResourceGroupSuccQuorum = Config.resource_group_succ_quorum;
         Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
         Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
         Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
         Map<String, String> backend1TagMap = ImmutableMap.copyOf(backend1.getTagMap());
         Map<String, String> backend2TagMap = ImmutableMap.copyOf(backend2.getTagMap());
         Map<String, String> backend3TagMap = ImmutableMap.copyOf(backend3.getTagMap());
-        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
-        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az2"));
-        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az2"));
+        backend1.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
+        backend2.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
+        backend3.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group2"));
 
         long extraBackendId = CatalogTestUtil.testBackendId3 + 100;
         Backend extraBackend = CatalogTestUtil.createBackend(extraBackendId, "extra-host", 123, 124, 125);
-        extraBackend.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "az1"));
+        extraBackend.setTagMap(ImmutableMap.of(Tag.TYPE_LOCATION, "group1"));
         masterEnv.getCurrentSystemInfo().addBackend(extraBackend);
 
         OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
@@ -426,8 +430,8 @@ public class DatabaseTransactionMgrTest {
                 .getReplicaAllocation(CatalogTestUtil.testPartitionId1);
         table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1,
                 new ReplicaAllocation(ImmutableMap.of(
-                        Tag.createNotCheck(Tag.TYPE_LOCATION, "az1"), (short) 1,
-                        Tag.createNotCheck(Tag.TYPE_LOCATION, "az2"), (short) 2)));
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group1"), (short) 1,
+                        Tag.createNotCheck(Tag.TYPE_LOCATION, "group2"), (short) 2)));
         Tablet tablet = table.getPartition(CatalogTestUtil.testPartitionId1)
                 .getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
         Replica extraReplica = new LocalReplica(CatalogTestUtil.testReplicaId3 + 100,
@@ -442,9 +446,9 @@ public class DatabaseTransactionMgrTest {
             Assert.assertEquals(Replica.ReplicaState.NORMAL,
                     tablet.getReplicaByBackendId(extraBackendId).getState());
 
-            Config.cross_az_succ_quorum = new String[] {"az1:2"};
+            Config.resource_group_succ_quorum = new String[] {"group1:2"};
             long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
-                    Lists.newArrayList(CatalogTestUtil.testTableId1), "cross_az_quorum_ignore_extra_replica",
+                    Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_ignore_extra_replica",
                     transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
             List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
                     CatalogTestUtil.testTabletId1,
@@ -455,7 +459,7 @@ public class DatabaseTransactionMgrTest {
         } finally {
             tablet.deleteReplica(extraReplica);
             masterEnv.getCurrentSystemInfo().dropBackend(extraBackendId);
-            Config.cross_az_succ_quorum = originalCrossAzSuccQuorum;
+            Config.resource_group_succ_quorum = originalResourceGroupSuccQuorum;
             table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1, originalAllocation);
             backend1.setTagMap(backend1TagMap);
             backend2.setTagMap(backend2TagMap);

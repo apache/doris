@@ -123,6 +123,9 @@ public class DatabaseTransactionMgr {
     // the max number of txn that can be remove per round.
     // set it to avoid holding lock too long when removing too many txns per round.
     private static final int MAX_REMOVE_TXN_PER_ROUND = 10000;
+    // ConfigBase replaces the array on every update, so its identity is the cache version.
+    private static volatile String[] cachedResourceGroupSuccQuorumConfig;
+    private static volatile Map<String, Integer> cachedResourceGroupSuccQuorum = Map.of();
 
     private final long dbId;
 
@@ -497,8 +500,8 @@ public class DatabaseTransactionMgr {
         TabletInvertedIndex tabletInvertedIndex = env.getTabletInvertedIndex();
         Map<Long, Set<Long>> tabletToBackends = new HashMap<>();
         Map<Long, Table> idToTable = new HashMap<>();
-        Map<String, Integer> crossAzSuccQuorum = Config.getCrossAzSuccQuorum();
-        Map<Long, String> backendLocationTags = crossAzSuccQuorum.isEmpty() ? Map.of() : new HashMap<>();
+        Map<String, Integer> resourceGroupSuccQuorum = getResourceGroupSuccQuorum();
+        Map<Long, String> backendLocationTags = resourceGroupSuccQuorum.isEmpty() ? Map.of() : new HashMap<>();
         for (int i = 0; i < tableList.size(); i++) {
             idToTable.put(tableList.get(i).getId(), tableList.get(i));
         }
@@ -615,7 +618,7 @@ public class DatabaseTransactionMgr {
 
                 // (TODO): ignore the alter index if txn id is less than sc sched watermark
                 int loadRequiredReplicaNum = table.getLoadRequiredReplicaNum(partition.getId());
-                ReplicaAllocation replicaAllocation = crossAzSuccQuorum.isEmpty() ? null
+                ReplicaAllocation replicaAllocation = resourceGroupSuccQuorum.isEmpty() ? null
                         : table.getPartitionInfo().getReplicaAllocation(partition.getId());
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
@@ -634,7 +637,7 @@ public class DatabaseTransactionMgr {
                                 throw new TransactionCommitFailedException("could not find replica for tablet ["
                                         + tabletId + "], backend [" + tabletBackend + "]");
                             }
-                            if (!crossAzSuccQuorum.isEmpty()) {
+                            if (!resourceGroupSuccQuorum.isEmpty()) {
                                 backendLocationTags.computeIfAbsent(tabletBackend, backendId -> {
                                     Backend backend = env.getCurrentSystemInfo().getBackend(backendId);
                                     return backend == null ? "" : backend.getLocationTag().value;
@@ -684,30 +687,31 @@ public class DatabaseTransactionMgr {
                             throw new TabletQuorumFailedException(transactionId, errMsg);
                         }
 
-                        for (Entry<String, Integer> entry : crossAzSuccQuorum.entrySet()) {
-                            String az = entry.getKey();
-                            int replicaNumInAz = replicaAllocation.getReplicaNumByTag(
-                                    Tag.createNotCheck(Tag.TYPE_LOCATION, az));
-                            int requiredInAz = Math.min(entry.getValue(), replicaNumInAz);
-                            if (requiredInAz == 0) {
+                        for (Entry<String, Integer> entry : resourceGroupSuccQuorum.entrySet()) {
+                            String resourceGroup = entry.getKey();
+                            int replicaNumInResourceGroup = replicaAllocation.getReplicaNumByTag(
+                                    Tag.createNotCheck(Tag.TYPE_LOCATION, resourceGroup));
+                            int requiredInResourceGroup = Math.min(entry.getValue(), replicaNumInResourceGroup);
+                            if (requiredInResourceGroup == 0) {
                                 continue;
                             }
 
-                            int succInAz = 0;
+                            int succInResourceGroup = 0;
                             for (Replica replica : tabletSuccReplicas) {
-                                if (az.equals(backendLocationTags.get(replica.getBackendIdWithoutException()))) {
-                                    succInAz++;
+                                if (resourceGroup.equals(
+                                        backendLocationTags.get(replica.getBackendIdWithoutException()))) {
+                                    succInResourceGroup++;
                                 }
                             }
-                            if (succInAz < requiredInAz) {
+                            if (succInResourceGroup < requiredInResourceGroup) {
                                 String writeDetail = getTabletWriteDetail(tabletSuccReplicas,
                                         tabletWriteFailedReplicas, tabletVersionFailedReplicas);
-                                String errMsg = String.format("Failed to commit txn %s, cause tablet %s cross AZ "
-                                                + "success quorum failed for %s: required %s successful replicas, "
-                                                + "but only %s succeeded. table %s, partition: [ id=%s, commit "
-                                                + "version %s, visible version %s ], this tablet detail: %s. "
-                                                + "Please try again later.",
-                                        transactionId, tablet.getId(), az, requiredInAz, succInAz, tableId,
+                                String errMsg = String.format("Failed to commit txn %s, cause tablet %s resource "
+                                                + "group success quorum failed for %s: required %s successful "
+                                                + "replicas, but only %s succeeded. table %s, partition: [ id=%s, "
+                                                + "commit version %s, visible version %s ], this tablet detail: %s. "
+                                                + "Please try again later.", transactionId, tablet.getId(),
+                                        resourceGroup, requiredInResourceGroup, succInResourceGroup, tableId,
                                         partition.getId(), partition.getCommittedVersion(),
                                         partition.getVisibleVersion(), writeDetail);
                                 LOG.info(errMsg);
@@ -717,6 +721,36 @@ public class DatabaseTransactionMgr {
                     }
                 }
             }
+        }
+    }
+
+    private static Map<String, Integer> getResourceGroupSuccQuorum() {
+        String[] config = Config.resource_group_succ_quorum;
+        if (config == cachedResourceGroupSuccQuorumConfig) {
+            return cachedResourceGroupSuccQuorum;
+        }
+        synchronized (DatabaseTransactionMgr.class) {
+            config = Config.resource_group_succ_quorum;
+            if (config == cachedResourceGroupSuccQuorumConfig) {
+                return cachedResourceGroupSuccQuorum;
+            }
+            Map<String, Integer> parsedConfig = new HashMap<>();
+            for (String item : config) {
+                String[] parts = item.split(":", -1);
+                try {
+                    int configuredMin = Integer.parseInt(parts.length == 2 ? parts[1].trim() : "");
+                    if (parts[0].trim().isEmpty() || configuredMin < 0) {
+                        throw new NumberFormatException();
+                    }
+                    parsedConfig.put(parts[0].trim(), configuredMin);
+                } catch (NumberFormatException e) {
+                    LOG.warn("Invalid resource_group_succ_quorum item '{}', ignored. Expected format "
+                            + "resource_group:min_success_replicas with a non-negative integer.", item);
+                }
+            }
+            cachedResourceGroupSuccQuorum = parsedConfig;
+            cachedResourceGroupSuccQuorumConfig = config;
+            return parsedConfig;
         }
     }
 

@@ -17,19 +17,9 @@
 
 package org.apache.doris.common;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.File;
-import java.util.HashMap;
-import java.util.Map;
 
 public class Config extends ConfigBase {
-    private static final Logger LOG = LogManager.getLogger(Config.class);
-    // ConfigBase replaces the array on every update, so its identity is the cache version.
-    private static volatile String[] cachedCrossAzSuccQuorumConfig;
-    private static volatile Map<String, Integer> cachedCrossAzSuccQuorum = Map.of();
-
     @ConfField(description = "The path of the user-defined configuration file, used to store fe_custom.conf. "
             + "Configurations in this file will override those in fe.conf")
     public static String custom_config_dir = EnvUtils.getDorisHome() + "/conf";
@@ -551,38 +541,8 @@ public class Config extends ConfigBase {
     public static short min_load_replica_num = -1;
 
     @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas "
-            + "required in each availability zone for a load job.")
-    public static volatile String[] cross_az_succ_quorum = {};
-
-    public static Map<String, Integer> getCrossAzSuccQuorum() {
-        String[] config = cross_az_succ_quorum;
-        if (config == cachedCrossAzSuccQuorumConfig) {
-            return cachedCrossAzSuccQuorum;
-        }
-        synchronized (Config.class) {
-            config = cross_az_succ_quorum;
-            if (config == cachedCrossAzSuccQuorumConfig) {
-                return cachedCrossAzSuccQuorum;
-            }
-            Map<String, Integer> parsedConfig = new HashMap<>();
-            for (String item : config) {
-                String[] parts = item.split(":", -1);
-                try {
-                    int configuredMin = Integer.parseInt(parts.length == 2 ? parts[1].trim() : "");
-                    if (parts[0].trim().isEmpty() || configuredMin < 0) {
-                        throw new NumberFormatException();
-                    }
-                    parsedConfig.put(parts[0].trim(), configuredMin);
-                } catch (NumberFormatException e) {
-                    LOG.warn("Invalid cross_az_succ_quorum item '{}', ignored. Expected format "
-                            + "az:min_success_replicas with a non-negative integer.", item);
-                }
-            }
-            cachedCrossAzSuccQuorum = parsedConfig;
-            cachedCrossAzSuccQuorumConfig = config;
-            return parsedConfig;
-        }
-    }
+            + "required in each resource group for a load job.")
+    public static volatile String[] resource_group_succ_quorum = {};
 
     @ConfField(description = "The interval of the load job scheduler, in seconds.")
     public static int load_checker_interval_second = 5;
