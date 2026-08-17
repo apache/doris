@@ -188,3 +188,4 @@ PhysicalResultSink
 --------filter(((cast(id as BIGINT) * $_random_10_$) <= 200) and ((cast(id as BIGINT) * $_random_10_$) >= 100))
 ----------PhysicalProject[cast(id as BIGINT) AS `cast(id as BIGINT)`, random(1, 100) AS `$_random_10_$`, t2.id, t2.msg]
 ------------PhysicalOlapScan[t2]
+
