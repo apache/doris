@@ -27,16 +27,13 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "runtime/exec_env.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_request.h"
 #include "service/http/http_status.h"
 #include "storage/storage_engine.h"
 
 namespace doris {
-
-const std::string PATH = "path";
-const std::string TABLET_ID = "tablet_id";
-const std::string SCHEMA_HASH = "schema_hash";
 
 ReloadTabletAction::ReloadTabletAction(ExecEnv* exec_env, StorageEngine& engine,
                                        TPrivilegeHier::type hier, TPrivilegeType::type type)

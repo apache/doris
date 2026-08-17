@@ -73,11 +73,11 @@
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
+#include "storage/segment/common.h" // k_segment_magic
 #include "storage/segment/empty_segment_iterator.h"
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h"
 #include "storage/segment/segment_iterator.h"
-#include "storage/segment/segment_writer.h" // k_segment_magic_length
 #include "storage/segment/stream_reader.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"

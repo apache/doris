@@ -271,8 +271,8 @@ public class NereidsCoordinator extends Coordinator {
     }
 
     @Override
-    public void updateFragmentExecStatus(TReportExecStatusParams params) {
-        coordinatorContext.getJobProcessor().updateFragmentExecStatus(params);
+    public boolean updateFragmentExecStatus(TReportExecStatusParams params) {
+        return coordinatorContext.getJobProcessor().updateFragmentExecStatus(params);
     }
 
     @Override

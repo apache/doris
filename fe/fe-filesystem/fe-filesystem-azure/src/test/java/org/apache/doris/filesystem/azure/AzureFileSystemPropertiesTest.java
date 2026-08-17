@@ -21,12 +21,14 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.StorageKind;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -185,10 +187,15 @@ class AzureFileSystemPropertiesTest {
         Assertions.assertEquals("8", backendMap.get("fs.azure.readaheadqueue.depth"));
         // Explicit user value wins, but normalized to true/false — "no" must not reach BE verbatim.
         Assertions.assertEquals("false", backendMap.get("fs.abfss.impl.disable.cache"));
-        // The other three legacy schemes keep the default.
-        Assertions.assertEquals("true", backendMap.get("fs.abfs.impl.disable.cache"));
-        Assertions.assertEquals("true", backendMap.get("fs.wasb.impl.disable.cache"));
-        Assertions.assertEquals("true", backendMap.get("fs.wasbs.impl.disable.cache"));
+        // The other three legacy schemes are no longer force-disabled: the patched FileSystem keys
+        // its cache by the per-scheme credential fingerprint instead.
+        Assertions.assertNull(backendMap.get("fs.abfs.impl.disable.cache"));
+        Assertions.assertNull(backendMap.get("fs.wasb.impl.disable.cache"));
+        Assertions.assertNull(backendMap.get("fs.wasbs.impl.disable.cache"));
+        for (String scheme : List.of("abfs", "abfss", "wasb", "wasbs")) {
+            Assertions.assertEquals(properties.fsCacheFingerprint(),
+                    backendMap.get(FsCacheKeys.fsCacheKeyProperty(scheme)));
+        }
     }
 
     @Test

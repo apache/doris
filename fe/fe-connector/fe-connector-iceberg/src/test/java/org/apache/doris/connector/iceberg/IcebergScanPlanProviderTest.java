@@ -404,6 +404,23 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void explicitEmptySnapshotDoesNotDriftToFirstConcurrentCommit() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergTableHandle emptyPin = new IcebergTableHandle("db1", "t1")
+                .withSnapshot(-1L, null, -1L);
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/concurrent.parquet", 1024, null, null)).commit();
+        // Keep construction behind the shared helper so catalog-property API migrations do not break this test.
+        IcebergScanPlanProvider provider = providerOver(table);
+
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(emptyPin, Collections.emptyList()).build());
+
+        Assertions.assertTrue(ranges.isEmpty(),
+                "an explicit empty MVCC pin must not be replaced by the table's first snapshot");
+    }
+
+    @Test
     public void planScanRewriteFileScopeKeepsOnlyRawScopedFiles() {
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         // oss:// data-file paths: the context normalizes oss:// -> s3:// for the BE-facing range path, so this
@@ -1764,6 +1781,23 @@ public class IcebergScanPlanProviderTest {
                 .requiredPartitions(Collections.emptyList()).countPushdown(true).build());
         Assertions.assertEquals(1, pinned.size());
         Assertions.assertEquals(10L, pinned.get(0).getPushDownRowCount());
+    }
+
+    @Test
+    public void metadataOnlyCountCapabilityUsesSnapshotSummary() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(
+                table.spec(), "s3://b/db/t1/f1.parquet", 1000, null, null)).commit();
+        // The typed wrapper preserves catalog-property validation after the provider constructor migration.
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC", Collections.emptyMap());
+
+        Assertions.assertTrue(provider.canServeMetadataOnlyCount(
+                session, new IcebergTableHandle("db1", "t1"), Optional.empty()));
+        Assertions.assertFalse(provider.canServeMetadataOnlyCount(
+                session, IcebergTableHandle.forSystemTable(
+                        "db1", "t1", "snapshots", -1L, null, -1L), Optional.empty()));
     }
 
     @Test

@@ -696,12 +696,12 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
     } else if constexpr (T == TYPE_LARGEINT) {
         auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t i = start; i < end; ++i) {
-            auto& data_value = col_data[i];
-            std::string value_str = fmt::format("{}", data_value);
             if (null_map && (*null_map)[i]) {
                 RETURN_IF_ERROR(
                         checkArrowStatus(string_builder.AppendNull(), column, *array_builder));
             } else {
+                const auto& data_value = col_data[i];
+                std::string value_str = fmt::format("{}", data_value);
                 RETURN_IF_ERROR(checkArrowStatus(
                         string_builder.Append(value_str.data(),
                                               cast_set<int, size_t, false>(value_str.length())),

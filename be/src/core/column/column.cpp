@@ -29,6 +29,28 @@
 
 namespace doris {
 
+namespace {
+
+bool contains_boolean_value_column(const IColumn& column) {
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        return contains_boolean_value_column(nullable->get_nested_column());
+    }
+    if (check_and_get_column<ColumnBool>(column)) {
+        return true;
+    }
+
+    bool contains_boolean = false;
+    IColumn::ColumnCallback callback = [&](const IColumn& subcolumn) {
+        if (!contains_boolean && contains_boolean_value_column(subcolumn)) {
+            contains_boolean = true;
+        }
+    };
+    column.for_each_subcolumn(callback);
+    return contains_boolean;
+}
+
+} // namespace
+
 std::string IColumn::dump_structure() const {
     std::stringstream res;
     res << get_name() << "(size = " << size();
@@ -65,6 +87,11 @@ bool IColumn::column_boolean_check() const {
     if (const auto* col_nullable = check_and_get_column<ColumnNullable>(*this)) {
         // for column nullable, we need to skip null values check
         const auto& nested_col = col_nullable->get_nested_column();
+        // Do not materialize complex payloads that cannot contain Boolean values; filtering a
+        // multi-GB nested column solely for debug validation can exhaust query memory.
+        if (!contains_boolean_value_column(nested_col)) {
+            return true;
+        }
         const auto& null_map = col_nullable->get_null_map_data();
         Filter not_null_filter;
         not_null_filter.reserve(nested_col.size());

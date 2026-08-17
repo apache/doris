@@ -38,6 +38,7 @@ Outputs inside <run_dir>: report.txt (human) and summary.json (machine).
 import argparse
 import json
 import os
+import re
 import sys
 from collections import defaultdict
 
@@ -46,6 +47,10 @@ TOP_HEADERS = 30
 TOP_TEMPLATES = 20
 TOP_TAIL = 10
 WIDTH = 78
+
+# be/<build dir>/<mirrored source dir>/CMakeFiles/<target>.dir/Unity/unity_<n>_cxx.cxx
+UNITY_SOURCE_RE = re.compile(
+    r"^be/build[^/]*/(.+?)/CMakeFiles/[^/]+\.dir/Unity/unity_\d+_c(?:xx)?\.c(?:xx)?$")
 
 
 def section(title):
@@ -166,9 +171,25 @@ def shorten_header(path, meta):
     return path
 
 
+def unity_source_dir(rel_src):
+    """Logical source directory of a generated unity TU, or None.
+
+    CMake writes unity sources into the build tree, mirroring the source layout:
+      be/build_Release_compile_bench/src/storage/CMakeFiles/Storage.dir/Unity/unity_0_cxx.cxx
+    which batches sources from be/src/storage. Without this the whole batch rolls
+    up under the build directory instead of the module it came from.
+
+    Attribution is only as fine as the target's own directory: a batch that
+    merges just be/src/service/http sources still lands on be/src/service, and a
+    unity TU is one timing for all of its members by construction.
+    """
+    match = UNITY_SOURCE_RE.match(rel_src)
+    return "be/" + match.group(1) if match else None
+
+
 def group_keys(rel_src):
     """Return (level1, level2) directory grouping keys for a doris_home-relative source."""
-    rel_dir = os.path.dirname(rel_src)
+    rel_dir = unity_source_dir(rel_src) or os.path.dirname(rel_src)
     if rel_dir.startswith("be/src"):
         prefix, rest = "be/src", rel_dir[len("be/src"):].strip("/")
     else:

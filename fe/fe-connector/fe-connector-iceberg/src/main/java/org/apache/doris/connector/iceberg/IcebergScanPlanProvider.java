@@ -483,6 +483,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return fileCount >= threshold ? fileCount : -1;
     }
 
+    @Override
+    public boolean canServeMetadataOnlyCount(ConnectorSession session, ConnectorTableHandle handle,
+            Optional<ConnectorExpression> filter) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isSystemTable() || filter.isPresent()) {
+            // Snapshot summaries describe the whole table and cannot prove a filtered row count.
+            return false;
+        }
+        Table table = resolveTable(session, iceHandle);
+        TableScan scan = buildScan(table, iceHandle, filter, session);
+        return getCountFromSnapshot(scan, session) >= 0;
+    }
+
     /**
      * Lazy streaming split source (FIX-M3), mirroring legacy {@code IcebergScanNode.doStartSplit}: slice files at
      * a FIXED size ({@code file_split_size} if set, else {@code max_split_size} — NOT the per-table
@@ -962,7 +975,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Table metadataTable, List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,
             ConnectorSession session) {
         BatchScan scan = metadataTable.newBatchScan();
-        if (handle.hasSnapshotPin()) {
+        if (handle.hasSnapshotSelection()) {
             if (handle.getRef() != null) {
                 scan = scan.useRef(handle.getRef());
             } else {
@@ -1183,6 +1196,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     /** Whether this table type's scan can actually honor Iceberg's snapshot/ref selection APIs. */
     private static boolean supportsSnapshotSelection(IcebergTableHandle handle) {
+        if (!handle.hasSnapshotSelection()) {
+            return false;
+        }
         if (!handle.isSystemTable()) {
             return true;
         }

@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -46,6 +47,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.TableKeyMeta;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.View;
@@ -123,7 +125,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
-import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.MasterOpExecutor;
@@ -578,24 +579,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private String getMysqlTableSchema(String ctl, String db) {
-        if (!GlobalVariable.showFullDbNameInInfoSchemaDb) {
-            return db;
-        }
-        if (ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            return db;
-        }
-        return ctl + "." + db;
+        return InfoSchemaDb.getMysqlTableSchema(ctl, db);
     }
 
     private String getDbNameFromMysqlTableSchema(String ctl, String db) {
-        if (ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            return db;
-        }
-        String[] parts = db.split("\\.");
-        if (parts.length == 2) {
-            return parts[1];
-        }
-        return db;
+        return InfoSchemaDb.getDbNameFromMysqlTableSchema(ctl, db);
     }
 
     @Override
@@ -995,6 +983,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (table != null && !table.isTemporary()) {
                     table.readLock();
                     try {
+                        // MySQL marks a column PRI, UNI or MUL depending on the kind of index it
+                        // leads. Doris used to report its table model here instead, which meant
+                        // values such as AGG and DUP that no MySQL client knows what to do with.
+                        Map<String, String> columnKeys = params.isMysqlCompatibleIndexMetadata()
+                                ? TableKeyMeta.buildColumnKeys(table) : Collections.emptyMap();
                         List<Column> baseSchema = table.getBaseSchemaOrEmpty();
                         for (Column column : baseSchema) {
                             final TColumnDesc desc = getColumnDesc(column);
@@ -1008,10 +1001,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                     colDef.setComment(comment);
                                 }
                             }
-                            if (column.isKey()) {
-                                if (table instanceof OlapTable) {
-                                    desc.setColumnKey(((OlapTable) table).getKeysType().toMetadata());
+                            if (params.isMysqlCompatibleIndexMetadata()) {
+                                String columnKey = columnKeys.get(column.getName());
+                                if (columnKey != null) {
+                                    desc.setColumnKey(columnKey);
                                 }
+                            } else if (column.isKey() && table instanceof OlapTable) {
+                                desc.setColumnKey(((OlapTable) table).getKeysType().toMetadata());
                             }
                             columns.add(colDef);
                         }

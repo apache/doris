@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_request.h"
 #include "service/http/utils.h"
@@ -33,7 +34,6 @@
 namespace doris {
 namespace {
 const std::string FILE_PARAMETER = "file";
-const std::string TOKEN_PARAMETER = "token";
 const std::string CHANNEL_PARAMETER = "channel";
 const std::string CHANNEL_INGEST_BINLOG_TYPE = "ingest_binlog";
 const std::string ACQUIRE_MD5_PARAMETER = "acquire_md5";

@@ -27,6 +27,7 @@
 #include <memory> // unique_ptr
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "common/status.h" // Status
@@ -165,9 +166,8 @@ private:
     Status _append_generated_column(const DerivedColumnGenerator& generator, const Block& block,
                                     size_t row_pos, size_t num_rows, uint32_t cid);
     // Thin wrapper over MowKeyProbe that translates a ProbeOutcome back into the out-parameters the
-    // partial update fill loops use. `found_cb` receives the rowset that holds `loc`: the fixed
-    // path pins it in its HistoricalRowFetcher, the flexible path in `_rsid_to_rowset`, which its
-    // fill still reads from.
+    // flexible partial update fill loop uses. `found_cb` receives the rowset that holds `loc` and
+    // pins it in `_rsid_to_rowset`, which the fill still reads from.
     Status _probe_key_for_mow(
             const MowKeyProbe& probe, std::string key, std::size_t segment_pos,
             bool have_input_seq_column, bool have_delete_sign,
@@ -177,8 +177,7 @@ private:
             const std::function<void(const RowLocation& loc, const RowsetSharedPtr& rowset)>&
                     found_cb,
             const std::function<Status()>& not_found_cb, PartialUpdateStats& stats);
-    Status _partial_update_preconditions_check(size_t row_pos, bool is_flexible_update);
-    Status _append_block_with_partial_content(RowsInBlock& data, Block& full_block);
+    Status _partial_update_preconditions_check(size_t row_pos);
     Status _append_block_with_flexible_partial_content(RowsInBlock& data, Block& full_block);
     Status _generate_encoded_default_seq_value(const TabletSchema& tablet_schema,
                                                const PartialUpdateInfo& info,

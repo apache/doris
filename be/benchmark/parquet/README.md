@@ -45,14 +45,21 @@ be/output/lib/benchmark_test \
 
 ## SIMD kernel cases
 
-`ParquetKernel` isolates six decode and selection stages from reader setup and virtual consumer
+`ParquetKernel` isolates seven decode and selection stages from reader setup and virtual consumer
 overhead: byte-stream-split transpose, delta prefix sum, numeric dictionary gather, nullable
-expansion, raw predicate evaluation, and repeated-level sparse selection. It covers the applicable
+expansion, nullable selection planning, raw predicate evaluation, and repeated-level sparse
+selection. It covers the applicable
 4-byte and 8-byte integer and floating-point physical types, raw-predicate selectivities from 0%
 through 100%, and nullable rates from 0% through 90% with clustered and alternating placement.
 Nested selection covers 1%, 10%, and 50% surviving parent rows with both placement patterns.
 Each nested-selection scenario registers both `impl_legacy` and `impl_fused`; both paths use the
 same source levels and are checked against an independent oracle before timing.
+Nullable selection planning registers legacy and fused pairs across five selectivities, five null
+rates, and independent clustered or alternating selection/null placement. Both implementations are
+checked for identical physical ranges and null maps before timing. The full matrix also acts as a
+negative control: production fusion is limited to batches with at least 1,024 rows, at least 10%
+NULLs, and fragmented definition-level runs; no-NULL, low-NULL, and clustered pages retain the
+legacy planner.
 Dictionary gather uses 32-, 4,096-, and 262,144-entry working sets to separate cache-resident and
 cache-miss-dominated behavior.
 
@@ -128,6 +135,18 @@ references two new columns and accepts every row that reaches it:
 be/output/lib/benchmark_test \
   --benchmark_filter='^ParquetReader/complex_residual_scan/plain/null_10/alternating/sel_10/' \
   --benchmark_min_time=1s
+```
+
+The multi-column OR pair scans the same ColumnIndex/OffsetIndex fixture and changes only the Doris
+Page Index switch. Both variants retain the full residual expression, so the comparison measures
+metadata pruning without changing result semantics:
+
+```shell
+be/output/lib/benchmark_test \
+  --benchmark_filter='^ParquetReader/multi_column_or/page_index_(off|on)$' \
+  --benchmark_min_time=1s \
+  --benchmark_repetitions=10 \
+  --benchmark_report_aggregates_only=true
 ```
 
 Every result reports throughput plus `raw_rows`, `selected_rows`, `fixture_bytes`, `ns/raw_row`,

@@ -214,6 +214,8 @@ public class SessionVariable implements Serializable, Writable {
 
     // if set to true, some of stmt will be forwarded to master FE to get result
     public static final String FORWARD_TO_MASTER = "forward_to_master";
+    // if set to true, all queries of this session will be forwarded to master FE
+    public static final String FORCE_FORWARD_ALL_QUERIES = "force_forward_all_queries";
     // user can set instance num after exchange, no need to be equal to nums of before exchange
     public static final String PARALLEL_EXCHANGE_INSTANCE_NUM = "parallel_exchange_instance_num";
     public static final String SHOW_HIDDEN_COLUMNS = "show_hidden_columns";
@@ -225,6 +227,11 @@ public class SessionVariable implements Serializable, Writable {
 
     // Compatible with  mysql
     public static final String PROFILLING = "profiling";
+
+    // Report index/key metadata the way MySQL does, so that MySQL ODBC/JDBC clients
+    // and BI tools can discover the primary key of a table.
+    public static final String ENABLE_MYSQL_COMPATIBLE_INDEX_METADATA
+            = "enable_mysql_compatible_index_metadata";
 
     public static final String DIV_PRECISION_INCREMENT = "div_precision_increment";
 
@@ -1563,6 +1570,9 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = FORWARD_TO_MASTER)
     public boolean forwardToMaster = true;
 
+    @VarAttrDef.VarAttr(name = FORCE_FORWARD_ALL_QUERIES)
+    public boolean forceForwardAllQueries = false;
+
     // compatible with some mysql client connect, say DataGrip of JetBrains
     @VarAttrDef.VarAttr(name = EVENT_SCHEDULER)
     public String eventScheduler = "OFF";
@@ -1572,6 +1582,14 @@ public class SessionVariable implements Serializable, Writable {
     public String defaultStorageEngine = "olap";
     @VarAttrDef.VarAttr(name = DEFAULT_TMP_STORAGE_ENGINE)
     public String defaultTmpStorageEngine = "olap";
+
+    @VarAttrDef.VarAttr(name = ENABLE_MYSQL_COMPATIBLE_INDEX_METADATA,
+            description = "Report index and key metadata the way MySQL does. When ON, SHOW KEYS|INDEX returns "
+                    + "one row per indexed column and exposes the UNIQUE/AGGREGATE key of a table as an index "
+                    + "named PRIMARY, which is what MySQL ODBC/JDBC drivers and BI tools look for. OFF by "
+                    + "default, which keeps the legacy output that only lists secondary indexes. Set it "
+                    + "globally to turn it on for every client of the cluster.")
+    public boolean enableMysqlCompatibleIndexMetadata = false;
 
     @VarAttrDef.VarAttr(name = MAX_SCAN_KEY_NUM)
     public int maxScanKeyNum = 48;
@@ -4451,6 +4469,10 @@ public class SessionVariable implements Serializable, Writable {
         return forwardToMaster;
     }
 
+    public boolean isForceForwardAllQueries() {
+        return forceForwardAllQueries;
+    }
+
     // for unit test
 
     public String getEventScheduler() {
@@ -4515,6 +4537,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setShowHiddenColumns(boolean showHiddenColumns) {
         this.showHiddenColumns = showHiddenColumns;
+    }
+
+    public boolean enableMysqlCompatibleIndexMetadata() {
+        return enableMysqlCompatibleIndexMetadata;
+    }
+
+    public void setEnableMysqlCompatibleIndexMetadata(boolean enableMysqlCompatibleIndexMetadata) {
+        this.enableMysqlCompatibleIndexMetadata = enableMysqlCompatibleIndexMetadata;
     }
 
     public boolean skipStorageEngineMerge() {
@@ -5354,6 +5384,9 @@ public class SessionVariable implements Serializable, Writable {
      */
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
+        // Fragment reports are decoded by FE, whose limit can be lower than a rolling-upgrade BE's.
+        tResult.setCoordinatorThriftMaxMessageSize(Config.thrift_max_message_size);
+        tResult.setSupportsExternalFileReportAck(true);
         tResult.setMemLimit(maxExecMemByte);
         tResult.setMaxScanMemRatio(maxScanMemRatio);
         tResult.setEnableAdaptiveScan(enableAdaptiveScan);
