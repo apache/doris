@@ -18,56 +18,23 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-
-class PullUpProjectUnderTopNTest implements MemoPatternMatchSupported {
-    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-    private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
-
-    // ut framework has a bug that exprIds are not unique. This case needs to be redesigned
-    @Disabled
-    void test() {
-        List<NamedExpression> exprs = ImmutableList.of(
-                scan1.getOutput().get(0).alias("id"),
-                new Cast(scan1.getOutput().get(1), VarcharType.SYSTEM_DEFAULT).alias("cast")
-        );
-        LogicalPlan limit = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, ImmutableList.of())
-                .projectExprs(exprs)
-                .topN(0, 0, ImmutableList.of(0))
-                .build();
-
-        PlanChecker.from(MemoTestUtils.createConnectContext(), limit)
-                .applyTopDown(new PullUpProjectUnderTopN())
-                .printlnTree()
-                .matches(
-                        logicalProject(
-                                logicalTopN(
-                                        logicalJoin()
-                                )
-                        )
-                );
-    }
+class PullUpProjectBetweenTopNAndAggTest implements MemoPatternMatchSupported {
 
     /**
      * A project computing a NoneMovableFunction (assert_true) must not be pulled above the
@@ -76,20 +43,27 @@ class PullUpProjectUnderTopNTest implements MemoPatternMatchSupported {
      */
     @Test
     void testNotPullUpProjectWithNoneMovableFunction() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().enableCompressMaterialize = true;
+        LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        LogicalPlan agg = new LogicalPlanBuilder(scan)
+                .aggAllUsingIndex(ImmutableList.of(0), ImmutableList.of(0))
+                .build();
         Alias assertAlias = new Alias(new AssertTrue(
-                new GreaterThan(scan1.getOutput().get(0), new IntegerLiteral(0)),
+                new GreaterThan(agg.getOutput().get(0), new IntegerLiteral(0)),
                 new StringLiteral("msg")), "x");
-        LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, ImmutableList.of())
-                .projectExprs(ImmutableList.of(assertAlias, scan2.getOutput().get(0)))
+        LogicalPlan plan = new LogicalPlanBuilder(agg)
+                .projectExprs(ImmutableList.of(assertAlias, agg.getOutput().get(0)))
                 .topN(5, 0, ImmutableList.of(1))
                 .build();
-        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyTopDown(new PullUpProjectUnderTopN())
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(new PullUpProjectBetweenTopNAndAgg())
                 .matchesFromRoot(
                         logicalTopN(
                                 logicalProject(
-                                        logicalJoin()
+                                        logicalAggregate(
+                                                logicalOlapScan()
+                                        )
                                 )
                         )
                 );
