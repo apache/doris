@@ -132,6 +132,63 @@ TEST(ArrowArrayNormalizerTest, DictionaryOfLargeStringIsFullyNormalized) {
     EXPECT_EQ(sa->GetString(1), "x");
 }
 
+TEST(ArrowArrayNormalizerTest, ListViewIsConvertedToListInLogicalOrder) {
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({2, 0, 1}).ok());
+    std::shared_ptr<arrow::Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+
+    arrow::Int32Builder sizes_builder;
+    ASSERT_TRUE(sizes_builder.AppendValues({2, 1, 2}).ok());
+    std::shared_ptr<arrow::Array> sizes;
+    ASSERT_TRUE(sizes_builder.Finish(&sizes).ok());
+
+    arrow::Int32Builder values_builder;
+    ASSERT_TRUE(values_builder.AppendValues({1, 2, 3, 4}).ok());
+    std::shared_ptr<arrow::Array> values;
+    ASSERT_TRUE(values_builder.Finish(&values).ok());
+
+    auto in = arrow::ListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    EXPECT_FALSE(is_serde_acceptable_arrow_type(*in->type()));
+
+    std::shared_ptr<arrow::Array> out;
+    ASSERT_TRUE(normalize_arrow_array(in, &out).ok());
+    ASSERT_EQ(out->type_id(), arrow::Type::LIST);
+    auto list = std::static_pointer_cast<arrow::ListArray>(out);
+    ASSERT_EQ(list->length(), 3);
+    EXPECT_EQ(list->value_slice(0)->ToString(), "[\n  3,\n  4\n]");
+    EXPECT_EQ(list->value_slice(1)->ToString(), "[\n  1\n]");
+    EXPECT_EQ(list->value_slice(2)->ToString(), "[\n  2,\n  3\n]");
+}
+
+TEST(ArrowArrayNormalizerTest, LargeListViewIsConvertedToLargeList) {
+    arrow::Int64Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues({1, 0}).ok());
+    std::shared_ptr<arrow::Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+
+    arrow::Int64Builder sizes_builder;
+    ASSERT_TRUE(sizes_builder.AppendValues({2, 1}).ok());
+    std::shared_ptr<arrow::Array> sizes;
+    ASSERT_TRUE(sizes_builder.Finish(&sizes).ok());
+
+    arrow::Int32Builder values_builder;
+    ASSERT_TRUE(values_builder.AppendValues({10, 20, 30}).ok());
+    std::shared_ptr<arrow::Array> values;
+    ASSERT_TRUE(values_builder.Finish(&values).ok());
+
+    auto in = arrow::LargeListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    EXPECT_FALSE(is_serde_acceptable_arrow_type(*in->type()));
+
+    std::shared_ptr<arrow::Array> out;
+    ASSERT_TRUE(normalize_arrow_array(in, &out).ok());
+    ASSERT_EQ(out->type_id(), arrow::Type::LARGE_LIST);
+    auto list = std::static_pointer_cast<arrow::LargeListArray>(out);
+    ASSERT_EQ(list->length(), 2);
+    EXPECT_EQ(list->value_slice(0)->ToString(), "[\n  20,\n  30\n]");
+    EXPECT_EQ(list->value_slice(1)->ToString(), "[\n  10\n]");
+}
+
 // An unsupported type must name itself, otherwise the offending column cannot be found in prod.
 TEST(ArrowArrayNormalizerTest, UnsupportedTypeFailsLoudWithTypeName) {
     auto in = arrow::MakeArrayOfNull(arrow::month_interval(), 1).ValueOrDie();

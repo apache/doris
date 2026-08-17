@@ -18,6 +18,7 @@
 #include "format/arrow/arrow_array_normalizer.h"
 
 #include <arrow/array/array_base.h>
+#include <arrow/array/array_nested.h>
 #include <arrow/compute/cast.h>
 #include <arrow/type.h>
 
@@ -59,6 +60,8 @@ bool is_serde_acceptable_arrow_type(const arrow::DataType& type) {
     case arrow::Type::BINARY_VIEW:
     case arrow::Type::DICTIONARY:
     case arrow::Type::RUN_END_ENCODED:
+    case arrow::Type::LIST_VIEW:
+    case arrow::Type::LARGE_LIST_VIEW:
         return false;
     // No Doris column can hold these, so they must not reach a serde either.
     case arrow::Type::INTERVAL_MONTHS:
@@ -87,6 +90,31 @@ Status normalize_arrow_array(const std::shared_ptr<arrow::Array>& arr,
         if (is_serde_acceptable_arrow_type(type)) {
             *out = std::move(current);
             return Status::OK();
+        }
+
+        // List views may share or reorder value ranges, so rebuild canonical offsets instead of
+        // exposing their buffers to a serde that requires contiguous list values.
+        if (type.id() == arrow::Type::LIST_VIEW) {
+            auto converted = arrow::ListArray::FromListView(
+                    static_cast<const arrow::ListViewArray&>(*current),
+                    arrow::default_memory_pool());
+            if (!converted.ok()) {
+                return Status::InternalError("ADBC: failed to normalize arrow type '{}': {}",
+                                             type.ToString(), converted.status().ToString());
+            }
+            current = converted.MoveValueUnsafe();
+            continue;
+        }
+        if (type.id() == arrow::Type::LARGE_LIST_VIEW) {
+            auto converted = arrow::LargeListArray::FromListView(
+                    static_cast<const arrow::LargeListViewArray&>(*current),
+                    arrow::default_memory_pool());
+            if (!converted.ok()) {
+                return Status::InternalError("ADBC: failed to normalize arrow type '{}': {}",
+                                             type.ToString(), converted.status().ToString());
+            }
+            current = converted.MoveValueUnsafe();
+            continue;
         }
 
         auto target = target_type_for(type);
