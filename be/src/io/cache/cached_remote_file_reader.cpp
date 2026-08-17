@@ -1279,6 +1279,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
     }
 
     const CacheWriteMode cache_write_mode = _resolve_cache_write_mode(io_ctx);
+    TEST_SYNC_POINT("CachedRemoteFileReader::read_at_impl:after_resolve_cache_write_mode");
     DORIS_CHECK(_cache_align_mode == CacheAlignMode::ALIGN_TO_BLOCK);
     DORIS_CHECK(cache_write_mode == CacheWriteMode::SYNC_WRITE ||
                 cache_write_mode == CacheWriteMode::ASYNC_WRITE);

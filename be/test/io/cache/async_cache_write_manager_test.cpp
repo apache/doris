@@ -120,6 +120,25 @@ private:
     std::vector<fs::path> _paths;
 };
 
+TEST_F(AsyncCacheWriteManagerTest, TrackedBufferAllocationCatchesAllocatorFailure) {
+    auto cache = create_cache("async_write_manager_buffer_allocation_failure");
+    auto* manager = cache->async_write_manager();
+    ASSERT_NE(manager, nullptr);
+
+    const uint64_t baseline_failures = manager->_metrics->snapshot().buffer_alloc_fail;
+    const double old_fault_probability = config::mem_alloc_fault_probability;
+    Defer restore_fault_probability {
+            [&]() { config::mem_alloc_fault_probability = old_fault_probability; }};
+    config::mem_alloc_fault_probability = 1.0;
+    AsyncCacheWriteBufferPtr buffer;
+    const Status status = manager->allocate_tracked_buffer(4096, &buffer);
+    config::mem_alloc_fault_probability = old_fault_probability;
+
+    EXPECT_TRUE(status.is<ErrorCode::MEM_LIMIT_EXCEEDED>());
+    EXPECT_EQ(buffer, nullptr);
+    EXPECT_EQ(manager->_metrics->snapshot().buffer_alloc_fail, baseline_failures + 1);
+}
+
 class OneShotSyncPointGate {
 public:
     void arrive_and_wait() {
@@ -1556,10 +1575,14 @@ TEST_F(AsyncCacheWriteManagerTest, UpdateOptionsValidatesAndAppliesAtRuntime) {
     const auto updated = manager->options();
     EXPECT_EQ(updated.worker_count, 3);
     EXPECT_EQ(updated.max_pending_bytes, 7 * 4096);
+    EXPECT_EQ(manager->_worker_pool->min_threads(), 3);
+    EXPECT_EQ(manager->_worker_pool->max_threads(), 3);
 
     options.worker_count = 1;
     ASSERT_TRUE(manager->update_options(options).ok());
     EXPECT_EQ(manager->options().worker_count, 1);
+    EXPECT_EQ(manager->_worker_pool->min_threads(), 1);
+    EXPECT_EQ(manager->_worker_pool->max_threads(), 1);
 }
 
 TEST_F(AsyncCacheWriteManagerTest, WorkerStopPublishesUnderQueueMutex) {

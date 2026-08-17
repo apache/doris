@@ -263,6 +263,8 @@ private:
     class Metrics;
 
     /// Resize the owned worker set while `_lifecycle_mutex` is held and `_worker_pool` exists.
+    /// The pool's minimum thread count is kept equal to the long-running Worker task count so a
+    /// task is never accepted without a backing OS thread.
     Status _resize_workers_locked(size_t worker_count);
 
     /// Stop and join workers in `[keep_worker_count, _workers.size())` while the lifecycle mutex is
