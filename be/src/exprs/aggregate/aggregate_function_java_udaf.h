@@ -61,6 +61,9 @@ public:
     ~AggregateJavaUdafData() = default;
 
     Status close_and_delete_object() {
+        if (!can_call(executor_close_id)) {
+            return Status::OK();
+        }
         JNIEnv* env = nullptr;
 
         RETURN_IF_ERROR(Jni::Env::Get(&env));
@@ -89,8 +92,14 @@ public:
         RETURN_IF_ERROR(Jni::PluginRegistry::create_udf_executor(
                 env, Jni::plugin::JAVA_UDF_AGGREGATE, ctor_params_bytes, &executor_obj,
                 &executor_cl));
-        RETURN_NOT_OK_STATUS_WITH_WARN(register_func_id(env),
-                                       "Java-Udaf register_func_id function");
+        // From here the Java executor is alive, so a failure below has to close it: the
+        // caller's cleanup path cannot, since it is exactly the method ids resolved here that
+        // it would need to do so.
+        if (Status status = register_func_id(env); !status.ok()) {
+            LOG(WARNING) << "Java-Udaf register_func_id function failed: " << status.to_string();
+            static_cast<void>(close_and_delete_object());
+            return status;
+        }
         return Status::OK();
     }
 
@@ -174,6 +183,9 @@ public:
     void read(BufferReadable& buf) { buf.read_binary(serialize_data); }
 
     Status destroy() {
+        if (!can_call(executor_destroy_id)) {
+            return Status::OK();
+        }
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(Jni::Env::Get(&env), "Java-Udaf destroy function");
         return executor_obj.call_nonvirtual_void_method(env, executor_cl, executor_destroy_id)
@@ -210,6 +222,21 @@ public:
     }
 
 private:
+    /**
+     * Whether a JNI call through this method id can be made at all.
+     *
+     * The clean-up path is reached with nothing bound: init_udaf() creates the executor before it
+     * resolves any method id, and AggregateJavaUdaf::create() calls destroy() when init_udaf()
+     * fails - through a null receiver, a null class and a null method id if the Java factory was
+     * what threw. That is undefined behaviour rather than an error, because the two DCHECKs in
+     * the JNI wrappers that would catch it are compiled out of a release build. The scalar and
+     * UDTF paths guard the same window with JniContext::open_successes.
+     */
+    bool can_call(const Jni::MethodId& method_id) const {
+        return !executor_obj.uninitialized() && !executor_cl.uninitialized() &&
+               !method_id.uninitialized();
+    }
+
     Status register_func_id(JNIEnv* env) {
         RETURN_IF_ERROR(executor_cl.get_method(env, "reset", UDAF_EXECUTOR_RESET_SIGNATURE,
                                                &executor_reset_id));

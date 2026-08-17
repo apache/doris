@@ -40,8 +40,8 @@ struct PluginRef {
 };
 
 // Every plugin and factory BE addresses, in one place because the plugin half is also a
-// deployment directory name: it appears in plugins/jni/, in build.sh, in the CI check
-// that scans those directories, and in the "is not deployed" a user sees. It is named here
+// deployment directory name: it appears in plugins/jni/, in build.sh, in the layout check
+// build.sh runs over the deployed tree, and in the "is not deployed" a user sees. It is named here
 // once so renaming a plugin is one edit rather than a hunt through the readers - the same
 // connector is reached from both the v1 and the v2 scan paths, and two independent string
 // literals for one directory is how they would drift apart.
@@ -90,7 +90,12 @@ inline constexpr PluginRef JAVA_UDF_AGGREGATE {"java-udf", "aggregate"};
 //
 // The names and descriptors are fixed by PROTOCOL.md section 1. Changing one means changing
 // both sides in the same commit.
+//
+// The base class is kept alongside the ids resolved on it, for two reasons: a jmethodID is only
+// valid while its class is reachable, and checking that an object really is a scanner before
+// calling these on it needs that same class.
 struct ScannerApi {
+    GlobalClass cls;
     MethodId open;
     MethodId get_next_batch_meta;
     MethodId get_table_schema;
@@ -105,6 +110,7 @@ struct ScannerApi {
 
 // The writer half of the same contract, resolved on the SPI's JniWriter.
 struct WriterApi {
+    GlobalClass cls;
     MethodId open;
     MethodId write;
     MethodId get_statistics;
@@ -161,8 +167,12 @@ public:
     static Status warmup();
 
     // Whether the plugin directory holds at least one plugin. Public because it is the
-    // reason warmup can be on by default, and something has to be able to check it.
+    // reason warmup is safe to turn on, and something has to be able to check it.
     static bool any_plugin_deployed();
+
+    // Whether anything has reached the Java registry yet. The status endpoint asks first:
+    // there is nothing to report before that, and asking Java would create the JVM.
+    static bool registry_initialized() { return _registry_ready; }
 
 private:
     // The bootstrap class and its static method ids, resolved once.
@@ -185,6 +195,11 @@ private:
     static Status _create_instance(JNIEnv* env, const PluginRef& ref, int batch_size,
                                    const std::map<std::string, std::string>& params,
                                    GlobalObject* instance);
+
+    // Rejects an instance of the wrong kind before its method ids are handed out, because a
+    // factory name can come from user SQL. See the comment at the definition.
+    static Status _check_kind(JNIEnv* env, const PluginRef& ref, const GlobalObject& instance,
+                              const GlobalClass& expected, const char* expected_kind);
 
     static Registry _registry;
     static ScannerApi _scanner_api;
