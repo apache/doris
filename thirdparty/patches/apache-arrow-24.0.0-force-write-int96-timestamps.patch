@@ -1,0 +1,98 @@
+--- a/cpp/src/parquet/arrow/schema.cc
++++ b/cpp/src/parquet/arrow/schema.cc
+@@ -215,8 +215,9 @@
+ 
+   // The user is explicitly asking for Impala int96 encoding, there is no
+   // logical type.
+-  if (arrow_properties.support_deprecated_int96_timestamps() &&
+-      target_unit == ::arrow::TimeUnit::NANO) {
++  if (arrow_properties.force_write_int96_timestamps() ||
++      (arrow_properties.support_deprecated_int96_timestamps() &&
++       target_unit == ::arrow::TimeUnit::NANO)) {
+     *physical_type = ParquetType::INT96;
+     return Status::OK();
+   }
+--- a/cpp/src/parquet/properties.h
++++ b/cpp/src/parquet/properties.h
+@@ -1309,6 +1309,7 @@
+    public:
+     Builder()
+         : write_timestamps_as_int96_(false),
++          force_write_int96_timestamps_(false),
+           coerce_timestamps_enabled_(false),
+           coerce_timestamps_unit_(::arrow::TimeUnit::SECOND),
+           truncated_timestamps_allowed_(false),
+@@ -1334,6 +1335,21 @@
+       return this;
+     }
+ 
++    /// \brief Force writing legacy int96 timestamps.
++    ///
++    /// This bypasses unit-based guards and writes INT96 whenever timestamp
++    /// metadata is resolved.
++    Builder* enable_force_write_int96_timestamps() {
++      force_write_int96_timestamps_ = true;
++      return this;
++    }
++
++    /// \brief Disable forcing legacy int96 timestamps (default).
++    Builder* disable_force_write_int96_timestamps() {
++      force_write_int96_timestamps_ = false;
++      return this;
++    }
++
+     /// \brief Coerce all timestamps to the specified time unit.
+     /// \param unit time unit to truncate to.
+     /// For Parquet versions 1.0 and 2.4, nanoseconds are casted to microseconds.
+@@ -1423,7 +1439,8 @@
+     /// Create the final properties.
+     std::shared_ptr<ArrowWriterProperties> build() {
+       return std::shared_ptr<ArrowWriterProperties>(new ArrowWriterProperties(
+-          write_timestamps_as_int96_, coerce_timestamps_enabled_, coerce_timestamps_unit_,
++          write_timestamps_as_int96_, force_write_int96_timestamps_,
++          coerce_timestamps_enabled_, coerce_timestamps_unit_,
+           truncated_timestamps_allowed_, store_schema_, compliant_nested_types_,
+           engine_version_, use_threads_, executor_, write_time_adjusted_to_utc_));
+     }
+@@ -1431,6 +1448,8 @@
+    private:
+     bool write_timestamps_as_int96_;
+ 
++    bool force_write_int96_timestamps_;
++
+     bool coerce_timestamps_enabled_;
+     ::arrow::TimeUnit::type coerce_timestamps_unit_;
+     bool truncated_timestamps_allowed_;
+@@ -1447,6 +1466,8 @@
+ 
+   bool support_deprecated_int96_timestamps() const { return write_timestamps_as_int96_; }
+ 
++  bool force_write_int96_timestamps() const { return force_write_int96_timestamps_; }
++
+   bool coerce_timestamps_enabled() const { return coerce_timestamps_enabled_; }
+   ::arrow::TimeUnit::type coerce_timestamps_unit() const {
+     return coerce_timestamps_unit_;
+@@ -1483,6 +1504,7 @@
+ 
+  private:
+   explicit ArrowWriterProperties(bool write_nanos_as_int96,
++                                 bool force_write_int96_timestamps,
+                                  bool coerce_timestamps_enabled,
+                                  ::arrow::TimeUnit::type coerce_timestamps_unit,
+                                  bool truncated_timestamps_allowed, bool store_schema,
+@@ -1491,6 +1513,7 @@
+                                  ::arrow::internal::Executor* executor,
+                                  bool write_time_adjusted_to_utc)
+       : write_timestamps_as_int96_(write_nanos_as_int96),
++        force_write_int96_timestamps_(force_write_int96_timestamps),
+         coerce_timestamps_enabled_(coerce_timestamps_enabled),
+         coerce_timestamps_unit_(coerce_timestamps_unit),
+         truncated_timestamps_allowed_(truncated_timestamps_allowed),
+@@ -1502,6 +1525,7 @@
+         write_time_adjusted_to_utc_(write_time_adjusted_to_utc) {}
+ 
+   const bool write_timestamps_as_int96_;
++  const bool force_write_int96_timestamps_;
+   const bool coerce_timestamps_enabled_;
+   const ::arrow::TimeUnit::type coerce_timestamps_unit_;
+   const bool truncated_timestamps_allowed_;

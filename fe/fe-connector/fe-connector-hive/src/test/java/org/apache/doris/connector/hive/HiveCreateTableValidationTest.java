@@ -17,10 +17,10 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -47,7 +47,7 @@ import java.util.List;
 public class HiveCreateTableValidationTest {
 
     private HiveConnectorMetadata metadata() {
-        return new HiveConnectorMetadata(null, null, null);
+        return new HiveConnectorMetadata(null, HiveTestProperties.minimal(), null);
     }
 
     private ConnectorColumn col(String name, String type, boolean nullable) {

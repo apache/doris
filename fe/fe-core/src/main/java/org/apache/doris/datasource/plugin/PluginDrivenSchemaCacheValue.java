@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.plugin;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.connector.api.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.datasource.SchemaCacheValue;
 
 import java.util.Collections;
@@ -60,25 +60,34 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
     // rationale as tableProperties: the ConnectorTableSchema is transient, so the schema cache is the
     // carrier. Empty for every connector that does not refine per table.
     private final Set<ConnectorCapability> tableCapabilities;
+    private final String writeMetadataIdentity;
 
     public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
             List<String> partitionColumnRemoteNames) {
-        this(schema, partitionColumns, partitionColumnRemoteNames, Collections.emptyMap());
+        this(schema, partitionColumns, partitionColumnRemoteNames, Collections.emptyMap(),
+                Collections.emptySet(), null);
     }
 
     public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
             List<String> partitionColumnRemoteNames, Map<String, String> tableProperties) {
-        this(schema, partitionColumns, partitionColumnRemoteNames, tableProperties, Collections.emptySet());
+        this(schema, partitionColumns, partitionColumnRemoteNames, tableProperties, Collections.emptySet(), null);
     }
 
     public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
             List<String> partitionColumnRemoteNames, Map<String, String> tableProperties,
             Set<ConnectorCapability> tableCapabilities) {
+        this(schema, partitionColumns, partitionColumnRemoteNames, tableProperties, tableCapabilities, null);
+    }
+
+    public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
+            List<String> partitionColumnRemoteNames, Map<String, String> tableProperties,
+            Set<ConnectorCapability> tableCapabilities, String writeMetadataIdentity) {
         super(schema);
         this.partitionColumns = partitionColumns;
         this.partitionColumnRemoteNames = partitionColumnRemoteNames;
         this.tableProperties = tableProperties == null ? Collections.emptyMap() : tableProperties;
         this.tableCapabilities = tableCapabilities == null ? Collections.emptySet() : tableCapabilities;
+        this.writeMetadataIdentity = writeMetadataIdentity;
     }
 
     public List<Column> getPartitionColumns() {
@@ -95,5 +104,9 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
 
     public Set<ConnectorCapability> getTableCapabilities() {
         return tableCapabilities;
+    }
+
+    public String getWriteMetadataIdentity() {
+        return writeMetadataIdentity;
     }
 }

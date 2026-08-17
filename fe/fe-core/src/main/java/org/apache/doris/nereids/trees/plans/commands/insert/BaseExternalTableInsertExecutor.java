@@ -25,7 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -126,8 +126,13 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
             txnStatus = TransactionStatus.COMMITTED;
             long t2 = System.currentTimeMillis();
 
-            // Handle post-commit operations (e.g., cache refresh)
-            doAfterCommit();
+            try {
+                doAfterCommit();
+            } catch (Exception e) {
+                // Cache refresh cannot undo a durable remote commit, so it must not make clients retry the write.
+                LOG.warn("Post-commit refresh failed for table {}. Data was committed successfully.",
+                        table.getName(), e);
+            }
             long t3 = System.currentTimeMillis();
             LOG.info("Transaction commit breakdown: doBeforeCommit={}ms, commit={}ms, doAfterCommit={}ms, total={}ms",
                     t1 - t0, t2 - t1, t3 - t2, t3 - t0);
@@ -147,6 +152,16 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
                 table.getDatabase().getFullName(),
                 table.getName(),
                 true);
+    }
+
+    @Override
+    protected void handleAfterCompleteFailure(Exception e) throws Exception {
+        if (txnStatus != TransactionStatus.COMMITTED) {
+            super.handleAfterCompleteFailure(e);
+            return;
+        }
+        // A post-commit listener cannot undo remote data, so failing the statement would invite duplicate retries.
+        LOG.warn("Post-commit listener failed for table {}. Data was committed successfully.", table.getName(), e);
     }
 
     @Override

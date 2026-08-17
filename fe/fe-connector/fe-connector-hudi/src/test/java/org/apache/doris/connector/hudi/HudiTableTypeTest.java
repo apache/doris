@@ -17,11 +17,11 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -51,7 +51,7 @@ public class HudiTableTypeTest {
                 .parameters(parameters)
                 .build();
         HudiConnectorMetadata metadata =
-                new HudiConnectorMetadata(new FakeHmsClient(info), Collections.emptyMap(),
+                new HudiConnectorMetadata(new FakeHmsClient(info), HudiTestProperties.minimal(),
                         new DirectHudiMetaClientExecutor());
         Optional<ConnectorTableHandle> handle = metadata.getTableHandle(null, "db", "t");
         Assertions.assertTrue(handle.isPresent());

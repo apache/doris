@@ -48,7 +48,6 @@ import org.apache.doris.thrift.TBeginRemoteTxnRequest;
 import org.apache.doris.thrift.TBeginRemoteTxnResult;
 import org.apache.doris.thrift.TCommitRemoteTxnRequest;
 import org.apache.doris.thrift.TCommitRemoteTxnResult;
-import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -58,8 +57,6 @@ import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.util.List;
 
 /**
  * Remote executor for Doris Catalog remote insert.
@@ -173,8 +170,7 @@ public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
                 dataStreamSink.setTabletSinkSchemaParam(remoteOlapTableSink.getOlapTableSchemaParam());
                 dataStreamSink.setTabletSinkPartitionParam(remoteOlapTableSink.getOlapTablePartitionParam());
                 dataStreamSink.setTabletSinkTupleDesc(remoteOlapTableSink.getTupleDescriptor());
-                List<TOlapTableLocationParam> locationParams = remoteOlapTableSink.getOlapTableLocationParams();
-                dataStreamSink.setTabletSinkLocationParam(locationParams.get(0));
+                dataStreamSink.setTabletSinkLocationParam(remoteOlapTableSink.getOlapTableLocationParam());
                 dataStreamSink.setTabletSinkTxnId(remoteOlapTableSink.getTxnId());
                 dataStreamSink.setTabletSinkExprs(fragment.getOutputExprs());
             }

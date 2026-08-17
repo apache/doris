@@ -256,6 +256,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.topn_filter_target_node_id = _read_context->topn_filter_target_node_id;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
     _read_options.use_insert_order_when_same = _read_context->use_insert_order_when_same;
+    _read_options.read_row_binlog = _read_context->read_row_binlog;
     int32_t tso_col_id = _read_context->tablet_schema->binlog_tso_col_idx();
     if (tso_col_id >= 0) {
         for (size_t i = 0; i < _read_context->return_columns->size(); ++i) {
@@ -284,6 +285,9 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             _read_options.io_ctx.remote_scan_cache_write_limiter =
                     query_ctx->remote_scan_cache_write_limiter();
         }
+        _read_options.io_ctx.inverted_index_snii_read_no_write_file_cache =
+                _read_context->runtime_state->query_options()
+                        .inverted_index_snii_read_no_write_file_cache;
     }
 
     if (_read_context->condition_cache_digest) {

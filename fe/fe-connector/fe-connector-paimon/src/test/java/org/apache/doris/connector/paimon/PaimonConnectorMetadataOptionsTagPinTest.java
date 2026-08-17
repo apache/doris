@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.paimon.catalog.Catalog;
@@ -161,7 +161,7 @@ public class PaimonConnectorMetadataOptionsTagPinTest {
     }
 
     private static PaimonConnectorMetadata metadataWith(RecordingPaimonCatalogOps ops) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     /** A normal (non-sys) handle whose transient paimon Table is the REAL local table. */

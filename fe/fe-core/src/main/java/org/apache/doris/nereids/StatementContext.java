@@ -31,8 +31,8 @@ import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.connector.ConnectorStatementScopeImpl;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -246,6 +246,13 @@ public class StatementContext implements Closeable {
     private final Map<List<String>, Pair<String, Map<String, String>>> viewInfos = Maps.newHashMap();
     // save insert into schema to avoid schema changed between two read locks
     private final List<Column> insertTargetSchema = new ArrayList<>();
+    // Execution-scoped connector writer schemas. These are resolved before DEFAULT/omitted-column expansion,
+    // intentionally separate from the cached table schema used by DESCRIBE/SHOW CREATE, and cleared together
+    // with the connector statement scope when a prepared StatementContext starts its next execution.
+    private final Map<Long, List<Column>> connectorWriteSchemas = new HashMap<>();
+    // The identity is captured by the same provider call chain as connectorWriteSchemas. Keeping it alongside
+    // the columns prevents bind-time expressions and the later sink fence from naming different generations.
+    private final Map<Long, String> connectorWriteMetadataIdentities = new HashMap<>();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be
@@ -280,6 +287,9 @@ public class StatementContext implements Closeable {
     private Backend groupCommitMergeBackend;
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+    private final Map<MvccTableInfo, MvccSnapshot> latestSnapshots = Maps.newHashMap();
+    private final Map<MvccTableInfo, MvccSnapshot> latestSnapshotFences = Maps.newHashMap();
+    private final Map<MvccTableInfo, Map<String, String>> resolvedSnapshotScanParams = Maps.newHashMap();
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
@@ -446,6 +456,22 @@ public class StatementContext implements Closeable {
 
     public List<Column> getInsertTargetSchema() {
         return insertTargetSchema;
+    }
+
+    public void setConnectorWriteSchema(long tableId, List<Column> columns) {
+        connectorWriteSchemas.put(tableId, ImmutableList.copyOf(columns));
+    }
+
+    public Optional<List<Column>> getConnectorWriteSchema(long tableId) {
+        return Optional.ofNullable(connectorWriteSchemas.get(tableId));
+    }
+
+    public void setConnectorWriteMetadataIdentity(long tableId, String identity) {
+        connectorWriteMetadataIdentities.put(tableId, identity);
+    }
+
+    public Optional<String> getConnectorWriteMetadataIdentity(long tableId) {
+        return Optional.ofNullable(connectorWriteMetadataIdentities.get(tableId));
     }
 
     public void setTables(Map<List<String>, TableIf> tables) {
@@ -656,7 +682,7 @@ public class StatementContext implements Closeable {
     /**
      * Returns this statement's connector scope, lazily creating it on first use (mirrors
      * {@link #getOrCacheDisableRules}). A connector reaches it through
-     * {@link org.apache.doris.connector.api.ConnectorSession#getStatementScope()} to load a table once and
+     * {@link org.apache.doris.connector.spi.ConnectorSession#getStatementScope()} to load a table once and
      * share it across the statement's read + write resolvers.
      */
     public synchronized ConnectorStatementScope getOrCreateConnectorStatementScope() {
@@ -670,16 +696,18 @@ public class StatementContext implements Closeable {
      * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
      * Prepared-statement EXECUTE reuses one StatementContext across executions (see
      * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts;
-     * this is called at the start of each, so a prior execution's / attempt's cached tables and closeable state
-     * are released (closeAll is idempotent — a no-op if the query-finish callback already closed it) and never
-     * leak into the next. Callers invoke this only after the prior execution/attempt has finished (no off-thread
-     * pump still running), so close-before-drop is safe.
+     * this is called at the start of each, so a prior execution's / attempt's cached tables, pinned connector
+     * writer schema, and closeable state are released (closeAll is idempotent — a no-op if the query-finish
+     * callback already closed it) and never leak into the next. Callers invoke this only after the prior
+     * execution/attempt has finished (no off-thread pump still running), so close-before-drop is safe.
      */
     public synchronized void resetConnectorStatementScope() {
         if (this.connectorStatementScope != null) {
             this.connectorStatementScope.closeAll();
         }
         this.connectorStatementScope = null;
+        this.connectorWriteSchemas.clear();
+        this.connectorWriteMetadataIdentities.clear();
     }
 
     /**
@@ -1047,10 +1075,51 @@ public class StatementContext implements Closeable {
             MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable,
                     versionKeyOf(tableSnapshot, scanParams));
             if (!snapshots.containsKey(mvccTableInfo)) {
-                snapshots.put(mvccTableInfo,
-                        ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
+                MvccTable mvccTable = (MvccTable) specificTable;
+                MvccSnapshot snapshot;
+                if (mvccTable.requiresLatestSnapshotFence(tableSnapshot, scanParams)) {
+                    MvccTableInfo latestKey = new MvccTableInfo(specificTable);
+                    MvccSnapshot latestFence = latestSnapshotFences.computeIfAbsent(latestKey,
+                            key -> latestSnapshots.containsKey(key)
+                                    ? latestSnapshots.get(key) : mvccTable.loadLatestSnapshotFence());
+                    // Different planning projections remain separate, but their version selector
+                    // comes from one statement fence instead of repeated mutable latest reads.
+                    snapshot = mvccTable.loadSnapshot(tableSnapshot, scanParams, Optional.of(latestFence));
+                } else if (!tableSnapshot.isPresent() && !scanParams.isPresent()) {
+                    snapshot = latestSnapshots.computeIfAbsent(mvccTableInfo,
+                            key -> latestSnapshotFences.containsKey(key)
+                                    ? mvccTable.loadSnapshot(tableSnapshot, scanParams,
+                                            Optional.of(latestSnapshotFences.get(key)))
+                                    : mvccTable.loadSnapshot(tableSnapshot, scanParams));
+                    // A full latest projection is also a valid version fence. Recording it makes
+                    // plain-first and options-first aliases pin the same statement version.
+                    latestSnapshotFences.putIfAbsent(mvccTableInfo, snapshot);
+                } else {
+                    snapshot = mvccTable.loadSnapshot(tableSnapshot, scanParams);
+                }
+                snapshots.put(mvccTableInfo, snapshot);
+                scanParams.flatMap(TableScanParams::getResolvedMapParams)
+                        .ifPresent(params -> resolvedSnapshotScanParams.put(mvccTableInfo, params));
+            } else if (scanParams.isPresent() && resolvedSnapshotScanParams.containsKey(mvccTableInfo)) {
+                // Snapshot de-duplication also de-duplicates dynamic option resolution. Seed later
+                // aliases so their scan phase consumes the selector used by the cached snapshot.
+                scanParams.get().reuseResolvedMapParams(resolvedSnapshotScanParams.get(mvccTableInfo));
             }
         }
+    }
+
+    /**
+     * Clear MVCC state retained by a prepared statement between executions. A snapshot fence belongs
+     * to one EXECUTE only; carrying it forward would make a later commit permanently invisible.
+     */
+    public void resetMvccSnapshots() {
+        snapshots.clear();
+        latestSnapshots.clear();
+        latestSnapshotFences.clear();
+        resolvedSnapshotScanParams.clear();
+        // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
+        // not suppress preloading after the next EXECUTE resets its snapshot generation.
+        externalMetadataPreloadResult = null;
     }
 
     /**
@@ -1127,14 +1196,33 @@ public class StatementContext implements Closeable {
         StringBuilder key = new StringBuilder();
         if (tableSnapshot != null && tableSnapshot.isPresent()) {
             TableSnapshot ts = tableSnapshot.get();
-            key.append("v:").append(ts.getType()).append(':').append(ts.getValue());
+            key.append('v');
+            appendVersionKeyPart(key, ts.getType());
+            appendVersionKeyPart(key, ts.getValue());
         }
         if (scanParams != null && scanParams.isPresent()) {
             TableScanParams sp = scanParams.get();
-            key.append("p:").append(sp.getParamType()).append(':').append(sp.getMapParams())
-                    .append(':').append(sp.getListParams());
+            key.append('p');
+            appendVersionKeyPart(key, sp.getParamType());
+            Map<String, String> sortedParams = new TreeMap<>(sp.getMapParams());
+            key.append('m').append(sortedParams.size()).append(':');
+            for (Map.Entry<String, String> entry : sortedParams.entrySet()) {
+                // Length prefixes preserve entry boundaries even when user values contain Map.toString()
+                // delimiters; sorting separately keeps semantically identical maps order-independent.
+                appendVersionKeyPart(key, entry.getKey());
+                appendVersionKeyPart(key, entry.getValue());
+            }
+            key.append('l').append(sp.getListParams().size()).append(':');
+            for (String value : sp.getListParams()) {
+                appendVersionKeyPart(key, value);
+            }
         }
         return key.toString();
+    }
+
+    private static void appendVersionKeyPart(StringBuilder key, Object value) {
+        String text = String.valueOf(value);
+        key.append(text.length()).append(':').append(text);
     }
 
     /**
@@ -1171,6 +1259,9 @@ public class StatementContext implements Closeable {
      * @param snapshot      snapshot
      */
     public void setSnapshot(MvccTableInfo mvccTableInfo, MvccSnapshot snapshot) {
+        // Injected snapshots are execution fences (for example MTMV refresh); an unqualified
+        // relation and its option projections must not perform a newer live latest lookup.
+        latestSnapshots.put(mvccTableInfo, snapshot);
         snapshots.put(mvccTableInfo, snapshot);
     }
 

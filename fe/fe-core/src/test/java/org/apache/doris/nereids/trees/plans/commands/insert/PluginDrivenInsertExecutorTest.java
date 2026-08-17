@@ -21,18 +21,19 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.ConnectorSessionBuilder;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorWriteOps;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
-import org.apache.doris.connector.api.handle.NoOpConnectorTransaction;
-import org.apache.doris.connector.api.write.ConnectorSinkPlan;
-import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorWriteOps;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.spi.handle.NoOpConnectorTransaction;
+import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.planner.PluginDrivenTableSink;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
+import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TransactionType;
 
 import org.junit.jupiter.api.Assertions;
@@ -213,6 +214,17 @@ public class PluginDrivenInsertExecutorTest {
         Long loadedRows = Deencapsulation.getField(exec, "loadedRows");
         Assertions.assertEquals(7L, loadedRows.longValue(),
                 "a -1 (no count) transaction must leave the coordinator-counted loadedRows untouched");
+    }
+
+    @Test
+    public void postCommitListenerFailureDoesNotTurnACommittedWriteIntoAnError() {
+        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
+        Deencapsulation.setField(exec, "txnStatus", TransactionStatus.COMMITTED);
+        Deencapsulation.setField(exec, "table", Mockito.mock(PluginDrivenExternalTable.class));
+
+        Assertions.assertDoesNotThrow(() -> Deencapsulation.invoke(exec,
+                "handleAfterCompleteFailure", new RuntimeException("listener failure")),
+                "a listener cannot roll back or fail a connector write after its remote commit is durable");
     }
 
     /**

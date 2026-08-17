@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import java.util.Collections;
 import java.util.List;
@@ -156,10 +156,10 @@ public class HiveTableHandle implements ConnectorTableHandle {
         if (tableParameters == null) {
             return false;
         }
-        String value = tableParameters.get(HiveConnectorProperties.CREATE_TRANSACTIONAL);
+        String value = tableParameters.get(HiveConnectorMetadata.CREATE_TRANSACTIONAL);
         if (value == null) {
             value = tableParameters.get(
-                    HiveConnectorProperties.CREATE_TRANSACTIONAL.toUpperCase(Locale.ROOT));
+                    HiveConnectorMetadata.CREATE_TRANSACTIONAL.toUpperCase(Locale.ROOT));
         }
         return "true".equalsIgnoreCase(value);
     }

@@ -17,13 +17,13 @@
 
 package org.apache.doris.connector.maxcompute;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
-import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.connector.api.write.ConnectorSinkPlan;
-import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TMaxComputeTableSink;
@@ -117,7 +117,7 @@ public class MaxComputeWritePlanProvider implements ConnectorWritePlanProvider {
         transaction.setWriteSession(writeSessionId, tableId, settings);
 
         TMaxComputeTableSink tSink = new TMaxComputeTableSink();
-        tSink.setProperties(connector.getProperties());
+        tSink.setProperties(connector.getProps().getRaw());
         tSink.setEndpoint(connector.getEndpoint());
         tSink.setProject(connector.getDefaultProject());
         tSink.setTableName(mcHandle.getTableName());
@@ -230,26 +230,18 @@ public class MaxComputeWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     private int getConnectTimeout() {
-        return Integer.parseInt(connector.getProperties().getOrDefault(
-                MCConnectorProperties.CONNECT_TIMEOUT,
-                MCConnectorProperties.DEFAULT_CONNECT_TIMEOUT));
+        return connector.getProps().getConnectTimeout();
     }
 
     private int getReadTimeout() {
-        return Integer.parseInt(connector.getProperties().getOrDefault(
-                MCConnectorProperties.READ_TIMEOUT,
-                MCConnectorProperties.DEFAULT_READ_TIMEOUT));
+        return connector.getProps().getReadTimeout();
     }
 
     private int getRetryTimes() {
-        return Integer.parseInt(connector.getProperties().getOrDefault(
-                MCConnectorProperties.RETRY_COUNT,
-                MCConnectorProperties.DEFAULT_RETRY_COUNT));
+        return connector.getProps().getRetryCount();
     }
 
     private long getMaxFieldSize() {
-        return Long.parseLong(connector.getProperties().getOrDefault(
-                MCConnectorProperties.MAX_FIELD_SIZE,
-                MCConnectorProperties.DEFAULT_MAX_FIELD_SIZE));
+        return connector.getProps().getMaxFieldSize();
     }
 }

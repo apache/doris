@@ -17,19 +17,24 @@
 
 package org.apache.doris.connector.hms.event;
 
-import org.apache.doris.connector.api.event.MetastoreChangeDescriptor;
-import org.apache.doris.connector.api.event.MetastoreChangeDescriptor.Op;
 import org.apache.doris.connector.hms.HmsNotificationEvent;
+import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
+import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor.Op;
 
+import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.hadoop.hive.metastore.messaging.json.JSONAlterTableMessage;
+import org.apache.hadoop.hive.metastore.messaging.json.JSONCreateTableMessage;
+import org.apache.hadoop.hive.metastore.messaging.json.JSONDropTableMessage;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
- * Dormant unit coverage of the neutral (body-free) event mappings and the lazy-decompress guarantee.
- * The body-parsing table/partition paths (which need captured Hive JSON/GZIP message fixtures) are
- * covered by the heterogeneous-HMS e2e matrix owed at the flip.
+ * Unit coverage of neutral event mappings, targeted JSON table-event parsing, and the lazy-decompress
+ * guarantee. The remaining partition/GZIP body paths are covered by the heterogeneous-HMS e2e matrix
+ * owed at the flip.
  */
 public class HmsEventParserTest {
 
@@ -59,6 +64,54 @@ public class HmsEventParserTest {
         Assertions.assertEquals(1, out.size());
         Assertions.assertEquals(Op.UNREGISTER_DATABASE, out.get(0).getOp());
         Assertions.assertEquals("db1", out.get(0).getDbName());
+    }
+
+    @Test
+    public void dropTablePreservesOriginalTableNameCase() {
+        JSONDropTableMessage message = new JSONDropTableMessage(
+                "server", "servicePrincipal", "db1", "MixedCaseTable", 0L);
+
+        List<MetastoreChangeDescriptor> out = HmsEventParser.parse(
+                event(9L, "DROP_TABLE", "db1", "MixedCaseTable",
+                        message.toString(), "json-2.0", 0L));
+
+        Assertions.assertEquals(1, out.size());
+        Assertions.assertEquals(Op.UNREGISTER_TABLE, out.get(0).getOp());
+        Assertions.assertEquals("MixedCaseTable", out.get(0).getTableName());
+    }
+
+    // Preserve the CREATE_TABLE target spelling so mode 2 can register the same exact-case identity.
+    @Test
+    public void createTablePreservesOriginalTableNameCase() {
+        Table table = newTable("db1", "MixedCaseTable");
+        JSONCreateTableMessage message = new JSONCreateTableMessage(
+                "server", "servicePrincipal", table, Collections.emptyIterator(), 0L);
+
+        List<MetastoreChangeDescriptor> out = HmsEventParser.parse(
+                event(10L, "CREATE_TABLE", "db1", "MixedCaseTable",
+                        message.toString(), "json-2.0", 0L));
+
+        Assertions.assertEquals(1, out.size());
+        Assertions.assertEquals(Op.REGISTER_TABLE, out.get(0).getOp());
+        Assertions.assertEquals("MixedCaseTable", out.get(0).getTableName());
+    }
+
+    // Preserve the ALTER_TABLE rename target spelling so create/rename/drop stay aligned in mode 2.
+    @Test
+    public void alterTableRenamePreservesOriginalTargetCase() {
+        Table before = newTable("db1", "OldTable");
+        Table after = newTable("db1", "MixedCaseTable");
+        JSONAlterTableMessage message = new JSONAlterTableMessage(
+                "server", "servicePrincipal", before, after, false, 0L);
+
+        List<MetastoreChangeDescriptor> out = HmsEventParser.parse(
+                event(11L, "ALTER_TABLE", "db1", "OldTable",
+                        message.toString(), "json-2.0", 0L));
+
+        Assertions.assertEquals(1, out.size());
+        Assertions.assertEquals(Op.RENAME_TABLE, out.get(0).getOp());
+        Assertions.assertEquals("OldTable", out.get(0).getTableName());
+        Assertions.assertEquals("MixedCaseTable", out.get(0).getTableNameAfter());
     }
 
     @Test
@@ -92,5 +145,13 @@ public class HmsEventParserTest {
                 event(11L, "CREATE_DATABASE", "db1", null, "not-valid-gzip", "gzip(json-2.0)", 0L)));
         Assertions.assertDoesNotThrow(() -> HmsEventParser.parse(
                 event(12L, "COMMIT_TXN", "db1", null, null, "gzip(json-2.0)", 0L)));
+    }
+
+    // Build the smallest valid Hive table object for JSON message serialization in parser tests.
+    private static Table newTable(String dbName, String tableName) {
+        Table table = new Table();
+        table.setDbName(dbName);
+        table.setTableName(tableName);
+        return table;
     }
 }

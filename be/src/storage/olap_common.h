@@ -40,6 +40,7 @@
 #include "common/exception.h"
 #include "io/io_common.h"
 #include "storage/index/inverted/inverted_index_stats.h"
+#include "storage/index/snii/snii_query_stats.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "util/hash_util.hpp"
@@ -60,7 +61,15 @@ enum CompactionType {
     BASE_COMPACTION = 1,
     CUMULATIVE_COMPACTION = 2,
     FULL_COMPACTION = 3,
-    BINLOG_COMPACTION = 4
+    // Only used by scheduler to route row-binlog tablets to the binlog thread pool.
+    CUMU_BINLOG_COMPACTION = 4
+};
+
+struct CompactionScoreStats {
+    int64_t max_score = 0;
+    int64_t size_based_max_score = 0;
+    int64_t time_series_max_score = 0;
+    bool scanned = false;
 };
 
 enum DataDirType {
@@ -392,6 +401,8 @@ struct OlapReaderStatistics {
     int64_t inverted_index_query_timer = 0;
     int64_t inverted_index_query_cache_hit = 0;
     int64_t inverted_index_query_cache_miss = 0;
+    int64_t inverted_index_query_cache_lookup = 0;
+    int64_t inverted_index_query_cache_insert = 0;
     int64_t inverted_index_query_null_bitmap_timer = 0;
     int64_t inverted_index_query_bitmap_copy_timer = 0;
     int64_t inverted_index_searcher_open_timer = 0;
@@ -403,6 +414,8 @@ struct OlapReaderStatistics {
     int64_t inverted_index_downgrade_count = 0;
     int64_t inverted_index_analyzer_timer = 0;
     int64_t inverted_index_lookup_timer = 0;
+    // See snii_query_stats.h: one field here instead of one per SNII counter.
+    snii::SniiQueryStats snii_stats;
     InvertedIndexStatistics inverted_index_stats;
 
     int64_t ann_index_load_ns = 0;

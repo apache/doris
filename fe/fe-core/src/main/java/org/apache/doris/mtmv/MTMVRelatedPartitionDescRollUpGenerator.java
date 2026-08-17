@@ -42,7 +42,8 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
 
     @Override
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult, List<Column> partitionColumns) throws AnalysisException {
+            RelatedPartitionDescResult lastResult, List<Column> partitionColumns,
+                      Map<List<String>, Set<String>> queryUsedPartitionMap) throws AnalysisException {
         if (mvPartitionInfo.getPartitionType() != MTMVPartitionType.EXPR) {
             return;
         }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -42,7 +42,7 @@ import java.util.Collections;
 public class HiveConnectorMetadataStaticPartitionTest {
 
     private static HiveConnectorMetadata metadata() {
-        return new HiveConnectorMetadata(null, Collections.emptyMap(), new FakeConnectorContext());
+        return new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext());
     }
 
     private static HiveTableHandle handle(String... partitionKeys) {

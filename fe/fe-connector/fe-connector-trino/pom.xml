@@ -46,10 +46,10 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- connector-api provides SPI interfaces -->
+        <!-- For @ConnectorProperty + ConnectorPropertiesUtils (typed-holder binding; D-004). -->
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-api</artifactId>
+            <artifactId>fe-foundation</artifactId>
             <version>${project.version}</version>
         </dependency>
 

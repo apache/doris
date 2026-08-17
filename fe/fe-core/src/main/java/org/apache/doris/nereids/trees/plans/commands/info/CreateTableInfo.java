@@ -47,7 +47,7 @@ import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.connector.api.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -825,7 +825,8 @@ public class CreateTableInfo {
                 if (indexDef.getIndexType() == IndexType.ANN) {
                     if (invertedIndexFileStorageFormat != null
                             && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
-                        throw new AnalysisException("ANN index is not supported in index format V1");
+                        throw new AnalysisException("ANN index is not supported in index format "
+                                + invertedIndexFileStorageFormat);
                     }
                 }
                 for (String indexColName : indexDef.getColumnNames()) {

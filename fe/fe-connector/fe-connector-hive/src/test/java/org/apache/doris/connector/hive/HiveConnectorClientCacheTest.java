@@ -17,12 +17,12 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.mvcc.ConnectorTableFreshness;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -156,7 +156,7 @@ public class HiveConnectorClientCacheTest {
     }
 
     private HiveConnectorMetadata metadataOver(HmsClient client) {
-        return new HiveConnectorMetadata(client, Collections.emptyMap(), new FakeConnectorContext());
+        return new HiveConnectorMetadata(client, HiveTestProperties.minimal(), new FakeConnectorContext());
     }
 
     /**

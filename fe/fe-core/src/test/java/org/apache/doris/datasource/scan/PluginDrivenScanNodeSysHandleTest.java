@@ -20,16 +20,17 @@ package org.apache.doris.datasource.scan;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSysExternalTable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -78,7 +79,7 @@ public class PluginDrivenScanNodeSysHandleTest {
         ConnectorTableHandle sysHandle = Mockito.mock(ConnectorTableHandle.class);
 
         TestablePluginCatalog catalog = new TestablePluginCatalog("paimon", metadata, session);
-        ExternalDatabase<PluginDrivenExternalTable> db = mockDb("REMOTE_DB");
+        ExternalDatabase<PluginDrivenExternalTable> db = mockDb("local_db", "REMOTE_DB");
 
         // Base handle resolved from the SOURCE remote name (not the "$"-suffixed sys remote name);
         // the connector then maps base handle + "binlog" -> the sys handle. NOTE: there is no stub
@@ -127,7 +128,7 @@ public class PluginDrivenScanNodeSysHandleTest {
         ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
 
         TestablePluginCatalog catalog = new TestablePluginCatalog("paimon", metadata, session);
-        ExternalDatabase<PluginDrivenExternalTable> db = mockDb("REMOTE_DB");
+        ExternalDatabase<PluginDrivenExternalTable> db = mockDb("local_db", "REMOTE_DB");
         Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
                 .thenReturn(Optional.of(baseHandle));
 
@@ -148,6 +149,51 @@ public class PluginDrivenScanNodeSysHandleTest {
                 .getSysTableHandle(Mockito.any(), Mockito.any(), Mockito.anyString());
     }
 
+    @Test
+    public void createReportsMissingTableWhenHandleDisappears() {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        TestablePluginCatalog catalog = new TestablePluginCatalog("hms", metadata, session);
+        ExternalDatabase<PluginDrivenExternalTable> db = mockDb("local_db", "REMOTE_DB");
+        Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "dropped_table"))
+                .thenReturn(Optional.empty());
+        PluginDrivenExternalTable table = bareTable(catalog, db, "dropped_table");
+
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> PluginDrivenScanNode.create(new PlanNodeId(0),
+                        new TupleDescriptor(new TupleId(0)), false, new SessionVariable(),
+                        ScanContext.EMPTY, catalog, table));
+        Assertions.assertEquals("Table 'test-catalog.local_db.tbl' does not exist", ex.getMessage());
+    }
+
+    @Test
+    public void createReportsMappedLocalNameWhenSysHandleDisappears() {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        ConnectorTableHandle baseHandle = Mockito.mock(ConnectorTableHandle.class);
+        TestablePluginCatalog catalog = new TestablePluginCatalog("hms", metadata, session);
+        ExternalDatabase<PluginDrivenExternalTable> db = mockDb("local_db", "REMOTE_DB");
+        Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
+                .thenReturn(Optional.of(baseHandle));
+        Mockito.when(metadata.getSysTableHandle(session, baseHandle, "files"))
+                .thenReturn(Optional.empty());
+        PluginDrivenExternalTable base = bareTable(catalog, db, "REMOTE_TBL");
+        PluginDrivenSysExternalTable sysTable = new PluginDrivenSysExternalTable(base, "files") {
+            @Override
+            protected synchronized void makeSureInitialized() {
+                // no-op: skip Env-backed catalog/db init
+            }
+        };
+
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
+                () -> PluginDrivenScanNode.create(new PlanNodeId(0),
+                        new TupleDescriptor(new TupleId(0)), false, new SessionVariable(),
+                        ScanContext.EMPTY, catalog, sysTable));
+        Assertions.assertEquals("Table 'test-catalog.local_db.tbl$files' does not exist", ex.getMessage());
+    }
+
     // ==================== helpers (mirror PluginDrivenSysTableTest) ====================
 
     private static PluginDrivenExternalTable bareTable(PluginDrivenExternalCatalog catalog,
@@ -161,8 +207,9 @@ public class PluginDrivenScanNodeSysHandleTest {
     }
 
     @SuppressWarnings("unchecked")
-    private static ExternalDatabase<PluginDrivenExternalTable> mockDb(String remoteName) {
+    private static ExternalDatabase<PluginDrivenExternalTable> mockDb(String localName, String remoteName) {
         ExternalDatabase<PluginDrivenExternalTable> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getFullName()).thenReturn(localName);
         Mockito.when(db.getRemoteName()).thenReturn(remoteName);
         return db;
     }

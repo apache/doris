@@ -29,10 +29,11 @@
 #include <string>
 
 #include "common/config.h"
+#include "cpp/obj-client/obj_storage_client.h"
 #include "cpp/sync_point.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
-#include "io/fs/obj_storage_client.h"
 #include "runtime/exec_env.h"
 #include "util/defer_op.h"
 #include "util/s3_rate_limiter_manager.h"
@@ -176,11 +177,11 @@ protected:
         EXPECT_TRUE(status.ok()) << "Failed to delete test file: " << status.to_string();
     }
 
-    io::ObjStorageType convert_provider(const std::string& provider_str) {
+    io::ObjStorageProvider convert_provider(const std::string& provider_str) {
         if (provider_str == "AZURE") {
-            return io::ObjStorageType::AZURE;
+            return io::ObjStorageProvider::AZURE;
         } else {
-            return io::ObjStorageType::AWS; // Default to AWS S3
+            return io::ObjStorageProvider::AWS; // Default to AWS S3
         }
     }
 
@@ -927,9 +928,8 @@ TEST_F(S3FileSystemTest, RateLimiterGetDownloadTest) {
 
 // Test: S3 rate limiter for PUT operations - multipart upload
 TEST_F(S3FileSystemTest, RateLimiterPutMultipartTest) {
-    // Skip if using Azure provider - Azure's create_multipart_upload is a no-op and doesn't
-    // consume rate limiter quota, while S3's CreateMultipartUpload does. This causes different
-    // failure timing that makes the test assertions invalid for Azure.
+    // This test asserts the S3 provider's exact multipart request/failure sequence; Azure uses
+    // lease coordination and therefore has different failure timing.
     if (config_->get_provider() == "AZURE") {
         GTEST_SKIP() << "This test relies on S3-specific multipart upload quota consumption "
                         "behavior, not applicable for Azure";
@@ -1436,9 +1436,8 @@ TEST_F(S3FileSystemTest, RateLimiterGetDeleteDirectoryListTest) {
 
 // Test: S3 rate limiter for PUT operations - multipart upload with UploadPart failure
 TEST_F(S3FileSystemTest, RateLimiterPutMultipartUploadPartFailureTest) {
-    // Skip if using Azure provider - Azure's create_multipart_upload is a no-op and doesn't
-    // consume rate limiter quota, while S3's CreateMultipartUpload does. This causes different
-    // failure timing that makes the test assertions invalid for Azure.
+    // This test asserts the S3 provider's exact multipart request/failure sequence; Azure uses
+    // lease coordination and therefore has different failure timing.
     if (config_->get_provider() == "AZURE") {
         GTEST_SKIP() << "This test relies on S3-specific multipart upload quota consumption "
                         "behavior, not applicable for Azure";
@@ -1865,8 +1864,7 @@ TEST_F(S3FileSystemTest, RateLimiterPutDeleteDirectoryDeleteObjectsTest) {
 
 // Test: S3 CreateMultipartUpload failure - simulates error when initiating multipart upload
 TEST_F(S3FileSystemTest, CreateMultipartUploadFailureTest) {
-    // Skip if using Azure provider - SyncPoint mechanism is S3-specific
-    // Also, Azure's create_multipart_upload is a no-op that always succeeds
+    // Skip if using Azure provider because the SyncPoint mechanism is S3-specific.
     if (config_->get_provider() == "AZURE") {
         GTEST_SKIP() << "This test uses S3-specific SyncPoint mechanism and multipart semantics, "
                         "not applicable for Azure";

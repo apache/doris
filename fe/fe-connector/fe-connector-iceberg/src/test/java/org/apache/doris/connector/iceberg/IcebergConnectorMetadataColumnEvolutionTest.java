@@ -17,10 +17,10 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
 
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -50,12 +50,12 @@ public class IcebergConnectorMetadataColumnEvolutionTest {
 
     private static Map<String, String> props() {
         Map<String, String> p = new HashMap<>();
-        p.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        p.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
         return p;
     }
 
     private static IcebergConnectorMetadata metadata(RecordingIcebergCatalogOps ops, RecordingConnectorContext ctx) {
-        return new IcebergConnectorMetadata(ops, props(), ctx);
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(props()), ctx);
     }
 
     private static ConnectorColumn col(String name, String type) {

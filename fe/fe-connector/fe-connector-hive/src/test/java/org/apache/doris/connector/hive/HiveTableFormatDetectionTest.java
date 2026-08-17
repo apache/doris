@@ -17,12 +17,12 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -127,7 +127,7 @@ public class HiveTableFormatDetectionTest {
 
     private Optional<ConnectorTableHandle> handleFor(HmsTableInfo tableInfo) {
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
-                new FakeHmsClient(tableInfo), Collections.emptyMap(), new FakeConnectorContext());
+                new FakeHmsClient(tableInfo), HiveTestProperties.minimal(), new FakeConnectorContext());
         return metadata.getTableHandle(null, "db", "t");
     }
 

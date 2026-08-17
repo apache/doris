@@ -76,7 +76,6 @@ public:
 
     virtual ReaderType compaction_type() const = 0;
     virtual std::string_view compaction_name() const = 0;
-    virtual int8_t compaction_level() const { return -1; }
 
     // Returns compaction profile type for task tracking.
     // Default returns std::nullopt (not tracked). Only base/cumulative/full override.
@@ -161,6 +160,7 @@ protected:
 
     bool _is_vertical;
     bool _is_ordered_data_compaction {false};
+    bool _trigger_quick_merge_by_binlog {false};
     bool _allow_delete_in_cumu_compaction;
     bool _enable_vertical_compact_variant_subcolumns;
 

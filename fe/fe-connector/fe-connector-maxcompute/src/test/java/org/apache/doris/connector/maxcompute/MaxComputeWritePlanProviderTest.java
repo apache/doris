@@ -17,13 +17,12 @@
 
 package org.apache.doris.connector.maxcompute;
 
-import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.EnumSet;
-import java.util.HashMap;
 
 /**
  * Pins {@link MaxComputeWritePlanProvider}'s write capability declarations (the connector module has
@@ -40,7 +39,8 @@ import java.util.HashMap;
 public class MaxComputeWritePlanProviderTest {
 
     private static MaxComputeWritePlanProvider provider() {
-        return new MaxComputeWritePlanProvider(new MaxComputeDorisConnector(new HashMap<>(), null));
+        return new MaxComputeWritePlanProvider(
+                new MaxComputeDorisConnector(MCTestProperties.minimalMap(), null));
     }
 
     @Test

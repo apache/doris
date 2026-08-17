@@ -17,13 +17,13 @@
 
 package org.apache.doris.connector.maxcompute;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTestResult;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTestResult;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
@@ -51,7 +51,7 @@ public class MaxComputeDorisConnector implements Connector {
     private static final Logger LOG = LogManager.getLogger(
             MaxComputeDorisConnector.class);
 
-    private final Map<String, String> properties;
+    private final MCCatalogProperties props;
     private final ConnectorContext context;
 
     // Connector-owned partition-listing cache, shared by the (per-call) metadata's three partition-listing
@@ -74,9 +74,10 @@ public class MaxComputeDorisConnector implements Connector {
 
     public MaxComputeDorisConnector(Map<String, String> properties,
             ConnectorContext context) {
-        this.properties = properties;
+        this.props = MCCatalogProperties.of(properties);
         this.context = context;
-        this.partitionCache = new MaxComputePartitionCache(properties,
+        // The cache reads the framework's own meta.cache.* keys off the raw map, so it keeps taking one.
+        this.partitionCache = new MaxComputePartitionCache(props.getRaw(),
                 (db, t) -> structureHelper.getPartitions(odps, db, t));
     }
 
@@ -92,34 +93,19 @@ public class MaxComputeDorisConnector implements Connector {
     }
 
     private void doInit() {
-        endpoint = MCConnectorEndpoint.resolveEndpoint(properties);
+        endpoint = props.getResolvedEndpoint();
 
-        defaultProject = properties.get(MCConnectorProperties.PROJECT);
-        quota = properties.getOrDefault(
-                MCConnectorProperties.QUOTA,
-                MCConnectorProperties.DEFAULT_QUOTA);
+        defaultProject = props.getProject();
+        quota = props.getQuota();
 
-        odps = MCConnectorClientFactory.createClient(properties);
+        odps = MCConnectorClientFactory.createClient(props);
         odps.setDefaultProject(defaultProject);
         odps.setEndpoint(endpoint);
 
-        String accountFormatProp = properties.getOrDefault(
-                MCConnectorProperties.ACCOUNT_FORMAT,
-                MCConnectorProperties.DEFAULT_ACCOUNT_FORMAT);
-        AccountFormat accountFormat;
-        if (accountFormatProp.equals(
-                MCConnectorProperties.ACCOUNT_FORMAT_ID)) {
-            accountFormat = AccountFormat.ID;
-        } else {
-            accountFormat = AccountFormat.DISPLAYNAME;
-        }
-        odps.setAccountFormat(accountFormat);
+        odps.setAccountFormat(props.getAccountFormat() == MCCatalogProperties.AccountFormat.ID
+                ? AccountFormat.ID : AccountFormat.DISPLAYNAME);
 
-        enableNamespaceSchema = Boolean.parseBoolean(
-                properties.getOrDefault(
-                        MCConnectorProperties.ENABLE_NAMESPACE_SCHEMA,
-                        MCConnectorProperties
-                                .DEFAULT_ENABLE_NAMESPACE_SCHEMA));
+        enableNamespaceSchema = props.isEnableNamespaceSchema();
         structureHelper = McStructureHelper.getHelper(
                 enableNamespaceSchema, defaultProject);
         settings = buildSettings();
@@ -136,15 +122,9 @@ public class MaxComputeDorisConnector implements Connector {
      * {@link MaxComputeScanPlanProvider} and {@link MaxComputeWritePlanProvider}.
      */
     private EnvironmentSettings buildSettings() {
-        int connectTimeout = Integer.parseInt(properties.getOrDefault(
-                MCConnectorProperties.CONNECT_TIMEOUT,
-                MCConnectorProperties.DEFAULT_CONNECT_TIMEOUT));
-        int readTimeout = Integer.parseInt(properties.getOrDefault(
-                MCConnectorProperties.READ_TIMEOUT,
-                MCConnectorProperties.DEFAULT_READ_TIMEOUT));
-        int retryTimes = Integer.parseInt(properties.getOrDefault(
-                MCConnectorProperties.RETRY_COUNT,
-                MCConnectorProperties.DEFAULT_RETRY_COUNT));
+        int connectTimeout = props.getConnectTimeout();
+        int readTimeout = props.getReadTimeout();
+        int retryTimes = props.getRetryCount();
 
         // Apply the same timeouts to the raw ODPS client: metadata / project / schema / DDL and the
         // CREATE-time connectivity test (testConnection) go through odps.getRestClient(), not the
@@ -177,7 +157,7 @@ public class MaxComputeDorisConnector implements Connector {
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         ensureInitialized();
         return new MaxComputeConnectorMetadata(
-                odps, structureHelper, defaultProject, endpoint, quota, properties, partitionCache);
+                odps, structureHelper, defaultProject, endpoint, quota, props.getRaw(), partitionCache);
     }
 
     /**
@@ -259,12 +239,12 @@ public class MaxComputeDorisConnector implements Connector {
             projectExists = maxComputeProjectExists(defaultProject);
         } catch (Exception e) {
             throw new RuntimeException("Failed to validate MaxCompute project '" + defaultProject
-                    + "'. Check " + MCConnectorProperties.PROJECT + ", " + MCConnectorProperties.ENDPOINT
+                    + "'. Check " + MCCatalogProperties.PROJECT + ", " + MCCatalogProperties.ENDPOINT
                     + " and credentials. Cause: " + e.getMessage(), e);
         }
         if (!projectExists) {
             throw new RuntimeException("Failed to validate MaxCompute project '" + defaultProject
-                    + "'. Check " + MCConnectorProperties.PROJECT + ", " + MCConnectorProperties.ENDPOINT
+                    + "'. Check " + MCCatalogProperties.PROJECT + ", " + MCCatalogProperties.ENDPOINT
                     + " and credentials. Cause: project does not exist or is not accessible");
         }
     }
@@ -274,8 +254,8 @@ public class MaxComputeDorisConnector implements Connector {
             validateMaxComputeNamespaceSchemaAccess(defaultProject);
         } catch (Exception e) {
             throw new RuntimeException("Failed to validate MaxCompute project '" + defaultProject
-                    + "' with namespace schema. Check " + MCConnectorProperties.PROJECT + ", "
-                    + MCConnectorProperties.ENDPOINT
+                    + "' with namespace schema. Check " + MCCatalogProperties.PROJECT + ", "
+                    + MCCatalogProperties.ENDPOINT
                     + ", credentials, and whether the schema list is accessible for the namespace "
                     + "schema configuration. Cause: " + e.getMessage(), e);
         }
@@ -309,8 +289,8 @@ public class MaxComputeDorisConnector implements Connector {
         return quota;
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
+    public MCCatalogProperties getProps() {
+        return props;
     }
 
     public McStructureHelper getStructureHelper() {

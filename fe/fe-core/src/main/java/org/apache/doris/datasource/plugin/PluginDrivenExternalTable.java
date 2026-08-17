@@ -24,22 +24,22 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorColumnStatistics;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.ConnectorTableStatistics;
-import org.apache.doris.connector.api.ConnectorViewDefinition;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorColumnStatistics;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorTableStatistics;
+import org.apache.doris.connector.spi.ConnectorViewDefinition;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
@@ -84,7 +84,7 @@ import java.util.stream.Collectors;
  *
  * <p>Provides table implementation that fetches schema from the connector SPI.
  * Connector-specific behavior is accessed through the parent catalog's
- * {@link org.apache.doris.connector.api.Connector} using opaque handles.</p>
+ * {@link org.apache.doris.connector.spi.Connector} using opaque handles.</p>
  */
 public class PluginDrivenExternalTable extends ExternalTable {
 
@@ -569,7 +569,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
         }
         return new PluginDrivenSchemaCacheValue(columns, partitionColumns, partitionColumnRemoteNames,
-                tableSchema.getProperties(), tableSchema.getTableCapabilities());
+                tableSchema.getProperties(), tableSchema.getTableCapabilities(),
+                tableSchema.getWriteMetadataIdentity());
     }
 
     @Override
@@ -735,6 +736,61 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return result;
     }
 
+    /** Immutable write-facing views captured from one schema-cache generation. */
+    public static final class WriteSchemaSnapshot {
+        private final List<Column> baseSchema;
+        private final List<Column> fullSchema;
+        private final List<Column> partitionColumns;
+        private final String writeMetadataIdentity;
+
+        private WriteSchemaSnapshot(List<Column> baseSchema, List<Column> fullSchema,
+                List<Column> partitionColumns, String writeMetadataIdentity) {
+            this.baseSchema = Collections.unmodifiableList(new ArrayList<>(baseSchema));
+            this.fullSchema = Collections.unmodifiableList(new ArrayList<>(fullSchema));
+            this.partitionColumns = Collections.unmodifiableList(new ArrayList<>(partitionColumns));
+            this.writeMetadataIdentity = writeMetadataIdentity;
+        }
+
+        public List<Column> getBaseSchema() {
+            return baseSchema;
+        }
+
+        public List<Column> getFullSchema() {
+            return fullSchema;
+        }
+
+        public List<Column> getPartitionColumns() {
+            return partitionColumns;
+        }
+
+        public String getWriteMetadataIdentity() {
+            return writeMetadataIdentity;
+        }
+    }
+
+    /**
+     * Captures schema and partition identities from one cache value for write binding. Reading them through
+     * separate table APIs can straddle a concurrent refresh and make the planner hash an older output by a
+     * newer column ordinal.
+     */
+    public WriteSchemaSnapshot getWriteSchemaSnapshot() {
+        makeSureInitialized();
+        PluginDrivenSchemaCacheValue value = getSchemaCacheValue(Optional.empty())
+                .map(PluginDrivenSchemaCacheValue.class::cast)
+                .orElseGet(() -> new PluginDrivenSchemaCacheValue(
+                        Collections.emptyList(), Collections.emptyList(), Collections.emptyList()));
+        List<Column> baseSchema = value.getSchema();
+        String writeMetadataIdentity = value.getWriteMetadataIdentity();
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getStatementContext() != null) {
+            writeMetadataIdentity = ctx.getStatementContext()
+                    .getConnectorWriteMetadataIdentity(getId())
+                    .orElse(writeMetadataIdentity);
+        }
+        return new WriteSchemaSnapshot(baseSchema, appendSyntheticWriteColumns(baseSchema),
+                value.getPartitionColumns(), writeMetadataIdentity);
+    }
+
     /**
      * Fetches the connector's declared synthetic write columns for this table, in engine-neutral form.
      * Degrades to an empty list on any miss (non-plugin catalog, a read-only connector with no write-plan
@@ -777,6 +833,45 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     public List<Column> getSyntheticWriteColumns() {
         return ConnectorColumnConverter.convertColumns(fetchSyntheticWriteColumns());
+    }
+
+    /**
+     * Resolves request-scoped data columns for write analysis. A connector may pin remote schema/default
+     * metadata here; an empty result tells the engine to keep using the cached table schema.
+     */
+    public Optional<List<Column>> resolveWriteColumns(Optional<String> branchName) {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        Optional<ConnectorTableHandle> handle = resolveConnectorTableHandle(session, metadata);
+        if (!handle.isPresent()) {
+            return Optional.empty();
+        }
+        ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle.get());
+        if (provider == null) {
+            return Optional.empty();
+        }
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(provider.getClass().getClassLoader());
+            Optional<List<ConnectorColumn>> connectorColumns =
+                    provider.getWriteColumns(session, handle.get(), branchName);
+            if (!connectorColumns.isPresent()) {
+                return Optional.empty();
+            }
+            String identity = provider.getWriteMetadataIdentity(session, handle.get());
+            ConnectContext ctx = ConnectContext.get();
+            if (identity != null && ctx != null && ctx.getStatementContext() != null) {
+                ctx.getStatementContext().setConnectorWriteMetadataIdentity(getId(), identity);
+            }
+            return connectorColumns.map(ConnectorColumnConverter::convertColumns);
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
     }
 
     /** The raw connector-emitted table-property map (including FE-internal / render-hint keys). */
@@ -1249,10 +1344,11 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * {@link #fetchRowCount()} but threads the snapshot into the 3-arg {@code getTableStatistics}. Runs in the
      * query thread (not the background cache loader, which has no statement context), so it is deliberately
      * NOT cached &mdash; the handful of versioned reads per statement is cheap. Returns
-     * {@link #UNKNOWN_ROW_COUNT} when the connector cannot serve an exact count at the snapshot, so the caller
-     * falls back to the latest cached estimate.
+     * {@link #UNKNOWN_ROW_COUNT} when the connector cannot serve an exact count at the snapshot. Ordinary
+     * tables may fall back to the latest estimate; system relations must preserve UNKNOWN to avoid snapshot
+     * skew, so the decision belongs to the caller.
      */
-    private long fetchRowCountAtSnapshot(ConnectorMvccSnapshot snapshot) {
+    protected long fetchRowCountAtSnapshot(ConnectorMvccSnapshot snapshot) {
         makeSureInitialized();
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();

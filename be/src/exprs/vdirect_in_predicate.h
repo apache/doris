@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <mutex>
 #include <utility>
 #include <vector>
 
@@ -35,6 +36,16 @@ namespace doris {
 
 class VDirectInPredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(VDirectInPredicate);
+
+    struct PruningState {
+        std::once_flag materialize_once;
+        Status materialization_status;
+        bool zonemap_materialized = false;
+        bool seg_filter_contains_nan = false;
+        std::vector<Field> seg_filter_values;
+        Field seg_filter_min;
+        Field seg_filter_max;
+    };
 
 public:
     // `hybrid_set_values_match_child_type` tells whether values in `filter` can be interpreted with
@@ -89,22 +100,25 @@ public:
     std::shared_ptr<HybridSetBase> get_set_func() const override { return _filter; }
 
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
-        return expr_zonemap::eval_in_zonemap(ctx, get_child(0), false, _seg_filter_values,
-                                             _seg_filter_min, _seg_filter_max);
+        return expr_zonemap::eval_in_zonemap(
+                ctx, get_child(0), false, _pruning_state->seg_filter_values,
+                _pruning_state->seg_filter_contains_nan, _pruning_state->seg_filter_min,
+                _pruning_state->seg_filter_max);
     }
 
     bool can_evaluate_zonemap_filter() const override {
-        return _zonemap_materialized &&
+        return _pruning_state->zonemap_materialized &&
                std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
     }
 
     ZoneMapFilterResult evaluate_dictionary_filter(
             const DictionaryEvalContext& ctx) const override {
-        return expr_zonemap::eval_in_dictionary(ctx, get_child(0), false, _seg_filter_values);
+        return expr_zonemap::eval_in_dictionary(ctx, get_child(0), false,
+                                                _pruning_state->seg_filter_values);
     }
 
     bool can_evaluate_dictionary_filter() const override {
-        return _zonemap_materialized &&
+        return _pruning_state->zonemap_materialized &&
                std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
     }
 
@@ -176,8 +190,12 @@ public:
 
     Status clone_node(VExprSPtr* cloned_expr) const override {
         DORIS_CHECK(cloned_expr != nullptr);
-        *cloned_expr = VDirectInPredicate::create_shared(clone_texpr_node(), _filter,
-                                                         _hybrid_set_values_match_child_type);
+        auto cloned = VDirectInPredicate::create_shared(clone_texpr_node(), _filter,
+                                                        _hybrid_set_values_match_child_type);
+        // Runtime-filter sets are immutable after publication, and file-local rewrites preserve
+        // the predicate's logical child type, so every split clone must reuse this materialization.
+        cloned->_pruning_state = _pruning_state;
+        *cloned_expr = std::move(cloned);
         return Status::OK();
     }
 
@@ -297,21 +315,28 @@ private:
     }
 
     Status _materialize_for_zonemap_filter() {
-        if (!_hybrid_set_values_match_child_type) {
-            _zonemap_materialized = false;
-            return Status::OK();
-        }
-        DORIS_CHECK(_filter != nullptr);
-        auto& filter = *_filter;
-        const auto& data_type = remove_nullable(get_child(0)->data_type());
-        expr_zonemap::InZonemapMaterializedSet materialized;
-        RETURN_IF_ERROR(expr_zonemap::materialize_hybrid_set_for_zonemap_filter(filter, data_type,
-                                                                                &materialized));
-        _seg_filter_values = std::move(materialized.values);
-        _seg_filter_min = std::move(materialized.min_value);
-        _seg_filter_max = std::move(materialized.max_value);
-        _zonemap_materialized = true;
-        return Status::OK();
+        const auto pruning_state = _pruning_state;
+        std::call_once(pruning_state->materialize_once, [&] {
+            if (!_hybrid_set_values_match_child_type) {
+                return;
+            }
+            DORIS_CHECK(_filter != nullptr);
+            auto& filter = *_filter;
+            const auto& data_type = remove_nullable(get_child(0)->data_type());
+            expr_zonemap::InZonemapMaterializedSet materialized;
+            pruning_state->materialization_status =
+                    expr_zonemap::materialize_hybrid_set_for_zonemap_filter(filter, data_type,
+                                                                            &materialized);
+            if (!pruning_state->materialization_status.ok()) {
+                return;
+            }
+            pruning_state->seg_filter_values = std::move(materialized.values);
+            pruning_state->seg_filter_contains_nan = materialized.contains_nan;
+            pruning_state->seg_filter_min = std::move(materialized.min_value);
+            pruning_state->seg_filter_max = std::move(materialized.max_value);
+            pruning_state->zonemap_materialized = true;
+        });
+        return pruning_state->materialization_status;
     }
 
     std::shared_ptr<HybridSetBase> _filter;
@@ -320,10 +345,7 @@ private:
     // literals for zonemap pruning or slot-IN rewrite.
     bool _hybrid_set_values_match_child_type = true;
     std::string _expr_name;
-    bool _zonemap_materialized = false;
-    std::vector<Field> _seg_filter_values;
-    Field _seg_filter_min;
-    Field _seg_filter_max;
+    std::shared_ptr<PruningState> _pruning_state = std::make_shared<PruningState>();
 };
 
 } // namespace doris

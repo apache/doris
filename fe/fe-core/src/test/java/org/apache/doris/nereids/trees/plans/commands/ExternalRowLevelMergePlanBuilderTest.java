@@ -22,17 +22,22 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -40,8 +45,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -67,6 +74,8 @@ public class ExternalRowLevelMergePlanBuilderTest {
     @Test
     public void mergeSinkRequestsTheSqlMergeCardinalityCheck() {
         ConnectContext ctx = new ConnectContext();
+        // Writer schemas are pinned per statement in production; the focused builder test needs the same scope.
+        ctx.setStatementContext(new StatementContext());
         ctx.setThreadLocalInfo();
         LogicalPlan source = new LogicalOneRowRelation(new RelationId(0),
                 ImmutableList.of(new UnboundAlias(new IntegerLiteral(1), "dummy")));
@@ -84,10 +93,16 @@ public class ExternalRowLevelMergePlanBuilderTest {
         Column rowId = new Column(Column.ICEBERG_ROWID_COL, ScalarType.createStringType());
         rowId.setIsVisible(false);
         Column data = new Column("c1", ScalarType.createType(PrimitiveType.INT));
-        ExternalTable table = Mockito.mock(ExternalTable.class);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                Mockito.mock(PluginDrivenExternalTable.WriteSchemaSnapshot.class);
         Mockito.when(table.getName()).thenReturn("test_table");
         Mockito.doReturn(Mockito.mock(ExternalDatabase.class)).when(table).getDatabase();
-        Mockito.doReturn(ImmutableList.of(data)).when(table).getBaseSchema(true);
+        Mockito.doReturn(ImmutableList.of(data)).when(writeSchema).getBaseSchema();
+        Mockito.doReturn("uuid-u0/schema-1").when(writeSchema).getWriteMetadataIdentity();
+        Mockito.doReturn(writeSchema).when(table).getWriteSchemaSnapshot();
+        Mockito.doReturn(Optional.of(ImmutableList.of(data)))
+                .when(table).resolveWriteColumns(Optional.empty());
         Mockito.doReturn(ImmutableList.of(data, rowId)).when(table).getFullSchema();
 
         LogicalPlan plan = builder.buildMergePlan(ctx, table);
@@ -100,5 +115,26 @@ public class ExternalRowLevelMergePlanBuilderTest {
         Assertions.assertTrue(plan instanceof LogicalExternalRowLevelMergeSink);
         Assertions.assertTrue(((LogicalExternalRowLevelMergeSink<?>) plan).isRequireMergeCardinalityCheck(),
                 "SQL MERGE INTO must request the cardinality validation");
+        // The branch projections, sink columns, and conflict fence must come from one generation.
+        Assertions.assertEquals("uuid-u0/schema-1",
+                ((LogicalExternalRowLevelMergeSink<?>) plan).getBoundWriteMetadataIdentity());
+        // The snapshot identity must be read only after resolving the request-scoped writer columns.
+        InOrder metadataOrder = Mockito.inOrder(table);
+        metadataOrder.verify(table).resolveWriteColumns(Optional.empty());
+        metadataOrder.verify(table).getWriteSchemaSnapshot();
+    }
+
+    @Test
+    public void mergeBranchesUseThePinnedWriterType() {
+        VarBinaryType uuidType = VarBinaryType.createVarBinaryType(16);
+        Cast cachedTargetValue = new Cast(new StringLiteral("target"), uuidType);
+        Cast unboundedDefault = new Cast(new StringLiteral("default"), VarBinaryType.MAX_VARBINARY_TYPE);
+
+        List<NamedExpression> projections = ExternalRowLevelMergePlanBuilder.generateFinalProjections(
+                ImmutableList.of("uuid_col"), ImmutableList.of(uuidType),
+                ImmutableList.of(ImmutableList.of(cachedTargetValue), ImmutableList.of(unboundedDefault)));
+
+        Assertions.assertEquals(uuidType, projections.get(0).child(0).getDataType(),
+                "MERGE branch selection must be analyzable even when an expression starts with a wider type");
     }
 }

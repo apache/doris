@@ -17,11 +17,11 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.PartitionSpec;
@@ -72,12 +72,12 @@ import java.util.Optional;
 public class IcebergConnectorMetadataSysTableTest {
 
     private static IcebergConnectorMetadata metadataWith(RecordingIcebergCatalogOps ops) {
-        return new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     private static IcebergConnectorMetadata metadataWith(
             RecordingIcebergCatalogOps ops, RecordingConnectorContext ctx) {
-        return new IcebergConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), ctx);
     }
 
     private static IcebergTableHandle baseHandle() {
@@ -384,10 +384,10 @@ public class IcebergConnectorMetadataSysTableTest {
         IcebergConnectorMetadata mdDefault = metadataWith(seamWith(inMemoryBaseTable()));
 
         Map<String, String> tzProps = new HashMap<>();
-        tzProps.put(IcebergConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "true");
+        tzProps.put(IcebergCatalogProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "true");
         RecordingIcebergCatalogOps opsTz = seamWith(inMemoryBaseTable());
         IcebergConnectorMetadata mdTz =
-                new IcebergConnectorMetadata(opsTz, tzProps, new RecordingConnectorContext());
+                new IcebergConnectorMetadata(opsTz, IcebergCatalogProperties.of(tzProps), new RecordingConnectorContext());
 
         ConnectorColumn committedDefault = committedAtColumn(mdDefault);
         ConnectorColumn committedTz = committedAtColumn(mdTz);

@@ -201,6 +201,7 @@ protected:
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
+    std::unique_ptr<ThreadPool> _binlog_compaction_thread_pool;
     int _cumu_compaction_thread_pool_used_threads {0};
     int _cumu_compaction_thread_pool_small_tasks_running {0};
 };
@@ -232,7 +233,8 @@ public:
 
     std::vector<TabletCompactionContext> pick_topn_tablets_for_compaction(
             TabletManager* tablet_mgr, DataDir* data_dir, CompactionType compaction_type,
-            const CumuCompactionPolicyTable& cumu_compaction_policies, uint32_t* disk_max_score);
+            const CumuCompactionPolicyTable& cumu_compaction_policies,
+            CompactionScoreStats* disk_score_stats);
 
 private:
     TabletSet& _get_tablet_set(DataDir* dir, CompactionType compaction_type);
@@ -377,6 +379,23 @@ public:
 
     int64_t get_compaction_num_per_round() const { return _compaction_num_per_round; }
 
+#ifdef BE_TEST
+    std::vector<TabletSharedPtr> generate_compaction_tasks_for_test(
+            CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
+        auto tablet_contexts = _generate_compaction_tasks(compaction_type, data_dirs, check_score);
+        std::vector<TabletSharedPtr> tablets;
+        tablets.reserve(tablet_contexts.size());
+        for (auto& context : tablet_contexts) {
+            tablets.emplace_back(std::move(context.tablet));
+        }
+        return tablets;
+    }
+
+    CompactionSubmitRegistry& compaction_submit_registry_for_test() {
+        return _compaction_submit_registry;
+    }
+#endif
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
@@ -448,8 +467,7 @@ private:
                                                CompactionType compaction_type);
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                   bool force, int trigger_method = 0,
-                                   int8_t prefer_compaction_level = -1);
+                                   bool force, int trigger_method = 0);
 
     void _handle_compaction(TabletSharedPtr tablet, std::shared_ptr<CompactionMixin> compaction,
                             CompactionType compaction_type, int64_t permits, bool force,
@@ -539,8 +557,6 @@ private:
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
-
-    std::unique_ptr<ThreadPool> _binlog_compaction_thread_pool;
 
     std::unique_ptr<ThreadPool> _seg_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cold_data_compaction_thread_pool;

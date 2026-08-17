@@ -23,15 +23,23 @@
 #include <memory>
 #include <vector>
 
+#include "core/assert_cast.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
 #include "core/field.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "storage/olap_common.h"
+#include "storage/row_cursor.h"
 #include "storage/schema.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/test_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/tablet/tablet_schema_helper.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -42,7 +50,7 @@ public:
     virtual ~VGenericIteratorsTest() {}
 };
 
-static Schema create_schema() {
+static std::vector<TabletColumnPtr> create_col_schemas() {
     std::vector<TabletColumnPtr> col_schemas;
     auto c1 = std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
                                              FieldType::OLAP_FIELD_TYPE_SMALLINT, true);
@@ -57,6 +65,11 @@ static Schema create_schema() {
     col_schemas.emplace_back(
             std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
                                            FieldType::OLAP_FIELD_TYPE_BIGINT, true));
+    return col_schemas;
+}
+
+static Schema create_schema() {
+    std::vector<TabletColumnPtr> col_schemas = create_col_schemas();
 
     std::vector<ColumnId> column_ids(col_schemas.size());
     for (uint32_t cid = 0; cid < column_ids.size(); ++cid) {
@@ -105,6 +118,77 @@ TEST(VGenericIteratorsTest, AutoIncrement) {
         EXPECT_EQ(row_count + 2, (*c2)[i].get<TYPE_BIGINT>());
         row_count++;
     }
+}
+
+TEST(VGenericIteratorsTest, StatisticsIteratorPreservesNullForNullableChar) {
+    constexpr auto test_dir = "./ut_dir/vgeneric_iterators_test";
+    constexpr auto segment_path = "./ut_dir/vgeneric_iterators_test/nullable_char_segment.dat";
+    constexpr auto row_count = 3;
+
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->delete_directory(test_dir).ok());
+    ASSERT_TRUE(fs->create_directory(test_dir).ok());
+
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->append_column(*create_int_key(0, false));
+    auto nullable_char = std::make_shared<TabletColumn>();
+    nullable_char->set_unique_id(1);
+    nullable_char->set_name("1");
+    nullable_char->set_type(FieldType::OLAP_FIELD_TYPE_CHAR);
+    nullable_char->set_is_nullable(true);
+    nullable_char->set_length(8);
+    nullable_char->set_index_length(8);
+    nullable_char->set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE);
+    tablet_schema->append_column(*nullable_char);
+    tablet_schema->set_storage_page_size(4096);
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(fs->create_file(segment_path, &file_writer).ok());
+    SegmentWriterOptions writer_options;
+    writer_options.num_rows_per_block = 1024;
+    TestSegmentWriter writer(file_writer.get(), 0, tablet_schema, nullptr, nullptr, writer_options,
+                             nullptr);
+    ASSERT_TRUE(writer.init().ok());
+
+    RowCursor row;
+    std::vector<Field> fields(tablet_schema->num_columns(), Field(PrimitiveType::TYPE_NULL));
+    ASSERT_TRUE(row.init_scan_key(tablet_schema, std::move(fields)).ok());
+    for (int i = 0; i < row_count; ++i) {
+        row.mutable_field(0) = Field::create_field<TYPE_INT>(i);
+        ASSERT_TRUE(writer.append_row(row).ok());
+    }
+    uint64_t file_size = 0;
+    uint64_t index_size = 0;
+    ASSERT_TRUE(writer.finalize(&file_size, &index_size).ok());
+    ASSERT_TRUE(file_writer->close().ok());
+
+    std::shared_ptr<segment_v2::Segment> segment;
+    ASSERT_TRUE(segment_v2::Segment::open(fs, segment_path, 100, 0, RowsetId {.version = 1},
+                                          tablet_schema, io::FileReaderOptions {}, &segment)
+                        .ok());
+
+    std::vector<ColumnId> column_ids {0, 1};
+    Schema schema(tablet_schema->columns(), column_ids);
+    VStatisticsIterator iterator(segment, schema);
+    StorageReadOptions read_options;
+    OlapReaderStatistics stats;
+    read_options.push_down_agg_type_opt = TPushAggOp::MINMAX;
+    read_options.stats = &stats;
+    read_options.tablet_schema = tablet_schema;
+    ASSERT_TRUE(iterator.init(read_options).ok());
+
+    Block block;
+    create_block(schema, block);
+    ASSERT_TRUE(iterator.next_batch(&block).ok());
+    ASSERT_EQ(2, block.rows());
+
+    const auto& nullable_column =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+    EXPECT_TRUE(nullable_column.is_null_at(0));
+    EXPECT_TRUE(nullable_column.is_null_at(1));
+    ASSERT_TRUE(iterator.next_batch(&block).is<ErrorCode::END_OF_FILE>());
+
+    ASSERT_TRUE(fs->delete_directory(test_dir).ok());
 }
 
 TEST(VGenericIteratorsTest, Union) {
@@ -400,6 +484,102 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumnSmallSeqFirst) {
     auto seq_col = block.get_by_position(seq_column_id).column;
     size_t actual_value = (*seq_col)[0].get<TYPE_BIGINT>();
     EXPECT_EQ(0, actual_value);
+}
+
+// Emits num_rows rows for a schema whose projection (col_ids) may be narrower than the
+// full tablet schema. The filled block layout follows the projection, matching how
+// VMergeIteratorContext::block_reset builds its block from the output schema.
+class ProjectedColumnsUtIterator : public RowwiseIterator {
+public:
+    ProjectedColumnsUtIterator(Schema schema, size_t num_rows)
+            : _schema(std::move(schema)), _num_rows(num_rows) {}
+    ~ProjectedColumnsUtIterator() override = default;
+
+    Status init(const StorageReadOptions& opts) override { return Status::OK(); }
+
+    Status next_batch(Block* block) override {
+        if (_rows_returned >= _num_rows) {
+            return Status::EndOfFile("End of ProjectedColumnsUtIterator");
+        }
+        while (_rows_returned < _num_rows) {
+            for (size_t j = 0; j < _schema.num_column_ids(); ++j) {
+                ColumnWithTypeAndName& vc = block->get_by_position(j);
+                IColumn& vi = (IColumn&)(*vc.column);
+
+                char data[16] = {};
+                size_t data_len = 0;
+                const auto* col_schema = _schema.column(_schema.column_id(j));
+                switch (col_schema->type()) {
+                case FieldType::OLAP_FIELD_TYPE_SMALLINT:
+                    *(int16_t*)data = static_cast<int16_t>(_rows_returned);
+                    data_len = sizeof(int16_t);
+                    break;
+                case FieldType::OLAP_FIELD_TYPE_INT:
+                    *(int32_t*)data = static_cast<int32_t>(_rows_returned);
+                    data_len = sizeof(int32_t);
+                    break;
+                case FieldType::OLAP_FIELD_TYPE_BIGINT:
+                    *(int64_t*)data = static_cast<int64_t>(_rows_returned);
+                    data_len = sizeof(int64_t);
+                    break;
+                default:
+                    break;
+                }
+
+                vi.insert_data(data, data_len);
+            }
+            ++_rows_returned;
+        }
+        return Status::OK();
+    }
+
+    const Schema& schema() const override { return _schema; }
+
+private:
+    Schema _schema;
+    size_t _num_rows;
+    size_t _rows_returned = 0;
+};
+
+// The merge-heap comparator compares the first num_key_columns block positions when no
+// explicit compare columns are given, and num_key_columns counts the key columns of the
+// WHOLE tablet schema. A projection narrower than the key prefix must be rejected at
+// init time with an error instead of crashing inside std::push_heap (issue #66390: a
+// ROW-binlog APPEND_ONLY scan projected value columns only).
+TEST(VGenericIteratorsTest, MergeRejectsProjectionMissingKeyPrefix) {
+    // Full tablet schema: k0(smallint), k1(int), v2(bigint); project only v2.
+    Schema projected(create_col_schemas(), std::vector<ColumnId> {2});
+    auto output_schema = std::make_shared<Schema>(projected);
+
+    std::vector<RowwiseIteratorUPtr> inputs;
+    inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
+    inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
+
+    auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
+    StorageReadOptions opts;
+    auto st = iter->init(opts);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.to_string().find("compare contract violated") != std::string::npos)
+            << st.to_string();
+}
+
+// Same as above, but the projection has enough columns while not starting with the full
+// ordered key prefix (k0 is missing): position 0 would be compared as if it were k0.
+TEST(VGenericIteratorsTest, MergeRejectsProjectionWithoutLeadingKey) {
+    // Full tablet schema: k0(smallint), k1(int), v2(bigint); project {k1, v2}.
+    Schema projected(create_col_schemas(), std::vector<ColumnId> {1, 2});
+    auto output_schema = std::make_shared<Schema>(projected);
+
+    std::vector<RowwiseIteratorUPtr> inputs;
+    inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
+    inputs.push_back(std::make_unique<ProjectedColumnsUtIterator>(projected, 10));
+
+    auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
+    StorageReadOptions opts;
+    auto st = iter->init(opts);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.to_string().find("compare contract violated") != std::string::npos)
+            << st.to_string();
 }
 
 } // namespace doris

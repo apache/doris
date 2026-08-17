@@ -127,6 +127,52 @@ TEST(ParquetBenchmarkScenariosTest, NestedSelectionCoversSparseParentSurvivors) 
     }
 }
 
+TEST(ParquetBenchmarkScenariosTest, SelectionMatrixCoversIdentityAndSuccessiveCompaction) {
+    const auto scenarios = selection_scenarios();
+    EXPECT_EQ(scenarios.size(), size_t {25});
+    EXPECT_TRUE(std::ranges::any_of(scenarios, [](const SelectionScenario& scenario) {
+        return scenario.operation == SelectionOperation::RESIZE_IDENTITY;
+    }));
+    for (const auto operation :
+         {SelectionOperation::ROW_FILTER, SelectionOperation::CASCADE_FILTER}) {
+        for (const int selectivity : {0, 1, 10, 50, 90, 100}) {
+            for (const auto pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+                EXPECT_TRUE(std::ranges::any_of(scenarios, [&](const SelectionScenario& scenario) {
+                    return scenario.operation == operation &&
+                           scenario.selectivity_percent == selectivity &&
+                           scenario.pattern == pattern;
+                })) << "missing selection compaction shape";
+            }
+        }
+    }
+}
+
+TEST(ParquetBenchmarkScenariosTest, NullableSelectionPairsLegacyAndFusedAcrossRowShapes) {
+    const auto scenarios = nullable_selection_scenarios();
+    EXPECT_EQ(scenarios.size(), size_t {200});
+    for (const int selectivity : {1, 10, 50, 90, 99}) {
+        for (const int null_percent : {0, 1, 10, 50, 90}) {
+            for (const auto selection_pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+                for (const auto null_pattern : {Pattern::CLUSTERED, Pattern::ALTERNATING}) {
+                    for (const auto implementation : {NullableSelectionImplementation::LEGACY,
+                                                      NullableSelectionImplementation::FUSED}) {
+                        EXPECT_TRUE(std::ranges::any_of(
+                                scenarios,
+                                [&](const NullableSelectionScenario& scenario) {
+                                    return scenario.selectivity_percent == selectivity &&
+                                           scenario.null_percent == null_percent &&
+                                           scenario.selection_pattern == selection_pattern &&
+                                           scenario.null_pattern == null_pattern &&
+                                           scenario.implementation == implementation;
+                                }))
+                                << "missing nullable selection comparison shape";
+                    }
+                }
+            }
+        }
+    }
+}
+
 TEST(ParquetBenchmarkScenariosTest, ReaderMatrixCoversNullableSparseAndProjectionAxes) {
     const auto scenarios = reader_scenarios();
     // Keep the exact count aligned with the upstream complex-residual scenario retained by rebase.

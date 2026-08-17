@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.hms;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import org.apache.commons.pool2.BasePooledObjectFactory;
 import org.apache.commons.pool2.PooledObject;
@@ -539,10 +539,74 @@ public class ThriftHmsClient implements HmsClient {
     }
 
     @Override
+    public long acquireExclusiveTableLock(String queryId, String user, String dbName,
+            String tableName, long timeoutMs) {
+        LockComponentBuilder componentBuilder = new LockComponentBuilder();
+        componentBuilder.setExclusive();
+        componentBuilder.setOperationType(DataOperationType.NO_TXN);
+        componentBuilder.setDbName(dbName);
+        componentBuilder.setTableName(tableName);
+        componentBuilder.setIsTransactional(false);
+        LockRequest lockRequest = new LockRequestBuilder(queryId)
+                .setUser(user)
+                .addLockComponent(componentBuilder.build())
+                .build();
+        LockResponse response = execute(client -> client.lock(lockRequest));
+        long lockId = response.getLockid();
+        long start = System.currentTimeMillis();
+        try {
+            while (response.getState() == LockState.WAITING) {
+                if (System.currentTimeMillis() - start > timeoutMs) {
+                    throw new HmsClientException("acquire exclusive table lock timeout for query "
+                            + queryId + ", timeout(ms): " + timeoutMs);
+                }
+                response = execute(client -> client.checkLock(lockId));
+            }
+            if (response.getState() != LockState.ACQUIRED) {
+                throw new HmsClientException(
+                        "failed to acquire exclusive table lock, lock in state " + response.getState());
+            }
+            return lockId;
+        } catch (RuntimeException e) {
+            // A standalone WAITING lock is not owned by an ACID transaction, so it must be removed explicitly.
+            try {
+                releaseLock(lockId);
+            } catch (RuntimeException cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+            }
+            throw e;
+        }
+    }
+
+    @Override
+    public void releaseLock(long lockId) {
+        execute(client -> {
+            client.unlock(lockId);
+            return null;
+        });
+    }
+
+    @Override
+    public void heartbeatLock(long lockId) {
+        execute(client -> {
+            client.heartbeat(0, lockId);
+            return null;
+        });
+    }
+
+    @Override
     public long getCurrentNotificationEventId() {
         return execute(client -> {
-            CurrentNotificationEventId id = client.getCurrentNotificationEventId();
-            return id == null ? -1L : id.getEventId();
+            try {
+                CurrentNotificationEventId id = client.getCurrentNotificationEventId();
+                return id == null ? -1L : id.getEventId();
+            } catch (TApplicationException e) {
+                // Some older metastores expose this optional RPC but reject it internally. The table lock and
+                // metadata identity remain the write fence; absence of the extra event watermark must not
+                // reject every write against those metastores.
+                LOG.debug("Hive metastore does not support notification watermarks, returning -1", e);
+                return -1L;
+            }
         });
     }
 
@@ -659,6 +723,8 @@ public class ThriftHmsClient implements HmsClient {
         HmsTableInfo.Builder builder = HmsTableInfo.builder()
                 .dbName(table.getDbName())
                 .tableName(table.getTableName())
+                .owner(table.getOwner())
+                .createTime(table.getCreateTime())
                 .tableType(table.getTableType())
                 .parameters(table.getParameters())
                 // View text (null for a base table) — the hive VIEW SPI's isView signal + view-SQL source.

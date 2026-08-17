@@ -39,6 +39,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -77,6 +78,18 @@ public:
         SCOPED_TIMER(_profile.prepare_split_timer);
         return Status::OK();
     }
+};
+
+class RefreshTrackingTableReader final : public TableReader {
+public:
+    Status prepare_split(const SplitReadOptions&) override { return Status::OK(); }
+
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override {
+        ++refresh_count;
+        return TableReader::refresh_conjuncts(std::move(conjuncts));
+    }
+
+    int refresh_count = 0;
 };
 
 class SplitFormatTrackingTableReader final : public TableReader {
@@ -342,6 +355,7 @@ TFileRangeDesc make_legacy_paimon_native_range(TFileFormatType::type physical_fo
 TFileScanRangeParams make_paimon_jni_scan_params() {
     TFileScanRangeParams scan_params;
     scan_params.__set_serialized_table("serialized-paimon-table");
+    scan_params.__set_serialized_table_cache_key("serialized-paimon-table-cache-key");
     scan_params.__set_paimon_predicate("serialized-paimon-predicate");
     return scan_params;
 }
@@ -427,6 +441,41 @@ TEST(PaimonReaderTest, AnnotatesArrayAndMapFileSchemaFromSplitHistorySchema) {
     EXPECT_EQ(file_schema[1].children[0].name_mapping, std::vector<std::string>({"key"}));
     EXPECT_EQ(file_schema[1].children[1].get_identifier_field_id(), 42);
     EXPECT_EQ(file_schema[1].children[1].name_mapping, std::vector<std::string>({"score"}));
+}
+
+// Paimon writes precision 7..9 TIMESTAMP and TIMESTAMP_LTZ with the same unannotated INT96
+// physical type. The historical Paimon schema must therefore preserve the per-column semantic so
+// the native reader can keep TIMESTAMP as a wall clock and decode TIMESTAMP_LTZ as an instant.
+TEST(PaimonReaderTest, AnnotatesTimestampSemanticsFromSplitHistorySchema) {
+    auto timestamp = external_schema_field("ts", 10);
+    timestamp.field_ptr->__set_timestamp_is_adjusted_to_utc(false);
+    auto timestamp_ltz = external_schema_field("ts_ltz", 11);
+    timestamp_ltz.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {timestamp, timestamp_ltz})});
+
+    paimon::PaimonReader reader;
+    reader.TEST_set_scan_params(&scan_params);
+    SplitReadOptions split_options;
+    split_options.current_range.__set_table_format_params(
+            make_paimon_schema_table_format_desc(100));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    const auto datetime_type = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
+    std::vector<ColumnDefinition> file_schema {
+            make_file_column(0, "ts", datetime_type),
+            make_file_column(1, "ts_ltz", datetime_type),
+    };
+    ASSERT_TRUE(reader.TEST_annotate_file_schema(&file_schema).ok());
+
+    ASSERT_TRUE(file_schema[0].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_FALSE(*file_schema[0].timestamp_is_adjusted_to_utc);
+    EXPECT_EQ(remove_nullable(file_schema[0].type)->get_primitive_type(), TYPE_DATETIMEV2);
+    ASSERT_TRUE(file_schema[1].timestamp_is_adjusted_to_utc.has_value());
+    EXPECT_TRUE(*file_schema[1].timestamp_is_adjusted_to_utc);
+    EXPECT_EQ(remove_nullable(file_schema[1].type)->get_primitive_type(), TYPE_TIMESTAMPTZ);
 }
 
 // Scenario: when FE does not send a matching historical schema for the split schema id, Paimon must
@@ -754,6 +803,38 @@ TEST(PaimonHybridReaderTest, AggregatesConditionCacheHitsFromBothChildren) {
     EXPECT_EQ(reader.condition_cache_hit_count(), 8);
 }
 
+TEST(PaimonHybridReaderTest, ForwardsLatePredicatesToActiveChild) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    paimon::PaimonHybridReader reader;
+    RefreshTrackingTableReader* child = nullptr;
+    reader.TEST_set_child_reader_factories(
+            [&] {
+                auto tracking = std::make_unique<RefreshTrackingTableReader>();
+                child = tracking.get();
+                return tracking;
+            },
+            [] { return std::make_unique<TableReader>(); });
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split;
+    split.current_split_format = FileFormat::PARQUET;
+    split.current_range = make_paimon_native_range(TFileFormatType::FORMAT_PARQUET);
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    ASSERT_NE(child, nullptr);
+    ASSERT_TRUE(reader.refresh_conjuncts({}).ok());
+    EXPECT_EQ(child->refresh_count, 1);
+}
+
 TEST(PaimonHybridReaderTest, NativeCountColumnReportsMetadataRowsThroughHybridReader) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_paimon_hybrid_count_column_test";
@@ -899,6 +980,7 @@ TEST(PaimonJniReaderTest, BuildScannerParamsKeepsExplicitIOManagerTempDir) {
     EXPECT_EQ(params["paimon.jni.enable_jni_io_manager"], "true");
     EXPECT_EQ(params["paimon.jni.io_manager.tmp_dir"], "/tmp/explicit-paimon-spill");
     EXPECT_EQ(params["paimon.jni.io_manager.impl_class"], "org.example.CustomIOManager");
+    EXPECT_EQ(params["serialized_table_cache_key"], "serialized-paimon-table-cache-key");
 }
 
 TEST(PaimonJniReaderTest, BuildScannerParamsInjectsStorageRootTmpDirForEnabledIOManager) {

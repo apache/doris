@@ -17,20 +17,21 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
-import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
@@ -57,6 +58,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Pins {@link HiveWritePlanProvider#planWrite} for INSERT / INSERT OVERWRITE against legacy
@@ -104,7 +106,7 @@ public class HiveWritePlanProviderTest {
     }
 
     private HiveWritePlanProvider providerFor(RecordingHmsClient client, RecordingConnectorContext ctx) {
-        return new HiveWritePlanProvider(client, Collections.emptyMap(), ctx);
+        return new HiveWritePlanProvider(client, HiveTestProperties.minimal(), ctx);
     }
 
     private WriteSession sessionFor(RecordingHmsClient client, RecordingConnectorContext ctx,
@@ -132,6 +134,32 @@ public class HiveWritePlanProviderTest {
     // ───────────────────────────── columns ─────────────────────────────
 
     @Test
+    public void writeBindingPinsColumnsAndIdentityFromOneFreshGeneration() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        HmsTableInfo boundTable = tableBuilder()
+                .columns(Arrays.asList(col("a", "int"), col("b", "string")))
+                .build();
+        client.table = boundTable;
+        HiveWritePlanProvider provider = providerFor(client, new RecordingConnectorContext());
+        WriteSession session = new WriteSession(null, Collections.emptyMap(), new TestStatementScope());
+
+        List<ConnectorColumn> columns = provider.getWriteColumns(
+                session, new HiveTableHandle(DB, TBL, HiveTableType.HIVE), Optional.empty()).orElseThrow();
+        String identity = provider.getWriteMetadataIdentity(
+                session, new HiveTableHandle(DB, TBL, HiveTableType.HIVE));
+        client.table = tableBuilder()
+                .columns(Arrays.asList(col("b", "string"), col("a", "int")))
+                .build();
+
+        Assertions.assertEquals(Arrays.asList("a", "b"),
+                columns.stream().map(ConnectorColumn::getName).collect(java.util.stream.Collectors.toList()));
+        Assertions.assertEquals(HiveWriteMetadataSnapshot.of(boundTable, Collections.emptyMap()).getIdentity(),
+                identity);
+        Assertions.assertEquals(1, Collections.frequency(client.calls, "getTableFresh:" + DB + "." + TBL),
+                "columns and identity must share the same statement-pinned HMS generation");
+    }
+
+    @Test
     public void planWriteEmitsRegularColumnsThenPartitionKeys() {
         // BE writes the data columns then maps the trailing partition keys; a wrong tag or order would write
         // rows into the wrong file layout. Data cols are REGULAR (in schema order), partition keys are
@@ -154,6 +182,135 @@ public class HiveWritePlanProviderTest {
                 "partition keys must be tagged PARTITION_KEY and appended after the data columns");
     }
 
+    @Test
+    public void planWriteRejectsSchemaReorderAfterBinding() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder()
+                .columns(Arrays.asList(col("b", "int"), col("a", "int")))
+                .build();
+        WriteHandle boundHandle = handle()
+                .boundTargetColumns(Arrays.asList(col("a", "int"), col("b", "int")));
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(client, new RecordingConnectorContext(), boundHandle));
+
+        Assertions.assertTrue(ex.getMessage().contains("schema changed after the write was bound"),
+                "a live HMS reorder must fail before BE can index bound expressions by stale ordinals");
+    }
+
+    @Test
+    public void planWriteRejectsDataAndPartitionRoleChangeAfterBinding() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder()
+                .columns(Arrays.asList(col("a", "int"), col("b", "int")))
+                .partitionKeys(Collections.emptyList())
+                .build();
+        WriteHandle boundHandle = handle()
+                .boundWriteMetadataIdentity("bound-partitioned-schema");
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(client, new RecordingConnectorContext(), boundHandle),
+                "the same flattened columns are unsafe when their data/partition roles changed");
+    }
+
+    @Test
+    public void planWriteUsesOneFreshTableGenerationForTransactionAndSink() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder().build();
+
+        planSink(client, new RecordingConnectorContext(), handle());
+
+        Assertions.assertEquals(1, Collections.frequency(client.calls, "getTableFresh:" + DB + "." + TBL),
+                "reloading after validation would let transaction state and sink columns straddle HMS schemas");
+        Assertions.assertFalse(client.calls.contains("getTable:" + DB + "." + TBL),
+                "write planning must bypass a stale connector-side table cache");
+    }
+
+    @Test
+    public void writeMetadataIdentityIncludesRecursiveTypeShape() {
+        HmsTableInfo ints = tableBuilder()
+                .columns(Collections.singletonList(new ConnectorColumn("items",
+                        ConnectorType.arrayOf(ConnectorType.of("INT")), "", true, null)))
+                .build();
+        HmsTableInfo strings = tableBuilder()
+                .columns(Collections.singletonList(new ConnectorColumn("items",
+                        ConnectorType.arrayOf(ConnectorType.of("STRING")), "", true, null)))
+                .build();
+
+        Assertions.assertNotEquals(HiveWritePlanProvider.writeMetadataIdentity(ints),
+                HiveWritePlanProvider.writeMetadataIdentity(strings),
+                "a nested leaf change must invalidate the bound physical layout");
+    }
+
+    @Test
+    public void writeMetadataIdentityIncludesEffectiveDefaults() {
+        ConnectorColumn oldDefault = new ConnectorColumn("c1", ConnectorType.of("INT"), "", true, "42");
+        ConnectorColumn newDefault = new ConnectorColumn("c1", ConnectorType.of("INT"), "", true, "7");
+        HmsTableInfo before = tableBuilder().columns(Collections.singletonList(oldDefault)).build();
+        HmsTableInfo after = tableBuilder().columns(Collections.singletonList(newDefault)).build();
+
+        Assertions.assertNotEquals(HiveWritePlanProvider.writeMetadataIdentity(before),
+                HiveWritePlanProvider.writeMetadataIdentity(after),
+                "a default-only DDL changes values already materialized by binding");
+    }
+
+    @Test
+    public void writeMetadataIdentityIncludesSerdeThatShapesEffectiveColumns() {
+        HmsTableInfo csv = tableBuilder()
+                .serializationLib(HiveTextProperties.HIVE_OPEN_CSV_SERDE)
+                .build();
+        HmsTableInfo lazy = tableBuilder().serializationLib(LAZY_SIMPLE_SERDE).build();
+
+        Assertions.assertNotEquals(HiveWritePlanProvider.writeMetadataIdentity(csv),
+                HiveWritePlanProvider.writeMetadataIdentity(lazy),
+                "OpenCSV and LazySimple bind different effective types for the same raw HMS columns");
+    }
+
+    @Test
+    public void planWriteRejectsNestedLeafChangeAfterBinding() {
+        HmsTableInfo before = tableBuilder()
+                .columns(Collections.singletonList(new ConnectorColumn("items",
+                        ConnectorType.arrayOf(ConnectorType.of("INT")), "", true, null)))
+                .build();
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder()
+                .columns(Collections.singletonList(new ConnectorColumn("items",
+                        ConnectorType.arrayOf(ConnectorType.of("STRING")), "", true, null)))
+                .build();
+        WriteHandle bound = handle().boundWriteMetadataIdentity(
+                HiveWriteMetadataSnapshot.of(before, Collections.emptyMap()).getIdentity());
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(client, new RecordingConnectorContext(), bound));
+    }
+
+    @Test
+    public void planWriteRejectsOpenCsvToLazySimpleChangeAfterBinding() {
+        HmsTableInfo before = tableBuilder()
+                .serializationLib(HiveTextProperties.HIVE_OPEN_CSV_SERDE)
+                .build();
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder().serializationLib(LAZY_SIMPLE_SERDE).build();
+        WriteHandle bound = handle().boundWriteMetadataIdentity(
+                HiveWriteMetadataSnapshot.of(before, Collections.emptyMap()).getIdentity());
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(client, new RecordingConnectorContext(), bound));
+    }
+
+    @Test
+    public void planWriteRejectsDefaultOnlyChangeAfterBinding() {
+        HmsTableInfo table = tableBuilder().build();
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = table;
+        client.defaultValues = Collections.singletonMap("c1", "7");
+        WriteHandle bound = handle().boundWriteMetadataIdentity(
+                HiveWriteMetadataSnapshot.of(table, Collections.singletonMap("c1", "42")).getIdentity());
+
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(client, new RecordingConnectorContext(), bound));
+    }
+
     // ───────────────────────────── bucket ─────────────────────────────
 
     @Test
@@ -170,6 +327,17 @@ public class HiveWritePlanProviderTest {
 
         Assertions.assertEquals(Collections.singletonList("c1"), sink.getBucketInfo().getBucketedBy());
         Assertions.assertEquals(8, sink.getBucketInfo().getBucketCount());
+    }
+
+    @Test
+    public void planWriteAdvertisesDeferredAzureMultipartProtocol() {
+        RecordingHmsClient client = new RecordingHmsClient();
+        client.table = tableBuilder().build();
+
+        THiveTableSink sink = planSink(client, new RecordingConnectorContext(), handle());
+
+        Assertions.assertTrue(sink.isSetSupportsDeferredAzureMultipart());
+        Assertions.assertTrue(sink.isSupportsDeferredAzureMultipart());
     }
 
     // ───────────────────────────── file format ─────────────────────────────
@@ -579,6 +747,8 @@ public class HiveWritePlanProviderTest {
     private static final class WriteHandle implements ConnectorWriteHandle {
         private final ConnectorTableHandle tableHandle;
         private boolean overwrite;
+        private List<ConnectorColumn> boundTargetColumns = Collections.emptyList();
+        private String boundWriteMetadataIdentity;
 
         WriteHandle(ConnectorTableHandle tableHandle) {
             this.tableHandle = tableHandle;
@@ -586,6 +756,16 @@ public class HiveWritePlanProviderTest {
 
         WriteHandle overwrite(boolean v) {
             this.overwrite = v;
+            return this;
+        }
+
+        WriteHandle boundWriteMetadataIdentity(String identity) {
+            this.boundWriteMetadataIdentity = identity;
+            return this;
+        }
+
+        WriteHandle boundTargetColumns(List<ConnectorColumn> columns) {
+            this.boundTargetColumns = columns;
             return this;
         }
 
@@ -600,6 +780,11 @@ public class HiveWritePlanProviderTest {
         }
 
         @Override
+        public List<ConnectorColumn> getBoundTargetColumns() {
+            return boundTargetColumns;
+        }
+
+        @Override
         public boolean isOverwrite() {
             return overwrite;
         }
@@ -608,16 +793,28 @@ public class HiveWritePlanProviderTest {
         public Map<String, String> getStaticPartitionSpec() {
             return Collections.emptyMap();
         }
+
+        @Override
+        public String getBoundWriteMetadataIdentity() {
+            return boundWriteMetadataIdentity;
+        }
     }
 
     /** A session carrying the bound connector transaction and the session-variable overrides. */
     private static final class WriteSession implements ConnectorSession {
         private final ConnectorTransaction txn;
         private final Map<String, String> sessionProperties;
+        private final ConnectorStatementScope statementScope;
 
         WriteSession(ConnectorTransaction txn, Map<String, String> sessionProperties) {
+            this(txn, sessionProperties, ConnectorStatementScope.NONE);
+        }
+
+        WriteSession(ConnectorTransaction txn, Map<String, String> sessionProperties,
+                ConnectorStatementScope statementScope) {
             this.txn = txn;
             this.sessionProperties = sessionProperties;
+            this.statementScope = statementScope;
         }
 
         @Override
@@ -669,6 +866,21 @@ public class HiveWritePlanProviderTest {
         public Map<String, String> getCatalogProperties() {
             return Collections.emptyMap();
         }
+
+        @Override
+        public ConnectorStatementScope getStatementScope() {
+            return statementScope;
+        }
+    }
+
+    private static final class TestStatementScope implements ConnectorStatementScope {
+        private final Map<String, Object> values = new HashMap<>();
+
+        @Override
+        @SuppressWarnings("unchecked")
+        public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+            return (T) values.computeIfAbsent(key, ignored -> loader.get());
+        }
     }
 
     /** Recording {@link HmsClient} fake returning canned table/partition metadata and recording the calls the
@@ -676,6 +888,7 @@ public class HiveWritePlanProviderTest {
     private static final class RecordingHmsClient implements HmsClient {
         private final List<String> calls = new ArrayList<>();
         private HmsTableInfo table;
+        private Map<String, String> defaultValues = Collections.emptyMap();
         private List<String> partitionNames = Collections.emptyList();
         private List<HmsPartitionInfo> partitions = Collections.emptyList();
 
@@ -709,8 +922,18 @@ public class HiveWritePlanProviderTest {
         }
 
         @Override
+        public HmsTableInfo getTableFresh(String dbName, String tableName) {
+            calls.add("getTableFresh:" + dbName + "." + tableName);
+            if (table == null) {
+                throw new UnsupportedOperationException("no canned table");
+            }
+            return table;
+        }
+
+        @Override
         public Map<String, String> getDefaultColumnValues(String dbName, String tableName) {
-            return Collections.emptyMap();
+            calls.add("getDefaultColumnValues:" + dbName + "." + tableName);
+            return defaultValues;
         }
 
         @Override

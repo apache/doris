@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
+import org.apache.doris.connector.spi.scan.ConnectorColumnCategory;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -42,7 +42,7 @@ import java.util.Collections;
 public class IcebergScanPlanProviderClassifyColumnTest {
 
     private static final IcebergScanPlanProvider PROVIDER =
-            new IcebergScanPlanProvider(Collections.emptyMap(), null);
+            new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), null);
 
     @Test
     public void hiddenRowIdIsSynthesized() {

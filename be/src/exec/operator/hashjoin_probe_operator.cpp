@@ -28,8 +28,10 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
+#include "exec/common/join_utils.h"
 #include "exec/operator/operator.h"
 #include "runtime/descriptors.h"
+#include "util/uid_util.h"
 
 namespace doris {
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
@@ -42,6 +44,7 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(_init_timer);
     _task_idx = info.task_idx;
     auto& p = _parent->cast<HashJoinProbeOperatorX>();
+    custom_profile()->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
     _probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
     for (size_t i = 0; i < _probe_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));

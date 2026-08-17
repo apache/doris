@@ -18,8 +18,8 @@
 package org.apache.doris.datasource.plugin;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorCapability;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.persist.gson.GsonUtils;

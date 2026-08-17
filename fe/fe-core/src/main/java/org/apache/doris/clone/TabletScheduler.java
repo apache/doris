@@ -165,6 +165,8 @@ public class TabletScheduler extends MasterDaemon {
         }
         // if rebalancer can not get new task, then use diskRebalancer to get task
         this.diskRebalancer = new DiskRebalancer(infoService, invertedIndex, backendsWorkingSlots);
+        this.rebalancer.setSchedulerStat(stat);
+        this.diskRebalancer.setSchedulerStat(stat);
     }
 
     // for fe ut
@@ -645,7 +647,6 @@ public class TabletScheduler extends MasterDaemon {
             tabletCtx.updateTabletSize();
             tabletCtx.setVersionInfo(partition.getVisibleVersion(), partition.getCommittedVersion());
             tabletCtx.setSchemaHash(tbl.getSchemaHashByIndexId(idx.getId()));
-            tabletCtx.setCopyRowBinlog(idx.getId() == tbl.getBaseIndexId() && tbl.needRowBinlog());
             tabletCtx.setStorageMedium(tbl.getPartitionInfo().getDataProperty(partition.getId()).getStorageMedium());
 
             handleTabletByTypeAndStatus(tabletHealth.status, tabletCtx, batchTask);

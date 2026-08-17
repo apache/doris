@@ -17,13 +17,13 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
-import org.apache.doris.connector.api.write.ConnectorSinkPlan;
-import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.jdbc.client.JdbcConnectorClient;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TJdbcTable;
@@ -49,17 +49,17 @@ import java.util.stream.Collectors;
  * {@code JdbcConnectorMetadata.getWriteConfig} (property bag) plus
  * {@code PluginDrivenTableSink.bindJdbcWriteSink} (Thrift assembly) — fused into
  * this single {@code planWrite} call (P6.3-T02 / RFC OQ-1). The connection-pool
- * values are taken from {@link JdbcConnectorProperties#getInt} with the
- * {@code DEFAULT_POOL_*} defaults, exactly as {@code getWriteConfig} computed them.</p>
+ * values come off {@link JdbcCatalogProperties}, which holds the same defaults
+ * {@code getWriteConfig} used to compute them with.</p>
  */
 public class JdbcWritePlanProvider implements ConnectorWritePlanProvider {
 
     private final JdbcConnectorClient client;
-    private final Map<String, String> properties;
+    private final JdbcCatalogProperties props;
 
-    public JdbcWritePlanProvider(JdbcConnectorClient client, Map<String, String> properties) {
+    public JdbcWritePlanProvider(JdbcConnectorClient client, JdbcCatalogProperties props) {
         this.client = client;
-        this.properties = properties;
+        this.props = props;
     }
 
     @Override
@@ -68,30 +68,21 @@ public class JdbcWritePlanProvider implements ConnectorWritePlanProvider {
         String insertSql = buildInsertSql(session, jdbcHandle, handle.getColumns());
 
         TJdbcTable tJdbcTable = new TJdbcTable();
-        tJdbcTable.setJdbcUrl(properties.getOrDefault(JdbcConnectorProperties.JDBC_URL, ""));
-        tJdbcTable.setJdbcUser(properties.getOrDefault(JdbcConnectorProperties.USER, ""));
-        tJdbcTable.setJdbcPassword(properties.getOrDefault(JdbcConnectorProperties.PASSWORD, ""));
-        tJdbcTable.setJdbcDriverUrl(properties.getOrDefault(JdbcConnectorProperties.DRIVER_URL, ""));
-        tJdbcTable.setJdbcDriverClass(properties.getOrDefault(JdbcConnectorProperties.DRIVER_CLASS, ""));
+        tJdbcTable.setJdbcUrl(props.getJdbcUrl());
+        tJdbcTable.setJdbcUser(props.getUser());
+        tJdbcTable.setJdbcPassword(props.getPassword());
+        tJdbcTable.setJdbcDriverUrl(props.getDriverUrl());
+        tJdbcTable.setJdbcDriverClass(props.getDriverClass());
         tJdbcTable.setJdbcDriverChecksum(
-                properties.getOrDefault(JdbcConnectorProperties.DRIVER_CHECKSUM, ""));
+                props.getDriverChecksum());
         tJdbcTable.setJdbcTableName(jdbcHandle.getRemoteTableName());
         tJdbcTable.setJdbcResourceName("");
         tJdbcTable.setCatalogId(session.getCatalogId());
-        tJdbcTable.setConnectionPoolMinSize(JdbcConnectorProperties.getInt(properties,
-                JdbcConnectorProperties.CONNECTION_POOL_MIN_SIZE,
-                JdbcConnectorProperties.DEFAULT_POOL_MIN_SIZE));
-        tJdbcTable.setConnectionPoolMaxSize(JdbcConnectorProperties.getInt(properties,
-                JdbcConnectorProperties.CONNECTION_POOL_MAX_SIZE,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_SIZE));
-        tJdbcTable.setConnectionPoolMaxWaitTime(JdbcConnectorProperties.getInt(properties,
-                JdbcConnectorProperties.CONNECTION_POOL_MAX_WAIT_TIME,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_WAIT_TIME));
-        tJdbcTable.setConnectionPoolMaxLifeTime(JdbcConnectorProperties.getInt(properties,
-                JdbcConnectorProperties.CONNECTION_POOL_MAX_LIFE_TIME,
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_LIFE_TIME));
-        tJdbcTable.setConnectionPoolKeepAlive(Boolean.parseBoolean(properties.getOrDefault(
-                JdbcConnectorProperties.CONNECTION_POOL_KEEP_ALIVE, "false")));
+        tJdbcTable.setConnectionPoolMinSize(props.getConnectionPoolMinSize());
+        tJdbcTable.setConnectionPoolMaxSize(props.getConnectionPoolMaxSize());
+        tJdbcTable.setConnectionPoolMaxWaitTime(props.getConnectionPoolMaxWaitTime());
+        tJdbcTable.setConnectionPoolMaxLifeTime(props.getConnectionPoolMaxLifeTime());
+        tJdbcTable.setConnectionPoolKeepAlive(props.isConnectionPoolKeepAlive());
 
         TJdbcTableSink jdbcSink = new TJdbcTableSink();
         jdbcSink.setJdbcTable(tJdbcTable);
@@ -139,7 +130,7 @@ public class JdbcWritePlanProvider implements ConnectorWritePlanProvider {
                 .map(ConnectorColumn::getName)
                 .collect(Collectors.toList());
         Map<String, ConnectorColumnHandle> colHandles =
-                new JdbcConnectorMetadata(client, properties).getColumnHandles(session, jdbcHandle);
+                new JdbcConnectorMetadata(client, props).getColumnHandles(session, jdbcHandle);
         Map<String, String> remoteColumnNames = new HashMap<>();
         for (Map.Entry<String, ConnectorColumnHandle> entry : colHandles.entrySet()) {
             JdbcColumnHandle ch = (JdbcColumnHandle) entry.getValue();

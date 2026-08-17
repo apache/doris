@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <bit>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -395,6 +397,33 @@ TEST_F(HybridSetTest, double) {
     a = 5.1;
     EXPECT_FALSE(set->find(&a));
 }
+
+TEST_F(HybridSetTest, DynamicFloatingSetFindsDorisEqualNanPayload) {
+    const auto check_type = []<PrimitiveType Type, typename UInt>(UInt stored_bits,
+                                                                  UInt probe_bits) {
+        using T = typename PrimitiveTypeTraits<Type>::CppType;
+        std::unique_ptr<HybridSetBase> set(create_set(Type, false));
+        for (int value = 0; value < FIXED_CONTAINER_MAX_SIZE; ++value) {
+            T finite = static_cast<T>(value);
+            set->insert(&finite);
+        }
+        const T stored_nan = std::bit_cast<T>(stored_bits);
+        set->insert(&stored_nan);
+        ASSERT_EQ(FIXED_CONTAINER_MAX_SIZE + 1, set->size());
+
+        const T probe_nan = std::bit_cast<T>(probe_bits);
+        EXPECT_TRUE(set->find(&probe_nan));
+        uint8_t match = 1;
+        set->find_batch_raw_fixed(reinterpret_cast<const uint8_t*>(&probe_nan), 1, sizeof(T),
+                                  &match);
+        EXPECT_EQ(1, match);
+    };
+
+    check_type.template operator()<TYPE_FLOAT>(uint32_t {0x7fc00001U}, uint32_t {0x7fc00002U});
+    check_type.template operator()<TYPE_DOUBLE>(uint64_t {0x7ff8000000000001ULL},
+                                                uint64_t {0x7ff8000000000002ULL});
+}
+
 TEST_F(HybridSetTest, string) {
     std::unique_ptr<HybridSetBase> set(create_set(PrimitiveType::TYPE_VARCHAR, false));
     StringRef a;

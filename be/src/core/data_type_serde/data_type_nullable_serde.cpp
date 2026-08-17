@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstring>
 #include <vector>
 
 #include "common/config.h"
@@ -34,6 +35,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/decoded_column_view.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "exprs/function/cast/cast_base.h"
 #include "format/transformer/vcsv_transformer.h"
 #include "util/jsonb_document.h"
@@ -42,6 +44,26 @@
 
 namespace doris {
 class Arena;
+
+namespace {
+
+void append_orc_null_map(const ::orc::ColumnVectorBatch& batch, size_t rows,
+                         const std::vector<size_t>* selected_rows, NullMap* null_map) {
+    DORIS_CHECK(null_map != nullptr);
+    const auto output_rows = orc_serde_utils::orc_decode_row_count(rows, selected_rows);
+    const auto old_size = null_map->size();
+    null_map->resize(old_size + output_rows);
+    if (batch.hasNulls) {
+        for (size_t row = 0; row < output_rows; ++row) {
+            (*null_map)[old_size + row] =
+                    !batch.notNull[orc_serde_utils::orc_source_row_at(row, selected_rows)];
+        }
+        return;
+    }
+    std::memset(null_map->data() + old_size, 0, output_rows);
+}
+
+} // namespace
 Status DataTypeNullableSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                        int64_t end_idx, BufferWritable& bw,
                                                        FormatOptions& options) const {
@@ -590,5 +612,30 @@ Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& c
     // fill not null if success
     null_column.get_null_map_data().push_back(0);
     return Status::OK();
+}
+
+Status DataTypeNullableSerDe::read_column_from_orc(IColumn& column,
+                                                   const OrcDecodedColumnView& view) const {
+    DORIS_CHECK(view.file_type != nullptr);
+    DORIS_CHECK(view.selected_type != nullptr);
+    DORIS_CHECK(view.batch != nullptr);
+    DORIS_CHECK(view.file_type->getKind() == view.selected_type->getKind());
+    auto& nullable_column = assert_cast<ColumnNullable&>(column);
+    const auto output_rows = orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows);
+    if (output_rows == 0) {
+        return Status::OK();
+    }
+
+    auto& null_map = nullable_column.get_null_map_data();
+    const auto old_null_map_size = null_map.size();
+    auto& nested_column = nullable_column.get_nested_column();
+    const auto old_nested_size = nested_column.size();
+    append_orc_null_map(*view.batch, view.rows, view.selected_rows, &null_map);
+    auto st = nested_serde->read_column_from_orc(nested_column, view);
+    if (!st.ok()) {
+        null_map.resize(old_null_map_size);
+        nested_column.resize(old_nested_size);
+    }
+    return st;
 }
 } // namespace doris

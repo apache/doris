@@ -33,10 +33,10 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
@@ -88,8 +88,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
+import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -338,7 +341,7 @@ public class BindSink implements AnalysisRuleFactory {
                     castExpr = new Cast(castExpr, StringType.INSTANCE);
                 }
             } else {
-                castExpr = TypeCoercionUtils.castIfNotSameType(castExpr, targetType);
+                castExpr = coerceSinkExpression(castExpr, targetType);
             }
             if (castExpr instanceof NamedExpression) {
                 castExprs.add(((NamedExpression) castExpr));
@@ -354,10 +357,31 @@ public class BindSink implements AnalysisRuleFactory {
         return fullOutputProject;
     }
 
+    @VisibleForTesting
+    static Expression coerceSinkExpression(Expression expression, DataType targetType) {
+        if (!Config.enable_variant_v2
+                && expression.getDataType() instanceof ConnectorComputeVariantType
+                && targetType instanceof VariantType
+                && !(targetType instanceof ConnectorComputeVariantType)) {
+            // JSONB is the executable carrier shared by compute-only V2 and legacy Variant;
+            // a direct cast crosses incompatible physical columns at CTAS/MTMV sink boundaries.
+            return new Cast(new Cast(expression, JsonType.INSTANCE), targetType);
+        }
+        return TypeCoercionUtils.castIfNotSameType(expression, targetType);
+    }
+
     private static Map<String, NamedExpression> getColumnToOutput(
             MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
             TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
             LogicalTableSink<?> boundSink, LogicalPlan child) {
+        return getColumnToOutput(ctx, table, isPartialUpdate, isDeletePartialUpdate,
+                boundSink, child, sinkTargetFullSchema(boundSink.getTargetTable()));
+    }
+
+    private static Map<String, NamedExpression> getColumnToOutput(
+            MatchingContext<? extends UnboundLogicalSink<Plan>> ctx,
+            TableIf table, boolean isPartialUpdate, boolean isDeletePartialUpdate,
+            LogicalTableSink<?> boundSink, LogicalPlan child, List<Column> targetSchema) {
         // we need to insert all the columns of the target table
         // although some columns are not mentions.
         // so we add a projects to supply the default value.
@@ -373,7 +397,7 @@ public class BindSink implements AnalysisRuleFactory {
         List<Column> materializedViewColumn = Lists.newArrayList();
         List<Column> shadowColumns = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
-        for (Column column : sinkTargetFullSchema(boundSink.getTargetTable())) {
+        for (Column column : targetSchema) {
             if (column.isGeneratedColumn()) {
                 generatedColumns.add(column);
                 continue;
@@ -441,7 +465,8 @@ public class BindSink implements AnalysisRuleFactory {
                     } else {
                         continue;
                     }
-                } else if (column.getDefaultValue() == null) {
+                } else if (column.getDefaultValue() == null
+                        && column.getDefaultValueSql() == null) {
                     // throw exception if explicitly use Default value but no default value present
                     // insert into table t values(DEFAULT)
                     if (!column.isAllowNull() && !column.isAutoInc()) {
@@ -656,20 +681,14 @@ public class BindSink implements AnalysisRuleFactory {
      *
      * <p>An INSERT may read an older version of the same connector table. The no-arg external-table schema
      * lookup consults that statement-level ambient pin, but a sink is not that source reference and must bind
-     * against the latest write schema. Non-connector tables retain their existing lookup.</p>
+     * against one coherent latest write-schema generation. Non-connector tables retain their existing lookup.</p>
      */
     private static List<Column> sinkTargetFullSchema(TableIf table) {
         if (table instanceof PluginDrivenExternalTable) {
-            return ((PluginDrivenExternalTable) table).getFullSchema(Optional.empty());
+            // Schema, synthetic columns, and write identity must come from the same cache value.
+            return ((PluginDrivenExternalTable) table).getWriteSchemaSnapshot().getFullSchema();
         }
         return table.getFullSchema();
-    }
-
-    private static Column connectorSinkTargetColumn(PluginDrivenExternalTable table, String name) {
-        return sinkTargetFullSchema(table).stream()
-                .filter(column -> name.equalsIgnoreCase(column.getName()))
-                .findFirst()
-                .orElse(null);
     }
 
     /**
@@ -768,12 +787,18 @@ public class BindSink implements AnalysisRuleFactory {
     @VisibleForTesting
     static Set<String> canonicalStaticPartitionColNames(PluginDrivenExternalTable table,
             Map<String, Expression> staticPartitions) {
+        return canonicalStaticPartitionColNames(
+                sinkTargetFullSchema(table), staticPartitions);
+    }
+
+    private static Set<String> canonicalStaticPartitionColNames(
+            List<Column> schema, Map<String, Expression> staticPartitions) {
         if (staticPartitions == null || staticPartitions.isEmpty()) {
             return Sets.newHashSet();
         }
         Set<String> canonical = Sets.newLinkedHashSet();
         for (String name : staticPartitions.keySet()) {
-            Column column = connectorSinkTargetColumn(table, name);
+            Column column = findColumn(schema, name);
             if (!canonical.add(column != null ? column.getName() : name)) {
                 throw new AnalysisException("Duplicate partition column: " + name);
             }
@@ -787,6 +812,10 @@ public class BindSink implements AnalysisRuleFactory {
         ExternalDatabase database = pair.first;
         PluginDrivenExternalTable table = pair.second;
         LogicalPlan child = ((LogicalPlan) sink.child());
+        PluginDrivenExternalTable.WriteSchemaSnapshot targetMetadata = table.getWriteSchemaSnapshot();
+        List<Column> resolvedTargetSchema = ctx.cascadesContext.getStatementContext()
+                .getConnectorWriteSchema(table.getId())
+                .orElseGet(targetMetadata::getFullSchema);
 
         // Static-partition columns (e.g. MaxCompute `PARTITION(pt='x')`) carry their value via the
         // static partition spec rather than the query output, so they are excluded from the bound
@@ -806,7 +835,8 @@ public class BindSink implements AnalysisRuleFactory {
 
         // Resolve the user-typed static-partition names to their canonical schema names before they are used
         // to exclude / reject bound columns below. Runs AFTER the connector validated them.
-        staticPartitionColNames = canonicalStaticPartitionColNames(table, staticPartitions);
+        staticPartitionColNames =
+                canonicalStaticPartitionColNames(resolvedTargetSchema, staticPartitions);
 
         // Reject the dynamic partition-NAME list form (INSERT ... PARTITION(p1, p2)) via the neutral SPI, so the
         // reject and its message stay in the connector (hive rejects with the legacy message; iceberg accepts).
@@ -814,11 +844,25 @@ public class BindSink implements AnalysisRuleFactory {
         // Guarded on non-empty inside the helper, so a plain INSERT ... SELECT is byte-unchanged for live connectors.
         checkConnectorWritePartitionNames(table, sink.getPartitions());
 
+        List<Column> targetWriteSchema = resolvedTargetSchema.stream()
+                .filter(column -> isConnectorSinkWriteColumn(column, sink.isRewrite()))
+                .collect(ImmutableList.toImmutableList());
+        if (sink.isRewrite()) {
+            List<NamedExpression> rewriteOutputs = selectConnectorRewriteOutputs(
+                    targetWriteSchema, child.getOutput());
+            if (!rewriteOutputs.equals(child.getOutput())) {
+                child = new LogicalProject<>(rewriteOutputs, child);
+            }
+        }
         List<Column> bindColumns = selectConnectorSinkBindColumns(
-                table, sink.getColNames(), staticPartitionColNames, sink.isRewrite());
+                table, targetWriteSchema, sink.getColNames(),
+                staticPartitionColNames, sink.isRewrite());
         LogicalConnectorTableSink<?> boundSink = new LogicalConnectorTableSink<>(
                 database,
                 table,
+                targetWriteSchema,
+                targetMetadata.getPartitionColumns(),
+                targetMetadata.getWriteMetadataIdentity(),
                 bindColumns,
                 child.getOutput().stream()
                         .map(NamedExpression.class::cast)
@@ -844,7 +888,8 @@ public class BindSink implements AnalysisRuleFactory {
             // trailing partition columns by position, so they must sit at their full-schema (tail)
             // positions; and (3) PhysicalConnectorTableSink.getRequirePhysicalProperties locates
             // partition columns by their full-schema position, so the child must be in full-schema order.
-            Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false, boundSink, child);
+            Map<String, NamedExpression> columnToOutput = getColumnToOutput(
+                    ctx, table, false, false, boundSink, child, targetWriteSchema);
             if (table.materializeStaticPartitionValues() && !staticPartitionColNames.isEmpty()) {
                 // Connectors that consume the partition value FROM THE ROW must write the static partition value
                 // INTO the data column: getColumnToOutput excluded it from the bound columns and NULL-filled it,
@@ -855,7 +900,7 @@ public class BindSink implements AnalysisRuleFactory {
                 // them from static_partition_values (e.g. MaxCompute) do not declare the capability and keep the
                 // NULL fill.
                 for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
-                    Column column = connectorSinkTargetColumn(table, entry.getKey());
+                    Column column = findColumn(targetWriteSchema, entry.getKey());
                     if (column != null) {
                         Expression castExpr = TypeCoercionUtils.castIfNotSameType(
                                 entry.getValue(), DataType.fromCatalogType(column.getType()));
@@ -865,22 +910,8 @@ public class BindSink implements AnalysisRuleFactory {
                     }
                 }
             }
-            // The BE writer validates its incoming data columns against the connector's write schema-json,
-            // which for an ORDINARY write is the DATA (visible) schema only; a rewrite (rewrite_data_files)
-            // additionally carries the engine-managed invisible columns (iceberg v3 row-lineage) that its
-            // rewrite schema-json declares. Projecting the full schema unconditionally would emit invisible
-            // columns an ordinary write's BE schema does not declare ("data columns N do not match schema
-            // columns M"), so drop them unless this is a rewrite — mirroring the retired legacy iceberg
-            // bind's insertSchema visible filter. Connectors with no invisible columns (e.g. MaxCompute) are
-            // unaffected: the filter is a no-op there.
-            List<Column> targetFullSchema = sinkTargetFullSchema(table);
-            List<Column> writeSchema = sink.isRewrite()
-                    ? targetFullSchema
-                    : targetFullSchema.stream()
-                            .filter(Column::isVisible)
-                            .collect(ImmutableList.toImmutableList());
             LogicalProject<?> fullOutputProject =
-                    getOutputProjectByCoercion(writeSchema, child, columnToOutput);
+                    getOutputProjectByCoercion(targetWriteSchema, child, columnToOutput);
             return boundSink.withChildAndUpdateOutput(fullOutputProject);
         }
         // Name-mapped connector tables (JDBC / ES): keep columns in user-specified order because the
@@ -901,9 +932,9 @@ public class BindSink implements AnalysisRuleFactory {
      * {@code _last_updated_sequence_number}) are excluded from an ordinary write's default target — the
      * user never supplies their values, so counting them would break the "insert cols == query output"
      * check. They are RETAINED for a {@code rewrite} (a distributed {@code rewrite_data_files} reads and
-     * rewrites full rows, preserving the engine-managed lineage values), mirroring the retired
-     * legacy iceberg bind's rewrite branch. The {@code isVisible} / {@code isRewrite} split is
-     * connector-agnostic, so no source-specific code enters the generic SPI path.
+     * rewrites full rows, preserving the engine-managed lineage values) only when the connector marks
+     * them {@link Column#isReservedPassthrough reserved passthrough}. Request-scoped invisible columns
+     * are never physical rewrite fields.
      *
      * <p>{@code staticPartitionColNames} must already be canonicalized by
      * {@link #canonicalStaticPartitionColNames}, so both the exclusion filter and the explicit-column-list
@@ -912,14 +943,32 @@ public class BindSink implements AnalysisRuleFactory {
     @VisibleForTesting
     static List<Column> selectConnectorSinkBindColumns(PluginDrivenExternalTable table,
             List<String> colNames, Set<String> staticPartitionColNames, boolean isRewrite) {
+        return selectConnectorSinkBindColumns(table, sinkTargetFullSchema(table),
+                colNames, staticPartitionColNames, isRewrite);
+    }
+
+    @VisibleForTesting
+    static List<Column> selectConnectorSinkBindColumns(PluginDrivenExternalTable table,
+            List<Column> targetSchema, List<String> colNames,
+            Set<String> staticPartitionColNames, boolean isRewrite) {
         if (colNames.isEmpty()) {
-            return sinkTargetFullSchema(table).stream()
+            return targetSchema.stream()
                     .filter(col -> !staticPartitionColNames.contains(col.getName()))
-                    .filter(col -> isRewrite || col.isVisible())
+                    .filter(col -> isConnectorSinkWriteColumn(col, isRewrite))
                     .collect(ImmutableList.toImmutableList());
         }
         return colNames.stream().map(cn -> {
-            Column column = connectorSinkTargetColumn(table, cn);
+            Column column = findColumn(targetSchema, cn);
+            if (column == null) {
+                // The pinned writer schema deliberately contains data columns only. The latest full target
+                // schema still owns engine-managed invisible columns, which must reach the explicit-invisible
+                // rejection below instead of being misclassified as an unknown data column.
+                column = sinkTargetFullSchema(table).stream()
+                        .filter(candidate -> !candidate.isVisible())
+                        .filter(candidate -> candidate.getName().equalsIgnoreCase(cn))
+                        .findFirst()
+                        .orElse(null);
+            }
             if (column == null) {
                 throw new AnalysisException(String.format("column %s is not found in table %s",
                         cn, table.getName()));
@@ -931,17 +980,45 @@ public class BindSink implements AnalysisRuleFactory {
                 throw new AnalysisException(String.format(
                         "column %s is a static partition column, should not be in the insert column list", cn));
             }
-            // Reject explicitly naming an engine-managed invisible column (e.g. iceberg v3 row-lineage
-            // _row_id / _last_updated_sequence_number) in an ordinary INSERT: the user never supplies
-            // its value. RETAINED for a rewrite (rewrite_data_files reads/rewrites full rows, preserving
-            // the engine-managed values), mirroring the isVisible/isRewrite split of the empty-colNames
-            // branch above. Uses only Column.isVisible(), so no source-specific code enters the generic
-            // SPI path (replaces the retired legacy source-specific iceberg row-lineage guard).
-            if (!isRewrite && !column.isVisible()) {
+            if (!isConnectorSinkWriteColumn(column, isRewrite)) {
                 throw new AnalysisException(String.format(
                         "Cannot specify invisible column '%s' in INSERT statement", cn));
             }
             return column;
+        }).collect(ImmutableList.toImmutableList());
+    }
+
+    private static Column findColumn(List<Column> schema, String name) {
+        return schema.stream()
+                .filter(column -> column.getName().equalsIgnoreCase(name))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static boolean isConnectorSinkWriteColumn(Column column, boolean isRewrite) {
+        // Hidden request-scoped scan columns are not sink fields; only connector-declared persistent
+        // passthrough columns may survive a rewrite and change its physical arity.
+        return column.isVisible() || (isRewrite && column.isReservedPassthrough());
+    }
+
+    @VisibleForTesting
+    static List<NamedExpression> selectConnectorRewriteOutputs(
+            List<Column> writeSchema, List<? extends NamedExpression> sourceOutputs) {
+        Map<String, NamedExpression> outputByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (NamedExpression output : sourceOutputs) {
+            if (outputByName.put(output.getName(), output) != null) {
+                throw new AnalysisException("Duplicate column in connector rewrite source: " + output.getName());
+            }
+        }
+        // Source scans can expose request-scoped hidden columns under show-hidden. Selecting by the physical
+        // write schema keeps source output, bound schema, and BE sink arity on one shared invariant.
+        return writeSchema.stream().map(column -> {
+            NamedExpression output = outputByName.get(column.getName());
+            if (output == null) {
+                throw new AnalysisException("Column " + column.getName()
+                        + " is missing from connector rewrite source");
+            }
+            return output;
         }).collect(ImmutableList.toImmutableList());
     }
 

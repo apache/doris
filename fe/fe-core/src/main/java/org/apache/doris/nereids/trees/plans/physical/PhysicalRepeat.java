@@ -51,6 +51,7 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     private final List<List<Expression>> groupingSets;
     private final List<NamedExpression> outputExpressions;
     private final SlotReference groupingId;
+    private final Optional<List<Long>> groupingIdValues;
 
     /**
      * Desc: Constructor for PhysicalRepeat.
@@ -61,6 +62,19 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
             SlotReference groupingId,
             LogicalProperties logicalProperties,
             CHILD_TYPE child) {
+        this(groupingSets, outputExpressions, groupingId, Optional.empty(), logicalProperties, child);
+    }
+
+    /**
+     * Desc: Constructor for PhysicalRepeat with precomputed internal grouping id values.
+     */
+    public PhysicalRepeat(
+            List<List<Expression>> groupingSets,
+            List<NamedExpression> outputExpressions,
+            SlotReference groupingId,
+            Optional<List<Long>> groupingIdValues,
+            LogicalProperties logicalProperties,
+            CHILD_TYPE child) {
         super(PlanType.PHYSICAL_REPEAT, logicalProperties, child);
         this.groupingSets = Objects.requireNonNull(groupingSets, "groupingSets can not be null")
                 .stream()
@@ -69,13 +83,16 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
         this.outputExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(outputExpressions, "outputExpressions can not be null"));
         this.groupingId = Objects.requireNonNull(groupingId, "groupingId can not be null");
+        this.groupingIdValues = groupingIdValues.map(ImmutableList::copyOf);
+        Preconditions.checkArgument(!this.groupingIdValues.isPresent()
+                || this.groupingIdValues.get().size() == this.groupingSets.size());
     }
 
     /**
      * Desc: Constructor for PhysicalRepeat.
      */
     private PhysicalRepeat(List<List<Expression>> groupingSets, List<NamedExpression> outputExpressions,
-            SlotReference groupingId,
+            SlotReference groupingId, Optional<List<Long>> groupingIdValues,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_REPEAT, groupExpression, logicalProperties,
@@ -87,6 +104,10 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
         this.outputExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(outputExpressions, "outputExpressions can not be null"));
         this.groupingId = Objects.requireNonNull(groupingId, "groupingId can not be null");
+        this.groupingIdValues = groupingIdValues.map(ImmutableList::copyOf);
+        Preconditions.checkArgument(!this.groupingIdValues.isPresent()
+                || this.groupingIdValues.get().size() == this.groupingSets.size(),
+                "groupingIdValues size is different from groupingSets size");
     }
 
     @Override
@@ -104,6 +125,11 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     }
 
     @Override
+    public Optional<List<Long>> getGroupingIdValues() {
+        return groupingIdValues;
+    }
+
+    @Override
     public List<NamedExpression> getOutputs() {
         return outputExpressions;
     }
@@ -113,6 +139,7 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
         return Utils.toSqlString("PhysicalRepeat[" + id.asInt() + "]" + getGroupIdWithPrefix(),
                 "groupingSets", groupingSets,
                 "outputExpressions", outputExpressions,
+                "groupingIdValues", groupingIdValues,
                 "stats", statistics
         );
     }
@@ -149,26 +176,27 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
         }
         PhysicalRepeat that = (PhysicalRepeat) o;
         return Objects.equals(groupingSets, that.groupingSets)
-                && Objects.equals(outputExpressions, that.outputExpressions);
+                && Objects.equals(outputExpressions, that.outputExpressions)
+                && Objects.equals(groupingIdValues, that.groupingIdValues);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(groupingSets, outputExpressions);
+        return Objects.hash(groupingSets, outputExpressions, groupingIdValues);
     }
 
     @Override
     public PhysicalRepeat<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, outputExpressions,
-                groupingId, groupExpression,
+                groupingId, groupingIdValues, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
     public PhysicalRepeat<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, outputExpressions,
-                groupingId, groupExpression,
+                groupingId, groupingIdValues, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
@@ -177,7 +205,7 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, outputExpressions,
-                groupingId, groupExpression,
+                groupingId, groupingIdValues, groupExpression,
                 logicalProperties.get(), physicalProperties, statistics, children.get(0)));
     }
 
@@ -185,14 +213,14 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     public PhysicalRepeat<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, outputExpressions,
-                groupingId, groupExpression,
+                groupingId, groupingIdValues, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override
     public PhysicalRepeat<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, newOutput, groupingId,
-                Optional.empty(),
+                groupingIdValues, Optional.empty(),
                 getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
@@ -200,13 +228,13 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     public PhysicalRepeat<CHILD_TYPE> withGroupSetsAndOutput(List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressionList) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, outputExpressionList,
-                groupingId, Optional.empty(),
+                groupingId, groupingIdValues.filter(values -> values.size() == groupingSets.size()), Optional.empty(),
                 getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override
     public PhysicalRepeat<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalRepeat<>(groupingSets, outputExpressions, groupingId, groupExpression,
+        return new PhysicalRepeat<>(groupingSets, outputExpressions, groupingId, groupingIdValues, groupExpression,
                 null, physicalProperties, statistics, child());
     }
 

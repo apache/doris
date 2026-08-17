@@ -565,13 +565,15 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
                             const std::set<uint64_t>& column_ids,
                             const std::set<uint64_t>& filter_column_ids,
                             const std::string& page_cache_file_key,
-                            const ParquetReaderCompat& compat, bool enable_strict_mode) {
+                            const ParquetReaderCompat& compat, bool enable_strict_mode,
+                            std::optional<const cctz::time_zone*> int96_timezone_override) {
     size_t total_rows = row_group.num_rows;
     if (field->data_type->get_primitive_type() == TYPE_ARRAY) {
         std::unique_ptr<ColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                element_reader, max_buf_size, col_offsets, state, true, column_ids,
-                               filter_column_ids, page_cache_file_key, compat, enable_strict_mode));
+                               filter_column_ids, page_cache_file_key, compat, enable_strict_mode,
+                               int96_timezone_override));
         auto array_reader = ArrayColumnReader::create_unique(row_ranges, total_rows, ctz, io_ctx);
         element_reader->set_column_in_nested();
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
@@ -587,7 +589,7 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
             RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                    key_reader, max_buf_size, col_offsets, state, true, column_ids,
                                    filter_column_ids, page_cache_file_key, compat,
-                                   enable_strict_mode));
+                                   enable_strict_mode, int96_timezone_override));
         } else {
             auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
                                                                    io_ctx, &field->children[0]);
@@ -600,7 +602,7 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
             RETURN_IF_ERROR(create(file, &field->children[1], row_group, row_ranges, ctz, io_ctx,
                                    value_reader, max_buf_size, col_offsets, state, true, column_ids,
                                    filter_column_ids, page_cache_file_key, compat,
-                                   enable_strict_mode));
+                                   enable_strict_mode, int96_timezone_override));
         } else {
             auto skip_reader = std::make_unique<SkipReadingReader>(row_ranges, total_rows, ctz,
                                                                    io_ctx, &field->children[1]);
@@ -624,7 +626,8 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
                 RETURN_IF_ERROR(create(file, &child, row_group, row_ranges, ctz, io_ctx,
                                        child_reader, max_buf_size, col_offsets, state,
                                        in_collection, column_ids, filter_column_ids,
-                                       page_cache_file_key, compat, enable_strict_mode));
+                                       page_cache_file_key, compat, enable_strict_mode,
+                                       int96_timezone_override));
                 child_readers[child.name] = std::move(child_reader);
                 // Record the first non-SkippingReader
                 if (non_skip_reader_idx == -1) {
@@ -644,7 +647,7 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
             RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz, io_ctx,
                                    child_reader, max_buf_size, col_offsets, state, in_collection,
                                    column_ids, filter_column_ids, page_cache_file_key, compat,
-                                   enable_strict_mode));
+                                   enable_strict_mode, int96_timezone_override));
             child_reader->set_column_in_nested();
             child_readers[field->children[0].name] = std::move(child_reader);
         }
@@ -669,10 +672,17 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
             return Status::Corruption("Parquet physical column {} has no chunk metadata",
                                       physical_index);
         }
+        // INT96 has no logical timezone annotation. An engaged override, including nullptr,
+        // carries the explicit catalog decision; callers that omit it retain the legacy session
+        // timezone behavior used by the V1/native reader path.
+        const cctz::time_zone* scalar_timezone =
+                field->physical_type == tparquet::Type::INT96 && int96_timezone_override.has_value()
+                        ? *int96_timezone_override
+                        : ctz;
         if (in_collection) {
             if (offset_index == nullptr) {
                 auto scalar_reader = ScalarColumnReader<true, false>::create_unique(
-                        row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
+                        row_ranges, total_rows, chunk, offset_index, scalar_timezone, io_ctx);
 
                 RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state,
                                                     page_cache_file_key, compat,
@@ -681,7 +691,7 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
                 reader.reset(scalar_reader.release());
             } else {
                 auto scalar_reader = ScalarColumnReader<true, true>::create_unique(
-                        row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
+                        row_ranges, total_rows, chunk, offset_index, scalar_timezone, io_ctx);
 
                 RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state,
                                                     page_cache_file_key, compat,
@@ -692,7 +702,7 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
         } else {
             if (offset_index == nullptr) {
                 auto scalar_reader = ScalarColumnReader<false, false>::create_unique(
-                        row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
+                        row_ranges, total_rows, chunk, offset_index, scalar_timezone, io_ctx);
 
                 RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state,
                                                     page_cache_file_key, compat,
@@ -701,7 +711,7 @@ Status ColumnReader::create(io::FileReaderSPtr file, NativeFieldSchema* field,
                 reader.reset(scalar_reader.release());
             } else {
                 auto scalar_reader = ScalarColumnReader<false, true>::create_unique(
-                        row_ranges, total_rows, chunk, offset_index, ctz, io_ctx);
+                        row_ranges, total_rows, chunk, offset_index, scalar_timezone, io_ctx);
 
                 RETURN_IF_ERROR(scalar_reader->init(file, field, max_buf_size, state,
                                                     page_cache_file_key, compat,
@@ -800,6 +810,8 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::release_batch_scratch(
     release_selection |= release_vector_if_oversized(&_materialization_state.selection.ranges,
                                                      max_retained_bytes);
     release_selection |=
+            release_filter_if_oversized(&_fused_nullable_selection_nulls, max_retained_bytes);
+    release_selection |=
             release_filter_if_oversized(&_fixed_width_predicate_nulls, max_retained_bytes);
     release_selection |=
             release_filter_if_oversized(&_fixed_width_predicate_matches, max_retained_bytes);
@@ -832,6 +844,7 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::release_batch_scratch(
     release_selection |= release_vector_for_aggregate(&_nested_filter_map_data);
     release_selection |= release_vector_for_aggregate(&_materialization_state.dictionary_indices);
     release_selection |= release_vector_for_aggregate(&_materialization_state.selection.ranges);
+    release_selection |= release_filter_for_aggregate(&_fused_nullable_selection_nulls);
     release_selection |= release_filter_for_aggregate(&_fixed_width_predicate_nulls);
     release_selection |= release_filter_for_aggregate(&_fixed_width_predicate_matches);
     release_selection |= release_filter_for_aggregate(&_fixed_width_predicate_conversion_nulls);
@@ -860,7 +873,8 @@ size_t ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::retained_batch_scratch_b
            _def_levels.capacity() * sizeof(level_t) +
            _null_run_lengths.capacity() * sizeof(uint16_t) +
            _nested_filter_map_data.capacity() * sizeof(uint8_t) +
-           _fixed_width_predicate_nulls.capacity() + _fixed_width_predicate_matches.capacity() +
+           _fused_nullable_selection_nulls.capacity() + _fixed_width_predicate_nulls.capacity() +
+           _fixed_width_predicate_matches.capacity() +
            _fixed_width_predicate_conversion_nulls.capacity() +
            _materialization_state.dictionary_indices.capacity() * sizeof(uint32_t) +
            _materialization_state.selection.ranges.capacity() * sizeof(ParquetSelectionRange) +
@@ -875,7 +889,8 @@ size_t ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::active_batch_scratch_byt
             _serde == nullptr ? 0 : _serde->active_parquet_raw_predicate_scratch_bytes();
     return decoder_bytes + serde_bytes + _rep_levels.size() * sizeof(level_t) +
            _def_levels.size() * sizeof(level_t) + _null_run_lengths.size() * sizeof(uint16_t) +
-           _nested_filter_map_data.size() * sizeof(uint8_t) + _fixed_width_predicate_nulls.size() +
+           _nested_filter_map_data.size() * sizeof(uint8_t) +
+           _fused_nullable_selection_nulls.size() + _fixed_width_predicate_nulls.size() +
            _fixed_width_predicate_matches.size() + _fixed_width_predicate_conversion_nulls.size() +
            _materialization_state.dictionary_indices.size() * sizeof(uint32_t) +
            _materialization_state.selection.ranges.size() * sizeof(ParquetSelectionRange) +
@@ -892,6 +907,7 @@ void ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::reserve_batch_scratch_for_
     _nested_filter_map_data.reserve(elements);
     _materialization_state.dictionary_indices.reserve(elements);
     _materialization_state.selection.ranges.reserve(elements);
+    _fused_nullable_selection_nulls.reserve(elements);
     _ancestor_null_indices.reserve(elements);
 }
 
@@ -955,6 +971,7 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
     }
     MutableColumnPtr data_column;
     _null_run_lengths.clear();
+    size_t num_nulls = 0;
     NullMap* map_data_column = nullptr;
     doris_column = IColumn::mutate(std::move(doris_column));
     if (is_column_nullable(*doris_column)) {
@@ -977,6 +994,9 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
                 }
 
                 bool is_null = def_level < _field_schema->definition_level;
+                if (is_null) {
+                    num_nulls += loop_read;
+                }
                 if (!(prev_is_null ^ is_null)) {
                     _null_run_lengths.emplace_back(0);
                 }
@@ -1006,10 +1026,26 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
         }
         _null_run_lengths.emplace_back((u_short)remaining);
     }
+    const bool use_fused_nullable_selection =
+            map_data_column != nullptr && filter_map.has_filter() && num_nulls > 0 &&
+            should_use_fused_nullable_selection(num_values, num_nulls, _null_run_lengths.size()) &&
+            _chunk_reader->supports_fused_nullable_selection(*data_column);
     {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
-        RETURN_IF_ERROR(_select_vector.init(_null_run_lengths, num_values, map_data_column,
-                                            &filter_map, _filter_map_index));
+        if (use_fused_nullable_selection) {
+            size_t num_filtered = 0;
+            // The fused path owns both the physical ranges and selected NULL layout. Restrict it
+            // to fragmented, materially nullable level plans: clustered, low-NULL, and no-NULL
+            // pages already collapse into a few cheap legacy runs, while fusing them adds planning
+            // branches without removing enough work to guarantee a win.
+            RETURN_IF_ERROR(build_filtered_nullable_selection(
+                    _null_run_lengths, num_values, num_nulls, map_data_column, &filter_map,
+                    _filter_map_index, &_materialization_state.selection,
+                    &_fused_nullable_selection_nulls, &num_filtered));
+        } else {
+            RETURN_IF_ERROR(_select_vector.init(_null_run_lengths, num_values, map_data_column,
+                                                &filter_map, _filter_map_index));
+        }
         _filter_map_index += num_values;
     }
     DORIS_CHECK(_serde != nullptr);
@@ -1020,8 +1056,13 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_values(size_t num_
             conversion_failure_map(*_field_schema, type, _materialization_state.enable_strict_mode,
                                    map_data_column, &compatibility_scratch);
     const size_t materialization_start_row = data_column->size();
-    const auto status = _chunk_reader->materialize_values(data_column, *_serde, _decode_context,
-                                                          _materialization_state, _select_vector);
+    const auto status =
+            use_fused_nullable_selection
+                    ? _chunk_reader->materialize_fused_nullable_values(
+                              data_column, *_serde, _decode_context, _materialization_state,
+                              num_values, num_nulls, _fused_nullable_selection_nulls)
+                    : _chunk_reader->materialize_values(data_column, *_serde, _decode_context,
+                                                        _materialization_state, _select_vector);
     _materialization_state.conversion_failure_null_map = nullptr;
     if (status.ok()) {
         mark_local_timestamp_defaults(*_field_schema, type,

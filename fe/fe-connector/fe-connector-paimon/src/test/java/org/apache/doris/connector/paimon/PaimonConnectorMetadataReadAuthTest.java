@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.types.DataTypes;
@@ -50,7 +50,7 @@ public class PaimonConnectorMetadataReadAuthTest {
 
     private static PaimonConnectorMetadata metadata(RecordingPaimonCatalogOps ops,
             RecordingConnectorContext ctx) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), ctx);
     }
 
     private static PaimonTableHandle baseHandle() {

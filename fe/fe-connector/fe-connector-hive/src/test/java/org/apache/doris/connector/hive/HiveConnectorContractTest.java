@@ -17,14 +17,13 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.ConnectorContractValidator;
-import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.ConnectorContractValidator;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
 import java.util.EnumSet;
 
 /**
@@ -47,10 +46,10 @@ public class HiveConnectorContractTest {
     /** A hive connector whose connector-level write provider is the REAL one, minus the metastore client. */
     private HiveConnector connectorWithRealWriteProvider() {
         FakeConnectorContext context = new FakeConnectorContext();
-        return new HiveConnector(Collections.emptyMap(), context) {
+        return new HiveConnector(HiveTestProperties.minimalMap(), context) {
             @Override
             public ConnectorWritePlanProvider getWritePlanProvider() {
-                return new HiveWritePlanProvider(null, Collections.emptyMap(), context);
+                return new HiveWritePlanProvider(null, HiveTestProperties.minimal(), context);
             }
         };
     }

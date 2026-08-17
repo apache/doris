@@ -65,8 +65,10 @@ under the License.
         <module>fe-filesystem-minio</module>
         <module>fe-filesystem-ozone</module>
         <module>fe-filesystem-oss</module>
-        <module>fe-filesystem-cos</module>
-        <module>fe-filesystem-obs</module>
+        <!-- fe-filesystem-cos (Tencent COS) is built by the `cos` profile below;
+             disabled via -Ddisable.cos=true (build.sh exclude-cos-dependencies flag). -->
+        <!-- fe-filesystem-obs (Huawei OBS) is built by the `obs` profile below;
+             disabled via -Ddisable.obs=true (build.sh exclude-obs-dependencies flag). -->
         <module>fe-filesystem-local</module>
         <module>fe-filesystem-azure</module>
         <module>fe-filesystem-hdfs-base</module>
@@ -110,6 +112,39 @@ under the License.
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Huawei OBS filesystem provider. Active by default; disabled by -Ddisable.obs=true
+             (build.sh exclude-obs-dependencies flag), which excludes fe-filesystem-obs from the
+             reactor so its Huawei dependencies (esdk-obs-java-bundle, huaweicloud-sdk-iam,
+             hadoop-huaweicloud) are never resolved and its OBS code is never compiled or bundled. -->
+        <profile>
+            <id>obs</id>
+            <activation>
+                <property>
+                    <name>!disable.obs</name>
+                </property>
+            </activation>
+            <modules>
+                <module>fe-filesystem-obs</module>
+            </modules>
+        </profile>
+        <!-- Tencent COS filesystem provider. Active by default; disabled by -Ddisable.cos=true
+             (build.sh exclude-cos-dependencies flag), which excludes fe-filesystem-cos from the
+             reactor so its Tencent dependencies (cos_api, tencentcloud-sdk-java-sts) are never
+             resolved and its COS code is never compiled or bundled. -->
+        <profile>
+            <id>cos</id>
+            <activation>
+                <property>
+                    <name>!disable.cos</name>
+                </property>
+            </activation>
+            <modules>
+                <module>fe-filesystem-cos</module>
+            </modules>
+        </profile>
+    </profiles>
 
 
 </project>

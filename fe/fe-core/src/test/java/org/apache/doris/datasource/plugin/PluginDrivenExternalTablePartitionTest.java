@@ -22,15 +22,15 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.SessionContext;
@@ -186,7 +186,8 @@ public class PluginDrivenExternalTablePartitionTest {
                         new ConnectorColumn("REGION", ConnectorType.of("INT"), "", true, null),
                         new ConnectorColumn("VAL", ConnectorType.of("INT"), "", true, null)),
                 "max_compute",
-                Collections.singletonMap(ConnectorTableSchema.PARTITION_COLUMNS_KEY, "YEAR,REGION"));
+                Collections.singletonMap(ConnectorTableSchema.PARTITION_COLUMNS_KEY, "YEAR,REGION"),
+                Collections.emptySet(), "uuid-u0/schema-1");
         Mockito.when(metadata.getTableSchema(session, handle)).thenReturn(tableSchema);
         // Identifier mapping lowercases the remote names (raw "YEAR" -> mapped "year").
         Mockito.when(metadata.fromRemoteColumnName(Mockito.eq(session), Mockito.anyString(),
@@ -206,6 +207,8 @@ public class PluginDrivenExternalTablePartitionTest {
                 "partition columns must be the MAPPED Doris columns identified via fromRemoteColumnName");
         Assertions.assertEquals(Arrays.asList("YEAR", "REGION"), value.getPartitionColumnRemoteNames(),
                 "remote names must be kept raw for addressing connector partition values");
+        Assertions.assertEquals("uuid-u0/schema-1", value.getWriteMetadataIdentity(),
+                "schema caching must preserve the opaque generation captured with the remote columns");
     }
 
     @Test

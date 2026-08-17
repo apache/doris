@@ -17,15 +17,15 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
-import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.jdbc.client.JdbcConnectorClient;
 import org.apache.doris.connector.jdbc.client.JdbcFieldInfo;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TJdbcTable;
@@ -54,6 +54,11 @@ import java.util.function.Supplier;
  * byte-identical to the legacy write path (no BE change).</p>
  */
 class JdbcWritePlanProviderTest {
+
+    // A holder built from the minimum, so the expected pool defaults come from the one place that
+    // defines them rather than being copied into this file.
+    private static final JdbcCatalogProperties DEFAULTS = JdbcCatalogProperties.of(
+            Collections.singletonMap(JdbcCatalogProperties.JDBC_URL, "jdbc:mysql://h:3306/d"));
 
     /**
      * Test double for {@link JdbcConnectorClient}: the protected constructor only sets
@@ -203,7 +208,7 @@ class JdbcWritePlanProviderTest {
 
         FakeJdbcClient client = new FakeJdbcClient(
                 JdbcDbType.MYSQL, Arrays.asList(field("id"), field("name")));
-        JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, props);
+        JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, JdbcCatalogProperties.of(props));
 
         Map<String, String> sessionProps = new HashMap<>();
         sessionProps.put("enable_odbc_transcation", "true");
@@ -247,7 +252,7 @@ class JdbcWritePlanProviderTest {
 
         FakeJdbcClient client = new FakeJdbcClient(
                 JdbcDbType.MYSQL, Arrays.asList(field("id"), field("name")));
-        JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, props);
+        JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, JdbcCatalogProperties.of(props));
 
         Map<String, String> sessionProps = new HashMap<>();
         sessionProps.put("enable_odbc_transcation", "true");
@@ -271,7 +276,7 @@ class JdbcWritePlanProviderTest {
 
         FakeJdbcClient client = new FakeJdbcClient(
                 JdbcDbType.MYSQL, Collections.singletonList(field("c")));
-        JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, props);
+        JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, JdbcCatalogProperties.of(props));
 
         ConnectorWriteHandle handle = writeHandle(
                 new JdbcTableHandle("test_db", "t1"), Collections.singletonList("c"));
@@ -280,17 +285,17 @@ class JdbcWritePlanProviderTest {
         TJdbcTableSink sink = plan.getDataSink().getJdbcTableSink();
         TJdbcTable t = sink.getJdbcTable();
 
-        // Pool values come from JdbcConnectorProperties.getInt(..., DEFAULT_*), exactly as the
+        // Pool values come from JdbcCatalogProperties.getInt(..., DEFAULT_*), exactly as the
         // legacy getWriteConfig computed them — NOT the bindJdbcWriteSink hard-coded fallbacks
         // (which were unreachable because the property bag always carried the computed values).
         Assertions.assertEquals(
-                JdbcConnectorProperties.DEFAULT_POOL_MIN_SIZE, t.getConnectionPoolMinSize());
+                DEFAULTS.getConnectionPoolMinSize(), t.getConnectionPoolMinSize());
         Assertions.assertEquals(
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_SIZE, t.getConnectionPoolMaxSize());
+                DEFAULTS.getConnectionPoolMaxSize(), t.getConnectionPoolMaxSize());
         Assertions.assertEquals(
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_WAIT_TIME, t.getConnectionPoolMaxWaitTime());
+                DEFAULTS.getConnectionPoolMaxWaitTime(), t.getConnectionPoolMaxWaitTime());
         Assertions.assertEquals(
-                JdbcConnectorProperties.DEFAULT_POOL_MAX_LIFE_TIME, t.getConnectionPoolMaxLifeTime());
+                DEFAULTS.getConnectionPoolMaxLifeTime(), t.getConnectionPoolMaxLifeTime());
         Assertions.assertFalse(t.isConnectionPoolKeepAlive());
         // enable_odbc_transcation absent -> false (note the legacy session-key spelling preserved).
         Assertions.assertFalse(sink.isUseTransaction());
@@ -306,7 +311,7 @@ class JdbcWritePlanProviderTest {
         props.put("jdbc_url", "jdbc:mysql://h:3306/test_db");
         FakeJdbcClient client = new FakeJdbcClient(
                 JdbcDbType.MYSQL, Arrays.asList(field("id"), field("name")));
-        JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, props);
+        JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, JdbcCatalogProperties.of(props));
         ConnectorSession session = session(7L, Collections.emptyMap(), liveScope());
         ConnectorWriteHandle handle = writeHandle(
                 new JdbcTableHandle("test_db", "t1"), Arrays.asList("id", "name"));
@@ -339,9 +344,9 @@ class JdbcWritePlanProviderTest {
         JdbcTableHandle tableHandle = new JdbcTableHandle("test_db", "t1");
 
         // scan path resolves column handles on the funnel metadata
-        new JdbcConnectorMetadata(client, props).getColumnHandles(session, tableHandle);
+        new JdbcConnectorMetadata(client, JdbcCatalogProperties.of(props)).getColumnHandles(session, tableHandle);
         // write path news up its own metadata inside buildInsertSql, yet shares the same scope entry
-        JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, props);
+        JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, JdbcCatalogProperties.of(props));
         provider.planWrite(session, writeHandle(tableHandle, Arrays.asList("id", "name")));
 
         Assertions.assertEquals(1, client.columnsFetches.get(),

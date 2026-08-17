@@ -17,14 +17,17 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.iceberg.IcebergCatalogOps.CatalogBackedIcebergCatalogOps;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
 
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
@@ -122,6 +125,26 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
     public void testDropColumn() {
         ops.dropColumn("db1", "t1", "val");
         Assertions.assertNull(reload().findField("val"));
+    }
+
+    @Test
+    public void testDropColumnUsedByHistoricalPartitionSpecFailsLoud() {
+        Table table = ops.loadTable("db1", "t1");
+        table.updateSpec().addField("val").commit();
+        String partitionName = table.spec().fields().get(0).name();
+        DataFile dataFile = DataFiles.builder(table.spec())
+                .withPath("file:/warehouse/t1/data.parquet")
+                .withFileSizeInBytes(1)
+                .withRecordCount(1)
+                .withPartitionPath(partitionName + "=1")
+                .build();
+        table.newAppend().appendFile(dataFile).commit();
+        table.updateSpec().removeField(partitionName).commit();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.dropColumn("db1", "t1", "val"));
+        Assertions.assertTrue(ex.getMessage().contains("used by an old partition spec"), ex.getMessage());
+        Assertions.assertNotNull(reload().findField("val"));
     }
 
     @Test

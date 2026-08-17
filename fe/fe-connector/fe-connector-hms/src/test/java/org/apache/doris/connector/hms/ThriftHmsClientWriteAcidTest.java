@@ -32,6 +32,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import shade.doris.hive.org.apache.thrift.TApplicationException;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -358,6 +359,53 @@ public class ThriftHmsClientWriteAcidTest {
         // timeoutMs = -1 => the elapsed guard trips on the first poll iteration, deterministically.
         Assertions.assertThrows(HmsClientException.class, () ->
                 client.acquireSharedLock("q", 5L, "u", "db", "t", Collections.emptyList(), -1L));
+    }
+
+    @Test
+    public void testExclusiveTableLockIsStandaloneAndExplicitlyReleased() {
+        RecordingClient fake = new RecordingClient()
+                .stub("lock", new LockResponse(9L, LockState.ACQUIRED));
+        ThriftHmsClient client = newClient(fake);
+
+        long lockId = client.acquireExclusiveTableLock("q", "u", "db", "t", 1000L);
+        client.heartbeatLock(lockId);
+        client.releaseLock(lockId);
+
+        LockRequest request = (LockRequest) argsOf(fake, "lock")[0];
+        LockComponent component = request.getComponent().get(0);
+        Assertions.assertEquals(9L, lockId);
+        Assertions.assertEquals(LockType.EXCLUSIVE, component.getType());
+        Assertions.assertEquals(DataOperationType.NO_TXN, component.getOperationType());
+        Assertions.assertFalse(component.isIsTransactional(),
+                "plain Hive publication must not masquerade as an ACID write lock");
+        Assertions.assertEquals(0L, argsOf(fake, "heartbeat")[0]);
+        Assertions.assertEquals(9L, argsOf(fake, "heartbeat")[1]);
+        Assertions.assertEquals(9L, argsOf(fake, "unlock")[0]);
+    }
+
+    @Test
+    public void testExclusiveTableLockTimeoutRemovesWaitingLock() {
+        RecordingClient fake = new RecordingClient()
+                .stub("lock", new LockResponse(10L, LockState.WAITING))
+                .stub("checkLock", new LockResponse(10L, LockState.WAITING));
+        ThriftHmsClient client = newClient(fake);
+
+        Assertions.assertThrows(HmsClientException.class,
+                () -> client.acquireExclusiveTableLock("q", "u", "db", "t", -1L));
+
+        Assertions.assertEquals(10L, argsOf(fake, "unlock")[0],
+                "a standalone waiting lock has no transaction owner to clean it up");
+    }
+
+    @Test
+    public void testNotificationWatermarkFallsBackWhenMetastoreRejectsOptionalApi() {
+        RecordingClient fake = new RecordingClient().stub("getCurrentNotificationEventId",
+                new TApplicationException(TApplicationException.INTERNAL_ERROR,
+                        "Internal error processing get_current_notificationEventId"));
+        ThriftHmsClient client = newClient(fake);
+
+        Assertions.assertEquals(-1L, client.getCurrentNotificationEventId(),
+                "legacy metastores must disable the optional watermark instead of rejecting writes");
     }
 
     // ---- harness --------------------------------------------------------------------------------

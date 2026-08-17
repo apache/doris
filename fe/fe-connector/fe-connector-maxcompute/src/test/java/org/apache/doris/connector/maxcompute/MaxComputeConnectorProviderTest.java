@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.maxcompute;
 
-import org.apache.doris.connector.api.ConnectorTestResult;
+import org.apache.doris.connector.spi.ConnectorTestResult;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -40,12 +40,12 @@ public class MaxComputeConnectorProviderTest {
 
     private Map<String, String> validProps() {
         Map<String, String> props = new HashMap<>();
-        props.put(MCConnectorProperties.PROJECT, "my_project");
-        props.put(MCConnectorProperties.ENDPOINT,
+        props.put(MCCatalogProperties.PROJECT, "my_project");
+        props.put(MCCatalogProperties.ENDPOINT,
                 "http://service.cn-beijing.maxcompute.aliyun-inc.com/api");
         // Default auth type is ak_sk; provide the keys so the minimal config is valid.
-        props.put(MCConnectorProperties.ACCESS_KEY, "ak");
-        props.put(MCConnectorProperties.SECRET_KEY, "sk");
+        props.put(MCCatalogProperties.ACCESS_KEY, "ak");
+        props.put(MCCatalogProperties.SECRET_KEY, "sk");
         return props;
     }
 
@@ -68,21 +68,21 @@ public class MaxComputeConnectorProviderTest {
     @Test
     public void testMissingProject() {
         Map<String, String> props = validProps();
-        props.remove(MCConnectorProperties.PROJECT);
+        props.remove(MCCatalogProperties.PROJECT);
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
-        Assertions.assertTrue(ex.getMessage().contains(MCConnectorProperties.PROJECT));
+        Assertions.assertTrue(ex.getMessage().contains(MCCatalogProperties.PROJECT));
     }
 
     @Test
     public void testMissingEndpoint() {
         Map<String, String> props = validProps();
-        props.remove(MCConnectorProperties.ENDPOINT);
+        props.remove(MCCatalogProperties.ENDPOINT);
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
-        Assertions.assertTrue(ex.getMessage().contains(MCConnectorProperties.ENDPOINT));
+        Assertions.assertTrue(ex.getMessage().contains(MCCatalogProperties.ENDPOINT));
     }
 
     // --- 2. split strategy + size/count floor ---
@@ -90,7 +90,7 @@ public class MaxComputeConnectorProviderTest {
     @Test
     public void testSplitByteSizeBelowFloor() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.SPLIT_BYTE_SIZE, "10485759");
+        props.put(MCCatalogProperties.SPLIT_BYTE_SIZE, "10485759");
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
@@ -100,37 +100,40 @@ public class MaxComputeConnectorProviderTest {
     @Test
     public void testSplitByteSizeAtFloorPasses() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.SPLIT_BYTE_SIZE, "10485760");
+        props.put(MCCatalogProperties.SPLIT_BYTE_SIZE, "10485760");
         Assertions.assertDoesNotThrow(() -> provider.validateProperties(props));
     }
 
     @Test
     public void testSplitByteSizeNotInteger() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.SPLIT_BYTE_SIZE, "abc");
+        props.put(MCCatalogProperties.SPLIT_BYTE_SIZE, "abc");
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
-        Assertions.assertTrue(ex.getMessage().contains("must be an integer"));
+        // The binder converts the field, so a malformed number is refused there rather than by a
+        // hand-written parse; what still has to hold is that the error names the key at fault.
+        Assertions.assertTrue(ex.getMessage().contains(MCCatalogProperties.SPLIT_BYTE_SIZE),
+                "got: " + ex.getMessage());
     }
 
     @Test
     public void testSplitStrategyInvalid() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.SPLIT_STRATEGY, "foo");
+        props.put(MCCatalogProperties.SPLIT_STRATEGY, "foo");
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
         Assertions.assertTrue(ex.getMessage().contains(
-                MCConnectorProperties.SPLIT_BY_BYTE_SIZE_STRATEGY));
+                MCCatalogProperties.SplitStrategy.BYTE_SIZE.getValue()));
     }
 
     @Test
     public void testSplitRowCountZero() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.SPLIT_STRATEGY,
-                MCConnectorProperties.SPLIT_BY_ROW_COUNT_STRATEGY);
-        props.put(MCConnectorProperties.SPLIT_ROW_COUNT, "0");
+        props.put(MCCatalogProperties.SPLIT_STRATEGY,
+                MCCatalogProperties.SplitStrategy.ROW_COUNT.getValue());
+        props.put(MCCatalogProperties.SPLIT_ROW_COUNT, "0");
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
@@ -140,9 +143,9 @@ public class MaxComputeConnectorProviderTest {
     @Test
     public void testSplitRowCountStrategyValid() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.SPLIT_STRATEGY,
-                MCConnectorProperties.SPLIT_BY_ROW_COUNT_STRATEGY);
-        props.put(MCConnectorProperties.SPLIT_ROW_COUNT, "100000");
+        props.put(MCCatalogProperties.SPLIT_STRATEGY,
+                MCCatalogProperties.SplitStrategy.ROW_COUNT.getValue());
+        props.put(MCCatalogProperties.SPLIT_ROW_COUNT, "100000");
         Assertions.assertDoesNotThrow(() -> provider.validateProperties(props));
     }
 
@@ -151,7 +154,7 @@ public class MaxComputeConnectorProviderTest {
     @Test
     public void testAccountFormatInvalid() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.ACCOUNT_FORMAT, "foo");
+        props.put(MCCatalogProperties.ACCOUNT_FORMAT, "foo");
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
@@ -161,14 +164,14 @@ public class MaxComputeConnectorProviderTest {
     @Test
     public void testAccountFormatIdPasses() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.ACCOUNT_FORMAT, MCConnectorProperties.ACCOUNT_FORMAT_ID);
+        props.put(MCCatalogProperties.ACCOUNT_FORMAT, MCCatalogProperties.AccountFormat.ID.getValue());
         Assertions.assertDoesNotThrow(() -> provider.validateProperties(props));
     }
 
     @Test
     public void testAccountFormatNamePasses() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.ACCOUNT_FORMAT, MCConnectorProperties.ACCOUNT_FORMAT_NAME);
+        props.put(MCCatalogProperties.ACCOUNT_FORMAT, MCCatalogProperties.AccountFormat.NAME.getValue());
         Assertions.assertDoesNotThrow(() -> provider.validateProperties(props));
     }
 
@@ -177,18 +180,18 @@ public class MaxComputeConnectorProviderTest {
     @Test
     public void testConnectTimeoutZero() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.CONNECT_TIMEOUT, "0");
+        props.put(MCCatalogProperties.CONNECT_TIMEOUT, "0");
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
-        Assertions.assertTrue(ex.getMessage().contains(MCConnectorProperties.CONNECT_TIMEOUT));
+        Assertions.assertTrue(ex.getMessage().contains(MCCatalogProperties.CONNECT_TIMEOUT));
         Assertions.assertTrue(ex.getMessage().contains("greater than 0"));
     }
 
     @Test
     public void testConnectTimeoutNegative() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.CONNECT_TIMEOUT, "-1");
+        props.put(MCCatalogProperties.CONNECT_TIMEOUT, "-1");
         Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
@@ -197,21 +200,22 @@ public class MaxComputeConnectorProviderTest {
     @Test
     public void testReadTimeoutNotInteger() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.READ_TIMEOUT, "abc");
+        props.put(MCCatalogProperties.READ_TIMEOUT, "abc");
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
-        Assertions.assertTrue(ex.getMessage().contains("must be an integer"));
+        Assertions.assertTrue(ex.getMessage().contains(MCCatalogProperties.READ_TIMEOUT),
+                "got: " + ex.getMessage());
     }
 
     @Test
     public void testRetryCountZero() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.RETRY_COUNT, "0");
+        props.put(MCCatalogProperties.RETRY_COUNT, "0");
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
-        Assertions.assertTrue(ex.getMessage().contains(MCConnectorProperties.RETRY_COUNT));
+        Assertions.assertTrue(ex.getMessage().contains(MCCatalogProperties.RETRY_COUNT));
     }
 
     // --- 5. auth completeness (wires the previously-dead checkAuthProperties,
@@ -220,7 +224,7 @@ public class MaxComputeConnectorProviderTest {
     @Test
     public void testAuthMissingSecretKey() {
         Map<String, String> props = validProps();
-        props.remove(MCConnectorProperties.SECRET_KEY);
+        props.remove(MCCatalogProperties.SECRET_KEY);
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
@@ -230,8 +234,8 @@ public class MaxComputeConnectorProviderTest {
     @Test
     public void testAuthRamRoleArnMissingRoleArn() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.AUTH_TYPE,
-                MCConnectorProperties.AUTH_TYPE_RAM_ROLE_ARN);
+        props.put(MCCatalogProperties.AUTH_TYPE,
+                MCCatalogProperties.AuthType.RAM_ROLE_ARN.getValue());
         // has access/secret key but no ram_role_arn
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
@@ -242,7 +246,7 @@ public class MaxComputeConnectorProviderTest {
     @Test
     public void testAuthUnknownType() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.AUTH_TYPE, "no_such_auth");
+        props.put(MCCatalogProperties.AUTH_TYPE, "no_such_auth");
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
@@ -257,15 +261,15 @@ public class MaxComputeConnectorProviderTest {
     @Test
     public void testSplitByteSizeErrorMessageNamesByteSizeNotRowCount() {
         Map<String, String> props = validProps();
-        props.put(MCConnectorProperties.SPLIT_STRATEGY,
-                MCConnectorProperties.SPLIT_BY_BYTE_SIZE_STRATEGY);
-        props.put(MCConnectorProperties.SPLIT_BYTE_SIZE, "1048576");
+        props.put(MCCatalogProperties.SPLIT_STRATEGY,
+                MCCatalogProperties.SplitStrategy.BYTE_SIZE.getValue());
+        props.put(MCCatalogProperties.SPLIT_BYTE_SIZE, "1048576");
         IllegalArgumentException ex = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> provider.validateProperties(props));
-        Assertions.assertTrue(ex.getMessage().contains(MCConnectorProperties.SPLIT_BYTE_SIZE),
+        Assertions.assertTrue(ex.getMessage().contains(MCCatalogProperties.SPLIT_BYTE_SIZE),
                 "got: " + ex.getMessage());
-        Assertions.assertFalse(ex.getMessage().contains(MCConnectorProperties.SPLIT_ROW_COUNT),
+        Assertions.assertFalse(ex.getMessage().contains(MCCatalogProperties.SPLIT_ROW_COUNT),
                 "got: " + ex.getMessage());
     }
 
@@ -339,12 +343,12 @@ public class MaxComputeConnectorProviderTest {
 
     private static Map<String, String> connectivityProps(boolean enableNamespaceSchema) {
         Map<String, String> props = new HashMap<>();
-        props.put(MCConnectorProperties.PROJECT, "mc_project");
-        props.put(MCConnectorProperties.ENDPOINT,
+        props.put(MCCatalogProperties.PROJECT, "mc_project");
+        props.put(MCCatalogProperties.ENDPOINT,
                 "http://service.cn-beijing.maxcompute.aliyun-inc.com/api");
-        props.put(MCConnectorProperties.ACCESS_KEY, "access_key");
-        props.put(MCConnectorProperties.SECRET_KEY, "secret_key");
-        props.put(MCConnectorProperties.ENABLE_NAMESPACE_SCHEMA,
+        props.put(MCCatalogProperties.ACCESS_KEY, "access_key");
+        props.put(MCCatalogProperties.SECRET_KEY, "secret_key");
+        props.put(MCCatalogProperties.ENABLE_NAMESPACE_SCHEMA,
                 Boolean.toString(enableNamespaceSchema));
         return props;
     }

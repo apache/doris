@@ -35,6 +35,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "exec/sink/writer/vtablet_writer.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -110,7 +111,6 @@ Status VRowDistribution::automatic_create_partition() {
     request.__set_table_id(_vpartition->table_id());
     request.__set_partitionValues(_partitions_need_create);
     request.__set_be_endpoint(be_endpoint);
-    request.__set_write_single_replica(_write_single_replica);
     request.__set_load_to_single_tablet(_tablet_finder->is_find_tablet_every_sink());
     request.__set_enable_adaptive_random_bucket(_tablet_finder->is_adaptive_random_bucket());
     if (_state && _state->get_query_ctx()) {
@@ -172,7 +172,6 @@ static TCreatePartitionResult cast_as_create_result(const TReplacePartitionResul
     result.nodes = arg.nodes;
     result.partitions = arg.partitions;
     result.tablets = arg.tablets;
-    result.slave_tablets = arg.slave_tablets;
     return result;
 }
 
@@ -185,7 +184,6 @@ Status VRowDistribution::_replace_overwriting_partition() {
     request.__set_overwrite_group_id(_vpartition->get_overwrite_group_id());
     request.__set_db_id(_vpartition->db_id());
     request.__set_table_id(_vpartition->table_id());
-    request.__set_write_single_replica(_write_single_replica);
 
     // only request for partitions not recorded for replacement
     std::set<int64_t> id_deduper;

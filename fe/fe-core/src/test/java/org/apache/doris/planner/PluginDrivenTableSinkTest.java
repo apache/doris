@@ -18,13 +18,15 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
-import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.connector.api.write.ConnectorSinkPlan;
-import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.common.Config;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertCommandContext;
 import org.apache.doris.thrift.TDataSink;
@@ -107,6 +109,25 @@ public class PluginDrivenTableSinkTest {
     }
 
     @Test
+    public void bindDataSinkKeepsWriteSubsetSeparateFromBoundTargetSchema() throws AnalysisException {
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK)));
+        ConnectorColumn id = Mockito.mock(ConnectorColumn.class);
+        ConnectorColumn name = Mockito.mock(ConnectorColumn.class);
+        List<ConnectorColumn> writeColumns = Collections.singletonList(id);
+        List<ConnectorColumn> boundTargetColumns = java.util.Arrays.asList(id, name);
+
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                null, provider, null, new ConnectorTableHandle() { }, writeColumns,
+                boundTargetColumns, null, WriteOperation.INSERT, false);
+        sink.bindDataSink(Optional.empty());
+
+        Assert.assertSame(writeColumns, provider.seenHandle.getColumns());
+        Assert.assertEquals(boundTargetColumns, provider.seenHandle.getBoundTargetColumns());
+        Assert.assertNotSame(boundTargetColumns, provider.seenHandle.getBoundTargetColumns());
+    }
+
+    @Test
     public void bindDataSinkThreadsEngineBuiltWriteSortInfoToHandle() throws AnalysisException {
         // WHY: the connector's planWrite cannot build a TSortInfo (the bound output exprs live only in the
         // engine). For a connector that declares write-sort columns (iceberg WRITE ORDERED BY), the engine
@@ -123,6 +144,20 @@ public class PluginDrivenTableSinkTest {
         sink.bindDataSink(Optional.empty());
 
         Assert.assertSame(engineBuilt, provider.seenHandle.getSortInfo());
+    }
+
+    @Test
+    public void bindDataSinkThreadsBoundWriteMetadataIdentityToHandle() throws AnalysisException {
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK)));
+        String metadataIdentity = "sort-generation-3/spec-generation-7";
+
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                Collections.emptyList(), null, WriteOperation.INSERT, false, metadataIdentity);
+        sink.bindDataSink(Optional.empty());
+
+        Assert.assertEquals(metadataIdentity, provider.seenHandle.getBoundWriteMetadataIdentity());
     }
 
     @Test
@@ -223,6 +258,51 @@ public class PluginDrivenTableSinkTest {
         sink.bindDataSink(Optional.empty());
 
         Assert.assertEquals(WriteOperation.DELETE, provider.seenHandle.getWriteOperation());
+    }
+
+    @Test
+    public void bindDataSinkThreadsDeleteOnlyMergeToHandle() throws AnalysisException {
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK)));
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+                null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                null, WriteOperation.MERGE, false, true);
+        sink.bindDataSink(Optional.empty());
+
+        // Delete-only MERGE must bypass data-file validation while retaining cardinality enforcement.
+        Assert.assertFalse(provider.seenHandle.isWritesDataFiles());
+        Assert.assertTrue(provider.seenHandle.isRequireMergeCardinalityCheck());
+    }
+
+    @Test
+    public void deleteOnlyMergeVersionFenceAppliesOnlyToVariantSchemas() throws AnalysisException {
+        int original = Config.be_exec_version;
+        try {
+            Config.be_exec_version = 11;
+            RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                    new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK)));
+            ConnectorColumn id = new ConnectorColumn(
+                    "id", ConnectorType.of("INT"), null, true, null);
+            PluginDrivenTableSink nonVariantSink = new PluginDrivenTableSink(
+                    null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                    Collections.singletonList(id), null, WriteOperation.MERGE, false, true, null, null);
+
+            nonVariantSink.bindDataSink(Optional.empty());
+            Assert.assertNotNull(provider.seenHandle);
+            Assert.assertEquals(11, provider.seenHandle.getBeExecVersion());
+
+            ConnectorColumn payload = new ConnectorColumn(
+                    "payload", ConnectorType.of("VARIANT_COMPUTE_V2"), null, true, null);
+            PluginDrivenTableSink variantSink = new PluginDrivenTableSink(
+                    null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                    Collections.singletonList(payload), null, WriteOperation.MERGE, false, true, null, null);
+
+            AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+                    () -> variantSink.bindDataSink(Optional.empty()));
+            Assert.assertTrue(exception.getMessage().contains("rolling upgrade"));
+        } finally {
+            Config.be_exec_version = original;
+        }
     }
 
     @Test

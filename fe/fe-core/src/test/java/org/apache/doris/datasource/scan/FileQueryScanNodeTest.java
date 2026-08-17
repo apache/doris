@@ -22,12 +22,20 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
+import org.apache.doris.tablefunction.FileTableValuedFunction;
+import org.apache.doris.tablefunction.PluginDrivenQueryTableValueFunction;
 import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileFormatType;
@@ -42,6 +50,7 @@ import org.mockito.Mockito;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -73,6 +82,10 @@ public class FileQueryScanNodeTest {
 
         void setTargetTable(TableIf targetTable) {
             this.targetTable = targetTable;
+        }
+
+        void initSchemaParamsForTest() throws UserException {
+            initSchemaParams();
         }
 
         @Override
@@ -127,6 +140,128 @@ public class FileQueryScanNodeTest {
         TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
         long target = node.applyMaxFileSplitNumLimit(32 * MB, 10_000L * MB);
         Assert.assertEquals(32 * MB, target);
+    }
+
+    @Test
+    public void testHiveParquetTimezoneOverridesDifferentSessionTimezoneInScanParams() throws Exception {
+        ExternalTable hmsTable = Mockito.mock(ExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn("+08:00").when(hmsTable).getHiveParquetTimeZone();
+        Mockito.doReturn(Collections.emptyList()).when(hmsTable).getBaseSchema(false);
+        Mockito.doReturn(Collections.emptyList()).when(hmsTable).getFullSchema();
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setTimeZone("America/Los_Angeles");
+        TestFileQueryScanNode node = new TestFileQueryScanNode(sessionVariable);
+        node.setTargetTable(hmsTable);
+        node.getTupleDescriptor().setTable(hmsTable);
+
+        node.initSchemaParamsForTest();
+
+        Assert.assertEquals("+08:00", node.getFileScanRangeParams().getHiveParquetTimeZone());
+        Assert.assertNotEquals(sessionVariable.getTimeZone(),
+                node.getFileScanRangeParams().getHiveParquetTimeZone());
+
+        SessionVariable differentSessionVariable = new SessionVariable();
+        differentSessionVariable.setTimeZone("Asia/Tokyo");
+        TestFileQueryScanNode nodeWithDifferentSession = new TestFileQueryScanNode(differentSessionVariable);
+        nodeWithDifferentSession.setTargetTable(hmsTable);
+        nodeWithDifferentSession.getTupleDescriptor().setTable(hmsTable);
+        nodeWithDifferentSession.initSchemaParamsForTest();
+
+        Assert.assertEquals(node.getFileScanRangeParams().getHiveParquetTimeZone(),
+                nodeWithDifferentSession.getFileScanRangeParams().getHiveParquetTimeZone());
+    }
+
+    @Test
+    public void testHiveParquetTimezoneIsNotSetForHmsIcebergTable() throws Exception {
+        ExternalTable hmsTable = Mockito.mock(ExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn("").when(hmsTable).getHiveParquetTimeZone();
+        Mockito.doReturn(Collections.emptyList()).when(hmsTable).getBaseSchema(false);
+        Mockito.doReturn(Collections.emptyList()).when(hmsTable).getFullSchema();
+
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        node.setTargetTable(hmsTable);
+        node.getTupleDescriptor().setTable(hmsTable);
+        node.initSchemaParamsForTest();
+
+        Assert.assertFalse(node.getFileScanRangeParams().isSetHiveParquetTimeZone());
+    }
+
+    @Test
+    public void testHiveParquetTimezoneIsSetForHmsHudiTable() throws Exception {
+        ExternalTable hmsTable = Mockito.mock(ExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn("Asia/Shanghai").when(hmsTable).getHiveParquetTimeZone();
+        Mockito.doReturn(Collections.emptyList()).when(hmsTable).getBaseSchema(false);
+        Mockito.doReturn(Collections.emptyList()).when(hmsTable).getFullSchema();
+
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        node.setTargetTable(hmsTable);
+        node.getTupleDescriptor().setTable(hmsTable);
+        node.initSchemaParamsForTest();
+
+        Assert.assertEquals("Asia/Shanghai", node.getFileScanRangeParams().getHiveParquetTimeZone());
+    }
+
+    @Test
+    public void testHiveParquetTimezoneComesFromTableValuedFunction() throws Exception {
+        ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
+        tvf.fileFormatProperties = new ParquetFileFormatProperties();
+        Mockito.when(tvf.getHiveParquetTimeZone()).thenReturn("Asia/Shanghai");
+        FunctionGenTable functionGenTable = Mockito.mock(FunctionGenTable.class);
+        Mockito.when(functionGenTable.getTvf()).thenReturn(tvf);
+        Mockito.when(functionGenTable.getBaseSchema(false)).thenReturn(Collections.emptyList());
+        Mockito.when(functionGenTable.getFullSchema()).thenReturn(Collections.emptyList());
+
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        node.setTargetTable(functionGenTable);
+        node.getTupleDescriptor().setTable(functionGenTable);
+        node.initSchemaParamsForTest();
+
+        Assert.assertEquals("Asia/Shanghai", node.getFileScanRangeParams().getHiveParquetTimeZone());
+    }
+
+    @Test
+    public void testHiveParquetTimezoneComesFromFileTableValuedFunctionDelegate() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("uri", "s3://bucket/path/file.parquet");
+        properties.put("s3.endpoint", "s3.us-east-1.amazonaws.com");
+        properties.put("s3.region", "us-east-1");
+        properties.put("s3.access_key", "access-key");
+        properties.put("s3.secret_key", "secret-key");
+        properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
+        properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "Asia/Shanghai");
+
+        boolean originalRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        try {
+            FileTableValuedFunction tvf = new FileTableValuedFunction(properties);
+            tvf.fileFormatProperties = new ParquetFileFormatProperties();
+            FunctionGenTable functionGenTable = new FunctionGenTable(
+                    -1, "file", TableIf.TableType.TABLE_VALUED_FUNCTION, Collections.emptyList(), tvf);
+
+            TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+            node.setTargetTable(functionGenTable);
+            node.getTupleDescriptor().setTable(functionGenTable);
+            node.initSchemaParamsForTest();
+
+            Assert.assertEquals("Asia/Shanghai", node.getFileScanRangeParams().getHiveParquetTimeZone());
+        } finally {
+            FeConstants.runningUnitTest = originalRunningUnitTest;
+        }
+    }
+
+    @Test
+    public void testHiveParquetTimezoneIgnoresPluginDrivenQueryTableValuedFunction() throws Exception {
+        PluginDrivenQueryTableValueFunction tvf = Mockito.mock(
+                PluginDrivenQueryTableValueFunction.class, Mockito.CALLS_REAL_METHODS);
+        FunctionGenTable functionGenTable = new FunctionGenTable(
+                -1, "query", TableIf.TableType.TABLE_VALUED_FUNCTION, Collections.emptyList(), tvf);
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        node.setTargetTable(functionGenTable);
+        node.getTupleDescriptor().setTable(functionGenTable);
+
+        node.initSchemaParamsForTest();
+
+        Assert.assertFalse(node.getFileScanRangeParams().isSetHiveParquetTimeZone());
     }
 
     @Test

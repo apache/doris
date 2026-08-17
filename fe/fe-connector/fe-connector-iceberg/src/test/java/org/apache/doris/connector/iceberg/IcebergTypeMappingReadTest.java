@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
@@ -87,9 +87,9 @@ public class IcebergTypeMappingReadTest {
 
     @Test
     public void unknownAndV3TypesDegradeToUnsupportedByDesign() {
-        // WHY (user decision 2026-07-13, DV-051): iceberg types Doris cannot represent — the v3 primitives
-        // TIMESTAMP_NANO / GEOMETRY / GEOGRAPHY / UNKNOWN and the non-primitive VARIANT — must map to
-        // UNSUPPORTED WITHOUT throwing, so the table still loads and only the exotic column is
+        // WHY (user decision 2026-07-13, DV-051): iceberg primitive types Doris cannot represent —
+        // TIMESTAMP_NANO / GEOMETRY / GEOGRAPHY / UNKNOWN — must map to UNSUPPORTED WITHOUT throwing,
+        // so the table still loads and only the exotic column is
         // present-but-unqueryable. This deliberately DIVERGES from legacy fe-core, which threw
         // IllegalArgumentException("Cannot transform unknown type") at schema-load and failed the whole table.
         // This test PINS the graceful-degradation choice: MUTATION making either default arm throw -> red,
@@ -100,9 +100,7 @@ public class IcebergTypeMappingReadTest {
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.GeometryType.crs84()).getTypeName());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.GeographyType.crs84()).getTypeName());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.UnknownType.get()).getTypeName());
-        // VARIANT is NOT a primitive (falls to the nested-switch default); legacy mapped it to UNSUPPORTED
-        // too, so this stays parity while the primitives above are the intentional divergence.
-        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.VariantType.get()).getTypeName());
+        Assertions.assertEquals("VARIANT_COMPUTE_V2", mapOff(Types.VariantType.get()).getTypeName());
         // The mapping flags do not rescue an unrepresentable type (both arms are flag-independent).
         Assertions.assertEquals("UNSUPPORTED", mapOn(Types.GeometryType.crs84()).getTypeName());
     }

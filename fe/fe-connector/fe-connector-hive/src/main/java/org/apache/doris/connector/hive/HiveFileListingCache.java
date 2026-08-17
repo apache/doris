@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheEntry;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
@@ -92,13 +92,6 @@ public class HiveFileListingCache {
     static final long DEFAULT_FILE_CAPACITY = 10000L;
 
     /**
-     * Catalog property controlling whether partition directories are listed recursively (descend into
-     * sub-directories). Default {@code true} — legacy {@code HiveExternalMetaCache.getFileCache} defaulted the
-     * same. When {@code false}, a table whose data lives in sub-directories silently loses those rows.
-     */
-    static final String RECURSIVE_DIRECTORIES_PROPERTY = "hive.recursive_directories";
-
-    /**
      * The raw directory lister: the engine-injected Doris {@link FileSystem} in production
      * ({@link #listFromFileSystem}), a fake in unit tests. Injected so the cache's hit/miss/invalidation behaviour
      * is testable without a live filesystem (mirrors {@code HiveConnectorMetadata.estimateDataSize} injecting its
@@ -114,7 +107,7 @@ public class HiveFileListingCache {
     private final MetaCacheEntry<FileListingKey, List<HiveFileStatus>> cache;
     private final DirectoryLister lister;
 
-    public HiveFileListingCache(Map<String, String> properties) {
+    public HiveFileListingCache(HiveCatalogProperties properties) {
         this(properties, defaultLister(properties));
     }
 
@@ -124,15 +117,15 @@ public class HiveFileListingCache {
      * constant, so capturing it here makes every consumer of the shared cache (scan, size estimate, stats
      * sampling) recurse consistently without a hot-path signature change.
      */
-    private static DirectoryLister defaultLister(Map<String, String> properties) {
-        Map<String, String> props = properties == null ? Collections.emptyMap() : properties;
-        boolean recursive = Boolean.parseBoolean(
-                props.getOrDefault(RECURSIVE_DIRECTORIES_PROPERTY, "true"));
+    private static DirectoryLister defaultLister(HiveCatalogProperties properties) {
+        boolean recursive = properties.isRecursiveDirectories();
         return (location, fs) -> listFromFileSystem(location, fs, recursive);
     }
 
-    HiveFileListingCache(Map<String, String> properties, DirectoryLister lister) {
-        Map<String, String> props = properties == null ? Collections.emptyMap() : properties;
+    HiveFileListingCache(HiveCatalogProperties properties, DirectoryLister lister) {
+        // The cache knobs are owned by the shared CacheSpec framework, not by this connector, so they are read
+        // from the raw map rather than bound as holder fields (there is only one source of truth for them).
+        Map<String, String> props = properties.getRaw();
         // Translate the legacy fe-core catalog knob file.meta.cache.ttl-second into the namespaced key this cache
         // reads (mirrors HiveExternalMetaCache.catalogPropertyCompatibilityMap: FILE_META_CACHE_TTL_SECOND ->
         // ENTRY_FILE ttl). Without this, an "hms" catalog that set the legacy key silently kept the default 24h

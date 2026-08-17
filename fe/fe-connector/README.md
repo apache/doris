@@ -40,8 +40,13 @@ Roles only — one line each. For anything deeper, read the module's javadoc
 
 | Module | Role |
 |---|---|
-| `fe-connector-api` | The engine <-> connector contract: `ConnectorMetadata` with its Ops sub-interfaces, plus handle / pushdown / mvcc / scan / write / ddl / procedure / event / rest types. The javadoc here **is** the API reference. |
-| `fe-connector-spi` | Bootstrap contract: `ConnectorProvider` (discovery identity + factory) and `ConnectorContext` (what the engine hands a connector, including sibling-connector creation). |
+| `fe-connector-spi` | The whole engine <-> connector contract, in both directions. What a connector implements: `ConnectorProvider` (discovery identity + factory), `Connector`, `ConnectorMetadata` with its Ops sub-interfaces, plus handle / pushdown / mvcc / scan / write / ddl / procedure / event / rest types. What the engine implements and hands down: `ConnectorContext` (including sibling-connector creation), `ConnectorStorageContext`, `ConnectorSession`, `ConnectorConf`. The javadoc here **is** the API reference. |
+
+The two directions are one module on purpose: the boundary is bidirectional
+(`ConnectorProvider.create` takes a `ConnectorContext`, and `ConnectorContext`
+hands back a `Connector`), so splitting it by "who implements" would be
+circular. Trino makes the same call with `trino-spi`. Contrast the metastore
+layer below, where the split is acyclic and the usual api/spi convention holds.
 
 **Metastore layer** (how connectors reach a metastore without hand-parsing
 endpoint properties)
@@ -99,8 +104,8 @@ exactly one `ConnectorMetadata` instance per catalog on the statement's
 `ConnectorStatementScope` and closes it deterministically at statement end.
 Scan planning follows the same shape: the generic `PluginDrivenScanNode`
 (fe-core) delegates all per-source planning to the connector's
-`ConnectorScanPlanProvider` — note the interface lives in fe-connector-api
-(`api.scan`), not in fe-core.
+`ConnectorScanPlanProvider` — note the interface lives in fe-connector-spi
+(`spi.scan`), not in fe-core.
 
 **Classloading.** Plugins load child-first, each carrying its own runtime
 closure. Wherever engine code crosses into a plugin — or a bundled library
@@ -119,17 +124,16 @@ This document never lists SPI methods. The truth lives in code, behind four
 mechanisms:
 
 1. **Javadoc is the API reference.** Start at `ConnectorMetadata` (and its
-   Ops sub-interfaces) in fe-connector-api, and `ConnectorProvider` in
-   fe-connector-spi. Every SPI method has a default body, so each
-   sub-interface's class javadoc states its minimum implementation set,
-   lifecycle, and threading rules.
+   Ops sub-interfaces) and `ConnectorProvider`, both in fe-connector-spi.
+   Every SPI method has a default body, so each sub-interface's class javadoc
+   states its minimum implementation set, lifecycle, and threading rules.
 2. **`@ConnectorMustImplement`** is the machine-readable half of the minimum
    implementation set: it marks the default methods a connector is
    nevertheless expected to override, with `when` naming the capability that
    triggers the obligation. A unit test pins the annotated set, so promoting
    a method is a deliberate, reviewed change.
 3. **The recorded surface.**
-   `fe-connector-api/src/test/resources/connector-metadata-methods.txt`
+   `fe-connector-spi/src/test/resources/connector-metadata-methods.txt`
    freezes the public method surface of `ConnectorMetadata`;
    `ConnectorMetadataSurfaceTest` fails on any drift. Adding, removing, or
    moving SPI methods must regenerate this baseline in the same commit (run
@@ -146,7 +150,7 @@ mechanisms:
    source; if a connector does not opt in, the feature stays off.
 
 Statement-scoped memoization has one framework-wide convention worth knowing
-before you read connector code: `ConnectorStatementScopes` (fe-connector-api)
+before you read connector code: `ConnectorStatementScopes` (fe-connector-spi)
 keys per-statement values by `(catalogId, db, table, queryId)` plus a
 connector-owned namespace constant prefixed with the connector's
 `getType()`. Each connector guards its own prefix with a unit test
@@ -182,7 +186,8 @@ metastore/shade/cache). For a write path, the richest example is
    module plus its services line.
 6. **Property ownership.** Metadata-connection properties are parsed in your
    connector (or the metastore layer). Storage properties belong to
-   `fe-filesystem`. Do not add parsing to fe-core — rule 2 above.
+   `fe-filesystem`. Do not add parsing to fe-core — rule 2 above. How to
+   organize the keys themselves: see "Property Organization" below.
 7. **Caching.** Reuse `fe-connector-cache` (example:
    `PaimonLatestSnapshotCache`). Bundle the caching library into your plugin
    zip and keep shared third-party versions aligned with the other consumers
@@ -230,19 +235,89 @@ metastore/shade/cache). For a write path, the richest example is
 15. **Packaging.** Add `src/main/assembly/plugin-zip.xml` (copy from es or
     paimon). Verify your module through `package`/`install`, not just
     `test-compile` — shades and the plugin zip only materialize then.
-15. **Gates and e2e.** Your module must pass the forbidden-import gate (runs
+16. **Gates and e2e.** Your module must pass the forbidden-import gate (runs
     automatically; see `AGENTS.md`). Add a docker environment under
     `docker/thirdparties/docker-compose/` and regression suites under
     `regression-test/suites/external_table_p0` /
     `regression-test/suites/external_table_p2`.
 
+## Property Organization
+
+Two named classes per connector, nothing else:
+
+- **`<Xxx>CatalogProperties`** — everything a user writes in `CREATE CATALOG`.
+  A typed holder: `@ConnectorProperty` fields bound by
+  `ConnectorPropertiesUtils`, plus derived read-only fields (enums, prefix maps,
+  bounded numbers), plus the raw map, plus the key-name constants. `of(map)`
+  binds, derives and validates in one step and throws `IllegalArgumentException`
+  on a bad value, so an instance that exists has valid properties — which is
+  what lets every reader downstream take a getter instead of parsing the map
+  again. `ConnectorProvider.validateProperties` is then exactly one line,
+  `XxxCatalogProperties.of(properties)`, and that same line guards ALTER through
+  the SPI default `validatePropertiesForUpdate`.
+- **`<Xxx>Conf`** — the keys of the plugin's own `<name>.conf` (item 14 above),
+  their defaults, their legacy fe.conf fallback keys, and small static readers
+  wrapping `ConnectorConf.get`. Only create it if the connector really has such
+  settings.
+
+Rules for `of(map)`:
+
+- **No I/O and no heavyweight types.** It runs at CREATE, at ALTER validation,
+  and on every connector rebuild — including on an FE replaying the edit log,
+  where reaching the filesystem would let a missing file stop FE from starting.
+  Remote and filesystem checks belong in `Connector#preCreateValidation`, which
+  runs on interactive CREATE only; note that ALTER does not run it, so those
+  checks are deferred to first access after an ALTER.
+- **Reject bad values, never unknown keys.** The catalog property map also
+  carries engine keys (`type`, `meta.cache.*`, ...) and storage keys (`s3.*`,
+  ...), and `ALTER CATALOG` merges properties — it can overwrite a key but never
+  remove one, so a rejected unknown key would leave a catalog that no statement
+  can repair.
+- **Required-ness is expressed by `ParamRules.require` alone.** The annotation's
+  `required` attribute is not read by the connector binder; set it truthfully as
+  documentation and mark optional fields `required = false` explicitly. Mind the
+  polarity of `ParamRules.check(condition, message)`: it throws when the
+  condition *holds*, so the lambda states the failure case — the opposite of
+  Guava's `checkArgument`. Reversing it compiles cleanly and inverts the check.
+- **Mark secrets `sensitive = true`** and implement `toString()` as
+  `ConnectorPropertiesUtils.toMaskedString(this)`. That covers logs only; the
+  `SHOW CREATE CATALOG` masking is a separate, hand-maintained list in fe-core
+  (`DatasourcePrintableMap.SENSITIVE_KEY`).
+- **Never pass the raw map into anything that can reach user-visible output.**
+  It holds the credentials. `ConnectorTableSchema`'s table properties are the
+  trap: `SHOW CREATE TABLE` renders them unmasked, and the only thing keeping
+  that rendering away from a given connector is that the connector does not
+  declare the `SUPPORTS_SHOW_CREATE_DDL` capability.
+
+Everything else — session variable names, DDL statement keys, remote
+table-parameter keys, outbound SDK/BE payload keys, value literals — lives next
+to its single reader, not in a properties class.
+
+Binding and annotation reflection must happen inside the plugin.
+`org.apache.doris.foundation.` is child-first for the connector family (it is
+parent-first for the filesystem family), so each plugin carries its own
+`@ConnectorProperty` class, and fe-core reflecting on a plugin object would find
+no annotations at all — silently, since `getAnnotation` just returns null.
+Referencing another plugin's key therefore means copying the literal with a
+comment naming the owner; `IcebergSiblingProperties` in the hive connector is
+the precedent.
+
+When migrating a connector that is already released, audit every numeric key
+first. The binder throws on a malformed number, while the hand-written `getInt`
+helpers it replaces silently fell back to the default — so a stored dirty value
+becomes "catalog unusable until `ALTER CATALOG` overwrites it". List each such
+key in the PR description and decide strict (the default) or lenient (bind as
+String, convert inside `of()`, log a warning) explicitly.
+
+`fe-connector-adbc` is the reference implementation of both classes.
+
 ## Testing and Verification
 
 - **Unit tests** live in each module; build/test recipes are in `AGENTS.md`.
-- **The shared SPI surface** is guarded by fe-connector-api's own suite
-  (`ConnectorMetadataSurfaceTest`). Whenever you touch fe-connector-api, run
-  that module's tests — a consumer-only test run will not catch a stale
-  baseline.
+- **The shared SPI surface** is guarded by fe-connector-spi's own suite
+  (`ConnectorMetadataSurfaceTest` and `ConnectorPluginSurfaceTest`). Whenever
+  you touch fe-connector-spi, run that module's tests — a consumer-only test
+  run will not catch a stale baseline.
 - **Architecture gates** run in the `validate` phase of every FE build: the
   forbidden-import gate for this directory and the metadata-funnel gate for
   fe-core. Scripts and their self-tests live in `build-support/` and

@@ -40,6 +40,7 @@
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
+#include "util/threadpool.h"
 
 int main(int argc, char** argv) {
     SCOPED_INIT_THREAD_CONTEXT();

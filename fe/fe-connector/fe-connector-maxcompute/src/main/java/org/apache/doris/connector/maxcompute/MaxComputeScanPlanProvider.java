@@ -17,18 +17,18 @@
 
 package org.apache.doris.connector.maxcompute;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorIn;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 
 import com.aliyun.odps.Column;
 import com.aliyun.odps.OdpsType;
@@ -89,7 +89,7 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
     // These are initialized lazily from connector properties
     private EnvironmentSettings settings;
     private SplitOptions splitOptions;
-    private String splitStrategy;
+    private MCCatalogProperties.SplitStrategy splitStrategy;
     private long splitByteSize;
     private long splitRowCount;
     private boolean splitCrossPartition;
@@ -116,40 +116,23 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private void initFromProperties() {
-        Map<String, String> props = connector.getProperties();
+        MCCatalogProperties props = connector.getProps();
 
-        connectTimeout = Integer.parseInt(
-                props.getOrDefault(MCConnectorProperties.CONNECT_TIMEOUT,
-                        MCConnectorProperties.DEFAULT_CONNECT_TIMEOUT));
-        readTimeout = Integer.parseInt(
-                props.getOrDefault(MCConnectorProperties.READ_TIMEOUT,
-                        MCConnectorProperties.DEFAULT_READ_TIMEOUT));
-        retryTimes = Integer.parseInt(
-                props.getOrDefault(MCConnectorProperties.RETRY_COUNT,
-                        MCConnectorProperties.DEFAULT_RETRY_COUNT));
+        connectTimeout = props.getConnectTimeout();
+        readTimeout = props.getReadTimeout();
+        retryTimes = props.getRetryCount();
+        dateTimePushDown = props.isDateTimePredicatePushDown();
+        splitCrossPartition = props.isSplitCrossPartition();
 
-        dateTimePushDown = Boolean.parseBoolean(
-                props.getOrDefault(MCConnectorProperties.DATETIME_PREDICATE_PUSH_DOWN,
-                        MCConnectorProperties.DEFAULT_DATETIME_PREDICATE_PUSH_DOWN));
-
-        splitCrossPartition = Boolean.parseBoolean(
-                props.getOrDefault(MCConnectorProperties.SPLIT_CROSS_PARTITION,
-                        MCConnectorProperties.DEFAULT_SPLIT_CROSS_PARTITION));
-
-        splitStrategy = props.getOrDefault(MCConnectorProperties.SPLIT_STRATEGY,
-                MCConnectorProperties.DEFAULT_SPLIT_STRATEGY);
-        if (splitStrategy.equals(MCConnectorProperties.SPLIT_BY_BYTE_SIZE_STRATEGY)) {
-            splitByteSize = Long.parseLong(props.getOrDefault(
-                    MCConnectorProperties.SPLIT_BYTE_SIZE,
-                    MCConnectorProperties.DEFAULT_SPLIT_BYTE_SIZE));
+        splitStrategy = props.getSplitStrategy();
+        if (splitStrategy == MCCatalogProperties.SplitStrategy.BYTE_SIZE) {
+            splitByteSize = props.getSplitByteSize();
             splitOptions = SplitOptions.newBuilder()
                     .SplitByByteSize(splitByteSize)
                     .withCrossPartition(splitCrossPartition)
                     .build();
         } else {
-            splitRowCount = Long.parseLong(props.getOrDefault(
-                    MCConnectorProperties.SPLIT_ROW_COUNT,
-                    MCConnectorProperties.DEFAULT_SPLIT_ROW_COUNT));
+            splitRowCount = props.getSplitRowCount();
             splitOptions = SplitOptions.newBuilder()
                     .SplitByRowOffset()
                     .withCrossPartition(splitCrossPartition)
@@ -323,7 +306,7 @@ public class MaxComputeScanPlanProvider implements ConnectorScanPlanProvider {
         InputSplitAssigner assigner = readSession.getInputSplitAssigner();
         List<ConnectorScanRange> result = new ArrayList<>();
 
-        if (splitStrategy.equals(MCConnectorProperties.SPLIT_BY_BYTE_SIZE_STRATEGY)) {
+        if (splitStrategy == MCCatalogProperties.SplitStrategy.BYTE_SIZE) {
             for (com.aliyun.odps.table.read.split.InputSplit split : assigner.getAllSplits()) {
                 result.add(MaxComputeScanRange.builder()
                         .start(((IndexedInputSplit) split).getSplitIndex())

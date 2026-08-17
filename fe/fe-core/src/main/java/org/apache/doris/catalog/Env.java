@@ -89,7 +89,9 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorPluginManager;
@@ -1490,7 +1492,9 @@ public class Env {
                     }
                     String remoteToken = conn.getHeaderField(MetaBaseAction.TOKEN);
                     if (token == null && remoteToken != null) {
-                        LOG.info("get token from helper node. token={}.", remoteToken);
+                        // Masked: the cluster token authenticates meta access, so it must not
+                        // reach fe.log. The prefix is enough to tell which token was adopted.
+                        LOG.info("get token from helper node. token={}.", TokenMasker.maskPrefix(remoteToken));
                         token = remoteToken;
                         storage.writeClusterIdAndToken();
                         storage.reload();
@@ -3905,10 +3909,12 @@ public class Env {
                 sb.append(",");
             }
             Column column = columns.get(i);
-            sb.append(column.getName());
+            // quote the column name to keep the generated DDL re-executable when the column name
+            // contains special characters (e.g. created via string literal alias like select 1 as '(第一列)')
+            sb.append(SqlUtils.getIdentSql(column.getName()));
             if (!StringUtils.isEmpty(column.getComment())) {
                 sb.append(" comment '");
-                sb.append(column.getComment());
+                sb.append(column.getComment().replace("'", "\\'"));
                 sb.append("'");
             }
         }
@@ -7236,7 +7242,7 @@ public class Env {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         Collection<Partition> allPartitions = olapTable.getAllPartitions();
         for (Partition partition : allPartitions) {
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                 for (Tablet tablet : index.getTablets()) {
                     invertedIndex.deleteTablet(tablet.getId());
                 }
@@ -7253,7 +7259,7 @@ public class Env {
     public void onErasePartition(Partition partition) {
         // remove tablet in inverted index
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
-        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
             for (Tablet tablet : index.getTablets()) {
                 invertedIndex.deleteTablet(tablet.getId());
             }
@@ -7342,7 +7348,7 @@ public class Env {
                 partitionMeta.setVisibleVersion(partition.getVisibleVersion());
                 // partitionMeta.setTemp（partition.isTemp());
 
-                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL, true)) {
                     TGetMetaIndexMeta indexMeta = new TGetMetaIndexMeta();
                     indexMeta.setId(index.getId());
                     indexMeta.setName(olapTable.getIndexNameById(index.getId()));

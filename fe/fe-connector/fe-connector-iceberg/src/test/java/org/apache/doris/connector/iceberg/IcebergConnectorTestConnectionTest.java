@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorTestResult;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -103,18 +103,18 @@ public class IcebergConnectorTestConnectionTest {
      */
     @Test
     public void probesMetastoreOnlyForRemoteMetastoreTypes() {
-        Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergConnectorProperties.TYPE_REST));
-        Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergConnectorProperties.TYPE_HMS));
-        Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergConnectorProperties.TYPE_GLUE));
-        Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergConnectorProperties.TYPE_S3_TABLES));
-        Assertions.assertFalse(IcebergConnector.probesMetastore(IcebergConnectorProperties.TYPE_HADOOP));
+        Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergCatalogProperties.TYPE_REST));
+        Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergCatalogProperties.TYPE_HMS));
+        Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergCatalogProperties.TYPE_GLUE));
+        Assertions.assertTrue(IcebergConnector.probesMetastore(IcebergCatalogProperties.TYPE_S3_TABLES));
+        Assertions.assertFalse(IcebergConnector.probesMetastore(IcebergCatalogProperties.TYPE_HADOOP));
         Assertions.assertFalse(IcebergConnector.probesMetastore(""));
     }
 
     /** An HMS-backed catalog must name HMS in the failure, which is what the CREATE CATALOG regression asserts. */
     @Test
     public void metaFailureMessageTagsTheCatalogType() {
-        String msg = IcebergConnector.metaFailureMessage(IcebergConnectorProperties.TYPE_HMS,
+        String msg = IcebergConnector.metaFailureMessage(IcebergCatalogProperties.TYPE_HMS,
                 new RuntimeException("connection refused"));
         Assertions.assertTrue(msg.contains("Iceberg HMS"), msg);
         Assertions.assertTrue(msg.contains("connectivity test failed"), msg);
@@ -222,8 +222,8 @@ public class IcebergConnectorTestConnectionTest {
         // probesMetastore) and the storage probe is skipped (no s3.* creds), so testConnection
         // succeeds without any I/O.
         Map<String, String> props = new HashMap<>();
-        props.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE,
-                IcebergConnectorProperties.TYPE_HADOOP);
+        props.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE,
+                IcebergCatalogProperties.TYPE_HADOOP);
         try (IcebergConnector connector = new IcebergConnector(props, CTX)) {
             ConnectorTestResult result = connector.testConnection(null);
             Assertions.assertTrue(result.isSuccess(), result.getMessage());

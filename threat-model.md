@@ -3,7 +3,8 @@
 > **Status: v1.0 — accepted (technical content). Pending wave-4 process
 > items.** Wave-1/2/3/4 maintainer interviews completed 2026-05-14
 > (Doris committer morningman). All technical `(inferred)` tags from
-> v0.1 have been resolved or consciously deferred.
+> v0.1 have been resolved or consciously deferred. Amended 2026-07-29
+> with wave 5 (M19, FE `enable_all_http_auth` / HTTP auth posture).
 
 This document is the **security contract** for Apache Doris: what the
 project assumes, what it guarantees given those assumptions, what it
@@ -280,6 +281,8 @@ Operational assumptions:
 | `enable_python_udf_support` (BE) | **off** *(maintainer, M10)* | Intentional. Operator must opt in to actually run Python UDFs | Default deployment cannot execute Python UDFs even if FE accepts them |
 | `numFailedLogin` (per-user, `CREATE USER ... FAILED_LOGIN_ATTEMPTS N`) | **0 / DISABLED** *(maintainer, M11)* | (A) Off IS supported production posture; operator must enable per user | §4.10 (NEW) requires per-user enable for any account on a network-reachable client port |
 | `passwordLockSeconds` (per-user, `... PASSWORD_LOCK_TIME T`) | **0 / DISABLED** *(maintainer, M11)* | Same | Same |
+| `enable_all_http_auth` (FE, HTTP 8030) | **on**, **not runtime-mutable** *(maintainer, M19)* | On **IS** the supported production posture. Turning it off requires editing `fe.conf` and restarting — deliberately not an `ADMIN SET` command, so disabling authentication is a recorded on-disk decision. A migration aid for clusters upgrading from a release where it defaulted off, not a supported steady state | On: §4.8 (11) (**authentication**) applies unconditionally and a bypass is `VALID`; authorization is the separate, narrower §4.8 (12) with recorded gaps. Off: knob flipped toward the less-secure side → `OUT-OF-MODEL: non-default-build`. Note the effective value may come from `fe_custom.conf`, not `fe.conf` |
+| `enable_all_http_auth` (BE, webserver 8040) | **off**, **not runtime-mutable** *(maintainer, M19)* | Unchanged in this release — only the FE default was flipped. BE 8040 is a Zone-2 port (§4.4) that operators are already required to keep off end-user networks, so the compatibility cost of flipping it was judged to outweigh the gain. Changing it requires editing `be.conf` and restarting (`DEFINE_Bool`, not `DEFINE_mBool`) | Off: BE 8040 handlers declared with the `NONE` privilege type answer without credentials → `BY-DESIGN: property-disclaimed` (§4.9), not `VALID` |
 | `auth_type` | native | LDAP / Kerberos / OIDC are non-default backends | Out of this row's scope (handled in family row 4) |
 | Cluster shape: `on-prem` vs `cloud/` | on-prem | Both shapes supported *(maintainer, Q2)* | Cloud adds Meta Service component (family row 3); cloud has additional tenant-boundary claim per §4.8 |
 
@@ -288,6 +291,60 @@ A vulnerability report of "I sniffed plaintext credentials on port
 per Q7 → §4.9 / §4.10. A vulnerability report of "I brute-forced
 account `analytics_user` in default config (no `FAILED_LOGIN_ATTEMPTS`
 set)" is closed the same way per M11 → §4.9 / §4.10.
+
+**`enable_all_http_auth` now defaults on for FE** *(maintainer,
+M19)*. Prior releases shipped it off on both sides, so part of the FE
+HTTP surface — the metadata, statistics and admin REST endpoints, and
+the privilege check on part of the FE admin surface — answered without
+checking credentials or privileges. That default was a compatibility
+concession, not a security stance, and it has been flipped **on FE
+8030 only**. The consequence for the model: unauthenticated access to
+those FE endpoints is no longer disclaimed; it is a violation of §4.8
+(11) and reports of it are `VALID`. **Two carve-outs**: (a) FE
+`/metrics` on 8030 is public by design and the flag does not gate it —
+see §4.9; (b) **BE 8040 is unchanged** — its default stays off, and
+its `NONE`-privilege handlers remain disclaimed under §4.9. Do not
+assume the two ports behave alike.
+
+**Upgrade consequence, and what an operator turning it back off is
+buying.** A cluster upgrading from a release where the flag defaulted
+off may have callers that poll those FE endpoints anonymously —
+monitoring agents, health probes, ops scripts, and any tooling driving
+the FE `/api/**` REST surface. They start receiving 401 on upgrade.
+Metrics scrapers pointed at FE `/metrics` or at BE 8040 are **not**
+affected, since neither is gated by the FE flag. The supported fix
+is to give those callers credentials (§4.10 (12)). An operator who
+instead sets `enable_all_http_auth = false` has flipped a §4.5a knob
+toward the less-secure side and is back to the pre-flip exposure:
+findings that require the flag off are then closed
+`OUT-OF-MODEL: non-default-build`, and the operator owns the risk.
+
+**Where the effective value comes from.** FE reads `fe.conf` and then
+`${custom_config_dir}/fe_custom.conf`, and values in the latter
+overwrite the former. In releases where this flag was mutable, `ADMIN
+SET FRONTEND CONFIG (...) PROPERTIES("persist" = "true")` wrote to
+`fe_custom.conf`; making the flag non-mutable in this release neither
+removes nor migrates such a value. An upgraded cluster can therefore
+have no `false` entry anywhere in `fe.conf` and still start with
+authentication off. "`fe.conf` says true" is **not** sufficient
+evidence that a cluster is running with the flag on — read the
+effective value back (`/api/show_config`, `ADMIN SHOW FRONTEND
+CONFIG`) and check `fe_custom.conf`. Operators upgrading should delete
+any stale entry from `fe_custom.conf` to pick up the new default; see
+§4.10.
+
+**Security-testing baseline.** Security scans, penetration tests,
+fuzzing campaigns, and automated review agents MUST run against a
+cluster whose **effective** `enable_all_http_auth` is `true` on **FE**
+— i.e. **do not turn it off** for the test run, and confirm it is on
+(per the paragraph above, not by reading `fe.conf` alone) before
+reporting FE HTTP-surface coverage. On BE it defaults off; a test run may turn
+it on to probe BE 8040, but findings that require it to be on there
+are hardening observations, not defects. A run performed with the flag
+off does not constitute coverage of the HTTP surface: every finding it
+produces is `OUT-OF-MODEL: non-default-build`, and the findings that
+actually matter — endpoints that skip authentication or skip the
+caller's privilege check *with the flag on* — go unfound.
 
 ---
 
@@ -304,7 +361,13 @@ set)" is closed the same way per M11 → §4.9 / §4.10.
 | FE MySQL 9030 | `iceberg.rest.uri` and similar URLs in `CREATE EXTERNAL CATALOG` | **post-auth, attacker-controllable** *(maintainer, M13)* | operator: only grant `CREATE CATALOG` privilege to admins; otherwise SSRF surface (§4.9) |
 | FE HTTP 8030 | request bytes (pre-auth) | **untrusted** | memory safety |
 | FE HTTP 8030 | request body (post-auth) | **untrusted within RBAC** | RBAC |
-| FE HTTP 8030 | `/api/show_proc`, admin REST surface | **post-auth, privileged** | RBAC; admin-only endpoints must check |
+| FE HTTP 8030 | `/api/show_proc`, admin REST surface | **post-auth, privileged** | RBAC; admin-only endpoints must check. The privilege check on part of this surface is gated on `enable_all_http_auth` *(maintainer, M19)*, **on** by default (§4.5a) — operator: do not turn it off |
+| FE HTTP 8030 | metadata / statistic / import REST endpoints | **post-auth** *(maintainer, M19)* | nothing in default config — authenticated by §4.8 (11). Callers must present credentials |
+| **FE HTTP 8030 `/metrics`** | **anonymous by design — NOT covered by `enable_all_http_auth`** *(code-verified, M19)* | `MetricsAction` is deliberately public and is not routed through the FE auth path; the flag does not change it. Operator: keep 8030 off untrusted networks if FE metrics are sensitive |
+| **FE HTTP 8030 `/api/health`** | **anonymous by design — NOT covered by `enable_all_http_auth`** *(code-verified, M19)* | `HealthAction` is deliberately public and the flag does not gate it. It discloses liveness plus total/online backend counts. Excluded from §4.8 (11); see §4.11a before filing it as a bypass |
+| **FE HTTP 8030 `/api/get_small_file`, `/api/bootstrap`** | **cluster token (+ cluster id) instead of a user password** *(code-verified, M19)* | these are the FE endpoints that BE, the CDC client and a joining FE call with only the cluster token; the token is verified and is the credential, so `enable_all_http_auth` does not additionally demand a password on the token-bearing path. A leaked cluster token is a Zone-2 compromise (§4.5) | operator: treat the cluster token as a secret; do not expose 8030 to untrusted networks |
+| **FE HTTP 8030 `/api/streaming/commit_offset`, `/api/streaming/report_task_failure`** | **cluster token only — no user credential is accepted at all** *(code-verified, M19)* | `StreamingJobAction.checkAuth` requires a `token` header and verifies it against the cluster token; there is no password path. Same disposition as the row above: token absent or invalid → `VALID`; no user password while a valid token is presented → by design |
+| **FE HTTP 8030 `/api/{db}/{table}/_stream_load`** | **user password, or the cluster token on the token-bearing path** *(code-verified, M19)* | the token branch is a credential in the same sense as the rows above; the password branch is covered by §4.8 (11) |
 | FE Arrow Flight 8070 | handshake | **untrusted** | memory safety |
 | FE Arrow Flight 8070 | result-stream consumption | mostly post-auth | RBAC |
 | **BE Arrow Flight 8050** | **handshake bytes (pre-auth)** *(maintainer, M7)* | **untrusted** | memory safety |
@@ -312,7 +375,7 @@ set)" is closed the same way per M11 → §4.9 / §4.10.
 | FE 9020 (RPC) | all parameters | **trusted (Zone-2)** *(maintainer, Q1)* | operator: network isolation |
 | FE 9010 (edit log) | all parameters | **trusted (Zone-2)** | operator: network isolation |
 | BE 8060 (BRPC) | all parameters | **trusted (Zone-2)** *(maintainer, Q1)* | operator: network isolation |
-| BE 8040 (webserver) | all requests | **trusted (Zone-2)** | operator: do not expose to authenticated end-users (§4.11) |
+| BE 8040 (webserver) | all requests | **trusted (Zone-2)** | operator: do not expose to authenticated end-users (§4.11). `enable_all_http_auth` still defaults **off** here — only the FE default was flipped *(maintainer, M19)* — so handlers declared with the `NONE` privilege type answer without credentials in default config. Network isolation is the control |
 | BE 9050 (heartbeat) | FE→BE control msgs | **trusted (Zone-2)** | operator: network isolation |
 | BE 9060 (BE↔BE) | fragment exec, data transfer | **trusted (Zone-2)** | operator: network isolation |
 | Broker (Thrift) | all parameters | **trusted (Zone-2)** | operator: network isolation |
@@ -424,6 +487,124 @@ provenance.
     take effect; counter resets unexpectedly; wraparound. *Severity*:
     **security-critical** when the configured behavior is broken
     (NOT when default is unconfigured — see §4.9).
+11. **HTTP *authentication* on the FE HTTP surface** *(maintainer,
+    M19)*. *Condition*: default config — `enable_all_http_auth` ships
+    **on** for FE (8030) (§4.5a). Scope:
+    - **FE 8030 — every endpoint that routes through the FE auth
+      path** (the `/api/**` and `/rest/v2/**` REST actions), which
+      must establish a caller identity — valid user credentials, or
+      one of the credential forms listed under *Excluded* below —
+      before returning data or performing an action.
+
+    **Read the property title literally: this is a claim about
+    authentication, not a blanket claim about authorization.** The
+    default flip made the FE HTTP surface demand a credential; it did
+    **not** introduce a centralized privilege check. Authorization on
+    FE HTTP is per-handler, and its coverage is uneven. Handlers that
+    do run a privilege check (for example `checkAdminAuth`, or a
+    per-object `PrivPredicate.SHOW` filter) are covered by property
+    (12) below; the ones that do not are listed as known gaps there.
+    Do not cite this property as evidence that a given FE endpoint
+    enforces the caller's privileges — check the handler.
+
+    **BE 8040 is not in this property.** Its `enable_all_http_auth`
+    default is unchanged (off), so its `NONE`-privilege handlers stay
+    disclaimed under §4.9 and are governed by Zone-2 network
+    isolation, not by this property.
+
+    *Violation symptom*: an in-scope endpoint answers a request that
+    carries no credential of any accepted form, or accepts invalid
+    credentials. *Severity*: **security-critical**. Reports of this
+    shape are `VALID`.
+
+    *Excluded from this property* — this list is meant to be
+    exhaustive; a path that belongs here and is missing is a defect in
+    this document, not a finding:
+    - (a) **FE `/metrics`**, deliberately anonymous, not gated by the
+      flag — see §4.9.
+    - (b) **FE `/api/health`** (`HealthAction`), deliberately
+      anonymous and not gated by the flag either. It returns liveness
+      plus total/online backend counts. A report that `/api/health`
+      answers an unauthenticated request is
+      `BY-DESIGN: property-disclaimed`, not a violation.
+    - (c) Clusters where the operator has set
+      `enable_all_http_auth = false` — a §4.5a knob flipped toward the
+      less-secure side, closed `OUT-OF-MODEL: non-default-build`.
+      Note that the effective value can come from `fe_custom.conf`,
+      which is read after and overwrites `fe.conf`; see §4.5a.
+    - (d) The **cluster-token authenticated** endpoints, where the
+      cluster token *is* the credential — authenticated, just not by
+      user password: FE `/api/get_small_file`; FE `/api/bootstrap`
+      when `cluster_id`+`token` are presented; FE
+      `/api/streaming/commit_offset` and
+      `/api/streaming/report_task_failure`, which accept **only** a
+      `token` header and no user credential at all; the token branch
+      of `/api/{db}/{table}/_stream_load`; and the BE handlers that
+      accept an auth token. A report that one of these serves a
+      request without a user password, while presenting a valid
+      cluster token, is `BY-DESIGN: property-disclaimed`. A report
+      that one of them accepts an *invalid* or absent token is
+      `VALID` — **with one recorded exception**: `/api/bootstrap`
+      validates the pair only on the ready path, so while the FE is
+      not ready any two non-empty strings are accepted and the caller
+      learns "not ready" and nothing else. That branch is a known,
+      deliberate asymmetry (§4.14), not a bypass of this property.
+
+12. **Per-handler authorization on the FE HTTP surface, where the
+    handler implements it** *(maintainer, M19)*. *Condition*: property
+    (11) holds and the endpoint in question runs a privilege check.
+    *Violation symptom*: a handler that performs a privilege check
+    returns data, or performs an action, that the authenticated caller
+    has no privilege for — for example a metadata listing that leaks
+    objects the caller has no `SHOW` privilege on, or an admin action
+    reachable without `ADMIN_PRIV`. *Severity*:
+    **security-critical**. Reports of this shape are `VALID`.
+
+    **Known gaps — password-only handlers, not yet covered by this
+    property.** These authenticate but perform no SQL-equivalent
+    authorization. They are recorded here so that a report against
+    them is triaged as a *known, accepted gap* rather than silently
+    treated as covered; closing them is tracked in §4.14. **This list
+    is maintained by inspection and has been wrong before — treat it
+    as the current best inventory, not as a proof of completeness. A
+    password-only handler that is missing from it is a defect in this
+    document, and the finding against the handler still stands.**
+    - `/api/backends` (`BackendsAction`) — any valid account can
+      enumerate backend host/port/liveness. Intentional: the
+      Flink/Spark connectors call it with an ordinary load account to
+      discover backends before a stream load.
+    - `POST /rest/v2/api/storage_policy` (`AddStoragePolicyAction`) —
+      any valid account can journal a global storage policy, whereas
+      the SQL equivalent (`CREATE POLICY`) requires global
+      `ADMIN_PRIV`. This is a **privilege gap, not a design choice**.
+    - `GET /rest/v2/api/es_catalog/get_mapping` and
+      `POST /rest/v2/api/es_catalog/search` (`ESCatalogAction`) — any
+      valid account can issue raw mapping/search requests through the
+      catalog's server-side credentials with no `SHOW`/`SELECT` check.
+    - `POST /rest/v2/api/import/file_review` (`ImportAction`) — any
+      valid account can make FE list and read a caller-supplied
+      external location with no `LOAD` or `ADMIN` check (outbound
+      request from FE).
+    - `GET /rest/v2/api/cluster_overview` (`StatisticAction`) — any
+      valid account reads cluster-wide `dbCount` / `tblCount` /
+      `beCount` / `feCount` / `diskOccupancy` / `remainDisk`.
+    - `POST /api/query_schema/{ns}/{db}` (`StmtExecutionAction`) — any
+      valid account can dump the `CREATE TABLE` DDL of arbitrary
+      tables by naming them in the submitted SQL. The mechanism is
+      worth recording because it is not obvious: the handler plans the
+      statement at `ExplainLevel.ANALYZED_PLAN`, and
+      `NereidsPlanner.planWithoutLock` returns at that level *before*
+      running the rewriter — while `CheckPrivileges` is a **rewrite**
+      rule (`Rewriter`, `RuleType.CHECK_PRIVILEGES`). So the usual
+      "Nereids checks privileges" assumption does not hold on this
+      path. Unchanged by the default flip: this handler always
+      required a credential and never checked privileges.
+
+    Until these carry a privilege check, a report of "authenticated
+    low-privilege user performed X here" against one of them is
+    `BY-DESIGN: property-disclaimed` **with this section cited**, and
+    should be filed against the §4.14 follow-up rather than closed as
+    noise.
 
 **Resource properties** — *threshold*: **NONE**. Doris explicitly
 makes **no** quantitative or categorical resource guarantee on a
@@ -445,6 +626,29 @@ State plainly:
   — accounts have no lockout unless the operator enables it via
   `CREATE USER ... FAILED_LOGIN_ATTEMPTS N PASSWORD_LOCK_TIME T`.
   See §4.10 for the obligation.
+- **No authentication on FE `/metrics`** *(code-verified, M19)*.
+  `MetricsAction` on FE 8030 is public by design and is **not**
+  gated by `enable_all_http_auth`; turning the flag on does not
+  change it. Anyone who can reach 8030 can read FE metrics —
+  cluster topology hints, query and load counters, JVM state.
+  Operator: if FE metrics are sensitive, restrict 8030 at the
+  network layer (§4.10 (1)).
+- **No authentication on the BE 8040 handlers declared with the
+  `NONE` privilege type** *(maintainer, M19)*. BE ships
+  `enable_all_http_auth = false`; only the FE default was flipped.
+  BE metrics, health, and some debug / metadata endpoints answer
+  without credentials. BE 8040 is a Zone-2 port (§4.4) and §4.3 (2)
+  already requires it to be unreachable from end users; network
+  isolation is the control. An operator who wants it closed sets
+  `enable_all_http_auth = true` in `be.conf` and restarts.
+- **No HTTP API authentication once the operator sets
+  `enable_all_http_auth = false` on FE** *(maintainer, M19)*. The FE
+  flag ships **on** and FE HTTP authn/authz is a stated property in
+  default config (§4.8 (11)). Turning it off restores the pre-flip
+  behavior — the metadata, statistics and import REST endpoints, and
+  the privilege check on part of the FE admin REST surface, stop
+  checking credentials. Doris makes no security claim about a cluster
+  running that way; see §4.5a and §4.10 (12).
 - **No defense against query-DoS or query-OOM by an authenticated
   user** *(maintainer, Q5)*. Operator must use the §4.10 (3) knob
   set.
@@ -570,6 +774,38 @@ The operator MUST:
     them issue HTTP requests from FE to attacker-chosen URLs (SSRF)
     via Iceberg REST catalog. If you must grant it more broadly,
     apply network egress controls at the FE host level.
+12. **Keep `enable_all_http_auth` on, and migrate HTTP callers onto
+    credentials** *(maintainer, M19)*. It ships on; do not turn it
+    off. When upgrading from a release where it defaulted off, the
+    migration the operator owes:
+    (a) enumerate everything that calls the FE 8030 `/api/**` and
+    `/rest/v2/**` surface — monitoring and alerting agents, load
+    tooling, health probes, Kubernetes liveness/readiness checks,
+    internal ops scripts. FE `/metrics` and BE 8040 are not affected;
+    scrapers pointed only at those need no change;
+    (b) give each of them credentials (HTTP Basic) and a Doris user
+    with only the privileges it needs;
+    (c) verify in staging before upgrading production — anything
+    still polling anonymously will start getting 401;
+    (d) **check `fe_custom.conf`, not only `fe.conf`.** It is read
+    after `fe.conf` and overwrites it, and an earlier release where
+    this flag was mutable may have persisted
+    `enable_all_http_auth=false` into it via `ADMIN SET FRONTEND
+    CONFIG ... persist=true`. That value survives the upgrade, so the
+    new default silently does not take effect. Delete the stale entry,
+    then confirm the effective value with `ADMIN SHOW FRONTEND CONFIG`.
+    The flag is **not runtime-mutable**: turning it off means editing
+    `fe.conf` and restarting the node.
+    That is deliberate (M19) — disabling authentication should be a
+    recorded, on-disk decision, not a runtime command, so the running
+    posture is always auditable from the config files. "The config
+    files" is plural on purpose: audit `fe.conf` **and**
+    `fe_custom.conf`. It also means
+    an upgrade surprise cannot be papered over with
+    `ADMIN SET FRONTENDS CONFIG`; if you must fall back, do it in the
+    config file and treat it as a temporary migration aid, not a
+    resting state — it re-opens the §4.9 exposure and puts the
+    cluster outside §4.8 (11).
 
 ---
 
@@ -601,6 +837,15 @@ The operator MUST:
 - **Leaving accounts on a network-adjacent client port without
   `FAILED_LOGIN_ATTEMPTS`** *(maintainer, M11)*. Brute-forceable
   with no server-side lockout.
+- **Turning FE `enable_all_http_auth` off to unbreak an anonymous
+  monitoring agent or ops script after an upgrade, and leaving it
+  off** *(maintainer, M19)*. It is a migration aid. The fix is to
+  give the caller credentials; see §4.10 (12).
+- **Performing a security assessment of the FE HTTP surface with
+  `enable_all_http_auth` turned off** *(maintainer, M19)*. Every
+  finding it produces is `OUT-OF-MODEL: non-default-build`, and the
+  real bypasses — endpoints that skip authn/authz with the flag on —
+  go unfound. See the security-testing baseline in §4.5a.
 
 ---
 
@@ -657,6 +902,43 @@ primary; cite externally only when closing a specific report**
 - **"Workload group / resource tag does not isolate cross-user
   data."** — `BY-DESIGN: property-disclaimed` per §4.9 false-friends
   (M12).
+- **"FE `/metrics` (port 8030) is readable without
+  credentials."** — `BY-DESIGN: property-disclaimed` per §4.9
+  (M19). Public by design; not gated by `enable_all_http_auth`.
+- **"FE `/api/health` (port 8030) answers without credentials and
+  discloses backend counts."** — `BY-DESIGN: property-disclaimed` per
+  §4.8 (11) exclusion (b) (M19). `HealthAction` is deliberately public
+  and the flag does not gate it; the response is liveness plus
+  total/online backend counts. Excluded from property (11) explicitly,
+  so this is not a bypass.
+- **"FE `/api/streaming/commit_offset` (or
+  `/api/streaming/report_task_failure`) accepts a request with no user
+  credential."** — `BY-DESIGN: property-disclaimed` per §4.8 (11)
+  exclusion (d) (M19). These take a cluster-token `token` header and
+  nothing else; the token is the credential. A report that they accept
+  an *absent or invalid* token is `VALID`.
+- **"An authenticated low-privilege user could create a storage
+  policy / query Elasticsearch / make FE fetch an external URL over
+  HTTP."** — `BY-DESIGN: property-disclaimed` per §4.8 (12) known
+  gaps (M19), and file against the §4.14 follow-up. These handlers
+  authenticate but do not authorize; that is a recorded open gap, not
+  a violation of a property the project currently claims.
+- **"BE 8040 endpoint X answers an unauthenticated request."** —
+  `BY-DESIGN: property-disclaimed` per §4.9 (M19). The BE default is
+  unchanged (off) and BE 8040 is a Zone-2 port; network isolation is
+  the control. An operator may set `enable_all_http_auth = true` in
+  `be.conf` to close it, but the default is not a defect.
+- **"FE 8030 endpoint X returns metadata to an unauthenticated
+  caller"** *(maintainer, M19)* — **not a non-finding by default.**
+  The FE default is on, so this is `VALID` per §4.8 (11) unless the
+  reporter had turned the flag off, in which case it is
+  `OUT-OF-MODEL: non-default-build` per §4.5a. **Always confirm which
+  config was tested before closing** — ask for the *effective*
+  `enable_all_http_auth` value on the tested cluster, i.e. the output
+  of `ADMIN SHOW FRONTEND CONFIG` or `/api/show_config`, plus both
+  `fe.conf` and `fe_custom.conf`. The flag is not runtime-mutable, but
+  `fe_custom.conf` is read after `fe.conf` and overwrites it, so
+  `fe.conf` alone is **not** authoritative (§4.5a).
 
 ---
 
@@ -674,6 +956,17 @@ periodic review). Triggers:
   §4.9 disclaimer drops, §4.11a entry drops.
 - `enable_java_udf` default flips off (M10): §4.10 (4) becomes
   conditional on a §4.5a non-default knob.
+- `enable_all_http_auth` FE default flips back to **off** (M19
+  inverted, e.g. if the upgrade breakage forces a revert): §4.8 (11)
+  reverts to a conditional property, §4.9 re-states the
+  unauthenticated-HTTP disclaimer unconditionally, §4.10 (12)
+  becomes "turn it on" rather than "keep it on", and the §4.11a
+  entry inverts back to a default non-finding. *(This trigger fired
+  once already, in the on direction, on 2026-07-29 — see §4.14
+  wave 5.)*
+- `enable_all_http_auth` BE default flips **on** (M19 extended to
+  BE 8040): §4.8 (11) extends to every `HttpHandlerWithAuth` handler,
+  the §4.9 BE disclaimer and the §4.11a BE non-finding both drop.
 - Iceberg REST URL gains validation / localhost-blocking (M13):
   SSRF moves from §4.9 attack-class to §4.8 property; §4.11 misuse
   drops.
@@ -740,6 +1033,12 @@ the body. Summary table:
 | M17 | Revision cadence | Trigger-driven only (§4.12 events); no periodic review |
 | M18 | §4.11a publication | Internal primary; cite externally only when closing a specific report |
 
+**Wave 5 — RESOLVED 2026-07-29.** HTTP surface:
+
+| ID | Topic | Outcome |
+|---|---|---|
+| M19 | `enable_all_http_auth` (FE) | **FE default flipped to `true` on 2026-07-29, and the flag is not runtime-mutable** — it can only be changed on disk (`fe.conf`, or `fe_custom.conf` which overwrites it) with a restart, so the running posture is auditable from disk and cannot be silently dropped at runtime — but auditing it means reading **both** files, since a pre-flip release could have persisted `false` into `fe_custom.conf` (§4.5a). FE HTTP **authentication** is now a default-config property (§4.8 (11)); unauthenticated access to the FE 8030 `/api/**` and `/rest/v2/**` surface is `VALID`, not disclaimed. **Authorization is a separate, narrower property** (§4.8 (12)): the flip did not add a centralized privilege check, and `AddStoragePolicyAction`, `ESCatalogAction` and `ImportAction` remain password-only — a recorded open gap tracked in §4.14, not a claim this release makes. **Carve-outs**: FE `/metrics` and FE `/api/health` stay public by design and are not gated by the flag (§4.9, §4.8 (11) (b), code-verified); the cluster-token endpoints (including `/api/streaming/*`) authenticate by token, not password (§4.8 (11) (d)); and the **BE default is unchanged (off)** — BE 8040 stays governed by Zone-2 network isolation and its `NONE`-privilege handlers stay disclaimed (§4.9, §4.11a). Extending the flip to BE is tracked as a §4.12 trigger. Turning the FE flag off is a migration aid for upgrades (§4.10 (12)), lands findings in `OUT-OF-MODEL: non-default-build` (§4.5a), and is a misuse pattern as a resting state (§4.11) |
+
 **Open follow-up items (not blocking v1.0 acceptance):**
 
 - Add `model-version` field to top of this doc per M15. Currently
@@ -748,6 +1047,64 @@ the body. Summary table:
 - Consider opening upstream issues per M10 (UDF default-off
   proposal), M11 (default lockout proposal), M13 (Iceberg URL
   validation). Each is a §4.12 trigger if accepted.
+- Per M19, the FE `enable_all_http_auth` default flip is a **breaking
+  change for anonymous callers of the FE `/api/**` and `/rest/v2/**`
+  surface** (health probes, ops scripts, management tooling) upgrading
+  from an earlier release. Release notes and the upgrade guide must
+  carry it, with the `enable_all_http_auth = false` fallback (in
+  `fe.conf`, requiring a restart — the flag is not runtime-mutable)
+  documented as temporary per §4.10 (12).
+- Per M19, whether to extend the flip to BE 8040 is **open**. The BE
+  default stays off in this change; the compatibility cost there is
+  higher (metrics scrapers point at BE 8040) and BE 8040 is already
+  required to be off end-user networks by §4.3 (2). Tracked as a
+  §4.12 trigger.
+- Per M19, **the password-only FE handlers listed under §4.8 (12) are
+  an open gap**: `AddStoragePolicyAction`, `ESCatalogAction`,
+  `ImportAction`, `StatisticAction` and `StmtExecutionAction`'s
+  `query_schema` authenticate but perform no SQL-equivalent
+  authorization, so any valid account can respectively journal a
+  global storage policy, query Elasticsearch through the catalog's
+  server-side credentials, make FE read a caller-supplied external
+  location, read cluster-wide capacity statistics, and dump arbitrary
+  table DDL. The default flip does not close these — it only means the
+  caller must now hold *some* account. Adding the privilege checks
+  (with negative low-privilege regression tests) is deliberately out
+  of scope for the flip itself and is tracked here. Until then they
+  are triaged per §4.8 (12), not as noise.
+  The `query_schema` one deserves priority: it is a genuine read of
+  another tenant's schema, and the reason it slips through — planning
+  stops at `ANALYZED_PLAN`, before the rewrite-phase `CheckPrivileges`
+  rule — may well apply to other callers of the planner that ask for
+  an analyzed-only plan. That is worth a sweep, not just a point fix.
+- Per M19, **the cloud overdue-warehouse fence on FE HTTP is opt-in
+  per handler, not centralized.** `BaseController.checkWithCookie`'s
+  `checkAuth` flag gates two unrelated things at once: the global
+  `ADMIN_OR_NODE` requirement and, in cloud mode, the overdue check.
+  Handlers that pass `false` to do their own narrower authorization
+  therefore also lose the fence, and must call
+  `checkInstanceOverdueIfCloud` explicitly — the metadata controllers
+  (`MetaInfoAction`, `MetaInfoActionV2`) now do. This is deliberately
+  not folded into `checkWithCookie`: `/api/query` also passes `false`
+  but hands the statement to a real JDBC session that enforces the
+  overdue state itself and reports it as `COMMON_ERROR`; moving that
+  rejection up would silently change the endpoint's response code to
+  `UNAUTHORIZED`. Anyone "simplifying" this back into
+  `checkWithCookie` will break that contract — the overloaded flag is
+  the underlying wart, and unpicking it properly is a follow-up.
+- Per M19, **`/api/bootstrap` accepts the cluster-id/token pair
+  unverified while the FE is not ready.** The pair is only validated
+  on the ready path, so any caller supplying two non-empty strings can
+  learn that a node is not ready; nothing else is disclosed on that
+  branch. Validating earlier would mean comparing against
+  `getClusterId()`/`getToken()` before the cluster is established and
+  would turn "not ready" into "invalid cluster id" for a legitimately
+  joining FE, so it was left alone here. If the not-ready branch ever
+  grows a richer response, this must be revisited first.
+- Per M19, the upgrade guide must also tell operators to check
+  `fe_custom.conf`, not just `fe.conf`: a persisted
+  `enable_all_http_auth=false` written by an earlier mutable release
+  survives the upgrade and silently keeps authentication off (§4.5a).
 
 ---
 

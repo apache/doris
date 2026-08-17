@@ -17,13 +17,13 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.BranchChange;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
-import org.apache.doris.connector.api.ddl.DropRefChange;
-import org.apache.doris.connector.api.ddl.PartitionFieldChange;
-import org.apache.doris.connector.api.ddl.TagChange;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.BranchChange;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
+import org.apache.doris.connector.spi.ddl.DropRefChange;
+import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
+import org.apache.doris.connector.spi.ddl.TagChange;
 
 import com.google.common.base.Splitter;
 import org.apache.iceberg.ManageSnapshots;
@@ -458,9 +458,7 @@ public interface IcebergCatalogOps {
 
         @Override
         public void dropColumn(String dbName, String tableName, String columnName) {
-            UpdateSchema updateSchema = loadTable(dbName, tableName).updateSchema();
-            updateSchema.deleteColumn(columnName);
-            updateSchema.commit();
+            IcebergNestedColumnEvolution.dropTopLevelColumn(loadTable(dbName, tableName), columnName);
         }
 
         @Override

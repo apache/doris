@@ -17,45 +17,6 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorColumnStatistics;
-import org.apache.doris.connector.api.ConnectorDatabaseMetadata;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.ConnectorTableStatistics;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.ConnectorViewDefinition;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.BranchChange;
-import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
-import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
-import org.apache.doris.connector.api.ddl.DropRefChange;
-import org.apache.doris.connector.api.ddl.PartitionFieldChange;
-import org.apache.doris.connector.api.ddl.TagChange;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
-import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
-import org.apache.doris.connector.api.pushdown.ConnectorIn;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
-import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
-import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ConnectorTableKey;
 import org.apache.doris.connector.hms.HiveShowCreateTableRenderer;
@@ -67,9 +28,46 @@ import org.apache.doris.connector.hms.HmsCreateTableRequest;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
-import org.apache.doris.connector.spi.ConnectorConf;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorColumnStatistics;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorTableStatistics;
+import org.apache.doris.connector.spi.ConnectorViewDefinition;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.BranchChange;
+import org.apache.doris.connector.spi.ddl.ConnectorBucketSpec;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
+import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionField;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionSpec;
+import org.apache.doris.connector.spi.ddl.DropRefChange;
+import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
+import org.apache.doris.connector.spi.ddl.TagChange;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTableFreshness;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -85,6 +83,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -126,17 +125,53 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      */
     private static final String ICEBERG_TABLE_COMMENT_PARAM = "comment";
 
+    // ===== CREATE TABLE / CREATE DATABASE statement property keys =====
+    // These are statement properties, not catalog properties: they arrive on the DDL request, and this class
+    // is the only one that interprets them (legacy HiveMetadataOps did the same).
+
+    static final String CREATE_FILE_FORMAT = "file_format";
+    static final String CREATE_LOCATION = "location";
+    static final String CREATE_OWNER = "owner";
+    static final String CREATE_COMMENT = "comment";
+    static final String CREATE_TRANSACTIONAL = "transactional";
+
+    /**
+     * Statement property keys stamped into the metastore table parameters under a {@code doris.} prefix so
+     * they round-trip. Mirrors legacy {@code HiveMetadataOps.DORIS_HIVE_KEYS}.
+     */
+    private static final Set<String> DORIS_HIVE_KEYS = Collections.unmodifiableSet(
+            new HashSet<>(Arrays.asList(CREATE_FILE_FORMAT, CREATE_LOCATION)));
+    private static final String DORIS_PROP_PREFIX = "doris.";
+
+    /**
+     * Session variable read for a text table's compression default (legacy {@code hive_text_compression}),
+     * with the two value literals it can carry. Surfaced through
+     * {@code ConnectorSession.getSessionProperties()} (VariableMgr dumps all visible vars), so the name must
+     * stay byte-identical to the fe-core session variable.
+     */
+    static final String SESSION_HIVE_TEXT_COMPRESSION = "hive_text_compression";
+    static final String TEXT_COMPRESSION_UNCOMPRESSED = "uncompressed";
+    static final String TEXT_COMPRESSION_PLAIN = "plain";
+
+    /**
+     * Engine-injected environment value (not a plugin conf key): the running FE's version, stamped into the
+     * table parameters at CREATE. Threaded from fe-core's {@code DefaultConnectorContext}, where the name must
+     * stay byte-identical.
+     */
+    private static final String ENV_DORIS_VERSION = "doris_version";
+
+    /**
+     * Bucket algorithm string produced by {@code CreateTableInfoToConnectorRequestConverter} for a random
+     * (non-hash) distribution. Hive external tables only support hash bucketing.
+     */
+    private static final String BUCKET_ALGO_RANDOM = "doris_random";
+
     // FE-internal schema-control property key: a CSV of the RAW remote partition-column names. The generic
     // fe-core consumer (PluginDrivenExternalTable.toSchemaCacheValue) reads it to derive which of the emitted
     // columns are partition columns; it is the same key the paimon/iceberg/maxcompute connectors emit and is
     // stripped from the user-facing SHOW CREATE properties by fe-core. The central reserved-key definition
     // (namespaced under __internal.) lives in ConnectorTableSchema.
     private static final String PARTITION_COLUMNS_PROPERTY = ConnectorTableSchema.PARTITION_COLUMNS_KEY;
-
-    // Connector-side spelling of fe-type ScalarType.MAX_VARCHAR_LENGTH (the connector must not import fe-type);
-    // a hive `string` partition column is widened to varchar(65533) for legacy parity. Paimon hardcodes the
-    // identical 65533.
-    private static final int MAX_VARCHAR_LENGTH = 65533;
 
     // Hive-canonical partition text for a DATETIME/TIMESTAMP literal: space separator, full seconds. See
     // hiveDateTimeString / extractLiteralValue (H2: String.valueOf(LocalDateTime) would yield ISO "…T…" and drop
@@ -248,11 +283,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // MTMV model already falls back to listPartitions for hive — there is no second enumeration hook to wrap.
     private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache;
 
-    public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context) {
+    public HiveConnectorMetadata(HmsClient hmsClient, HiveCatalogProperties properties, ConnectorContext context) {
         this(hmsClient, properties, context, NO_ICEBERG_SIBLING, NO_HUDI_SIBLING, NO_SIBLING_OWNER);
     }
 
-    public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context,
+    public HiveConnectorMetadata(HmsClient hmsClient, HiveCatalogProperties properties, ConnectorContext context,
             Supplier<Connector> icebergSiblingSupplier,
             Supplier<Connector> hudiSiblingSupplier,
             Function<ConnectorTableHandle, SiblingOwner> siblingOwnerResolver) {
@@ -261,7 +296,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /** Convenience ctor without the PERF-06 derived partition-view cache (null -> listPartitions always live). */
-    public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context,
+    public HiveConnectorMetadata(HmsClient hmsClient, HiveCatalogProperties properties, ConnectorContext context,
             Supplier<Connector> icebergSiblingSupplier,
             Supplier<Connector> hudiSiblingSupplier,
             Function<ConnectorTableHandle, SiblingOwner> siblingOwnerResolver,
@@ -276,7 +311,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * {@code List<ConnectorPartitionInfo>}, keyed by {@code (db, table, -1, -1)}. {@code null} for the
      * convenience/test ctors (no cross-query derived layer -&gt; compute directly every call).
      */
-    public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context,
+    public HiveConnectorMetadata(HmsClient hmsClient, HiveCatalogProperties properties, ConnectorContext context,
             Supplier<Connector> icebergSiblingSupplier,
             Supplier<Connector> hudiSiblingSupplier,
             Function<ConnectorTableHandle, SiblingOwner> siblingOwnerResolver,
@@ -300,8 +335,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      * {@code "metadata:" + catalogId + ":" + ownerLabel}: the three connectors of a heterogeneous gateway
      * (hive + iceberg + hudi) share ONE catalogId, so the owner label keeps their metadata entries distinct — a
      * plain catalogId key would collapse them onto one metadata and misroute. Under a
-     * {@link org.apache.doris.connector.api.ConnectorStatementScope#NONE NONE} scope (offline / no statement) the
-     * factory runs on every call — byte-identical to the pre-funnel behavior. Only fe-connector-api types are
+     * {@link org.apache.doris.connector.spi.ConnectorStatementScope#NONE NONE} scope (offline / no statement) the
+     * factory runs on every call — byte-identical to the pre-funnel behavior. Only fe-connector-spi types are
      * touched, so no fe-core dependency is introduced. The returned metadata and any handle it produces are used
      * ONLY through the parent-first SPI interfaces and MUST NOT be cast (the sibling's concrete iceberg/hudi types
      * would CCE across the loader split).
@@ -499,8 +534,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         String tableName = hiveHandle.getTableName();
 
         HmsTableInfo tableInfo = hmsClient.getTable(dbName, tableName);
-        List<ConnectorColumn> columns = buildColumns(tableInfo);
-        List<ConnectorColumn> partitionKeys = coercePartitionKeyStringToVarchar(buildPartitionKeys(tableInfo));
+        HiveWriteMetadataSnapshot writeMetadata = HiveWriteMetadataSnapshot.of(
+                tableInfo, getDefaultValues(tableInfo));
+        List<ConnectorColumn> columns = writeMetadata.getDataColumns();
+        List<ConnectorColumn> partitionKeys = writeMetadata.getPartitionColumns();
 
         // Merge: regular columns + partition columns (partition columns last, mirroring legacy
         // HMSExternalTable full-schema order: data columns then partition keys).
@@ -554,7 +591,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
 
         return new ConnectorTableSchema(tableName, allColumns, formatType, tableProperties,
-                perTableCapabilities);
+                perTableCapabilities, writeMetadata.getIdentity());
     }
 
     /**
@@ -596,8 +633,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return siblingSchema;
         }
         inherited.addAll(siblingSchema.getTableCapabilities());
+        // Delegation may enrich capabilities, but it must preserve the sibling generation bound with the schema.
         return new ConnectorTableSchema(siblingSchema.getTableName(), siblingSchema.getColumns(),
-                siblingSchema.getTableFormatType(), siblingSchema.getProperties(), inherited);
+                siblingSchema.getTableFormatType(), siblingSchema.getProperties(), inherited,
+                siblingSchema.getWriteMetadataIdentity());
     }
 
     // ========== ConnectorTableOps: Column Handles ==========
@@ -1550,8 +1589,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     @Override
     public void createDatabase(ConnectorSession session, String dbName, Map<String, String> dbProperties) {
         Map<String, String> params = new HashMap<>(dbProperties);
-        String location = params.remove(HiveConnectorProperties.CREATE_LOCATION);
-        String comment = params.getOrDefault(HiveConnectorProperties.CREATE_COMMENT, "");
+        String location = params.remove(CREATE_LOCATION);
+        String comment = params.getOrDefault(CREATE_COMMENT, "");
         try {
             hmsClient.createDatabase(new HmsCreateDatabaseRequest(dbName, location, comment, params));
         } catch (HmsClientException e) {
@@ -1609,27 +1648,24 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         // to the same map before deriving the metastore parameters).
         Map<String, String> userProps = new HashMap<>(request.getProperties());
         if (session.getUser() != null) {
-            userProps.putIfAbsent(HiveConnectorProperties.CREATE_OWNER, session.getUser());
+            userProps.putIfAbsent(CREATE_OWNER, session.getUser());
         }
         // Reject a transactional table create (legacy parity: a hive transactional table only appears to
         // accept inserts). Matches legacy's case-sensitive "transactional" key check.
-        String transactional = userProps.get(HiveConnectorProperties.CREATE_TRANSACTIONAL);
+        String transactional = userProps.get(CREATE_TRANSACTIONAL);
         if (transactional != null && transactional.equalsIgnoreCase("true")) {
             throw new DorisConnectorException("Not support create hive transactional table.");
         }
         Map<String, String> env = context.getEnvironment();
-        String fileFormat = userProps.getOrDefault(HiveConnectorProperties.CREATE_FILE_FORMAT,
-                ConnectorConf.get(context, HiveConnectorProperties.CONF_DEFAULT_FILE_FORMAT,
-                        HiveConnectorProperties.ENV_HIVE_DEFAULT_FILE_FORMAT,
-                        HiveConnectorProperties.DEFAULT_FILE_FORMAT));
+        String fileFormat = userProps.getOrDefault(CREATE_FILE_FORMAT, HmsConf.defaultFileFormat(context));
 
         // Metastore table parameters: lower-case every key and stamp the file_format / location keys under a
         // doris. prefix so they round-trip (legacy HiveMetadataOps ddlProps loop).
         Map<String, String> tableParams = new HashMap<>();
         for (Map.Entry<String, String> entry : userProps.entrySet()) {
             String key = entry.getKey().toLowerCase(Locale.ROOT);
-            if (HiveConnectorProperties.DORIS_HIVE_KEYS.contains(key)) {
-                tableParams.put(HiveConnectorProperties.DORIS_PROP_PREFIX + key, entry.getValue());
+            if (DORIS_HIVE_KEYS.contains(key)) {
+                tableParams.put(DORIS_PROP_PREFIX + key, entry.getValue());
             } else {
                 tableParams.put(key, entry.getValue());
             }
@@ -1662,29 +1698,26 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         HmsCreateTableRequest.Builder builder = HmsCreateTableRequest.builder()
                 .dbName(request.getDbName())
                 .tableName(request.getTableName())
-                .location(userProps.get(HiveConnectorProperties.CREATE_LOCATION))
+                .location(userProps.get(CREATE_LOCATION))
                 .columns(request.getColumns())
                 .partitionKeys(partitionColNames)
                 .fileFormat(fileFormat)
                 .comment(request.getComment())
                 .properties(tableParams)
                 .defaultTextCompression(resolveTextCompressionDefault(session))
-                .dorisVersion(env.get(HiveConnectorProperties.ENV_DORIS_VERSION));
+                .dorisVersion(env.get(ENV_DORIS_VERSION));
 
         // Bucketing: gated on the FE-global toggle, and hive supports hash bucketing only. Legacy checks the
         // enable gate first, then the hash requirement.
         ConnectorBucketSpec bucketSpec = request.getBucketSpec();
         if (bucketSpec != null) {
-            boolean bucketEnabled = Boolean.parseBoolean(ConnectorConf.get(context,
-                    HiveConnectorProperties.CONF_ENABLE_CREATE_BUCKET_TABLE,
-                    HiveConnectorProperties.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE, "false"));
-            if (!bucketEnabled) {
+            if (!HmsConf.enableCreateBucketTable(context)) {
                 throw new DorisConnectorException("Create hive bucket table need set '"
-                        + HiveConnectorProperties.CONF_ENABLE_CREATE_BUCKET_TABLE + "' in hms.conf (or "
-                        + HiveConnectorProperties.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE
+                        + HmsConf.CONF_ENABLE_CREATE_BUCKET_TABLE + "' in hms.conf (or "
+                        + HmsConf.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE
                         + " in fe.conf) to true");
             }
-            if (HiveConnectorProperties.BUCKET_ALGO_RANDOM.equals(bucketSpec.getAlgorithm())) {
+            if (BUCKET_ALGO_RANDOM.equals(bucketSpec.getAlgorithm())) {
                 throw new DorisConnectorException("External hive table only supports hash bucketing");
             }
             builder.bucketCols(bucketSpec.getColumns()).numBuckets(bucketSpec.getNumBuckets());
@@ -2161,10 +2194,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         if (tableParameters == null) {
             return false;
         }
-        String value = tableParameters.get(HiveConnectorProperties.CREATE_TRANSACTIONAL);
+        String value = tableParameters.get(CREATE_TRANSACTIONAL);
         if (value == null) {
             value = tableParameters.get(
-                    HiveConnectorProperties.CREATE_TRANSACTIONAL.toUpperCase(Locale.ROOT));
+                    CREATE_TRANSACTIONAL.toUpperCase(Locale.ROOT));
         }
         return "true".equalsIgnoreCase(value);
     }
@@ -2176,9 +2209,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      */
     private static String resolveTextCompressionDefault(ConnectorSession session) {
         String textCompression = session.getSessionProperties()
-                .get(HiveConnectorProperties.SESSION_HIVE_TEXT_COMPRESSION);
-        if (HiveConnectorProperties.TEXT_COMPRESSION_UNCOMPRESSED.equals(textCompression)) {
-            return HiveConnectorProperties.TEXT_COMPRESSION_PLAIN;
+                .get(SESSION_HIVE_TEXT_COMPRESSION);
+        if (TEXT_COMPRESSION_UNCOMPRESSED.equals(textCompression)) {
+            return TEXT_COMPRESSION_PLAIN;
         }
         return textCompression;
     }
@@ -2186,99 +2219,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // ========== Internal helpers ==========
 
     private List<ConnectorColumn> buildColumns(HmsTableInfo tableInfo) {
-        List<ConnectorColumn> spiColumns = tableInfo.getColumns();
-        if (spiColumns == null || spiColumns.isEmpty()) {
-            return Collections.emptyList();
-        }
-        // HmsTableInfo already returns ConnectorColumn with types mapped by HmsTypeMapping
-        // during ThriftHmsClient.getTable(). Enrich with default values if available.
-        List<ConnectorColumn> columns = spiColumns;
-        Map<String, String> defaults = getDefaultValues(tableInfo);
-        if (!defaults.isEmpty()) {
-            List<ConnectorColumn> enriched = new ArrayList<>(spiColumns.size());
-            for (ConnectorColumn col : spiColumns) {
-                String defaultVal = defaults.get(col.getName());
-                if (defaultVal != null && col.getDefaultValue() == null) {
-                    enriched.add(new ConnectorColumn(
-                            col.getName(), col.getType(), col.getComment(),
-                            col.isNullable(), defaultVal));
-                } else {
-                    enriched.add(col);
-                }
-            }
-            columns = enriched;
-        }
-        return coerceOpenCsvColumnsToString(tableInfo, columns);
-    }
-
-    private List<ConnectorColumn> buildPartitionKeys(HmsTableInfo tableInfo) {
-        List<ConnectorColumn> partKeys = tableInfo.getPartitionKeys();
-        if (partKeys == null) {
-            return Collections.emptyList();
-        }
-        return partKeys;
-    }
-
-    /**
-     * Widens a hive {@code string} partition column to {@code varchar(65533)}, replicating legacy
-     * {@code HMSExternalTable.initPartitionColumns}: a bare-string partition column is coerced to
-     * {@code varchar(ScalarType.MAX_VARCHAR_LENGTH)} "to be same as doris managed table", while every other
-     * declared type (int/date/timestamp/decimal/varchar(n)/char(n)/...) is kept exactly as
-     * {@code HmsTypeMapping} produced it. The gate is the mapped connector type name {@code STRING} (hive
-     * {@code string}, and {@code binary} when not mapped to varbinary, both land on it), matching legacy's
-     * {@code PrimitiveType.STRING} check. The widened column keeps the same name/comment/nullability/flags, so
-     * the full-schema entry and the partition-column view carry the identical type (legacy mutated one shared
-     * {@code Column} in place).
-     */
-    private static List<ConnectorColumn> coercePartitionKeyStringToVarchar(List<ConnectorColumn> partitionKeys) {
-        if (partitionKeys.isEmpty()) {
-            return partitionKeys;
-        }
-        List<ConnectorColumn> coerced = new ArrayList<>(partitionKeys.size());
-        for (ConnectorColumn col : partitionKeys) {
-            if ("STRING".equals(col.getType().getTypeName())) {
-                coerced.add(new ConnectorColumn(col.getName(),
-                        ConnectorType.of("VARCHAR", MAX_VARCHAR_LENGTH, -1),
-                        col.getComment(), col.isNullable(), col.getDefaultValue(),
-                        col.isKey(), col.isAutoInc(), col.isAggregated()));
-            } else {
-                coerced.add(col);
-            }
-        }
-        return coerced;
-    }
-
-    /**
-     * Flattens every DATA column of a hive {@code OpenCSVSerde} table to {@code STRING}, reproducing the
-     * schema legacy obtained through the metastore {@code get_schema} RPC. {@code OpenCSVSerde}
-     * ({@code org.apache.hadoop.hive.serde2.OpenCSVSerde}) reads a delimited file as PLAIN text: its
-     * deserializer's ObjectInspector reports every top-level column as {@code string}, so a declared
-     * {@code int}/{@code date}/{@code boolean} — and even an {@code array}/{@code map}/{@code struct} — is
-     * served verbatim as a string and never parsed. The SPI reads the RAW stored column types
-     * ({@code sd.getCols()}), which for OpenCSV disagree with what the reader actually returns; legacy's
-     * default {@code get_schema} path (server-side deserializer) collapsed them to all-string. We reproduce
-     * that RESULT connector-side, WITHOUT the extra per-table RPC, by forcing the whole column type to a flat
-     * {@code STRING} here. Partition keys are left untouched (hive appends them after the deserializer, so
-     * they keep their declared types — see {@link #coercePartitionKeyStringToVarchar}); a view is never an
-     * OpenCSV data table (guarded). Placing the rule in this hive metadata layer (not the shared hms
-     * {@code ThriftHmsClient}, which also feeds the hudi connector) keeps the serde-specific typing off the
-     * shared path and mirrors where Trino applies CSV=all-string. Non-OpenCSV tables return unchanged, so
-     * every other serde stays byte-identical to the raw {@code sd.getCols()} path.
-     */
-    private static List<ConnectorColumn> coerceOpenCsvColumnsToString(
-            HmsTableInfo tableInfo, List<ConnectorColumn> columns) {
-        if (isView(tableInfo)
-                || !HiveTextProperties.HIVE_OPEN_CSV_SERDE.equals(tableInfo.getSerializationLib())) {
-            return columns;
-        }
-        ConnectorType stringType = ConnectorType.of("STRING");
-        List<ConnectorColumn> forced = new ArrayList<>(columns.size());
-        for (ConnectorColumn col : columns) {
-            forced.add(new ConnectorColumn(col.getName(), stringType, col.getComment(),
-                    col.isNullable(), col.getDefaultValue(),
-                    col.isKey(), col.isAutoInc(), col.isAggregated()));
-        }
-        return forced;
+        return HiveWriteMetadataSnapshot.of(tableInfo, getDefaultValues(tableInfo)).getDataColumns();
     }
 
     private Map<String, String> getDefaultValues(HmsTableInfo tableInfo) {
@@ -2390,13 +2331,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // the catalog properties (enable.mapping.varbinary / enable.mapping.timestamp_tz). The client — not this
     // metadata — converts hive column types (ThriftHmsClient.convertFieldSchemas), so the options must be fed at
     // client construction; a metadata-local copy would be dead (that was the 5672d7c0209 gap).
-    static HmsTypeMapping.Options buildTypeMappingOptions(Map<String, String> props) {
-        boolean enableMappingVarbinary = Boolean.parseBoolean(
-                props.getOrDefault(HiveConnectorProperties.ENABLE_MAPPING_VARBINARY, "false"));
-        boolean timestampTz = Boolean.parseBoolean(
-                props.getOrDefault(HiveConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
-        return new HmsTypeMapping.Options(
-                HmsTypeMapping.DEFAULT_TIME_SCALE, enableMappingVarbinary, timestampTz);
+    static HmsTypeMapping.Options buildTypeMappingOptions(HiveCatalogProperties props) {
+        return new HmsTypeMapping.Options(HmsTypeMapping.DEFAULT_TIME_SCALE,
+                props.isEnableMappingVarbinary(), props.isEnableMappingTimestampTz());
     }
 
     /**
@@ -2447,8 +2384,8 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     private String extractColumnName(ConnectorExpression expr) {
-        if (expr instanceof org.apache.doris.connector.api.pushdown.ConnectorColumnRef) {
-            return ((org.apache.doris.connector.api.pushdown.ConnectorColumnRef) expr).getColumnName();
+        if (expr instanceof org.apache.doris.connector.spi.pushdown.ConnectorColumnRef) {
+            return ((org.apache.doris.connector.spi.pushdown.ConnectorColumnRef) expr).getColumnName();
         }
         return null;
     }

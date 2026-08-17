@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
@@ -63,7 +63,7 @@ public final class IcebergTypeMapping {
                 Types.ListType list = (Types.ListType) icebergType;
                 ConnectorType elemType = fromIcebergType(
                         list.elementType(), enableMappingVarbinary, enableMappingTimestampTz);
-                return ConnectorType.arrayOf(elemType)
+                return ConnectorType.arrayOf(elemType, list.isElementOptional())
                         .withChildrenFieldIds(Collections.singletonList(list.elementId()));
             case MAP:
                 // Carry key + value field-ids (legacy recurses into both via MapType.fields()).
@@ -72,7 +72,7 @@ public final class IcebergTypeMapping {
                         map.keyType(), enableMappingVarbinary, enableMappingTimestampTz);
                 ConnectorType valType = fromIcebergType(
                         map.valueType(), enableMappingVarbinary, enableMappingTimestampTz);
-                return ConnectorType.mapOf(keyType, valType)
+                return ConnectorType.mapOf(keyType, valType, map.isValueOptional())
                         .withChildrenFieldIds(Arrays.asList(map.keyId(), map.valueId()));
             case STRUCT:
                 // Carry each field's field-id, parallel to the field types (legacy recurses field-by-field).
@@ -93,8 +93,12 @@ public final class IcebergTypeMapping {
                     fieldIds.add(f.fieldId());
                 }
                 return ConnectorType.structOf(names, types, nullable, comments).withChildrenFieldIds(fieldIds);
+            case VARIANT:
+                // Iceberg owns the Parquet Variant physical encoding, so expose an execution-only
+                // VariantV2 carrier without changing persisted Doris table metadata semantics.
+                return ConnectorType.of("VARIANT_COMPUTE_V2");
             default:
-                // Any non-primitive iceberg type Doris cannot represent (VARIANT today; future non-primitive
+                // Any future non-primitive iceberg type Doris cannot represent
                 // typeIds) degrades to UNSUPPORTED: the table still LOADS and only this column is
                 // present-but-unqueryable. This DIVERGES from legacy fe-core (IcebergUtils.icebergTypeToDorisType
                 // threw IllegalArgumentException at schema-load, failing the whole table). Graceful degradation

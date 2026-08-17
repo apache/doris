@@ -106,6 +106,31 @@ public class VariableMgrTest extends TestWithFeService {
     }
 
     @Test
+    public void testEnableNereidsDistributePlannerAfterUpgrade() {
+        SessionVariable defaultSessionVariable = VariableMgr.getDefaultSessionVariable();
+        boolean originalValue = defaultSessionVariable.isEnableNereidsDistributePlanner();
+        boolean originalEnableSqlCache = defaultSessionVariable.isEnableSqlCache();
+        boolean originalAnsiBehavior = GlobalVariable.enable_ansi_query_organization_behavior;
+        boolean originalTypeCoercionBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        int originalVersion = GlobalVariable.variableVersion;
+        try {
+            defaultSessionVariable.setEnableNereidsDistributePlanner(false);
+            GlobalVariable.variableVersion = GlobalVariable.VARIABLE_VERSION_300;
+
+            VariableMgr.forceUpdateVariables();
+
+            Assertions.assertTrue(VariableMgr.newSessionVariable().isEnableNereidsDistributePlanner());
+            Assertions.assertEquals(GlobalVariable.CURRENT_VARIABLE_VERSION, GlobalVariable.variableVersion);
+        } finally {
+            defaultSessionVariable.setEnableNereidsDistributePlanner(originalValue);
+            defaultSessionVariable.setEnableSqlCache(originalEnableSqlCache);
+            GlobalVariable.enable_ansi_query_organization_behavior = originalAnsiBehavior;
+            GlobalVariable.enableNewTypeCoercionBehavior = originalTypeCoercionBehavior;
+            GlobalVariable.variableVersion = originalVersion;
+        }
+    }
+
+    @Test
     public void testAutoCommitConvert() throws Exception {
         // boolean var with ConvertBoolToLongMethod annotation
         VariableExpr desc = new VariableExpr("autocommit");

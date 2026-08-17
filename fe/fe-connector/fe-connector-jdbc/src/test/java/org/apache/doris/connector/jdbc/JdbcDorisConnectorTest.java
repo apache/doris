@@ -17,16 +17,16 @@
 
 package org.apache.doris.connector.jdbc;
 
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorContractValidator;
-import org.apache.doris.connector.api.ConnectorPassthroughSqlOps;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.handle.NoOpConnectorTransaction;
-import org.apache.doris.connector.api.handle.WriteOperation;
-import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorContractValidator;
+import org.apache.doris.connector.spi.ConnectorPassthroughSqlOps;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.NoOpConnectorTransaction;
+import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -62,6 +62,10 @@ class JdbcDorisConnectorTest {
         Map<String, String> props = new HashMap<>();
         props.put("jdbc_url", "jdbc:mysql://localhost:3306/test");
         return props;
+    }
+
+    private static JdbcCatalogProperties minimalCatalogProps() {
+        return JdbcCatalogProperties.of(minimalProps());
     }
 
     @Test
@@ -128,7 +132,7 @@ class JdbcDorisConnectorTest {
         JdbcDorisConnector connector = new JdbcDorisConnector(minimalProps(), testContext());
         connector.close();
         // testConnection catches exceptions internally and returns failure result
-        org.apache.doris.connector.api.ConnectorTestResult result = connector.testConnection(null);
+        org.apache.doris.connector.spi.ConnectorTestResult result = connector.testConnection(null);
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertTrue(result.getMessage().contains("closed"),
                 "Failure message should mention closed: " + result.getMessage());
@@ -189,8 +193,8 @@ class JdbcDorisConnectorTest {
         // harmless instantiable driver_class (java.lang.Object; never cast to java.sql.Driver here)
         // so client creation succeeds without a live database or driver jar on the test classpath.
         Map<String, String> props = new HashMap<>();
-        props.put(JdbcConnectorProperties.JDBC_URL, "jdbc:postgresql://localhost:5432/test");
-        props.put(JdbcConnectorProperties.DRIVER_CLASS, "java.lang.Object");
+        props.put(JdbcCatalogProperties.JDBC_URL, "jdbc:postgresql://localhost:5432/test");
+        props.put(JdbcCatalogProperties.DRIVER_CLASS, "java.lang.Object");
         JdbcDorisConnector connector = new JdbcDorisConnector(props, testContext());
         ConnectorWritePlanProvider writeProvider = connector.getWritePlanProvider();
         Assertions.assertNotNull(writeProvider, "JDBC connector must expose a write plan provider");
@@ -204,7 +208,7 @@ class JdbcDorisConnectorTest {
 
     @Test
     void testGetWritePlanProviderWithoutDriverClassDoesNotThrow() {
-        // Regression test: driver_class is optional (JdbcConnectorProperties.DRIVER_CLASS is read
+        // Regression test: driver_class is optional (JdbcCatalogProperties.DRIVER_CLASS is read
         // via a plain properties.get(), so it is null when the catalog omits it — see
         // JdbcDorisConnector#createClient). initializeDataSource() must not pass that null straight
         // to HikariConfig#setDriverClassName, which NPEs deep inside HikariCP (loadClass(null) ->
@@ -214,7 +218,7 @@ class JdbcDorisConnectorTest {
         // HikariDataSource is lazy and only resolves the driver from the jdbcUrl at first
         // getConnection(), so building it here must succeed even without driver_class.
         Map<String, String> props = new HashMap<>();
-        props.put(JdbcConnectorProperties.JDBC_URL, "jdbc:postgresql://localhost:5432/test");
+        props.put(JdbcCatalogProperties.JDBC_URL, "jdbc:postgresql://localhost:5432/test");
         JdbcDorisConnector connector = new JdbcDorisConnector(props, testContext());
         Assertions.assertDoesNotThrow(() -> {
             connector.getWritePlanProvider();
@@ -225,7 +229,7 @@ class JdbcDorisConnectorTest {
     void testBeginTransactionReturnsNoOpTransaction() {
         // jdbc writes are auto-committed by BE per row; beginTransaction returns a degenerate no-op
         // transaction so the engine's write lifecycle is uniform (single ConnectorTransaction model).
-        JdbcConnectorMetadata metadata = new JdbcConnectorMetadata(null, minimalProps());
+        JdbcConnectorMetadata metadata = new JdbcConnectorMetadata(null, minimalCatalogProps());
         ConnectorTransaction txn = metadata.beginTransaction(new FixedIdSession(99L));
 
         Assertions.assertTrue(txn instanceof NoOpConnectorTransaction,

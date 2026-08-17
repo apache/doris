@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.split;
 
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -17,16 +17,16 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -184,7 +184,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
     @Test
     public void missingTableReturnsEmptyWithoutConsultingSibling() {
         HiveConnectorMetadata md = new HiveConnectorMetadata(
-                new FakeHmsClient(icebergTable(), false), Collections.emptyMap(), new FakeConnectorContext(),
+                new FakeHmsClient(icebergTable(), false), HiveTestProperties.minimal(), new FakeConnectorContext(),
                 () -> icebergSibling, () -> hudiSibling, OWNER_RESOLVER_UNUSED);
 
         Assertions.assertFalse(md.getTableHandle(session, "db", "t").isPresent(),
@@ -198,7 +198,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
         // The 3-arg constructor (hive-only construction) installs a fail-loud sibling supplier: an iceberg table
         // must raise a clear error, not NPE, when the iceberg plugin is unavailable.
         HiveConnectorMetadata md = new HiveConnectorMetadata(
-                new FakeHmsClient(icebergTable(), true), Collections.emptyMap(), new FakeConnectorContext());
+                new FakeHmsClient(icebergTable(), true), HiveTestProperties.minimal(), new FakeConnectorContext());
 
         Assertions.assertThrows(DorisConnectorException.class, () -> md.getTableHandle(session, "db", "t"),
                 "an iceberg table with no sibling configured must fail loud");
@@ -209,7 +209,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
         // Symmetric with iceberg: the 3-arg constructor installs a fail-loud hudi sibling supplier, so a hudi
         // table must raise a clear error, not NPE, when the hudi plugin is unavailable.
         HiveConnectorMetadata md = new HiveConnectorMetadata(
-                new FakeHmsClient(hiveTable(HUDI), true), Collections.emptyMap(), new FakeConnectorContext());
+                new FakeHmsClient(hiveTable(HUDI), true), HiveTestProperties.minimal(), new FakeConnectorContext());
 
         Assertions.assertThrows(DorisConnectorException.class, () -> md.getTableHandle(session, "db", "t"),
                 "a hudi table with no sibling configured must fail loud");
@@ -220,7 +220,7 @@ public class HiveConnectorMetadataTableHandleDivertTest {
     private HiveConnectorMetadata withSiblings(HmsTableInfo tableInfo) {
         // getTableHandle diverts iceberg/hudi BY TYPE (the two by-TYPE suppliers); the by-handle owner resolver is
         // never used on this path, so it fails loud if anything reaches for it.
-        return new HiveConnectorMetadata(new FakeHmsClient(tableInfo, true), Collections.emptyMap(),
+        return new HiveConnectorMetadata(new FakeHmsClient(tableInfo, true), HiveTestProperties.minimal(),
                 new FakeConnectorContext(), () -> icebergSibling, () -> hudiSibling, OWNER_RESOLVER_UNUSED);
     }
 

@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -75,7 +75,7 @@ public class IcebergScanPlanProviderPartitionCountTest {
         // FIX-L12 THE load-bearing RED assertion: three files over TWO distinct partitions (two files in
         // partition [1] + one in [2]) count 2, not 3. A mutation dropping the override (default
         // OptionalLong.empty()) makes this red.
-        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), null);
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), null);
         List<ConnectorScanRange> ranges = Arrays.asList(
                 range("/t/a.parquet", 0, "[\"1\"]"),
                 range("/t/b.parquet", 0, "[\"1\"]"),
@@ -87,7 +87,7 @@ public class IcebergScanPlanProviderPartitionCountTest {
     public void scannedPartitionCountEmptyForUnpartitionedTable() {
         // No range carries a partition key (unpartitioned) -> report nothing so the engine keeps its count.
         // (Same value as the un-overridden default; documents the fall-through, not RED-able.)
-        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), null);
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), null);
         List<ConnectorScanRange> ranges = Arrays.asList(
                 range("/t/a.parquet", null, null),
                 range("/t/b.parquet", null, null));

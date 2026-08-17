@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import java.util.ArrayList;
 import java.util.List;

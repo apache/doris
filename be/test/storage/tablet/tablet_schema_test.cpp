@@ -25,6 +25,10 @@
 #include <set>
 #include <vector>
 
+#include "agent/be_exec_version_manager.h"
+#include "core/data_type/data_type_variant_v2.h"
+#include "exprs/aggregate/aggregate_function.h"
+#include "exprs/aggregate/aggregate_function_reader.h"
 #include "storage/schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "storage/tablet_info.h"
@@ -366,6 +370,80 @@ TEST_F(TabletSchemaTest, test_tablet_column_protobuf_roundtrip) {
     EXPECT_EQ(original.pattern_type(), deserialized.pattern_type());
     EXPECT_EQ(original.variant_enable_typed_paths_to_sparse(),
               deserialized.variant_enable_typed_paths_to_sparse());
+}
+
+// remove_index() rebuilds the (index_type, col_uid, suffix) -> position lookup
+// map after dropping an entry. Every surviving index must be filed under ITS OWN
+// key. The existing coverage below uses three INVERTED indexes with no suffix,
+// where every key is identical, so it cannot tell a correct rebuild from one
+// that keys every entry off the LAST surviving index.
+//
+// This pins the heterogeneous case: after the drop the survivors are an
+// INVERTED index followed by an NGRAM_BF index. If the rebuild takes the key
+// from _indexes.back(), the INVERTED index is filed under (NGRAM_BF, ...) and
+// inverted_indexs() -- which looks up IndexType::INVERTED -- stops seeing it,
+// making a surviving index invisible to the segment writer and to compaction.
+TEST_F(TabletSchemaTest, test_remove_index_keeps_heterogeneous_survivors_findable) {
+    TabletSchema schema;
+
+    TabletColumn text_col;
+    text_col.set_unique_id(9001);
+    text_col.set_name("text_col");
+    text_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    schema.append_column(text_col);
+
+    TabletColumn code_col;
+    code_col.set_unique_id(9002);
+    code_col.set_name("code_col");
+    code_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    schema.append_column(code_col);
+
+    auto add_index = [&](int64_t index_id, IndexType type, int32_t col_uid) {
+        TabletIndex index;
+        TabletIndexPB index_pb;
+        index_pb.set_index_id(index_id);
+        index_pb.set_index_name("hetero_idx_" + std::to_string(index_id));
+        index_pb.set_index_type(type);
+        index_pb.add_col_unique_id(col_uid);
+        index.init_from_pb(index_pb);
+        schema.append_index(std::move(index));
+    };
+
+    add_index(500, IndexType::INVERTED, 9001); // survives
+    add_index(501, IndexType::INVERTED, 9001); // dropped below
+    add_index(502, IndexType::NGRAM_BF, 9002); // survives, and becomes back()
+
+    ASSERT_EQ(2, schema.inverted_indexs(9001, "").size());
+
+    schema.remove_index(501);
+
+    // The surviving INVERTED index must still be reachable by its own key.
+    auto survivors = schema.inverted_indexs(9001, "");
+    ASSERT_EQ(1, survivors.size())
+            << "surviving INVERTED index became invisible after remove_index; the lookup map was "
+               "rebuilt using the last survivor's (index_type, suffix) instead of each entry's own";
+    EXPECT_EQ(500, survivors[0]->index_id());
+
+    // The NGRAM_BF survivor must not be reported as an inverted index on its column.
+    EXPECT_TRUE(schema.inverted_indexs(9002, "").empty());
+}
+
+TEST_F(TabletSchemaTest, test_runtime_variant_type_for_load_aggregation) {
+    TabletColumn persisted_column;
+    persisted_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    persisted_column.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE);
+
+    auto runtime_type = std::make_shared<DataTypeVariantV2>(2, false);
+    auto function = persisted_column.get_aggregate_function(
+            AGG_LOAD_SUFFIX, BeExecVersionManager::get_newest_version(), runtime_type);
+    ASSERT_NE(function, nullptr);
+
+    auto input = runtime_type->create_column();
+    const IColumn* input_columns[] = {input.get()};
+    EXPECT_NO_THROW(function->check_input_columns_type(input_columns));
+
+    auto result = runtime_type->create_column();
+    EXPECT_NO_THROW(function->check_result_column_type(*result));
 }
 
 TEST_F(TabletSchemaTest, test_tablet_schema_remove_and_clear_index) {

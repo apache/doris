@@ -45,6 +45,13 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- For @ConnectorProperty + ConnectorPropertiesUtils (typed-holder binding; D-004). -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- fe-connector-cache: the shared external meta-cache framework (CacheSpec property validation +
              MetaCacheEntry/CacheFactory). fe-core does NOT depend on it, so under the parent-first
              org.apache.doris.connector.* prefix these classes resolve parent→miss→CHILD, i.e. they load from
@@ -68,13 +75,6 @@ under the License.
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
             <version>2.9.3</version>
-        </dependency>
-
-        <!-- connector-api provides SPI interfaces -->
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-api</artifactId>
-            <version>${project.version}</version>
         </dependency>
 
         <!-- Thrift types for constructing TTableFormatFileDesc in populateRangeParams -->

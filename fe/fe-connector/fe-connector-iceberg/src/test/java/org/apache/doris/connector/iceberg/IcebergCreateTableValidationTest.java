@@ -17,12 +17,12 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
-import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
-import org.apache.doris.connector.api.ddl.ConnectorSortField;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorBucketSpec;
+import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.ddl.ConnectorSortField;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -53,7 +53,7 @@ import java.util.Map;
 public class IcebergCreateTableValidationTest {
 
     private IcebergConnectorMetadata metadata() {
-        return new IcebergConnectorMetadata(null, null, null);
+        return new IcebergConnectorMetadata(null, IcebergCatalogProperties.of(Collections.emptyMap()), null);
     }
 
     private ConnectorColumn col(String name, String type) {

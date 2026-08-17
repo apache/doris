@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorTableStatistics;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.ConnectorTableStatistics;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -91,7 +91,7 @@ public class IcebergConnectorMetadataStatisticsTest {
 
     private static IcebergConnectorMetadata metadataFor(Table table, RecordingIcebergCatalogOps ops) {
         ops.table = table;
-        return new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     private static ConnectorTableHandle handle() {
@@ -184,7 +184,7 @@ public class IcebergConnectorMetadataStatisticsTest {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.throwOnLoadTable = true;
         IcebergConnectorMetadata metadata =
-                new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+                new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
 
         // WHY: a statistics miss must NEVER break query planning. MUTATION: letting the exception propagate
         // makes assertDoesNotThrow fail.

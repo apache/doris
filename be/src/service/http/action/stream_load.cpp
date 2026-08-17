@@ -55,7 +55,9 @@
 #include "load/stream_load/stream_load_context.h"
 #include "load/stream_load/stream_load_executor.h"
 #include "load/stream_load/stream_load_recorder.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
+#include "service/http/action/action_constants.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_common.h"
 #include "service/http/http_headers.h"
@@ -83,7 +85,6 @@ bvar::LatencyRecorder g_stream_load_commit_and_publish_latency_ms("stream_load",
                                                                   "commit_and_publish_ms");
 
 static constexpr size_t MIN_CHUNK_SIZE = 64 * 1024;
-static constexpr size_t MEBIBYTE = 1024 * 1024;
 static const std::string CHUNK = "chunked";
 static const std::string OFF_MODE = "off_mode";
 static const std::string SYNC_MODE = "sync_mode";
@@ -93,9 +94,11 @@ static const std::string ASYNC_MODE = "async_mode";
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
 
-StreamLoadAction::StreamLoadAction(ExecEnv* exec_env)
-        : HttpHandlerWithAuth(exec_env, TPrivilegeHier::GLOBAL, TPrivilegeType::LOAD) {
-    // Use LOAD privilege type: requires LOAD permission
+StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
+    // Stream load forwards the parsed HTTP credentials to FE load RPCs, where LOAD
+    // privilege is checked against the actual db/table/txn. A generic BE HTTP
+    // pre-check cannot model every stream-load variant and would duplicate that
+    // resource-scoped authorization.
     _stream_load_entity =
             DorisMetrics::instance()->metric_registry()->register_entity("stream_load");
     INT_COUNTER_METRIC_REGISTER(_stream_load_entity, streaming_load_requests_total);
@@ -239,13 +242,6 @@ void StreamLoadAction::_send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpR
 }
 
 int StreamLoadAction::on_header(HttpRequest* req) {
-    // Call parent's auth check first
-    int ret = HttpHandlerWithAuth::on_header(req);
-    if (ret != 0) {
-        return ret; // Auth failed, return error
-    }
-
-    // Continue with stream load specific header processing
     req->mark_send_reply();
 
     streaming_load_current_processing->increment(1);

@@ -17,20 +17,20 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
-import org.apache.doris.connector.api.pushdown.ConnectorIn;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
-import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -169,7 +169,7 @@ public class HudiPartitionPruningTest {
         // which finds nothing on a non-hive-style table -> 0 splits for any filtered query.
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
                 new FakeHmsClient(PARTITIONS),                 // HMS hive-style names -- must NOT be used here
-                Collections.emptyMap(),                        // use_hive_sync_partition=false -> non-hive-sync
+                HudiTestProperties.minimal(),                  // use_hive_sync_partition=false -> non-hive-sync
                 new StubMetaClientExecutor(Arrays.asList("2024/01", "2024/02", "2023/12")));
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyFilter(null, partitionedHandle(), new ConnectorFilterConstraint(eq("year", "2024")));
@@ -183,7 +183,7 @@ public class HudiPartitionPruningTest {
         // storage layout, so applyFilter prunes the HMS names directly (no Hudi metadata listing / stub unused).
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
                 new FakeHmsClient(PARTITIONS),
-                Collections.singletonMap("use_hive_sync_partition", "true"),
+                HudiTestProperties.with(HudiCatalogProperties.USE_HIVE_SYNC_PARTITION, "true"),
                 new StubMetaClientExecutor(Collections.emptyList()));
         Optional<FilterApplicationResult<ConnectorTableHandle>> result =
                 metadata.applyFilter(null, partitionedHandle(), new ConnectorFilterConstraint(eq("year", "2024")));
@@ -209,7 +209,7 @@ public class HudiPartitionPruningTest {
         // H2 non-regression: a DATE predicate literal is a LocalDate (not LocalDateTime), so it is NOT diverted to
         // hiveDateTimeString -- String.valueOf(LocalDate) = "2024-01-01" already matches the stored DATE value.
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
-                new FakeHmsClient(PARTITIONS), Collections.emptyMap(),
+                new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
                 new StubMetaClientExecutor(Arrays.asList("2024-01-01", "2024-01-02")));
         HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
                 .partitionKeyNames(Collections.singletonList("dt"))
@@ -235,7 +235,7 @@ public class HudiPartitionPruningTest {
         // literal renders "1.0000", ["1.0000"].contains("1") == false -> partition dropped -> prunedPaths
         // empty -> red.
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
-                new FakeHmsClient(PARTITIONS), Collections.emptyMap(),
+                new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
                 new StubMetaClientExecutor(Arrays.asList("1", "2")));
         HudiTableHandle handle = new HudiTableHandle.Builder("db", "t", "s3://b/t", "COPY_ON_WRITE")
                 .partitionKeyNames(Collections.singletonList("d"))
@@ -257,7 +257,7 @@ public class HudiPartitionPruningTest {
         // metadata listing. Feed the canned partition list via the stub executor (no live metaClient). The
         // hive-style names here parse the same via parsePartitionValues, so the pruning assertions are unchanged.
         HudiConnectorMetadata metadata = new HudiConnectorMetadata(
-                new FakeHmsClient(PARTITIONS), Collections.emptyMap(),
+                new FakeHmsClient(PARTITIONS), HudiTestProperties.minimal(),
                 new StubMetaClientExecutor(PARTITIONS));
         return metadata.applyFilter(null, handle, new ConnectorFilterConstraint(expr));
     }

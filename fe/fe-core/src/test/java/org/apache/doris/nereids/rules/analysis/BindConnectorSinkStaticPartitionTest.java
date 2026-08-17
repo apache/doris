@@ -22,6 +22,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 
 import com.google.common.collect.ImmutableList;
@@ -34,7 +35,6 @@ import org.mockito.Mockito;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -61,7 +61,7 @@ public class BindConnectorSinkStaticPartitionTest {
     private static PluginDrivenExternalTable partitionedTable() {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.getBaseSchema(true)).thenReturn(BASE_SCHEMA);
-        Mockito.when(table.getFullSchema(Optional.empty())).thenReturn(BASE_SCHEMA);
+        stubWriteSchemaSnapshot(table, BASE_SCHEMA, ImmutableList.of(DS, REGION));
         // Model ExternalTable.getColumn, which resolves case-INSENSITIVELY (equalsIgnoreCase) for every
         // external table. Stubbing only the exact spelling would hide the very behavior under test.
         Mockito.when(table.getColumn(Mockito.anyString())).thenAnswer(inv -> {
@@ -82,21 +82,38 @@ public class BindConnectorSinkStaticPartitionTest {
         return spec;
     }
 
-    /**
-     * A table carrying an invisible column after the visible data columns, modelling an iceberg v3 table
-     * whose row-lineage {@code _row_id} is appended {@code .invisible()} by the connector.
-     */
-    private static PluginDrivenExternalTable tableWithRowLineage() {
-        Column rowId = new Column("_row_id", PrimitiveType.BIGINT);
-        rowId.setIsVisible(false);
-        List<Column> schema = ImmutableList.of(ID, VAL, rowId);
+    private static PluginDrivenExternalTable tableWithRewriteColumns(boolean includeLineage) {
+        Column rowLocator = new Column("__DORIS_ICEBERG_ROWID_COL__", PrimitiveType.STRING);
+        rowLocator.setIsVisible(false);
+        ImmutableList.Builder<Column> schemaBuilder = ImmutableList.builder();
+        schemaBuilder.add(ID, VAL);
+        if (includeLineage) {
+            Column rowId = new Column("_row_id", PrimitiveType.BIGINT);
+            rowId.setIsVisible(false);
+            rowId.setReservedPassthrough(true);
+            Column sequenceNumber = new Column("_last_updated_sequence_number", PrimitiveType.BIGINT);
+            sequenceNumber.setIsVisible(false);
+            sequenceNumber.setReservedPassthrough(true);
+            schemaBuilder.add(rowId, sequenceNumber);
+        }
+        schemaBuilder.add(rowLocator);
+        List<Column> schema = schemaBuilder.build();
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.getBaseSchema(true)).thenReturn(schema);
-        Mockito.when(table.getFullSchema(Optional.empty())).thenReturn(schema);
+        stubWriteSchemaSnapshot(table, schema, Collections.emptyList());
         for (Column c : schema) {
             Mockito.when(table.getColumn(c.getName())).thenReturn(c);
         }
         return table;
+    }
+
+    private static void stubWriteSchemaSnapshot(PluginDrivenExternalTable table,
+            List<Column> schema, List<Column> partitionColumns) {
+        PluginDrivenExternalTable.WriteSchemaSnapshot snapshot =
+                Mockito.mock(PluginDrivenExternalTable.WriteSchemaSnapshot.class);
+        Mockito.when(snapshot.getFullSchema()).thenReturn(schema);
+        Mockito.when(snapshot.getPartitionColumns()).thenReturn(partitionColumns);
+        Mockito.when(table.getWriteSchemaSnapshot()).thenReturn(snapshot);
     }
 
     private static List<String> names(List<Column> columns) {
@@ -163,13 +180,24 @@ public class BindConnectorSinkStaticPartitionTest {
         // therefore sees old_name, while an explicit empty pin means the latest write-target schema.
         Mockito.when(table.getColumn("id")).thenReturn(ID);
         Mockito.when(table.getColumn("new_name")).thenReturn(null);
-        Mockito.when(table.getFullSchema(Optional.empty())).thenReturn(ImmutableList.of(ID, newName));
+        stubWriteSchemaSnapshot(table, ImmutableList.of(ID, newName), Collections.emptyList());
         Mockito.when(table.getBaseSchema(true)).thenReturn(ImmutableList.of(ID, oldName));
 
         List<Column> bound = BindSink.selectConnectorSinkBindColumns(
                 table, ImmutableList.of("id", "new_name"), Collections.emptySet(), false);
         Assertions.assertEquals(ImmutableList.of("id", "new_name"), names(bound),
                 "a historical source pin must not replace the latest write-target schema");
+    }
+
+    @Test
+    public void explicitColumnListLoadsLatestTargetSchemaOnce() {
+        PluginDrivenExternalTable table = partitionedTable();
+
+        List<Column> bound = BindSink.selectConnectorSinkBindColumns(
+                table, ImmutableList.of("id", "val", "region"), Collections.emptySet(), false);
+
+        Assertions.assertEquals(ImmutableList.of("id", "val", "region"), names(bound));
+        Mockito.verify(table, Mockito.times(1)).getWriteSchemaSnapshot();
     }
 
     /**
@@ -284,6 +312,18 @@ public class BindConnectorSinkStaticPartitionTest {
         Assertions.assertTrue(ex.getMessage().contains("nope"), "error must name the missing column");
     }
 
+    @Test
+    public void pinnedDataSchemaStillRejectsExplicitInvisibleColumn() {
+        // Reuse the rewrite schema so the invariant covers the same reserved lineage metadata as production.
+        PluginDrivenExternalTable table = tableWithRewriteColumns(true);
+        AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () ->
+                BindSink.selectConnectorSinkBindColumns(
+                        table, ImmutableList.of(ID, VAL), ImmutableList.of("_row_id"),
+                        Collections.emptySet(), false));
+        Assertions.assertEquals(
+                "Cannot specify invisible column '_row_id' in INSERT statement", ex.getMessage());
+    }
+
     /**
      * No column list, ordinary write (not a rewrite): invisible columns (e.g. iceberg v3 row-lineage
      * {@code _row_id} / {@code _last_updated_sequence_number}) must be EXCLUDED from the default bound
@@ -294,21 +334,57 @@ public class BindConnectorSinkStaticPartitionTest {
     @Test
     public void noColumnListOrdinaryWriteExcludesInvisibleColumns() {
         List<Column> bound = BindSink.selectConnectorSinkBindColumns(
-                tableWithRowLineage(), Collections.emptyList(), Collections.emptySet(), false);
+                tableWithRewriteColumns(true), Collections.emptyList(), Collections.emptySet(), false);
         Assertions.assertEquals(ImmutableList.of("id", "val"), names(bound),
                 "invisible row-lineage columns must be excluded from an ordinary write target");
     }
 
     /**
-     * No column list, rewrite (distributed {@code rewrite_data_files}): invisible columns are RETAINED so
-     * the engine-managed row-lineage values read from the source rows are preserved through the rewrite,
-     * mirroring the legacy {@code bindIcebergTableSink} rewrite branch.
+     * A v2 rewrite under show-hidden carries the request-scoped row locator in the table's full schema, but
+     * the rewrite sink has no physical field for it.
      */
     @Test
-    public void noColumnListRewriteRetainsInvisibleColumns() {
+    public void noColumnListV2RewriteExcludesRequestScopedRowLocator() {
         List<Column> bound = BindSink.selectConnectorSinkBindColumns(
-                tableWithRowLineage(), Collections.emptyList(), Collections.emptySet(), true);
-        Assertions.assertEquals(ImmutableList.of("id", "val", "_row_id"), names(bound),
-                "a rewrite must retain invisible row-lineage columns to preserve their values");
+                tableWithRewriteColumns(false), Collections.emptyList(), Collections.emptySet(), true);
+        Assertions.assertEquals(ImmutableList.of("id", "val"), names(bound),
+                "a v2 rewrite must not emit the request-scoped row locator");
+    }
+
+    /**
+     * A v3 rewrite preserves persistent lineage fields, while excluding the unrelated request-scoped locator.
+     */
+    @Test
+    public void noColumnListV3RewriteRetainsLineageButExcludesRequestScopedRowLocator() {
+        List<Column> bound = BindSink.selectConnectorSinkBindColumns(
+                tableWithRewriteColumns(true), Collections.emptyList(), Collections.emptySet(), true);
+        Assertions.assertEquals(ImmutableList.of("id", "val", "_row_id", "_last_updated_sequence_number"),
+                names(bound), "a v3 rewrite must retain only persistent lineage metadata");
+    }
+
+    @Test
+    public void rewriteSourceOutputExcludesRequestScopedRowLocator() {
+        NamedExpression id = namedExpression("id");
+        NamedExpression val = namedExpression("val");
+        NamedExpression rowId = namedExpression("_row_id");
+        NamedExpression sequenceNumber = namedExpression("_last_updated_sequence_number");
+        NamedExpression locator = namedExpression("__DORIS_ICEBERG_ROWID_COL__");
+
+        List<NamedExpression> v2Selected = BindSink.selectConnectorRewriteOutputs(
+                ImmutableList.of(ID, VAL), ImmutableList.of(id, val, locator));
+        List<Column> v3WriteSchema = BindSink.selectConnectorSinkBindColumns(
+                tableWithRewriteColumns(true), Collections.emptyList(), Collections.emptySet(), true);
+        List<NamedExpression> v3Selected = BindSink.selectConnectorRewriteOutputs(
+                v3WriteSchema, ImmutableList.of(id, val, rowId, sequenceNumber, locator));
+
+        Assertions.assertEquals(ImmutableList.of(id, val), v2Selected);
+        Assertions.assertEquals(ImmutableList.of(id, val, rowId, sequenceNumber), v3Selected,
+                "v2/v3 rewrite input must use the same physical column set as its sink schema");
+    }
+
+    private static NamedExpression namedExpression(String name) {
+        NamedExpression expression = Mockito.mock(NamedExpression.class);
+        Mockito.when(expression.getName()).thenReturn(name);
+        return expression;
     }
 }

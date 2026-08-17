@@ -17,13 +17,21 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
+import org.apache.paimon.fs.Path;
+import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.schema.TableSchema;
+import org.apache.paimon.table.AppendOnlyFileStoreTable;
+import org.apache.paimon.table.CatalogEnvironment;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.system.SystemTableLoader;
+import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
+import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.RowType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -49,7 +57,7 @@ import java.util.Optional;
 public class PaimonConnectorMetadataSysTableTest {
 
     private static PaimonConnectorMetadata metadataWith(RecordingPaimonCatalogOps ops) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     private static RowType rowType(String... columnNames) {
@@ -117,6 +125,35 @@ public class PaimonConnectorMetadataSysTableTest {
         Assertions.assertEquals("snapshots", handle.getSysTableName());
         Assertions.assertSame(ops.sysTable, handle.getPaimonTable(),
                 "the resolved sys Table must be stashed as the transient ref");
+    }
+
+    @Test
+    public void getSysTableHandleUsesTheResolvedBaseGeneration() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.sysTable = new FakePaimonTable("divergent$snapshots",
+                rowType("wrong_generation"), Collections.emptyList(), Collections.emptyList());
+        PaimonTableHandle base = baseHandle();
+        FileStoreTable resolvedBase = new AppendOnlyFileStoreTable(
+                LocalFileIO.create(), new Path("memory://resolved-base"),
+                new TableSchema(
+                        0,
+                        Collections.singletonList(new DataField(0, "id", new IntType())),
+                        0,
+                        Collections.emptyList(),
+                        Collections.emptyList(),
+                        Collections.emptyMap(),
+                        null),
+                CatalogEnvironment.empty());
+        base.setPaimonTable(resolvedBase);
+
+        PaimonTableHandle system = (PaimonTableHandle) metadataWith(ops)
+                .getSysTableHandle(null, base, "snapshots").orElseThrow(AssertionError::new);
+
+        // A catalog reload can observe a newer generation after the base handle was validated;
+        // the system view must therefore be derived from that exact resolved base instance.
+        Assertions.assertNotSame(ops.sysTable, system.getPaimonTable());
+        Assertions.assertNull(ops.lastGetTableId,
+                "an already resolved base must not be reloaded through the catalog seam");
     }
 
     @Test

@@ -73,6 +73,7 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "load/stream_load/stream_load_recorder_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
 #include "service/arrow_flight/flight_sql_service.h"
@@ -731,6 +732,15 @@ int main(int argc, char** argv) {
     heartbeat_thrift_starter->stop();
     heartbeat_thrift_starter->join();
     LOG(INFO) << "Heartbeat server stopped";
+    // The stream load recorder manager writes its audit records through this BE's own http
+    // service, so it has to be stopped while that service is still up. Otherwise an audit
+    // load that is in flight here can never be answered, and it blocks the join() done by
+    // SAFE_STOP(_stream_load_recorder_manager) in ExecEnv::destroy() for up to the stream
+    // load timeout, which is longer than the grace period of stop_be.sh --grace.
+    if (auto* recorder_manager = exec_env->stream_load_recorder_manager();
+        recorder_manager != nullptr) {
+        recorder_manager->stop();
+    }
     // TODO(zhiqiang): http_service
     http_starter->stop();
     http_starter->join();

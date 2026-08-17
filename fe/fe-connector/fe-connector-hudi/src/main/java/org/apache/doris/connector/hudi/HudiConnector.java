@@ -17,19 +17,19 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.hms.CachingHmsClient;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.hms.ThriftHmsClient;
 import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
@@ -62,8 +62,12 @@ public class HudiConnector implements Connector {
     private static final Logger LOG = LogManager.getLogger(HudiConnector.class);
 
     // Catalog property key gating the plugin-side Kerberos authenticator (value matches AuthType.KERBEROS).
+    // Deliberately NOT a HudiCatalogProperties field: it is a raw hadoop storage key that buildHadoopConf
+    // below hands to the Configuration wholesale along with every other passthrough key, and what happens
+    // here is a peek at it, not this connector interpreting a property of its own.
     private static final String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
 
+    private final HudiCatalogProperties props;
     private final Map<String, String> properties;
     private final ConnectorContext context;
     private volatile HmsClient hmsClient;
@@ -79,13 +83,14 @@ public class HudiConnector implements Connector {
     private volatile boolean pluginAuthComputed;
 
     public HudiConnector(Map<String, String> properties, ConnectorContext context) {
-        this.properties = Collections.unmodifiableMap(properties);
+        this.props = HudiCatalogProperties.of(properties);
+        this.properties = props.getRaw();
         this.context = context;
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new HudiConnectorMetadata(getOrCreateClient(), properties, metaClientExecutor(),
+        return new HudiConnectorMetadata(getOrCreateClient(), props, metaClientExecutor(),
                 HudiScanPlanProvider.storageHadoopConfig(context));
     }
 
@@ -204,18 +209,10 @@ public class HudiConnector implements Connector {
     }
 
     private HmsClient createClient() {
-        String metastoreUri = properties.get(HudiConnectorProperties.HIVE_METASTORE_URIS);
-        if (metastoreUri == null || metastoreUri.isEmpty()) {
-            metastoreUri = properties.get("uri");
-        }
-        if (metastoreUri == null || metastoreUri.isEmpty()) {
-            throw new DorisConnectorException(
-                    "HMS URI ('" + HudiConnectorProperties.HIVE_METASTORE_URIS + "') is required for Hudi connector");
-        }
-
-        int poolSize = HudiConnectorProperties.getInt(
-                properties, HudiConnectorProperties.HMS_CLIENT_POOL_SIZE,
-                HudiConnectorProperties.DEFAULT_HMS_CLIENT_POOL_SIZE);
+        // The URI (either spelling) and the pool size were checked when this connector was constructed --
+        // HudiCatalogProperties.of throws for a catalog without a metastore URI, so there is nothing left
+        // to re-check here.
+        int poolSize = props.getHmsClientPoolSize();
 
         HmsClientConfig config = new HmsClientConfig(properties, poolSize);
         LOG.info("Creating Hudi connector HMS client for catalog='{}', uri={}, poolSize={}",

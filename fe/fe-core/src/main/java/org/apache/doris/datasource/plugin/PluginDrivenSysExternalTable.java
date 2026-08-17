@@ -20,13 +20,13 @@ package org.apache.doris.datasource.plugin;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -232,6 +232,14 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
      */
     public Optional<MvccSnapshot> resolveScanPin(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
+        return resolveScanPin(tableSnapshot, scanParams,
+                () -> Optional.of(((MvccTable) sourceTable).loadSnapshot(tableSnapshot, scanParams)));
+    }
+
+    /** Resolve through a caller-owned statement fence while preserving this relation's memo. */
+    public Optional<MvccSnapshot> resolveScanPin(Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams,
+            Supplier<Optional<MvccSnapshot>> snapshotLoader) {
         if (!tableSnapshot.isPresent() && !scanParams.isPresent()) {
             return Optional.empty();
         }
@@ -242,8 +250,26 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
             if (!selectorSupported(scanParams)) {
                 return Optional.empty();
             }
-            return Optional.of(((MvccTable) sourceTable).loadSnapshot(tableSnapshot, scanParams));
+            // Binding and scanning must share the StatementContext fence; resolving a mutable latest
+            // selector directly here can make a system alias observe a later commit than a plain alias.
+            return snapshotLoader.get();
         });
+    }
+
+    @Override
+    public long getRowCount() {
+        for (Optional<MvccSnapshot> pin : scanPinMemo.values()) {
+            if (pin.isPresent() && pin.get() instanceof PluginDrivenMvccSnapshot) {
+                ConnectorMvccSnapshot connectorSnapshot =
+                        ((PluginDrivenMvccSnapshot) pin.get()).getConnectorSnapshot();
+                if (connectorSnapshot != null) {
+                    // A system relation keeps its pin in this private memo, not StatementContext; falling
+                    // back to the latest cache would give CBO cardinality from a different snapshot.
+                    return fetchRowCountAtSnapshot(connectorSnapshot);
+                }
+            }
+        }
+        return super.getRowCount();
     }
 
     /**

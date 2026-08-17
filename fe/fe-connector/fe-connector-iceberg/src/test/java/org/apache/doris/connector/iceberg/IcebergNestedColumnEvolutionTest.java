@@ -17,15 +17,32 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.iceberg.IcebergCatalogOps.CatalogBackedIcebergCatalogOps;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
 
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.MetadataTableUtils;
+import org.apache.iceberg.MetadataUpdate;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.UpdateRequirement;
+import org.apache.iceberg.UpdateRequirements;
+import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.AfterEach;
@@ -36,6 +53,8 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -77,6 +96,11 @@ public class IcebergNestedColumnEvolutionTest {
     private void createTable(String table, Schema schema) {
         ops.createTable("db1", table, schema, PartitionSpec.unpartitioned(), null,
                 IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+    }
+
+    private void createTable(String table, Schema schema, PartitionSpec spec, Map<String, String> properties) {
+        ops.createTable("db1", table, schema, spec, null,
+                IcebergSchemaBuilder.buildTableProperties(properties));
     }
 
     private Schema reload(String table) {
@@ -265,6 +289,376 @@ public class IcebergNestedColumnEvolutionTest {
         Types.StructType s = reload("d_drop").findField("s").type().asStructType();
         Assertions.assertNull(s.field("a"));
         Assertions.assertNotNull(s.field("x"));
+    }
+
+    @Test
+    public void testDropNestedFieldUsedByHistoricalPartitionSpecFailsLoud() {
+        createTable("d_old_spec", flatNestedSchema());
+        Table table = ops.loadTable("db1", "d_old_spec");
+        table.updateSpec().addField("s.a").commit();
+        String partitionName = table.spec().fields().get(0).name();
+        DataFile dataFile = DataFiles.builder(table.spec())
+                .withPath("file:/warehouse/d_old_spec/data.parquet")
+                .withFileSizeInBytes(1)
+                .withRecordCount(1)
+                .withPartitionPath(partitionName + "=1")
+                .build();
+        table.newAppend().appendFile(dataFile).commit();
+        table.updateSpec().removeField(partitionName).commit();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.dropNestedColumn("db1", "d_old_spec", path("s", "a")));
+        Assertions.assertTrue(ex.getMessage().contains("used by an old partition spec"), ex.getMessage());
+        Assertions.assertNotNull(reload("d_old_spec").findField("s.a"));
+    }
+
+    @Test
+    public void testDropNestedFieldUsedByCurrentFormatV1VoidSpecFailsLoud() {
+        Schema schema = flatNestedSchema();
+        PartitionSpec initialSpec = PartitionSpec.builderFor(schema).identity("s.a").build();
+        createTable("d_v1_void", schema, initialSpec,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "1"));
+        Table table = ops.loadTable("db1", "d_v1_void");
+        int oldSpecId = table.spec().specId();
+        table.updateSpec().removeField(table.spec().fields().get(0).name()).commit();
+
+        // Simulate metadata cleanup so only the v1 current void field retains the source ID. Ignoring the
+        // current spec would let schema deletion corrupt metadata-table schema construction.
+        table.refresh();
+        TableOperations tableOps = ((HasTableOperations) table).operations();
+        TableMetadata base = tableOps.current();
+        TableMetadata.Builder builder = TableMetadata.buildFrom(base);
+        new MetadataUpdate.RemovePartitionSpecs(Set.of(oldSpecId)).applyTo(builder);
+        tableOps.commit(base, builder.build());
+        table.refresh();
+
+        Assertions.assertTrue(table.spec().fields().get(0).transform().isVoid());
+        Assertions.assertEquals(1, table.specs().size());
+        assertFailsLoud(() -> ops.dropNestedColumn("db1", "d_v1_void", path("s", "a")),
+                "partition spec");
+        Assertions.assertNotNull(reload("d_v1_void").findField("s.a"));
+        Assertions.assertDoesNotThrow(() -> MetadataTableUtils.createMetadataTableInstance(
+                ops.loadTable("db1", "d_v1_void"), MetadataTableType.POSITION_DELETES).schema());
+    }
+
+    @Test
+    public void testRestDropSurvivesSpecIdRebaseWithoutRemovingConcurrentSpec() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "drop_me", Types.IntegerType.get()));
+        createTable("d_concurrent_spec", schema,
+                PartitionSpec.builderFor(schema).identity("id").build(), Collections.emptyMap());
+        Table original = ops.loadTable("db1", "d_concurrent_spec");
+        String metricsKey = TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "drop_me";
+        original.updateProperties().set(metricsKey, "full").commit();
+        RestTableOperations concurrentOps = new RestTableOperations(
+                ((HasTableOperations) original).operations(), null);
+        Table racedTable = new BaseTable(concurrentOps, original.name());
+
+        IcebergNestedColumnEvolution.dropTopLevelColumn(racedTable, "drop_me");
+
+        Assertions.assertEquals(1, concurrentOps.commitAttempts);
+        Assertions.assertTrue(concurrentOps.requirements.stream()
+                .anyMatch(UpdateRequirement.AssertLastAssignedPartitionId.class::isInstance));
+        Assertions.assertFalse(concurrentOps.clientChanges.stream()
+                .anyMatch(MetadataUpdate.RemovePartitionSpecs.class::isInstance));
+        original.refresh();
+        Assertions.assertNull(original.schema().findField("drop_me"));
+        Assertions.assertFalse(original.properties().containsKey(metricsKey),
+                "the REST path must preserve SchemaUpdate's column-property cleanup");
+        Assertions.assertEquals(3, original.specs().size(),
+                "both the rebased concurrent spec and the durable fence must be retained");
+        Assertions.assertTrue(original.specs().values().stream().anyMatch(PartitionSpec::isUnpartitioned));
+        Assertions.assertTrue(original.specs().values().stream().flatMap(spec -> spec.fields().stream())
+                .anyMatch(field -> field.name().startsWith("_doris_schema_drop_fence_")
+                        && field.sourceId() == schema.findField("id").fieldId()
+                        && field.transform().isVoid()));
+    }
+
+    @Test
+    public void testRestDropRejectsConcurrentSpecUsingDropTarget() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "drop_me", Types.IntegerType.get()));
+        createTable("d_target_spec_race", schema);
+        Table original = ops.loadTable("db1", "d_target_spec_race");
+        RestTableOperations concurrentOps = new RestTableOperations(
+                ((HasTableOperations) original).operations(), "drop_me");
+        Table racedTable = new BaseTable(concurrentOps, original.name());
+
+        Assertions.assertThrows(CommitFailedException.class,
+                () -> IcebergNestedColumnEvolution.dropTopLevelColumn(racedTable, "drop_me"));
+
+        Assertions.assertEquals(1, concurrentOps.commitAttempts);
+        original.refresh();
+        Assertions.assertNotNull(original.schema().findField("drop_me"));
+        Assertions.assertTrue(original.specs().values().stream().flatMap(spec -> spec.fields().stream())
+                .anyMatch(field -> field.sourceId() == schema.findField("drop_me").fieldId()));
+    }
+
+    @Test
+    public void testRestFormatV1DropFailsBeforeCommit() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "drop_me", Types.IntegerType.get()));
+        createTable("d_rest_v1", schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "1"));
+        Table original = ops.loadTable("db1", "d_rest_v1");
+        RestTableOperations concurrentOps = new RestTableOperations(
+                ((HasTableOperations) original).operations(), null);
+
+        assertFailsLoud(() -> IcebergNestedColumnEvolution.dropTopLevelColumn(
+                new BaseTable(concurrentOps, original.name()), "drop_me"), "format-v1");
+
+        Assertions.assertEquals(0, concurrentOps.commitAttempts);
+        Assertions.assertNotNull(original.schema().findField("drop_me"));
+    }
+
+    @Test
+    public void testDropAllowsSchemaContainingOldSyntheticFenceName() {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "_doris_schema_drop_fence_1000", Types.StringType.get()),
+                Types.NestedField.optional(2, "drop_me", Types.IntegerType.get()));
+        createTable("d_fence_name", schema);
+        Table original = ops.loadTable("db1", "d_fence_name");
+        RestTableOperations restOps = new RestTableOperations(
+                ((HasTableOperations) original).operations(), null);
+
+        IcebergNestedColumnEvolution.dropTopLevelColumn(
+                new BaseTable(restOps, original.name()), "drop_me");
+
+        original.refresh();
+        Assertions.assertNotNull(original.schema().findField("_doris_schema_drop_fence_1000"));
+        Assertions.assertNull(original.schema().findField("drop_me"));
+        Assertions.assertTrue(original.specs().values().stream().flatMap(spec -> spec.fields().stream())
+                .anyMatch(field -> field.name().equals("_doris_schema_drop_fence_1001")));
+    }
+
+    @Test
+    public void testFormatV1DropPreservesFirstPartitionFieldId() {
+        createTable("d_v1_first_partition", flatNestedSchema(), PartitionSpec.unpartitioned(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "1"));
+
+        ops.dropNestedColumn("db1", "d_v1_first_partition", path("s", "a"));
+        Table table = ops.loadTable("db1", "d_v1_first_partition");
+        Assertions.assertDoesNotThrow(() -> table.updateSpec().addField("s.x").commit());
+        Assertions.assertEquals(1000, table.spec().fields().get(0).fieldId());
+    }
+
+    @Test
+    public void testDropRemovesColumnScopedWriterProperties() {
+        createTable("d_column_props", flatNestedSchema());
+        Table table = ops.loadTable("db1", "d_column_props");
+        String metricsKey = TableProperties.METRICS_MODE_COLUMN_CONF_PREFIX + "s.a";
+        String bloomKey = TableProperties.PARQUET_BLOOM_FILTER_COLUMN_ENABLED_PREFIX + "s.a";
+        String statsKey = TableProperties.PARQUET_COLUMN_STATS_ENABLED_PREFIX + "s.a";
+        table.updateProperties()
+                .set(metricsKey, "full")
+                .set(bloomKey, "true")
+                .set(statsKey, "true")
+                .commit();
+
+        ops.dropNestedColumn("db1", "d_column_props", path("s", "a"));
+
+        Map<String, String> properties = ops.loadTable("db1", "d_column_props").properties();
+        Assertions.assertFalse(properties.containsKey(metricsKey));
+        Assertions.assertFalse(properties.containsKey(bloomKey));
+        Assertions.assertFalse(properties.containsKey(statsKey));
+    }
+
+    @Test
+    public void testDropRejectsTableReplacementDuringInitialRefresh() {
+        createTable("d_original_identity", flatNestedSchema());
+        createTable("d_replacement_identity", flatNestedSchema());
+        Table original = ops.loadTable("db1", "d_original_identity");
+        Table replacement = ops.loadTable("db1", "d_replacement_identity");
+        RefreshingTableOperations refreshing = new RefreshingTableOperations(
+                ((HasTableOperations) original).operations().current(),
+                ((HasTableOperations) replacement).operations().current(),
+                ((HasTableOperations) original).operations());
+
+        assertFailsLoud(() -> IcebergNestedColumnEvolution.dropColumn(
+                new BaseTable(refreshing, original.name()), path("s", "a")), "changed concurrently");
+        Assertions.assertEquals(0, refreshing.commitAttempts);
+    }
+
+    @Test
+    public void testDropRejectsSamePathFieldReplacementDuringRefresh() {
+        createTable("d_field_identity", flatNestedSchema());
+        Table table = ops.loadTable("db1", "d_field_identity");
+        TableOperations delegate = ((HasTableOperations) table).operations();
+        TableMetadata loaded = delegate.current();
+        int originalFieldId = loaded.schema().findField("s.a").fieldId();
+        table.updateSchema().deleteColumn("s.a").commit();
+        table.updateSchema().addColumn("s", "a", Types.IntegerType.get()).commit();
+        TableMetadata replacement = delegate.refresh();
+        Assertions.assertNotEquals(originalFieldId, replacement.schema().findField("s.a").fieldId());
+        RefreshingTableOperations refreshing = new RefreshingTableOperations(loaded, replacement, delegate);
+
+        assertFailsLoud(() -> IcebergNestedColumnEvolution.dropColumn(
+                new BaseTable(refreshing, table.name()), path("s", "a")), "changed concurrently");
+        Assertions.assertEquals(0, refreshing.commitAttempts);
+    }
+
+    @Test
+    public void testDropParentRejectsSubtreeReplacementDuringRefresh() {
+        createTable("d_subtree_identity", flatNestedSchema());
+        Table table = ops.loadTable("db1", "d_subtree_identity");
+        TableOperations delegate = ((HasTableOperations) table).operations();
+        TableMetadata loaded = delegate.current();
+        table.updateSchema().deleteColumn("s.a").commit();
+        table.updateSchema().addColumn("s", "a", Types.IntegerType.get()).commit();
+        RefreshingTableOperations refreshing = new RefreshingTableOperations(
+                loaded, delegate.refresh(), delegate);
+
+        assertFailsLoud(() -> IcebergNestedColumnEvolution.dropTopLevelColumn(
+                new BaseTable(refreshing, table.name()), "s"), "changed concurrently");
+        Assertions.assertEquals(0, refreshing.commitAttempts);
+    }
+
+    /** Simulates REST applying the client updates after a concurrent partition-spec commit. */
+    private static final class RestTableOperations implements TableOperations {
+        private final TableOperations delegate;
+        private final String sourceColumn;
+        private boolean injectConcurrentSpec = true;
+        private int commitAttempts;
+        private List<UpdateRequirement> requirements = Collections.emptyList();
+        private List<MetadataUpdate> clientChanges = Collections.emptyList();
+
+        private RestTableOperations(TableOperations delegate, String sourceColumn) {
+            this.delegate = delegate;
+            this.sourceColumn = sourceColumn;
+        }
+
+        @Override
+        public TableMetadata current() {
+            return delegate.current();
+        }
+
+        @Override
+        public TableMetadata refresh() {
+            return delegate.refresh();
+        }
+
+        @Override
+        public void commit(TableMetadata base, TableMetadata metadata) {
+            commitAttempts++;
+            if (!injectConcurrentSpec) {
+                delegate.commit(base, metadata);
+                return;
+            }
+            injectConcurrentSpec = false;
+            clientChanges = metadata.changes();
+            requirements = UpdateRequirements.forUpdateTable(base, clientChanges);
+
+            int newSpecId = base.specs().stream().mapToInt(PartitionSpec::specId).max().orElse(-1) + 1;
+            PartitionSpec concurrentSpec = sourceColumn == null
+                    ? PartitionSpec.builderFor(base.schema()).withSpecId(newSpecId).build()
+                    : PartitionSpec.builderFor(base.schema()).withSpecId(newSpecId).identity(sourceColumn).build();
+            TableMetadata.Builder concurrent = TableMetadata.buildFrom(base).addPartitionSpec(concurrentSpec);
+            delegate.commit(base, concurrent.build());
+            TableMetadata rebased = delegate.refresh();
+            for (UpdateRequirement requirement : requirements) {
+                requirement.validate(rebased);
+            }
+            TableMetadata.Builder rebasedUpdate = TableMetadata.buildFrom(rebased);
+            for (MetadataUpdate update : clientChanges) {
+                update.applyTo(rebasedUpdate);
+            }
+            delegate.commit(rebased, rebasedUpdate.build());
+        }
+
+        @Override
+        public FileIO io() {
+            return delegate.io();
+        }
+
+        @Override
+        public EncryptionManager encryption() {
+            return delegate.encryption();
+        }
+
+        @Override
+        public String metadataFileLocation(String fileName) {
+            return delegate.metadataFileLocation(fileName);
+        }
+
+        @Override
+        public LocationProvider locationProvider() {
+            return delegate.locationProvider();
+        }
+    }
+
+    private static final class RefreshingTableOperations implements TableOperations {
+        private final TableMetadata loaded;
+        private final TableMetadata refreshed;
+        private final TableOperations delegate;
+        private boolean didRefresh;
+        private int commitAttempts;
+
+        private RefreshingTableOperations(
+                TableMetadata loaded, TableMetadata refreshed, TableOperations delegate) {
+            this.loaded = loaded;
+            this.refreshed = refreshed;
+            this.delegate = delegate;
+        }
+
+        @Override
+        public TableMetadata current() {
+            return didRefresh ? refreshed : loaded;
+        }
+
+        @Override
+        public TableMetadata refresh() {
+            didRefresh = true;
+            return refreshed;
+        }
+
+        @Override
+        public void commit(TableMetadata base, TableMetadata metadata) {
+            commitAttempts++;
+        }
+
+        @Override
+        public FileIO io() {
+            return delegate.io();
+        }
+
+        @Override
+        public EncryptionManager encryption() {
+            return delegate.encryption();
+        }
+
+        @Override
+        public String metadataFileLocation(String fileName) {
+            return delegate.metadataFileLocation(fileName);
+        }
+
+        @Override
+        public LocationProvider locationProvider() {
+            return delegate.locationProvider();
+        }
+    }
+
+    @Test
+    public void testDropParentOfHistoricalPartitionFieldFailsLoud() {
+        createTable("d_old_spec_parent", flatNestedSchema());
+        Table table = ops.loadTable("db1", "d_old_spec_parent");
+        table.updateSpec().addField("s.a").commit();
+        String partitionName = table.spec().fields().get(0).name();
+        DataFile dataFile = DataFiles.builder(table.spec())
+                .withPath("file:/warehouse/d_old_spec_parent/data.parquet")
+                .withFileSizeInBytes(1)
+                .withRecordCount(1)
+                .withPartitionPath(partitionName + "=1")
+                .build();
+        table.newAppend().appendFile(dataFile).commit();
+        table.updateSpec().removeField(partitionName).commit();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.dropColumn("db1", "d_old_spec_parent", "s"));
+        Assertions.assertTrue(ex.getMessage().contains("used by an old partition spec"), ex.getMessage());
+        Assertions.assertNotNull(reload("d_old_spec_parent").findField("s"));
     }
 
     @Test

@@ -44,6 +44,7 @@
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -536,7 +537,7 @@ TEST_F(TestDeltaWriter, open) {
     EXPECT_EQ(Status::OK(), res);
     res = delta_writer->build_rowset();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     EXPECT_EQ(Status::OK(), res);
 
     res = engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
@@ -699,7 +700,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     ASSERT_TRUE(res.ok());
 
     // publish version success
@@ -792,7 +793,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     ASSERT_TRUE(res.ok());
 
     // publish version success
@@ -915,7 +916,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_TRUE(res.ok());
         res = delta_writer1->wait_calc_delete_bitmap();
         ASSERT_TRUE(res.ok());
-        res = delta_writer1->commit_txn(PSlaveTabletNodes());
+        res = delta_writer1->commit_txn();
         ASSERT_TRUE(res.ok());
     }
     // write data in delta writer 2
@@ -997,7 +998,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         // We can't get the rowset id of rowset2 now, will check the delete bitmap
         // contains row 0 of rowset2 at L929.
 
-        res = delta_writer2->commit_txn(PSlaveTabletNodes());
+        res = delta_writer2->commit_txn();
         ASSERT_TRUE(res.ok());
 
         Version version;

@@ -24,6 +24,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <unordered_map>
 #include <vector>
@@ -43,6 +44,7 @@ struct IOContext;
 namespace doris::format::parquet {
 
 class NativeParquetMetadata;
+struct VariantMaterializationNode;
 
 namespace detail {
 inline constexpr int64_t MAX_NATIVE_LAZY_SKIP_ROWS = std::numeric_limits<uint16_t>::max();
@@ -71,8 +73,9 @@ public:
                          const NativeParquetMetadata* metadata, int row_group_id,
                          const std::vector<RowRange>& selected_ranges,
                          const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
-                         const cctz::time_zone* timezone, io::IOContext* io_ctx,
-                         RuntimeState* runtime_state, bool enable_page_cache,
+                         const cctz::time_zone* timezone,
+                         std::optional<const cctz::time_zone*> int96_timezone_override,
+                         io::IOContext* io_ctx, RuntimeState* runtime_state, bool enable_page_cache,
                          const std::string& page_cache_file_key, bool enable_dictionary_filter,
                          ParquetColumnReaderProfile profile,
                          std::unique_ptr<ParquetColumnReader>* reader);
@@ -102,7 +105,9 @@ public:
     Result<MutableColumnPtr> dictionary_values() override;
 
 private:
-    NativeColumnReader(const ParquetColumnSchema& schema, DataTypePtr projected_type,
+    NativeColumnReader(const ParquetColumnSchema& schema, DataTypePtr logical_type,
+                       DataTypePtr native_type,
+                       std::unique_ptr<VariantMaterializationNode> variant_plan,
                        ParquetColumnReaderProfile profile);
 
     Status init(io::FileReaderSPtr file, const NativeParquetMetadata* metadata, int row_group_id,
@@ -110,9 +115,10 @@ private:
                 std::set<uint64_t> projected_column_ids,
                 const std::vector<RowRange>& selected_ranges,
                 const std::unordered_map<int, tparquet::OffsetIndex>& offset_indexes,
-                const cctz::time_zone* timezone, io::IOContext* io_ctx, RuntimeState* runtime_state,
-                bool enable_page_cache, const std::string& page_cache_file_key,
-                bool enable_dictionary_filter);
+                const cctz::time_zone* timezone,
+                std::optional<const cctz::time_zone*> int96_timezone_override,
+                io::IOContext* io_ctx, RuntimeState* runtime_state, bool enable_page_cache,
+                const std::string& page_cache_file_key, bool enable_dictionary_filter);
 
     Status read_with_filter(int64_t rows, const uint8_t* filter_data, bool filter_all,
                             MutableColumnPtr& column, const DataTypePtr& output_type,
@@ -136,12 +142,16 @@ private:
     void advance_selected_span(int64_t rows);
 
     // Native ParquetColumnReader keeps a reference to RowRanges; declare it before the reader.
+    NativeFieldSchema _native_field_schema;
     segment_v2::RowRanges _row_ranges;
     std::set<uint64_t> _projected_column_ids;
     std::set<uint64_t> _filter_column_ids;
     const std::unordered_map<int, tparquet::OffsetIndex>* _offset_indexes = nullptr;
     std::shared_ptr<NativeSchemaNode> _schema_node;
     std::unique_ptr<native::ColumnReader> _native_reader;
+    DataTypePtr _native_type;
+    std::unique_ptr<VariantMaterializationNode> _variant_plan;
+    MutableColumnPtr _variant_physical_column;
     std::unique_ptr<RuntimeState> _page_cache_runtime_state;
     std::vector<RowRange> _selected_ranges;
     size_t _selected_range_idx = 0;

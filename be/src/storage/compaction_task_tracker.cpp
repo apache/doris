@@ -30,8 +30,6 @@ const char* to_string(CompactionProfileType type) {
         return "cumulative";
     case CompactionProfileType::FULL:
         return "full";
-    case CompactionProfileType::BINLOG:
-        return "binlog";
     }
     return "unknown";
 }

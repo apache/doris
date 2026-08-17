@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.paimon.catalog.Catalog;
@@ -73,6 +73,76 @@ public class PaimonScanParamsTest {
     }
 
     @Test
+    public void testValidateRelationScopedReaderOptions() {
+        PaimonScanParams.validateOptions(ImmutableMap.of(
+                "read.batch-size", "4096",
+                "file-reader-async-threshold", "16 MB",
+                "file-index.read.enabled", "false",
+                "source.split.target-size", "64 MB",
+                "source.split.open-file-cost", "1 MB",
+                "scan.manifest.parallelism", "1",
+                "scan.plan-sort-partition", "true"));
+
+        for (Map<String, String> options : new Map[] {
+                ImmutableMap.of("read.batch-size", "0"),
+                ImmutableMap.of("read.batch-size", "-1"),
+                ImmutableMap.of("read.batch-size", "65537"),
+                ImmutableMap.of("file-reader-async-threshold", "512 KB"),
+                ImmutableMap.of("file-reader-async-threshold", "2 GB")
+        }) {
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> PaimonScanParams.validateOptions(options));
+        }
+    }
+
+    @Test
+    public void testPlanningOptionsDoNotReuseMetadataProjection() {
+        Assertions.assertTrue(PaimonScanParams.hasOnlyReaderOptions(ImmutableMap.of(
+                "file-index.read.enabled", "false",
+                "source.split.target-size", "64 MB")));
+        Assertions.assertFalse(PaimonScanParams.hasOnlyReaderOptions(
+                ImmutableMap.of("scan.manifest.parallelism", "1")));
+        Assertions.assertFalse(PaimonScanParams.hasOnlyReaderOptions(
+                ImmutableMap.of("scan.plan-sort-partition", "true")));
+    }
+
+    @Test
+    public void testManifestParallelismCannotMutateGlobalPoolCapacity() {
+        int availableProcessors = Runtime.getRuntime().availableProcessors();
+        int validLocalValue = Math.min(
+                availableProcessors, PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
+        PaimonScanParams.validateOptions(ImmutableMap.of(
+                "scan.manifest.parallelism", String.valueOf(validLocalValue)));
+
+        for (int invalid : new int[] {0, -1, PaimonReaderOptions.MAX_MANIFEST_PARALLELISM + 1}) {
+            IllegalArgumentException exception = Assertions.assertThrows(
+                    IllegalArgumentException.class,
+                    () -> PaimonScanParams.validateOptions(ImmutableMap.of(
+                            "scan.manifest.parallelism", String.valueOf(invalid))));
+            Assertions.assertTrue(exception.getMessage().contains("scan.manifest.parallelism"));
+        }
+        if (availableProcessors < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM) {
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> PaimonScanParams.validateOptions(ImmutableMap.of(
+                            "scan.manifest.parallelism", String.valueOf(availableProcessors + 1))));
+        }
+    }
+
+    @Test
+    public void testRelationReaderOptionsAreAppliedWithoutMutatingBaseTable() {
+        FakePaimonTable table = fakeTable();
+        Table copied = fakeTable();
+        table.copyResult = copied;
+
+        Assertions.assertSame(copied, PaimonScanParams.applyOptions(table, ImmutableMap.of(
+                "read.batch-size", "8192",
+                "file-reader-async-threshold", "32 MB")));
+        Assertions.assertEquals(ImmutableMap.of(
+                "read.batch-size", "8192",
+                "file-reader-async-threshold", "32 MB"), table.lastCopyOptions);
+    }
+
+    @Test
     public void testRejectUnknownAndConflictingOptions() {
         DorisConnectorException typo = Assertions.assertThrows(
                 DorisConnectorException.class,
@@ -119,6 +189,15 @@ public class PaimonScanParamsTest {
                     () -> PaimonScanParams.validateOptions(ImmutableMap.of(option, "1")));
             Assertions.assertTrue(unsupported.getMessage().contains(option));
         }
+    }
+
+    @Test
+    public void testPinOptionsValidatesBeforeClearingInheritedState() {
+        DorisConnectorException unsupported = Assertions.assertThrows(
+                DorisConnectorException.class,
+                () -> PaimonScanParams.pinOptionsToSnapshot(
+                        ImmutableMap.of("scan.bounded.watermark", "1"), 10));
+        Assertions.assertTrue(unsupported.getMessage().contains("scan.bounded.watermark"));
     }
 
     @Test

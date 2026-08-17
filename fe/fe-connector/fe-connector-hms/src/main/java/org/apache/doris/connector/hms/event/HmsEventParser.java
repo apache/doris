@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.hms.event;
 
-import org.apache.doris.connector.api.event.MetastoreChangeDescriptor;
-import org.apache.doris.connector.api.event.MetastoreChangeDescriptor.Op;
 import org.apache.doris.connector.hms.HmsNotificationEvent;
+import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor;
+import org.apache.doris.connector.spi.event.MetastoreChangeDescriptor.Op;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.hive.common.FileUtils;
@@ -53,7 +53,7 @@ import java.util.zip.GZIPInputStream;
  * <p>This is the plugin-side half of the metastore-event relocation: it replaces the fe-core
  * {@code datasource.hive.event.*} classes' {@code process()} bodies, but instead of mutating the
  * engine's object graph it emits neutral descriptors the engine applies. It preserves the legacy
- * semantics faithfully (table-name lowercasing, rename vs view-recreate, alter-partition rename =
+ * semantics faithfully (database-name lowercasing, rename vs view-recreate, alter-partition rename =
  * drop+add, canonical partition names), so a flipped catalog behaves as the legacy poller did.</p>
  *
  * <p>The GZIP message format (some HDP/CDH Hive versions) base64+gzip-wraps the JSON payload; we
@@ -99,7 +99,9 @@ public final class HmsEventParser {
         switch (type) {
             case "CREATE_TABLE": {
                 CreateTableMessage message = JSON.getCreateTableMessage(body);
-                String table = message.getTableObj().getTableName().toLowerCase(Locale.ROOT);
+                // Preserve the original table spelling so mode 2 keeps one exact-case identity across
+                // CREATE / ALTER / DROP event flows.
+                String table = message.getTableObj().getTableName();
                 return one(MetastoreChangeDescriptor.forTable(
                         Op.REGISTER_TABLE, dbName, table, null, eventId, updateTime));
             }
@@ -112,7 +114,9 @@ public final class HmsEventParser {
                 JSONAlterTableMessage message = (JSONAlterTableMessage) JSON.getAlterTableMessage(body);
                 Table after = message.getTableObjAfter();
                 Table before = message.getTableObjBefore();
-                String afterTable = after.getTableName().toLowerCase(Locale.ROOT);
+                // Preserve the target spelling for rename/view-recreate so mode 2 keeps a single
+                // exact-case identity across register and unregister paths.
+                String afterTable = after.getTableName();
                 boolean isRename = !before.getDbName().equalsIgnoreCase(after.getDbName())
                         || !before.getTableName().equalsIgnoreCase(afterTable);
                 boolean isView = before.isSetViewExpandedText() || before.isSetViewOriginalText();

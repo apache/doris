@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorDelegatedCredential;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -70,7 +70,7 @@ public class IcebergProviderSessionRoutingTest {
     @Test
     public void scanProviderAppliesResolverWithCallSessionAndFailsClosed() {
         List<ConnectorSession> seen = new ArrayList<>();
-        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(),
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()),
                 failClosedResolver(seen, new RecordingIcebergCatalogOps()), null, null, null);
         RoutingSession noCred = new RoutingSession(null);
 
@@ -91,7 +91,7 @@ public class IcebergProviderSessionRoutingTest {
         // Record the loadTable call, then stop the method — the routing target is all this test asserts, not the
         // downstream split planning (which would need a live table).
         perUserOps.throwOnLoadTable = true;
-        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(),
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()),
                 failClosedResolver(seen, perUserOps), null, null, null);
         RoutingSession cred = new RoutingSession(CRED);
 
@@ -107,7 +107,7 @@ public class IcebergProviderSessionRoutingTest {
     @Test
     public void writeProviderAppliesResolverWithCallSessionAndFailsClosed() {
         List<ConnectorSession> seen = new ArrayList<>();
-        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(Collections.emptyMap(),
+        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()),
                 failClosedResolver(seen, new RecordingIcebergCatalogOps()), null);
         RoutingSession noCred = new RoutingSession(null);
 

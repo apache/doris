@@ -17,24 +17,24 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.ConnectorTableStatistics;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ConnectorTableKey;
+import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorTableStatistics;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -84,7 +84,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     // for the HMS-only-props gate in createDatabase. This is the same data as
     // session.getCatalogProperties() (the FE injects both from one source), but using the
     // directly-injected map avoids depending on the session being populated and is simpler.
-    private final Map<String, String> catalogProperties;
+    private final PaimonCatalogProperties catalogProperties;
 
     // FIX-B-MC2: time-travel schema-at-snapshot memo. Injected by PaimonConnector (the per-catalog,
     // long-lived owner) so the at-snapshot resolve hits across queries. The public 3-arg ctor gives each
@@ -108,18 +108,18 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     // listPartitions for its LIST/timestamp partition view.
     private final ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache;
 
-    public PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
+    public PaimonConnectorMetadata(PaimonCatalogOps catalogOps, PaimonCatalogProperties properties,
             ConnectorContext context) {
         this(catalogOps, properties, context, new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE));
     }
 
-    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
+    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, PaimonCatalogProperties properties,
             ConnectorContext context, PaimonSchemaAtMemo schemaAtMemo) {
         this(catalogOps, properties, context, schemaAtMemo, new PaimonLatestSnapshotCache(0L, 1));
     }
 
     /** Convenience ctor without the PERF-06 derived partition-view cache (null -> listPartitions always live). */
-    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
+    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, PaimonCatalogProperties properties,
             ConnectorContext context, PaimonSchemaAtMemo schemaAtMemo,
             PaimonLatestSnapshotCache latestSnapshotCache) {
         this(catalogOps, properties, context, schemaAtMemo, latestSnapshotCache, null);
@@ -131,7 +131,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * {@code List<ConnectorPartitionInfo>}, keyed by {@code (db, table, snapshotId, schemaId)}. {@code null}
      * for the convenience/test ctors (no cross-query derived layer -&gt; compute directly every call).
      */
-    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, Map<String, String> properties,
+    PaimonConnectorMetadata(PaimonCatalogOps catalogOps, PaimonCatalogProperties properties,
             ConnectorContext context, PaimonSchemaAtMemo schemaAtMemo,
             PaimonLatestSnapshotCache latestSnapshotCache,
             ConnectorMetadataCache<List<ConnectorPartitionInfo>> partitionViewCache) {
@@ -516,6 +516,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 base.getDatabaseName(), base.getTableName(), sys, forceJni);
         handle.setPaimonTable(sysTable);
         handle.setSysBaseTable(sysBase);
+        // Validation must retain the decorated relation generation, while sysBaseTable intentionally
+        // keeps the undecorated FileStoreTable used to rebuild the wrapper for the backend.
+        handle.setSystemTableSource(baseTable);
         return Optional.of(handle);
     }
 
@@ -562,6 +565,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         long id = latestSnapshotCache.getOrLoad(identifier,
                 () -> catalogOps.latestSnapshotId(resolveTable(paimonHandle)).orElse(-1L));
         return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(id).build());
+    }
+
+    @Override
+    public boolean usesStatementSnapshotForOptions(
+            ConnectorSession session, ConnectorTableHandle handle, Map<String, String> options) {
+        // Explicit Paimon selectors own their version and must not be overwritten by a latest fence.
+        return PaimonScanParams.usesStatementSnapshot(options);
     }
 
     /**
@@ -731,8 +741,17 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 // must not be re-evaluated later, or split planning would read a different version than
                 // the one whose schema was bound. Resolution runs against the LATEST table, because the
                 // options themselves are what selects the version.
-                Map<String, String> resolved =
-                        PaimonScanParams.resolveOptions(table, spec.getOptions());
+                boolean usesStatementFence = spec.getLatestSnapshotFence().isPresent()
+                        && PaimonScanParams.usesStatementSnapshot(spec.getOptions());
+                Map<String, String> resolved;
+                if (usesStatementFence) {
+                    // Planning-only aliases own different table projections, not different
+                    // versions. Reuse the statement fence even if latest advances between binds.
+                    resolved = PaimonScanParams.pinOptionsToSnapshot(
+                            spec.getOptions(), spec.getLatestSnapshotFence().getAsLong());
+                } else {
+                    resolved = PaimonScanParams.resolveOptions(table, spec.getOptions());
+                }
                 String pinnedTag = resolved.get(CoreOptions.SCAN_TAG_NAME.key());
                 if (pinnedTag != null) {
                     // A tag selector (scan.tag-name, or a tag-valued scan.version that resolveOptions
@@ -749,8 +768,12 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                             .properties(PaimonScanParams.markAsOptions(resolved))
                             .build());
                 }
-                long pinnedId = pinnedSnapshotId(table, resolved);
-                long schemaId = pinnedId < 0
+                long pinnedId = usesStatementFence
+                        ? spec.getLatestSnapshotFence().getAsLong()
+                        : pinnedSnapshotId(table, resolved);
+                // The statement fence pins data visibility, not schema time travel. Planning-only
+                // aliases must retain the latest-schema projection used by the plain relation.
+                long schemaId = usesStatementFence || pinnedId < 0
                         ? -1L
                         : catalogOps.snapshotSchemaId(table, pinnedId).orElse(-1L);
                 // resolved is never empty for a startup selector; for a selector-free @options (e.g. only
@@ -914,14 +937,14 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 return paimonHandle.withScanOptions(snapshot.getProperties());
             }
         }
-        // Empty-properties latest-pin (beginQuerySnapshot) path. Empty-table / query-begin parity:
-        // beginQuerySnapshot pins INVALID_SNAPSHOT_ID (-1) for an empty table rather than
-        // Optional.empty(). A -1 (or a null snapshot) must NOT become scan.snapshot-id=-1, because
-        // Table.copy(scan.snapshot-id=-1) resolves to a non-existent snapshot in the paimon SDK
-        // (confusing "snapshot/file not found"). Legacy never copied an invalid id: its empty /
-        // query-begin path reads latest WITHOUT a copy. So return the handle UNCHANGED (read latest).
-        if (snapshot == null || snapshot.getSnapshotId() < 0) {
+        if (snapshot == null) {
             return paimonHandle;
+        }
+        if (snapshot.getSnapshotId() < 0) {
+            // Empty latest is still a statement-scoped state. Carry only Doris' internal marker;
+            // Paimon's scan.snapshot-id=-1 would address a non-existent snapshot file.
+            return paimonHandle.withScanOptions(
+                    PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), -1L));
         }
         Map<String, String> scanOptions = Collections.singletonMap(
                 CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshot.getSnapshotId()));
@@ -1052,8 +1075,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     @Override
     public void createDatabase(ConnectorSession session, String dbName,
             Map<String, String> properties) {
-        String flavor = PaimonCatalogFactory.resolveFlavor(catalogProperties);
-        if (!properties.isEmpty() && !PaimonConnectorProperties.HMS.equals(flavor)) {
+        String flavor = catalogProperties.getFlavor();
+        if (!properties.isEmpty() && !PaimonCatalogProperties.HMS.equals(flavor)) {
             throw new DorisConnectorException(
                     "Not supported: create database with properties for paimon catalog type: " + flavor);
         }
@@ -1256,7 +1279,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      */
     private List<ConnectorPartitionInfo> cachedPartitions(PaimonTableHandle paimonHandle) {
         List<String> partitionKeys = paimonHandle.getPartitionKeys();
-        if (partitionViewCache == null || partitionKeys == null || partitionKeys.isEmpty()) {
+        Map<String, String> scanOptions = paimonHandle.getScanOptions();
+        if (partitionViewCache == null || partitionKeys == null || partitionKeys.isEmpty()
+                || (!scanOptions.isEmpty() && !PaimonScanParams.hasOnlyReaderOptions(scanOptions))) {
             return collectPartitions(paimonHandle);
         }
         ConnectorTableKey key = partitionViewCacheKey(paimonHandle);
@@ -1266,11 +1291,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
     /**
      * Builds cache A's key for {@code paimonHandle}: {@code (db, table, snapshotId, schemaId)}.
      *
-     * <p><b>snapshotId</b>: {@link #collectPartitions}'s remote call ({@code catalogOps.listPartitions(Identifier)})
-     * is BASE-identifier-only — it does not apply the handle's pinned {@code scanOptions} (unlike the scan path),
-     * so it always reflects the CURRENT catalog state, never a time-travel pin (branch / time-travel reads never
-     * reach this path at all — see {@link #collectPartitions}). The key must therefore track "current", not
-     * whatever snapshot happens to be threaded on the handle: it reads the SAME per-catalog
+     * <p><b>snapshotId</b>: cached calls have no startup-changing scan options (those bypass this cache), so
+     * {@link #collectPartitions} enumerates the current resolved table copy. The key therefore reads the SAME
+     * per-catalog
      * {@link #latestSnapshotCache} that {@link #beginQuerySnapshot} pins queries to (a cheap in-memory hit within
      * the query — {@code beginQuerySnapshot} already warmed it), so a repeat query within the TTL hits this cache,
      * and a new snapshot (data change, once the entry expires or REFRESH invalidates it) naturally mints a new key.
@@ -1301,6 +1324,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
      * the partition columns and escapes path-special characters in the name via the Paimon SDK.
      */
     private List<ConnectorPartitionInfo> collectPartitions(PaimonTableHandle paimonHandle) {
+        if (PaimonScanParams.isPinnedEmptyScan(paimonHandle.getScanOptions())) {
+            // Do not reopen latest metadata after the statement fenced an empty table.
+            return Collections.emptyList();
+        }
         List<String> partitionKeys = paimonHandle.getPartitionKeys();
         // Legacy never lists partitions for unpartitioned tables: PaimonPartitionInfoLoader.load
         // returns EMPTY when partitionColumns is empty, so guard before touching the seam.
@@ -1308,23 +1335,36 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return Collections.emptyList();
         }
 
-        // Partition enumeration is intentionally BASE-only: branch / time-travel reads carry EMPTY
-        // partition info (legacy PaimonPartitionInfo.EMPTY) and never reach this path, so for the
-        // (non-branch) handles that do, resolveTable returns the base table and the base-Identifier
-        // listing below is consistent. (A branch handle would otherwise mix branch schema metadata
-        // here with the base partition list — but that combination does not occur by design.)
-        Table table = resolveTable(paimonHandle);
+        Table resolvedTable = resolveTable(paimonHandle);
+        Map<String, String> scanOptions = paimonHandle.getScanOptions();
+        boolean optionsPin = PaimonScanParams.isOptionsPin(scanOptions);
+        Table table;
+        if (optionsPin) {
+            table = PaimonScanParams.applyOptions(resolvedTable, scanOptions);
+        } else {
+            String snapshotId = scanOptions.get(CoreOptions.SCAN_SNAPSHOT_ID.key());
+            // Fence hydration receives an ordinary positive snapshot pin. Apply it before listing
+            // partitions so EXPLAIN and block-rule accounting describe the same version as the scan.
+            Table partitionTable = snapshotId == null
+                    ? resolvedTable
+                    : resolvedTable.copy(Collections.singletonMap(
+                            CoreOptions.SCAN_SNAPSHOT_ID.key(), snapshotId));
+            // Partition projection never opens a data reader, so reader-only settings must not
+            // invalidate metadata that a later relation-scoped override can make safe.
+            // Metadata planning can also touch Paimon's global manifest executor, so apply the
+            // CPU-local cap to a disposable projection rather than the cached catalog handle.
+            table = PaimonReaderOptions.runtimeSafeTable(partitionTable);
+            PaimonReaderOptions.validateEffectivePlanningTable(table);
+        }
         Identifier identifier = Identifier.create(
                 paimonHandle.getDatabaseName(), paimonHandle.getTableName());
-        // M-11: wrap the remote listPartitions in executeAuthenticated (D-052), mirroring legacy
-        // PaimonExternalCatalog.getPaimonPartitions which ran it inside executionAuthenticator.execute
-        // and swallowed TableNotExistException INSIDE the wrap (Kerberos UGI.doAs would otherwise wrap
-        // the checked exception, so it must be caught inside).
         List<Partition> paimonPartitions;
         try {
             paimonPartitions = context.executeAuthenticated(() -> {
                 try {
-                    return catalogOps.listPartitions(identifier);
+                    // Always enumerate the exact resolved copy: both relation and catalog policies are
+                    // query semantics and must survive this metadata-planning boundary.
+                    return catalogOps.listPartitions(identifier, table);
                 } catch (Catalog.TableNotExistException e) {
                     LOG.warn("Paimon table not found while listing partitions: {}", identifier, e);
                     return Collections.<Partition>emptyList();
@@ -1444,7 +1484,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         long rowCount;
         try {
-            rowCount = catalogOps.rowCount(resolveTable(paimonHandle));
+            Table table = PaimonReaderOptions.runtimeSafeTable(resolveTable(paimonHandle));
+            table = runtimeSafeSystemTable(paimonHandle, table, Collections.emptyMap());
+            PaimonReaderOptions.validateEffectiveTable(table);
+            rowCount = catalogOps.rowCount(table);
         } catch (Exception e) {
             LOG.warn("Failed to compute Paimon row count for {}", paimonHandle, e);
             return Optional.empty();
@@ -1471,11 +1514,21 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         long rowCount;
         try {
             PaimonTableHandle pinned = (PaimonTableHandle) applySnapshot(session, handle, snapshot);
+            if (PaimonScanParams.isPinnedEmptyScan(pinned.getScanOptions())) {
+                // Empty is a real statement fence; reopening latest here could count a concurrent
+                // first commit even though execution is still required to scan zero rows.
+                return Optional.empty();
+            }
             Table table = resolveTable(pinned);
             Map<String, String> scanOptions = pinned.getScanOptions();
             if (scanOptions != null && !scanOptions.isEmpty()) {
-                table = table.copy(scanOptions);
+                table = PaimonScanParams.isOptionsPin(scanOptions)
+                        ? PaimonScanParams.applyOptions(table, scanOptions)
+                        : table.copy(scanOptions);
             }
+            table = PaimonReaderOptions.runtimeSafeTable(table);
+            table = runtimeSafeSystemTable(pinned, table, scanOptions);
+            PaimonReaderOptions.validateEffectiveTable(table);
             rowCount = catalogOps.rowCount(table);
         } catch (Exception e) {
             LOG.warn("Failed to compute Paimon row count at snapshot {} for {}",
@@ -1486,6 +1539,17 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return Optional.of(new ConnectorTableStatistics(rowCount, -1));
         }
         return Optional.empty();
+    }
+
+    private Table runtimeSafeSystemTable(
+            PaimonTableHandle handle, Table systemTable, Map<String, String> scanOptions)
+            throws Exception {
+        if (!handle.isSystemTable()) {
+            return systemTable;
+        }
+        Table dataTable = PaimonTableResolver.resolveSystemSource(catalogOps, handle, context);
+        return PaimonReaderOptions.runtimeSafeSystemTable(
+                handle.getSysTableName(), systemTable, dataTable, scanOptions);
     }
 
     /**
@@ -1547,15 +1611,8 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         return columns;
     }
 
-    private static PaimonTypeMapping.Options buildTypeMappingOptions(Map<String, String> props) {
-        boolean binaryAsVarbinary = Boolean.parseBoolean(
-                props.getOrDefault(
-                        PaimonConnectorProperties.ENABLE_MAPPING_VARBINARY,
-                        "false"));
-        boolean timestampTz = Boolean.parseBoolean(
-                props.getOrDefault(
-                        PaimonConnectorProperties.ENABLE_MAPPING_TIMESTAMP_TZ,
-                        "false"));
-        return new PaimonTypeMapping.Options(binaryAsVarbinary, timestampTz);
+    private static PaimonTypeMapping.Options buildTypeMappingOptions(PaimonCatalogProperties props) {
+        return new PaimonTypeMapping.Options(
+                props.isEnableMappingVarbinary(), props.isEnableMappingTimestampTz());
     }
 }

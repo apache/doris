@@ -23,7 +23,6 @@
 #include <stddef.h>
 
 #include <cstdint>
-#include <functional>
 #include <map>
 #include <memory> // unique_ptr
 #include <string>
@@ -61,9 +60,6 @@ class FileWriter;
 
 namespace segment_v2 {
 
-extern const char* k_segment_magic;
-extern const uint32_t k_segment_magic_length;
-
 class VariantStatsCaculator;
 
 struct SegmentWriterOptions {
@@ -92,29 +88,12 @@ public:
     virtual Status init(const std::vector<uint32_t>& col_ids, bool has_key);
 
     virtual Status append_block(const Block* block, size_t row_pos, size_t num_rows);
-    Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
-                             bool have_delete_sign,
-                             const std::vector<RowsetSharedPtr>& specified_rowsets,
-                             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                             bool& has_default_or_nullable,
-                             std::vector<bool>& use_default_or_null_flag,
-                             const std::function<void(const RowLocation& loc)>& found_cb,
-                             const std::function<Status()>& not_found_cb,
-                             PartialUpdateStats& stats);
-    Status partial_update_preconditions_check(size_t row_pos);
-    Status append_block_with_partial_content(const Block* block, size_t row_pos, size_t num_rows);
 
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
     uint64_t estimate_segment_size();
 
     uint32_t num_rows_written() const { return _num_rows_written; }
-
-    // for partial update
-    int64_t num_rows_updated() const { return _num_rows_updated; }
-    int64_t num_rows_deleted() const { return _num_rows_deleted; }
-    int64_t num_rows_new_added() const { return _num_rows_new_added; }
-    int64_t num_rows_filtered() const { return _num_rows_filtered; }
 
     uint32_t row_count() const { return _row_count; }
 
@@ -167,11 +146,9 @@ private:
     Status _write_primary_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
-    void _maybe_invalid_row_cache(const std::string& key);
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
-    void _serialize_block_to_row_column(Block& block);
     Status _generate_primary_key_index(
             const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
             IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
@@ -221,12 +198,6 @@ protected:
     // _num_rows_written means row count already written in this current column group
     uint32_t _num_rows_written = 0;
 
-    /** for partial update stats **/
-    int64_t _num_rows_updated = 0;
-    int64_t _num_rows_new_added = 0;
-    int64_t _num_rows_deleted = 0;
-    // number of rows filtered in strict mode partial update
-    int64_t _num_rows_filtered = 0;
     // _row_count means total row count of this segment
     // In vertical compaction row count is recorded when key columns group finish
     //  and _num_rows_written will be updated in value column group
@@ -237,8 +208,6 @@ protected:
     faststring _max_key;
 
     std::shared_ptr<MowContext> _mow_context;
-    // group every rowset-segment row id to speed up reader
-    std::map<RowsetId, RowsetSharedPtr> _rsid_to_rowset;
     std::vector<std::string> _primary_keys;
     uint64_t _primary_keys_size = 0;
     // variant statistics calculator for efficient stats collection

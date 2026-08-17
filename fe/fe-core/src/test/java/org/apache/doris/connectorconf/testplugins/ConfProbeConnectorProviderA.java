@@ -18,7 +18,7 @@
 package org.apache.doris.connectorconf.testplugins;
 
 import org.apache.doris.connector.ConfProbeSink;
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
@@ -43,6 +43,22 @@ public class ConfProbeConnectorProviderA implements ConnectorProvider {
     @Override
     public String getType() {
         return TYPE;
+    }
+
+    @Override
+    public void validatePropertiesForUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        ClassLoader providerLoader = getClass().getClassLoader();
+        try {
+            Class<?> helper = Class.forName(
+                    AlterValidationHelper.class.getName(), true,
+                    Thread.currentThread().getContextClassLoader());
+            if (helper.getClassLoader() != providerLoader) {
+                throw new IllegalStateException("ALTER helper was resolved outside the plugin classloader");
+            }
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException("ALTER helper was not visible to the plugin", e);
+        }
     }
 
     @Override

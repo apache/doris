@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Assumptions;
@@ -72,7 +72,7 @@ public class IcebergLiveConnectivityTest {
         String warehouse = System.getenv("ICEBERG_WAREHOUSE");
 
         Map<String, String> props = new HashMap<>();
-        props.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        props.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
         props.put("iceberg.rest.uri", restUri);
         if (warehouse != null && !warehouse.isEmpty()) {
             props.put("warehouse", warehouse);

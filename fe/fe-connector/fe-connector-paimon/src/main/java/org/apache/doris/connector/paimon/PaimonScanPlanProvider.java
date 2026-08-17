@@ -17,19 +17,20 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
-import org.apache.doris.connector.api.scan.ConnectorScanProfile;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRequest;
-import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
+import org.apache.doris.connector.metastore.paimon.jdbc.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -47,6 +48,7 @@ import org.apache.doris.thrift.schema.external.TStructField;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
@@ -103,9 +105,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
@@ -205,8 +210,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // Connector-private scan node property key (the engine never reads it): carries the base64-serialized
     // paimon Table from getScanNodeProperties to populateScanLevelParams, which puts it on the thrift.
     private static final String PROP_SERIALIZED_TABLE = "paimon.serialized_table";
+    private static final String PROP_SERIALIZED_TABLE_CACHE_KEY =
+            "paimon.serialized_table_cache_key";
+    private static final String DORIS_MANIFEST_PARALLELISM_CAP =
+            "doris.scan.manifest.parallelism-cap";
+    private static final String DORIS_SERIALIZED_SYSTEM_SOURCE = "doris.serialized-system-source";
+    private static final String DORIS_SYSTEM_TABLE_TYPE = "doris.system-table-type";
 
-    private final Map<String, String> properties;
+    private final PaimonCatalogProperties catalogProps;
     private final PaimonCatalogOps catalogOps;
     private final ConnectorContext context;
     // FIX-B-R2-be: connector-level (per-catalog, long-lived) memo of the per-committed-schema-id field
@@ -222,18 +233,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // path (paimon never streams), so the CopyOnWriteArrayList value is only ever appended single-threaded.
     private final ConcurrentHashMap<String, List<ConnectorScanProfile>> scanProfileStash = new ConcurrentHashMap<>();
 
-    public PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps) {
-        this(properties, catalogOps, null);
+    public PaimonScanPlanProvider(PaimonCatalogProperties catalogProps, PaimonCatalogOps catalogOps) {
+        this(catalogProps, catalogOps, null);
     }
 
-    public PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps,
+    public PaimonScanPlanProvider(PaimonCatalogProperties catalogProps, PaimonCatalogOps catalogOps,
             ConnectorContext context) {
-        this(properties, catalogOps, context, new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE));
+        this(catalogProps, catalogOps, context, new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE));
     }
 
-    PaimonScanPlanProvider(Map<String, String> properties, PaimonCatalogOps catalogOps,
+    PaimonScanPlanProvider(PaimonCatalogProperties catalogProps, PaimonCatalogOps catalogOps,
             ConnectorContext context, PaimonSchemaAtMemo schemaAtMemo) {
-        this.properties = properties;
+        this.catalogProps = catalogProps;
         this.catalogOps = catalogOps;
         this.context = context;
         this.schemaAtMemo = schemaAtMemo;
@@ -247,10 +258,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     /**
      * Reads the {@code force_jni_scanner} session flag from the SPI session properties (forwarded by the
      * engine via {@code VariableMgr.toMap}). When true the JNI escape
-     * hatch is engaged: every native-eligible DataSplit is routed to JNI (see
+     * hatch is engaged: native-eligible DataSplits are routed to JNI (see
      * {@link #shouldUseNativeReader}), bypassing the native ORC/Parquet readers to dodge native-reader
-     * bugs. Default false (legacy default), so normal reads are unaffected. Package-private static for
-     * offline unit testing.
+     * bugs. Variant projections remain native because JNI has no Variant carrier. Default false
+     * (legacy default), so normal reads are unaffected. Package-private static for offline unit testing.
      */
     static boolean isForceJniScannerEnabled(ConnectorSession session) {
         if (session == null) {
@@ -316,20 +327,44 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     Table resolveScanTable(PaimonTableHandle paimonHandle) {
         Table table = resolveTable(paimonHandle);
         Map<String, String> scanOptions = paimonHandle.getScanOptions();
+        Table finalTable = table;
         if (scanOptions != null && !scanOptions.isEmpty()) {
             if (PaimonScanParams.isOptionsPin(scanOptions)) {
                 // An @options pin owns the whole scan-startup state: applyOptions strips the internal
                 // markers and nulls out the absent members of paimon's inherited read-state family, so a
                 // scan.mode / tag persisted on the base table cannot leak into this relation's read.
-                return PaimonScanParams.applyOptions(table, scanOptions);
+                finalTable = PaimonScanParams.applyOptions(table, scanOptions);
+            } else {
+                // FIX-INCR-SCAN-RESET: for an @incr read, reapply legacy's null reset of
+                // scan.snapshot-id/scan.mode here (the single Table.copy chokepoint shared by both the
+                // native/JNI scan path and the JNI serialized-table path) so a stale persisted pin on the
+                // base table cannot hijack incremental-between. Non-incremental pins pass through unchanged.
+                finalTable = table.copy(PaimonIncrementalScanParams.applyResetsIfIncremental(scanOptions));
             }
-            // FIX-INCR-SCAN-RESET: for an @incr read, reapply legacy's null reset of
-            // scan.snapshot-id/scan.mode here (the single Table.copy chokepoint shared by both the
-            // native/JNI scan path and the JNI serialized-table path) so a stale persisted pin on the
-            // base table cannot hijack incremental-between. Non-incremental pins pass through unchanged.
-            return table.copy(PaimonIncrementalScanParams.applyResetsIfIncremental(scanOptions));
         }
-        return table;
+        finalTable = PaimonReaderOptions.runtimeSafeTable(finalTable);
+        finalTable = runtimeSafeSystemTable(paimonHandle, finalTable, scanOptions);
+        // This is the last common boundary before planning and serialization. Normalize and
+        // validate only after relation > catalog > physical precedence is established.
+        PaimonReaderOptions.validateEffectiveTable(finalTable);
+        return finalTable;
+    }
+
+    private Table runtimeSafeSystemTable(
+            PaimonTableHandle handle, Table systemTable, Map<String, String> scanOptions) {
+        if (!handle.isSystemTable()) {
+            return systemTable;
+        }
+        try {
+            Table dataTable = PaimonTableResolver.resolveSystemSource(catalogOps, handle, context);
+            return PaimonReaderOptions.runtimeSafeSystemTable(
+                    handle.getSysTableName(), systemTable, dataTable, scanOptions);
+        } catch (IllegalArgumentException e) {
+            // Validation details must reach the SQL boundary so users can correct unsafe table options.
+            throw new DorisConnectorException(e.getMessage(), e);
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to validate Paimon system table source", e);
+        }
     }
 
     @Override
@@ -569,10 +604,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             // engine's table-level count pushdown rather than answer with the physical count.
             countPushdown = false;
         }
-        if (optionsPin && PaimonScanParams.isPinnedEmptyScan(pinnedOptions)) {
-            // The @options selector resolved to "no snapshot" at bind time. Re-deriving that here would
-            // reopen the race the resolution closed: a commit landing between bind and split planning
-            // would turn an empty relation into a non-empty one mid-statement.
+        if (PaimonScanParams.isPinnedEmptyScan(pinnedOptions)) {
+            // Every latest fence, including a plain relation, preserves an empty table as statement
+            // state so a commit between binding and split planning cannot appear mid-statement.
             return Collections.emptyList();
         }
         Table table = resolveScanTable(paimonHandle);
@@ -595,6 +629,24 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         ((PaimonColumnHandle) c).getName().toLowerCase()))
                 .filter(i -> optionsPin || i >= 0)
                 .toArray();
+        boolean hasVariantProjection = Arrays.stream(projected)
+                .filter(index -> index >= 0)
+                .anyMatch(index -> containsVariant(rowType.getTypeAt(index)));
+
+        // FIX-L14: honor the ignore_split_type debugging escape hatch (legacy PaimonScanNode.getSplits):
+        // IGNORE_JNI drops JNI splits (nonDataSplit + DataSplit-JNI arms), IGNORE_NATIVE drops native splits.
+        // The COUNT(*) arm is never dropped (legacy parity); IGNORE_PAIMON_CPP stays a no-op (legacy getSplits
+        // never consulted it). Read once here so discarded JNI splits bypass carrier compatibility checks.
+        String ignoreSplitType = resolveIgnoreSplitType(session);
+        boolean ignoreJni = IGNORE_SPLIT_TYPE_JNI.equals(ignoreSplitType);
+        boolean ignoreNative = IGNORE_SPLIT_TYPE_NATIVE.equals(ignoreSplitType);
+
+        if (hasVariantProjection && paimonHandle.isForceJni() && !ignoreJni) {
+            // System-table forceJni preserves row-kind/sequence semantics that raw files cannot reproduce;
+            // Variant has no JNI carrier, so failing is safer than silently changing those semantics.
+            throw new DorisConnectorException(
+                    "Paimon Variant columns are unsupported for force-JNI system tables");
+        }
         if (optionsPin && Arrays.stream(projected).anyMatch(index -> index < 0)) {
             // Only an @options read can bind against a schema the scan table does not have: its snapshot
             // is chosen per relation, so a column bound from one version may be absent from the version
@@ -645,14 +697,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
 
-        // FIX-L14: honor the ignore_split_type debugging escape hatch (legacy PaimonScanNode.getSplits):
-        // IGNORE_JNI drops JNI splits (nonDataSplit + DataSplit-JNI arms), IGNORE_NATIVE drops native splits.
-        // The COUNT(*) arm is never dropped (legacy parity); IGNORE_PAIMON_CPP stays a no-op (legacy getSplits
-        // never consulted it). Read once here, null-tolerant like the flags above.
-        String ignoreSplitType = resolveIgnoreSplitType(session);
-        boolean ignoreJni = IGNORE_SPLIT_TYPE_JNI.equals(ignoreSplitType);
-        boolean ignoreNative = IGNORE_SPLIT_TYPE_NATIVE.equals(ignoreSplitType);
-
         // FIX-REST-VENDED-URI-NORMALIZE (P9-1): extract the per-table vended token ONCE per scan
         // (validToken() may refresh; legacy computes its storage map once in doInitialize), threaded into
         // the native-path URI normalization below so REST object-store reads normalize via the vended
@@ -673,6 +717,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             if (ignoreJni) {
                 // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:401).
                 continue;
+            }
+            if (hasVariantProjection) {
+                throw new DorisConnectorException(
+                        "Paimon Variant columns require native Parquet data files");
             }
             ranges.add(buildJniScanRange(split, defaultFileFormat,
                     Collections.emptyMap(), false, weightDenominator));
@@ -696,6 +744,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // lazily ONCE on the first native split (legacy hasDeterminedTargetFileSplitSize parity).
         long targetSplitSize = -1;
 
+        Set<Long> physicalVariantSchemaIds = hasVariantProjection
+                ? physicalVariantSchemaIds(table, paimonHandle, rowType, columns, dataSplits)
+                : Collections.emptySet();
+
         // Process DataSplits
         for (DataSplit dataSplit : dataSplits) {
             if (isCountPushdownSplit(countPushdown, dataSplit)) {
@@ -713,7 +765,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
 
             if (shouldUseNativeReader(paimonHandle.isForceJni(),
-                    isForceJniScannerEnabled(session), optRawFiles)) {
+                    isForceJniScannerEnabled(session), hasVariantProjection,
+                    physicalVariantSchemaIds, optRawFiles)) {
                 if (ignoreNative) {
                     // FIX-L14: ignore_split_type=IGNORE_NATIVE drops native splits (legacy getSplits:443).
                     continue;
@@ -736,13 +789,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                             (optDeletionFiles.isPresent() && i < optDeletionFiles.get().size())
                                     ? optDeletionFiles.get().get(i) : null;
                     ranges.addAll(buildNativeRanges(file, deletionFile, defaultFileFormat,
-                            partitionValues, vendedToken, effectiveSplitSize, weightDenominator));
+                            partitionValues, vendedToken, effectiveSplitSize, weightDenominator,
+                            dataSplit.bucket()));
                 }
             } else {
                 // JNI reader path
                 if (ignoreJni) {
                     // FIX-L14: ignore_split_type=IGNORE_JNI drops JNI splits (legacy getSplits:483).
                     continue;
+                }
+                if (hasVariantProjection) {
+                    throw new DorisConnectorException(
+                            "Paimon Variant columns require native Parquet data files");
                 }
                 ranges.add(buildJniScanRange(dataSplit, defaultFileFormat,
                         partitionValues, true, weightDenominator));
@@ -773,7 +831,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     PaimonScanRange buildNativeRange(RawFile file, DeletionFile deletionFile,
             String defaultFileFormat, Map<String, String> partitionValues,
-            Map<String, String> vendedToken, long start, long length, long weightDenominator) {
+            Map<String, String> vendedToken, long start, long length, long weightDenominator,
+            int bucket) {
         String fileFormat = getFileFormatBySuffix(file.path()).orElse(defaultFileFormat);
         // FIX-A1: native sub-split FE weight = the sub-range byte length, + the deletion-vector length when
         // attached (legacy PaimonSplit(LocationPath,...).selfSplitWeight = length, setDeletionFile += DV).
@@ -789,7 +848,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .partitionValues(partitionValues)
                 .selfSplitWeight(selfSplitWeight)
                 .targetSplitSize(weightDenominator)
-                .schemaId(file.schemaId());
+                .schemaId(file.schemaId())
+                .bucket(bucket);
         if (deletionFile != null) {
             builder.deletionFile(
                     normalizeUri(deletionFile.path(), vendedToken),
@@ -811,11 +871,12 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     List<PaimonScanRange> buildNativeRanges(RawFile file, DeletionFile deletionFile,
             String defaultFileFormat, Map<String, String> partitionValues,
-            Map<String, String> vendedToken, long targetSplitSize, long weightDenominator) {
+            Map<String, String> vendedToken, long targetSplitSize, long weightDenominator,
+            int bucket) {
         List<PaimonScanRange> result = new ArrayList<>();
         for (long[] offset : computeFileSplitOffsets(file.length(), targetSplitSize)) {
             result.add(buildNativeRange(file, deletionFile, defaultFileFormat,
-                    partitionValues, vendedToken, offset[0], offset[1], weightDenominator));
+                    partitionValues, vendedToken, offset[0], offset[1], weightDenominator, bucket));
         }
         return result;
     }
@@ -870,8 +931,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
         // Serialized table for BE's JNI reader, stripped of its catalog loader (see
         // tableForBackend) so the BE never has to deserialize the Hive metastore stack.
-        String serializedTable = encodeObjectToString(tableForBackend(paimonHandle, table));
+        Table backendTable = tableForBackend(paimonHandle, table);
+        String serializedTable = encodeObjectToString(backendTable);
         props.put(PROP_SERIALIZED_TABLE, serializedTable);
+        props.put(PROP_SERIALIZED_TABLE_CACHE_KEY, UUID.randomUUID().toString());
+        OptionalInt backendManifestCap = backendManifestParallelism(paimonHandle, table);
 
         // Serialized predicates for BE's JNI scanner. ALWAYS emit, even for the no-filter / empty-predicate
         // case: an empty list still serializes to a non-null base64 string, and PaimonJniScanner.getPredicates()
@@ -887,7 +951,25 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         props.put("paimon.predicate", encodeObjectToString(predicates));
 
         // Paimon JDBC metastore options for BE (if applicable)
-        Map<String, String> backendOptions = getBackendPaimonOptions();
+        Map<String, String> backendOptions = new LinkedHashMap<>(getBackendPaimonOptions());
+        backendManifestCap.ifPresent(cap -> backendOptions.put(
+                DORIS_MANIFEST_PARALLELISM_CAP, String.valueOf(cap)));
+        if (paimonHandle.isSystemTable() && backendManifestCap.isPresent()) {
+            Table source = paimonHandle.getSystemTableSource();
+            if (source == null) {
+                source = paimonHandle.getSysBaseTable();
+            }
+            Table effectiveSource = source == null ? null
+                    : PaimonReaderOptions.runtimeSafeSystemSource(
+                            source, paimonHandle.getScanOptions());
+            if (effectiveSource instanceof FileStoreTable) {
+                // A system wrapper can hide its physical option map. Ship the exact catalog-less
+                // source so a smaller BE can cap it and rebuild without reopening catalog state.
+                backendOptions.put(DORIS_SERIALIZED_SYSTEM_SOURCE,
+                        encodeObjectToString(dropCatalogLoader((FileStoreTable) effectiveSource)));
+                backendOptions.put(DORIS_SYSTEM_TABLE_TYPE, paimonHandle.getSysTableName());
+            }
+        }
         if (!backendOptions.isEmpty()) {
             // Encode as JSON for transport
             StringBuilder sb = new StringBuilder("{");
@@ -947,10 +1029,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // FIX-SCHEMA-EVOLUTION (B-1a): emit the native-reader schema dictionary so BE matches file<->table
         // columns BY FIELD ID across schema evolution (rename/reorder) instead of falling back to NAME
         // matching (which silently reads NULL/garbage for renamed columns). Only meaningful when the table
-        // can take the native path: skip it when the handle name-forces JNI (binlog/audit_log) OR the
-        // session forces JNI (force_jni_scanner) — in both cases every split goes JNI and never consults
-        // the dict (FIX-FORCE-JNI-SCANNER: honor the same session escape hatch the native router uses).
-        if (!paimonHandle.isForceJni() && !isForceJniScannerEnabled(session)) {
+        // can take the native path: handle-level force is semantic and unconditional, while a Variant
+        // projection may override only the session debugging knob because JNI has no Variant carrier.
+        boolean hasVariantProjection = projectsVariant(table.rowType(), columns);
+        if (!paimonHandle.isForceJni()
+                && (hasVariantProjection || !isForceJniScannerEnabled(session))) {
             // The schema dict must be built from a FileStoreTable. A normal data table IS one; a $ro
             // (read-optimized) system table is a ReadOptimizedTable that WRAPS a FileStoreTable and reads
             // its data files with its field ids, so resolve the underlying base FileStoreTable here.
@@ -962,6 +1045,23 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         return props;
+    }
+
+    OptionalInt backendManifestParallelism(PaimonTableHandle handle, Table scanTable) {
+        Table planningTable = scanTable;
+        if (handle.isSystemTable()) {
+            Table source = handle.getSystemTableSource();
+            if (source == null) {
+                source = handle.getSysBaseTable();
+            }
+            if (source != null) {
+                // System wrappers hide their manifest planner, so send its FE-safe value out of
+                // band; a smaller BE can lower the same hidden planner after deserialization.
+                planningTable = PaimonReaderOptions.runtimeSafeSystemSource(
+                        source, handle.getScanOptions());
+            }
+        }
+        return PaimonReaderOptions.backendManifestParallelismCap(planningTable);
     }
 
     /**
@@ -1013,16 +1113,25 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (PAIMON_FILES_SYSTEM_TABLE.equalsIgnoreCase(sysTableType)) {
             authorizeDeferredScan(dataTable);
         }
-        FileStoreTable baseForBackend = dropCatalogLoader(dataTable);
+        FileStoreTable preparedDataTable = dataTable;
         if (resolvesOnBackend) {
-            baseForBackend = pinCatalogSnapshot(baseForBackend, dataTable);
+            preparedDataTable = pinCatalogSnapshot(preparedDataTable, dataTable);
         }
+        Map<String, String> scanOptions = handle.getScanOptions();
+        boolean optionsAppliedToSource = PaimonScanParams.isOptionsPin(scanOptions);
+        if (optionsAppliedToSource) {
+            // Fallback snapshot translation consults each branch catalog, so options must be
+            // resolved while both loaders are still present and only then made BE-safe.
+            preparedDataTable = (FileStoreTable) PaimonScanParams.applyOptions(
+                    preparedDataTable, scanOptions);
+        }
+        FileStoreTable baseForBackend = dropCatalogLoader(preparedDataTable);
         Table catalogLessSysTable = SystemTableLoader.load(sysTableType, baseForBackend);
         if (catalogLessSysTable == null) {
             return scanTable;
         }
         return reapplyScanParams(catalogLessSysTable, dataTable, resolvesOnBackend,
-                handle.getScanOptions());
+                optionsAppliedToSource ? Collections.emptyMap() : scanOptions);
     }
 
     /**
@@ -1040,14 +1149,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * {@link #pinCatalogSnapshot} the same way but cannot inherit its bound, so it is bound to the
      * catalog's snapshot separately by {@link PaimonIncrementalScanParams#bindRangeToCatalog}.
      *
-     * <p>Known gap: the {@code @options} branch reaches tables outside
-     * {@link PaimonScanParams#resolvesSnapshotOnBackend}, {@code $ro} among them, and on a
-     * {@code scan.fallback-branch} table the {@code copy(...)} here is what triggers
-     * {@code rewriteFallbackOptions} - on the already catalog-less pair, so the fallback branch's
-     * {@code scan.snapshot-id} is derived from its snapshot directory rather than from the catalog
-     * pointer, the same gap {@link #pinCatalogSnapshot} documents. It lands harder here: unlike the
-     * pin this is {@code copy(...)}, not {@code copyWithoutTimeTravel(...)}, so it also time-travels
-     * the fallback branch's schema, and {@code $ro} is a data table rather than read-only metadata.
+     * <p>The {@code @options} family is applied to the catalog-backed source before this method is
+     * reached. That ordering is required for fallback tables because Paimon's snapshot translation
+     * must consult each branch's catalog-visible pointer before the loaders are removed.
      */
     private Table reapplyScanParams(Table rebuiltSysTable, FileStoreTable dataTable,
             boolean resolvesOnBackend, Map<String, String> scanOptions) {
@@ -1141,30 +1245,38 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * latest snapshot at read time, i.e. across a strictly wider window, so this only moves which
      * side of the window the mismatch falls on.
      *
-     * <p>Known gap: on a table with {@code scan.fallback-branch} this bounds the main branch only.
-     * The pin itself is carried across correctly - {@code copyWithoutTimeTravel} is pair-aware and
-     * {@code rewriteFallbackOptions} converts the main id to the fallback branch's own through
-     * {@code SnapshotManager#earlierOrEqualTimeMills}. What is lost is the pointer that conversion
-     * searches against: the rebuilt pair has no catalog loader on either branch, so the fallback
-     * bound is capped by the newest file in that branch's snapshot directory instead of by the
-     * catalog. Of the pinned tables only {@code $partitions} and {@code $files} read the fallback
-     * branch at all ({@code $manifests} / {@code $statistics} / {@code $table_indexes} reach it
-     * through {@code store()} / {@code statistics()}, which describe the main branch), so the
-     * effect is confined to their rows. Note this outlasts a publication window when it is caused
-     * by a rollback: the abandoned snapshot file stays on the filesystem until it expires, and for
-     * as long as it does the fallback branch can be bound to it.
+     * <p>A fallback pair is pinned branch by branch. Its branches may expose different committed
+     * pointers, and pinning the pair through its delegated main catalog would otherwise translate
+     * the fallback id against uncommitted snapshot files after that branch loader is removed.
      */
     // Package-private for direct unit testing (PaimonBackendBoundTableTest).
     static FileStoreTable pinCatalogSnapshot(FileStoreTable catalogLessTable, FileStoreTable dataTable) {
-        if (!dataTable.catalogEnvironment().supportsVersionManagement()) {
-            return catalogLessTable;
+        FileStoreTable source = PaimonTableDecorators.unwrapToFallbackOrBase(dataTable);
+        FileStoreTable target = PaimonTableDecorators.unwrapToFallbackOrBase(catalogLessTable);
+        if (source instanceof FallbackReadFileStoreTable) {
+            if (!(target instanceof FallbackReadFileStoreTable)) {
+                throw new IllegalStateException("Catalog-less Paimon table lost its fallback branch");
+            }
+            FallbackReadFileStoreTable sourcePair = (FallbackReadFileStoreTable) source;
+            FallbackReadFileStoreTable targetPair = (FallbackReadFileStoreTable) target;
+            return new FallbackReadFileStoreTable(
+                    pinCatalogSnapshotBranch(targetPair.wrapped(), sourcePair.wrapped()),
+                    pinCatalogSnapshotBranch(targetPair.fallback(), sourcePair.fallback()));
         }
-        Long snapshotId = dataTable.snapshotManager().latestSnapshotId();
+        return pinCatalogSnapshotBranch(target, source);
+    }
+
+    private static FileStoreTable pinCatalogSnapshotBranch(
+            FileStoreTable target, FileStoreTable source) {
+        if (!source.catalogEnvironment().supportsVersionManagement()) {
+            return target;
+        }
+        Long snapshotId = source.snapshotManager().latestSnapshotId();
         if (snapshotId == null) {
-            return catalogLessTable;
+            return target;
         }
         // Without time travel: pin which snapshot the BE plans on, leave schema resolution alone.
-        return catalogLessTable.copyWithoutTimeTravel(
+        return target.copyWithoutTimeTravel(
                 Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshotId)));
     }
 
@@ -1226,6 +1338,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return table;
         }
         if (table instanceof ReadOptimizedTable) {
+            FileStoreTable pinnedSource = handle.getSysBaseTable();
+            if (pinnedSource != null) {
+                // $ro reads the field ids of its embedded source; a catalog reload here can observe
+                // schema generation B while the wrapper still plans generation A's files. Relation scan
+                // options must also select this source, or historical splits get the latest dictionary.
+                return reapplyScanParams(
+                        pinnedSource, pinnedSource, false, handle.getScanOptions());
+            }
             return reloadBaseTable(handle);
         }
         return null;
@@ -1290,13 +1410,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         String fileFormat = isDataSplit
                 ? dataSplitFileFormat((DataSplit) split, defaultFileFormat)
                 : defaultFileFormat;
-        return new PaimonScanRange.Builder()
+        PaimonScanRange.Builder builder = new PaimonScanRange.Builder()
                 .fileFormat(fileFormat)
                 .paimonSplit(serializedSplit)
                 .partitionValues(partitionValues)
                 .selfSplitWeight(splitWeight)
-                .targetSplitSize(weightDenominator)
-                .build();
+                .targetSplitSize(weightDenominator);
+        if (isDataSplit) {
+            // Same bucket property as the native arm: which reader BE ends up using must not change
+            // what a sibling connector can learn about the split (see PaimonScanRange's props).
+            builder.bucket(((DataSplit) split).bucket());
+        }
+        return builder.build();
     }
 
     /**
@@ -1476,15 +1601,106 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * must still be allowed native.
      *
      * <p>{@code forceJniScanner} is the user/session escape hatch ({@code SET force_jni_scanner=true},
-     * read via {@link #isForceJniScannerEnabled}): when set, every native-eligible split is routed to
-     * JNI to dodge native-reader bugs. Default false, so normal reads are unaffected.
+     * read via {@link #isForceJniScannerEnabled}): when set, every native-eligible non-Variant split is
+     * routed to JNI to dodge native-reader bugs. Variant projections on ordinary tables stay native because
+     * JNI cannot carry Variant columns, but the semantic handle-level force remains unconditional. Default
+     * false, so normal reads are unaffected.
      *
      * <p>Extracted as a pure static so the correctness-critical routing decision is unit-testable
      * with real {@link RawFile}s, without driving a full Paimon {@code ReadBuilder}/{@code TableScan}.
      */
     static boolean shouldUseNativeReader(boolean forceJni, boolean forceJniScanner,
             Optional<List<RawFile>> optRawFiles) {
-        return !forceJni && !forceJniScanner && supportNativeReader(optRawFiles);
+        return shouldUseNativeReader(forceJni, forceJniScanner, false, optRawFiles);
+    }
+
+    static boolean shouldUseNativeReader(boolean forceJni, boolean forceJniScanner,
+            boolean hasVariantProjection, Optional<List<RawFile>> optRawFiles) {
+        Set<Long> physicalVariantSchemaIds = hasVariantProjection && optRawFiles.isPresent()
+                ? optRawFiles.get().stream().map(RawFile::schemaId).collect(Collectors.toSet())
+                : Collections.emptySet();
+        return shouldUseNativeReader(forceJni, forceJniScanner, hasVariantProjection,
+                physicalVariantSchemaIds, optRawFiles);
+    }
+
+    static boolean shouldUseNativeReader(boolean forceJni, boolean forceJniScanner,
+            boolean hasVariantProjection, Set<Long> physicalVariantSchemaIds,
+            Optional<List<RawFile>> optRawFiles) {
+        // Handle-level force marks system-table semantics, while only the session debugging knob may be
+        // overridden for Variant. An ORC file is safe only when its historical physical schema predates
+        // the projected Variant field; BE never needs to install a Variant schema override for that file.
+        return !forceJni && (hasVariantProjection
+                ? supportNativeVariantReader(optRawFiles, physicalVariantSchemaIds)
+                : !forceJniScanner && supportNativeReader(optRawFiles));
+    }
+
+    private Set<Long> physicalVariantSchemaIds(Table table, PaimonTableHandle handle,
+            RowType currentRowType, List<ConnectorColumnHandle> columns, List<DataSplit> dataSplits) {
+        Set<Integer> projectedVariantFieldIds = columns.stream()
+                .filter(PaimonColumnHandle.class::isInstance)
+                .map(PaimonColumnHandle.class::cast)
+                .map(column -> currentRowType.getFields().stream()
+                        .filter(field -> field.name().equalsIgnoreCase(column.getName()))
+                        .findFirst().orElse(null))
+                .filter(Objects::nonNull)
+                .filter(field -> containsVariant(field.type()))
+                .map(DataField::id)
+                .collect(Collectors.toSet());
+        if (projectedVariantFieldIds.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        Set<Long> rawSchemaIds = new HashSet<>();
+        for (DataSplit split : dataSplits) {
+            split.convertToRawFiles()
+                    .ifPresent(files -> files.forEach(file -> rawSchemaIds.add(file.schemaId())));
+        }
+        // $ro wraps the pinned base FileStoreTable but reads that base table's schema ids. Using the
+        // wrapper here would conservatively label every historical ORC schema as physical Variant.
+        Table physicalSchemaTable = resolveSchemaDictTable(table, handle);
+        if (!(physicalSchemaTable instanceof FileStoreTable)) {
+            return rawSchemaIds;
+        }
+
+        Set<Long> physicalVariantSchemaIds = new HashSet<>();
+        SchemaManager schemaManager = ((FileStoreTable) physicalSchemaTable).schemaManager();
+        for (long schemaId : rawSchemaIds) {
+            TableSchema physicalSchema = schemaManager.schema(schemaId);
+            if (physicalSchema == null || physicalSchema.fields().stream()
+                    .anyMatch(field -> projectedVariantFieldIds.contains(field.id())
+                            && containsVariant(field.type()))) {
+                physicalVariantSchemaIds.add(schemaId);
+            }
+        }
+        return physicalVariantSchemaIds;
+    }
+
+    private static boolean containsVariant(DataType type) {
+        switch (type.getTypeRoot()) {
+            case VARIANT:
+                return true;
+            case ARRAY:
+                return containsVariant(((ArrayType) type).getElementType());
+            case MAP:
+                MapType map = (MapType) type;
+                return containsVariant(map.getKeyType()) || containsVariant(map.getValueType());
+            case ROW:
+                return ((RowType) type).getFields().stream()
+                        .anyMatch(field -> containsVariant(field.type()));
+            default:
+                return false;
+        }
+    }
+
+    private static boolean projectsVariant(
+            RowType rowType, List<ConnectorColumnHandle> columns) {
+        List<String> fieldNames = rowType.getFieldNames().stream()
+                .map(String::toLowerCase).collect(Collectors.toList());
+        return columns.stream().filter(PaimonColumnHandle.class::isInstance)
+                .map(PaimonColumnHandle.class::cast)
+                .mapToInt(column -> fieldNames.indexOf(column.getName().toLowerCase()))
+                .filter(index -> index >= 0)
+                .anyMatch(index -> containsVariant(rowType.getTypeAt(index)));
     }
 
     private static boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
@@ -1498,6 +1714,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         return true;
+    }
+
+    private static boolean supportNativeVariantReader(Optional<List<RawFile>> optRawFiles,
+            Set<Long> physicalVariantSchemaIds) {
+        return optRawFiles.isPresent() && !optRawFiles.get().isEmpty()
+                && optRawFiles.get().stream()
+                        .allMatch(file -> file.path().toLowerCase().endsWith(".parquet")
+                                || (file.path().toLowerCase().endsWith(".orc")
+                                && !physicalVariantSchemaIds.contains(file.schemaId())));
     }
 
     private Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValue, String timeZone) {
@@ -1610,6 +1835,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // Package-private for direct unit testing (PaimonScanPlanProviderTest).
     Map<String, String> getBackendPaimonOptions() {
         Map<String, String> options = new HashMap<>();
+        // Two wildcard namespaces the holder does not model, forwarded verbatim: the paimon.jni.* knobs
+        // below and the jdbc.* / warehouse / uri / metastore / catalog-key set further down.
+        Map<String, String> properties = catalogProps.getRaw();
         // #65332: forward the JNI IOManager options for ALL metastore flavors (mirrors upstream
         // PaimonScanNode.getBackendPaimonOptions returning them before the jdbc-only branch), so
         // non-jdbc catalogs are no longer silently stripped of the enable flag.
@@ -1619,8 +1847,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 options.put(option, properties.get(prefixed));
             }
         }
-        String metastoreType = properties.get("paimon.catalog.type");
-        if (!"jdbc".equalsIgnoreCase(metastoreType)) {
+        if (!PaimonCatalogProperties.JDBC.equals(catalogProps.getFlavor())) {
             return options;
         }
         // Forward relevant JDBC catalog properties for BE's paimon-cpp reader
@@ -1639,16 +1866,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // BE reader accepts (PaimonJdbcDriverUtils reads both aliases): honor either alias and resolve
         // a bare jar name to a full file:// URL. Mirrors legacy
         // PaimonJdbcMetaStoreProperties.getBackendPaimonOptions (getFullDriverUrl + driver_class).
-        String driverUrl = PaimonCatalogFactory.firstNonBlank(
-                properties, PaimonConnectorProperties.JDBC_DRIVER_URL);
-        if (driverUrl != null) {
-            options.put("jdbc.driver_url", JdbcDriverSupport.resolveDriverUrl(driverUrl,
-                    PaimonConnectorProperties.configuredDriversDir(context),
-                    PaimonConnectorProperties.configuredDorisHome(context)));
-            String driverClass = PaimonCatalogFactory.firstNonBlank(
-                    properties, PaimonConnectorProperties.JDBC_DRIVER_CLASS);
-            if (driverClass != null) {
-                options.put("jdbc.driver_class", driverClass);
+        PaimonJdbcMetaStoreProperties jdbc = PaimonJdbcMetaStoreProperties.of(catalogProps.getRaw());
+        if (StringUtils.isNotBlank(jdbc.getDriverUrl())) {
+            options.put("jdbc.driver_url", JdbcDriverSupport.resolveDriverUrl(jdbc.getDriverUrl(),
+                    PaimonConf.driversDir(context),
+                    PaimonConf.dorisHome(context)));
+            if (StringUtils.isNotBlank(jdbc.getDriverClass())) {
+                options.put("jdbc.driver_class", jdbc.getDriverClass());
             }
         }
         return options;
@@ -1696,6 +1920,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         String serializedTable = properties.get(PROP_SERIALIZED_TABLE);
         if (serializedTable != null) {
             params.setSerializedTable(serializedTable);
+            params.setSerializedTableCacheKey(properties.get(PROP_SERIALIZED_TABLE_CACHE_KEY));
         }
 
         String predicate = properties.get("paimon.predicate");
@@ -2059,6 +2284,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     private static TField buildField(DataType dataType) {
         TField field = new TField();
         field.setIsOptional(dataType.isNullable());
+        // Paimon uses the same unannotated INT96 encoding for high-precision TIMESTAMP and
+        // TIMESTAMP_LTZ, so the table schema is the only reliable discriminator.
+        switch (dataType.getTypeRoot()) {
+            case TIMESTAMP_WITHOUT_TIME_ZONE:
+                field.setTimestampIsAdjustedToUtc(false);
+                break;
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                field.setTimestampIsAdjustedToUtc(true);
+                break;
+            default:
+                break;
+        }
         TColumnType columnType = new TColumnType();
         TNestedField nestedField = new TNestedField();
         switch (dataType.getTypeRoot()) {

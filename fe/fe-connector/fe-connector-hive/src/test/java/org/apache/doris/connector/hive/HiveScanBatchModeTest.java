@@ -17,14 +17,14 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -160,8 +160,8 @@ public class HiveScanBatchModeTest {
             }
         };
         HiveScanPlanProvider provider = new HiveScanPlanProvider(new FakeHmsClient(),
-                Collections.emptyMap(), normCtx, new HiveReadTransactionManager(),
-                new HiveFileListingCache(Collections.emptyMap(), s3aLister));
+                HiveTestProperties.minimal(), normCtx, new HiveReadTransactionManager(),
+                new HiveFileListingCache(HiveTestProperties.minimal(), s3aLister));
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .inputFormat(PARQUET_INPUT_FORMAT)
                 .serializationLib(PARQUET_SERDE)
@@ -192,9 +192,9 @@ public class HiveScanBatchModeTest {
             }
         };
         HiveScanPlanProvider provider = new HiveScanPlanProvider(new FakeHmsClient(),
-                Collections.singletonMap("s3.access_key", "aliasAK"), credCtx,
+                HiveTestProperties.with("s3.access_key", "aliasAK"), credCtx,
                 new HiveReadTransactionManager(),
-                new HiveFileListingCache(Collections.emptyMap(), new CountingLister()));
+                new HiveFileListingCache(HiveTestProperties.minimal(), new CountingLister()));
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .inputFormat(PARQUET_INPUT_FORMAT)
                 .serializationLib(PARQUET_SERDE)
@@ -301,9 +301,14 @@ public class HiveScanBatchModeTest {
                 provider.adjustFileCompressType(TFileCompressType.PLAIN));
     }
 
+    @Test
+    public void usesHiveParquetInt96TimeZone() {
+        Assertions.assertTrue(provider(null, new CountingLister()).usesHiveParquetInt96TimeZone());
+    }
+
     private static HiveScanPlanProvider provider(HmsClient hmsClient, CountingLister lister) {
-        return new HiveScanPlanProvider(hmsClient, Collections.emptyMap(), new FakeConnectorContext(),
-                new HiveReadTransactionManager(), new HiveFileListingCache(Collections.emptyMap(), lister));
+        return new HiveScanPlanProvider(hmsClient, HiveTestProperties.minimal(), new FakeConnectorContext(),
+                new HiveReadTransactionManager(), new HiveFileListingCache(HiveTestProperties.minimal(), lister));
     }
 
     private static HmsPartitionInfo part(String name) {

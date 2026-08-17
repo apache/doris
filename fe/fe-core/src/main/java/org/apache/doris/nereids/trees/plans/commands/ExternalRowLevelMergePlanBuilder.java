@@ -22,14 +22,13 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilderAssistant;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -42,22 +41,24 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExternalRowLevelMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -122,13 +123,7 @@ public class ExternalRowLevelMergePlanBuilder {
         if (targetAlias.isPresent()) {
             targetPlan = new LogicalSubQueryAlias<>(targetAlias.get(), targetPlan);
         }
-        // Use INNER JOIN when there are no WHEN NOT MATCHED clauses, since unmatched
-        // source rows are not needed. This allows early filtering for better performance.
-        JoinType joinType = notMatchedClauses.isEmpty()
-                ? JoinType.INNER_JOIN : JoinType.LEFT_OUTER_JOIN;
-        return new LogicalJoin<>(joinType,
-                ImmutableList.of(), ImmutableList.of(onClause),
-                source, targetPlan, JoinReorderContext.EMPTY);
+        return MergeUtils.buildMergeJoin(targetPlan, source, onClause, !notMatchedClauses.isEmpty());
     }
 
     private NamedExpression generateBranchLabel(Expression rowIdExpr) {
@@ -180,7 +175,7 @@ public class ExternalRowLevelMergePlanBuilder {
     }
 
     private List<Expression> buildUpdateProjection(MergeMatchedClause clause, Expression rowIdExpr,
-            List<Column> columns, ConnectContext ctx) {
+            List<Column> columns, ConnectContext ctx, ExternalTable targetTable) {
         Map<String, Expression> colNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         for (EqualTo equalTo : clause.getAssignments()) {
             List<String> nameParts = ((UnboundSlot) equalTo.left()).getNameParts();
@@ -208,7 +203,11 @@ public class ExternalRowLevelMergePlanBuilder {
                         + column.getName() + "' in table '" + getTargetTable(ctx).getName() + "' is not allowed.");
             }
             if (colNameToExpression.containsKey(column.getName())) {
-                projection.add(colNameToExpression.remove(column.getName()));
+                Expression value = ConnectorWriteSchemaUtils.resolveExplicitDefault(
+                        colNameToExpression.remove(column.getName()), column);
+                projection.add(ConnectorWriteSchemaUtils.resolveDefaultReferences(
+                        value, columns, targetTable, ctx,
+                        targetNameParts, targetAlias.orElse(null)));
             } else {
                 List<String> nameParts = Lists.newArrayList(targetNameInPlan);
                 nameParts.add(column.getName());
@@ -223,7 +222,8 @@ public class ExternalRowLevelMergePlanBuilder {
     }
 
     private List<Expression> buildInsertProjection(MergeNotMatchedClause clause,
-            List<Column> columns, ConnectContext ctx, DataType rowIdType) {
+            List<Column> columns, ConnectContext ctx, ExternalTable targetTable,
+            DataType rowIdType) {
         Map<String, Expression> colNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         if (!clause.getColNames().isEmpty()) {
             if (clause.getColNames().size() != clause.getRow().size()) {
@@ -275,18 +275,12 @@ public class ExternalRowLevelMergePlanBuilder {
                 }
             }
             if (value == null) {
-                if (column.getDefaultValueSql() != null) {
-                    Expression unboundDefaultValue = new NereidsParser()
-                            .parseExpression(column.getDefaultValueSql());
-                    if (unboundDefaultValue instanceof UnboundAlias) {
-                        unboundDefaultValue = unboundDefaultValue.child(0);
-                    }
-                    value = unboundDefaultValue;
-                } else if (column.isAllowNull()) {
-                    value = new NullLiteral(DataType.fromCatalogType(column.getType()));
-                } else {
-                    throw new AnalysisException("Column has no default value, column=" + column.getName());
-                }
+                value = ConnectorWriteSchemaUtils.resolveDefault(column);
+            } else {
+                value = ConnectorWriteSchemaUtils.resolveExplicitDefault(value, column);
+                value = ConnectorWriteSchemaUtils.resolveDefaultReferences(
+                        value, columns, targetTable, ctx,
+                        targetNameParts, targetAlias.orElse(null));
             }
             projection.add(value);
         }
@@ -297,19 +291,25 @@ public class ExternalRowLevelMergePlanBuilder {
         return projection;
     }
 
-    private List<NamedExpression> generateFinalProjections(List<String> colNames,
-            List<List<Expression>> finalProjections) {
+    static List<NamedExpression> generateFinalProjections(List<String> colNames,
+            List<DataType> outputTypes, List<List<Expression>> finalProjections) {
         for (List<Expression> projection : finalProjections) {
             if (projection.size() != finalProjections.get(0).size()) {
                 throw new AnalysisException("Column count doesn't match each other");
             }
         }
+        Preconditions.checkState(colNames.size() == outputTypes.size()
+                        && colNames.size() == finalProjections.get(0).size(),
+                "Merge projection must match the pinned writer schema");
         List<NamedExpression> output = new ArrayList<>();
         for (int i = 0; i < finalProjections.get(0).size(); i++) {
-            Expression project = new NullLiteral();
+            DataType outputType = outputTypes.get(i);
+            Expression project = new NullLiteral(outputType);
             for (int j = 0; j < finalProjections.size(); j++) {
+                Expression branch = TypeCoercionUtils.castUnbound(
+                        finalProjections.get(j).get(i), outputType);
                 project = new If(new EqualTo(new UnboundSlot(BRANCH_LABEL), new IntegerLiteral(j)),
-                        finalProjections.get(j).get(i), project);
+                        branch, project);
             }
             output.add(new UnboundAlias(project, colNames.get(i)));
         }
@@ -317,7 +317,7 @@ public class ExternalRowLevelMergePlanBuilder {
     }
 
     private LogicalPlan buildMergeProjectPlan(ConnectContext ctx, ExternalTable icebergTable) {
-        List<Column> columns = icebergTable.getBaseSchema(true);
+        List<Column> columns = ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable);
 
         LogicalPlan plan = generateBasePlan();
         plan = injectRowIdColumn(plan, icebergTable);
@@ -352,25 +352,31 @@ public class ExternalRowLevelMergePlanBuilder {
             if (clause.isDelete()) {
                 finalProjections.add(buildDeleteProjection(rowIdExpr, columns));
             } else {
-                finalProjections.add(buildUpdateProjection(clause, rowIdExpr, columns, ctx));
+                finalProjections.add(buildUpdateProjection(
+                        clause, rowIdExpr, columns, ctx, icebergTable));
             }
         }
 
         DataType rowIdType = DataType.fromCatalogType(
                 RowLevelDmlRowIdUtils.getRowIdColumn(icebergTable).getType());
         for (MergeNotMatchedClause clause : notMatchedClauses) {
-            finalProjections.add(buildInsertProjection(clause, columns, ctx, rowIdType));
+            finalProjections.add(buildInsertProjection(
+                    clause, columns, ctx, icebergTable, rowIdType));
         }
 
         List<String> colNames = new ArrayList<>();
         colNames.add(MergeOperation.OPERATION_COLUMN);
         colNames.add(Column.ICEBERG_ROWID_COL);
+        List<DataType> outputTypes = new ArrayList<>();
+        outputTypes.add(TinyIntType.INSTANCE);
+        outputTypes.add(rowIdType);
         for (Column column : columns) {
             if (column.isVisible() || column.isReservedPassthrough()) {
                 colNames.add(column.getName());
+                outputTypes.add(DataType.fromCatalogType(column.getType()));
             }
         }
-        plan = new LogicalProject<>(generateFinalProjections(colNames, finalProjections), plan);
+        plan = new LogicalProject<>(generateFinalProjections(colNames, outputTypes, finalProjections), plan);
 
         if (cte.isPresent()) {
             plan = (LogicalPlan) cte.get().withChildren(plan);
@@ -381,6 +387,10 @@ public class ExternalRowLevelMergePlanBuilder {
     // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here.
     LogicalPlan buildMergePlan(ConnectContext ctx, ExternalTable icebergTable) {
         LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable);
+        // Project synthesis pins both the request-scoped writer columns and their identity. Read the snapshot
+        // afterwards so the sink fence cannot retain the older cached identity while carrying newer columns.
+        PluginDrivenExternalTable.WriteSchemaSnapshot writeSchema =
+                ((PluginDrivenExternalTable) icebergTable).getWriteSchemaSnapshot();
 
         List<NamedExpression> outputExprs;
         if (!RowLevelDmlRowIdUtils.hasUnboundPlan(projectPlan)) {
@@ -396,8 +406,11 @@ public class ExternalRowLevelMergePlanBuilder {
         return new LogicalExternalRowLevelMergeSink<>(
                 (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
-                icebergTable.getBaseSchema(true),
+                writeSchema.getWriteMetadataIdentity(),
+                ConnectorWriteSchemaUtils.pinAndGet(ctx, icebergTable),
                 outputExprs,
+                matchedClauses.stream().anyMatch(clause -> !clause.isDelete())
+                        || !notMatchedClauses.isEmpty(),
                 true,
                 Optional.empty(),
                 Optional.empty(),

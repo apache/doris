@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -42,20 +42,63 @@ final class IcebergWriteContext {
     private final Map<String, String> staticPartitionValues;
     private final Optional<String> branchName;
     private final long readSnapshotId;
+    private final IcebergWriteSchemaContext writeSchemaContext;
+    private final boolean readSnapshotResolved;
+    private final String boundWriteMetadataIdentity;
 
     IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
             Map<String, String> staticPartitionValues, Optional<String> branchName) {
-        this(writeOperation, overwrite, staticPartitionValues, branchName, -1L);
+        this(writeOperation, overwrite, staticPartitionValues, branchName, -1L, false, null, null);
     }
 
     IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
             Map<String, String> staticPartitionValues, Optional<String> branchName, long readSnapshotId) {
+        this(writeOperation, overwrite, staticPartitionValues, branchName,
+                readSnapshotId, readSnapshotId >= 0, null, null);
+    }
+
+    IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
+            Map<String, String> staticPartitionValues, Optional<String> branchName,
+            long readSnapshotId, boolean readSnapshotResolved) {
+        this(writeOperation, overwrite, staticPartitionValues, branchName,
+                readSnapshotId, readSnapshotResolved, null, null);
+    }
+
+    IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
+            Map<String, String> staticPartitionValues, Optional<String> branchName,
+            long readSnapshotId, IcebergWriteSchemaContext writeSchemaContext) {
+        this(writeOperation, overwrite, staticPartitionValues, branchName,
+                readSnapshotId, readSnapshotId >= 0, writeSchemaContext, null);
+    }
+
+    IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
+            Map<String, String> staticPartitionValues, Optional<String> branchName,
+            long readSnapshotId, boolean readSnapshotResolved,
+            IcebergWriteSchemaContext writeSchemaContext) {
+        this(writeOperation, overwrite, staticPartitionValues, branchName,
+                readSnapshotId, readSnapshotResolved, writeSchemaContext, null);
+    }
+
+    IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
+            Map<String, String> staticPartitionValues, Optional<String> branchName,
+            long readSnapshotId, boolean readSnapshotResolved, String boundWriteMetadataIdentity) {
+        this(writeOperation, overwrite, staticPartitionValues, branchName,
+                readSnapshotId, readSnapshotResolved, null, boundWriteMetadataIdentity);
+    }
+
+    IcebergWriteContext(WriteOperation writeOperation, boolean overwrite,
+            Map<String, String> staticPartitionValues, Optional<String> branchName,
+            long readSnapshotId, boolean readSnapshotResolved,
+            IcebergWriteSchemaContext writeSchemaContext, String boundWriteMetadataIdentity) {
         this.writeOperation = writeOperation;
         this.overwrite = overwrite;
         this.staticPartitionValues = staticPartitionValues == null
                 ? Collections.emptyMap() : new HashMap<>(staticPartitionValues);
         this.branchName = branchName == null ? Optional.empty() : branchName;
         this.readSnapshotId = readSnapshotId;
+        this.readSnapshotResolved = readSnapshotResolved;
+        this.writeSchemaContext = writeSchemaContext;
+        this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
     }
 
     WriteOperation getWriteOperation() {
@@ -81,12 +124,26 @@ final class IcebergWriteContext {
 
     /**
      * The statement's READ snapshot id (the MVCC pin the scan used, S_read), threaded from the write
-     * handle in {@code planWrite}; {@code -1} = no pin (the legacy fresh-current behavior). The
+     * handle in {@code planWrite}; {@code -1} means either no pin or an explicitly empty read, as
+     * distinguished by {@link #isReadSnapshotResolved()}. The
      * RowDelta path anchors {@code baseSnapshotId} at this snapshot so the commit-time removeDeletes
      * (option D) and the scan-time deletes BE unions into the new DV share one snapshot — see
      * {@link IcebergConnectorTransaction} [SHOULD-2] / Fix B.
      */
     long getReadSnapshotId() {
         return readSnapshotId;
+    }
+
+    IcebergWriteSchemaContext getWriteSchemaContext() {
+        return writeSchemaContext;
+    }
+
+    /** Whether the read snapshot was resolved, including a table with no snapshot yet. */
+    boolean isReadSnapshotResolved() {
+        return readSnapshotResolved;
+    }
+
+    String getBoundWriteMetadataIdentity() {
+        return boundWriteMetadataIdentity;
     }
 }

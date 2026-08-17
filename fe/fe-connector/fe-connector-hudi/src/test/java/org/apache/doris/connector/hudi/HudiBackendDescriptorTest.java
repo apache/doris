@@ -49,7 +49,7 @@ public class HudiBackendDescriptorTest {
 
     @Test
     public void buildTableDescriptorIsHiveTable() {
-        HudiConnectorMetadata md = new HudiConnectorMetadata(null, Collections.emptyMap(),
+        HudiConnectorMetadata md = new HudiConnectorMetadata(null, HudiTestProperties.minimal(),
                 new DirectHudiMetaClientExecutor());
 
         TTableDescriptor desc = md.buildTableDescriptor(null, 7L, "t", "db", "t", 3, 100L);
@@ -222,6 +222,12 @@ public class HudiBackendDescriptorTest {
         // routes a hudi table to THIS provider — so without this declaration hudi tables would silently drop
         // out of the user's admission rules. MUTATION: return false here -> red.
         Assertions.assertTrue(new HudiScanPlanProvider(new HashMap<>(), null).supportsFileCache());
+    }
+
+    @Test
+    public void doesNotUseHiveParquetInt96TimeZone() {
+        Assertions.assertFalse(
+                new HudiScanPlanProvider(new HashMap<>(), null).usesHiveParquetInt96TimeZone());
     }
 
 }

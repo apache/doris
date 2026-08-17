@@ -17,12 +17,13 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.scan.ConnectorScanRange;
-import org.apache.doris.connector.api.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
@@ -37,13 +38,17 @@ import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
 import org.apache.doris.thrift.schema.external.TSchema;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataInputViewStreamWrapper;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchTableCommit;
@@ -114,7 +119,7 @@ public class PaimonScanPlanProviderTest {
                 "db1", "t1", Collections.emptyList(), Collections.emptyList());
         Assertions.assertNull(handle.getPaimonTable(), "precondition: transient table is null");
 
-        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
         Table table = provider.resolveTable(handle);
 
         // WHY: this is the serde-survival safety net. With a null transient Table, the scan path's
@@ -145,7 +150,7 @@ public class PaimonScanPlanProviderTest {
                 "db1", "t1", "snapshots", false);
         Assertions.assertNull(sysHandle.getPaimonTable(), "precondition: transient table is null");
 
-        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
         Table resolved = provider.resolveTable(sysHandle);
 
         // WHY: BLOCKER fix — the scan path's own resolveTable used to ALWAYS reload via the 2-arg
@@ -174,7 +179,7 @@ public class PaimonScanPlanProviderTest {
                 "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
-        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops, ctx);
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops, ctx);
         PaimonTableHandle handle = new PaimonTableHandle(
                 "db1", "t1", Collections.emptyList(), Collections.emptyList());
 
@@ -190,13 +195,33 @@ public class PaimonScanPlanProviderTest {
         ops.table = new FakePaimonTable(
                 "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
         RecordingConnectorContext ctx = new RecordingConnectorContext();
-        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops, ctx);
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops, ctx);
         PaimonTableHandle handle = new PaimonTableHandle(
                 "db1", "t1", Collections.emptyList(), Collections.emptyList());
 
         provider.resolveTable(handle); // null transient -> reload via the wrapped seam
         Assertions.assertEquals(Collections.singletonList("getTable:db1.t1"), ops.log);
         Assertions.assertEquals(1, ctx.authCount);
+    }
+
+    @Test
+    public void transientFreeSystemSourceReloadRunsInsideAuthenticator() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        ops.sysTable = new FakePaimonTable(
+                "t1$snapshots", rowType("snapshot_id"), Collections.emptyList(), Collections.emptyList());
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuthOnInvocation = 2;
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops, ctx);
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "snapshots", false);
+
+        Assertions.assertThrows(RuntimeException.class, () -> provider.resolveScanTable(handle));
+        Assertions.assertEquals(2, ctx.authCount,
+                "the system wrapper and its base source must each reload inside authentication");
+        Assertions.assertEquals(1, ops.log.size(),
+                "the second auth failure must stop the base-table RPC before it reaches the catalog seam");
     }
 
     @Test
@@ -230,7 +255,7 @@ public class PaimonScanPlanProviderTest {
             RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
             ops.table = table;
             RecordingConnectorContext ctx = new RecordingConnectorContext();
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops, ctx);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops, ctx);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
 
@@ -314,19 +339,44 @@ public class PaimonScanPlanProviderTest {
                 "force_jni_scanner=true must route even native-eligible ORC/Parquet splits to JNI");
     }
 
+    @Test
+    public void variantProjectionOverridesOnlyTheSessionForceForParquet() {
+        Optional<List<RawFile>> rawFiles = Optional.of(
+                Arrays.asList(parquetRawFile("/data/part-0.parquet")));
+
+        Assertions.assertFalse(PaimonScanPlanProvider.shouldUseNativeReader(
+                        true, false, true, rawFiles),
+                "system-table forceJni preserves semantics that the raw-file reader cannot reproduce");
+        Assertions.assertTrue(PaimonScanPlanProvider.shouldUseNativeReader(
+                        false, true, true, rawFiles),
+                "Variant has no JNI carrier, so only the user session force may be overridden");
+
+        Optional<List<RawFile>> orcFiles = Optional.of(Arrays.asList(
+                new RawFile("/data/part-0.orc", 0L, 100L, 100L, "orc", 0L, 0L)));
+        Assertions.assertFalse(PaimonScanPlanProvider.shouldUseNativeReader(
+                        false, false, true, orcFiles),
+                "BE installs the Paimon Variant schema override only for Parquet files");
+        Assertions.assertTrue(PaimonScanPlanProvider.shouldUseNativeReader(
+                        false, false, true, Collections.emptySet(), orcFiles),
+                "an ORC file without a physical Variant field needs no schema override");
+        Assertions.assertFalse(PaimonScanPlanProvider.shouldUseNativeReader(
+                        false, false, true, Collections.singleton(0L), orcFiles),
+                "a physical Variant field in ORC remains unsupported");
+    }
+
     // ---- FIX-URI-NORMALIZE (B-7DF data file + B-7DV deletion vector) ----
 
     @Test
     public void nativeRangeNormalizesBothDataAndDeletionVectorPaths() {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                new HashMap<>(), new RecordingPaimonCatalogOps(), ctx);
+                PaimonCatalogProperties.of(new HashMap<>()), new RecordingPaimonCatalogOps(), ctx);
         RawFile file = parquetRawFile("oss://bkt/warehouse/db/t/part-0.parquet");
         DeletionFile dv = new DeletionFile(
                 "oss://bkt/warehouse/db/t/index/dv-0.index", 8L, 16L, 4L);
 
         PaimonScanRange range = provider.buildNativeRange(
-                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024);
+                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024, 0);
 
         // WHY: BE's scheme-dispatched S3 file factory only opens canonical s3://. An un-normalized
         // oss:// DATA-file path fails the native ORC/Parquet read outright; an un-normalized oss:// DV
@@ -347,11 +397,11 @@ public class PaimonScanPlanProviderTest {
     public void nativeRangeWithoutDeletionVectorNormalizesOnlyDataPath() {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                new HashMap<>(), new RecordingPaimonCatalogOps(), ctx);
+                PaimonCatalogProperties.of(new HashMap<>()), new RecordingPaimonCatalogOps(), ctx);
 
         PaimonScanRange range = provider.buildNativeRange(
                 parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet",
-                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024);
+                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024, 0);
 
         // WHY: a DV-less native split must still normalize its data-file path and must NOT emit a DV
         // descriptor. MUTATION: emitting a deletion_file for a null DV, or skipping data normalization -> red.
@@ -367,11 +417,11 @@ public class PaimonScanPlanProviderTest {
         // available, so the raw path is preserved without NPE. The real oss://->s3:// rewrite is
         // covered by DefaultConnectorContextNormalizeUriTest (fe-core).
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                new HashMap<>(), new RecordingPaimonCatalogOps());
+                PaimonCatalogProperties.of(new HashMap<>()), new RecordingPaimonCatalogOps());
 
         PaimonScanRange range = provider.buildNativeRange(
                 parquetRawFile("oss://bkt/a/part-0.parquet"), null, "parquet",
-                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024);
+                Collections.emptyMap(), Collections.emptyMap(), 0L, 100L, 64L * 1024 * 1024, 0);
 
         // MUTATION: NPE on null context, or fabricating a normalized path from nothing -> red.
         Assertions.assertEquals("oss://bkt/a/part-0.parquet", range.getPath().orElse(null));
@@ -387,7 +437,7 @@ public class PaimonScanPlanProviderTest {
         // whatever token the scan computes is threaded VERBATIM to each normalize call.
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                new HashMap<>(), new RecordingPaimonCatalogOps(), ctx);
+                PaimonCatalogProperties.of(new HashMap<>()), new RecordingPaimonCatalogOps(), ctx);
         Map<String, String> vendedToken = new HashMap<>();
         vendedToken.put("fs.oss.accessKeyId", "STS.ak");
         vendedToken.put("fs.oss.accessKeySecret", "sk");
@@ -396,7 +446,7 @@ public class PaimonScanPlanProviderTest {
                 "oss://bkt/warehouse/db/t/index/dv-0.index", 8L, 16L, 4L);
 
         PaimonScanRange range = provider.buildNativeRange(
-                file, dv, "parquet", Collections.emptyMap(), vendedToken, 0L, 100L, 64L * 1024 * 1024);
+                file, dv, "parquet", Collections.emptyMap(), vendedToken, 0L, 100L, 64L * 1024 * 1024, 0);
 
         // WHY: the engine seam normalizes against the VENDED map (the REST static map is empty). If the
         // connector dropped the token (reverting to the 1-arg seam) or substituted an empty map, a REST
@@ -430,7 +480,7 @@ public class PaimonScanPlanProviderTest {
         PaimonTableHandle pinnedHandle = handle.withScanOptions(
                 Collections.singletonMap("scan.snapshot-id", "5"));
 
-        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
         Table scanTable = provider.resolveScanTable(pinnedHandle);
 
         // WHY: a snapshot-pinned handle must read at the pinned version on BOTH the planned-splits
@@ -456,7 +506,7 @@ public class PaimonScanPlanProviderTest {
                 "db1", "t1", Collections.emptyList(), Collections.emptyList());
         handle.setPaimonTable(base);
 
-        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
         Table scanTable = provider.resolveScanTable(handle);
 
         // WHY: a normal read must NOT call Table.copy at all — copying with empty options is wasted
@@ -467,6 +517,169 @@ public class PaimonScanPlanProviderTest {
                 "an un-pinned handle must return the resolved table without a copy");
         Assertions.assertNull(base.lastCopyOptions,
                 "an un-pinned handle must NOT invoke Table.copy");
+    }
+
+    @Test
+    public void resolveScanTableRejectsUnsafePhysicalOptionsAtFinalBoundary() {
+        FakePaimonTable base = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        base.setOptions(Collections.singletonMap("read.batch-size", "0"));
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(base);
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingPaimonCatalogOps());
+
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.resolveScanTable(handle));
+        Assertions.assertTrue(e.getMessage().contains("read.batch-size"));
+    }
+
+    @Test
+    public void resolveScanTableAllowsSafeRelationOptionToOverrideUnsafePhysicalOption() {
+        FakePaimonTable base = new FakePaimonTable(
+                "t1", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        base.setOptions(Collections.singletonMap("read.batch-size", "0"));
+        FakePaimonTable copied = new FakePaimonTable(
+                "t1@options", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        copied.setOptions(Collections.singletonMap("read.batch-size", "4096"));
+        base.copyResult = copied;
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        handle.setPaimonTable(base);
+        PaimonTableHandle optionsHandle = handle.withScanOptions(PaimonScanParams.markAsOptions(
+                Collections.singletonMap("read.batch-size", "4096")));
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingPaimonCatalogOps());
+
+        Assertions.assertSame(copied, provider.resolveScanTable(optionsHandle));
+    }
+
+    @Test
+    public void resolveSystemScanTableValidatesHiddenDataTable() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable dataTable = new FakePaimonTable(
+                "data", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        dataTable.setOptions(Collections.singletonMap("scan.manifest.parallelism", "0"));
+        FakePaimonTable systemTable = new FakePaimonTable(
+                "partitions", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        ops.table = dataTable;
+        ops.sysTable = systemTable;
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "partitions", false);
+        handle.setPaimonTable(systemTable);
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+
+        // The connector boundary must keep one stable exception type while preserving the
+        // actionable validation detail in the user-facing message and the original cause.
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.resolveScanTable(handle));
+        Assertions.assertTrue(e.getMessage().contains("scan.manifest.parallelism"));
+        Assertions.assertInstanceOf(IllegalArgumentException.class, e.getCause());
+        Assertions.assertTrue(e.getCause().getMessage().contains("scan.manifest.parallelism"));
+    }
+
+    @Test
+    public void resolveSystemScanTableValidatesPinnedSourceGeneration() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable pinnedSource = new FakePaimonTable(
+                "pinned", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        pinnedSource.setOptions(Collections.singletonMap("scan.manifest.parallelism", "0"));
+        FakePaimonTable reloadedSource = new FakePaimonTable(
+                "reloaded", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        reloadedSource.setOptions(Collections.singletonMap("scan.manifest.parallelism", "1"));
+        FakePaimonTable systemTable = new FakePaimonTable(
+                "partitions", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        ops.sysTable = systemTable;
+        PaimonTableHandle base = new PaimonTableHandle(
+                "db1", "t1", Collections.emptyList(), Collections.emptyList());
+        base.setPaimonTable(pinnedSource);
+        PaimonTableHandle system = (PaimonTableHandle) new PaimonConnectorMetadata(
+                ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext())
+                .getSysTableHandle(null, base, "partitions").orElseThrow(AssertionError::new);
+        ops.table = reloadedSource;
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.resolveScanTable(system));
+        Assertions.assertInstanceOf(IllegalArgumentException.class, e.getCause());
+        Assertions.assertTrue(e.getCause().getMessage().contains("scan.manifest.parallelism"));
+    }
+
+    @Test
+    public void resolveSystemScanTableAppliesSafeOverrideToHiddenDataTable() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable dataTable = new FakePaimonTable(
+                "data", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        dataTable.setOptions(Collections.singletonMap("scan.manifest.parallelism", "0"));
+        FakePaimonTable safeDataTable = new FakePaimonTable(
+                "data@options", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        safeDataTable.setOptions(Collections.singletonMap("scan.manifest.parallelism", "1"));
+        dataTable.copyResult = safeDataTable;
+        FakePaimonTable systemTable = new FakePaimonTable(
+                "partitions", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable safeSystemTable = new FakePaimonTable(
+                "partitions@options", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        safeSystemTable.setOptions(Collections.singletonMap("scan.manifest.parallelism", "1"));
+        systemTable.copyResult = safeSystemTable;
+        ops.table = dataTable;
+        ops.sysTable = systemTable;
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "partitions", false);
+        handle.setPaimonTable(systemTable);
+        PaimonTableHandle optionsHandle = handle.withScanOptions(PaimonScanParams.markAsOptions(
+                Collections.singletonMap("scan.manifest.parallelism", "1")));
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+
+        Assertions.assertSame(safeSystemTable, provider.resolveScanTable(optionsHandle));
+        Assertions.assertEquals("1", dataTable.lastCopyOptions.get("scan.manifest.parallelism"));
+    }
+
+    @Test
+    public void resolveSystemScanTableDoesNotRecapReturnedWrapper() {
+        int localCapacity = Runtime.getRuntime().availableProcessors();
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+                localCapacity < PaimonReaderOptions.MAX_MANIFEST_PARALLELISM);
+        int acceptedButUnsafe = localCapacity + 1;
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable dataTable = new FakePaimonTable(
+                "data", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        dataTable.setOptions(Collections.singletonMap(
+                "scan.manifest.parallelism", String.valueOf(acceptedButUnsafe)));
+        FakePaimonTable cappedDataTable = new FakePaimonTable(
+                "data@runtime", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        cappedDataTable.setOptions(Collections.singletonMap(
+                "scan.manifest.parallelism", String.valueOf(localCapacity)));
+        dataTable.copyResult = cappedDataTable;
+        FakePaimonTable systemTable = new FakePaimonTable(
+                "partitions", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        FakePaimonTable relationSystemTable = new FakePaimonTable(
+                "partitions@options", rowType("id"), Collections.emptyList(), Collections.emptyList());
+        relationSystemTable.setOptions(Collections.singletonMap("read.batch-size", "4096"));
+        systemTable.copyResult = relationSystemTable;
+        ops.table = dataTable;
+        ops.sysTable = systemTable;
+        PaimonTableHandle handle = PaimonTableHandle.forSystemTable(
+                "db1", "t1", "partitions", false);
+        handle.setPaimonTable(systemTable);
+        handle.setSystemTableSource(dataTable);
+        PaimonTableHandle optionsHandle = handle.withScanOptions(PaimonScanParams.markAsOptions(
+                Collections.singletonMap("read.batch-size", "4096")));
+
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+        Table resolved = provider.resolveScanTable(optionsHandle);
+
+        // The hidden source is normalized independently. Re-copying the outer wrapper with one cap
+        // would broadcast it through a fallback tree and erase a smaller sibling preference.
+        Assertions.assertSame(relationSystemTable, resolved);
+        Assertions.assertNull(relationSystemTable.lastCopyOptions);
+        Assertions.assertEquals(localCapacity,
+                provider.backendManifestParallelism(optionsHandle, resolved).getAsInt());
     }
 
     @Test
@@ -499,7 +712,7 @@ public class PaimonScanPlanProviderTest {
             PaimonTableHandle incrHandle = handle.withScanOptions(
                     Collections.singletonMap("incremental-between", "3,5"));
 
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             Table scanTable = provider.resolveScanTable(incrHandle);
 
             // WHY (FIX-INCR-SCAN-RESET): an @incr read over a base table that persists a stale
@@ -544,7 +757,7 @@ public class PaimonScanPlanProviderTest {
                     "db", "t", Collections.emptyList(), Collections.emptyList());
             handle.setPaimonTable(base);
 
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             Map<String, String> props = provider.getScanNodeProperties(
                     null, handle, Collections.emptyList(), Optional.empty());
 
@@ -588,7 +801,7 @@ public class PaimonScanPlanProviderTest {
                     "db", "t", Collections.emptyList(), Collections.emptyList());
             handle.setPaimonTable(base);
 
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             Map<String, String> props = provider.getScanNodeProperties(
                     null, handle, Collections.emptyList(), Optional.empty());
 
@@ -638,7 +851,7 @@ public class PaimonScanPlanProviderTest {
             // JNI), transient Table lost so resolveScanTable reloads the ReadOptimizedTable.
             PaimonTableHandle handle = PaimonTableHandle.forSystemTable("db", "t", "ro", false);
 
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             Map<String, String> props = provider.getScanNodeProperties(
                     null, handle, Collections.emptyList(), Optional.empty());
 
@@ -659,6 +872,101 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void readOptimizedSchemaDictionaryUsesPinnedSourceGeneration(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier pinnedId = Identifier.create("db", "pinned");
+            catalog.createTable(pinnedId, Schema.newBuilder()
+                    .column("pinned_id", DataTypes.INT())
+                    .primaryKey("pinned_id")
+                    .option("bucket", "1")
+                    .build(), false);
+            Identifier reloadedId = Identifier.create("db", "reloaded");
+            catalog.createTable(reloadedId, Schema.newBuilder()
+                    .column("reloaded_id", DataTypes.INT())
+                    .primaryKey("reloaded_id")
+                    .option("bucket", "1")
+                    .build(), false);
+            FileStoreTable pinned = (FileStoreTable) catalog.getTable(pinnedId);
+            FileStoreTable reloaded = (FileStoreTable) catalog.getTable(reloadedId);
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            PaimonTableHandle base = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            base.setPaimonTable(pinned);
+            PaimonTableHandle ro = (PaimonTableHandle) new PaimonConnectorMetadata(
+                    ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext())
+                    .getSysTableHandle(null, base, "ro").orElseThrow(AssertionError::new);
+            ops.table = reloaded;
+
+            Map<String, String> props = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops)
+                    .getScanNodeProperties(null, ro, Collections.emptyList(), Optional.empty());
+            TFileScanRangeParams params = new TFileScanRangeParams();
+            PaimonScanPlanProvider.applySchemaEvolutionParam(
+                    params, props.get("paimon.schema_evolution"));
+            String currentName = params.getHistorySchemaInfo().get(0)
+                    .getRootField().getFields().get(0).getFieldPtr().getName();
+
+            Assertions.assertEquals("pinned_id", currentName,
+                    "$ro splits and schema dictionary must come from the same pinned generation");
+        }
+    }
+
+    @Test
+    public void readOptimizedSchemaDictionaryUsesOptionSelectedSnapshot(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("old_name", DataTypes.STRING())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            FileStoreTable firstGeneration = (FileStoreTable) catalog.getTable(id);
+            BatchWriteBuilder writeBuilder = firstGeneration.newBatchWriteBuilder();
+            try (BatchTableWrite write = writeBuilder.newWrite()) {
+                write.write(GenericRow.of(1, BinaryString.fromString("v")));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = writeBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            long oldSnapshotId = firstGeneration.latestSnapshot().orElseThrow(AssertionError::new).id();
+            new SchemaManager(firstGeneration.fileIO(), firstGeneration.location())
+                    .commitChanges(SchemaChange.renameColumn("old_name", "new_name"));
+            FileStoreTable latestGeneration = (FileStoreTable) catalog.getTable(id);
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            PaimonTableHandle base = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            base.setPaimonTable(latestGeneration);
+            PaimonTableHandle ro = (PaimonTableHandle) new PaimonConnectorMetadata(
+                    ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext())
+                    .getSysTableHandle(null, base, "ro").orElseThrow(AssertionError::new);
+            ro = ro.withScanOptions(PaimonScanParams.markAsOptions(Collections.singletonMap(
+                    CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(oldSnapshotId))));
+
+            Map<String, String> props = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops)
+                    .getScanNodeProperties(null, ro,
+                            Collections.singletonList(new PaimonColumnHandle("old_name", 1)),
+                            Optional.empty());
+            TFileScanRangeParams params = new TFileScanRangeParams();
+            PaimonScanPlanProvider.applySchemaEvolutionParam(
+                    params, props.get("paimon.schema_evolution"));
+            String currentName = params.getHistorySchemaInfo().get(0)
+                    .getRootField().getFields().get(0).getFieldPtr().getName();
+
+            Assertions.assertEquals("old_name", currentName,
+                    "$ro schema dictionary must describe the same option-selected snapshot as its splits");
+        }
+    }
+
+    @Test
     public void resolveTableUsesTransientWithoutReload() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable table = new FakePaimonTable(
@@ -670,7 +978,7 @@ public class PaimonScanPlanProviderTest {
                 "db1", "t1", Collections.emptyList(), Collections.emptyList());
         handle.setPaimonTable(table);
 
-        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
         Table resolved = provider.resolveTable(handle);
 
         // WHY: the fast path — when the transient Table is already present, resolveTable must use it
@@ -842,7 +1150,7 @@ public class PaimonScanPlanProviderTest {
 
             RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
             ops.table = table;
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
             ConnectorSession session = sessionWithProps(Collections.emptyMap());
@@ -930,7 +1238,7 @@ public class PaimonScanPlanProviderTest {
 
             RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
             ops.table = table;
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
             List<ConnectorColumnHandle> noColumns = Collections.emptyList();
@@ -1014,7 +1322,7 @@ public class PaimonScanPlanProviderTest {
 
             RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
             ops.table = altered;
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
             List<ConnectorColumnHandle> noColumns = Collections.emptyList();
@@ -1083,7 +1391,7 @@ public class PaimonScanPlanProviderTest {
 
             RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
             ops.table = table;
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
             List<ConnectorColumnHandle> noColumns = Collections.emptyList();
@@ -1104,6 +1412,208 @@ public class PaimonScanPlanProviderTest {
                     .build());
             Assertions.assertTrue(ignored.isEmpty(),
                     "ignore_split_type=IGNORE_JNI must drop the forced-JNI DataSplit");
+        }
+    }
+
+    @Test
+    public void ignoreJniDropsVariantSplitBeforeCompatibilityCheck(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("payload", DataTypes.BIGINT())
+                    .option("bucket", "-1")
+                    .option("file.format", "orc")
+                    .build(), false);
+            Table storageTable = catalog.getTable(id);
+            BatchWriteBuilder wb = storageTable.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 100L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RowType variantRowType = RowType.builder()
+                    .field("id", DataTypes.INT())
+                    .field("payload", new org.apache.paimon.types.VariantType())
+                    .build();
+            // The local Paimon test writer cannot materialize Variant values. Keep its real ORC
+            // split while overriding only the planning schema so this test reaches Doris routing.
+            Table planningTable = (Table) java.lang.reflect.Proxy.newProxyInstance(
+                    Table.class.getClassLoader(), new Class<?>[] {Table.class}, (proxy, method, args) -> {
+                        if ("rowType".equals(method.getName())) {
+                            return variantRowType;
+                        }
+                        if ("copy".equals(method.getName())) {
+                            return proxy;
+                        }
+                        try {
+                            return method.invoke(storageTable, args);
+                        } catch (java.lang.reflect.InvocationTargetException e) {
+                            throw e.getCause();
+                        }
+                    });
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = planningTable;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+            ConnectorSession session = sessionWithProps(
+                    Collections.singletonMap("ignore_split_type", "IGNORE_JNI"));
+
+            List<ConnectorScanRange> ranges = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("payload", 1)))
+                    .build());
+
+            // IGNORE_JNI is a planning escape hatch: a discarded JNI-only split must not be
+            // rejected for lacking a Variant carrier that will never be instantiated.
+            Assertions.assertTrue(ranges.isEmpty(),
+                    "ignored JNI Variant splits must be dropped before compatibility validation");
+
+            // Set the serialized force-JNI hint directly to cover the earlier system-table fence
+            // without requiring a live Paimon system-table implementation in this routing test.
+            PaimonTableHandle forcedHandle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList(), null, true);
+            List<ConnectorScanRange> forcedRanges = provider.planScan(session,
+                    ConnectorScanRequest.builder(forcedHandle,
+                            Collections.singletonList(new PaimonColumnHandle("payload", 1)))
+                    .build());
+            Assertions.assertTrue(forcedRanges.isEmpty(),
+                    "ignored force-JNI Variant scans must bypass the system-table carrier fence");
+        }
+    }
+
+    @Test
+    public void oldOrcFileWithoutPhysicalVariantUsesNativeReaderAfterVariantEvolution(
+            @TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("payload", DataTypes.BIGINT())
+                    .option("bucket", "-1")
+                    .option("file.format", "orc")
+                    .build(), false);
+            FileStoreTable storageTable = (FileStoreTable) catalog.getTable(id);
+            BatchWriteBuilder wb = storageTable.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 100L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RowType variantRowType = RowType.builder()
+                    .field("id", DataTypes.INT())
+                    .field("payload", new org.apache.paimon.types.VariantType())
+                    .build();
+            FileStoreTable planningTable = (FileStoreTable) java.lang.reflect.Proxy.newProxyInstance(
+                    FileStoreTable.class.getClassLoader(), new Class<?>[] {FileStoreTable.class},
+                    (proxy, method, args) -> {
+                        if ("rowType".equals(method.getName())) {
+                            return variantRowType;
+                        }
+                        if ("copy".equals(method.getName())) {
+                            return proxy;
+                        }
+                        try {
+                            return method.invoke(storageTable, args);
+                        } catch (java.lang.reflect.InvocationTargetException e) {
+                            throw e.getCause();
+                        }
+                    });
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = planningTable;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+
+            List<ConnectorScanRange> ranges = provider.planScan(sessionWithProps(Collections.emptyMap()),
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("payload", 1)))
+                    .build());
+
+            Assertions.assertFalse(ranges.isEmpty(),
+                    "an old ORC file without a physical Variant field remains native-readable");
+            Assertions.assertTrue(ranges.stream()
+                            .noneMatch(range -> range.getProperties().containsKey("paimon.split")),
+                    "the historical schema must keep the old ORC file on the native path");
+        }
+    }
+
+    @Test
+    public void readOptimizedOldOrcFileUsesPinnedBaseSchemaAfterVariantEvolution(
+            @TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .option("bucket", "-1")
+                    .option("file.format", "orc")
+                    .build(), false);
+            FileStoreTable storageTable = (FileStoreTable) catalog.getTable(id);
+            BatchWriteBuilder wb = storageTable.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            // Simulate the pinned current generation after adding a nullable Variant field while
+            // retaining the real schema dictionary and ORC file from the previous generation.
+            RowType variantRowType = RowType.builder()
+                    .field("id", DataTypes.INT())
+                    .field("payload", new org.apache.paimon.types.VariantType())
+                    .build();
+            FileStoreTable pinnedBase = (FileStoreTable) java.lang.reflect.Proxy.newProxyInstance(
+                    FileStoreTable.class.getClassLoader(), new Class<?>[] {FileStoreTable.class},
+                    (proxy, method, args) -> {
+                        if ("rowType".equals(method.getName())) {
+                            return variantRowType;
+                        }
+                        if ("copy".equals(method.getName())) {
+                            return proxy;
+                        }
+                        try {
+                            return method.invoke(storageTable, args);
+                        } catch (java.lang.reflect.InvocationTargetException e) {
+                            throw e.getCause();
+                        }
+                    });
+            ReadOptimizedTable roTable = new ReadOptimizedTable(pinnedBase);
+            PaimonTableHandle handle = PaimonTableHandle.forSystemTable("db", "t", "ro", false);
+            handle.setPaimonTable(roTable);
+            handle.setSysBaseTable(pinnedBase);
+
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()),
+                    new RecordingPaimonCatalogOps());
+            List<ConnectorScanRange> ranges = provider.planScan(
+                    sessionWithProps(Collections.emptyMap()),
+                    ConnectorScanRequest.builder(handle,
+                            Collections.singletonList(new PaimonColumnHandle("payload", 1)))
+                            .build());
+
+            Assertions.assertFalse(ranges.isEmpty());
+            Assertions.assertTrue(ranges.stream()
+                            .noneMatch(range -> range.getProperties().containsKey("paimon.split")),
+                    "$ro historical ORC files without physical Variant must remain native-readable");
         }
     }
 
@@ -1134,7 +1644,7 @@ public class PaimonScanPlanProviderTest {
 
             RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
             ops.table = table;
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
             List<ConnectorColumnHandle> noColumns = Collections.emptyList();
@@ -1189,7 +1699,7 @@ public class PaimonScanPlanProviderTest {
 
             RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
             ops.table = table;
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
             List<ConnectorColumnHandle> noColumns = Collections.emptyList();
@@ -1241,7 +1751,7 @@ public class PaimonScanPlanProviderTest {
 
             RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
             ops.table = table;
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
             List<ConnectorColumnHandle> noColumns = Collections.emptyList();
@@ -1396,7 +1906,7 @@ public class PaimonScanPlanProviderTest {
 
             RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
             ops.table = table;
-            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops);
             PaimonTableHandle handle = new PaimonTableHandle(
                     "db", "t", Collections.emptyList(), Collections.emptyList());
             List<ConnectorColumnHandle> noColumns = Collections.emptyList();
@@ -1445,13 +1955,13 @@ public class PaimonScanPlanProviderTest {
     public void buildNativeRangesAttachesSameDeletionVectorToEverySubRange() {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                new HashMap<>(), new RecordingPaimonCatalogOps(), ctx);
+                PaimonCatalogProperties.of(new HashMap<>()), new RecordingPaimonCatalogOps(), ctx);
         RawFile file = parquetRawFile("oss://bkt/a/part-0.parquet");
         DeletionFile dv = new DeletionFile("oss://bkt/a/index/dv-0.index", 8L, 16L, 4L);
         long target = Math.max(1L, file.length() / 3);   // force the file to sub-split into >=2 ranges
 
         List<PaimonScanRange> ranges = provider.buildNativeRanges(
-                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), target, 64L * 1024 * 1024);
+                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), target, 64L * 1024 * 1024, 0);
 
         // WHY: the load-bearing correctness claim of FIX-NATIVE-SUBSPLIT — a paimon deletion vector is a
         // bitmap of GLOBAL file row positions, so EVERY sub-range of a DV-bearing file must carry the
@@ -1475,11 +1985,11 @@ public class PaimonScanPlanProviderTest {
         // siphoned to the count arm (no precomputed merged count) is kept WHOLE — legacy parity
         // (splittable=!applyCountPushdown). MUTATION: sub-splitting under count pushdown -> >1 range -> red.
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                new HashMap<>(), new RecordingPaimonCatalogOps());
+                PaimonCatalogProperties.of(new HashMap<>()), new RecordingPaimonCatalogOps());
         RawFile file = parquetRawFile("oss://bkt/a/part-0.parquet");
 
         List<PaimonScanRange> ranges = provider.buildNativeRanges(
-                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64L * 1024 * 1024);
+                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64L * 1024 * 1024, 0);
 
         Assertions.assertEquals(1, ranges.size(),
                 "a non-positive target (COUNT(*) pushdown) must keep the file as one whole-file range");
@@ -1686,7 +2196,7 @@ public class PaimonScanPlanProviderTest {
         backendStatic.put("AWS_ENDPOINT", "ep");
 
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                props, new RecordingPaimonCatalogOps(),
+                PaimonCatalogProperties.of(props), new RecordingPaimonCatalogOps(),
                 scanContext(backendStatic, Collections.emptyMap()));
 
         Map<String, String> scanProps = provider.getScanNodeProperties(
@@ -1726,7 +2236,7 @@ public class PaimonScanPlanProviderTest {
         vended.put("AWS_ENDPOINT", "vended-ep");
 
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                new HashMap<>(), new RecordingPaimonCatalogOps(), scanContext(backendStatic, vended));
+                PaimonCatalogProperties.of(new HashMap<>()), new RecordingPaimonCatalogOps(), scanContext(backendStatic, vended));
 
         Map<String, String> scanProps = provider.getScanNodeProperties(
                 null, handle, Collections.emptyList(), Optional.empty());
@@ -1754,7 +2264,7 @@ public class PaimonScanPlanProviderTest {
         Map<String, String> props = new HashMap<>();
         props.put("s3.access_key", "raw-ak");
         // 2-arg ctor -> context == null (the offline harness path).
-        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(props, new RecordingPaimonCatalogOps());
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(PaimonCatalogProperties.of(props), new RecordingPaimonCatalogOps());
 
         Map<String, String> scanProps = provider.getScanNodeProperties(
                 null, handle, Collections.emptyList(), Optional.empty());
@@ -1787,7 +2297,7 @@ public class PaimonScanPlanProviderTest {
                 Arrays.asList(fakeStorageWithoutBackend(), fakeBackendStorage(beMap));
 
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                new HashMap<>(), new RecordingPaimonCatalogOps(), scanContextWithStorage(storage));
+                PaimonCatalogProperties.of(new HashMap<>()), new RecordingPaimonCatalogOps(), scanContextWithStorage(storage));
 
         Map<String, String> scanProps = provider.getScanNodeProperties(
                 null, handle, Collections.emptyList(), Optional.empty());
@@ -1886,7 +2396,7 @@ public class PaimonScanPlanProviderTest {
         props.put("jdbc.driver_url", "mysql.jar");
         props.put("jdbc.driver_class", "com.mysql.cj.jdbc.Driver");
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                props, new RecordingPaimonCatalogOps(),
+                PaimonCatalogProperties.of(props), new RecordingPaimonCatalogOps(),
                 envContext(Collections.singletonMap("jdbc_drivers_dir", "/opt/drivers")));
 
         Map<String, String> opts = provider.getBackendPaimonOptions();
@@ -1905,7 +2415,7 @@ public class PaimonScanPlanProviderTest {
         props.put("paimon.jdbc.driver_url", "mysql.jar");
         props.put("paimon.jdbc.driver_class", "com.mysql.cj.jdbc.Driver");
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                props, new RecordingPaimonCatalogOps(),
+                PaimonCatalogProperties.of(props), new RecordingPaimonCatalogOps(),
                 envContext(Collections.singletonMap("jdbc_drivers_dir", "/opt/drivers")));
 
         Map<String, String> opts = provider.getBackendPaimonOptions();
@@ -1924,14 +2434,15 @@ public class PaimonScanPlanProviderTest {
     public void backendOptionsResolveWhenBothAliasesSet() {
         Map<String, String> props = new HashMap<>();
         props.put("paimon.catalog.type", "jdbc");
-        // Both alias forms present with DIFFERENT values. firstNonBlank(JDBC_DRIVER_URL) order is
-        // {paimon.jdbc.driver_url, jdbc.driver_url} -> the paimon.jdbc.* value wins (legacy priority).
+        // Both alias forms present with DIFFERENT values. PaimonJdbcMetaStoreProperties declares the
+        // driver_url aliases as {paimon.jdbc.driver_url, jdbc.driver_url}, and declaration order is
+        // priority order -> the paimon.jdbc.* value wins (legacy priority).
         props.put("paimon.jdbc.driver_url", "postgres.jar");
         props.put("jdbc.driver_url", "mysql.jar");
         props.put("paimon.jdbc.driver_class", "org.postgresql.Driver");
         props.put("jdbc.driver_class", "com.mysql.cj.jdbc.Driver");
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                props, new RecordingPaimonCatalogOps(),
+                PaimonCatalogProperties.of(props), new RecordingPaimonCatalogOps(),
                 envContext(Collections.singletonMap("jdbc_drivers_dir", "/opt/drivers")));
 
         Map<String, String> opts = provider.getBackendPaimonOptions();
@@ -1947,13 +2458,34 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
+    public void backendOptionsResolveAPaddedDriverUrl() {
+        Map<String, String> props = new HashMap<>();
+        props.put("paimon.catalog.type", "jdbc");
+        props.put("paimon.jdbc.driver_url", "  mysql.jar  ");
+        props.put("paimon.jdbc.driver_class", "  com.mysql.cj.jdbc.Driver  ");
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                PaimonCatalogProperties.of(props), new RecordingPaimonCatalogOps(),
+                envContext(Collections.singletonMap("jdbc_drivers_dir", "/opt/drivers")));
+
+        Map<String, String> opts = provider.getBackendPaimonOptions();
+
+        // WHY: these two keys are what the BE turns into a real URL and a real Class.forName. Reading
+        // them from the bound jdbc properties (rather than re-scanning the raw map) means a padded value
+        // is trimmed before it is resolved -- otherwise BE gets "file:///opt/drivers/  mysql.jar  " and
+        // fails at load time with an error naming neither the property nor the padding.
+        // MUTATION: forwarding the raw value -> the resolved url keeps the spaces -> red.
+        Assertions.assertEquals("file:///opt/drivers/mysql.jar", opts.get("jdbc.driver_url"));
+        Assertions.assertEquals("com.mysql.cj.jdbc.Driver", opts.get("jdbc.driver_class"));
+    }
+
+    @Test
     public void backendOptionsPreserveSchemeBearingDriverUrl() {
         Map<String, String> props = new HashMap<>();
         props.put("paimon.catalog.type", "jdbc");
         props.put("jdbc.driver_url", "file:///custom/path/mysql.jar");
         props.put("jdbc.driver_class", "com.mysql.cj.jdbc.Driver");
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                props, new RecordingPaimonCatalogOps(), envContext(Collections.emptyMap()));
+                PaimonCatalogProperties.of(props), new RecordingPaimonCatalogOps(), envContext(Collections.emptyMap()));
 
         // A value already carrying a scheme is shipped unchanged (no double-prefixing).
         Assertions.assertEquals("file:///custom/path/mysql.jar",
@@ -1966,7 +2498,7 @@ public class PaimonScanPlanProviderTest {
         props.put("paimon.catalog.type", "filesystem");
         props.put("jdbc.driver_url", "mysql.jar");
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                props, new RecordingPaimonCatalogOps(), envContext(Collections.emptyMap()));
+                PaimonCatalogProperties.of(props), new RecordingPaimonCatalogOps(), envContext(Collections.emptyMap()));
 
         // Regression guard: the driver_url logic must not leak into non-JDBC flavors.
         Assertions.assertTrue(provider.getBackendPaimonOptions().isEmpty());
@@ -1982,7 +2514,7 @@ public class PaimonScanPlanProviderTest {
         props.put("paimon.jni.io_manager.tmp_dir", "/tmp/doris-paimon");
         props.put("paimon.jni.io_manager.impl_class", "org.example.CustomIOManager");
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                props, new RecordingPaimonCatalogOps(), envContext(Collections.emptyMap()));
+                PaimonCatalogProperties.of(props), new RecordingPaimonCatalogOps(), envContext(Collections.emptyMap()));
 
         Map<String, String> opts = provider.getBackendPaimonOptions();
 
@@ -2008,7 +2540,7 @@ public class PaimonScanPlanProviderTest {
         props.put("paimon.catalog.type", "filesystem");
         props.put("paimon.jni.enable_file_reader_async", "false");
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                props, new RecordingPaimonCatalogOps(), envContext(Collections.emptyMap()));
+                PaimonCatalogProperties.of(props), new RecordingPaimonCatalogOps(), envContext(Collections.emptyMap()));
 
         Map<String, String> opts = provider.getBackendPaimonOptions();
 
@@ -2044,6 +2576,26 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertEquals(TPrimitiveType.STRING, top.get(0).getFieldPtr().getType().getType());
         Assertions.assertEquals(9, top.get(1).getFieldPtr().getId());
         Assertions.assertEquals("name", top.get(1).getFieldPtr().getName());
+    }
+
+    @Test
+    public void buildSchemaInfoCarriesTimestampSemantics() {
+        List<DataField> fields = Arrays.asList(
+                new DataField(7, "ts", DataTypes.TIMESTAMP(9)),
+                new DataField(8, "ts_ltz", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9)));
+
+        List<TFieldPtr> top = PaimonScanPlanProvider.buildSchemaInfo(3L, fields, false)
+                .getRootField().getFields();
+
+        Assertions.assertFalse(top.get(0).getFieldPtr().isTimestampIsAdjustedToUtc());
+        Assertions.assertTrue(top.get(1).getFieldPtr().isTimestampIsAdjustedToUtc());
+    }
+
+    @Test
+    public void doesNotUseHiveParquetInt96TimeZone() {
+        Assertions.assertFalse(
+                new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), null)
+                        .usesHiveParquetInt96TimeZone());
     }
 
     @Test
@@ -2132,7 +2684,7 @@ public class PaimonScanPlanProviderTest {
                 "db1", "t1", Collections.emptyList(), Collections.emptyList());
         handle.setPaimonTable(table);
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                new HashMap<>(), new RecordingPaimonCatalogOps(),
+                PaimonCatalogProperties.of(new HashMap<>()), new RecordingPaimonCatalogOps(),
                 scanContext(Collections.emptyMap(), Collections.emptyMap()));
 
         Map<String, String> scanProps = provider.getScanNodeProperties(
@@ -2143,6 +2695,13 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertTrue(params.isSetSerializedTable(),
                 "the serialized paimon table must reach the scan-level thrift params");
         Assertions.assertEquals(scanProps.get("paimon.serialized_table"), params.getSerializedTable());
+        Assertions.assertTrue(params.isSetSerializedTableCacheKey());
+        Assertions.assertFalse(params.getSerializedTableCacheKey().isEmpty());
+
+        TFileScanRangeParams repeatedParams = new TFileScanRangeParams();
+        provider.populateScanLevelParams(repeatedParams, scanProps);
+        Assertions.assertEquals(params.getSerializedTableCacheKey(),
+                repeatedParams.getSerializedTableCacheKey());
     }
 
     @Test
@@ -2253,7 +2812,7 @@ public class PaimonScanPlanProviderTest {
                 "db1", "t1", Collections.emptyList(), Collections.emptyList());
         handle.setPaimonTable(table);
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                new HashMap<>(), new RecordingPaimonCatalogOps());
+                PaimonCatalogProperties.of(new HashMap<>()), new RecordingPaimonCatalogOps());
 
         Map<String, String> scanProps = provider.getScanNodeProperties(
                 null, handle, Collections.emptyList(), Optional.empty());
@@ -2285,19 +2844,19 @@ public class PaimonScanPlanProviderTest {
         // when a DV is attached (PaimonSplit:72,112). The native FE weight reproduces that and carries the
         // scan-level denominator. MUTATION: dropping the native .selfSplitWeight(...) -> weight 0 -> red.
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                new HashMap<>(), new RecordingPaimonCatalogOps());
+                PaimonCatalogProperties.of(new HashMap<>()), new RecordingPaimonCatalogOps());
         RawFile file = parquetRawFile("/data/part-0.parquet");
         DeletionFile dv = new DeletionFile("/data/dv-0.index", 8L, 16L, 4L);
 
         PaimonScanRange withDv = provider.buildNativeRange(
-                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64L, 64 * MB);
+                file, dv, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64L, 64 * MB, 0);
         Assertions.assertEquals(64L + dv.length(), withDv.getSelfSplitWeight(),
                 "native weight = sub-range length + the deletion-vector length");
         Assertions.assertEquals(64 * MB, withDv.getTargetSplitSize(),
                 "native range must carry the weight denominator");
 
         PaimonScanRange noDv = provider.buildNativeRange(
-                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 70L, 64 * MB);
+                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 70L, 64 * MB, 0);
         Assertions.assertEquals(70L, noDv.getSelfSplitWeight(),
                 "a DV-less native range weight is just the sub-range length");
     }
@@ -2308,14 +2867,14 @@ public class PaimonScanPlanProviderTest {
         // params. Splitting must follow the FILE-SPLIT target while every sub-range carries the DENOMINATOR.
         // MUTATION: swapping the two args -> wrong split count AND wrong targetSplitSize -> red.
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                new HashMap<>(), new RecordingPaimonCatalogOps());
+                PaimonCatalogProperties.of(new HashMap<>()), new RecordingPaimonCatalogOps());
         RawFile file = parquetRawFile("/data/part-0.parquet");        // length 100
         long fileSplitTarget = Math.max(1L, file.length() / 3);       // 33 -> >=2 sub-ranges
         long denominator = 64 * MB;                                   // numerically distinct from 33
 
         List<PaimonScanRange> ranges = provider.buildNativeRanges(
                 file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(),
-                fileSplitTarget, denominator);
+                fileSplitTarget, denominator, 0);
 
         Assertions.assertEquals(
                 PaimonScanPlanProvider.computeFileSplitOffsets(file.length(), fileSplitTarget).size(),
@@ -2334,11 +2893,11 @@ public class PaimonScanPlanProviderTest {
         // computed independently, so the single range still gets a positive denominator (non-standard
         // weight) and the whole-file length as its weight.
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
-                new HashMap<>(), new RecordingPaimonCatalogOps());
+                PaimonCatalogProperties.of(new HashMap<>()), new RecordingPaimonCatalogOps());
         RawFile file = parquetRawFile("/data/part-0.parquet");
 
         List<PaimonScanRange> ranges = provider.buildNativeRanges(
-                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64 * MB);
+                file, null, "parquet", Collections.emptyMap(), Collections.emptyMap(), 0L, 64 * MB, 0);
 
         Assertions.assertEquals(1, ranges.size(), "a non-positive target keeps the file whole");
         Assertions.assertEquals(64 * MB, ranges.get(0).getTargetSplitSize(),
@@ -2397,7 +2956,7 @@ public class PaimonScanPlanProviderTest {
             PaimonTableHandle handle = plainHandle();
             PaimonSchemaAtMemo memo = new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
             PaimonScanPlanProvider provider =
-                    new PaimonScanPlanProvider(Collections.emptyMap(), ops, null, memo);
+                    new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops, null, memo);
 
             provider.getScanNodeProperties(null, handle, Collections.emptyList(), Optional.empty());
 
@@ -2422,7 +2981,7 @@ public class PaimonScanPlanProviderTest {
             // The real (unseeded) dict.
             RecordingPaimonCatalogOps opsReal = new RecordingPaimonCatalogOps();
             opsReal.table = base;
-            String encodedReal = new PaimonScanPlanProvider(Collections.emptyMap(), opsReal, null,
+            String encodedReal = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), opsReal, null,
                     new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE))
                     .getScanNodeProperties(null, handle, Collections.emptyList(), Optional.empty())
                     .get("paimon.schema_evolution");
@@ -2435,7 +2994,7 @@ public class PaimonScanPlanProviderTest {
                     Collections.emptyList(), Collections.emptyList()));
             RecordingPaimonCatalogOps opsSeeded = new RecordingPaimonCatalogOps();
             opsSeeded.table = base;
-            String encodedSeeded = new PaimonScanPlanProvider(Collections.emptyMap(), opsSeeded, null, seeded)
+            String encodedSeeded = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), opsSeeded, null, seeded)
                     .getScanNodeProperties(null, handle, Collections.emptyList(), Optional.empty())
                     .get("paimon.schema_evolution");
 
@@ -2459,14 +3018,14 @@ public class PaimonScanPlanProviderTest {
             RecordingPaimonCatalogOps opsA = new RecordingPaimonCatalogOps();
             opsA.table = base;
             // 2-arg ctor: fresh per-instance memo => first build is a direct read => pre-fix behavior.
-            String encodedA = new PaimonScanPlanProvider(Collections.emptyMap(), opsA)
+            String encodedA = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), opsA)
                     .getScanNodeProperties(null, handle, Collections.emptyList(), Optional.empty())
                     .get("paimon.schema_evolution");
 
             RecordingPaimonCatalogOps opsB = new RecordingPaimonCatalogOps();
             opsB.table = base;
             // 4-arg ctor with a shared memo (first build is also a direct read, then cached).
-            String encodedB = new PaimonScanPlanProvider(Collections.emptyMap(), opsB, null,
+            String encodedB = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), opsB, null,
                     new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE))
                     .getScanNodeProperties(null, handle, Collections.emptyList(), Optional.empty())
                     .get("paimon.schema_evolution");
@@ -2492,7 +3051,7 @@ public class PaimonScanPlanProviderTest {
             ops.table = base;
             PaimonTableHandle binlog = PaimonTableHandle.forSystemTable("db", "t", "binlog", true);
             PaimonSchemaAtMemo memo = new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
-            Map<String, String> props = new PaimonScanPlanProvider(Collections.emptyMap(), ops, null, memo)
+            Map<String, String> props = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops, null, memo)
                     .getScanNodeProperties(null, binlog, Collections.emptyList(), Optional.empty());
             Assertions.assertFalse(props.containsKey("paimon.schema_evolution"),
                     "a force-jni handle skips the schema dict");
@@ -2503,7 +3062,7 @@ public class PaimonScanPlanProviderTest {
             RecordingPaimonCatalogOps ops2 = new RecordingPaimonCatalogOps();
             ops2.table = base;
             PaimonSchemaAtMemo memo2 = new PaimonSchemaAtMemo(PaimonSchemaAtMemo.DEFAULT_MAX_SIZE);
-            Map<String, String> props2 = new PaimonScanPlanProvider(Collections.emptyMap(), ops2, null, memo2)
+            Map<String, String> props2 = new PaimonScanPlanProvider(PaimonCatalogProperties.of(Collections.emptyMap()), ops2, null, memo2)
                     .getScanNodeProperties(
                             sessionWithProps(Collections.singletonMap("force_jni_scanner", "true")),
                             plainHandle(), Collections.emptyList(), Optional.empty());

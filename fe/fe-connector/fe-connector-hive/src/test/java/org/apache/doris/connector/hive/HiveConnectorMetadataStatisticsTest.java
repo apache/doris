@@ -17,12 +17,11 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.ConnectorTableStatistics;
+import org.apache.doris.connector.spi.ConnectorTableStatistics;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -46,7 +45,7 @@ public class HiveConnectorMetadataStatisticsTest {
     // client is sufficient and keeps the test focused on the parameter interpretation.
     private static Optional<ConnectorTableStatistics> statsOf(Map<String, String> tableParameters) {
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
-                null, Collections.emptyMap(), new FakeConnectorContext());
+                null, HiveTestProperties.minimal(), new FakeConnectorContext());
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .tableParameters(tableParameters)
                 .build();

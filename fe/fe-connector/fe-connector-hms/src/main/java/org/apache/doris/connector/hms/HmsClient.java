@@ -388,6 +388,27 @@ public interface HmsClient extends Closeable {
         throw new UnsupportedOperationException("acquireSharedLock is not supported by this client");
     }
 
+    /**
+     * Acquire a standalone exclusive lock over a non-transactional Hive table.
+     *
+     * @return the HMS lock id, which the caller must release with {@link #releaseLock(long)}
+     */
+    default long acquireExclusiveTableLock(String queryId, String user, String dbName,
+            String tableName, long timeoutMs) {
+        throw new UnsupportedOperationException(
+                "acquireExclusiveTableLock is not supported by this client");
+    }
+
+    /** Release a standalone HMS lock. */
+    default void releaseLock(long lockId) {
+        throw new UnsupportedOperationException("releaseLock is not supported by this client");
+    }
+
+    /** Heartbeat a standalone HMS lock so long-running publication cannot lose its exclusion lease. */
+    default void heartbeatLock(long lockId) {
+        throw new UnsupportedOperationException("heartbeatLock is not supported by this client");
+    }
+
     // ========== Phase 5: Metastore notification events (incremental metadata sync) ==========
     //
     // Optional: the incremental-metadata event feed. Only the production {@link ThriftHmsClient}

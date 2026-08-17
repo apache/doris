@@ -256,14 +256,44 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         } else {
             synchronized (splitsLock) {
                 BinlogSplit binlogSplit = (BinlogSplit) newOffset.getSplits().get(0);
+                if (MapUtils.isEmpty(binlogSplit.getStartingOffset())) {
+                    log.warn("Skip empty committed binlog offset for job {}", getJobId());
+                    return;
+                }
                 binlogOffsetPersist = new HashMap<>(binlogSplit.getStartingOffset());
                 binlogOffsetPersist.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
+                clearSnapshotState();
                 currentOffset = newOffset;
                 hasMoreData = true;
             }
             return;
         }
         this.currentOffset = newOffset;
+    }
+
+    protected void clearSnapshotState() {
+        if (MapUtils.isNotEmpty(chunkHighWatermarkMap)) {
+            chunkHighWatermarkMap = new HashMap<>();
+        }
+        remainingSplits.clear();
+        finishedSplits.clear();
+        if (committedSplitProgress != null) {
+            clearProgress(committedSplitProgress);
+        }
+        if (cdcSplitProgress != null) {
+            clearProgress(cdcSplitProgress);
+        }
+    }
+
+    public boolean shouldPersistOffset(long lastPersistTimeMs, long currentTimeMs) {
+        synchronized (splitsLock) {
+            if (currentOffset == null || !currentOffset.snapshotSplit()) {
+                return true;
+            }
+        }
+        long intervalMs = Math.max(1L,
+                (long) Config.streaming_job_snapshot_offset_persist_interval_sec) * 1000L;
+        return lastPersistTimeMs == 0L || currentTimeMs - lastPersistTimeMs >= intervalMs;
     }
 
     @Override

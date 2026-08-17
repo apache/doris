@@ -17,11 +17,12 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connectorconf.testplugins.AlterValidationHelper;
 import org.apache.doris.connectorconf.testplugins.ConfProbeConnectorProviderA;
 import org.apache.doris.connectorconf.testplugins.ConfProbeConnectorProviderB;
 import org.apache.doris.extension.loader.ApiVersionGate;
@@ -83,6 +84,20 @@ public class ConnectorPluginConfTest {
         Assertions.assertNotNull(seen, "the probe provider was never asked to create a connector");
         Assertions.assertEquals("/opt/drivers", seen.get("drivers_dir"));
         Assertions.assertEquals("30", seen.get("timeout"));
+    }
+
+    @Test
+    public void alterValidationUsesTheDirectoryProviderClassLoader() throws IOException {
+        Path root = pluginRoot();
+        deployPlugin(root, ConfProbeConnectorProviderA.class, ConfProbeConnectorProviderA.TYPE,
+                null, AlterValidationHelper.class);
+        manager.loadPlugins(Collections.singletonList(root));
+        ClassLoader callerLoader = Thread.currentThread().getContextClassLoader();
+
+        Assertions.assertDoesNotThrow(() -> manager.validatePropertiesForUpdate(
+                ConfProbeConnectorProviderA.TYPE, Collections.emptyMap(), Collections.emptyMap()));
+        Assertions.assertSame(callerLoader, Thread.currentThread().getContextClassLoader(),
+                "ALTER validation must restore the FE caller's context classloader");
     }
 
     @Test
@@ -219,7 +234,8 @@ public class ConnectorPluginConfTest {
      * <p>The directory is deliberately NOT named after the provider, so that nothing here can pass by
      * accidentally reading a file named after the directory.
      */
-    private Path deployPlugin(Path root, Class<?> providerClass, String providerName, String confContent)
+    private Path deployPlugin(Path root, Class<?> providerClass, String providerName, String confContent,
+            Class<?>... additionalClasses)
             throws IOException {
         Path dir = root.resolve("some_plugin_dir_" + providerName);
         Files.createDirectories(dir);
@@ -229,18 +245,11 @@ public class ConnectorPluginConfTest {
         manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
         manifest.getMainAttributes().putValue("Doris-Connector-Plugin-Api-Version",
                 ApiVersionGate.forFamily("connector", ConnectorProvider.class).getExpectedVersion());
-        String classEntry = providerClass.getName().replace('.', '/') + ".class";
         try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(jarPath), manifest)) {
-            jar.putNextEntry(new JarEntry(classEntry));
-            try (InputStream classBytes = providerClass.getClassLoader().getResourceAsStream(classEntry)) {
-                Assertions.assertNotNull(classBytes, "class bytes not found: " + classEntry);
-                byte[] buffer = new byte[8192];
-                int read;
-                while ((read = classBytes.read(buffer)) != -1) {
-                    jar.write(buffer, 0, read);
-                }
+            writeClass(jar, providerClass);
+            for (Class<?> additionalClass : additionalClasses) {
+                writeClass(jar, additionalClass);
             }
-            jar.closeEntry();
             jar.putNextEntry(new JarEntry("META-INF/services/" + ConnectorProvider.class.getName()));
             jar.write((providerClass.getName() + "\n").getBytes(StandardCharsets.UTF_8));
             jar.closeEntry();
@@ -249,5 +258,19 @@ public class ConnectorPluginConfTest {
             Files.write(dir.resolve(providerName + ".conf"), confContent.getBytes(StandardCharsets.UTF_8));
         }
         return dir;
+    }
+
+    private static void writeClass(JarOutputStream jar, Class<?> clazz) throws IOException {
+        String classEntry = clazz.getName().replace('.', '/') + ".class";
+        jar.putNextEntry(new JarEntry(classEntry));
+        try (InputStream classBytes = clazz.getClassLoader().getResourceAsStream(classEntry)) {
+            Assertions.assertNotNull(classBytes, "class bytes not found: " + classEntry);
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = classBytes.read(buffer)) != -1) {
+                jar.write(buffer, 0, read);
+            }
+        }
+        jar.closeEntry();
     }
 }

@@ -17,11 +17,11 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
@@ -48,7 +48,7 @@ public class PaimonConnectorMetadataTest {
 
     private static PaimonConnectorMetadata metadataWith(RecordingPaimonCatalogOps ops) {
         // Read-path tests ignore the context; a default RecordingConnectorContext is a no-op wrapper.
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     private static RowType rowType(String... columnNames) {
@@ -218,7 +218,7 @@ public class PaimonConnectorMetadataTest {
     @Test
     public void disablesCastPredicatePushdown() {
         PaimonConnectorMetadata metadata =
-                new PaimonConnectorMetadata(null, Collections.emptyMap(), new RecordingConnectorContext());
+                new PaimonConnectorMetadata(null, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
 
         // WHY: the shared converter unwraps CAST shells, so if this returned true (the SPI
         // default), a predicate like CAST(str_col AS INT)=5 would be pushed to Paimon as
@@ -467,7 +467,7 @@ public class PaimonConnectorMetadataTest {
         props.put("enable.mapping.varbinary", "true");
         props.put("enable.mapping.timestamp_tz", "true");
         PaimonConnectorMetadata metadata =
-                new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext());
+                new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(props), new RecordingConnectorContext());
 
         ConnectorTableHandle handle = metadata.getTableHandle(null, "db1", "t1").get();
         ConnectorTableSchema schema = metadata.getTableSchema(null, handle);
@@ -493,7 +493,7 @@ public class PaimonConnectorMetadataTest {
 
         // No mapping keys set — the default (legacy-compatible) behavior.
         PaimonConnectorMetadata metadata =
-                new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+                new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
 
         ConnectorTableHandle handle = metadata.getTableHandle(null, "db1", "t1").get();
         ConnectorTableSchema schema = metadata.getTableSchema(null, handle);
@@ -528,7 +528,7 @@ public class PaimonConnectorMetadataTest {
             ops.table = new FakePaimonTable(
                     "t1", binaryAndLtzRowType(), Collections.emptyList(), Collections.emptyList());
             PaimonConnectorMetadata metadata =
-                    new PaimonConnectorMetadata(ops, props, new RecordingConnectorContext());
+                    new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(props), new RecordingConnectorContext());
 
             ConnectorTableHandle handle = metadata.getTableHandle(null, "db1", "t1").get();
             ConnectorTableSchema schema = metadata.getTableSchema(null, handle);

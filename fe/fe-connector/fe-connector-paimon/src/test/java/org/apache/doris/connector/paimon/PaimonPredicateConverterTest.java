@@ -17,11 +17,11 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorLike;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorLike;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.Timestamp;

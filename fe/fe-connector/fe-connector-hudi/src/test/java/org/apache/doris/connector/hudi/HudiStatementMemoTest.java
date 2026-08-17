@@ -17,10 +17,10 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -62,7 +62,7 @@ public class HudiStatementMemoTest {
         int instantLoads;
 
         RecordingMetadata() {
-            super(null, Collections.emptyMap(), null);
+            super(null, HudiTestProperties.minimal(), null);
         }
 
         @Override

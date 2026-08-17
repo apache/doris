@@ -51,14 +51,14 @@ public class PaimonTableOptionsTest {
         props.put("warehouse", "s3://tmp/warehouse");
         props.put("paimon.jni.enable_jni_io_manager", "true");
         props.put("paimon.table-option.read.batch-size", "4096");
-        props.put("paimon.table-option.file.compression.per.level", "0:lz4,1:zstd");
+        props.put("paimon.table-option.file-reader-async-threshold", "16 MB");
 
         Map<String, String> extracted = PaimonTableOptions.extract(props);
 
         // WHY: Paimon consumes the bare option name, so the "paimon.table-option." namespace marker
         // must be stripped exactly once; anything outside the namespace must not be picked up.
         Assertions.assertEquals("4096", extracted.get("read.batch-size"));
-        Assertions.assertEquals("0:lz4,1:zstd", extracted.get("file.compression.per.level"));
+        Assertions.assertEquals("16 MB", extracted.get("file-reader-async-threshold"));
         Assertions.assertEquals(2, extracted.size());
     }
 
@@ -70,7 +70,7 @@ public class PaimonTableOptionsTest {
         props.put("paimon.jni.enable_jni_io_manager", "true");
         props.put("paimon.client-pool-size", "7");
 
-        Options options = PaimonCatalogFactory.buildCatalogOptions(props);
+        Options options = PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(props));
 
         // WHY (#65955): both namespaces are re-keyed by the generic "paimon.*" passthrough unless
         // excluded, which would push a per-TABLE option and a BE scanner knob into the Paimon CATALOG
@@ -84,28 +84,18 @@ public class PaimonTableOptionsTest {
     }
 
     @Test
-    public void forCopyKeepsOptionsThePaimonTableSetsItself() {
+    public void forCopyAppliesCatalogReaderPolicyOverPhysicalTableOptions() {
         Map<String, String> props = new HashMap<>();
         props.put("paimon.table-option.read.batch-size", "4096");
-        props.put("paimon.table-option.write.batch-size", "2048");
-        props.put("paimon.table-option.file.compression.per.level", "0:lz4,1:zstd");
+        props.put("paimon.table-option.file-reader-async-threshold", "16 MB");
         Map<String, String> extracted = PaimonTableOptions.extract(props);
 
-        Map<String, String> currentTableOptions = new HashMap<>();
-        currentTableOptions.put("read.batch-size", "1024");
-        // "orc.write.batch-size" is a FALLBACK key of the write.batch-size ConfigOption.
-        currentTableOptions.put("orc.write.batch-size", "512");
-        currentTableOptions.put("file.compression.per.level", "0:snappy");
+        Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(extracted);
 
-        Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(extracted, currentTableOptions);
-
-        // WHY: the catalog value is a DEFAULT, not an override — a table that states an option must keep
-        // its own value, or a catalog-wide default would silently rewrite per-table tuning. The
-        // orc.write.batch-size case is why the check goes through the ConfigOption instead of a plain
-        // map lookup: a fallback spelling still counts as "the table set it".
-        // MUTATION: comparing raw keys (currentTableOptions.containsKey) -> write.batch-size leaks
-        // through and overrides the table's own orc.write.batch-size -> red.
-        Assertions.assertTrue(optionsForCopy.isEmpty());
+        // WHY: catalog-scoped reader options are an administrator policy, so they must override
+        // the physical table while relation @options can still override this copied table per scan.
+        Assertions.assertEquals("4096", optionsForCopy.get("read.batch-size"));
+        Assertions.assertEquals("16 MB", optionsForCopy.get("file-reader-async-threshold"));
     }
 
     @Test
@@ -113,8 +103,7 @@ public class PaimonTableOptionsTest {
         Map<String, String> extracted = PaimonTableOptions.extract(
                 Collections.singletonMap("paimon.table-option.read.batch-size", "4096"));
 
-        Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(
-                extracted, Collections.singletonMap("path", "s3://tmp/warehouse/test.db/test"));
+        Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(extracted);
 
         // WHY: this is the whole point of the feature — an option the table does not mention is filled
         // from the catalog. A table always carries at least "path", so the non-empty-currentOptions
@@ -163,6 +152,70 @@ public class PaimonTableOptionsTest {
     }
 
     @Test
+    public void rejectUnsafeTableOptions() {
+        for (String option : new String[] {
+                "branch", "path", "scan.tag-name", "scan.snapshot-id",
+                "write.batch-size", "file.compression.per.level"
+        }) {
+            Map<String, String> props = Collections.singletonMap(
+                    "paimon.table-option." + option, "1");
+
+            IllegalArgumentException e = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> PaimonTableOptions.extract(props), option);
+            Assertions.assertTrue(e.getMessage().contains(option), option);
+        }
+    }
+
+    @Test
+    public void rejectOutOfRangeReaderOptions() {
+        Map<String, String> invalidOptions = new HashMap<>();
+        invalidOptions.put("read.batch-size", "0");
+        invalidOptions.put("read.batch-size-negative", "-1");
+        invalidOptions.put("read.batch-size-too-large", "65537");
+        invalidOptions.put("file-reader-async-threshold", "0 B");
+        invalidOptions.put("file-reader-async-threshold-too-small", "512 KB");
+        invalidOptions.put("file-reader-async-threshold-too-large", "2 GB");
+
+        invalidOptions.forEach((caseName, value) -> {
+            String option = caseName.startsWith("read.batch-size")
+                    ? "read.batch-size" : "file-reader-async-threshold";
+            Map<String, String> props = Collections.singletonMap(
+                    "paimon.table-option." + option, value);
+
+            IllegalArgumentException e = Assertions.assertThrows(
+                    IllegalArgumentException.class, () -> PaimonTableOptions.extract(props), caseName);
+            Assertions.assertTrue(e.getMessage().contains(option), caseName);
+        });
+    }
+
+    @Test
+    public void compatibleExtractionKeepsCatalogLoadableWithoutApplyingUnsafeLegacyOptions() {
+        Map<String, String> props = new HashMap<>();
+        props.put("paimon.table-option.write.batch-size", "2048");
+        props.put("paimon.table-option.read.batch-size", "4096");
+
+        Map<String, String> compatible = PaimonTableOptions.extractCompatible(props);
+
+        Assertions.assertEquals(Collections.singletonMap("read.batch-size", "4096"), compatible);
+    }
+
+    @Test
+    public void alterValidatesOnlyTouchedTableOptionsWhileCheckingTheWholeCandidate() {
+        Map<String, String> current = new HashMap<>();
+        current.put("type", "paimon");
+        current.put("paimon.catalog.type", "filesystem");
+        current.put("warehouse", "s3://tmp/warehouse");
+        current.put("paimon.table-option.write.batch-size", "2048");
+        PaimonConnectorProvider provider = new PaimonConnectorProvider();
+
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(
+                current, Collections.singletonMap("paimon.client-pool-size", "7")));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.validatePropertiesForUpdate(current,
+                        Collections.singletonMap("paimon.table-option.write.batch-size", "4096")));
+    }
+
+    @Test
     public void rejectEmptyTableOptionName() {
         Map<String, String> props = Collections.singletonMap("paimon.table-option.", "value");
 
@@ -185,7 +238,7 @@ public class PaimonTableOptionsTest {
 
             Map<String, String> props = new HashMap<>();
             props.put("paimon.table-option.read.batch-size", "4096");
-            props.put("paimon.table-option.scan.max-splits-per-task", "17");
+            props.put("paimon.table-option.file-reader-async-threshold", "16 MB");
             Map<String, String> tableOptions = PaimonTableOptions.extract(props);
             Table table = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog, tableOptions)
                     .getTable(id);
@@ -195,11 +248,10 @@ public class PaimonTableOptionsTest {
             // PaimonExternalCatalog.getPaimonTable applied it in exactly the same place. Because the
             // serialized Table is what BE's PaimonJniScanner deserializes and reads, an option that is
             // not overlaid HERE never reaches the scanner at all.
-            // MUTATION: returning catalog.getTable(identifier) unchanged -> the unset option is absent
-            // -> red. Overlaying unconditionally (skipping forCopy) -> the table's own 1024 is
-            // overwritten with 4096 -> red.
-            Assertions.assertEquals("17", table.options().get("scan.max-splits-per-task"));
-            Assertions.assertEquals("1024", table.options().get("read.batch-size"));
+            // MUTATION: returning catalog.getTable(identifier) unchanged leaves the catalog policy
+            // unapplied; both assertions below would fail.
+            Assertions.assertEquals("16 MB", table.options().get("file-reader-async-threshold"));
+            Assertions.assertEquals("4096", table.options().get("read.batch-size"));
         }
     }
 
@@ -217,7 +269,7 @@ public class PaimonTableOptionsTest {
             // return the catalog's own Table instance untouched, so nothing about caching or identity
             // changes for it.
             Assertions.assertSame(catalog.getTable(id).getClass(), table.getClass());
-            Assertions.assertFalse(table.options().containsKey("scan.max-splits-per-task"));
+            Assertions.assertFalse(table.options().containsKey("file-reader-async-threshold"));
         }
     }
 

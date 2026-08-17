@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
@@ -97,6 +97,9 @@ public final class PaimonTypeMapping {
                 return toTimestampType(dataType);
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
                 return toTimestampTzType(dataType, options);
+            case VARIANT:
+                // Preserve the execution-only carrier consumed by the native Paimon reader.
+                return ConnectorType.of("VARIANT_COMPUTE_V2");
             case ARRAY:
                 return toArrayType((ArrayType) dataType, options);
             case MAP:

@@ -48,7 +48,6 @@
 #include "util/time.h"
 
 namespace doris {
-class DeltaWriter;
 class OlapMeta;
 struct TabletPublishStatistics;
 struct PartialUpdateInfo;
@@ -63,6 +62,14 @@ enum class TxnState {
 };
 enum class PublishStatus { INIT = 0, PREPARE = 1, SUCCEED = 2 };
 
+// The row binlog rowset and its independent binlog tablet, carried through commit and publish.
+struct RowBinlogTxnInfo {
+    RowsetSharedPtr rowset;
+    BaseTabletSPtr tablet;
+    // Delete bitmap deltas that should be applied to the independent binlog tablet.
+    DeleteBitmapPtr delete_bitmap;
+};
+
 struct TxnPublishInfo {
     int64_t publish_version {-1};
     int64_t base_compaction_cnt {-1};
@@ -73,14 +80,11 @@ struct TxnPublishInfo {
 struct TabletTxnInfo {
     PUniqueId load_id;
     RowsetSharedPtr rowset;
-    // The list of rowsets committed along with the transaction rowset
-    // currently contains only the binlog<Row> rowset.
-    std::vector<RowsetSharedPtr> attach_rowsets;
+    // the row binlog committed along with this txn.
+    RowBinlogTxnInfo attach_row_binlog;
     PendingRowsetGuard pending_rs_guard;
     bool unique_key_merge_on_write {false};
     DeleteBitmapPtr delete_bitmap;
-    // copy delete_bitmap of data rowset to binlog
-    DeleteBitmapPtr binlog_delvec;
     // records rowsets calc in commit txn
     RowsetIdUnorderedSet rowset_ids;
     int64_t creation_time;
@@ -151,8 +155,6 @@ public:
         delete[] _txn_partition_maps;
         delete[] _txn_map_locks;
         delete[] _txn_mutex;
-        delete[] _txn_tablet_delta_writer_map;
-        delete[] _txn_tablet_delta_writer_map_locks;
     }
 
     class CacheValue : public LRUCacheValueBase {
@@ -174,7 +176,7 @@ public:
                       TTransactionId transaction_id, const PUniqueId& load_id,
                       const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard, bool is_recovery,
                       std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr,
-                      std::vector<RowsetSharedPtr>* attach_rowsets = nullptr);
+                      const RowBinlogTxnInfo& attach_row_binlog = {});
 
     Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                        TTransactionId transaction_id, const Version& version,
@@ -193,7 +195,7 @@ public:
                       TTabletId tablet_id, TabletUid tablet_uid, const PUniqueId& load_id,
                       const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard, bool is_recovery,
                       std::shared_ptr<PartialUpdateInfo> partial_update_info = nullptr,
-                      std::vector<RowsetSharedPtr>* attach_rowsets = nullptr);
+                      const RowBinlogTxnInfo& attach_row_binlog = {});
 
     // remove a txn from txn manager
     // not persist rowset meta because
@@ -223,7 +225,7 @@ public:
     void get_txn_related_tablets(
             const TTransactionId transaction_id, TPartitionId partition_ids,
             std::map<TabletInfo, RowsetSharedPtr>* tablet_infos,
-            std::map<TabletInfo, std::vector<RowsetSharedPtr>>* tablet_attach_rowsets = nullptr);
+            std::map<TabletInfo, std::shared_ptr<TabletTxnInfo>>* tablet_txn_infos = nullptr);
 
     void get_all_related_tablets(std::set<TabletInfo>* tablet_infos);
 
@@ -236,12 +238,6 @@ public:
 
     void get_partition_ids(const TTransactionId transaction_id,
                            std::vector<TPartitionId>* partition_ids);
-
-    void add_txn_tablet_delta_writer(int64_t transaction_id, int64_t tablet_id,
-                                     DeltaWriter* delta_writer);
-    void clear_txn_tablet_delta_writer(int64_t transaction_id);
-    void finish_slave_tablet_pull_rowset(int64_t transaction_id, int64_t tablet_id, int64_t node_id,
-                                         bool is_succeed);
 
     void set_txn_related_delete_bitmap(TPartitionId partition_id, TTransactionId transaction_id,
                                        TTabletId tablet_id, TabletUid tablet_uid,
@@ -284,9 +280,6 @@ private:
             std::unordered_map<TxnKey, std::map<TabletInfo, std::shared_ptr<TabletTxnInfo>>,
                                TxnKeyHash, TxnKeyEqual>;
     using txn_partition_map_t = std::unordered_map<int64_t, std::unordered_set<int64_t>>;
-    using txn_tablet_delta_writer_map_t =
-            std::unordered_map<int64_t, std::map<int64_t, DeltaWriter*>>;
-
     std::shared_mutex& _get_txn_map_lock(TTransactionId transactionId);
 
     txn_tablet_map_t& _get_txn_tablet_map(TTransactionId transactionId);
@@ -294,10 +287,6 @@ private:
     txn_partition_map_t& _get_txn_partition_map(TTransactionId transactionId);
 
     inline std::shared_mutex& _get_txn_lock(TTransactionId transactionId);
-
-    std::shared_mutex& _get_txn_tablet_delta_writer_map_lock(TTransactionId transactionId);
-
-    txn_tablet_delta_writer_map_t& _get_txn_tablet_delta_writer_map(TTransactionId transactionId);
 
     // Insert or remove (transaction_id, partition_id) from _txn_partition_map
     // get _txn_map_lock before calling.
@@ -338,9 +327,7 @@ private:
 
     std::shared_mutex* _txn_mutex = nullptr;
 
-    txn_tablet_delta_writer_map_t* _txn_tablet_delta_writer_map = nullptr;
     std::unique_ptr<TabletVersionCache> _tablet_version_cache;
-    std::shared_mutex* _txn_tablet_delta_writer_map_locks = nullptr;
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 }; // TxnManager
 
@@ -359,16 +346,6 @@ inline TxnManager::txn_partition_map_t& TxnManager::_get_txn_partition_map(
 
 inline std::shared_mutex& TxnManager::_get_txn_lock(TTransactionId transactionId) {
     return _txn_mutex[transactionId & (_txn_shard_size - 1)];
-}
-
-inline std::shared_mutex& TxnManager::_get_txn_tablet_delta_writer_map_lock(
-        TTransactionId transactionId) {
-    return _txn_tablet_delta_writer_map_locks[transactionId & (_txn_map_shard_size - 1)];
-}
-
-inline TxnManager::txn_tablet_delta_writer_map_t& TxnManager::_get_txn_tablet_delta_writer_map(
-        TTransactionId transactionId) {
-    return _txn_tablet_delta_writer_map[transactionId & (_txn_map_shard_size - 1)];
 }
 
 } // namespace doris

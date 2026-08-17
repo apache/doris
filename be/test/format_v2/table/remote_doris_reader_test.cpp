@@ -213,7 +213,7 @@ TFileRangeDesc remote_doris_range(const BlockingFlightServer& server) {
     auto range = remote_doris_range();
     auto& params = range.table_format_params.remote_doris_params;
     params.__set_location_uri("grpc://localhost:" + std::to_string(server.port()));
-    arrow::flight::Ticket ticket {.ticket = "ticket"};
+    arrow::flight::Ticket ticket {"ticket"};
     params.__set_ticket(ticket.SerializeToString().ValueOrDie());
     return range;
 }

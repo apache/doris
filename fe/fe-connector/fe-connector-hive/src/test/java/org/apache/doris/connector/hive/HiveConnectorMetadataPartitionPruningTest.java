@@ -17,20 +17,20 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
-import org.apache.doris.connector.api.pushdown.ConnectorIn;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
-import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -155,7 +155,7 @@ public class HiveConnectorMetadataPartitionPruningTest {
         // string compare -> the pruned set is EMPTY, dropping the real partition (silent row loss).
         List<String> escaped = Arrays.asList("code=US%3ACA", "code=EU%3ADE");
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
-                new FakeHmsClient(escaped), Collections.emptyMap(), new FakeConnectorContext());
+                new FakeHmsClient(escaped), HiveTestProperties.minimal(), new FakeConnectorContext());
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .partitionKeyNames(Collections.singletonList("code"))
                 .build();
@@ -188,7 +188,7 @@ public class HiveConnectorMetadataPartitionPruningTest {
         // Hive DATE partition value. Guards against the datetime branch accidentally catching DATE columns.
         List<String> parts = Arrays.asList("dt=2024-01-01", "dt=2024-01-02");
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
-                new FakeHmsClient(parts), Collections.emptyMap(), new FakeConnectorContext());
+                new FakeHmsClient(parts), HiveTestProperties.minimal(), new FakeConnectorContext());
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .partitionKeyNames(Collections.singletonList("dt"))
                 .build();
@@ -209,7 +209,7 @@ public class HiveConnectorMetadataPartitionPruningTest {
         // the real partition to survive pruning (else silent row loss).
         List<String> parts = Arrays.asList("dt=2024-01-01 10%3A00%3A00", "dt=2024-01-02 00%3A00%3A00");
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
-                new FakeHmsClient(parts), Collections.emptyMap(), new FakeConnectorContext());
+                new FakeHmsClient(parts), HiveTestProperties.minimal(), new FakeConnectorContext());
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .partitionKeyNames(Collections.singletonList("dt"))
                 .build();
@@ -228,7 +228,7 @@ public class HiveConnectorMetadataPartitionPruningTest {
     private Optional<FilterApplicationResult<ConnectorTableHandle>> applyFilter(
             HiveTableHandle handle, ConnectorExpression expr) {
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
-                new FakeHmsClient(PARTITIONS), Collections.emptyMap(), new FakeConnectorContext());
+                new FakeHmsClient(PARTITIONS), HiveTestProperties.minimal(), new FakeConnectorContext());
         return metadata.applyFilter(null, handle, new ConnectorFilterConstraint(expr));
     }
 

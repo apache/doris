@@ -27,21 +27,21 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
-import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
-import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTableFreshness;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -525,6 +525,50 @@ public class PluginDrivenMvccExternalTableTest {
                 "the B5a latest pin must have a null pinnedSchema (use latest schema)");
         Assertions.assertEquals(2, pin.getNameToPartitionItem().size(),
                 "the latest pin must carry the materialized partition view");
+    }
+
+    @Test
+    public void testInitialLatestPartitionAccountingUsesPinnedHandle() {
+        Fixture f = Fixture.partitioned();
+        Mockito.when(f.metadata.listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any()))
+                .thenReturn(Collections.singletonList(
+                        cpi("dt=2024-02-02", TS_2024_02_02)));
+
+        PluginDrivenMvccSnapshot projection = (PluginDrivenMvccSnapshot)
+                f.table.loadSnapshot(Optional.empty(), Optional.empty());
+
+        Assertions.assertEquals(2, projection.getNameToPartitionItem().size(),
+                "partition accounting must describe the snapshot captured at query begin");
+        Mockito.verify(f.metadata).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
+    }
+
+    @Test
+    public void testLatestFenceDefersPartitionMaterializationUntilPinnedHydration() {
+        Fixture f = Fixture.partitioned();
+        Mockito.when(f.metadata.applySnapshot(
+                Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any()))
+                .thenReturn(f.pinnedHandle);
+        Mockito.when(f.metadata.listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any()))
+                .thenReturn(Arrays.asList(
+                        cpi("dt=2024-01-01", TS_2024_01_01),
+                        cpi("dt=2024-02-02", TS_2024_02_02)));
+
+        PluginDrivenMvccSnapshot fence =
+                (PluginDrivenMvccSnapshot) f.table.loadLatestSnapshotFence();
+        Assertions.assertTrue(fence.getNameToPartitionItem().isEmpty());
+        Mockito.verify(f.metadata, Mockito.never()).listPartitions(
+                Mockito.any(), Mockito.any(), Mockito.any());
+
+        PluginDrivenMvccSnapshot projection = (PluginDrivenMvccSnapshot) f.table.loadSnapshot(
+                Optional.empty(), Optional.empty(), Optional.of(fence));
+        Assertions.assertEquals(PINNED_SNAPSHOT_ID,
+                projection.getConnectorSnapshot().getSnapshotId());
+        Assertions.assertEquals(2, projection.getNameToPartitionItem().size());
+        Mockito.verify(f.metadata).listPartitions(
+                Mockito.eq(f.session), Mockito.eq(f.pinnedHandle), Mockito.any());
     }
 
     @Test
@@ -1210,6 +1254,18 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
+    public void testResolvedEmptyUnpartitionedViewSkipsLiveListFallback() {
+        Fixture f = Fixture.rangeView(ConnectorMvccPartitionView.unpartitioned());
+        Mockito.when(f.metadata.beginQuerySnapshot(f.session, f.handle))
+                .thenReturn(Optional.of(ConnectorMvccSnapshot.builder().snapshotId(-1L).build()));
+
+        Assertions.assertTrue(f.table.getNameToPartitionItems(Optional.empty()).isEmpty(),
+                "a query-begin empty pin must not mix in partitions from a later LIST read");
+        Mockito.verify(f.metadata, Mockito.never())
+                .listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
     public void testAbsentRangeViewKeepsLegacyListPath() throws AnalysisException {
         // Paimon-parity guard: a connector WITHOUT a range view (getMvccPartitionView empty) keeps the legacy
         // listPartitions/LIST/timestamp path byte-unchanged. MUTATION: defaulting to a RANGE/empty view when the
@@ -1398,7 +1454,13 @@ public class PluginDrivenMvccExternalTableTest {
             Mockito.when(metadata.beginQuerySnapshot(session, handle))
                     .thenReturn(Optional.of(
                             ConnectorMvccSnapshot.builder().snapshotId(PINNED_SNAPSHOT_ID).build()));
+            Mockito.when(metadata.applySnapshot(
+                    Mockito.eq(session), Mockito.eq(handle), Mockito.any()))
+                    .thenReturn(pinnedHandle);
             Mockito.when(metadata.listPartitions(Mockito.eq(session), Mockito.eq(handle), Mockito.any()))
+                    .thenReturn(partitions);
+            Mockito.when(metadata.listPartitions(
+                    Mockito.eq(session), Mockito.eq(pinnedHandle), Mockito.any()))
                     .thenReturn(partitions);
             // A Mockito mock does NOT run interface default methods (returns null for these), so mimic the SPI
             // default here: a snapshot-id connector (paimon/iceberg) surfaces no last-modified freshness. The

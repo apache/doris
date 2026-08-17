@@ -17,14 +17,14 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.types.DataField;
@@ -58,7 +58,7 @@ import java.util.TimeZone;
 public class PaimonConnectorMetadataMvccTest {
 
     private static PaimonConnectorMetadata metadataWith(RecordingPaimonCatalogOps ops) {
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     // Builds a metadata sharing an EXTERNAL PaimonSchemaAtMemo, modelling two queries (each a fresh
@@ -66,7 +66,7 @@ public class PaimonConnectorMetadataMvccTest {
     private static PaimonConnectorMetadata metadataWith(RecordingPaimonCatalogOps ops,
             PaimonSchemaAtMemo memo) {
         return new PaimonConnectorMetadata(
-                ops, Collections.emptyMap(), new RecordingConnectorContext(), memo);
+                ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(), memo);
     }
 
     private static RowType rowType(String... columnNames) {
@@ -145,6 +145,19 @@ public class PaimonConnectorMetadataMvccTest {
         ops.sysTable = sys;
         handle.setPaimonTable(sys);
         return handle;
+    }
+
+    @Test
+    public void explicitStartupSelectorDoesNotUseStatementLatestFence() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        PaimonConnectorMetadata metadata = metadataWith(ops);
+        PaimonTableHandle handle = normalHandle(ops);
+
+        Assertions.assertTrue(metadata.usesStatementSnapshotForOptions(
+                null, handle, Collections.singletonMap("scan.plan-sort-partition", "true")));
+        Assertions.assertFalse(metadata.usesStatementSnapshotForOptions(
+                null, handle, Collections.singletonMap("scan.snapshot-id", "7")),
+                "an explicit selector owns its version and must skip the latest fence");
     }
 
     // ==================== beginQuerySnapshot ====================
@@ -749,6 +762,28 @@ public class PaimonConnectorMetadataMvccTest {
     }
 
     @Test
+    public void planningOptionsReuseStatementLatestSnapshotFence() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        PaimonTableHandle handle = normalHandle(ops);
+        ops.latestSnapshotId = OptionalLong.of(12L);
+
+        ConnectorMvccSnapshot snapshot = metadataWith(ops).resolveTimeTravel(
+                null,
+                handle,
+                ConnectorTimeTravelSpec.options(
+                        Collections.singletonMap("scan.manifest.parallelism", "1"), 7L))
+                .orElseThrow(AssertionError::new);
+
+        // Relation projection identity still contains the planning option, while snapshot identity
+        // is inherited from StatementContext instead of a second live latest lookup.
+        Assertions.assertEquals(7L, snapshot.getSnapshotId());
+        Assertions.assertEquals(-1L, snapshot.getSchemaId(),
+                "planning-only options must keep latest-schema semantics at the statement fence");
+        Assertions.assertEquals("7", snapshot.getProperties().get("scan.snapshot-id"));
+        Assertions.assertEquals("1", snapshot.getProperties().get("scan.manifest.parallelism"));
+    }
+
+    @Test
     public void resolveIncrementalEndToEndAppliesIncrementalOptionsIntoHandle() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         PaimonTableHandle handle = normalHandle(ops);
@@ -990,7 +1025,7 @@ public class PaimonConnectorMetadataMvccTest {
     }
 
     @Test
-    public void applySnapshotWithInvalidSnapshotIdReturnsHandleUnchanged() {
+    public void applySnapshotWithInvalidSnapshotIdPinsAnEmptyStatementState() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         PaimonTableHandle handle = normalHandle(ops);
         // beginQuerySnapshot pins INVALID_SNAPSHOT_ID (-1) for an empty table (NOT Optional.empty),
@@ -1000,16 +1035,12 @@ public class PaimonConnectorMetadataMvccTest {
         PaimonTableHandle result = (PaimonTableHandle)
                 metadataWith(ops).applySnapshot(null, handle, snapshot);
 
-        // WHY: an empty-table pin (-1) must NOT become scan.snapshot-id=-1: Table.copy(-1) resolves to
-        // a non-existent snapshot in the paimon SDK (confusing "snapshot/file not found"). Legacy never
-        // copied an invalid id — its empty / query-begin path reads latest WITHOUT a copy. So a -1 pin
-        // must leave the handle UNCHANGED (no scan option -> reads latest).
-        // MUTATION: removing the -1 guard (pinning -1) -> getScanOptions() carries scan.snapshot-id=-1
-        // -> both assertions below go red.
-        Assertions.assertSame(handle, result,
-                "an INVALID_SNAPSHOT_ID (-1) pin must return the handle unchanged (read latest)");
-        Assertions.assertTrue(result.getScanOptions().isEmpty(),
-                "a -1 snapshot must NOT pin scan.snapshot-id (would hit a non-existent snapshot)");
+        // An empty latest is a real statement state. Keep it as Doris-internal scan metadata so a
+        // first commit between aliases cannot make only the later plain alias non-empty.
+        Assertions.assertNotSame(handle, result);
+        Assertions.assertTrue(PaimonScanParams.isPinnedEmptyScan(result.getScanOptions()));
+        Assertions.assertNull(result.getScanOptions().get(CoreOptions.SCAN_SNAPSHOT_ID.key()),
+                "the empty marker must not become Paimon's invalid scan.snapshot-id=-1");
     }
 
     @Test

@@ -17,11 +17,11 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
-import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorBucketSpec;
+import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -44,7 +44,7 @@ public class PaimonCreateTableValidationTest {
     private PaimonConnectorMetadata metadata() {
         // Non-null (empty) properties: the ctor derives type-mapping options from them; catalog/context stay null
         // (rejectDistribution touches only the request).
-        return new PaimonConnectorMetadata(null, Collections.emptyMap(), null);
+        return new PaimonConnectorMetadata(null, PaimonCatalogProperties.of(Collections.emptyMap()), null);
     }
 
     @Test

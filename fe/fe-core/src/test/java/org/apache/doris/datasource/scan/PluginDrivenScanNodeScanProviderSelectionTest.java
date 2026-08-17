@@ -17,14 +17,26 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.SessionVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Guards that {@link PluginDrivenScanNode} resolves its scan plan provider PER TABLE — passing the table's
@@ -108,5 +120,34 @@ public class PluginDrivenScanNodeScanProviderSelectionTest {
                     "after the handle changes the node must re-resolve to the matching provider");
         }
         Mockito.verify(connector, Mockito.times(1)).getScanPlanProvider(hiveHandle);
+    }
+
+    @Test
+    public void routesHiveParquetTimezoneForCustomConnectorType() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "Asia/Shanghai");
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getType()).thenReturn("corp_hive");
+        Mockito.when(catalog.getProperties()).thenReturn(properties);
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(provider.usesHiveParquetInt96TimeZone()).thenReturn(true);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getScanPlanProvider(handle)).thenReturn(provider);
+
+        TupleDescriptor descriptor = new TupleDescriptor(new TupleId(0));
+        descriptor.setTable(table);
+        PluginDrivenScanNode node = new PluginDrivenScanNode(
+                new PlanNodeId(0), descriptor, false, new SessionVariable(), ScanContext.EMPTY,
+                connector, Mockito.mock(ConnectorSession.class), handle);
+
+        // The provider capability, not a hard-coded catalog type name, owns whether a custom
+        // connector consumes the Hive INT96 compatibility timezone.
+        Assertions.assertEquals("Asia/Shanghai",
+                Deencapsulation.invoke(node, "getHiveParquetTimeZone"));
     }
 }

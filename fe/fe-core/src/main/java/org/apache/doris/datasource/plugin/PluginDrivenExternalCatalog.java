@@ -33,25 +33,27 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.DefaultConnectorContext;
 import org.apache.doris.connector.DefaultConnectorValidationContext;
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorCapability;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.ConnectorTestResult;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPath;
-import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
-import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
-import org.apache.doris.connector.api.ddl.PartitionFieldChange;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorCapability;
+import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTestResult;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
+import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.CatalogProperty;
@@ -82,6 +84,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -93,7 +96,7 @@ import java.util.OptionalLong;
  *
  * <p>This adapter bridges the connector SPI ({@link Connector}) with the existing
  * ExternalCatalog hierarchy. Metadata operations are delegated to the connector's
- * {@link org.apache.doris.connector.api.ConnectorMetadata} implementation.</p>
+ * {@link org.apache.doris.connector.spi.ConnectorMetadata} implementation.</p>
  *
  * <p>When created via {@link CatalogFactory}, the Connector instance is provided
  * directly. After GSON deserialization (FE restart), the Connector is recreated
@@ -216,6 +219,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     @Override
     public void checkProperties() throws DdlException {
         super.checkProperties();
+        checkHiveParquetTimeZone(catalogProperty);
         String catalogType = getType();
         try {
             ConnectorFactory.validateProperties(catalogType, catalogProperty.getProperties());
@@ -225,6 +229,39 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         // Validate function_rules JSON if present (shared across all connector types).
         String functionRules = catalogProperty.getOrDefault("function_rules", null);
         ExternalFunctionRules.check(functionRules);
+    }
+
+    @Override
+    public boolean validatePropertiesBeforeUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) throws DdlException {
+        Map<String, String> candidate = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidate.putAll(updatedProperties);
+        CatalogProperty candidateProperty = new CatalogProperty(null, candidate);
+        super.checkProperties(candidateProperty);
+        // Validate the detached candidate before journaling so every accepted ALTER remains
+        // readable by the scan-planning path that parses the same catalog property later.
+        checkHiveParquetTimeZone(candidateProperty);
+        try {
+            // Connector validation must observe the complete candidate without making it visible
+            // to concurrent catalog initialization; the provider handles legacy-value compatibility.
+            ConnectorFactory.validatePropertiesForUpdate(getType(), currentProperties, updatedProperties);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        ExternalFunctionRules.check(candidateProperty.getOrDefault("function_rules", null));
+        return true;
+    }
+
+    private void checkHiveParquetTimeZone(CatalogProperty property) throws DdlException {
+        String catalogType = getType();
+        if ("hms".equalsIgnoreCase(catalogType) || "hudi".equalsIgnoreCase(catalogType)) {
+            String hiveParquetTimeZone = property.getOrDefault(
+                    FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, null);
+            if (hiveParquetTimeZone != null) {
+                FileFormatUtils.parseHiveParquetTimeZone(hiveParquetTimeZone);
+            }
+        }
     }
 
     @Override
@@ -293,10 +330,21 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public void onRefreshCache(boolean invalidCache) {
         super.onRefreshCache(invalidCache);
         if (invalidCache) {
-            Connector localConnector = connector;
-            if (localConnector != null) {
-                localConnector.invalidateAll();
-            }
+            invalidateAllConnectorCachesIfPresent();
+        }
+    }
+
+    /**
+     * Invalidates connector-owned caches without initializing or rebuilding the connector.
+     *
+     * <p>This is also used by edit-log replay when only a retained local database name is available. Without a
+     * database object, replay cannot recover the remote database/table identity, so whole-connector invalidation is
+     * the conservative cache-only fallback.
+     */
+    public void invalidateAllConnectorCachesIfPresent() {
+        Connector localConnector = connector;
+        if (localConnector != null) {
+            localConnector.invalidateAll();
         }
     }
 
@@ -432,14 +480,16 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * REGISTER_DATABASE change (via {@code CatalogMgr.registerExternalDatabaseFromEvent}). Pulled up from
      * {@code HMSExternalCatalog} so a flipped (generic) catalog no longer throws
      * {@code NotImplementedException} on a create/rename-database event. The body is fully generic
-     * (buildDbForInit + metaCache, name-derived id) and mirrors the legacy HMS implementation.
+     * (buildDbForInit + the shared metadata-cache update protocol) and mirrors the legacy HMS implementation.
      */
     @Override
-    public void registerDatabase(long dbId, String dbName) {
-        ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
+    public void registerDatabase(String dbName) {
+        String localDbName = canonicalLocalDatabaseNameFromRemote(dbName);
+        long dbId = Util.genIdByName(getName(), localDbName);
+        ExternalDatabase<? extends ExternalTable> db =
+                buildDbForInit(dbName, localDbName, dbId, logType, false);
         if (isInitialized()) {
-            metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
-                    Util.genIdByName(name, db.getFullName()));
+            updateDatabaseCache(db.getRemoteName(), db.getFullName(), db);
         }
     }
 
@@ -1480,21 +1530,29 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         try {
             context.close();
-        } catch (IOException e) {
+        } catch (Throwable e) {
             LOG.warn("Failed to close connector context filesystem for catalog {}", name, e);
         }
     }
 
     @Override
-    public void onClose() {
-        super.onClose();
-        if (connector != null) {
+    protected void closeResources() {
+        try {
+            super.closeResources();
+        } catch (Throwable e) {
+            LOG.warn("Failed to close common resources for plugin-driven catalog {}", name, e);
+        }
+
+        // Detach every stage before invoking external code. A throwing connector must not remain reachable
+        // for another close attempt or prevent the connector-context stage from running.
+        Connector connectorToClose = connector;
+        connector = null;
+        if (connectorToClose != null) {
             try {
-                connector.close();
-            } catch (IOException e) {
+                connectorToClose.close();
+            } catch (Throwable e) {
                 LOG.warn("Failed to close connector for catalog {}", name, e);
             }
-            connector = null;
         }
         // Close the shared context's cached engine FileSystem AFTER the connector(s) release their borrowed
         // reference to it. No-op when no FS was ever built (e.g. non-hive plugin catalogs never call

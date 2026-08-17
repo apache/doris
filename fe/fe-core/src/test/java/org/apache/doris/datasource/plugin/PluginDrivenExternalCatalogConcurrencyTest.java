@@ -17,9 +17,11 @@
 
 package org.apache.doris.datasource.plugin;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.datasource.SessionContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -47,6 +49,20 @@ import java.util.function.Supplier;
  * and use-after-close races.</p>
  */
 public class PluginDrivenExternalCatalogConcurrencyTest {
+
+    @Test
+    public void testAlterRejectsInvalidHiveParquetTimezone() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "hms");
+        PluginDrivenExternalCatalog catalog =
+                new PluginDrivenExternalCatalog(1L, "test-catalog", null, properties, "", null);
+
+        Map<String, String> updates = Collections.singletonMap(
+                FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "CST");
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(properties, updates));
+        Assertions.assertTrue(exception.getMessage().contains("short timezone aliases are not supported"));
+    }
 
     /**
      * Verify that notifyPropertiesUpdated() closes the old connector via

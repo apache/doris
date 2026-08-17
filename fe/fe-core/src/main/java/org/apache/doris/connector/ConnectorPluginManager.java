@@ -17,7 +17,7 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorConfFile;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
@@ -40,9 +40,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -80,8 +82,46 @@ public class ConnectorPluginManager {
 
     // Connector SPI and filesystem SPI classes must be parent-first so that all
     // instances of shared interfaces/classes are loaded by a single ClassLoader.
-    private static final List<String> CONNECTOR_PARENT_FIRST_PREFIXES =
-            Arrays.asList("org.apache.doris.connector.", "org.apache.doris.filesystem.");
+    //
+    // org.apache.hadoop. is parent-first so that the Doris-patched org.apache.hadoop.fs.FileSystem
+    // (hadoop-deps; its Cache.Key carries doris.fs.cache.key.<scheme>) reaches EVERY connector
+    // plugin, including a third-party or previous-release one that bundles vanilla hadoop-common.
+    // FE no longer sends the blanket fs.<scheme>.impl.disable.cache=true, and could not send it
+    // selectively either -- storage property maps are built before anyone knows which plugin
+    // consumes them -- so a plugin on an unpatched FileSystem would silently hand one cached client
+    // to catalogs that differ only in credentials.
+    //
+    // The prefix covers the namespace, not just that one class, because the JVM requires it: a
+    // plugin-loaded subclass such as org.apache.hadoop.hdfs.DistributedFileSystem overrides
+    // FileSystem.initialize(URI, Configuration), and both loaders must then resolve Configuration to
+    // the same Class or startup dies with "loader constraint violation".
+    //
+    // Parent-first is a delegation ORDER, not an exclusive claim: ChildFirstClassLoader falls back
+    // to the plugin's own jars for anything the parent lacks. So org.apache.hadoop.hbase.* (hudi)
+    // and org.apache.hadoop.hive.* still come from the plugin -- FE carries hive-exec:core, the
+    // plugins carry hive-metastore, and the class names do not intersect. Everything else the
+    // plugins bundle under this namespace does change provider: hadoop-common/auth/annotations/
+    // hdfs-client/aws, hadoop-shaded-guava and -protobuf, and the huaweicloud fs.obs.* classes
+    // (paimon), which the FE kernel ships too. All of them are the same artifact at the same
+    // version on both sides, and both versions are pinned in fe/pom.xml -- hadoop.version is
+    // additionally held by the maven-enforcer rule in be-java-extensions/hadoop-deps, huaweiobs
+    // .version only by dependencyManagement, so bumping either for one side alone silently hands
+    // the plugins the kernel's copy.
+    //
+    // The static state hanging off these now-shared classes matters as much as the classes: see the
+    // DORIS-PATCH in hadoop-deps' FileSystem.loadFileSystems, which binds the ServiceLoader scan to
+    // the class's own loader so that FileSystem.SERVICE_FILE_SYSTEMS -- a process-wide, first-caller
+    // -wins registry -- cannot be frozen by whichever plugin's context loader happens to touch it
+    // first.
+    //
+    // NOTE: the intended end state is an FE kernel with no hadoop classes at all, every plugin
+    // bringing its own. At that point the fallback above takes over on its own, and the plugin
+    // becomes responsible for shipping a patched FileSystem the same way the kernel does today.
+    //
+    // Package-private so ConnectorPluginHadoopPatchTest asserts against this list, not a copy of it.
+    static final List<String> CONNECTOR_PARENT_FIRST_PREFIXES =
+            Arrays.asList("org.apache.doris.connector.", "org.apache.doris.filesystem.",
+                    "org.apache.hadoop.");
 
     /** Family label in the process-wide {@link PluginRegistry}. */
     private static final String PLUGIN_FAMILY = "CONNECTOR";
@@ -119,24 +159,47 @@ public class ConnectorPluginManager {
 
     /** Called at FE startup to load built-in providers from classpath. */
     public void loadBuiltins() {
-        ServiceLoader.load(ConnectorProvider.class)
-                .forEach(p -> {
-                    try {
-                        // Snapshot self-reported metadata before publishing the provider
-                        // so one throwing implementation is rejected cleanly instead of
-                        // aborting startup or being active without an inventory row.
-                        PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, p);
-                    } catch (RuntimeException e) {
-                        LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
-                                p.getClass().getName(), e);
-                        return;
-                    }
-                    // Deliberately outside that catch: registerDiscovered's fail-loud
-                    // IllegalStateException reports a build error, not a "skip this one" condition.
-                    if (registerDiscovered(p, true)) {
-                        LOG.info("Registered built-in connector provider: {}", p.getType());
-                    }
-                });
+        loadBuiltins(ConnectorProvider.class.getClassLoader());
+    }
+
+    /** Classloader seam used to verify embedded/classpath providers with their own defining jars. */
+    void loadBuiltins(ClassLoader classLoader) {
+        Iterator<ServiceLoader.Provider<ConnectorProvider>> providers =
+                ServiceLoader.load(ConnectorProvider.class, classLoader).stream().iterator();
+        while (providers.hasNext()) {
+            ServiceLoader.Provider<ConnectorProvider> descriptor = providers.next();
+            Class<? extends ConnectorProvider> providerClass = descriptor.type();
+            String rejection = API_VERSION_GATE.rejectionReasonForClass(providerClass);
+            if (rejection != null) {
+                // Gate the descriptor before get(): an incompatible provider constructor may have
+                // side effects or link against an API that this FE must never execute.
+                LOG.warn("Skip built-in connector provider {}: {}", providerClass.getName(), rejection);
+                continue;
+            }
+            ConnectorProvider provider;
+            try {
+                provider = descriptor.get();
+            } catch (ServiceConfigurationError | RuntimeException e) {
+                LOG.warn("Skip built-in connector provider {}: construction failed",
+                        providerClass.getName(), e);
+                continue;
+            }
+            try {
+                // Snapshot self-reported metadata before publishing the provider
+                // so one throwing implementation is rejected cleanly instead of
+                // aborting startup or being active without an inventory row.
+                PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, provider);
+            } catch (RuntimeException e) {
+                LOG.warn("Skip built-in connector provider {}: self-reported metadata failed",
+                        providerClass.getName(), e);
+                continue;
+            }
+            // Deliberately outside that catch: registerDiscovered's fail-loud
+            // IllegalStateException reports a build error, not a "skip this one" condition.
+            if (registerDiscovered(provider, true)) {
+                LOG.info("Registered built-in connector provider: {}", provider.getType());
+            }
+        }
     }
 
     /**
@@ -429,6 +492,28 @@ public class ConnectorPluginManager {
             if (provider.supports(catalogType, properties)) {
                 provider.validateProperties(properties);
                 return;
+            }
+        }
+    }
+
+    /** Validates an ALTER candidate through the matching provider without mutating catalog state. */
+    public void validatePropertiesForUpdate(String catalogType,
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        for (ConnectorProvider provider : providers) {
+            Thread thread = Thread.currentThread();
+            ClassLoader previous = thread.getContextClassLoader();
+            try {
+                // Directory providers may resolve validation helpers through TCCL, so selection and
+                // validation must run under the same plugin loader and never leak it to the FE caller.
+                thread.setContextClassLoader(provider.getClass().getClassLoader());
+                Map<String, String> matchProperties = currentProperties == null
+                        ? Collections.emptyMap() : currentProperties;
+                if (provider.supports(catalogType, matchProperties)) {
+                    provider.validatePropertiesForUpdate(currentProperties, updatedProperties);
+                    return;
+                }
+            } finally {
+                thread.setContextClassLoader(previous);
             }
         }
     }

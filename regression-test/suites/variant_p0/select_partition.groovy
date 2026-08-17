@@ -16,6 +16,7 @@
 // under the License.
 
 suite("query_on_specific_partition") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql "SET enable_nereids_planner=true"
 
     sql """
@@ -40,9 +41,9 @@ suite("query_on_specific_partition") {
 
     sql """ALTER TABLE t_p ADD TEMPORARY PARTITION tp1 VALUES [("15"), ("20"));"""
 
-    sql """INSERT INTO t_p VALUES(1, '{"a" : 1}')"""
-    sql """INSERT INTO t_p VALUES(7, '{"a" : 2}')"""
-    sql """INSERT INTO t_p TEMPORARY PARTITION(tp1) values(16, '{"a" : 3}');"""
+    sql """INSERT INTO t_p VALUES(1, ${variantV2Function}('{"a" : 1}'))"""
+    sql """INSERT INTO t_p VALUES(7, ${variantV2Function}('{"a" : 2}'))"""
+    sql """INSERT INTO t_p TEMPORARY PARTITION(tp1) values(16, ${variantV2Function}('{"a" : 3}'));"""
 
     sql "SET enable_fallback_to_original_planner=false"
 
@@ -80,7 +81,7 @@ suite("query_on_specific_partition") {
     """
 
     sql """
-        INSERT INTO test_iot VALUES(1,'{"a" : 1}'),(4, '{"a" : 2}');
+        INSERT INTO test_iot VALUES(1,${variantV2Function}('{"a" : 1}')),(4, ${variantV2Function}('{"a" : 2}'));
     """
 
     qt_sql """
@@ -110,9 +111,9 @@ suite("query_on_specific_partition") {
 
     sql """ALTER TABLE ut_p ADD TEMPORARY PARTITION tp1 VALUES [("5"), ("7"));"""
 
-    sql """INSERT INTO ut_p TEMPORARY PARTITION(tp1) values(6, '{"x" : "123"}');"""
-    sql """INSERT INTO ut_p values(6, '{"x" : 456}');"""
-    sql """INSERT INTO ut_p values(3, '{"x" : 789}');"""
+    sql """INSERT INTO ut_p TEMPORARY PARTITION(tp1) values(6, ${variantV2Function}('{"x" : "123"}'));"""
+    sql """INSERT INTO ut_p values(6, ${variantV2Function}('{"x" : 456}'));"""
+    sql """INSERT INTO ut_p values(3, ${variantV2Function}('{"x" : 789}'));"""
 
     sql "set enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"

@@ -17,13 +17,13 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
-import org.apache.doris.connector.api.procedure.ConnectorRewriteGroup;
-import org.apache.doris.connector.api.procedure.ConnectorRewriteStatistics;
-import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup;
+import org.apache.doris.connector.spi.procedure.ConnectorRewriteStatistics;
+import org.apache.doris.connector.spi.procedure.ProcedureExecutionMode;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -86,7 +86,8 @@ public class IcebergProcedureOpsTest {
                         "expire_snapshots",
                         "rewrite_data_files",
                         "publish_changes",
-                        "rewrite_manifests"),
+                        "rewrite_manifests",
+                        "remove_orphan_files"),
                 newOps().getSupportedProcedures());
     }
 
@@ -120,7 +121,8 @@ public class IcebergProcedureOpsTest {
         Assertions.assertEquals(
                 "Unsupported Iceberg procedure: no_such_proc. Supported procedures: rollback_to_snapshot, "
                         + "rollback_to_timestamp, set_current_snapshot, cherrypick_snapshot, fast_forward, "
-                        + "expire_snapshots, rewrite_data_files, publish_changes, rewrite_manifests",
+                        + "expire_snapshots, rewrite_data_files, publish_changes, rewrite_manifests, "
+                        + "remove_orphan_files",
                 e.getMessage());
     }
 

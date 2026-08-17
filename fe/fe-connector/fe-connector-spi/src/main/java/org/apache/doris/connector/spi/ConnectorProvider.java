@@ -17,11 +17,11 @@
 
 package org.apache.doris.connector.spi;
 
-import org.apache.doris.connector.api.Connector;
 import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -53,8 +53,8 @@ public interface ConnectorProvider extends PluginFactory {
      * directory it is logged and skipped so that one bad plugin cannot stop FE from starting.
      *
      * <p>Uniqueness is not cosmetic. It is what {@code CREATE CATALOG} routes on, and it is what makes
-     * source-prefixed namespaces distinct <em>by construction</em> (see {@code ConnectorStatementScopes} in
-     * fe-connector-api, which relies on this method being a connector's unique identity).
+     * source-prefixed namespaces distinct <em>by construction</em> (see {@code ConnectorStatementScopes},
+     * which relies on this method being a connector's unique identity).
      */
     String getType();
 
@@ -103,6 +103,18 @@ public interface ConnectorProvider extends PluginFactory {
      */
     default void validateProperties(Map<String, String> properties) {
         // no-op by default
+    }
+
+    /**
+     * Validates an ALTER CATALOG candidate without publishing it to the live catalog.
+     * Connectors with legacy-property compatibility rules may override this method.
+     */
+    default void validatePropertiesForUpdate(
+            Map<String, String> currentProperties, Map<String, String> updatedProperties) {
+        Map<String, String> candidate = currentProperties == null
+                ? new HashMap<>() : new HashMap<>(currentProperties);
+        candidate.putAll(updatedProperties);
+        validateProperties(candidate);
     }
 
     /**

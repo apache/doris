@@ -19,6 +19,7 @@
 
 #include <arrow/util/base64.h>
 #include <fmt/core.h>
+#include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 

@@ -19,9 +19,11 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.CatalogUtils;
 import org.apache.paimon.catalog.Database;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
+import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
@@ -64,7 +66,7 @@ public interface PaimonCatalogOps {
 
     Table getTable(Identifier identifier) throws Catalog.TableNotExistException;
 
-    List<Partition> listPartitions(Identifier identifier) throws Catalog.TableNotExistException;
+    List<Partition> listPartitions(Identifier identifier, Table table) throws Catalog.TableNotExistException;
 
     void createDatabase(String name, boolean ignoreIfExists, Map<String, String> properties)
             throws Catalog.DatabaseAlreadyExistException;
@@ -113,7 +115,7 @@ public interface PaimonCatalogOps {
     /**
      * Returns the schema version (schemaId) of the snapshot with {@code snapshotId}
      * ({@code snapshotManager().snapshot(id).schemaId()}), or empty when it cannot be resolved.
-     * Used to stamp {@link org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot#getSchemaId()}
+     * Used to stamp {@link org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot#getSchemaId()}
      * for snapshot-id / timestamp time-travel so schema-at-snapshot reads pick the historical schema.
      */
     OptionalLong snapshotSchemaId(Table table, long snapshotId);
@@ -267,21 +269,30 @@ public interface PaimonCatalogOps {
          * #65955: overlay the catalog-level {@code paimon.table-option.*} defaults onto the loaded
          * table, exactly where legacy {@code PaimonExternalCatalog.getPaimonTable} did — this is the
          * connector's only {@code Catalog.getTable} call, so branch, time-travel and system tables all
-         * inherit the defaults. Options the table sets itself win (see {@link PaimonTableOptions#forCopy}).
+         * inherit the configured reader policy. Catalog options override physical table values;
+         * relation-scoped options can still override them for one scan.
          */
         @Override
         public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
             Table table = catalog.getTable(identifier);
-            if (tableOptions.isEmpty()) {
-                return table;
-            }
-            Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions, table.options());
+            Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions);
+            // Relation options are applied after this cached handle is returned. Defer final
+            // validation so a safe relation value can override an unsafe physical value.
             return optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
         }
 
         @Override
-        public List<Partition> listPartitions(Identifier identifier) throws Catalog.TableNotExistException {
-            return catalog.listPartitions(identifier);
+        public List<Partition> listPartitions(Identifier identifier, Table table)
+                throws Catalog.TableNotExistException {
+            if (catalog instanceof RESTCatalog) {
+                // REST owns partition visibility when its endpoint is implemented; the bridge
+                // retains this effective relation copy only for the endpoint's filesystem fallback.
+                return PaimonRestCatalogPartitions.listPartitions(
+                        (RESTCatalog) catalog, identifier, table);
+            }
+            // The supplied handle already contains catalog and relation policy. Reloading by identifier
+            // would discard those copies before manifest enumeration reaches the final scan guard.
+            return CatalogUtils.listPartitionsFromFileSystem(table);
         }
 
         @Override

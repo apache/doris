@@ -33,14 +33,16 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/metrics/doris_metrics.h"
+#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-client/s3_common.h"
 #include "io/cache/block_file_cache.h"
 #include "io/fs/err_utils.h"
-#include "io/fs/obj_storage_client.h"
-#include "io/fs/s3_common.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "runtime/workload_management/resource_context.h"
 #include "util/bvar_helper.h"
 #include "util/concurrency_stats.h"
 #include "util/debug_points.h"

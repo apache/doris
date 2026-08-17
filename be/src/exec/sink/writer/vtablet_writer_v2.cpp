@@ -54,12 +54,11 @@
 #include "exec/sink/load_stream_stub.h" // IWYU pragma: keep
 #include "exec/sink/vtablet_block_convertor.h"
 #include "exec/sink/vtablet_finder.h"
+#include "load/memtable/memtable_memory_limiter.h"
 
 namespace doris {
 
 extern bvar::Adder<int64_t> g_sink_load_back_pressure_version_time_ms;
-
-static constexpr int64_t CLOSE_WAIT_EVENT_FALLBACK_MS = 1000;
 
 VTabletWriterV2::VTabletWriterV2(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
                                  std::shared_ptr<Dependency> dep,
@@ -84,7 +83,7 @@ Status VTabletWriterV2::on_partitions_created(TCreatePartitionResult* result) {
     return Status::OK();
 }
 
-static Status on_partitions_created(void* writer, TCreatePartitionResult* result) {
+static Status on_partitions_created_v2(void* writer, TCreatePartitionResult* result) {
     return static_cast<VTabletWriterV2*>(writer)->on_partitions_created(result);
 }
 
@@ -138,7 +137,7 @@ Status VTabletWriterV2::_init_row_distribution() {
                             .vec_output_expr_ctxs = &_vec_output_expr_ctxs,
                             .schema = _schema,
                             .caller = (void*)this,
-                            .create_partition_callback = &::doris::on_partitions_created});
+                            .create_partition_callback = &::doris::on_partitions_created_v2});
 
     return _row_distribution.open(_output_row_desc);
 }

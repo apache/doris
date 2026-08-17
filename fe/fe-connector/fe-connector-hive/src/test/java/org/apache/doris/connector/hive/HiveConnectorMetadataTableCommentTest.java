@@ -17,13 +17,13 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -89,7 +89,7 @@ public class HiveConnectorMetadataTableCommentTest {
 
     @Test
     public void anUnreadableTableDegradesToTheEmptyCommentInsteadOfFailing() {
-        HiveConnectorMetadata md = new HiveConnectorMetadata(new ThrowingHmsClient(), Collections.emptyMap(),
+        HiveConnectorMetadata md = new HiveConnectorMetadata(new ThrowingHmsClient(), HiveTestProperties.minimal(),
                 new FakeConnectorContext());
 
         Assertions.assertEquals("", md.getTableComment(session, "db", "gone"),
@@ -108,7 +108,7 @@ public class HiveConnectorMetadataTableCommentTest {
         // The 3-arg constructor installs fail-loud sibling suppliers: reaching for the iceberg sibling here would
         // blow up, which is exactly the point — the comment must be answered from the metastore table alone,
         // without building a sibling connector or loading iceberg metadata.
-        return new HiveConnectorMetadata(new FakeHmsClient(tableInfo), Collections.emptyMap(),
+        return new HiveConnectorMetadata(new FakeHmsClient(tableInfo), HiveTestProperties.minimal(),
                 new FakeConnectorContext());
     }
 

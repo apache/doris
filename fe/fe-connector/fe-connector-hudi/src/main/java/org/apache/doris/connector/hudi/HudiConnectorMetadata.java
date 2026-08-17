@@ -17,28 +17,28 @@
 
 package org.apache.doris.connector.hudi;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorTableSchema;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
-import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
-import org.apache.doris.connector.api.pushdown.ConnectorAnd;
-import org.apache.doris.connector.api.pushdown.ConnectorComparison;
-import org.apache.doris.connector.api.pushdown.ConnectorExpression;
-import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
-import org.apache.doris.connector.api.pushdown.ConnectorIn;
-import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
-import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFilterConstraint;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -86,9 +86,6 @@ import java.util.stream.Collectors;
 public class HudiConnectorMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(HudiConnectorMetadata.class);
-
-    // Catalog property gating the partition-name source (mirrors legacy HMSExternalTable.USE_HIVE_SYNC_PARTITION).
-    private static final String USE_HIVE_SYNC_PARTITION = "use_hive_sync_partition";
 
     // fe-core SPI schema property marking which emitted columns are partition columns (CSV of RAW partition-key
     // names, in declaration order). Mirrors HiveConnectorMetadata.PARTITION_COLUMNS_PROPERTY; fe-core derives the
@@ -152,7 +149,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     private static final String HUDI_COMMIT_TIME_COLUMN = "_hoodie_commit_time";
 
     private final HmsClient hmsClient;
-    private final Map<String, String> properties;
+    private final HudiCatalogProperties props;
     // Runs the metaClient-touching partition/snapshot work under the plugin UGI doAs + TCCL pin (see R4).
     private final HudiMetaClientExecutor metaClientExecutor;
     // Canonical fs.s3a.*/hadoop.* storage config translated from the catalog's fe-filesystem StorageProperties,
@@ -161,15 +158,15 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     // getSchemaFromMetaClient or never touch S3). See HudiScanPlanProvider#storageHadoopConfig.
     private final Map<String, String> storageHadoopConfig;
 
-    public HudiConnectorMetadata(HmsClient hmsClient, Map<String, String> properties,
+    public HudiConnectorMetadata(HmsClient hmsClient, HudiCatalogProperties props,
             HudiMetaClientExecutor metaClientExecutor) {
-        this(hmsClient, properties, metaClientExecutor, Collections.emptyMap());
+        this(hmsClient, props, metaClientExecutor, Collections.emptyMap());
     }
 
-    public HudiConnectorMetadata(HmsClient hmsClient, Map<String, String> properties,
+    public HudiConnectorMetadata(HmsClient hmsClient, HudiCatalogProperties props,
             HudiMetaClientExecutor metaClientExecutor, Map<String, String> storageHadoopConfig) {
         this.hmsClient = hmsClient;
-        this.properties = properties;
+        this.props = props;
         this.metaClientExecutor = metaClientExecutor;
         this.storageHadoopConfig = storageHadoopConfig;
     }
@@ -645,8 +642,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             return Collections.emptyList();
         }
         ConnectorType stringType = ConnectorType.of("STRING");
-        org.apache.doris.connector.api.pushdown.ConnectorColumnRef commitTime =
-                new org.apache.doris.connector.api.pushdown.ConnectorColumnRef(HUDI_COMMIT_TIME_COLUMN, stringType);
+        org.apache.doris.connector.spi.pushdown.ConnectorColumnRef commitTime =
+                new org.apache.doris.connector.spi.pushdown.ConnectorColumnRef(HUDI_COMMIT_TIME_COLUMN, stringType);
         ConnectorExpression lower = new ConnectorComparison(
                 ConnectorComparison.Operator.GT, commitTime, ConnectorLiteral.ofString(begin));
         ConnectorExpression upper = new ConnectorComparison(
@@ -787,7 +784,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     private boolean useHiveSyncPartition() {
-        return Boolean.parseBoolean(properties.getOrDefault(USE_HIVE_SYNC_PARTITION, "false"));
+        return props.isUseHiveSyncPartition();
     }
 
     /**
@@ -1027,7 +1024,7 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         // Storage credentials (fs.s3a.* …) first so an inline user fs./dfs./hadoop. key still wins below; see
         // storageHadoopConfig field. Without it the metaClient's S3AFileSystem cannot read hoodie.properties.
         storageHadoopConfig.forEach(conf::set);
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
+        for (Map.Entry<String, String> entry : props.getRaw().entrySet()) {
             String key = entry.getKey();
             if (key.startsWith("hadoop.") || key.startsWith("fs.")
                     || key.startsWith("dfs.") || key.startsWith("hive.")) {
@@ -1090,8 +1087,8 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     private String extractColumnName(ConnectorExpression expr) {
-        if (expr instanceof org.apache.doris.connector.api.pushdown.ConnectorColumnRef) {
-            return ((org.apache.doris.connector.api.pushdown.ConnectorColumnRef) expr).getColumnName();
+        if (expr instanceof org.apache.doris.connector.spi.pushdown.ConnectorColumnRef) {
+            return ((org.apache.doris.connector.spi.pushdown.ConnectorColumnRef) expr).getColumnName();
         }
         return null;
     }

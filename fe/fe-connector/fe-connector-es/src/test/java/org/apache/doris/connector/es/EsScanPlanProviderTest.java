@@ -17,13 +17,13 @@
 
 package org.apache.doris.connector.es;
 
-import org.apache.doris.connector.api.ConnectorContractValidator;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorStatementScope;
-import org.apache.doris.connector.api.handle.NamedColumnHandle;
-import org.apache.doris.connector.api.scan.ConnectorScanRequest;
-import org.apache.doris.connector.api.scan.ScanNodePropertyKeys;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorContractValidator;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.NamedColumnHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
 import org.junit.jupiter.api.Assertions;
@@ -153,10 +153,14 @@ class EsScanPlanProviderTest {
 
     private static final ConnectorSession EMPTY_SESSION = new TestSession(ConnectorStatementScope.NONE);
 
-    private static Map<String, String> minimalProps() {
+    private static Map<String, String> minimalPropertyMap() {
         Map<String, String> props = new HashMap<>();
-        props.put(EsConnectorProperties.HOSTS, "localhost:9200");
+        props.put(EsCatalogProperties.HOSTS, "localhost:9200");
         return props;
+    }
+
+    private static EsCatalogProperties minimalProps() {
+        return EsCatalogProperties.of(minimalPropertyMap());
     }
 
     @Test
@@ -322,7 +326,7 @@ class EsScanPlanProviderTest {
 
     @Test
     void testEsConnectorDoesNotSupportWrite() {
-        EsConnector connector = new EsConnector(minimalProps(), new ConnectorContext() {
+        EsConnector connector = new EsConnector(minimalPropertyMap(), new ConnectorContext() {
             @Override
             public String getCatalogName() {
                 return "test";

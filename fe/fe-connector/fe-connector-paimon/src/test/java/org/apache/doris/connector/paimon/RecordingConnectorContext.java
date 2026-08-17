@@ -17,9 +17,9 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.properties.StorageProperties;
@@ -52,6 +52,7 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
 
     int authCount;
     boolean failAuth;
+    int failAuthOnInvocation = -1;
 
     // ---- sibling-connector seam hook (proves the decorator delegates createSiblingConnector) ----
     /** The type the wrapper forwarded to {@link #createSiblingConnector}. */
@@ -126,7 +127,7 @@ final class RecordingConnectorContext implements ConnectorContext, ConnectorStor
     @Override
     public <T> T executeAuthenticated(Callable<T> task) throws Exception {
         authCount++;
-        if (failAuth) {
+        if (failAuth || authCount == failAuthOnInvocation) {
             // Deliberately do NOT call task -> the wrapped seam call must not run.
             throw new RuntimeException("auth failed");
         }

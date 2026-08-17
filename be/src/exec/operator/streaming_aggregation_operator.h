@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "exec/common/agg_utils.h"
 #include "exec/operator/operator.h"
 #include "runtime/runtime_profile.h"
 
@@ -281,5 +282,8 @@ private:
 
     std::vector<TExpr> _partition_exprs;
 };
+
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class StatefulOperatorX<StreamingAggLocalState>;
 
 } // namespace doris

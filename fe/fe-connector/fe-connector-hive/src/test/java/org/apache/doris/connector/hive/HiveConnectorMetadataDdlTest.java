@@ -17,20 +17,20 @@
 
 package org.apache.doris.connector.hive;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
-import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
-import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
 import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsCreateDatabaseRequest;
 import org.apache.doris.connector.hms.HmsCreateTableRequest;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorBucketSpec;
+import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionField;
+import org.apache.doris.connector.spi.ddl.ConnectorPartitionSpec;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -65,8 +65,8 @@ public class HiveConnectorMetadataDdlTest {
         // version threaded via the environment. MUTATION: dropping any of the three assertions' sources
         // (env fallback / owner default / doris_version) flips it red.
         Map<String, String> env = new LinkedHashMap<>();
-        env.put(HiveConnectorProperties.ENV_HIVE_DEFAULT_FILE_FORMAT, "parquet");
-        env.put(HiveConnectorProperties.ENV_DORIS_VERSION, "9.9-deadbeef");
+        env.put(HmsConf.ENV_HIVE_DEFAULT_FILE_FORMAT, "parquet");
+        env.put("doris_version", "9.9-deadbeef");
         metadata(client, Collections.emptyMap(), env)
                 .createTable(session(), request().build());
 
@@ -85,7 +85,7 @@ public class HiveConnectorMetadataDdlTest {
         props.put("location", "s3://bucket/t");
         props.put("some_key", "v");
         Map<String, String> env = Collections.singletonMap(
-                HiveConnectorProperties.ENV_HIVE_DEFAULT_FILE_FORMAT, "parquet");
+                HmsConf.ENV_HIVE_DEFAULT_FILE_FORMAT, "parquet");
 
         // WHY: a user-set file_format wins over the env default; and file_format/location must round-trip as
         // metastore parameters under a doris. prefix while an ordinary property keeps its plain key (legacy
@@ -121,9 +121,9 @@ public class HiveConnectorMetadataDdlTest {
         // hms.conf must get it even though fe.conf still names the old value -- reverse the precedence
         // and migrating a deployment to the new file silently does nothing.
         Map<String, String> conf = Collections.singletonMap(
-                HiveConnectorProperties.CONF_DEFAULT_FILE_FORMAT, "parquet");
+                HmsConf.CONF_DEFAULT_FILE_FORMAT, "parquet");
         Map<String, String> env = Collections.singletonMap(
-                HiveConnectorProperties.ENV_HIVE_DEFAULT_FILE_FORMAT, "orc");
+                HmsConf.ENV_HIVE_DEFAULT_FILE_FORMAT, "orc");
 
         metadataWithConf(client, conf, env).createTable(session(), request().build());
 
@@ -136,7 +136,7 @@ public class HiveConnectorMetadataDdlTest {
         // WHY: the new channel is deployment-level; it must not outrank a per-catalog CREATE TABLE
         // property. Only the two deployment channels reordered relative to each other.
         Map<String, String> conf = Collections.singletonMap(
-                HiveConnectorProperties.CONF_DEFAULT_FILE_FORMAT, "parquet");
+                HmsConf.CONF_DEFAULT_FILE_FORMAT, "parquet");
 
         metadataWithConf(client, conf, Collections.emptyMap()).createTable(session(),
                 request().properties(Collections.singletonMap("file_format", "orc")).build());
@@ -151,7 +151,7 @@ public class HiveConnectorMetadataDdlTest {
         // a deployment that opts in through hms.conf but is still gated by fe.conf's default 'false'
         // would find bucketed creates rejected with no indication which file is in charge.
         Map<String, String> conf = Collections.singletonMap(
-                HiveConnectorProperties.CONF_ENABLE_CREATE_BUCKET_TABLE, "true");
+                HmsConf.CONF_ENABLE_CREATE_BUCKET_TABLE, "true");
         ConnectorBucketSpec bucket = new ConnectorBucketSpec(
                 Collections.singletonList("id"), 8, "doris_default");
 
@@ -195,7 +195,7 @@ public class HiveConnectorMetadataDdlTest {
     public void createTableBucketRejectedWhenGloballyDisabled() {
         RecordingHmsClient client = new RecordingHmsClient();
         Map<String, String> env = Collections.singletonMap(
-                HiveConnectorProperties.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE, "false");
+                HmsConf.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE, "false");
         ConnectorBucketSpec bucket = new ConnectorBucketSpec(
                 Collections.singletonList("id"), 8, "doris_default");
         // WHY: bucketed hive tables require the FE-global enable_create_hive_bucket_table toggle (default
@@ -211,9 +211,9 @@ public class HiveConnectorMetadataDdlTest {
     public void createTableBucketRejectsNonHashDistribution() {
         RecordingHmsClient client = new RecordingHmsClient();
         Map<String, String> env = Collections.singletonMap(
-                HiveConnectorProperties.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE, "true");
+                HmsConf.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE, "true");
         ConnectorBucketSpec random = new ConnectorBucketSpec(
-                Collections.singletonList("id"), 8, HiveConnectorProperties.BUCKET_ALGO_RANDOM);
+                Collections.singletonList("id"), 8, "doris_random");
         // WHY: hive external tables only support hash bucketing; a random distribution is rejected AFTER the
         // enable gate passed. MUTATION: accepting random creates an unsupported table.
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
@@ -226,7 +226,7 @@ public class HiveConnectorMetadataDdlTest {
     public void createTableHashBucketThreadsColsAndCount() {
         RecordingHmsClient client = new RecordingHmsClient();
         Map<String, String> env = Collections.singletonMap(
-                HiveConnectorProperties.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE, "true");
+                HmsConf.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE, "true");
         ConnectorBucketSpec hash = new ConnectorBucketSpec(
                 Collections.singletonList("id"), 16, "doris_default");
         // WHY: an enabled hash bucket spec must reach the write spec with its columns + count intact.
@@ -312,7 +312,7 @@ public class HiveConnectorMetadataDdlTest {
     public void createTableThreadsTextCompressionSessionDefaultMappingUncompressedToPlain() {
         RecordingHmsClient client = new RecordingHmsClient();
         Map<String, String> sessionProps = Collections.singletonMap(
-                HiveConnectorProperties.SESSION_HIVE_TEXT_COMPRESSION, "uncompressed");
+                HiveConnectorMetadata.SESSION_HIVE_TEXT_COMPRESSION, "uncompressed");
         // WHY: a text table's fallback compression comes from the hive_text_compression session variable, and
         // legacy maps the "uncompressed" alias to "plain". MUTATION: skipping the alias mapping would thread
         // "uncompressed" (an unsupported metastore value).
@@ -426,12 +426,14 @@ public class HiveConnectorMetadataDdlTest {
 
     private static HiveConnectorMetadata metadata(RecordingHmsClient client,
             Map<String, String> catalogProps, Map<String, String> env) {
-        return new HiveConnectorMetadata(client, catalogProps, new FakeConnectorContext(env));
+        Map<String, String> props = HiveTestProperties.minimalMap();
+        props.putAll(catalogProps);
+        return new HiveConnectorMetadata(client, HiveCatalogProperties.of(props), new FakeConnectorContext(env));
     }
 
     private static HiveConnectorMetadata metadataWithConf(RecordingHmsClient client,
             Map<String, String> conf, Map<String, String> env) {
-        return new HiveConnectorMetadata(client, Collections.emptyMap(),
+        return new HiveConnectorMetadata(client, HiveTestProperties.minimal(),
                 new FakeConnectorContext("test_catalog", 0L, env, conf));
     }
 

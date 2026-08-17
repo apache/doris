@@ -5,6 +5,9 @@ This file contains version of the third-party dependency libraries in the build-
 ## 20260724
 
 - Modified: thrift 0.16.0 -> 0.24.0
+## 20260816
+
+- Modified: hadoop-libs 3.4.2.3 -> 3.4.2.4
 
 ## 20260206
 

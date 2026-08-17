@@ -17,21 +17,21 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
-import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
-import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
-import org.apache.doris.connector.api.procedure.ConnectorRewriteGroup;
-import org.apache.doris.connector.api.procedure.ConnectorRewriteStatistics;
-import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
-import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.iceberg.action.BaseIcebergAction;
 import org.apache.doris.connector.iceberg.action.IcebergExecuteActionFactory;
 import org.apache.doris.connector.iceberg.action.IcebergRewriteDataFilesAction;
 import org.apache.doris.connector.iceberg.rewrite.RewriteDataFilePlanner;
 import org.apache.doris.connector.iceberg.rewrite.RewriteDataGroup;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.procedure.ConnectorProcedureOps;
+import org.apache.doris.connector.spi.procedure.ConnectorProcedureResult;
+import org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup;
+import org.apache.doris.connector.spi.procedure.ConnectorRewriteStatistics;
+import org.apache.doris.connector.spi.procedure.ProcedureExecutionMode;
+import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 
 import java.time.ZoneId;
 import java.util.Arrays;
@@ -43,8 +43,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Executes iceberg's {@code ALTER TABLE EXECUTE} procedures (the 9 legacy
- * {@code datasource/iceberg/action/*} actions) behind the {@link ConnectorProcedureOps} SPI.
+ * Executes iceberg's {@code ALTER TABLE EXECUTE} procedures behind the {@link ConnectorProcedureOps} SPI.
  *
  * <p>Mirrors {@link IcebergWritePlanProvider}: a fresh instance per call over the lazily-built live
  * catalog, threading the same {@code properties} / {@link IcebergCatalogOps} / {@link ConnectorContext}
@@ -52,14 +51,11 @@ import java.util.stream.Collectors;
  * runs in the connector; argument validation is connector-local (the engine cannot reach
  * {@code org.apache.doris.common.NamedArguments} across the import gate).</p>
  *
- * <p><b>T03 dispatch skeleton.</b> {@link #getSupportedProcedures()} exports the factory's name list and
+ * <p>{@link #getSupportedProcedures()} exports the factory's name list and
  * {@link #execute} routes through {@link IcebergExecuteActionFactory} → {@link BaseIcebergAction}: validate
  * arguments, load the SDK table inside {@code context.executeAuthenticated}, run the body and wrap the
- * single row. The 9 procedure bodies (the factory's switch cases) are ported in T04 (the 8 pure-SDK
- * procedures) / T05–T06 ({@code rewrite_data_files}); until then a known name reaches the factory's faithful
- * "Unsupported Iceberg procedure" rejection. Inert pre-cutover regardless: iceberg tables are not
- * {@code PluginDrivenExternalTable} until P6.6, so {@code ExecuteActionCommand} still routes them to the
- * legacy fe-core actions and never reaches this class.</p>
+ * single row. {@code rewrite_data_files} is planned as a distributed INSERT-SELECT operation and therefore
+ * bypasses the single-call action factory.</p>
  */
 public class IcebergProcedureOps implements ConnectorProcedureOps {
 

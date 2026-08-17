@@ -17,16 +17,31 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorPartitionInfo;
-import org.apache.doris.connector.api.scan.ConnectorPartitionValues;
+import org.apache.doris.connector.spi.ConnectorPartitionInfo;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 
+import org.apache.paimon.CoreOptions;
+import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.FileSystemCatalog;
+import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.GenericRow;
+import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.partition.Partition;
+import org.apache.paimon.schema.Schema;
+import org.apache.paimon.table.Table;
+import org.apache.paimon.table.sink.BatchTableCommit;
+import org.apache.paimon.table.sink.BatchTableWrite;
+import org.apache.paimon.table.sink.BatchWriteBuilder;
+import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.DateTimeUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -50,7 +65,7 @@ public class PaimonConnectorMetadataPartitionTest {
 
     private static PaimonConnectorMetadata metadataWith(RecordingPaimonCatalogOps ops) {
         // Read-path tests ignore the context; a default RecordingConnectorContext is a no-op wrapper.
-        return new PaimonConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        return new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
     }
 
     /** Two-key partitioned table: dt (DATE) + region (STRING). */
@@ -365,6 +380,26 @@ public class PaimonConnectorMetadataPartitionTest {
     }
 
     @Test
+    public void positiveSnapshotFenceIsAppliedBeforePartitionEnumeration() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        FakePaimonTable table = new FakePaimonTable(
+                "t1", categoryRowType(), Collections.singletonList("category"), Collections.emptyList());
+        table.setOptions(Collections.singletonMap("partition.legacy-name", "false"));
+        ops.table = table;
+        Map<String, String> spec = Collections.singletonMap("category", "p1");
+        ops.partitions = Collections.singletonList(partition(spec, 1L, 1L, 1L));
+        PaimonTableHandle pinned = categoryHandle(table).withScanOptions(
+                Collections.singletonMap(CoreOptions.SCAN_SNAPSHOT_ID.key(), "7"));
+
+        List<String> names = metadataWith(ops).listPartitionNames(null, pinned);
+
+        Assertions.assertEquals(Collections.singletonList("category=p1"), names);
+        Assertions.assertEquals("7", table.lastCopyOptions.get(CoreOptions.SCAN_SNAPSHOT_ID.key()),
+                "partition hydration must enumerate the same positive snapshot as split planning");
+        Assertions.assertSame(table, ops.lastListPartitionsTable);
+    }
+
+    @Test
     public void tableNotExistDuringListYieldsEmpty() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         FakePaimonTable table = new FakePaimonTable(
@@ -382,6 +417,42 @@ public class PaimonConnectorMetadataPartitionTest {
         Assertions.assertTrue(names.isEmpty());
         Assertions.assertTrue(ops.log.contains("listPartitions:db1.t1"),
                 "the seam must have been reached (and thrown) before the empty result");
+    }
+
+    @Test
+    public void catalogReaderPolicyIsPreservedDuringPartitionEnumeration(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier identifier = Identifier.create("db", "t");
+            catalog.createTable(identifier, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("pt", DataTypes.STRING())
+                    .partitionKeys("pt")
+                    .option("scan.manifest.parallelism", "0")
+                    .build(), false);
+            Table physicalTable = catalog.getTable(identifier);
+            BatchWriteBuilder writeBuilder = physicalTable.newBatchWriteBuilder();
+            try (BatchTableWrite write = writeBuilder.newWrite()) {
+                write.write(GenericRow.of(1, BinaryString.fromString("p1")));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = writeBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+            PaimonCatalogOps ops = new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(catalog,
+                    Collections.singletonMap("scan.manifest.parallelism", "1"));
+            PaimonConnectorMetadata metadata = new PaimonConnectorMetadata(
+                    ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.singletonList("pt"), Collections.emptyList());
+
+            // The catalog policy makes the resolved handle safe. Reloading by Identifier here loses that
+            // copy and lets the physical zero value reach Paimon's manifest executor before scan planning.
+            Assertions.assertDoesNotThrow(
+                    () -> metadata.listPartitions(null, handle, Optional.empty()));
+        }
     }
 
     // ─────────── #65904: path-special characters in partition values ───────────

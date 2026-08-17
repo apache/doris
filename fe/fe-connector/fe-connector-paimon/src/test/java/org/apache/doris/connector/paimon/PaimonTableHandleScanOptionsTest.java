@@ -17,8 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorTableSchema;
 
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
@@ -307,7 +307,7 @@ public class PaimonTableHandleScanOptionsTest {
         handle.setPaimonTable(table);
 
         ConnectorTableSchema schema = new PaimonConnectorMetadata(
-                ops, Collections.emptyMap(), new RecordingConnectorContext())
+                ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext())
                 .getTableSchema(null, handle);
         Map<String, String> props = schema.getProperties();
 

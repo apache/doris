@@ -92,10 +92,11 @@ suite("test_streaming_mysql_job_metrics",
 
         int count = 0
         int metricCount = 0
+        String masterHttpAddress = getMasterIp() + ":" + getMasterPort("http")
         while (true) {
             metricCount = 0
             httpTest {
-                endpoint context.config.feHttpAddress
+                endpoint masterHttpAddress
                 uri "/metrics?type=json"
                 op "get"
                 check { code, body ->
@@ -233,4 +234,3 @@ suite("test_streaming_mysql_job_metrics",
         assert jobCountRsp.get(0).get(0) == 0
     }
 }
-
