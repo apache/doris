@@ -717,6 +717,67 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testExpiredBaseTableRetiresSnapshotAndSchemaProjectionsBeforeReplacement() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        PaimonExternalMetaCache cache = new PaimonExternalMetaCache(executor);
+        try {
+            long catalogId = 1L;
+            Map<String, String> properties = new HashMap<>();
+            properties.put("meta.cache.paimon.table.ttl-second", "1");
+            properties.put("meta.cache.paimon.snapshot.ttl-second", "3600");
+            cache.initCatalog(catalogId, properties);
+            NameMapping mapping = new NameMapping(catalogId, "db", "tbl", "db", "tbl");
+            PaimonTableCacheValue table = new PaimonTableCacheValue(Mockito.mock(Table.class));
+            org.apache.doris.datasource.metacache.MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
+                    cache.entry(catalogId, PaimonExternalMetaCache.ENTRY_TABLE,
+                            NameMapping.class, PaimonTableCacheValue.class);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<
+                    PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> snapshots = cache.entry(
+                    catalogId, PaimonExternalMetaCache.ENTRY_SNAPSHOT,
+                    PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class);
+            org.apache.doris.datasource.metacache.MetaCacheEntry<PaimonSchemaCacheKey, SchemaCacheValue> schemas =
+                    cache.entry(catalogId, PaimonExternalMetaCache.ENTRY_SCHEMA,
+                            PaimonSchemaCacheKey.class, SchemaCacheValue.class);
+            tables.put(mapping, table);
+            PaimonSnapshotEntryKey snapshotKey = new PaimonSnapshotEntryKey(mapping, 1L, 2L, table.getGeneration());
+            PaimonSchemaCacheKey schemaKey = new PaimonSchemaCacheKey(mapping, table.getGeneration(), 2L);
+            snapshots.put(snapshotKey, new PaimonSnapshotCacheValue(
+                    PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, 2L, table.getPaimonTable())));
+            schemas.put(schemaKey, new SchemaCacheValue(Collections.emptyList()));
+
+            Thread.sleep(1_500L);
+            com.github.benmanes.caffeine.cache.Cache<?, ?> caffeine =
+                    (com.github.benmanes.caffeine.cache.Cache<?, ?>) readField(
+                            tables, org.apache.doris.datasource.metacache.MetaCacheEntry.class, "loadingData");
+            caffeine.cleanUp();
+            Assert.assertNull("idle table handle must expire", tables.peekIfPresent(mapping));
+
+            // Expiry is a plain removal with no successor published: the delayed removal callback
+            // alone retires the projections keyed by the expired generation.
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5L);
+            while ((snapshots.peekIfPresent(snapshotKey) != null || schemas.peekIfPresent(schemaKey) != null)
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(20L);
+            }
+            Assert.assertNull(snapshots.peekIfPresent(snapshotKey));
+            Assert.assertNull(schemas.peekIfPresent(schemaKey));
+            Assert.assertNull(tables.peekIfPresent(mapping));
+
+            // A successor published afterwards keeps its own projections.
+            PaimonTableCacheValue next = new PaimonTableCacheValue(Mockito.mock(Table.class));
+            tables.put(mapping, next);
+            PaimonSnapshotEntryKey nextSnapshotKey = new PaimonSnapshotEntryKey(mapping, 1L, 2L, next.getGeneration());
+            snapshots.put(nextSnapshotKey, new PaimonSnapshotCacheValue(
+                    PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, 2L, next.getPaimonTable())));
+            Assert.assertNotNull(snapshots.peekIfPresent(nextSnapshotKey));
+            Assert.assertSame(next, tables.peekIfPresent(mapping));
+        } finally {
+            cache.close();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testRejectedBaseTableDoesNotAccumulateSnapshotOrSchemaProjections() {
         PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
         PaimonExternalDatabase database = Mockito.mock(PaimonExternalDatabase.class);

@@ -1844,6 +1844,40 @@ public class MetaCacheEntryTest {
         Assert.assertEquals(expected, entry.peekIfPresent(key));
     }
 
+    @Test
+    public void testRemovalListenerReceivesRemovedValuesButNotReplacements() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        java.util.List<String> removed = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                "removal-listener", key -> 1,
+                CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L),
+                refreshExecutor, false, false, null, null, null,
+                (key, value) -> removed.add(key + "=" + value));
+        try {
+            entry.put("k", 1);
+            entry.put("k", 2);
+            entry.put("gone", 7);
+            entry.invalidateKey("gone");
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3L);
+            while (removed.isEmpty() && System.nanoTime() < deadline) {
+                Thread.sleep(10L);
+            }
+            Assert.assertEquals(java.util.Collections.singletonList("gone=7"), removed);
+            Assert.assertEquals(Integer.valueOf(2), entry.peekIfPresent("k"));
+
+            entry.invalidateIf((key, value) -> Integer.valueOf(2).equals(value));
+            Assert.assertNull(entry.peekIfPresent("k"));
+            deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3L);
+            while (removed.size() < 2 && System.nanoTime() < deadline) {
+                Thread.sleep(10L);
+            }
+            Assert.assertEquals(java.util.Arrays.asList("gone=7", "k=2"), removed);
+        } finally {
+            entry.close();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
     private void awaitGlobalWeight(ExternalMetaCacheBudgetManager manager, long expected)
             throws InterruptedException {
         long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(3L);

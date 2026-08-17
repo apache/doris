@@ -24,6 +24,8 @@ import org.apache.doris.datasource.metacache.MetaCacheSizeEstimator;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.SupportsStorageCredentials;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -130,6 +132,59 @@ public class IcebergTableCacheValue {
         return left != null && right != null
                 && Objects.equals(left.uuid(), right.uuid())
                 && Objects.equals(left.metadataFileLocation(), right.metadataFileLocation());
+    }
+
+    /**
+     * Same metadata generation served through the same operational resources. A catalog that
+     * reloads the same metadata file may still hand out a new FileIO carrying rotated vended
+     * credentials; projections frozen on the previous handle must not outlive that rotation.
+     */
+    boolean isSameOperationalGeneration(IcebergTableCacheValue other) {
+        return isSamePhysicalGeneration(other) && sharesOperationalResources(other.icebergTable);
+    }
+
+    boolean sharesOperationalResources(Table table) {
+        return sharesOperationalResources(icebergTable, table);
+    }
+
+    /** True when both tables read and write through the same FileIO, encryption and locations. */
+    static boolean sharesOperationalResources(Table left, Table right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null) {
+            return false;
+        }
+        return sameFileIo(left.io(), right.io())
+                && sameResource(left.encryption(), right.encryption())
+                && sameResource(left.locationProvider(), right.locationProvider());
+    }
+
+    private static boolean sameFileIo(FileIO left, FileIO right) {
+        if (left == right) {
+            return true;
+        }
+        if (left == null || right == null || left.getClass() != right.getClass()) {
+            return false;
+        }
+        try {
+            // Vended credentials live in the FileIO properties / storage credentials; equal
+            // configuration means equal credentials even across catalog reload instances.
+            return Objects.equals(left.properties(), right.properties())
+                    && Objects.equals(storageCredentials(left), storageCredentials(right));
+        } catch (RuntimeException e) {
+            // A FileIO that cannot expose its configuration cannot prove it is unchanged.
+            return false;
+        }
+    }
+
+    private static Object storageCredentials(FileIO fileIO) {
+        return fileIO instanceof SupportsStorageCredentials
+                ? ((SupportsStorageCredentials) fileIO).credentials() : null;
+    }
+
+    private static boolean sameResource(Object left, Object right) {
+        return left == right || (left != null && right != null && left.getClass() == right.getClass());
     }
 
     private TableMetadata retainedMetadata() {

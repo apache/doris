@@ -198,10 +198,15 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
                     }
                     return value;
                 }));
-        IcebergTableCacheValue currentTable = tableEntry.get(nameMapping.getCtlId()).peekIfPresent(nameMapping);
-        if (currentTable != null && !tableValue.isSamePhysicalGeneration(currentTable)) {
-            // A query may have captured the previous table immediately before refresh publication.
-            // It can use that immutable value, but must not republish an unreachable old projection.
+        MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = tableEntry.get(nameMapping.getCtlId());
+        IcebergTableCacheValue currentTable = tables.peekIfPresent(nameMapping);
+        if (tables.isEffectivelyEnabled()
+                && (currentTable == null || !tableValue.isSameOperationalGeneration(currentTable))) {
+            // A query may have captured the previous table immediately before refresh publication,
+            // or loaded through a table handle that was never admitted (weight rejection). It can
+            // use that immutable value, but must not republish a projection no later lookup can
+            // reach or one frozen on superseded operational resources. (A disabled table entry
+            // never publishes; its physically keyed projections stay reusable.)
             entry.invalidateKeyIfSame(key, snapshotValue);
         }
         return snapshotValue;
@@ -236,14 +241,16 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
         MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> entry = schemaEntry.get(nameMapping.getCtlId());
         SchemaCacheValue schemaCacheValue = entry
                 .get(key, ignored -> loadSchemaCacheValue(key, retainedTable));
-        IcebergTableCacheValue currentTable = tableEntry.get(nameMapping.getCtlId()).peekIfPresent(nameMapping);
-        if (currentTable != null) {
-            Optional<IcebergSnapshotEntryKey> currentGeneration = IcebergSnapshotEntryKey.tryCreate(
-                    nameMapping, currentTable.getRetainedIcebergTable());
-            if (!currentGeneration.isPresent()
-                    || !currentGeneration.get().getTableUuid().equals(generation.get().getTableUuid())) {
-                entry.invalidateKeyIfSame(key, schemaCacheValue);
-            }
+        MetaCacheEntry<NameMapping, IcebergTableCacheValue> tables = tableEntry.get(nameMapping.getCtlId());
+        IcebergTableCacheValue currentTable = tables.peekIfPresent(nameMapping);
+        Optional<IcebergSnapshotEntryKey> currentGeneration = currentTable == null
+                ? Optional.empty()
+                : IcebergSnapshotEntryKey.tryCreate(nameMapping, currentTable.getRetainedIcebergTable());
+        if (tables.isEffectivelyEnabled() && (!currentGeneration.isPresent()
+                || !currentGeneration.get().getTableUuid().equals(generation.get().getTableUuid()))) {
+            // No published base table (replaced, expired or rejected at admission) can vouch for
+            // this projection; keep it out of the count-bounded schema cache.
+            entry.invalidateKeyIfSame(key, schemaCacheValue);
         }
         return (IcebergSchemaCacheValue) schemaCacheValue;
     }
@@ -355,14 +362,17 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
 
     private void retireTableGeneration(NameMapping nameMapping,
             @Nullable IcebergTableCacheValue previousValue, IcebergTableCacheValue currentValue) {
-        if (previousValue != null && previousValue.isSamePhysicalGeneration(currentValue)) {
+        if (previousValue != null && previousValue.isSameOperationalGeneration(currentValue)) {
             return;
         }
         MetaCacheEntry<IcebergSnapshotEntryKey, IcebergSnapshotCacheValue> snapshots =
                 snapshotEntry.getIfInitialized(nameMapping.getCtlId());
         if (snapshots != null) {
-            snapshots.invalidateIf(key -> key.getNameMapping().equals(nameMapping)
-                    && !key.belongsTo(currentValue));
+            // Projections of another metadata generation are unreachable. Projections of the same
+            // generation frozen on a previous handle keep that handle's FileIO (vended credentials)
+            // and location provider; scans bind to them, so they must be rebuilt from the new handle.
+            snapshots.invalidateIf((key, value) -> key.getNameMapping().equals(nameMapping)
+                    && (!key.belongsTo(currentValue) || !sharesOperationalResources(currentValue, value)));
         }
         Optional<String> currentUuid = currentValue.getTableUuid();
         MetaCacheEntry<IcebergSchemaCacheKey, SchemaCacheValue> schemas =
@@ -371,6 +381,16 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
             schemas.invalidateIf(key -> key.getNameMapping().equals(nameMapping)
                     && !key.getTableUuid().equals(currentUuid));
         }
+    }
+
+    private static boolean sharesOperationalResources(
+            IcebergTableCacheValue currentValue, @Nullable IcebergSnapshotCacheValue projection) {
+        if (projection == null) {
+            return false;
+        }
+        Optional<Table> retainedTable = projection.getRetainedIcebergTable();
+        // Count-mode projections do not retain a table handle; nothing to rebind.
+        return !retainedTable.isPresent() || currentValue.sharesOperationalResources(retainedTable.get());
     }
 
     private IcebergSnapshotCacheValue loadSnapshotProjection(

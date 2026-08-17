@@ -82,7 +82,8 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
                 this::loadTableCacheValue, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(nameMapping -> nameMapping))
                 .withSizeEstimator((key, value) -> value.prepareForCachePublication(key))
-                .withReplacementListener(this::retireTableGeneration));
+                .withReplacementListener(this::retireTableGeneration)
+                .withRemovalListener(this::retireRemovedTableGeneration));
         snapshotEntry = registerEntry(MetaCacheEntryDef.contextualOnly(ENTRY_SNAPSHOT,
                 PaimonSnapshotEntryKey.class, PaimonSnapshotCacheValue.class, defaultEntryCacheSpec(),
                 MetaCacheEntryInvalidation.forNameMapping(PaimonSnapshotEntryKey::getNameMapping))
@@ -223,6 +224,42 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
         if (schemas != null) {
             schemas.invalidateIf(key -> key.getNameMapping().equals(nameMapping)
                     && key.getTableGeneration() != currentValue.getGeneration());
+        }
+    }
+
+    /**
+     * An admitted table handle left the entry through eviction, expiry, collection or explicit
+     * invalidation without a successor being published. Its synthetic generation can never be
+     * looked up again, so the projections keyed by it are garbage. The callback is delayed and
+     * fenced by the removed generation: it never touches the generation currently published.
+     */
+    private void retireRemovedTableGeneration(NameMapping nameMapping,
+            @Nullable PaimonTableCacheValue removedValue) {
+        MetaCacheEntry<NameMapping, PaimonTableCacheValue> tables =
+                tableEntry.getIfInitialized(nameMapping.getCtlId());
+        PaimonTableCacheValue currentValue = tables == null ? null : tables.peekIfPresent(nameMapping);
+        long currentGeneration = currentValue == null ? -1L : currentValue.getGeneration();
+        long removedGeneration = removedValue == null ? -1L : removedValue.getGeneration();
+        if (removedValue != null && removedGeneration == currentGeneration) {
+            // The removed handle was republished; its projections are addressable again.
+            return;
+        }
+        // A collected (null) value has no generation left: everything that is not derived from
+        // the currently published handle is unreachable.
+        java.util.function.LongPredicate retired = removedValue == null
+                ? generation -> generation != currentGeneration
+                : generation -> generation == removedGeneration;
+        MetaCacheEntry<PaimonSnapshotEntryKey, PaimonSnapshotCacheValue> snapshots =
+                snapshotEntry.getIfInitialized(nameMapping.getCtlId());
+        if (snapshots != null) {
+            snapshots.invalidateIf(key -> key.getNameMapping().equals(nameMapping)
+                    && retired.test(key.getTableGeneration()));
+        }
+        MetaCacheEntry<PaimonSchemaCacheKey, SchemaCacheValue> schemas =
+                schemaEntry.getIfInitialized(nameMapping.getCtlId());
+        if (schemas != null) {
+            schemas.invalidateIf(key -> key.getNameMapping().equals(nameMapping)
+                    && retired.test(key.getTableGeneration()));
         }
     }
 

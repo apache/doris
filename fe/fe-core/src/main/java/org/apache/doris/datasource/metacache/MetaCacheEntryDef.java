@@ -105,11 +105,22 @@ public final class MetaCacheEntryDef<K, V> {
     private final MetaCacheSizeEstimator<K, V> sizeEstimator;
     @Nullable
     private final MetaCacheEntryReplacementListener<K, V> replacementListener;
+    @Nullable
+    private final MetaCacheEntryRemovalListener<K, V> removalListener;
 
     private MetaCacheEntryDef(String name, Class<K> keyType, Class<V> valueType,
             @Nullable Function<K, V> loader, CacheSpec defaultCacheSpec, boolean autoRefresh, boolean contextualOnly,
             MetaCacheEntryInvalidation<K> invalidation, @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator,
             @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener) {
+        this(name, keyType, valueType, loader, defaultCacheSpec, autoRefresh, contextualOnly, invalidation,
+                sizeEstimator, replacementListener, null);
+    }
+
+    private MetaCacheEntryDef(String name, Class<K> keyType, Class<V> valueType,
+            @Nullable Function<K, V> loader, CacheSpec defaultCacheSpec, boolean autoRefresh, boolean contextualOnly,
+            MetaCacheEntryInvalidation<K> invalidation, @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator,
+            @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener,
+            @Nullable MetaCacheEntryRemovalListener<K, V> removalListener) {
         this.name = Objects.requireNonNull(name, "entry name is required");
         this.keyType = Objects.requireNonNull(keyType, "entry key type is required");
         this.valueType = Objects.requireNonNull(valueType, "entry value type is required");
@@ -130,6 +141,7 @@ public final class MetaCacheEntryDef<K, V> {
         this.invalidation = Objects.requireNonNull(invalidation, "entry invalidation is required");
         this.sizeEstimator = sizeEstimator;
         this.replacementListener = replacementListener;
+        this.removalListener = removalListener;
     }
 
     /**
@@ -193,7 +205,7 @@ public final class MetaCacheEntryDef<K, V> {
     public MetaCacheEntryDef<K, V> withSizeEstimator(MetaCacheSizeEstimator<K, V> estimator) {
         return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec,
                 autoRefresh, contextualOnly, invalidation,
-                Objects.requireNonNull(estimator, "estimator"), replacementListener);
+                Objects.requireNonNull(estimator, "estimator"), replacementListener, removalListener);
     }
 
     /** Return a definition that synchronously retires dependencies after a value replacement. */
@@ -201,6 +213,13 @@ public final class MetaCacheEntryDef<K, V> {
             MetaCacheEntryReplacementListener<K, V> listener) {
         return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec,
                 autoRefresh, contextualOnly, invalidation, sizeEstimator,
+                Objects.requireNonNull(listener, "listener"), removalListener);
+    }
+
+    /** Return a definition that retires dependencies after an admitted value is removed. */
+    public MetaCacheEntryDef<K, V> withRemovalListener(MetaCacheEntryRemovalListener<K, V> listener) {
+        return new MetaCacheEntryDef<>(name, keyType, valueType, loader, defaultCacheSpec,
+                autoRefresh, contextualOnly, invalidation, sizeEstimator, replacementListener,
                 Objects.requireNonNull(listener, "listener"));
     }
 
@@ -263,5 +282,10 @@ public final class MetaCacheEntryDef<K, V> {
     @Nullable
     public MetaCacheEntryReplacementListener<K, V> getReplacementListener() {
         return replacementListener;
+    }
+
+    @Nullable
+    public MetaCacheEntryRemovalListener<K, V> getRemovalListener() {
+        return removalListener;
     }
 }

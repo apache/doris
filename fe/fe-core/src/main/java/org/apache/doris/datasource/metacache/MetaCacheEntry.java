@@ -37,6 +37,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -45,6 +46,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
+import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import javax.annotation.Nullable;
@@ -62,7 +64,8 @@ public class MetaCacheEntry<K, V> {
     private static final int REMOVAL_CLEANUP_BATCH_SIZE = 256;
     private static final long WEIGHT_REJECT_LOG_INTERVAL_MS = TimeUnit.MINUTES.toMillis(1L);
     // Direct Caffeine callbacks must not wait for admissionLock. A daemon drains one coalesced
-    // generation map per physical entry after callbacks return; cleanup tasks never capture values.
+    // generation map per physical entry after callbacks return; reservation cleanups never capture
+    // values, removal-listener notifications hold the removed value only until they are drained.
     private static final ExecutorService REMOVAL_CLEANUP_EXECUTOR = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "external-meta-cache-removal-cleanup");
         thread.setDaemon(true);
@@ -86,6 +89,12 @@ public class MetaCacheEntry<K, V> {
     private final EntryBudget entryBudget;
     @Nullable
     private final MetaCacheEntryReplacementListener<K, V> replacementListener;
+    @Nullable
+    private final MetaCacheEntryRemovalListener<K, V> removalListener;
+    // Removed (key, value) pairs awaiting the asynchronous removal listener; drained together with
+    // the reservation cleanups so Caffeine's synchronous callback stays lock-free.
+    private final ConcurrentLinkedQueue<RemovedValue<K, V>> pendingRemovalNotifications =
+            new ConcurrentLinkedQueue<>();
     private final boolean weightBounded;
     // Entries with publication-time work use the same generation-fenced refresh protocol even
     // before a max-weight is configured. This keeps estimation and dependency retirement on every
@@ -159,6 +168,15 @@ public class MetaCacheEntry<K, V> {
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
             @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator, @Nullable EntryBudget entryBudget,
             @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                sizeEstimator, entryBudget, replacementListener, null);
+    }
+
+    public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
+            @Nullable MetaCacheSizeEstimator<K, V> sizeEstimator, @Nullable EntryBudget entryBudget,
+            @Nullable MetaCacheEntryReplacementListener<K, V> replacementListener,
+            @Nullable MetaCacheEntryRemovalListener<K, V> removalListener) {
         this.name = name;
         if (contextualOnly) {
             if (loader != null) {
@@ -177,9 +195,10 @@ public class MetaCacheEntry<K, V> {
         this.sizeEstimator = sizeEstimator;
         this.entryBudget = entryBudget;
         this.replacementListener = replacementListener;
+        this.removalListener = removalListener;
         this.weightBounded = this.cacheSpec.isWeightBounded();
         this.generationFencedRefresh = autoRefresh
-                && (sizeEstimator != null || replacementListener != null);
+                && (sizeEstimator != null || replacementListener != null || removalListener != null);
         if (weightBounded && (sizeEstimator == null || entryBudget == null)) {
             throw new IllegalArgumentException("weighted cache entry requires both estimator and budget: " + name);
         }
@@ -207,7 +226,7 @@ public class MetaCacheEntry<K, V> {
         if (weightBounded) {
             cacheFactory.withSoftValues();
         }
-        if (weightBounded || generationFencedRefresh) {
+        if (weightBounded || generationFencedRefresh || removalListener != null) {
             // Direct notification avoids queuing REPLACED values. The listener itself is lock-free
             // and delegates only current-owner cleanup, so it is safe under Caffeine's eviction lock.
             this.loadingData = cacheFactory.buildCacheWithSyncRemovalListener(
@@ -416,6 +435,19 @@ public class MetaCacheEntry<K, V> {
     }
 
     public void invalidateIf(Predicate<K> predicate) {
+        invalidateIf(predicate, null);
+    }
+
+    /**
+     * Invalidate every mapping the predicate accepts. The value is the currently mapped one, or
+     * null when only a reservation or in-flight mutation record remains for the key. The lookup
+     * is quiet: it neither counts as an access nor triggers a refresh.
+     */
+    public void invalidateIf(BiPredicate<K, V> predicate) {
+        invalidateIf(null, predicate);
+    }
+
+    private void invalidateIf(@Nullable Predicate<K> keyPredicate, @Nullable BiPredicate<K, V> predicate) {
         synchronized (admissionLock) {
             Set<K> candidates = new HashSet<>(data.asMap().keySet());
             candidates.addAll(keyMutationStates.keySet());
@@ -425,7 +457,10 @@ public class MetaCacheEntry<K, V> {
                 candidates.addAll(refreshRecords.keySet());
             }
             for (K key : candidates) {
-                if (predicate.test(key)) {
+                boolean matched = keyPredicate != null
+                        ? keyPredicate.test(key)
+                        : predicate.test(key, data.policy().getIfPresentQuietly(key));
+                if (matched) {
                     advanceKeyMutation(key);
                     if (weightBounded) {
                         ReservationRecord record = reservations.get(key);
@@ -476,6 +511,7 @@ public class MetaCacheEntry<K, V> {
             return;
         }
         invalidateAll();
+        pendingRemovalNotifications.clear();
         if (entryBudget != null) {
             entryBudget.close();
         }
@@ -527,6 +563,11 @@ public class MetaCacheEntry<K, V> {
 
     public boolean isWeightBounded() {
         return weightBounded;
+    }
+
+    /** True when this entry stores values at all (enabled with a positive capacity or weight). */
+    public boolean isEffectivelyEnabled() {
+        return effectiveEnabled;
     }
 
     private AdmissionResult admitWeightedValue(
@@ -747,7 +788,7 @@ public class MetaCacheEntry<K, V> {
         if (key == null) {
             return;
         }
-        if (!weightBounded && !generationFencedRefresh) {
+        if (!weightBounded && !generationFencedRefresh && removalListener == null) {
             return;
         }
         if (closed.get()) {
@@ -757,6 +798,10 @@ public class MetaCacheEntry<K, V> {
         // soft-value collection instead reports a null value with COLLECTED and must release it.
         if (cause == RemovalCause.REPLACED) {
             return;
+        }
+        if (removalListener != null) {
+            pendingRemovalNotifications.add(new RemovedValue<>(key, value));
+            scheduleRemovalCleanup();
         }
         if (Thread.holdsLock(admissionLock)) {
             // Other removals have already removed the Caffeine mapping and can release their owner
@@ -816,6 +861,7 @@ public class MetaCacheEntry<K, V> {
 
     private void drainRemovalCleanups() {
         try {
+            drainRemovalNotifications();
             int processed = 0;
             for (Map.Entry<K, Long> cleanup : pendingRemovalGenerations.entrySet()) {
                 if (processed++ >= REMOVAL_CLEANUP_BATCH_SIZE) {
@@ -850,11 +896,41 @@ public class MetaCacheEntry<K, V> {
             }
         } finally {
             removalCleanupScheduled.set(false);
-            if (!closed.get() && !pendingRemovalGenerations.isEmpty()) {
+            if (!closed.get()
+                    && (!pendingRemovalGenerations.isEmpty() || !pendingRemovalNotifications.isEmpty())) {
                 // One bounded task per turn prevents a hot entry from monopolizing the process-wide
                 // cleanup executor; a later task is queued behind already scheduled catalogs.
                 scheduleRemovalCleanup();
             }
+        }
+    }
+
+    private void drainRemovalNotifications() {
+        if (removalListener == null) {
+            return;
+        }
+        for (int processed = 0; processed < REMOVAL_CLEANUP_BATCH_SIZE; processed++) {
+            RemovedValue<K, V> removed = pendingRemovalNotifications.poll();
+            if (removed == null || closed.get()) {
+                return;
+            }
+            try {
+                removalListener.onRemoval(removed.key, removed.value);
+            } catch (RuntimeException e) {
+                LOG.warn("Failed to retire dependencies after removing external metadata cache entry {}",
+                        name, e);
+            }
+        }
+    }
+
+    private static final class RemovedValue<K, V> {
+        private final K key;
+        @Nullable
+        private final V value;
+
+        private RemovedValue(K key, @Nullable V value) {
+            this.key = key;
+            this.value = value;
         }
     }
 
