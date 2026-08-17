@@ -104,6 +104,85 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
     }
 
     @Test
+    public void testReuseUncorrelatedScalarSubqueryFromCte() {
+        assertLogicalApplyCount(
+                "WITH one AS (SELECT MAX(id) AS id, MAX(score) AS score FROM T1) "
+                        + "SELECT (SELECT id FROM one) + (SELECT id FROM one) "
+                        + "+ (SELECT score FROM one) FROM T2",
+                2);
+        assertLogicalApplyCount(
+                "WITH one AS (SELECT MAX(id) AS id FROM T1) "
+                        + "SELECT (SELECT id FROM one AS one) + (SELECT id FROM one AS one) "
+                        + "+ (SELECT id FROM one AS one) FROM T2",
+                1);
+        assertLogicalApplyCount(
+                "WITH one AS (SELECT MAX(id) AS id FROM T1) "
+                        + "SELECT * FROM T2 WHERE id > (SELECT id FROM one) "
+                        + "AND score < (SELECT id FROM one)",
+                1);
+    }
+
+    @Test
+    public void testDoNotReuseDifferentScalarSubqueryFromCte() {
+        assertLogicalApplyCount(
+                "WITH one AS (SELECT MAX(id) AS id FROM T1), "
+                        + "two AS (SELECT MAX(id) AS id FROM T1) "
+                        + "SELECT (SELECT id FROM one) + (SELECT id FROM two) FROM T2",
+                2);
+        assertLogicalApplyCount(
+                "SELECT (SELECT MAX(t1.id) FROM T1 t1 WHERE t1.score = t2.score) "
+                        + "+ (SELECT MAX(t1.id) FROM T1 t1 WHERE t1.score = t2.score) FROM T2 t2",
+                2);
+        assertLogicalApplyCount(
+                "WITH one AS (SELECT id FROM T1) "
+                        + "SELECT (SELECT DISTINCT id FROM one) + (SELECT DISTINCT id FROM one) FROM T2",
+                2);
+        assertLogicalApplyCount(
+                "WITH one AS (SELECT id FROM T1) "
+                        + "SELECT (SELECT id FROM one WHERE id > 10) "
+                        + "+ (SELECT id FROM one WHERE id > 10) FROM T2",
+                2);
+        assertLogicalApplyCount(
+                "WITH one AS (SELECT MAX(id) AS id FROM T1) "
+                        + "SELECT * FROM T2 a JOIN T2 b ON a.id = (SELECT id FROM one) "
+                        + "AND b.id = (SELECT id FROM one)",
+                2);
+        // Scalar subqueries whose output needs a type coercion are not reusable, so each keeps its own apply.
+        assertLogicalApplyCount(
+                "WITH one AS (SELECT MAX(id) AS id FROM T1) "
+                        + "SELECT (SELECT id FROM one) + 1.5 + (SELECT id FROM one) + 1.5 FROM T2",
+                2);
+    }
+
+    @Test
+    public void testReusedScalarSubqueryShareSameOutputSlot() {
+        // After reuse, all references to an identical uncorrelated CTE scalar subquery must point to
+        // the single representative's output slot, so exactly one distinct slot id is referenced.
+        Plan plan = PlanChecker.from(connectContext).analyze(
+                "WITH one AS (SELECT MAX(id) AS id FROM T1) "
+                        + "SELECT (SELECT id FROM one) + (SELECT id FROM one) "
+                        + "+ (SELECT id FROM one) FROM T2").getPlan();
+        List<LogicalApply<?, ?>> applyList = Lists.newArrayList();
+        plan.foreach(node -> {
+            if (node instanceof LogicalApply) {
+                applyList.add((LogicalApply<?, ?>) node);
+            }
+        });
+        Assertions.assertEquals(1, applyList.size());
+    }
+
+    private void assertLogicalApplyCount(String sql, int expectedCount) {
+        Plan plan = PlanChecker.from(connectContext).analyze(sql).getPlan();
+        List<LogicalApply<?, ?>> applyList = Lists.newArrayList();
+        plan.foreach(node -> {
+            if (node instanceof LogicalApply) {
+                applyList.add((LogicalApply<?, ?>) node);
+            }
+        });
+        Assertions.assertEquals(expectedCount, applyList.size(), sql);
+    }
+
+    @Test
     public void testTranslateCase() throws Exception {
         for (String sql : testSql) {
             StatementScopeIdGenerator.clear();
