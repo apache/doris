@@ -485,7 +485,9 @@ Status AsyncCacheWriteManager::allocate_tracked_buffer(size_t size,
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     Status status = Status::OK();
     try {
-        *buffer = AsyncCacheWriteBufferPtr(new AsyncCacheWriteBuffer(size, _mem_tracker));
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(*buffer = AsyncCacheWriteBufferPtr(
+                                                 new AsyncCacheWriteBuffer(size, _mem_tracker)),
+                                         status);
     } catch (const std::exception& e) {
         status = Status::MemoryAllocFailed("allocate async file cache write buffer failed: {}",
                                            e.what());
@@ -672,11 +674,17 @@ Status AsyncCacheWriteManager::_resize_workers_locked(size_t worker_count) {
     DORIS_CHECK(_worker_pool != nullptr);
     if (worker_count < _workers.size()) {
         _stop_workers_locked(worker_count);
+        RETURN_IF_ERROR(_worker_pool->set_min_threads(static_cast<int>(worker_count)));
         RETURN_IF_ERROR(_worker_pool->set_max_threads(static_cast<int>(worker_count)));
         return Status::OK();
     }
 
     RETURN_IF_ERROR(_worker_pool->set_max_threads(static_cast<int>(worker_count)));
+    // Worker tasks live until resize or shutdown, so reserve one actual pool thread for each task
+    // before submitting any new Worker. Unlike submit_func(), set_min_threads() propagates an OS
+    // thread creation failure even when another pool thread is already running; no accepted Worker
+    // task can therefore remain queued forever without a backing thread.
+    RETURN_IF_ERROR(_worker_pool->set_min_threads(static_cast<int>(worker_count)));
     while (_workers.size() < worker_count) {
         auto worker = std::make_shared<Worker>(*this);
         RETURN_IF_ERROR(worker->start());

@@ -637,6 +637,16 @@ Status CachedRemoteFileReader::_read_async_write_path(size_t offset, Slice resul
     DORIS_CHECK(bytes_req <= result.size);
     DORIS_CHECK(offset <= size());
     DORIS_CHECK(bytes_req <= size() - offset);
+
+    // Async write needs one contiguous direct-remote buffer whose blocks can outlive this call as
+    // queued task payloads. Peer reads may instead return segmented peer-owned payloads, so they
+    // are unsupported on this path. Mode resolution normally selects synchronous write when peer
+    // read is enabled, while this per-call copy also prevents an online peer-policy change between
+    // mode resolution and remote IO from changing the selected async read's source.
+    IOContext direct_remote_io_ctx = *io_ctx;
+    direct_remote_io_ctx.bypass_peer_read = true;
+    io_ctx = &direct_remote_io_ctx;
+
     g_read_cache_indirect_num << 1;
     if (already_read == bytes_req) {
         *bytes_read = bytes_req;
