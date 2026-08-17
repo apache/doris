@@ -17,6 +17,7 @@
 
 #include "util/jvm_launcher.h"
 
+#include <bthread/bthread.h>
 #include <fmt/format.h>
 #include <glog/logging.h>
 
@@ -27,11 +28,14 @@
 #include <iterator>
 #include <mutex>
 #include <sstream>
+#include <thread>
 
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/jni-util.h"
+#include "util/thread.h"
 
 namespace doris::Jni {
 
@@ -103,14 +107,20 @@ std::string scan_class_path() {
 // A starting JVM installs handlers of its own for both, and its handler turns a shutdown
 // signal into a Java Shutdown.exit() - an ::exit() call made from a JVM thread. That runs
 // the global destructors while the BE is still serving, and BE singletons have been seen
-// freed out from under a live compaction thread this way. So save both handlers across the
-// bootstrap and put them back afterwards. The BE has always kept these two for itself; it
-// used to do so by creating the JVM before init_signals(), which no longer holds now that
-// the JVM is created on demand.
+// freed out from under a live compaction thread this way. The BE has always kept these two
+// for itself; it used to do so by creating the JVM before init_signals(), which no longer
+// holds now that the JVM is created on demand.
+//
+// Our own JVM is created with -Xrs, so it never installs them in the first place. This guard
+// is for the JVM we do not configure: libhdfs creates one from LIBHDFS_OPTS when it finds no
+// VM, and the options in there are the operator's. Saving the handlers and putting them back
+// leaves a window in between, so the guard is wrapped as tightly as possible around the two
+// calls that can create a VM - it used to span the whole bootstrap, seconds of hadoop
+// ServiceLoader scanning included.
 //
 // Only these two. The JVM needs SIGSEGV, SIGBUS, SIGILL and SIGFPE for its implicit null
-// checks and safepoint polls, and SIGQUIT for its thread dump; taking those back would
-// break it. SIGHUP is left to the JVM as well, which is what the eager-JVM order did too.
+// checks and safepoint polls; taking those back would break it. SIGHUP is left to the JVM as
+// well, which is what the eager-JVM order did too.
 constexpr int SHUTDOWN_SIGNALS[] = {SIGINT, SIGTERM};
 constexpr size_t SHUTDOWN_SIGNAL_COUNT = std::size(SHUTDOWN_SIGNALS);
 
@@ -203,11 +213,21 @@ std::vector<std::string> JvmLauncher::_build_options() {
     options.push_back("-Djava.security.krb5.conf=" + config::kerberos_krb5_conf_path);
     options.push_back(fmt::format("-Djdk.lang.processReaperUseDefaultStackSize={}",
                                   config::jdk_process_reaper_use_default_stack_size));
-    // Where PluginRegistry looks for plugins. It travels as a system property rather than
-    // through the startup script because the value is a BE config and this is the one place
-    // that turns BE config into JVM options; passing it from the script as well would be two
-    // sources for one path.
+    // Where PluginRegistry looks for plugins, and where it lets them read hadoop configuration
+    // files from. Both travel as system properties rather than through the startup script because
+    // the values are BE configs and this is the one place that turns BE config into JVM options;
+    // passing them from the script as well would be two sources for one path.
     options.push_back("-Ddoris.jni.plugin.dir=" + config::jni_plugin_dir);
+    options.push_back("-Ddoris.jni.hadoop.conf.dir=" + config::jni_plugin_hadoop_conf_dir);
+    // The JVM must not install handlers for SIGINT/SIGTERM/SIGHUP: its handler turns a shutdown
+    // signal into Java's Shutdown.exit(), an ::exit() from a JVM thread that runs the global
+    // destructors while the BE is still serving. Restoring the handlers around bootstrap (see
+    // ShutdownSignalGuard) only narrows that window - this closes it, for the whole life of the
+    // process. Appended last so that it also wins over a JAVA_OPTS that says otherwise.
+    //
+    // What this costs: no Java shutdown hooks on those signals, which is the point, and no JVM
+    // thread dump from SIGQUIT. jcmd and jstack, which attach instead of signalling, still work.
+    options.push_back("-Xrs");
     return options;
 }
 
@@ -274,7 +294,11 @@ Status JvmLauncher::_create_jvm() {
     vm_args.ignoreUnrecognized = JNI_TRUE;
 
     JNIEnv* env = nullptr;
-    jint res = JNI_CreateJavaVM(&_vm, reinterpret_cast<void**>(&env), &vm_args);
+    jint res = JNI_OK;
+    {
+        ShutdownSignalGuard shutdown_signals;
+        res = JNI_CreateJavaVM(&_vm, reinterpret_cast<void**>(&env), &vm_args);
+    }
     if (res != JNI_OK) {
         _vm = nullptr;
         // libhdfs may have created one in the window since the look-up above, in which
@@ -294,12 +318,8 @@ Status JvmLauncher::_create_jvm() {
 }
 
 Status JvmLauncher::_bootstrap() {
-    // Covers everything that can start a JVM below, ours and libhdfs' alike. See the guard.
-    ShutdownSignalGuard shutdown_signals;
-
     RETURN_IF_ERROR(_create_jvm());
 
-#ifdef USE_HADOOP_HDFS
     // Hand libhdfs its thread-local key before we create ours. Both of us detach a thread
     // when it exits, and a thread that reads hdfs files and runs a JNI scanner ends up
     // registered with both. libhdfs' destructor dereferences the JNIEnv it cached for the
@@ -308,11 +328,15 @@ Status JvmLauncher::_bootstrap() {
     // first. Destructors run in ascending key order, so creating its key first is what
     // orders them. Dropping this call is safe only once libhdfs stops touching the env it
     // cached.
-    if (getJNIEnv() == nullptr) {
-        LOG(WARNING) << "libhdfs failed to attach the bootstrap thread to the JVM; its thread "
-                        "exit hook may now run after ours";
+    {
+        // Guarded as well: getJNIEnv() is libhdfs' own entry point for creating a VM when it
+        // finds none. Ours exists by now, so this is belt and braces.
+        ShutdownSignalGuard shutdown_signals;
+        if (getJNIEnv() == nullptr) {
+            LOG(WARNING) << "libhdfs failed to attach the bootstrap thread to the JVM; its thread "
+                            "exit hook may now run after ours";
+        }
     }
-#endif
 
     if (int rc = pthread_key_create(&_detach_key, &JvmLauncher::_detach_current_thread); rc != 0) {
         return Status::JniError("Failed to register the JVM thread exit hook, errno={}", rc);
@@ -331,8 +355,33 @@ Status JvmLauncher::ensure_jvm() {
     // The JVM is created at most once, so the outcome of that attempt is the answer for
     // every caller that follows.
     static Status jvm_status;
-    std::call_once(jvm_once, []() { jvm_status = _bootstrap(); });
+    std::call_once(jvm_once, []() { jvm_status = _bootstrap_on_pthread(); });
     return jvm_status;
+}
+
+// https://brpc.apache.org/docs/server/basics/
+// JNI code checks the stack layout and cannot run on a bthread, and the bootstrap below is all
+// JNI: JNI_CreateJavaVM, FindClass, libhdfs' getJNIEnv. The switch belongs here rather than at
+// the call sites because a caller is whichever query first touches Java - HdfsMgr makes the same
+// switch for the connection it goes on to open, but by then the JVM has already been created,
+// and every future caller would have to know to repeat it.
+//
+// Joining does park the calling bthread's worker for as long as the JVM takes to come up. That
+// is what happened before this switch existed too, it happens once per process, and the
+// alternative - a butex wait - would put brpc internals into the launcher.
+Status JvmLauncher::_bootstrap_on_pthread() {
+    if (bthread_self() == 0) { // already a pthread
+        return _bootstrap();
+    }
+
+    Status status;
+    std::thread bootstrap([&status]() {
+        SCOPED_INIT_THREAD_CONTEXT();
+        Thread::set_self_name("jvm_bootstrap");
+        status = _bootstrap();
+    });
+    bootstrap.join();
+    return status;
 }
 
 Status JvmLauncher::attach_current_thread(JNIEnv** env) {
