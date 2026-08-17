@@ -267,7 +267,8 @@ public class MTMVTask extends AbstractTask {
                 try {
                     executeWithRetry(execPartitionNames, tableWithPartKey);
                 } catch (Exception e) {
-                    LOG.error("Execution failed after retries: {}", e.getMessage());
+                    LOG.error("Execution failed after retries, mvName: {}, taskId: {}",
+                            mtmv.getName(), getTaskId(), e);
                     throw new JobException(e.getMessage(), e);
                 }
                 completedPartitions.addAll(execPartitionNames);
@@ -277,7 +278,8 @@ public class MTMVTask extends AbstractTask {
                     mtmv.getDatabase().getFullName(), mtmv.getName(), getTaskId());
         } catch (Throwable e) {
             if (getStatus() == TaskStatus.RUNNING) {
-                LOG.warn("run task failed: {}", e.getMessage());
+                LOG.warn("run task failed, mvName: {}, taskId: {}",
+                        mtmv.getName(), getTaskId(), e);
                 throw new JobException(e.getMessage(), e);
             } else {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
