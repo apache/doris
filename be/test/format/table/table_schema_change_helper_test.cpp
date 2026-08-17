@@ -30,6 +30,17 @@
 namespace doris {
 class MockTableSchemaChangeHelper : public TableSchemaChangeHelper {};
 
+TEST(MockTableSchemaChangeHelper, UnknownStructChildDoesNotExist) {
+    TableSchemaChangeHelper::StructNode root;
+    root.add_children("file_column", "file_column",
+                      std::make_shared<TableSchemaChangeHelper::ScalarNode>());
+    root.add_not_exist_children("missing_file_column");
+
+    EXPECT_TRUE(root.children_column_exists("file_column"));
+    EXPECT_FALSE(root.children_column_exists("missing_file_column"));
+    EXPECT_FALSE(root.children_column_exists("partition_column"));
+}
+
 TEST(MockTableSchemaChangeHelper, OrcNameNoSchemaChange) {
     std::vector<DataTypePtr> data_types;
     std::vector<std::string> column_names;
