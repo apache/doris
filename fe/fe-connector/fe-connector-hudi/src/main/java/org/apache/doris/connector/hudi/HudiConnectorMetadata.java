@@ -563,6 +563,27 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * True only where the listing really is snapshot-exact.
+     *
+     * <p>When it is, {@link #listPartitions} reads the {@code queryInstant} {@link #applySnapshot} put on the
+     * handle and enumerates the partitions that hold data at it, so a {@code FOR TIME/VERSION AS OF} query gets
+     * the partition universe of THAT snapshot rather than an empty one. See
+     * {@code HudiScanPlanProvider.listPartitionPathsAsOf}, which decides membership with the same view call the
+     * scan uses to pick each partition's files.
+     *
+     * <p>The {@code use_hive_sync_partition} branch cannot promise that, which is why it answers false.
+     * {@link #collectPartitions} starts from what HMS holds NOW and can only remove from it, so its result is a
+     * SUBSET of the pin: a partition that held data at the pin but was later dropped from the table and
+     * unsynced from HMS is not in that subset, and pruning against it would silently drop rows a
+     * {@code FOR TIME AS OF} query must read. False means "this listing knows nothing about snapshots", which
+     * leaves the pinned partition set empty and scans everything - coarse, but never short.
+     */
+    @Override
+    public boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
+        return !useHiveSyncPartition();
+    }
+
+    /**
      * Threads a resolved pin onto the handle BEFORE planScan, reading the FE-internal carrier properties set by
      * {@link #resolveTimeTravel} and stamping via {@code toBuilder()}, which PRESERVES any
      * {@code prunedPartitionPaths} applyFilter set earlier (applyFilter runs before applySnapshot at scan time,
@@ -579,18 +600,6 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
      * byte-identical to today (planScan falls back to {@code timeline.lastInstant()}). Mirrors paimon's
      * empty-properties / invalid-pin no-op.</p>
      */
-    /**
-     * True: {@link #listPartitions} reads the {@code queryInstant} {@link #applySnapshot} put on the handle
-     * and enumerates the partitions that hold data at it, so a {@code FOR TIME/VERSION AS OF} query gets the
-     * partition universe of THAT snapshot rather than an empty one. See
-     * {@code HudiScanPlanProvider.listPartitionPathsAsOf}, which decides membership with the same view call
-     * the scan uses to pick each partition's files.
-     */
-    @Override
-    public boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
-        return true;
-    }
-
     @Override
     public ConnectorTableHandle applySnapshot(ConnectorSession session,
             ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
@@ -693,14 +702,13 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Shared partition collector backing {@link #listPartitions} and {@link #listPartitionNames}. Lists the
-     * raw partition identifiers from the
-     * {@code use_hive_sync_partition}-aware source (mirroring legacy
-     * {@code HudiExternalMetaCache.loadPartitionNames}), then renders one {@link ConnectorPartitionInfo} per
-     * partition. Unpartitioned &rarr; {@code emptyList()} (legacy never lists partitions for an unpartitioned
-     * table). Explicit time-travel (non-latest) partition listing is a later step.
+     * A hudi instant read as the number {@code instantToEpochMillis} expects, or 0 when it is not a number.
+     *
+     * <p>0 means "no reliable change signal", which the engine already degrades safely on. Reached by an
+     * instant spelled as an ISO-8601 timestamp: {@code resolveTimeTravel} normalises one by stripping
+     * {@code -}, {@code :} and spaces, which leaves the {@code T} and the fractional dot behind. A tag or
+     * branch name never gets this far - {@code resolveTimeTravel} rejects {@code VERSION AS OF} outright.
      */
-    /** A hudi instant read as the number {@code instantToEpochMillis} expects, or 0 for a tag/branch name. */
     private static long parseInstantOrZero(String instant) {
         try {
             return Long.parseLong(instant);
@@ -710,7 +718,11 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * The partitions of {@code handle}, restricted to those holding data at its pin when it carries one.
+     * Shared partition collector backing {@link #listPartitions} and {@link #listPartitionNames}: the raw
+     * partition identifiers from the {@code use_hive_sync_partition}-aware source (mirroring legacy
+     * {@code HudiExternalMetaCache.loadPartitionNames}), rendered one {@link ConnectorPartitionInfo} per
+     * partition, and restricted to those holding data at the handle's pin when it carries one. Unpartitioned
+     * &rarr; {@code emptyList()} (legacy never lists partitions for an unpartitioned table).
      *
      * <p>Neither listing source below knows about instants: HMS holds what is hive-synced NOW, and the metadata
      * table keeps a partition path forever once written, so both answer "ever existed". Reading a table at its

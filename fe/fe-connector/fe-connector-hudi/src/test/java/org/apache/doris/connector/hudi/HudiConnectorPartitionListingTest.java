@@ -322,6 +322,27 @@ public class HudiConnectorPartitionListingTest {
         Assertions.assertFalse(snapshot.get().isLastModifiedFreshness());
     }
 
+    // ── the snapshot-exact-listing capability ─────────────────────────────────────────────────────────
+
+    /**
+     * The capability has to be answered per table, because only one of the two listing sources can keep the
+     * promise. Claiming it for the hive-sync branch makes fe-core prune a {@code FOR TIME AS OF} query against
+     * a partition set that is a SUBSET of the pin - {@code collectPartitions} starts from what HMS holds now
+     * and can only remove - so a partition dropped and unsynced after the pin is pruned away and the query
+     * silently returns fewer rows, with a perfectly normal EXPLAIN.
+     */
+    @Test
+    public void snapshotExactListingIsClaimedOnlyWhereItHolds() {
+        HmsClient hms = new RecordingHmsClient(null);
+        HudiMetaClientExecutor executor = new DirectHudiMetaClientExecutor();
+        ConnectorTableHandle handle = partitioned();
+
+        Assertions.assertTrue(metadata(false, hms, executor).listsPartitionsAtSnapshot(null, handle),
+                "the metadata-table listing enumerates exactly the partitions holding data at the pin");
+        Assertions.assertFalse(metadata(true, hms, executor).listsPartitionsAtSnapshot(null, handle),
+                "the hive-sync listing starts from HMS-now, so it must not claim to be snapshot-exact");
+    }
+
     // ── item 7: dead-code guard (SPI defaults hold) ────────────────────────────────────────────────────
 
     @Test
