@@ -54,6 +54,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * infer additional predicates for `LogicalFilter` and `LogicalJoin`.
@@ -144,9 +145,16 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         filter = visitChildren(this, filter, context);
         Set<Expression> inferredPredicates = pullUpPredicates(filter);
         inferredPredicates.removeAll(pullUpAllPredicates(filter.child()));
-        if (inferredPredicates.isEmpty()) {
+        // NoneMovableFunction (e.g. assert_true) and volatile conjuncts are not pulled up by
+        // PullUpPredicates; keep them so the filter (and its error/side-effect behavior) is
+        // preserved at its original position.
+        Set<Expression> noneMovableConjuncts = filter.getConjuncts().stream()
+                .filter(Expression::containsNoneMovableOrVolatile)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (inferredPredicates.isEmpty() && noneMovableConjuncts.isEmpty()) {
             return filter.child();
         }
+        inferredPredicates.addAll(noneMovableConjuncts);
         if (inferredPredicates.equals(filter.getConjuncts())) {
             return filter;
         } else {

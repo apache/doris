@@ -72,6 +72,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * poll up effective predicates from operator's children.
@@ -378,11 +379,21 @@ public class PullUpPredicates extends PlanVisitor<ImmutableSet<Expression>, Void
         if (predicates.isEmpty()) {
             return ImmutableSet.of();
         }
+        // a NoneMovableFunction (e.g. assert_true) or a volatile predicate must not be pulled up:
+        // consumers (predicate inference, join reorder, MV matching) would relocate it into
+        // another subtree and evaluate it on a different row domain, changing its error behavior
+        // or results. keep such predicates at their original operator.
+        Set<Expression> movablePredicates = predicates.stream()
+                .filter(expr -> !expr.containsNoneMovableOrVolatile())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (movablePredicates.isEmpty()) {
+            return ImmutableSet.of();
+        }
         Set<Expression> inferPredicates = new LinkedHashSet<>();
         if (getAllPredicates) {
-            inferPredicates.addAll(PredicateInferUtils.inferAllPredicate(predicates));
+            inferPredicates.addAll(PredicateInferUtils.inferAllPredicate(movablePredicates));
         } else {
-            inferPredicates.addAll(PredicateInferUtils.inferPredicate(predicates));
+            inferPredicates.addAll(PredicateInferUtils.inferPredicate(movablePredicates));
         }
         Set<Expression> newPredicates = new LinkedHashSet<>(inferPredicates.size());
         Set<Slot> outputSet = plan.getOutputSet();
