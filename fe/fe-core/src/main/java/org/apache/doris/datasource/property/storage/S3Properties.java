@@ -245,6 +245,14 @@ public class S3Properties extends AbstractS3CompatibleProperties {
      * @return
      */
     protected static boolean guessIsMe(Map<String, String> origProps) {
+        // An explicit Aliyun OSS configuration must not be shadowed by the REST
+        // signing region fallback below. OSS Tables uses an s3:// data location,
+        // while its OSS endpoint is also enough for OSSProperties to identify the
+        // storage provider. Prefer that concrete provider unless the user has
+        // explicitly enabled S3 through fs.s3.support.
+        if (OSSProperties.guessIsMe(origProps)) {
+            return false;
+        }
         String endpoint = Stream.of(ENDPOINT_NAMES_FOR_GUESSING)
                 .map(origProps::get)
                 .filter(Objects::nonNull)
