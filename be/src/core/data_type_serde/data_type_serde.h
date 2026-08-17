@@ -37,6 +37,7 @@
 namespace arrow {
 class ArrayBuilder;
 class Array;
+class Field;
 } // namespace arrow
 namespace cctz {
 class time_zone;
@@ -94,6 +95,16 @@ struct CastParameters;
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
+class ArrowWriteContext {
+public:
+    virtual ~ArrowWriteContext() = default;
+
+    virtual Status write_column(const std::shared_ptr<const IDataType>& type,
+                                const DataTypeSerDe& serde, const IColumn& column,
+                                const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+                                arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                const cctz::time_zone& ctz) const = 0;
+};
 class ParquetDecodeSource;
 class ParquetLogicalValueConsumer;
 struct ParquetDecodeContext;
@@ -498,6 +509,14 @@ public:
     virtual Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                          arrow::ArrayBuilder* array_builder, int64_t start,
                                          int64_t end, const cctz::time_zone& ctz) const = 0;
+    virtual Status write_column_to_arrow(const std::shared_ptr<const IDataType>&,
+                                         const IColumn& column, const NullMap* null_map,
+                                         const std::shared_ptr<arrow::Field>&,
+                                         arrow::ArrayBuilder* array_builder, int64_t start,
+                                         int64_t end, const cctz::time_zone& ctz,
+                                         const ArrowWriteContext&) const {
+        return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+    }
     virtual Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                           int64_t start, int64_t end,
                                           const cctz::time_zone& ctz) const = 0;
