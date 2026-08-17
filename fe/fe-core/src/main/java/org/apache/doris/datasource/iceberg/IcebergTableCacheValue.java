@@ -56,10 +56,12 @@ public class IcebergTableCacheValue {
         if (sizeEstimate == null) {
             sizeEstimate = MetaCacheSizeEstimator.estimateSafely("iceberg_table_preparation_failed",
                     () -> {
-                        retainedCurrentSnapshotJson =
-                                IcebergSnapshotCacheValue.retainCurrentSnapshotJson(icebergTable);
+                        // Order matters: serializing a v1 snapshot materializes its transient
+                        // manifest list, which the payload accounting rejects, so account first.
                         retainedTablePayloadBytes =
                                 IcebergCacheSizeEstimator.retainedTablePayloadBytes(icebergTable);
+                        retainedCurrentSnapshotJson =
+                                IcebergSnapshotCacheValue.retainCurrentSnapshotJson(icebergTable);
                         return IcebergCacheSizeEstimator.estimateTableEntry(key, this);
                     });
             if (sizeEstimate.isComplete()) {

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TFieldPtr;
@@ -98,7 +99,7 @@ public class PaimonUtilTest {
         PaimonPartitionInfo info = new PaimonPartitionInfo(
                 Collections.emptyMap(), Collections.singletonMap("part=" + largeValue, partition));
 
-        Assert.assertTrue(info.getRetainedPayloadBytes() >= largeValue.length() * 4L);
+        Assert.assertTrue(info.getRetainedPayloadBytes() >= largeValue.length() * 2L);
     }
 
     @Test
@@ -261,7 +262,7 @@ public class PaimonUtilTest {
         Assert.assertEquals(1, partitionInfo.getNameToPartitionItem().size());
         String partitionName = "source=dataset%2Fteam-a%2Fsegment-01"
                 + "/part_str=%2Fymd%3D20260701%2Fhour%3D%5B0-9%5D%5B0-9%5D%2F%2A.jsonl/pass=s1";
-        Assert.assertTrue(partitionInfo.getRetainedPayloadBytes() > partitionName.length() * 2L);
+        Assert.assertTrue(partitionInfo.getRetainedPayloadBytes() > partitionName.length());
         Assert.assertTrue(partitionInfo.getNameToPartition().containsKey(partitionName));
         PartitionItem partitionItem = partitionInfo.getNameToPartitionItem().values().iterator().next();
         List<String> actualValues = ((ListPartitionItem) partitionItem).getItems().get(0)
@@ -284,7 +285,8 @@ public class PaimonUtilTest {
                 Collections.singletonList(partitionEntry(stringPartitionRow(largeValue), 1L)));
 
         Assert.assertTrue(large.getRetainedPayloadBytes() - small.getRetainedPayloadBytes()
-                >= (largeValue.length() - 1L) * 4L);
+                >= MetaCacheWeightUtils.estimatedStringBytes(largeValue)
+                        - MetaCacheWeightUtils.estimatedStringBytes("x"));
     }
 
     @Test

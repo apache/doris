@@ -31,6 +31,7 @@ import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager;
 import org.apache.doris.datasource.metacache.ExternalMetaCacheBudgetManager.EntryBudget;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Maps;
@@ -267,13 +268,13 @@ public class HivePartitionValuesSizeBenchmark {
         Map<Long, PartitionItem> idToItem = Maps.newHashMapWithExpectedSize(count);
         Map<Long, List<String>> idToValues = Maps.newHashMapWithExpectedSize(count);
         String tailPayload = "tail_skew".equals(distribution) ? repeat('x', TAIL_PAYLOAD_BYTES) : null;
-        long partitionNameCharacterCount = 0L;
+        long partitionNamePayloadBytes = 0L;
 
         for (int i = 0; i < count; i++) {
             long id = i;
             String value = i == count - 1 && tailPayload != null ? tailPayload : "value-" + i;
             String name = "p=" + value;
-            partitionNameCharacterCount += name.length();
+            partitionNamePayloadBytes += MetaCacheWeightUtils.estimatedStringPayloadBytes(name);
             List<PartitionValue> rawValues = Collections.singletonList(new PartitionValue(value));
             PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(rawValues, types, true);
             List<PartitionKey> keys = new ArrayList<>(1);
@@ -284,7 +285,7 @@ public class HivePartitionValuesSizeBenchmark {
             idToValues.put(id, new ArrayList<>(Collections.singletonList(value)));
         }
         return new HivePartitionValues(
-                idToItem, nameToId, idToValues, partitionNameCharacterCount, types.size());
+                idToItem, nameToId, idToValues, partitionNamePayloadBytes, types.size());
     }
 
     private static String repeat(char value, int count) {

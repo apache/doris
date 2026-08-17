@@ -132,12 +132,14 @@ public class IcebergSnapshotCacheValue {
         if (sizeEstimate == null) {
             sizeEstimate = MetaCacheSizeEstimator.estimateSafely("iceberg_snapshot_preparation_failed",
                     () -> {
+                        // Account before serializing the current snapshot: v1 snapshot JSON
+                        // materializes the transient manifest list that accounting rejects.
+                        retainedTablePayloadBytes = icebergTable
+                                .map(IcebergCacheSizeEstimator::retainedTablePayloadBytes).orElse(0L);
                         if (retainedCurrentSnapshotJson == null) {
                             retainedCurrentSnapshotJson = icebergTable
                                     .map(IcebergSnapshotCacheValue::retainCurrentSnapshotJson).orElse(null);
                         }
-                        retainedTablePayloadBytes = icebergTable
-                                .map(IcebergCacheSizeEstimator::retainedTablePayloadBytes).orElse(0L);
                         return IcebergCacheSizeEstimator.estimateSnapshotEntry(key, this);
                     });
             if (sizeEstimate.isComplete()) {
@@ -414,7 +416,12 @@ public class IcebergSnapshotCacheValue {
         }
     }
 
-    /** Query-local operations expose exact retained metadata without shared lazy table state. */
+    /**
+     * Query-local read-only operations over the exact retained metadata. Only snapshot state is
+     * isolated per query (see QueryScopedTable); TableMetadata, Schema, StructType and
+     * PartitionSpec are shared with the cached generation, and their lazy indexes grow inside the
+     * cache value. IcebergCacheSizeEstimator reserves that growth at publication.
+     */
     private static final class QueryScopedTableOperations extends RetainedTableOperations {
         private QueryScopedTableOperations(TableOperations retainedOperations) {
             super(retainedOperations, retainedOperations.current());
@@ -426,7 +433,10 @@ public class IcebergSnapshotCacheValue {
         }
     }
 
-    /** A per-caller view whose Iceberg lazy snapshot state is never written into the cache value. */
+    /**
+     * A per-caller view whose Iceberg lazy snapshot state (manifest lists, manifests, files) is
+     * never written into the cache value. It does not isolate schema/spec lazy indexes.
+     */
     private static final class QueryScopedTable extends BaseTable {
         private final QueryScopedTableOperations queryOperations;
         private final Snapshot currentSnapshot;

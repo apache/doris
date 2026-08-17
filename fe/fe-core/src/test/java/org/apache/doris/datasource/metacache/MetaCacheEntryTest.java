@@ -47,6 +47,18 @@ import java.util.concurrent.atomic.AtomicReference;
 public class MetaCacheEntryTest {
 
     @Test
+    public void testCompactStringPayloadEstimate() {
+        // Three Latin-1 bytes and two UTF-16 characters both occupy one aligned slot; the exact
+        // slot size follows the JVM object alignment (8 by default, 16 with large heaps).
+        long latin1 = MetaCacheWeightUtils.estimatedStringPayloadBytes("abc");
+        long utf16 = MetaCacheWeightUtils.estimatedStringPayloadBytes("中文");
+        Assert.assertEquals(latin1, utf16);
+        Assert.assertTrue(latin1 >= 4L && latin1 <= 16L);
+        Assert.assertTrue(MetaCacheWeightUtils.estimatedStringPayloadBytes("abcdefghijklmnopq")
+                > latin1);
+    }
+
+    @Test
     public void testRefreshUsesConfiguredLoader() throws Exception {
         boolean originalManualMissLoad = Config.enable_external_meta_cache_manual_miss_load;
         Config.enable_external_meta_cache_manual_miss_load = true;

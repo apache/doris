@@ -305,12 +305,13 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
         Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMapWithExpectedSize(partitionNames.size());
         BiMap<String, Long> partitionNameToIdMap = HashBiMap.create(partitionNames.size());
-        long partitionNameCharacterCount = 0L;
+        long partitionNamePayloadBytes = 0L;
         String localDbName = nameMapping.getLocalDbName();
         String localTblName = nameMapping.getLocalTblName();
         for (String partitionName : partitionNames) {
-            partitionNameCharacterCount = MetaCacheWeightUtils.saturatedAdd(
-                    partitionNameCharacterCount, partitionName.length());
+            partitionNamePayloadBytes = MetaCacheWeightUtils.saturatedAdd(
+                    partitionNamePayloadBytes,
+                    MetaCacheWeightUtils.estimatedStringPayloadBytes(partitionName));
             long partitionId = Util.genIdByName(catalog.getName(), localDbName, localTblName, partitionName);
             ListPartitionItem listPartitionItem = toListPartitionItem(partitionName, key.types, catalog.getName());
             idToPartitionItem.put(partitionId, listPartitionItem);
@@ -320,7 +321,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         Map<Long, List<String>> partitionValuesMap = ListPartitionPrunerV2.getPartitionValuesMap(idToPartitionItem);
         HivePartitionValues partitionValues =
                 new HivePartitionValues(idToPartitionItem, partitionNameToIdMap, partitionValuesMap,
-                        partitionNameCharacterCount, key.types == null ? 0 : key.types.size());
+                        partitionNamePayloadBytes, key.types == null ? 0 : key.types.size());
         preparePartitionValuesForPublication(partitionValues);
         return partitionValues;
     }
@@ -768,7 +769,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                     allItems.put(partitionId, item);
                     addedItems.put(partitionId, item);
                     allNames.put(partitionName, partitionId);
-                    copy.addPartitionNameCharacters(partitionName.length());
+                    copy.addPartitionNamePayload(partitionName);
                 }
                 if (addedItems.isEmpty()) {
                     // Even a replay/no-op event must fence a refresh that started before the event.
@@ -839,7 +840,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                     }
                     allItems.remove(partitionId);
                     allValues.remove(partitionId);
-                    copy.removePartitionNameCharacters(partitionName.length());
+                    copy.removePartitionNamePayload(partitionName);
                     changed = true;
                 }
                 if (!changed) {
@@ -1117,7 +1118,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         // Prepared once after construction/update; the cache weigher only reads this value.
         private transient volatile MetaCacheSizeEstimate sizeEstimate;
         // Maintained while the metadata is already being loaded or updated. Admission only reads it.
-        private long partitionNameCharacterCount;
+        private long partitionNamePayloadBytes;
         private int partitionColumnCount;
         private transient boolean sortedPartitionRangesPrepared;
 
@@ -1128,19 +1129,19 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 BiMap<String, Long> partitionNameToIdMap,
                 Map<Long, List<String>> partitionValuesMap) {
             this(idToPartitionItem, partitionNameToIdMap, partitionValuesMap,
-                    countPartitionNameCharacters(partitionNameToIdMap),
+                    countPartitionNamePayloadBytes(partitionNameToIdMap),
                     inferPartitionColumnCount(partitionValuesMap));
         }
 
         HivePartitionValues(Map<Long, PartitionItem> idToPartitionItem,
                 BiMap<String, Long> partitionNameToIdMap,
                 Map<Long, List<String>> partitionValuesMap,
-                long partitionNameCharacterCount,
+                long partitionNamePayloadBytes,
                 int partitionColumnCount) {
             this.idToPartitionItem = idToPartitionItem;
             this.partitionNameToIdMap = partitionNameToIdMap;
             this.partitionValuesMap = partitionValuesMap;
-            this.partitionNameCharacterCount = partitionNameCharacterCount;
+            this.partitionNamePayloadBytes = partitionNamePayloadBytes;
             this.partitionColumnCount = partitionColumnCount;
         }
 
@@ -1149,7 +1150,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             copy.partitionNameToIdMap = partitionNameToIdMap == null ? null : HashBiMap.create(partitionNameToIdMap);
             copy.idToPartitionItem = idToPartitionItem == null ? null : Maps.newHashMap(idToPartitionItem);
             copy.partitionValuesMap = partitionValuesMap == null ? null : Maps.newHashMap(partitionValuesMap);
-            copy.partitionNameCharacterCount = partitionNameCharacterCount;
+            copy.partitionNamePayloadBytes = partitionNamePayloadBytes;
             copy.partitionColumnCount = partitionColumnCount;
             return copy;
         }
@@ -1186,31 +1187,34 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
             sizeEstimate = HiveCacheSizeEstimator.estimatePartitionValuesEntry(key, this);
         }
 
-        long getPartitionNameCharacterCount() {
-            return partitionNameCharacterCount;
+        long getPartitionNamePayloadBytes() {
+            return partitionNamePayloadBytes;
         }
 
         int getPartitionColumnCount() {
             return partitionColumnCount;
         }
 
-        private void addPartitionNameCharacters(int characters) {
-            partitionNameCharacterCount = MetaCacheWeightUtils.saturatedAdd(
-                    partitionNameCharacterCount, characters);
+        private void addPartitionNamePayload(String partitionName) {
+            partitionNamePayloadBytes = MetaCacheWeightUtils.saturatedAdd(
+                    partitionNamePayloadBytes,
+                    MetaCacheWeightUtils.estimatedStringPayloadBytes(partitionName));
         }
 
-        private void removePartitionNameCharacters(int characters) {
-            partitionNameCharacterCount = Math.max(0L, partitionNameCharacterCount - characters);
+        private void removePartitionNamePayload(String partitionName) {
+            partitionNamePayloadBytes = Math.max(0L, partitionNamePayloadBytes
+                    - MetaCacheWeightUtils.estimatedStringPayloadBytes(partitionName));
         }
 
-        private static long countPartitionNameCharacters(BiMap<String, Long> names) {
-            long characters = 0L;
+        private static long countPartitionNamePayloadBytes(BiMap<String, Long> names) {
+            long payloadBytes = 0L;
             if (names != null) {
                 for (String name : names.keySet()) {
-                    characters = MetaCacheWeightUtils.saturatedAdd(characters, name.length());
+                    payloadBytes = MetaCacheWeightUtils.saturatedAdd(
+                            payloadBytes, MetaCacheWeightUtils.estimatedStringPayloadBytes(name));
                 }
             }
-            return characters;
+            return payloadBytes;
         }
 
         private static int inferPartitionColumnCount(Map<Long, List<String>> values) {

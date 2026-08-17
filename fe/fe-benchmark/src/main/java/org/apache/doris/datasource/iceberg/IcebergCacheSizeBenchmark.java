@@ -110,7 +110,11 @@ public class IcebergCacheSizeBenchmark {
         for (DataFile file : state.files) {
             builder.addDataFile(file.copy());
         }
-        return builder.build().getDataFiles().size();
+        ManifestCacheValue value = builder.build();
+        if (value.isAccountingComplete() != state.expectedAccountingComplete()) {
+            throw new IllegalStateException("unexpected dense manifest accounting state");
+        }
+        return value.getDataFiles().size();
     }
 
     public long preparedWeightProvider(PreparedState state) {
@@ -150,6 +154,32 @@ public class IcebergCacheSizeBenchmark {
             BenchmarkHarness.measure("iceberg.preparedTableCacheHit" + suffix,
                     TimeUnit.MICROSECONDS, () -> benchmark.preparedTableCacheHit(prepared));
         }
+        for (int fieldCount : new int[] {100, 1000}) {
+            // Wide identity-partitioned specs drive the O(fields) fieldsBySourceId reservation and
+            // the secondary partition Schema formula; nested schemas drive the per-field path
+            // and lower-case String terms. Both must stay far below the value construction cost
+            // of the same table.
+            String suffix = "[fields=" + fieldCount + "]";
+            TablePublicationState partitioned = new TablePublicationState();
+            partitioned.fieldCount = fieldCount;
+            partitioned.identityPartitioned = true;
+            partitioned.setup();
+            BenchmarkHarness.measure("iceberg.partitionedTableValueConstruction" + suffix,
+                    TimeUnit.NANOSECONDS, () -> benchmark.tableValueConstruction(partitioned));
+            BenchmarkHarness.measure("iceberg.partitionedTablePayloadCounter" + suffix,
+                    TimeUnit.MICROSECONDS, () -> benchmark.tablePayloadCounter(partitioned));
+            BenchmarkHarness.measure("iceberg.partitionedTablePublication" + suffix,
+                    TimeUnit.MICROSECONDS, () -> benchmark.tablePublication(partitioned));
+
+            TablePublicationState nested = new TablePublicationState();
+            nested.fieldCount = fieldCount;
+            nested.nestedSchema = true;
+            nested.setup();
+            BenchmarkHarness.measure("iceberg.nestedTablePayloadCounter" + suffix,
+                    TimeUnit.MICROSECONDS, () -> benchmark.tablePayloadCounter(nested));
+            BenchmarkHarness.measure("iceberg.nestedTablePublication" + suffix,
+                    TimeUnit.MICROSECONDS, () -> benchmark.tablePublication(nested));
+        }
         for (int snapshotCount : new int[] {1000, 10000}) {
             String suffix = "[snapshots=" + snapshotCount + "]";
             LongHistoryTablePublicationState state = new LongHistoryTablePublicationState();
@@ -188,7 +218,9 @@ public class IcebergCacheSizeBenchmark {
                 state.metricColumns = metricColumns;
                 state.fileCount = fileCount;
                 state.setup();
-                String suffix = "[files=" + fileCount + ",metricColumns=" + metricColumns + "]";
+                String accounting = state.expectedAccountingComplete() ? "complete" : "rejected";
+                String suffix = "[files=" + fileCount + ",metricColumns=" + metricColumns
+                        + ",accounting=" + accounting + "]";
                 BenchmarkHarness.measure("iceberg.denseManifestReaderBaseline" + suffix,
                         TimeUnit.MICROSECONDS, () -> benchmark.denseManifestReaderBaseline(state));
                 BenchmarkHarness.measure("iceberg.denseManifestValueConstruction" + suffix,
@@ -199,13 +231,15 @@ public class IcebergCacheSizeBenchmark {
 
     public static class TablePublicationState {
         public int fieldCount;
+        public boolean identityPartitioned;
+        public boolean nestedSchema;
 
         private NameMapping mapping;
         private Table table;
 
         public void setup() {
             mapping = NameMapping.createForTest(1L, "benchmark_db", "benchmark_table");
-            table = newTable(fieldCount);
+            table = newTable(fieldCount, identityPartitioned, nestedSchema);
         }
     }
 
@@ -286,6 +320,7 @@ public class IcebergCacheSizeBenchmark {
         public int metricColumns;
 
         private List<DataFile> files;
+        private boolean accountingComplete;
 
         public void setup() {
             int poolSize = Math.min(fileCount, 256);
@@ -315,33 +350,56 @@ public class IcebergCacheSizeBenchmark {
             for (int index = 0; index < fileCount; index++) {
                 files.add(filePool.get(index % poolSize));
             }
+            accountingComplete = ManifestCacheValue.forDataFiles(files).isAccountingComplete();
+        }
+
+        private boolean expectedAccountingComplete() {
+            return accountingComplete;
         }
     }
 
     private static Table newTable(int fieldCount) {
+        return newTable(fieldCount, false, false);
+    }
+
+    private static Table newTable(int fieldCount, boolean identityPartitioned, boolean nestedSchema) {
         List<Types.NestedField> fields = new ArrayList<>(fieldCount);
         for (int index = 0; index < fieldCount; index++) {
             fields.add(Types.NestedField.optional(index + 1, "field_" + index, Types.StringType.get()));
         }
-        Schema schema = new Schema(fields);
-        TableMetadata metadata = TableMetadata.newTableMetadata(
-                schema, PartitionSpec.unpartitioned(), "file:/benchmark/table", Collections.emptyMap());
-        InMemoryFileIO fileIO = new InMemoryFileIO();
-        StringBuilder snapshotJson = new StringBuilder("{\"snapshot-id\":7,\"timestamp-ms\":1,")
-                .append("\"summary\":{\"operation\":\"append\"},\"manifests\":[");
-        for (int index = 0; index < 10; index++) {
-            if (index > 0) {
-                snapshotJson.append(',');
+        Schema schema;
+        if (nestedSchema) {
+            List<Types.NestedField> nestedFields = new ArrayList<>(fieldCount);
+            for (int index = 0; index < fieldCount; index++) {
+                nestedFields.add(Types.NestedField.optional(
+                        1000 + index, "Nested_" + index, Types.StringType.get()));
             }
-            String manifestPath = "/benchmark/manifest-" + index + ".avro";
-            snapshotJson.append('"').append(manifestPath).append('"');
-            fileIO.addFile(manifestPath, new byte[0]);
+            schema = new Schema(
+                    Types.NestedField.optional(1, "payload", Types.StructType.of(nestedFields)),
+                    Types.NestedField.optional(2, "list", Types.ListType.ofOptional(3,
+                            Types.StructType.of(Types.NestedField.optional(
+                                    4, "leaf", Types.StringType.get())))),
+                    Types.NestedField.optional(5, "id", Types.LongType.get()));
+        } else {
+            schema = new Schema(fields);
         }
-        Snapshot snapshot = SnapshotParser.fromJson(snapshotJson.append("],\"schema-id\":0}").toString());
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        if (identityPartitioned) {
+            PartitionSpec.Builder specBuilder = PartitionSpec.builderFor(schema);
+            for (Types.NestedField field : schema.columns()) {
+                specBuilder.identity(field.name());
+            }
+            spec = specBuilder.build();
+        }
+        TableMetadata metadata = TableMetadata.newTableMetadata(
+                schema, spec, "file:/benchmark/table", Collections.emptyMap());
+        Snapshot snapshot = SnapshotParser.fromJson("{\"snapshot-id\":7,\"timestamp-ms\":1,"
+                + "\"summary\":{\"operation\":\"append\"},"
+                + "\"manifest-list\":\"/benchmark/manifest-list.avro\",\"schema-id\":0}");
         metadata = TableMetadata.buildFrom(metadata).setBranchSnapshot(snapshot, SnapshotRef.MAIN_BRANCH)
                 .discardChanges()
                 .withMetadataLocation("file:/benchmark/table/metadata/v1.json").build();
-        return new BaseTable(new StaticTableOperations(metadata, fileIO), "benchmark.table");
+        return new BaseTable(new StaticTableOperations(metadata, new InMemoryFileIO()), "benchmark.table");
     }
 
     private static Table newLongHistoryTable(int snapshotCount) {

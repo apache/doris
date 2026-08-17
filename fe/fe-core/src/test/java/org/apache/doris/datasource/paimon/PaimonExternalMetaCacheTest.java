@@ -31,6 +31,7 @@ import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.metacache.EstimatorCalibrationAssertions;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.metacache.MetaCacheSizeEstimate;
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 import org.apache.doris.datasource.metacache.paimon.PaimonLatestSnapshotProjectionLoader;
 import org.apache.doris.datasource.metacache.paimon.PaimonPartitionInfoLoader;
 
@@ -55,10 +56,19 @@ import org.apache.paimon.table.sink.StreamTableCommit;
 import org.apache.paimon.table.sink.StreamTableWrite;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.TableScan;
+import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DataTypeRoot;
+import org.apache.paimon.types.DataTypeVisitor;
 import org.apache.paimon.types.DataTypes;
+import org.apache.paimon.types.DecimalType;
+import org.apache.paimon.types.FloatType;
 import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.MapType;
+import org.apache.paimon.types.MultisetType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.VectorType;
 import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.Rule;
@@ -115,7 +125,9 @@ public class PaimonExternalMetaCacheTest {
         long smallBytes = snapshotWeight(smallKey, smallTable, 0);
         long largeBytes = snapshotWeight(largeKey, largeTable, 0);
 
-        Assert.assertTrue(largeBytes - smallBytes >= (largePayload.length() - 1L) * 2L);
+        Assert.assertTrue(largeBytes - smallBytes
+                >= MetaCacheWeightUtils.estimatedStringBytes(largePayload)
+                        - MetaCacheWeightUtils.estimatedStringBytes("x"));
     }
 
     @Test
@@ -133,7 +145,9 @@ public class PaimonExternalMetaCacheTest {
         long smallBytes = snapshotWeight(smallKey, smallTable, 0);
         long largeBytes = snapshotWeight(largeKey, largeTable, 0);
 
-        Assert.assertTrue(largeBytes - smallBytes >= (largeFieldName.length() - 1L) * 2L);
+        Assert.assertTrue(largeBytes - smallBytes
+                >= MetaCacheWeightUtils.estimatedStringBytes(largeFieldName)
+                        - MetaCacheWeightUtils.estimatedStringBytes("x"));
     }
 
     @Test
@@ -150,19 +164,25 @@ public class PaimonExternalMetaCacheTest {
         long largeBytes = snapshotWeight(new PaimonSnapshotEntryKey(
                 mapping, 1L, largeTable.schema().id(), 1L), largeTable, 0);
 
-        Assert.assertTrue(largeBytes - smallBytes >= (largeComment.length() - 1L) * 2L);
+        Assert.assertTrue(largeBytes - smallBytes
+                >= MetaCacheWeightUtils.estimatedStringBytes(largeComment)
+                        - MetaCacheWeightUtils.estimatedStringBytes("x"));
     }
 
     @Test
     public void testSnapshotFormulaAgainstJolOwnedGraph() throws Exception {
-        FileStoreTable table = newPartitionedTable("jol_snapshot", Collections.emptyMap());
+        FileStoreTable table = newStringPartitionedTable("jol_snapshot");
+        FileStoreTable intTable = newPartitionedTable("jol_int_snapshot", Collections.emptyMap());
         NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
         PaimonSnapshotEntryKey key = new PaimonSnapshotEntryKey(
                 mapping, 1L, table.schema().id(), 1L);
-        PaimonSnapshotCacheValue empty = snapshotValueWithRealPartitions(table, 0, 16);
-        PaimonSnapshotCacheValue populated = snapshotValueWithRealPartitions(table, 32, 16);
-        PaimonSnapshotCacheValue shortTail = snapshotValueWithRealPartitions(table, 1, 16);
-        PaimonSnapshotCacheValue longTail = snapshotValueWithRealPartitions(table, 1, 4096);
+        PaimonSnapshotCacheValue empty = snapshotValueWithRealPartitions(table, 0, 16, Type.STRING);
+        PaimonSnapshotCacheValue populated = snapshotValueWithRealPartitions(
+                table, 32, 16, Type.STRING);
+        PaimonSnapshotCacheValue shortTail = snapshotValueWithRealPartitions(
+                table, 1, 16, Type.STRING);
+        PaimonSnapshotCacheValue longTail = snapshotValueWithRealPartitions(
+                table, 1, 4096, Type.STRING);
 
         long emptyEstimate = empty.prepareForCachePublication(key).getBytes();
         long populatedEstimate = populated.prepareForCachePublication(key).getBytes();
@@ -173,6 +193,113 @@ public class PaimonExternalMetaCacheTest {
                 "paimon snapshot partitions", emptyEstimate, populatedEstimate, empty, populated);
         EstimatorCalibrationAssertions.assertConservativeDelta(
                 "paimon long-tail partition", shortTailEstimate, longTailEstimate, shortTail, longTail);
+
+        PaimonSnapshotEntryKey intKey = new PaimonSnapshotEntryKey(
+                mapping, 1L, intTable.schema().id(), 1L);
+        PaimonSnapshotCacheValue emptyInts = snapshotValueWithRealPartitions(
+                intTable, 0, 0, Type.INT);
+        PaimonSnapshotCacheValue populatedInts = snapshotValueWithRealPartitions(
+                intTable, 32, 0, Type.INT);
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "paimon int snapshot partitions",
+                emptyInts.prepareForCachePublication(intKey).getBytes(),
+                populatedInts.prepareForCachePublication(intKey).getBytes(),
+                emptyInts, populatedInts);
+    }
+
+    @Test
+    public void testTableSchemaFormulaAgainstJolOwnedGraph() throws Exception {
+        FileStoreTable emptyTable = newTableWithExtraFields("jol_empty_schema", 0);
+        FileStoreTable populatedTable = newTableWithExtraFields("jol_populated_schema", 32);
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        PaimonSnapshotEntryKey emptyKey = new PaimonSnapshotEntryKey(
+                mapping, 1L, emptyTable.schema().id(), 1L);
+        PaimonSnapshotEntryKey populatedKey = new PaimonSnapshotEntryKey(
+                mapping, 1L, populatedTable.schema().id(), 1L);
+        PaimonSnapshotCacheValue empty = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY,
+                new PaimonSnapshot(1L, emptyTable.schema().id(), emptyTable));
+        PaimonSnapshotCacheValue populated = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY,
+                new PaimonSnapshot(1L, populatedTable.schema().id(), populatedTable));
+
+        long emptyEstimate = empty.prepareForCachePublication(emptyKey).getBytes();
+        long populatedEstimate = populated.prepareForCachePublication(populatedKey).getBytes();
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                "paimon table fields", emptyEstimate, populatedEstimate, empty, populated);
+    }
+
+    @Test
+    public void testNestedTableSchemaFormulaAgainstJolOwnedGraph() throws Exception {
+        FileStoreTable smallTable = newTableWithNestedFields("jol_nested_small", 1);
+        FileStoreTable populatedTable = newTableWithNestedFields("jol_nested_large", 33);
+        assertTableDeltaAgainstJol("paimon nested fields", smallTable, populatedTable);
+    }
+
+    @Test
+    public void testTableOptionFormulaAgainstJolOwnedGraph() throws Exception {
+        FileStoreTable emptyTable = newTableWithOptions("jol_options_empty", 0);
+        FileStoreTable populatedTable = newTableWithOptions("jol_options_large", 32);
+        assertTableDeltaAgainstJol("paimon table options", emptyTable, populatedTable);
+    }
+
+    @Test
+    public void testCompositeTypeFormulaAgainstJolOwnedGraph() {
+        assertTableDeltaAgainstJol("paimon array type",
+                newTableWithPayloadType("array", nestedArrayType(1)),
+                newTableWithPayloadType("array", nestedArrayType(100)));
+        assertTableDeltaAgainstJol("paimon map type",
+                newTableWithPayloadType("map", nestedMapType(1)),
+                newTableWithPayloadType("map", nestedMapType(100)));
+        assertTableDeltaAgainstJol("paimon multiset type",
+                newTableWithPayloadType("multiset", nestedMultisetType(1)),
+                newTableWithPayloadType("multiset", nestedMultisetType(100)));
+        assertTableDeltaAgainstJol("paimon row type",
+                newTableWithPayloadType("row", nestedRowType(1)),
+                newTableWithPayloadType("row", nestedRowType(100)));
+        assertTableDeltaAgainstJol("paimon vector type",
+                newTableWithPayloadType("vector", rowOfLeafTypes(1, VectorType.class)),
+                newTableWithPayloadType("vector", rowOfLeafTypes(100, VectorType.class)));
+        assertTableDeltaAgainstJol("paimon decimal type",
+                newTableWithPayloadType("decimal", rowOfLeafTypes(1, DecimalType.class)),
+                newTableWithPayloadType("decimal", rowOfLeafTypes(100, DecimalType.class)));
+    }
+
+    @Test
+    public void testUnknownDataTypeFailsClosedWithoutFailingLoad() {
+        DataType unknownType = new DataType(true, DataTypeRoot.INTEGER) {
+            @Override
+            public int defaultSize() {
+                return Integer.BYTES;
+            }
+
+            @Override
+            public DataType copy(boolean isNullable) {
+                return this;
+            }
+
+            @Override
+            public String asSQLString() {
+                return "UNKNOWN";
+            }
+
+            @Override
+            public <R> R accept(DataTypeVisitor<R> visitor) {
+                return new IntType().accept(visitor);
+            }
+        };
+        FileStoreTable table = newTableWithPayloadType("unknown-type", unknownType);
+        Assert.assertThrows(IllegalStateException.class,
+                () -> PaimonCacheSizeEstimator.retainedTablePayloadBytes(table));
+
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        PaimonSnapshotEntryKey key = new PaimonSnapshotEntryKey(mapping, 1L, table.schema().id(), 1L);
+        PaimonSnapshotCacheValue value = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY, new PaimonSnapshot(1L, table.schema().id(), table));
+        MetaCacheSizeEstimate estimate = value.prepareForCachePublication(key);
+
+        Assert.assertFalse(estimate.isComplete());
+        Assert.assertSame(table, value.getSnapshot().getTable());
     }
 
     @Test
@@ -207,6 +334,48 @@ public class PaimonExternalMetaCacheTest {
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    @Test
+    public void testTablePayloadAccountingWorkIsBounded() {
+        FileStoreTable table = Mockito.mock(FileStoreTable.class);
+        TableSchema schema = Mockito.mock(TableSchema.class);
+        @SuppressWarnings("unchecked")
+        Map<String, String> oversizedOptions = Mockito.mock(Map.class);
+        Mockito.when(table.schema()).thenReturn(schema);
+        Mockito.when(schema.fields()).thenReturn(Collections.emptyList());
+        Mockito.when(schema.options()).thenReturn(oversizedOptions);
+        Mockito.when(oversizedOptions.size()).thenReturn(50_001);
+
+        Assert.assertThrows(IllegalStateException.class,
+                () -> PaimonCacheSizeEstimator.retainedTablePayloadBytes(table));
+    }
+
+    @Test
+    public void testRowTypeLazyLookupReservationCoversPostAdmissionGrowth() throws Exception {
+        // Field ids above the Integer cache make every lazy map box its keys and values.
+        RowType small = wideRowType(1);
+        RowType populated = wideRowType(200);
+        FileStoreTable smallTable = newTableWithPayloadType("row-lazy-small", small);
+        FileStoreTable populatedTable = newTableWithPayloadType("row-lazy-large", populated);
+        for (String fieldName : ROW_TYPE_LAZY_FIELDS) {
+            Assert.assertNull(fieldName, readField(populated, fieldName));
+        }
+
+        // The oracle inside assertTableDeltaAgainstJol materializes the four maps after the
+        // estimate is taken; the estimate reserved at admission must already cover them.
+        assertTableDeltaAgainstJol("paimon row lazy lookup maps", smallTable, populatedTable);
+        for (String fieldName : ROW_TYPE_LAZY_FIELDS) {
+            Assert.assertNotNull(fieldName, readField(populated, fieldName));
+        }
+
+        // A RowType whose maps were materialized before admission is estimated identically.
+        RowType preloaded = wideRowType(200);
+        long unloadedEstimate = PaimonCacheSizeEstimator.retainedTablePayloadBytes(
+                newTableWithPayloadType("row-unloaded", wideRowType(200)));
+        materializeRowTypeIndexes(preloaded);
+        Assert.assertEquals(unloadedEstimate, PaimonCacheSizeEstimator.retainedTablePayloadBytes(
+                newTableWithPayloadType("row-loaded", preloaded)));
     }
 
     @Test
@@ -786,6 +955,24 @@ public class PaimonExternalMetaCacheTest {
                 CatalogEnvironment.empty());
     }
 
+    private FileStoreTable newStringPartitionedTable(String name) throws Exception {
+        TableSchema schema = new TableSchema(
+                0,
+                java.util.Arrays.asList(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "part", DataTypes.STRING())),
+                1,
+                Collections.singletonList("part"),
+                Collections.emptyList(),
+                Collections.emptyMap(),
+                null);
+        return new AppendOnlyFileStoreTable(
+                LocalFileIO.create(),
+                new Path(temporaryFolder.newFolder(name).toURI()),
+                schema,
+                CatalogEnvironment.empty());
+    }
+
     private FileStoreTable newPartitionedTableWithNestedField(
             String name, String nestedFieldName) throws Exception {
         RowType nestedType = new RowType(Collections.singletonList(
@@ -807,6 +994,173 @@ public class PaimonExternalMetaCacheTest {
                 CatalogEnvironment.empty());
     }
 
+    private FileStoreTable newTableWithExtraFields(String name, int fieldCount) throws Exception {
+        ArrayList<DataField> fields = new ArrayList<>();
+        fields.add(new DataField(0, "part", new IntType()));
+        for (int index = 0; index < fieldCount; index++) {
+            fields.add(new DataField(index + 1, "field_" + index, new IntType()));
+        }
+        TableSchema schema = new TableSchema(
+                0,
+                fields,
+                1,
+                Collections.singletonList("part"),
+                Collections.emptyList(),
+                Collections.emptyMap(),
+                null);
+        return new AppendOnlyFileStoreTable(
+                LocalFileIO.create(),
+                new Path(temporaryFolder.newFolder(name).toURI()),
+                schema,
+                CatalogEnvironment.empty());
+    }
+
+    private FileStoreTable newTableWithNestedFields(String name, int nestedFieldCount) throws Exception {
+        ArrayList<DataField> nestedFields = new ArrayList<>();
+        for (int index = 0; index < nestedFieldCount; index++) {
+            nestedFields.add(new DataField(index + 2, "nested_" + index, new IntType()));
+        }
+        RowType nestedType = new RowType(nestedFields);
+        TableSchema schema = new TableSchema(
+                0,
+                java.util.Arrays.asList(
+                        new DataField(0, "payload", nestedType),
+                        new DataField(1, "part", new IntType())),
+                1,
+                Collections.singletonList("part"),
+                Collections.emptyList(),
+                Collections.emptyMap(),
+                null);
+        return new AppendOnlyFileStoreTable(
+                LocalFileIO.create(), new Path(temporaryFolder.newFolder(name).toURI()),
+                schema, CatalogEnvironment.empty());
+    }
+
+    private FileStoreTable newTableWithOptions(String name, int optionCount) throws Exception {
+        Map<String, String> options = new HashMap<>();
+        for (int index = 0; index < optionCount; index++) {
+            options.put("key_" + index, "value_" + index);
+        }
+        return newPartitionedTable(name, options);
+    }
+
+    private FileStoreTable newTableWithPayloadType(String name, DataType type) {
+        TableSchema schema = new TableSchema(
+                0, Collections.singletonList(new DataField(0, "payload", type)), 1,
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), null);
+        return new AppendOnlyFileStoreTable(
+                LocalFileIO.create(), new Path("file:/tmp/paimon-composite-" + name),
+                schema, CatalogEnvironment.empty());
+    }
+
+    private DataType nestedArrayType(int depth) {
+        DataType type = new IntType();
+        for (int index = 0; index < depth; index++) {
+            type = new ArrayType(type);
+        }
+        return type;
+    }
+
+    private DataType nestedMapType(int depth) {
+        DataType type = new IntType();
+        for (int index = 0; index < depth; index++) {
+            type = new MapType(new IntType(), type);
+        }
+        return type;
+    }
+
+    private DataType nestedMultisetType(int depth) {
+        DataType type = new IntType();
+        for (int index = 0; index < depth; index++) {
+            type = new MultisetType(type);
+        }
+        return type;
+    }
+
+    private DataType nestedRowType(int depth) {
+        DataType type = new IntType();
+        for (int index = 0; index < depth; index++) {
+            type = new RowType(Collections.singletonList(
+                    new DataField(index + 1, "nested_" + index, type)));
+        }
+        return type;
+    }
+
+    private void assertTableDeltaAgainstJol(
+            String fixture, FileStoreTable smallTable, FileStoreTable populatedTable) {
+        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
+        PaimonSnapshotEntryKey smallKey = new PaimonSnapshotEntryKey(
+                mapping, 1L, smallTable.schema().id(), 1L);
+        PaimonSnapshotEntryKey populatedKey = new PaimonSnapshotEntryKey(
+                mapping, 1L, populatedTable.schema().id(), 1L);
+        PaimonSnapshotCacheValue small = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY,
+                new PaimonSnapshot(1L, smallTable.schema().id(), smallTable));
+        PaimonSnapshotCacheValue populated = new PaimonSnapshotCacheValue(
+                PaimonPartitionInfo.EMPTY,
+                new PaimonSnapshot(1L, populatedTable.schema().id(), populatedTable));
+        long smallEstimate = small.prepareForCachePublication(smallKey).getBytes();
+        long populatedEstimate = populated.prepareForCachePublication(populatedKey).getBytes();
+        // The estimate reserves the lookup maps every nested RowType can materialize after
+        // admission, so the JOL oracle measures the fully grown graph.
+        materializeRowTypeIndexes(smallTable.schema());
+        materializeRowTypeIndexes(populatedTable.schema());
+        EstimatorCalibrationAssertions.assertConservativeDelta(
+                fixture, smallEstimate, populatedEstimate, small, populated);
+    }
+
+    private static final String[] ROW_TYPE_LAZY_FIELDS = {
+            "laziedNameToField", "laziedNameToIndex", "laziedFieldIdToField", "laziedFieldIdToIndex"};
+
+    private void materializeRowTypeIndexes(TableSchema schema) {
+        for (DataField field : schema.fields()) {
+            materializeRowTypeIndexes(field.type());
+        }
+    }
+
+    private void materializeRowTypeIndexes(DataType type) {
+        if (type instanceof RowType) {
+            RowType rowType = (RowType) type;
+            if (!rowType.getFields().isEmpty()) {
+                DataField first = rowType.getFields().get(0);
+                rowType.getField(first.name());
+                rowType.getFieldIndex(first.name());
+                rowType.getField(first.id());
+                rowType.getFieldIndexByFieldId(first.id());
+            }
+            for (DataField field : rowType.getFields()) {
+                materializeRowTypeIndexes(field.type());
+            }
+        } else if (type instanceof ArrayType) {
+            materializeRowTypeIndexes(((ArrayType) type).getElementType());
+        } else if (type instanceof MultisetType) {
+            materializeRowTypeIndexes(((MultisetType) type).getElementType());
+        } else if (type instanceof MapType) {
+            materializeRowTypeIndexes(((MapType) type).getKeyType());
+            materializeRowTypeIndexes(((MapType) type).getValueType());
+        } else if (type instanceof VectorType) {
+            materializeRowTypeIndexes(((VectorType) type).getElementType());
+        }
+    }
+
+    private RowType wideRowType(int fieldCount) {
+        ArrayList<DataField> fields = new ArrayList<>();
+        for (int index = 0; index < fieldCount; index++) {
+            fields.add(new DataField(1000 + index, "wide_" + index, new IntType()));
+        }
+        return new RowType(fields);
+    }
+
+    private DataType rowOfLeafTypes(int fieldCount, Class<? extends DataType> leafType) {
+        ArrayList<DataField> fields = new ArrayList<>();
+        for (int index = 0; index < fieldCount; index++) {
+            DataType type = leafType == VectorType.class
+                    ? new VectorType(4, new FloatType()) : new DecimalType(10, 2);
+            fields.add(new DataField(index + 1, "leaf_" + index, type));
+        }
+        return new RowType(fields);
+    }
+
     private long snapshotWeight(PaimonSnapshotEntryKey key, FileStoreTable table, int partitionCount) {
         PaimonPartitionInfo partitionInfo = Mockito.mock(PaimonPartitionInfo.class);
         Map<String, org.apache.doris.catalog.PartitionItem> partitionItems = sizeOnlyMap(partitionCount);
@@ -821,14 +1175,17 @@ public class PaimonExternalMetaCacheTest {
     }
 
     private PaimonSnapshotCacheValue snapshotValueWithRealPartitions(
-            FileStoreTable table, int partitionCount, int valueLength) {
+            FileStoreTable table, int partitionCount, int valueLength, Type partitionType)
+            throws AnalysisException {
         Map<String, org.apache.doris.catalog.PartitionItem> partitionItems = new HashMap<>();
         Map<String, org.apache.paimon.partition.Partition> partitions = new HashMap<>();
         for (int index = 0; index < partitionCount; index++) {
-            String value = "p" + index + repeatedCharacter('x', valueLength);
+            String value = partitionType == Type.INT
+                    ? Integer.toString(index)
+                    : "p" + index + repeatedCharacter('x', valueLength);
             String name = "part=" + value;
-            partitionItems.put(name, new org.apache.doris.catalog.ListPartitionItem(
-                    new ArrayList<>()));
+            partitionItems.put(name, PaimonUtil.toListPartitionItem(
+                    Collections.singletonList(value), Collections.singletonList(partitionType)));
             partitions.put(name, new org.apache.paimon.partition.Partition(
                     Collections.singletonMap("part", value),
                     100L, 1024L, 1L, 1L, 1, true));

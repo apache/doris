@@ -40,7 +40,8 @@ public interface MetaCacheSizeEstimator<K, V> {
         Objects.requireNonNull(estimation, "estimation");
         try {
             return Objects.requireNonNull(estimation.get(), "size estimate");
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | LinkageError e) {
+            // A missing or incompatible SDK class must reject weighted admission, not the load.
             return MetaCacheSizeEstimate.incomplete(failureReason + ":" + e.getClass().getName());
         }
     }

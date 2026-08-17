@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
+
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
@@ -36,8 +38,12 @@ public class IcebergPartitionInfoTest {
         IcebergPartition large = new IcebergPartition("p=" + largeValue, 0, 0, 0, 0, 1, 101,
                 Collections.singletonList(largeValue), Collections.singletonList("identity"));
 
+        long expectedDelta = MetaCacheWeightUtils.estimatedStringBytes("p=" + largeValue)
+                - MetaCacheWeightUtils.estimatedStringBytes("p=x")
+                + MetaCacheWeightUtils.estimatedStringBytes(largeValue)
+                - MetaCacheWeightUtils.estimatedStringBytes("x");
         Assertions.assertTrue(large.getRetainedPayloadBytes() - small.getRetainedPayloadBytes()
-                >= (largeValue.length() - 1L) * 4L);
+                >= expectedDelta);
         IcebergPartitionInfo info = new IcebergPartitionInfo(
                 Collections.emptyMap(), Collections.singletonMap(large.getPartitionName(), large),
                 Collections.emptyMap());

@@ -24,18 +24,26 @@ import org.apache.doris.datasource.metacache.MetaCacheWeightUtils;
 
 /** Constant-time retained-weight formula for Hive partition-value cache entries. */
 final class HiveCacheSizeEstimator {
-    // Calibrated against complete 4.1 object graphs. The per-character reserve covers the
-    // partition name plus derived value/literal strings and therefore remains skew-sensitive.
-    private static final long ENTRY_BASE_BYTES = 2L * 1024L;
-    private static final long PARTITION_BASE_BYTES = 4L * 1024L;
-    private static final long PARTITION_COLUMN_BYTES = 384L;
-    private static final long PARTITION_NAME_CHARACTER_BYTES = 8L;
+    // Calibrated against complete 4.1 object graphs. The payload reserve covers the partition
+    // name plus derived value/literal strings and therefore remains skew-sensitive.
+    private static final long ENTRY_BASE_BYTES = objectBytes(2L * 1024L);
+    private static final long PARTITION_BASE_BYTES = objectBytes(896L);
+    private static final long PARTITION_COLUMN_BYTES = objectBytes(256L);
+    // One copy is retained as the partition name and another in the decoded partition values.
+    private static final long PARTITION_NAME_PAYLOAD_COPIES = 2L;
 
     private HiveCacheSizeEstimator() {
     }
 
+    private static long objectBytes(long bytes) {
+        return MetaCacheWeightUtils.estimatedObjectBytes(bytes);
+    }
+
     static MetaCacheSizeEstimate estimatePartitionValuesEntry(
             PartitionValueCacheKey key, HivePartitionValues value) {
+        if (!MetaCacheWeightUtils.isSupportedJvmObjectLayout()) {
+            return MetaCacheSizeEstimate.incomplete("unsupported_jvm_object_alignment");
+        }
         long partitionCount = value.getIdToPartitionItem() == null
                 ? 0L : value.getIdToPartitionItem().size();
         long perPartitionBytes = MetaCacheWeightUtils.saturatedAdd(
@@ -48,7 +56,7 @@ final class HiveCacheSizeEstimator {
                 MetaCacheWeightUtils.saturatedMultiply(partitionCount, perPartitionBytes));
         bytes = MetaCacheWeightUtils.saturatedAdd(bytes,
                 MetaCacheWeightUtils.saturatedMultiply(
-                        value.getPartitionNameCharacterCount(), PARTITION_NAME_CHARACTER_BYTES));
+                        value.getPartitionNamePayloadBytes(), PARTITION_NAME_PAYLOAD_COPIES));
         return MetaCacheSizeEstimate.complete(bytes);
     }
 }
