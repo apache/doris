@@ -38,10 +38,13 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.BiMap;
+import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -260,6 +263,42 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterialize(children.get(0),
                 materializeInput, materializedSlots, relationToLazySlotMap,
                 relationToRowId, materializeMap, physicalProperties, statistics));
+    }
+
+    /**
+     * Deep copy this node and replace every referenced relation with a copy that is detached
+     * from the memo (its group expression is cleared), so that holding this node does not keep
+     * the memo alive.
+     *
+     * <p>The relations recorded in {@code relationToLazySlotMap}, {@code relationToRowId} and
+     * {@code materializeMap} are the scan nodes of the original plan tree, which reference the
+     * memo through their group expressions. They are replaced by detached copies while the
+     * slot lists, which carry no memo reference, are reused as is.
+     *
+     * @param newChild the already detached child plan
+     */
+    public PhysicalLazyMaterialize<Plan> copyDetachedFromMemo(Plan newChild) {
+        Map<Relation, List<Slot>> newRelationToLazySlotMap = new HashMap<>();
+        Map<Relation, Relation> detachedRelationMap = new IdentityHashMap<>();
+        for (Map.Entry<Relation, List<Slot>> entry : relationToLazySlotMap.entrySet()) {
+            Relation detached = (Relation) AbstractPhysicalPlan.copyPlanDetachedFromMemo(
+                    (PhysicalPlan) entry.getKey());
+            detachedRelationMap.put(entry.getKey(), detached);
+            newRelationToLazySlotMap.put(detached, entry.getValue());
+        }
+        BiMap<Relation, SlotReference> newRelationToRowId = HashBiMap.create();
+        for (Map.Entry<Relation, SlotReference> entry : relationToRowId.entrySet()) {
+            newRelationToRowId.put(detachedRelationMap.get(entry.getKey()), entry.getValue());
+        }
+        Map<Slot, MaterializeSource> newMaterializeMap = new HashMap<>();
+        for (Map.Entry<Slot, MaterializeSource> entry : materializeMap.entrySet()) {
+            MaterializeSource source = entry.getValue();
+            newMaterializeMap.put(entry.getKey(),
+                    new MaterializeSource(detachedRelationMap.get(source.relation), source.baseSlot));
+        }
+        return new PhysicalLazyMaterialize<Plan>(newChild, materializeInput, materializedSlots,
+                newRelationToLazySlotMap, newRelationToRowId, newMaterializeMap,
+                physicalProperties, statistics);
     }
 
     @Override
