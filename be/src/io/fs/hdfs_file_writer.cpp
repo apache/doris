@@ -55,9 +55,7 @@ bvar::Adder<uint64_t> hdfs_file_writer_async_close_processing(
         "hdfs_file_writer_async_close_processing");
 
 static constexpr size_t MB = 1024 * 1024;
-#ifndef USE_LIBHDFS3
 static constexpr size_t CLIENT_WRITE_PACKET_SIZE = 64 * 1024; // 64 KB
-#endif
 
 inline std::default_random_engine make_random_engine() {
     return std::default_random_engine(
@@ -82,7 +80,7 @@ public:
                                    config::max_hdfs_wirter_jni_heap_usage_ratio);
     }
     Status acquire_memory(size_t memory_size, int try_time) {
-#if defined(USE_LIBHDFS3) || defined(BE_TEST)
+#ifdef BE_TEST
         return Status::OK();
 #else
         if (!config::enable_hdfs_mem_limiter) {
@@ -110,8 +108,7 @@ public:
     }
 
     void release_memory(size_t memory_size) {
-#if defined(USE_LIBHDFS3) || defined(BE_TEST)
-#else
+#ifndef BE_TEST
         if (!config::enable_hdfs_mem_limiter) {
             return;
         }
@@ -171,9 +168,6 @@ void HdfsFileWriter::_flush_and_reset_approximate_jni_buffer_size() {
 }
 
 Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
-#ifdef USE_LIBHDFS3
-    return Status::OK();
-#else
     size_t actual_size = std::max(CLIENT_WRITE_PACKET_SIZE, size);
     int try_time = 0;
     if (auto st = g_hdfs_write_rate_limiter.acquire_memory(actual_size, try_time); !st.ok()) {
@@ -206,7 +200,6 @@ Status HdfsFileWriter::_acquire_jni_memory(size_t size) {
 
     _approximate_jni_buffer_size += actual_size;
     return Status::OK();
-#endif
 }
 
 Status HdfsFileWriter::close(bool non_block) {
@@ -254,14 +247,9 @@ Status HdfsFileWriter::_close_impl() {
     if (_sync_file_data) {
         {
             SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_hsync_latency);
-#ifdef USE_LIBHDFS3
-            ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsSync(_hdfs_handler->hdfs_fs, _hdfs_file),
-                                               "HdfsFileWriter::close::hdfsHSync");
-#else
             ret = SYNC_POINT_HOOK_RETURN_VALUE(hdfsHSync(_hdfs_handler->hdfs_fs, _hdfs_file),
                                                "HdfsFileWriter::close::hdfsHSync");
             _flush_and_reset_approximate_jni_buffer_size();
-#endif
         }
         TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileWriter::hdfsSync",
                                                Status::InternalError("failed to sync hdfs file"));
@@ -435,21 +423,6 @@ Result<FileWriterPtr> HdfsFileWriter::create(Path full_path, std::shared_ptr<Hdf
                                              const std::string& fs_name,
                                              const FileWriterOptions* opts) {
     auto path = convert_path(full_path, fs_name);
-#ifdef USE_LIBHDFS3
-    std::string hdfs_dir = path.parent_path().string();
-    int exists = hdfsExists(handler->hdfs_fs, hdfs_dir.c_str());
-    if (exists != 0) {
-        VLOG_NOTICE << "hdfs dir doesn't exist, create it: " << hdfs_dir;
-        int ret = hdfsCreateDirectory(handler->hdfs_fs, hdfs_dir.c_str());
-        if (ret != 0) {
-            std::stringstream ss;
-            ss << "create dir failed. "
-               << " fs_name: " << fs_name << " path: " << hdfs_dir << ", err: " << hdfs_error();
-            LOG(WARNING) << ss.str();
-            return ResultError(Status::InternalError(ss.str()));
-        }
-    }
-#endif
     // open file
 
     hdfsFile hdfs_file = nullptr;

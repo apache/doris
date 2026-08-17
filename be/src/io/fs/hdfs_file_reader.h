@@ -69,7 +69,6 @@ protected:
                            const IOContext* io_ctx);
 
 private:
-#ifdef USE_HADOOP_HDFS
     struct HDFSProfile {
         RuntimeProfile::Counter* total_bytes_read = nullptr;
         RuntimeProfile::Counter* total_local_bytes_read = nullptr;
@@ -80,7 +79,6 @@ private:
         RuntimeProfile::Counter* hedged_read_in_cur_thread = nullptr;
         RuntimeProfile::Counter* hedged_read_wins = nullptr;
     };
-#endif
 
     Path _path;
     std::string _fs_name;
@@ -90,8 +88,6 @@ private:
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _total_read_time = nullptr;
     int64_t _mtime;
-#ifdef USE_HADOOP_HDFS
     HDFSProfile _hdfs_profile;
-#endif
 };
 } // namespace doris::io
