@@ -181,7 +181,20 @@ public class RoutineLoadManager implements Writable {
     public void createRoutineLoadJob(CreateRoutineLoadInfo info, ConnectContext ctx)
             throws UserException {
         // check load auth
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+        if (info.isMultiTable()) {
+            // A multi table job names no table at all, so LOAD has to be held on the database or above.
+            // This is the same rule the job is checked against later on, in checkPrivAndGetJob().
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                    InternalCatalog.INTERNAL_CATALOG_NAME,
+                    info.getDBName(),
+                    PrivPredicate.LOAD)) {
+                // todo add new error code
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                        ConnectContext.get().getQualifiedUser(),
+                        ConnectContext.get().getRemoteIP(),
+                        info.getDBName());
+            }
+        } else if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                 InternalCatalog.INTERNAL_CATALOG_NAME,
                 info.getDBName(),
                 info.getTableName(),
