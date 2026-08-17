@@ -89,6 +89,7 @@
 #include "util/jni_plugin_registry.h"
 #include "util/mem_info.h"
 #include "util/string_util.h"
+#include "util/thread.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -703,16 +704,37 @@ int main(int argc, char** argv) {
 
     // 7. load the deployed Java plugins, once the BE is otherwise serving.
     //
-    // Detached and non-fatal on purpose: the point is that a plugin broken by a bad
+    // On its own thread and non-fatal on purpose: the point is that a plugin broken by a bad
     // deployment shows up in the log now instead of inside the first user query that needs
     // it, and a plugin that cannot load must not hold up or take down everything else. When
     // no plugin is deployed this starts no JVM and returns immediately.
+    //
+    // Joined on the way out rather than detached, so that a stop arriving while plugins are
+    // still loading waits for them instead of running the global destructors underneath a
+    // thread that is inside the JVM. Warming up is bounded - one JVM start plus one pass over
+    // the plugin directory - and the Java side of it is a single call, so there is nothing to
+    // interrupt halfway.
+    std::shared_ptr<doris::Thread> plugin_warmup_thread;
     if (doris::config::enable_java_support && doris::config::java_plugin_warmup) {
-        std::thread([]() {
-            if (Status status = doris::Jni::PluginRegistry::warmup(); !status.ok()) {
-                LOG(WARNING) << "failed to warm up Java plugins: " << status;
-            }
-        }).detach();
+        EXIT_IF_ERROR(doris::Thread::create(
+                "Jni", "java_plugin_warmup",
+                []() {
+                    // Named background thread with a thread context of its own: everything it
+                    // allocates would otherwise be orphan memory, and the try/catch is what
+                    // keeps a directory that becomes unreadable mid-iteration from reaching
+                    // std::terminate (directory_iterator::operator++ throws).
+                    SCOPED_INIT_THREAD_CONTEXT();
+                    try {
+                        if (Status status = doris::Jni::PluginRegistry::warmup(); !status.ok()) {
+                            LOG(WARNING) << "failed to warm up Java plugins: " << status;
+                        }
+                    } catch (const std::exception& e) {
+                        LOG(WARNING) << "failed to warm up Java plugins: " << e.what();
+                    } catch (...) {
+                        LOG(WARNING) << "failed to warm up Java plugins: unknown exception";
+                    }
+                },
+                &plugin_warmup_thread));
     }
 
     while (!doris::k_doris_exit) {
@@ -737,6 +759,13 @@ int main(int argc, char** argv) {
         google::FlushLogFiles(google::GLOG_INFO);
         _exit(0); // Do not call exit(0), it will wait for all objects de-constructed normally
         return 0;
+    }
+    // Before anything is torn down: the warmup thread may still be inside the JVM, and it
+    // reaches BE state that the destructors below free. The fast path above does not need
+    // this - _exit() runs no destructor at all.
+    if (plugin_warmup_thread != nullptr) {
+        plugin_warmup_thread->join();
+        LOG(INFO) << "Java plugin warmup stopped";
     }
     daemon.stop();
     flight_starter->stop();

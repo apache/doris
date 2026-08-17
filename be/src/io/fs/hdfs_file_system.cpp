@@ -63,12 +63,10 @@ Result<std::shared_ptr<HdfsFileSystem>> HdfsFileSystem::create(
 Result<std::shared_ptr<HdfsFileSystem>> HdfsFileSystem::create(const THdfsParams& hdfs_params,
                                                                std::string fs_name, std::string id,
                                                                std::string root_path) {
-#ifdef USE_HADOOP_HDFS
     // libhdfs would otherwise create a JVM of its own the first time it connects, one
     // configured by hadoop rather than by the BE. Getting in first is also what turns
     // "java support is off" into a readable error here.
     RETURN_IF_ERROR_RESULT(Jni::JvmLauncher::ensure_jvm());
-#endif
     std::shared_ptr<HdfsFileSystem> fs(new HdfsFileSystem(hdfs_params, std::move(fs_name),
                                                           std::move(id), std::move(root_path)));
     RETURN_IF_ERROR_RESULT(fs->init());
@@ -158,11 +156,9 @@ Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
     CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(path, _fs_name);
     int is_exists = hdfsExists(_fs_handler->hdfs_fs, real_path.string().c_str());
-#ifdef USE_HADOOP_HDFS
     // when calling hdfsExists() and return non-zero code,
     // if errno is ENOENT, which means the file does not exist.
     // if errno is not ENOENT, which means it encounter other error, should return.
-    // NOTE: not for libhdfs3 since it only runs on MaxOS, don't have to support it.
     //
     // See details:
     //  https://github.com/apache/hadoop/blob/5cda162a804fb0cfc2a5ac0058ab407662c5fb00/
@@ -172,7 +168,6 @@ Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
         return Status::IOError("failed to check path existence {}: {}", path.native(),
                                (root_cause ? root_cause : "unknown"));
     }
-#endif
     *res = (is_exists == 0);
     return Status::OK();
 }

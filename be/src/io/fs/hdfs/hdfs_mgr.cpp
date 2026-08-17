@@ -128,12 +128,11 @@ void HdfsMgr::_cleanup_loop() {
 
 Status HdfsMgr::get_or_create_fs(const THdfsParams& hdfs_params, const std::string& fs_name,
                                  std::shared_ptr<HdfsHandler>* fs_handler) {
-#ifdef USE_HADOOP_HDFS
     // libhdfs would otherwise create a JVM of its own the first time it connects, one
     // configured by hadoop rather than by the BE. Getting in first is also what turns
-    // "java support is off" into a readable error here.
+    // "java support is off" into a readable error here. ensure_jvm() switches to a pthread
+    // itself, so it is safe to call from a bthread, unlike the connection below.
     RETURN_IF_ERROR(Jni::JvmLauncher::ensure_jvm());
-#endif
     uint64_t hash_code = _hdfs_hash_code(hdfs_params, fs_name);
 
     // First check without lock
