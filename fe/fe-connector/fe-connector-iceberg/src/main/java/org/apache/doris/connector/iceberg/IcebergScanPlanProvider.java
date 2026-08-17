@@ -497,12 +497,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Optional<ConnectorExpression> filter) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         if (iceHandle.isSystemTable() || filter.isPresent()) {
-            // Snapshot summaries describe the whole table and cannot prove a filtered row count.
+            // A metadata count describes the whole table and cannot prove a filtered row count.
             return false;
         }
         Table table = resolveTable(session, iceHandle);
         TableScan scan = buildScan(table, iceHandle, filter, session);
-        return getCountFromSnapshot(scan, session) >= 0;
+        return canProveCountFromManifests(table, scan, session);
     }
 
     /**
@@ -1310,6 +1310,38 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return planCountPushdownFromFileTasks(table, scan, formatVersion, partitioned,
                 orderedPartitionKeys, zone, uriNormalizer, session, filter, netPositionDeletes,
                 netPositionDeletes ? positionDeleteRows.getAsLong() : 0);
+    }
+
+    /**
+     * The capability probe behind {@link #canServeMetadataOnlyCount}: the delete gate of
+     * {@link #planCountPushdown} plus the requirement that the data manifests really carry aggregate row
+     * counters. Reading only the manifest list keeps this O(manifests) with no data-file enumeration, which is
+     * what a pre-planning probe can afford; the price is answering {@code false} for the older manifest lists
+     * that {@code planCountPushdown} still serves through its bounded per-file fallback. Never derives the
+     * count from snapshot summary fields — those are writer-provided hints, not a query result.
+     */
+    private static boolean canProveCountFromManifests(Table table, TableScan scan, ConnectorSession session) {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null) {
+            // No snapshot (empty table, or a pinned empty snapshot) is an exact count of 0 without any read.
+            return true;
+        }
+        boolean netPositionDeletes = sessionBool(session, IGNORE_ICEBERG_DANGLING_DELETE, false);
+        ManifestDeleteState deleteState = manifestDeleteState(snapshot.deleteManifests(table.io()));
+        if (deleteState == ManifestDeleteState.PRESENT && !netPositionDeletes) {
+            return false;
+        }
+        OptionalLong positionDeleteRows = deleteState == ManifestDeleteState.NONE
+                ? OptionalLong.of(0)
+                : livePositionDeleteRowCount(table, snapshot);
+        if (!positionDeleteRows.isPresent()
+                || (!netPositionDeletes && positionDeleteRows.getAsLong() != 0)) {
+            return false;
+        }
+        OptionalLong manifestCount = liveRowCountFromManifests(snapshot.dataManifests(table.io()));
+        return manifestCount.isPresent()
+                && subtractPositionDeleteRows(manifestCount.getAsLong(),
+                        netPositionDeletes ? positionDeleteRows.getAsLong() : 0).isPresent();
     }
 
     private Optional<List<ConnectorScanRange>> planManifestCountRange(Table table, TableScan scan, long exactCount,
