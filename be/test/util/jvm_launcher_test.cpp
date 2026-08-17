@@ -139,6 +139,33 @@ TEST_F(JvmLauncherOptionsTest, PluginDirectoryReachesTheJvmFromBeConfig) {
     config::jni_plugin_dir = saved;
 }
 
+// Same again for the directory a plugin reads hadoop's *-site.xml from. A plugin cannot see
+// BE's classpath, so this property is the only way one of them finds a core-site.xml at all.
+TEST_F(JvmLauncherOptionsTest, HadoopConfDirectoryReachesTheJvmFromBeConfig) {
+    const std::string saved = config::jni_plugin_hadoop_conf_dir;
+    config::jni_plugin_hadoop_conf_dir = "/opt/be/plugins/hadoop_conf";
+
+    EXPECT_TRUE(has(options(), "-Ddoris.jni.hadoop.conf.dir=/opt/be/plugins/hadoop_conf"));
+    EXPECT_EQ(1, count_prefixed(options(), "-Ddoris.jni.hadoop.conf.dir="));
+
+    config::jni_plugin_hadoop_conf_dir = saved;
+}
+
+// -Xrs is what keeps the JVM from installing handlers for SIGINT and SIGTERM. Without it the
+// BE's own shutdown path is replaced, for the window a JVM takes to start, by Java's
+// Shutdown.exit() - an ::exit() from a JVM thread while the BE is serving. It has to be
+// passed even when the deployment supplies its own options, so it goes on last.
+TEST_F(JvmLauncherOptionsTest, TheJvmIsAskedToLeaveTheShutdownSignalsAlone) {
+    EXPECT_TRUE(has(options(), "-Xrs"));
+
+    setenv("JAVA_OPTS", "-Xmx4096m", 1);
+    const std::vector<std::string> with_java_opts = options();
+    EXPECT_TRUE(has(with_java_opts, "-Xrs"));
+    const auto xrs = std::find(with_java_opts.begin(), with_java_opts.end(), "-Xrs");
+    const auto xmx = std::find(with_java_opts.begin(), with_java_opts.end(), "-Xmx4096m");
+    EXPECT_LT(xmx, xrs) << "a JAVA_OPTS entry must not be able to override -Xrs";
+}
+
 namespace {
 
 // Stands in for the BE's own shutdown handler: what matters is only whether it is still
@@ -153,10 +180,12 @@ bool handles(int signo, void (*handler)(int)) {
 
 } // namespace
 
-// A starting JVM installs its own SIGINT and SIGTERM handlers, and its handler answers a
-// shutdown signal with a Java Shutdown.exit() - an ::exit() from a JVM thread, which runs
-// the C++ global destructors while the BE's threads are still working and skips the
-// orderly shutdown main() does. _bootstrap() has to hand both signals back.
+// A JVM started without -Xrs installs its own SIGINT and SIGTERM handlers, and its handler
+// answers a shutdown signal with a Java Shutdown.exit() - an ::exit() from a JVM thread, which
+// runs the C++ global destructors while the BE's threads are still working and skips the
+// orderly shutdown main() does. Both signals have to still be the BE's afterwards, whether
+// that is because -Xrs kept the JVM away from them or because ShutdownSignalGuard put them
+// back for a VM somebody else created.
 //
 // Only the first ensure_jvm() of the process starts a VM, so this can only be checked by
 // the test that gets there first; it skips rather than pass for free once some other test

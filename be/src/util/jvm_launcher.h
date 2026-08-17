@@ -45,6 +45,9 @@ public:
     // created at most once and the outcome of that single attempt is what every later
     // call returns. Fails with a clear message when Java support is turned off, which is
     // what every Java entry point of the BE reports to the user.
+    //
+    // Safe to call from a bthread: creating the JVM is JNI code, which cannot run on one, so
+    // this switches to a pthread itself when it has to. Callers need no switch of their own.
     static Status ensure_jvm();
 
     // Attaches the calling thread to the JVM and hands out its JNIEnv, arranging for the
@@ -55,6 +58,7 @@ public:
     static JavaVM* vm() { return _vm; }
 
 private:
+    static Status _bootstrap_on_pthread();
     static Status _bootstrap();
     static Status _create_jvm();
     static std::vector<std::string> _build_options();

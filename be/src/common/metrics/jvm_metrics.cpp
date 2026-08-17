@@ -100,10 +100,6 @@ JvmMetrics::JvmMetrics(MetricRegistry* registry) {
             LOG(WARNING) << "jvm Stats Throw Exception Init Fail.";
             break;
         }
-        if (!_jvm_stats.init_complete()) {
-            break;
-        }
-        _server_entity->register_hook(_s_hook_name, std::bind(&JvmMetrics::update, this));
     } while (false);
 
     INT_GAUGE_METRIC_REGISTER(_server_entity, jvm_heap_size_bytes_max);
@@ -134,6 +130,17 @@ JvmMetrics::JvmMetrics(MetricRegistry* registry) {
     INT_GAUGE_METRIC_REGISTER(_server_entity, jvm_gc_g1_young_generation_time_ms);
     INT_GAUGE_METRIC_REGISTER(_server_entity, jvm_gc_g1_old_generation_count);
     INT_GAUGE_METRIC_REGISTER(_server_entity, jvm_gc_g1_old_generation_time_ms);
+
+    // Last, after every register above. MetricRegistry::trigger_all_hooks runs a hook while it
+    // holds both its own lock and MetricEntity::_lock, and this hook re-enters JNI through
+    // Jni::Env::Get() - which, on the metrics daemon thread, blocks on the once flag whichever
+    // thread is bringing the JVM up holds. Publishing the hook before these registers means the
+    // daemon can be holding the very lock they need while it waits for that flag: an ABBA
+    // deadlock that leaves /metrics dead for good. Since the JVM is created on demand, the
+    // thread running this constructor is any query thread rather than main().
+    if (_jvm_stats.init_complete()) {
+        _server_entity->register_hook(_s_hook_name, std::bind(&JvmMetrics::update, this));
+    }
 }
 
 JvmMetrics::~JvmMetrics() {
