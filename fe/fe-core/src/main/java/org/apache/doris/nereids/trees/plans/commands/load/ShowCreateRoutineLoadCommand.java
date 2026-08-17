@@ -114,7 +114,14 @@ public class ShowCreateRoutineLoadCommand extends ShowCommand {
                             .add("error_msg", "The table name for this routine load does not exist")
                             .build(), e);
                 }
-                if (!Env.getCurrentEnv().getAccessManager()
+                // A multi table job names no table, so LOAD has to be held on the database or above.
+                if (job.isMultiTable()) {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                            PrivPredicate.LOAD)) {
+                        continue;
+                    }
+                } else if (!Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName, tableName,
                         PrivPredicate.LOAD)) {
                     continue;
