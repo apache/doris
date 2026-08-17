@@ -187,8 +187,12 @@ FieldWithDataType DataTypeNumberBase<T>::get_field_with_data_type(const IColumn&
             assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column);
     Field field;
     column_data.get(row_num, field);
-    return FieldWithDataType {.field = std::move(field),
-                              .base_scalar_type_id = get_primitive_type()};
+    auto field_with_data_type = FieldWithDataType {.field = std::move(field),
+                                                   .base_scalar_type_id = get_primitive_type()};
+    if constexpr (T == TYPE_TIMESTAMP_NS) {
+        field_with_data_type.scale = static_cast<int>(get_scale());
+    }
+    return field_with_data_type;
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

@@ -18,11 +18,12 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.types.TimeStampNsType;
 
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
@@ -150,15 +151,16 @@ public class DateTimeFormatterUtils {
      * @param isTimeFormat true when invoked via time_format, false for date_format
      * @return formatted string or null when pattern requires missing date fields
      */
-    public static String toFormatStringConservative(DateTimeV2Literal datetime, StringLikeLiteral format,
+    public static String toFormatStringConservative(DateLiteral datetime, StringLikeLiteral format,
             boolean isTimeFormat) {
-        int year = isTimeFormat ? 0 : (int) datetime.getYear();
-        int month = isTimeFormat ? 0 : (int) datetime.getMonth();
-        int day = isTimeFormat ? 0 : (int) datetime.getDay();
-        int hour = (int) datetime.getHour();
-        int minute = (int) datetime.getMinute();
-        int second = (int) datetime.getSecond();
-        int microsecond = (int) datetime.getMicroSecond();
+        LocalDateTime dateTime = datetime.toJavaDateType();
+        int year = isTimeFormat ? 0 : dateTime.getYear();
+        int month = isTimeFormat ? 0 : dateTime.getMonthValue();
+        int day = isTimeFormat ? 0 : dateTime.getDayOfMonth();
+        int hour = dateTime.getHour();
+        int minute = dateTime.getMinute();
+        int second = dateTime.getSecond();
+        int microsecond = dateTime.getNano() / 1000;
 
         String pattern = trimFormat(format.getValue());
         return formatTemporalLiteral(year, month, day, hour, minute, second, microsecond, pattern);

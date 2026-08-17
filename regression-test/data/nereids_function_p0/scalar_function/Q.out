@@ -43,7 +43,36 @@
 1
 1
 
+-- !sql_quarter_TimestampNs --
+\N
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
 -- !sql_quarter_DateTimeV2_notnull --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_quarter_TimestampNs_notnull --
 1
 1
 1

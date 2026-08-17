@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -26,19 +27,19 @@ import org.junit.jupiter.api.Test;
 class CurrentTimestampDefaultValueTest {
     @Test
     void testTimestampNsCurrentTimestampDefault() {
-        Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+        Assertions.assertDoesNotThrow(
                 () -> ColumnDef.validateDefaultValue(
                         Type.TIMESTAMP_NS, "CURRENT_TIMESTAMP",
                         new DefaultValueExprDef(ColumnDef.DefaultValue.NOW)));
-        Assertions.assertThrows(org.apache.doris.common.AnalysisException.class,
+        Assertions.assertDoesNotThrow(
                 () -> ColumnDef.validateDefaultValue(
-                        Type.TIMESTAMP_NS, "CURRENT_TIMESTAMP(6)",
-                        new DefaultValueExprDef(ColumnDef.DefaultValue.NOW, 6L)));
+                        Type.TIMESTAMP_NS, "CURRENT_TIMESTAMP(9)",
+                        new DefaultValueExprDef(ColumnDef.DefaultValue.NOW, 9L)));
     }
 
     @Test
     void testCurrentTimestampKeepsMicrosecondPrecision() {
-        for (long precision = 1; precision <= 6; precision++) {
+        for (long precision = 1; precision <= 9; precision++) {
             String suffix = "\\.\\d{" + precision + "}";
             String pattern = "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}" + suffix;
 
@@ -46,10 +47,16 @@ class CurrentTimestampDefaultValueTest {
                     true, "CURRENT_TIMESTAMP(" + precision + ")", ColumnDef.DefaultValue.NOW, precision);
             Assertions.assertTrue(legacy.getValue().matches(pattern));
 
-            org.apache.doris.nereids.trees.plans.commands.info.DefaultValue nereids =
+            if (precision <= 6) {
+                org.apache.doris.nereids.trees.plans.commands.info.DefaultValue datetimeV2 =
+                        org.apache.doris.nereids.trees.plans.commands.info.DefaultValue
+                                .currentTimeStampDefaultValueWithPrecision(precision);
+                Assertions.assertTrue(datetimeV2.getRawValue().matches(pattern));
+            }
+            org.apache.doris.nereids.trees.plans.commands.info.DefaultValue timestampNs =
                     org.apache.doris.nereids.trees.plans.commands.info.DefaultValue
-                            .currentTimeStampDefaultValueWithPrecision(precision);
-            Assertions.assertTrue(nereids.getRawValue().matches(pattern));
+                            .currentTimeStampDefaultValueWithPrecision(precision, TimeStampNsType.INSTANCE);
+            Assertions.assertTrue(timestampNs.getRawValue().matches(pattern));
         }
 
         for (long precision = 7; precision <= 9; precision++) {
@@ -58,5 +65,8 @@ class CurrentTimestampDefaultValueTest {
                     () -> org.apache.doris.nereids.trees.plans.commands.info.DefaultValue
                             .currentTimeStampDefaultValueWithPrecision(invalidPrecision));
         }
+        Assertions.assertThrows(AnalysisException.class,
+                () -> org.apache.doris.nereids.trees.plans.commands.info.DefaultValue
+                        .currentTimeStampDefaultValueWithPrecision(10L, TimeStampNsType.INSTANCE));
     }
 }

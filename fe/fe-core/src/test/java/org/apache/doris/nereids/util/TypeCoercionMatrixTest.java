@@ -46,6 +46,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -696,10 +697,12 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(DateTimeV2Type.of(4), CharType.createCharType(5), DateTimeV2Type.of(6));
         testProcessComparisonPredicate(DateTimeV2Type.of(4), VarcharType.createVarcharType(5), DateTimeV2Type.of(6));
         testProcessComparisonPredicate(DateTimeV2Type.of(4), StringType.INSTANCE, DateTimeV2Type.of(6));
-        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT, null);
-        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DateV2Type.INSTANCE, null);
-        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX, null);
-        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, TimeV2Type.MAX, null);
+        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT,
+                TimeStampNsType.INSTANCE);
+        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DateV2Type.INSTANCE, TimeStampNsType.INSTANCE);
+        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX, TimeStampNsType.INSTANCE);
+        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, TimeStampTzType.MAX, TimeStampNsType.INSTANCE);
+        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, TimeV2Type.MAX, TimeStampNsType.INSTANCE);
         testProcessComparisonPredicate(TimeStampNsType.INSTANCE, StringType.INSTANCE, TimeStampNsType.INSTANCE);
         testProcessComparisonPredicate(DateTimeV2Type.of(4), ArrayType.of(StringType.INSTANCE), null);
         testProcessComparisonPredicate(DateTimeV2Type.of(4), MapType.of(StringType.INSTANCE, StringType.INSTANCE), null);

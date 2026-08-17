@@ -50,6 +50,8 @@ public class JavaUdfDataType {
     public static final JavaUdfDataType DATEV2 = new JavaUdfDataType("DATEV2", TPrimitiveType.DATEV2, 4);
     public static final JavaUdfDataType DATETIMEV2 = new JavaUdfDataType("DATETIMEV2", TPrimitiveType.DATETIMEV2,
             8);
+    public static final JavaUdfDataType TIMESTAMP_NS = new JavaUdfDataType("TIMESTAMP_NS",
+            TPrimitiveType.TIMESTAMP_NS, 8);
     public static final JavaUdfDataType DECIMAL32 = new JavaUdfDataType("DECIMAL32", TPrimitiveType.DECIMAL32, 4);
     public static final JavaUdfDataType DECIMAL64 = new JavaUdfDataType("DECIMAL64", TPrimitiveType.DECIMAL64, 8);
     public static final JavaUdfDataType DECIMAL128 = new JavaUdfDataType("DECIMAL128", TPrimitiveType.DECIMAL128I,
@@ -85,6 +87,7 @@ public class JavaUdfDataType {
         addJavaUdfDataType(DECIMALV2);
         addJavaUdfDataType(DATEV2);
         addJavaUdfDataType(DATETIMEV2);
+        addJavaUdfDataType(TIMESTAMP_NS);
         addJavaUdfDataType(DECIMAL32);
         addJavaUdfDataType(DECIMAL64);
         addJavaUdfDataType(DECIMAL128);
@@ -151,7 +154,8 @@ public class JavaUdfDataType {
         } else if (Type.DATE_SUPPORTED_JAVA_TYPE.contains(c)) {
             return Sets.newHashSet(JavaUdfDataType.DATE, JavaUdfDataType.DATEV2);
         } else if (Type.DATETIME_SUPPORTED_JAVA_TYPE.contains(c)) {
-            return Sets.newHashSet(JavaUdfDataType.DATETIME, JavaUdfDataType.DATETIMEV2);
+            return Sets.newHashSet(JavaUdfDataType.DATETIME, JavaUdfDataType.DATETIMEV2,
+                    JavaUdfDataType.TIMESTAMP_NS);
         } else if (c == BigInteger.class) {
             return Sets.newHashSet(JavaUdfDataType.LARGEINT);
         } else if (c == BigDecimal.class) {

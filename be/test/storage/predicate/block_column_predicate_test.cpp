@@ -21,6 +21,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <array>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <limits>
@@ -1436,19 +1437,41 @@ TEST_F(BlockColumnPredicateTest, test_timestamptz_bloom_filter) {
                 bf.get(), Field::create_field<TYPE_TIMESTAMPTZ>(v), true);
     }
     {
-        auto str = "0000-01-01 00:00:00";
+        const auto* str = "0000-01-01 00:00:00";
         TimestampTzValue tz {};
         EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
         single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
                 bf.get(), Field::create_field<TYPE_TIMESTAMPTZ>(tz), false);
     }
     {
-        auto str = "9999-12-31 23:59:59.999999";
+        const auto* str = "9999-12-31 23:59:59.999999";
         TimestampTzValue tz {};
         EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 6));
         single_column_predicate_test_func<TYPE_TIMESTAMPTZ, PredicateType::EQ>(
                 bf.get(), Field::create_field<TYPE_TIMESTAMPTZ>(tz), false);
     }
+}
+
+TEST_F(BlockColumnPredicateTest, test_timestamp_ns_bloom_filter_predicate) {
+    const std::array<TimeStampNsValue, 5> values = {
+            TimeStampNsValue(std::numeric_limits<int64_t>::min()), TimeStampNsValue(-1),
+            TimeStampNsValue(0), TimeStampNsValue(1),
+            TimeStampNsValue(std::numeric_limits<int64_t>::max())};
+
+    std::unique_ptr<BloomFilter> bloom_filter;
+    EXPECT_TRUE(BloomFilter::create(BLOCK_BLOOM_FILTER, &bloom_filter));
+    ASSERT_NE(bloom_filter, nullptr);
+    EXPECT_TRUE(bloom_filter->init(1024, 0.05, HASH_MURMUR3_X64_64));
+    for (const auto& value : values) {
+        bloom_filter->add_bytes(reinterpret_cast<const char*>(&value), sizeof(value));
+    }
+
+    for (const auto& value : values) {
+        single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::EQ>(
+                bloom_filter.get(), Field::create_field<TYPE_TIMESTAMP_NS>(value), true);
+    }
+    single_column_predicate_test_func<TYPE_TIMESTAMP_NS, PredicateType::EQ>(
+            bloom_filter.get(), Field::create_field<TYPE_TIMESTAMP_NS>(TimeStampNsValue(2)), false);
 }
 
 TEST_F(BlockColumnPredicateTest, PARQUET_COMPARISON_PREDICATE) {

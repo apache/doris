@@ -5,3 +5,7 @@
 
 -- !full_key_lookup --
 1970-01-01 00:00:00.000000001	4	after
+
+-- !timestamp_ns_sequence_type --
+1	newer	1970-01-01 00:00:00.000000001
+2	maximum	2262-04-11 23:47:16.854775807

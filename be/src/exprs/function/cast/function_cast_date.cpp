@@ -31,15 +31,10 @@ WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr&
     auto make_datelike_wrapper = [&](const auto& types) -> bool {
         using Types = std::decay_t<decltype(types)>;
         using FromDataType = typename Types::LeftType;
-        constexpr bool is_timestamp_ns_source = std::is_same_v<FromDataType, DataTypeTimeStampNs>;
-        constexpr bool is_timestamp_ns_target = std::is_same_v<ToDataType, DataTypeTimeStampNs>;
-        constexpr bool is_supported_timestamp_ns_cast =
-                is_timestamp_ns_target && IsStringType<FromDataType>;
-        constexpr bool is_supported_legacy_cast =
-                !is_timestamp_ns_source && !is_timestamp_ns_target &&
-                (CastUtil::IsPureDigitType<FromDataType> || IsDatelikeTypes<FromDataType> ||
-                 IsStringType<FromDataType> || std::is_same_v<FromDataType, DataTypeTimeStampTz>);
-        if constexpr (is_supported_timestamp_ns_cast || is_supported_legacy_cast) {
+        if constexpr (std::is_same_v<FromDataType, DataTypeTimeStampNs> ||
+                      CastUtil::IsPureDigitType<FromDataType> || IsDatelikeTypes<FromDataType> ||
+                      IsStringType<FromDataType> ||
+                      std::is_same_v<FromDataType, DataTypeTimeStampTz>) {
             if (context->enable_strict_mode()) {
                 cast_to_datelike = std::make_shared<
                         CastToImpl<CastModeType::StrictMode, FromDataType, ToDataType>>();
@@ -79,8 +74,6 @@ WrapperType create_datelike_wrapper(FunctionContext* context, const DataTypePtr&
         return create_datelike_wrapper<DataTypeDateV2>(context, from_type);
     case TYPE_DATETIMEV2:
         return create_datelike_wrapper<DataTypeDateTimeV2>(context, from_type);
-    case TYPE_TIMESTAMP_NS:
-        return create_datelike_wrapper<DataTypeTimeStampNs>(context, from_type);
     case TYPE_TIMEV2:
         return create_datelike_wrapper<DataTypeTimeV2>(context, from_type);
     default:

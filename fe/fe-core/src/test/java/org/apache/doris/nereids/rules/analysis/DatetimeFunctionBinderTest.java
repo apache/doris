@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.TinyIntType;
 
@@ -118,6 +119,23 @@ public class DatetimeFunctionBinderTest {
 
     private final DateTimeV2Literal dateTimeV2Literal1 = new DateTimeV2Literal("2024-12-01");
     private final DateTimeV2Literal dateTimeV2Literal2 = new DateTimeV2Literal("2024-12-26");
+    private final TimeStampNsLiteral timeStampNsLiteral
+            = new TimeStampNsLiteral("2024-12-01 12:34:56.123456789");
+
+    @Test
+    void testTimeStampNsDateFloorAndCeilUseImplicitOrigin() {
+        Expression floor = DatetimeFunctionBinder.INSTANCE.bind(new UnboundFunction(
+                "date_floor", ImmutableList.of(timeStampNsLiteral, secondInterval)));
+        Assertions.assertInstanceOf(SecondFloor.class, floor);
+        Assertions.assertEquals(2, floor.arity());
+        Assertions.assertEquals(timeStampNsLiteral, floor.child(0));
+
+        Expression ceil = DatetimeFunctionBinder.INSTANCE.bind(new UnboundFunction(
+                "date_ceil", ImmutableList.of(timeStampNsLiteral, secondInterval)));
+        Assertions.assertInstanceOf(SecondCeil.class, ceil);
+        Assertions.assertEquals(2, ceil.arity());
+        Assertions.assertEquals(timeStampNsLiteral, ceil.child(0));
+    }
 
     @Test
     void testTimestampDiff() {

@@ -57,10 +57,11 @@ suite("test_timestamp_ns_storage_dup_key") {
     order_qt_is_null "select id from timestamp_ns_storage_dup_key where dt is null order by id"
     order_qt_is_not_null "select id from timestamp_ns_storage_dup_key where dt is not null order by id"
     qt_min_max_count "select min(dt), max(dt), count(dt) from timestamp_ns_storage_dup_key"
-    test {
-        sql "select cast(dt as datetimev2(6)) from timestamp_ns_storage_dup_key"
-        exception "cannot cast"
-    }
+    order_qt_cast_datetimev2_6 """
+        select id, cast(dt as datetimev2(6))
+        from timestamp_ns_storage_dup_key
+        order by id
+    """
 
     sql "drop table if exists timestamp_ns_storage_dup_key_row_store"
     sql """
@@ -84,10 +85,30 @@ suite("test_timestamp_ns_storage_dup_key") {
     order_qt_row_store "select id, dt from timestamp_ns_storage_dup_key_row_store order by id"
 
     sql """
+        alter table timestamp_ns_storage_dup_key
+        add column schema_change_dt timestamp_ns
+            default '1970-01-01 00:00:00.000000001' after id
+    """
+    waitForSchemaChangeDone {
+        sql """
+            show alter table column
+            where TableName = 'timestamp_ns_storage_dup_key'
+            order by CreateTime desc limit 1
+        """
+        time 600
+    }
+    order_qt_schema_change_default """
+        select id, schema_change_dt
+        from timestamp_ns_storage_dup_key
+        where id in (1, 3, 6)
+        order by id
+    """
+
+    sql """
         insert into timestamp_ns_storage_dup_key values
-        ('1970-02-30 00:00:00.000000000', '1970-02-30 00:00:00.000000000', 100),
-        ('1677-09-21 00:12:43.145224191', '1677-09-21 00:12:43.145224191', 101),
-        ('2262-04-11 23:47:16.854775808', '2262-04-11 23:47:16.854775808', 102)
+        ('1970-02-30 00:00:00.000000000', '1970-02-30 00:00:00.000000000', 100, default),
+        ('1677-09-21 00:12:43.145224191', '1677-09-21 00:12:43.145224191', 101, default),
+        ('2262-04-11 23:47:16.854775808', '2262-04-11 23:47:16.854775808', 102, default)
     """
     order_qt_invalid_values """
         select id, dt, value_dt

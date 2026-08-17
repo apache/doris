@@ -115,6 +115,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -125,6 +126,7 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -276,6 +278,20 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Expression rewritten = executor.rewrite(c, context);
         Literal expected = Literal.of((byte) 1);
         Assertions.assertEquals(rewritten, expected);
+
+        // VARIANT values do not have an FE literal representation and must be evaluated by BE.
+        Cast timestampNsToVariant = new Cast(
+                new TimeStampNsLiteral("2024-02-29 12:34:56.123456789"), VariantType.INSTANCE);
+        rewritten = executor.rewrite(timestampNsToVariant, context);
+        Assertions.assertEquals(timestampNsToVariant, rewritten);
+
+        Cast integerToVariant = new Cast(new IntegerLiteral(1), VariantType.INSTANCE);
+        rewritten = executor.rewrite(integerToVariant, context);
+        Assertions.assertEquals(integerToVariant, rewritten);
+
+        Cast timestampNsToDouble = new Cast(timestampNsToVariant.child(), DoubleType.INSTANCE);
+        rewritten = executor.rewrite(timestampNsToDouble, context);
+        Assertions.assertEquals(new DoubleLiteral(20240229123456D), rewritten);
     }
 
     @Test
@@ -1318,12 +1334,75 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    void testTimeStampNsDateTimeFunctions() {
+        TimeStampNsLiteral beforeEpoch = new TimeStampNsLiteral("1969-12-31 23:59:59.999999999");
+        TimeStampNsLiteral epoch = new TimeStampNsLiteral("1970-01-01 00:00:00.000000000");
+        TimeStampNsLiteral normal = new TimeStampNsLiteral("2024-02-29 12:34:56.123456789");
+
+        Assertions.assertEquals("'1970-01-01 00:00:00.999999999'",
+                DateTimeArithmetic.secondsAdd(beforeEpoch, new BigIntLiteral(1)).toSql());
+        Assertions.assertEquals("'1970-01-01 00:00:00.000000999'",
+                DateTimeArithmetic.microSecondsAdd(beforeEpoch, new BigIntLiteral(1)).toSql());
+        Assertions.assertEquals("'2024-03-01 12:34:56.123456789'",
+                DateTimeArithmetic.daysAdd(normal, new IntegerLiteral(1)).toSql());
+        Assertions.assertEquals("2024", DateTimeExtractAndTransform.year(normal).toSql());
+        Assertions.assertEquals("123456", DateTimeExtractAndTransform.microsecond(normal).toSql());
+        Assertions.assertEquals("'2024-02-29 12:34:56.123456'", DateTimeExtractAndTransform
+                .dateFormat(normal, new VarcharLiteral("%Y-%m-%d %H:%i:%s.%f")).toSql());
+        Assertions.assertEquals("'2024-02-29 12:34:56.000000000'", DateTimeExtractAndTransform
+                .dateTrunc(normal, new VarcharLiteral("second")).toSql());
+
+        Assertions.assertEquals("1", DateTimeExtractAndTransform.microsecondsDiff(
+                new TimeStampNsLiteral("1970-01-01 00:00:00.000001999"), epoch).toSql());
+        Assertions.assertEquals("-1", DateTimeExtractAndTransform.microsecondsDiff(
+                epoch, new TimeStampNsLiteral("1970-01-01 00:00:00.000001999")).toSql());
+        Assertions.assertEquals("1", DateTimeExtractAndTransform.secondsDiff(
+                new TimeStampNsLiteral("1970-01-01 00:00:01.999999999"), epoch).toSql());
+
+        TimeStampNsLiteral roundValue = new TimeStampNsLiteral("1970-01-01 00:00:02.123456789");
+        TimeStampNsLiteral roundOrigin = new TimeStampNsLiteral("1970-01-01 00:00:00.500000000");
+        Assertions.assertEquals("'1970-01-01 00:00:01.500000000'",
+                TimeRoundSeries.secondFloorTimeStampNs(roundValue, roundOrigin).toSql());
+        Assertions.assertEquals("'1970-01-01 00:00:02.500000000'",
+                TimeRoundSeries.secondCeilTimeStampNs(roundValue, roundOrigin).toSql());
+        TimeStampNsLiteral nanosecondRoundValue = new TimeStampNsLiteral("1970-01-01 00:00:02.000000006");
+        TimeStampNsLiteral nanosecondRoundOrigin = new TimeStampNsLiteral("1970-01-01 00:00:00.000000005");
+        Assertions.assertEquals("'1970-01-01 00:00:02.000000005'",
+                TimeRoundSeries.secondFloorTimeStampNs(nanosecondRoundValue, nanosecondRoundOrigin).toSql());
+        Assertions.assertEquals("'1970-01-01 00:00:03.000000005'",
+                TimeRoundSeries.secondCeilTimeStampNs(nanosecondRoundValue, nanosecondRoundOrigin).toSql());
+        Assertions.assertEquals("'2024-01-01 00:00:00.000000000'",
+                TimeRoundSeries.yearFloorTimeStampNs(normal).toSql());
+        Assertions.assertEquals("'2025-01-01 00:00:00.000000000'",
+                TimeRoundSeries.yearCeilTimeStampNs(normal).toSql());
+        Assertions.assertEquals("'2024-04-01 00:00:00.000000000'",
+                TimeRoundSeries.quarterCeilTimeStampNs(normal).toSql());
+        Assertions.assertEquals("'2024-03-01 00:00:00.000000000'",
+                TimeRoundSeries.monthCeilTimeStampNs(normal).toSql());
+        Assertions.assertEquals("'2024-03-01 00:00:00.000000000'",
+                TimeRoundSeries.dayCeilTimeStampNs(normal).toSql());
+        Assertions.assertEquals("'2024-02-29 13:00:00.000000000'",
+                TimeRoundSeries.hourCeilTimeStampNs(normal).toSql());
+        Assertions.assertEquals("'2024-02-29 12:35:00.000000000'",
+                TimeRoundSeries.minuteCeilTimeStampNs(normal).toSql());
+
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeArithmetic.microSecondsSub(TimeStampNsLiteral.getMinValue(), new BigIntLiteral(1)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeArithmetic.secondsAdd(TimeStampNsLiteral.getMaxValue(), new BigIntLiteral(1)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> TimeRoundSeries.secondFloorTimeStampNs(TimeStampNsLiteral.getMinValue()));
+    }
+
+    @Test
     void testDateDiff() {
         DateV2Literal dateV2Literal = new DateV2Literal("2001-12-31");
         DateTimeV2Literal dateTimeV2Literal = new DateTimeV2Literal("2001-12-31 00:00:01");
 
         DateV2Literal dateV2Literal1 = new DateV2Literal("2006-12-31");
         DateTimeV2Literal dateTimeV2Literal1 = new DateTimeV2Literal("2006-12-31 01:00:01");
+        TimeStampNsLiteral timeStampNsLiteral = new TimeStampNsLiteral("2001-12-31 23:59:59.999999999");
+        TimeStampNsLiteral timeStampNsLiteral1 = new TimeStampNsLiteral("2006-12-31 00:00:00.000000000");
 
         Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateV2Literal, dateV2Literal1).toSql(), "-1826");
         Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateV2Literal1, dateV2Literal).toSql(), "1826");
@@ -1333,6 +1412,8 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateV2Literal1, dateTimeV2Literal).toSql(), "1826");
         Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeV2Literal, dateTimeV2Literal1).toSql(), "-1826");
         Assertions.assertEquals(DateTimeArithmetic.dateDiff(dateTimeV2Literal1, dateTimeV2Literal).toSql(), "1826");
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(timeStampNsLiteral, timeStampNsLiteral1).toSql(), "-1826");
+        Assertions.assertEquals(DateTimeArithmetic.dateDiff(timeStampNsLiteral1, timeStampNsLiteral).toSql(), "1826");
 
         DateV2Literal zeroDateV2Literal = new DateV2Literal("0000-01-01");
         DateTimeV2Literal zeroDateTimeV2Literal = new DateTimeV2Literal("0000-01-01 00:00:00");

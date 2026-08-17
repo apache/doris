@@ -237,14 +237,17 @@ public class TypeCoercionUtils {
      * Return Optional.empty() if we cannot do implicit cast.
      */
     public static Optional<DataType> implicitCastPrimitive(DataType input, DataType expected) {
-        // TIMESTAMP_NS has a different physical representation from DATETIMEV2. Until explicit
-        // cross-type casts are implemented, only its string conversions can be implicit.
+        // TIMESTAMP_NS has a different physical representation from DATETIMEV2. Temporal and
+        // numeric inputs may be promoted to TIMESTAMP_NS now that the corresponding casts exist,
+        // but never implicitly demote TIMESTAMP_NS to DATETIMEV2 because that loses nanoseconds.
         if (input instanceof TimeStampNsType || expected instanceof TimeStampNsType) {
             if (input.equals(expected) || expected instanceof AnyDataType) {
                 return Optional.of(input);
             } else if (input instanceof NullType) {
                 return Optional.of(expected.defaultConcreteType());
-            } else if (input instanceof CharacterType && expected instanceof TimeStampNsType) {
+            } else if (expected instanceof TimeStampNsType
+                    && (input instanceof NumericType || input.isDateLikeType()
+                            || input instanceof TimeV2Type || input instanceof CharacterType)) {
                 return Optional.of(expected);
             } else if (input instanceof TimeStampNsType && expected instanceof CharacterType) {
                 return Optional.of(expected.defaultConcreteType());
@@ -717,12 +720,12 @@ public class TypeCoercionUtils {
                 }
                 ret = TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, value);
             } else if ((dataType.isDateV2Type() || dataType.isDateType()) && DateTimeChecker.isValidDateTime(value)) {
-                Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
-                if (parseResult.isOk()) {
-                    ret = parseResult.get();
+                if (hasNonZeroFractionBeyondScale(value, DateTimeV2Type.MAX_SCALE)) {
+                    ret = new TimeStampNsLiteral(value);
                 } else {
-                    if (DateTimeLiteral.determineScale(value) > DateTimeV2Type.MAX_SCALE) {
-                        ret = new TimeStampNsLiteral(value);
+                    Result<DateLiteral, AnalysisException> parseResult = DateV2Literal.parseDateLiteral(value, true);
+                    if (parseResult.isOk()) {
+                        ret = parseResult.get();
                     } else {
                         Result<DateTimeLiteral, AnalysisException> parseResult2
                                 = DateTimeV2Literal.parseDateTimeLiteral(value, true);
@@ -744,6 +747,23 @@ public class TypeCoercionUtils {
         }
         return Optional.ofNullable(ret);
 
+    }
+
+    private static boolean hasNonZeroFractionBeyondScale(String value, int scale) {
+        int dot = value.lastIndexOf('.');
+        if (dot < 0) {
+            return false;
+        }
+        int fractionEnd = dot + 1;
+        while (fractionEnd < value.length() && Character.isDigit(value.charAt(fractionEnd))) {
+            fractionEnd++;
+        }
+        for (int i = dot + scale + 1; i < fractionEnd; i++) {
+            if (value.charAt(i) != '0') {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static Expression implicitCastInputTypes(Expression expr, List<DataType> expectedInputTypes) {
@@ -1028,6 +1048,8 @@ public class TypeCoercionUtils {
      */
     private static Optional<DataType> getCommonDataTypeWithDateTimeV2Type(
             DateTimeV2Type leftType, DataType rightType) {
+        Preconditions.checkArgument(leftType.getClass() == DateTimeV2Type.class,
+                "TIMESTAMP_NS does not belong to the DATETIMEV2 precision family");
         if (rightType.isNumericType()) {
             if (rightType instanceof IntegralType) {
                 return Optional.of(leftType);
@@ -1062,11 +1084,14 @@ public class TypeCoercionUtils {
     }
 
     /**
-     * TIMESTAMP_NS is not a high-scale DATETIMEV2. It can only share a coercion target with
-     * strings until casts between TIMESTAMP_NS and other temporal or numeric types are available.
+     * Choose TIMESTAMP_NS as the lossless common type whenever the other operand has a supported
+     * conversion. In particular, DATETIMEV2 must be promoted rather than truncating a nanosecond
+     * operand to DATETIMEV2(6).
      */
     private static Optional<DataType> getCommonDataTypeWithTimeStampNsType(DataType otherType) {
-        if (otherType instanceof TimeStampNsType || otherType.isStringLikeType()) {
+        if (otherType instanceof TimeStampNsType || otherType.isNumericType()
+                || otherType.isDateLikeType() || otherType instanceof TimeV2Type
+                || otherType.isStringLikeType()) {
             return Optional.of(TimeStampNsType.INSTANCE);
         }
         return Optional.empty();
@@ -1639,6 +1664,9 @@ public class TypeCoercionUtils {
      */
     public static Optional<DataType> findWiderCommonType(List<DataType> dataTypes,
             boolean overflowToDouble, boolean stringIsHighPriority) {
+        if (containsTimeStampNsAndOnlyCompatibleTemporalTypes(dataTypes)) {
+            return Optional.of(TimeStampNsType.INSTANCE);
+        }
         return dataTypes.stream().map(Optional::of).reduce(Optional.of(NullType.INSTANCE),
                 (r, c) -> {
                     if (r.isPresent() && c.isPresent()) {
@@ -1696,6 +1724,9 @@ public class TypeCoercionUtils {
     @Deprecated
     private static Optional<DataType> findWiderCommonTypeForComparison(
             List<DataType> dataTypes, boolean intStringToString) {
+        if (containsTimeStampNsAndOnlyCompatibleTemporalTypes(dataTypes)) {
+            return Optional.of(TimeStampNsType.INSTANCE);
+        }
         Map<Boolean, List<DataType>> partitioned = dataTypes.stream()
                 .collect(Collectors.partitioningBy(TypeCoercionUtils::hasCharacterType));
         List<DataType> needTypeCoercion = Lists.newArrayList(Sets.newHashSet(partitioned.get(true)));
@@ -1944,6 +1975,9 @@ public class TypeCoercionUtils {
      */
     @Deprecated
     public static Optional<DataType> findWiderCommonTypeForCaseWhen(List<DataType> dataTypes) {
+        if (containsTimeStampNsAndOnlyCompatibleTemporalTypes(dataTypes)) {
+            return Optional.of(TimeStampNsType.INSTANCE);
+        }
         Map<Boolean, List<DataType>> partitioned = dataTypes.stream()
                 .collect(Collectors.partitioningBy(TypeCoercionUtils::hasCharacterType));
         List<DataType> needTypeCoercion = Lists.newArrayList(Sets.newHashSet(partitioned.get(true)));
@@ -1963,6 +1997,19 @@ public class TypeCoercionUtils {
             commonType = newCommonType.get();
         }
         return Optional.of(commonType);
+    }
+
+    private static boolean containsTimeStampNsAndOnlyCompatibleTemporalTypes(List<DataType> dataTypes) {
+        boolean containsTimeStampNs = false;
+        for (DataType dataType : dataTypes) {
+            if (dataType instanceof TimeStampNsType) {
+                containsTimeStampNs = true;
+            } else if (!dataType.isNullType() && !dataType.isDateLikeType()
+                    && !(dataType instanceof TimeV2Type)) {
+                return false;
+            }
+        }
+        return containsTimeStampNs;
     }
 
     /**
@@ -2074,8 +2121,11 @@ public class TypeCoercionUtils {
             return Optional.of(StringType.INSTANCE);
         }
 
-        if (t1 instanceof TimeStampNsType || t2 instanceof TimeStampNsType) {
-            return Optional.empty();
+        if (t1 instanceof TimeStampNsType) {
+            return getCommonDataTypeWithTimeStampNsType(t2);
+        }
+        if (t2 instanceof TimeStampNsType) {
+            return getCommonDataTypeWithTimeStampNsType(t1);
         }
 
         // decimal with date should return double

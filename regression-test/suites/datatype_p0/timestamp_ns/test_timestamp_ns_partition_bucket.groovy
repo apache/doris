@@ -62,6 +62,13 @@ suite("test_timestamp_ns_partition_bucket") {
         sql "select * from timestamp_ns_partition_bucket where dt is null"
         contains "partitions=1/3 (p_before_epoch)"
     }
+    explain {
+        sql """
+            select * from timestamp_ns_partition_bucket
+            where date(dt) in (date '1969-12-31')
+        """
+        contains "partitions=1/3 (p_before_epoch)"
+    }
 
     sql "set debug_skip_fold_constant = true"
     explain {
@@ -73,6 +80,20 @@ suite("test_timestamp_ns_partition_bucket") {
         contains "tablets=4/4"
     }
     sql "set debug_skip_fold_constant = false"
+
+    sql "set experimental_enable_virtual_slot_for_cse = true"
+    explain {
+        sql """
+            verbose select date_trunc(dt, 'second')
+            from timestamp_ns_partition_bucket
+            where date_trunc(dt, 'second') >= cast('1970-01-01 00:00:00' as timestamp_ns)
+              and date_trunc(dt, 'second') < cast('1970-01-02 00:00:00' as timestamp_ns)
+        """
+        contains "__DORIS_VIRTUAL_COL__"
+        contains "type=timestamp_ns"
+        contains "date_trunc"
+    }
+    sql "set experimental_enable_virtual_slot_for_cse = false"
 
     order_qt_partition_rows "select id, dt from timestamp_ns_partition_bucket order by id"
     order_qt_nullable_first_range """

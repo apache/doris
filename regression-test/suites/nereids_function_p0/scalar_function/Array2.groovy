@@ -170,6 +170,12 @@ suite("nereids_scalar_fn_Array2") {
                                  WHEN x = y THEN 0
                                  ELSE -1 END, arr) FROM (SELECT array_agg(kdtmv2s3) AS arr FROM fn_test)t"""
     order_qt_sql_array_sort_DatetimeV2_notnull """SELECT array_sort((x, y) -> IF(x < y, 1, IF(x = y, 0, -1)), arr) FROM (SELECT array_agg(kdtmv2s3) AS arr FROM fn_test_not_nullable)t"""
+    order_qt_sql_array_sort_TimestampNs """SELECT array_sort((x, y) -> CASE WHEN x IS NULL THEN -1
+                                 WHEN y IS NULL THEN 1
+                                 WHEN x < y THEN 1
+                                 WHEN x = y THEN 0
+                                 ELSE -1 END, arr) FROM (SELECT array_agg(cast(kdtmv2s3 as timestamp_ns)) AS arr FROM fn_test)t"""
+    order_qt_sql_array_sort_TimestampNs_notnull """SELECT array_sort((x, y) -> IF(x < y, 1, IF(x = y, 0, -1)), arr) FROM (SELECT array_agg(cast(kdtmv2s3 as timestamp_ns)) AS arr FROM fn_test_not_nullable)t"""
     order_qt_sql_array_sort_Boolean """SELECT array_sort((x, y) -> CASE WHEN x IS NULL THEN -1
                                  WHEN y IS NULL THEN 1
                                  WHEN x < y THEN 1
@@ -425,6 +431,18 @@ suite("nereids_scalar_fn_Array2") {
                             WHEN x = y THEN 0
                             ELSE -1 END,
                 kadtmv2)
+        FROM fn_test_array_sort
+        ORDER BY id
+    """
+
+    order_qt_sql_array_sort_lambda_multir_timestamp_ns """
+        SELECT id, array_sort(
+                (x, y) -> CASE WHEN x IS NULL THEN -1
+                            WHEN y IS NULL THEN 1
+                            WHEN x < y THEN 1
+                            WHEN x = y THEN 0
+                            ELSE -1 END,
+                cast(kadtmv2 as array<timestamp_ns>))
         FROM fn_test_array_sort
         ORDER BY id
     """

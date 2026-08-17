@@ -6996,3 +6996,201 @@ true
 10	[11]
 11	[12]
 
+-- !sql_sequence_count_String_TimestampNs_Boolean_gb --
+0
+1
+0
+
+-- !sql_sequence_count_String_TimestampNs_Boolean --
+1
+
+-- !sql_sequence_count_String_TimestampNs_Boolean_agg_phase_1 --
+0	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+
+-- !sql_sequence_count_String_TimestampNs_Boolean_agg_phase_2 --
+12	1
+
+-- !sql_sequence_count_String_TimestampNs_Boolean_agg_phase_3 --
+0	0
+7	1
+5	0
+
+-- !sql_sequence_count_String_TimestampNs_Boolean_agg_phase_4 --
+12	1
+
+-- !sql_sequence_count_String_TimestampNs_Boolean_gb_notnull --
+1
+0
+
+-- !sql_sequence_count_String_TimestampNs_Boolean_notnull --
+1
+
+-- !sql_sequence_count_String_TimestampNs_Boolean_agg_phase_1_notnull --
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+
+-- !sql_sequence_count_String_TimestampNs_Boolean_agg_phase_2_notnull --
+12	1
+
+-- !sql_sequence_count_String_TimestampNs_Boolean_agg_phase_3_notnull --
+0	0
+7	1
+5	0
+
+-- !sql_sequence_count_String_TimestampNs_Boolean_agg_phase_4_notnull --
+12	1
+
+-- !sql_sequence_match_String_TimestampNs_Boolean_gb --
+\N
+true
+false
+
+-- !sql_sequence_match_String_TimestampNs_Boolean --
+true
+
+-- !sql_sequence_match_String_TimestampNs_Boolean_agg_phase_1 --
+0	\N
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+
+-- !sql_sequence_match_String_TimestampNs_Boolean_agg_phase_2 --
+12	true
+
+-- !sql_sequence_match_String_TimestampNs_Boolean_agg_phase_3 --
+0	\N
+7	true
+5	false
+
+-- !sql_sequence_match_String_TimestampNs_Boolean_agg_phase_4 --
+12	true
+
+-- !sql_sequence_match_String_TimestampNs_Boolean_gb_notnull --
+true
+false
+
+-- !sql_sequence_match_String_TimestampNs_Boolean_notnull --
+true
+
+-- !sql_sequence_match_String_TimestampNs_Boolean_agg_phase_1_notnull --
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+1	false
+
+-- !sql_sequence_match_String_TimestampNs_Boolean_agg_phase_2_notnull --
+12	true
+
+-- !sql_sequence_match_String_TimestampNs_Boolean_agg_phase_3_notnull --
+0	\N
+7	true
+5	false
+
+-- !sql_sequence_match_String_TimestampNs_Boolean_agg_phase_4_notnull --
+12	true
+
+-- !sql_window_funnel_BigInt_String_TimestampNs_Boolean_gb --
+\N
+1
+0
+
+-- !sql_window_funnel_BigInt_String_TimestampNs_Boolean --
+1
+
+-- !sql_window_funnel_BigInt_String_TimestampNs_Boolean_agg_phase_1 --
+0	\N
+1	1
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+
+-- !sql_window_funnel_BigInt_String_TimestampNs_Boolean_agg_phase_2 --
+12	1
+
+-- !sql_window_funnel_BigInt_String_TimestampNs_Boolean_agg_phase_3 --
+0	\N
+7	1
+5	0
+
+-- !sql_window_funnel_BigInt_String_TimestampNs_Boolean_agg_phase_4 --
+12	1
+
+-- !sql_window_funnel_BigInt_String_TimestampNs_Boolean_gb_notnull --
+1
+0
+
+-- !sql_window_funnel_BigInt_String_TimestampNs_Boolean_notnull --
+1
+
+-- !sql_window_funnel_BigInt_String_TimestampNs_Boolean_agg_phase_1_notnull --
+1	1
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+1	0
+
+-- !sql_window_funnel_BigInt_String_TimestampNs_Boolean_agg_phase_2_notnull --
+12	1
+
+-- !sql_window_funnel_BigInt_String_TimestampNs_Boolean_agg_phase_3_notnull --
+0	\N
+7	1
+5	0
+
+-- !sql_window_funnel_BigInt_String_TimestampNs_Boolean_agg_phase_4_notnull --
+12	1
+

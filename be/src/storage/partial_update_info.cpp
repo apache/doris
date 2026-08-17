@@ -28,6 +28,8 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/value/bitmap_value.h"
+#include "core/value/timestamp_ns_value.h"
+#include "exec/common/int_exp.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/key/row_key_encoder.h"
 #include "storage/mow/historical_row_fetcher.h"
@@ -50,6 +52,38 @@ ColumnBitmap* get_mutable_skip_bitmap_column(Block* block, size_t skip_bitmap_co
     block->replace_by_position(skip_bitmap_col_idx, std::move(skip_bitmap_column));
     return skip_bitmap_column_ptr;
 }
+
+std::string materialize_current_timestamp_default(FieldType type,
+                                                  const std::string& default_expression,
+                                                  int64_t timestamp_ms, int32_t nano_seconds,
+                                                  const std::string& timezone) {
+    const auto precision_pos = to_lower(default_expression).find('(');
+    const int precision = precision_pos == std::string::npos
+                                  ? 0
+                                  : std::stoi(default_expression.substr(precision_pos + 1));
+
+    DateV2Value<DateTimeV2ValueType> datetime;
+    datetime.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
+    if (type == FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS) {
+        uint16_t nanosecond_remainder = 0;
+        if (precision > 6) {
+            const int64_t factor = static_cast<int64_t>(int_exp10(9 - precision));
+            const int64_t truncated_nanos = nano_seconds / factor * factor;
+            nanosecond_remainder = static_cast<uint16_t>(truncated_nanos % 1000);
+        }
+        TimeStampNsValue timestamp_ns;
+        DORIS_CHECK(timestamp_ns.from_datetime(datetime, nanosecond_remainder));
+        return timestamp_ns.to_string();
+    }
+
+    std::string value = datetime.to_string();
+    if (type == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) {
+        value += timezone;
+    }
+    return value;
+}
+
+} // namespace
 
 Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
                                UniqueKeyUpdateModePB unique_key_update_mode,
@@ -271,26 +305,13 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
         if (column.has_default_value()) {
             std::string default_value;
             if (UNLIKELY((column.type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
+                          column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS ||
                           column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) &&
                          to_lower(column.default_value()).find(to_lower("CURRENT_TIMESTAMP")) !=
                                  std::string::npos)) {
-                auto pos = to_lower(column.default_value()).find('(');
-                if (pos == std::string::npos) {
-                    DateV2Value<DateTimeV2ValueType> dtv;
-                    dtv.from_unixtime(timestamp_ms / 1000, timezone);
-                    default_value = dtv.to_string();
-                    if (column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) {
-                        default_value += timezone;
-                    }
-                } else {
-                    int precision = std::stoi(column.default_value().substr(pos + 1));
-                    DateV2Value<DateTimeV2ValueType> dtv;
-                    dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
-                    default_value = dtv.to_string();
-                    if (column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) {
-                        default_value += timezone;
-                    }
-                }
+                default_value =
+                        materialize_current_timestamp_default(column.type(), column.default_value(),
+                                                              timestamp_ms, nano_seconds, timezone);
             } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_DATEV2 &&
                                 to_lower(column.default_value()).find(to_lower("CURRENT_DATE")) !=
                                         std::string::npos)) {

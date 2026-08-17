@@ -214,28 +214,6 @@ public class DateLiteralUtilsTest {
     }
 
     @Test
-    public void testDatetimeV2RoundsBeforeConstructingLegacyLiteral() throws AnalysisException {
-        ScalarType datetimeV2Scale6 = ScalarType.createDatetimeV2Type(6);
-
-        DateLiteral belowHalf = DateLiteralUtils.createDateLiteral(
-                "2023-06-15 14:30:45.1234564", datetimeV2Scale6);
-        Assertions.assertEquals("2023-06-15 14:30:45.123456", belowHalf.getStringValue());
-
-        DateLiteral atHalf = DateLiteralUtils.createDateLiteral(
-                "2023-06-15 14:30:45.1234565", datetimeV2Scale6);
-        Assertions.assertEquals("2023-06-15 14:30:45.123457", atHalf.getStringValue());
-
-        // Rounding is done on LocalDateTime before DateLiteral truncates to microseconds, so a
-        // fractional carry must propagate through the second and date fields as one operation.
-        DateLiteral carryToNextDay = DateLiteralUtils.createDateLiteral(
-                "2023-06-15 23:59:59.9999995", datetimeV2Scale6);
-        Assertions.assertEquals("2023-06-16 00:00:00.000000", carryToNextDay.getStringValue());
-
-        Assertions.assertThrows(AnalysisException.class, () -> DateLiteralUtils.createDateLiteral(
-                "9999-12-31 23:59:59.9999995", datetimeV2Scale6));
-    }
-
-    @Test
     public void testTimestampNsWithNanoseconds() throws AnalysisException {
         TimeStampNsLiteral dl7 = createTimeStampNsLiteral("2023-06-15 14:30:45.1234567");
         Assertions.assertTrue(dl7.getType().isTimeStampNs());

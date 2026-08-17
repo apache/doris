@@ -313,9 +313,10 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     case PrimitiveType::TYPE_DATETIME:
     case PrimitiveType::TYPE_DATEV2:
     case PrimitiveType::TYPE_DATETIMEV2:
-    case PrimitiveType::TYPE_TIMESTAMP_NS:
     case PrimitiveType::TYPE_TIMEV2:
         return create_datelike_wrapper(context, from_type, to_type->get_primitive_type());
+    case PrimitiveType::TYPE_TIMESTAMP_NS:
+        return create_timestamp_ns_wrapper(context, from_type);
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return create_timestamptz_wrapper(context, from_type);
     case PrimitiveType::TYPE_IPV4:

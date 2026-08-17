@@ -20,12 +20,14 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
+import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
@@ -148,6 +150,10 @@ public class DateLiteral extends Literal implements ComparableLiteral {
     }
 
     static Result<String, AnalysisException> normalize(String s) {
+        return normalize(s, 7);
+    }
+
+    private static Result<String, AnalysisException> normalize(String s, int maxFractionDigits) {
         // merge consecutive space
         if (s.contains("  ")) {
             s = s.replaceAll(" +", " ");
@@ -254,14 +260,14 @@ public class DateLiteral extends Literal implements ComparableLiteral {
             sb.append(":00");
         }
 
-        // Keep one more digit than Java's NANO_OF_SECOND supports. The tenth digit is the guard
-        // digit used when a DATETIMEV2(9) literal is rounded.
+        // Legacy temporal literals keep six microsecond digits plus one rounding guard. The
+        // TIMESTAMP_NS parser requests nine nanosecond digits plus one rounding guard.
         int j = i;
         if (partNumber == 6 && i < s.length() && s.charAt(i) == '.') {
             sb.append(s.charAt(i));
             i += 1;
             while (i < s.length() && Character.isDigit(s.charAt(i))) {
-                if (i - j <= DateUtils.NANOSECOND_SCALE + 1) {
+                if (i - j <= maxFractionDigits) {
                     sb.append(s.charAt(i));
                 }
                 i += 1;
@@ -297,6 +303,10 @@ public class DateLiteral extends Literal implements ComparableLiteral {
 
     /** parseDateTime */
     public static Result<TemporalAccessor, AnalysisException> parseDateTime(String s) {
+        return parseDateTime(s, 7);
+    }
+
+    static Result<TemporalAccessor, AnalysisException> parseDateTime(String s, int maxFractionDigits) {
         String originalString = s;
         try {
             // fast parse '2022-01-01'
@@ -340,7 +350,7 @@ public class DateLiteral extends Literal implements ComparableLiteral {
                 return Result.ok(dateTime);
             }
 
-            Result<String, AnalysisException> normalizeResult = normalize(s);
+            Result<String, AnalysisException> normalizeResult = normalize(s, maxFractionDigits);
             if (normalizeResult.isError()) {
                 return normalizeResult.cast();
             }
@@ -399,7 +409,7 @@ public class DateLiteral extends Literal implements ComparableLiteral {
         return DateUtils.getOrDefault(dateTime, ChronoField.HOUR_OF_DAY) != 0
                 || DateUtils.getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR) != 0
                 || DateUtils.getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE) != 0
-                || DateUtils.getOrDefault(dateTime, ChronoField.NANO_OF_SECOND) != 0;
+                || DateUtils.getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND) != 0;
     }
 
     @Override
@@ -637,6 +647,12 @@ public class DateLiteral extends Literal implements ComparableLiteral {
             return new FloatLiteral(value);
         } else if (targetType.isDoubleType()) {
             return new DoubleLiteral(value);
+        } else if (targetType instanceof TimeStampNsType) {
+            try {
+                return new TimeStampNsLiteral(year, month, day, 0, 0, 0, 0);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
         } else if (targetType.isDateTimeV2Type()) {
             return new DateTimeV2Literal((DateTimeV2Type) targetType, year, month, day, 0, 0, 0, 0);
         } else if (targetType.isDateTimeType()) {

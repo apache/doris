@@ -559,7 +559,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         // }
         try {
             // TODO: support no throw exception in `checkedCastTo` and return Optional<Expression>
-            if (cast.child().getDataType().isStringLikeType() && dataType.isComplexType()) {
+            if ((dataType.isVariantType() && cast.child().getDataType().isTimeStampNsType())
+                    || (cast.child().getDataType().isStringLikeType() && dataType.isComplexType())) {
                 return cast;
             }
             Expression castResult = child.checkedCastTo(dataType);

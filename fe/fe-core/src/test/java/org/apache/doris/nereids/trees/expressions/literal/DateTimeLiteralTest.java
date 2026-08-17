@@ -433,6 +433,24 @@ class DateTimeLiteralTest {
         check("2016-07-02 01:01:01.123456", DateTimeV2Literal::new);
         check("2016-7-02 01:01:01.123456", DateTimeV2Literal::new);
 
+        DateTimeV2Literal dateTimeV2 = check(
+                "2016-07-02 01:01:01.12345678", DateTimeV2Literal::new);
+        Assertions.assertEquals(123457, dateTimeV2.microSecond);
+        dateTimeV2 = check("2016-07-02 01:01:01.44444444", DateTimeV2Literal::new);
+        Assertions.assertEquals(444444, dateTimeV2.microSecond);
+        dateTimeV2 = check("2016-07-02 01:01:01.44444445", DateTimeV2Literal::new);
+        Assertions.assertEquals(444444, dateTimeV2.microSecond);
+        dateTimeV2 = check("2016-07-02 01:01:01.4444445", DateTimeV2Literal::new);
+        Assertions.assertEquals(444445, dateTimeV2.microSecond);
+        dateTimeV2 = check("2016-07-02 01:01:01.9999995", DateTimeV2Literal::new);
+        Assertions.assertEquals(0, dateTimeV2.microSecond);
+        Assertions.assertEquals(2, dateTimeV2.second);
+        dateTimeV2 = check("2021-01-01 23:59:59.9999995", DateTimeV2Literal::new);
+        Assertions.assertEquals(0, dateTimeV2.microSecond);
+        Assertions.assertEquals(0, dateTimeV2.second);
+        Assertions.assertEquals(0, dateTimeV2.minute);
+        Assertions.assertEquals(0, dateTimeV2.hour);
+
         // Fractional digits above microsecond precision are preserved by TIMESTAMP_NS literals.
         TimeStampNsLiteral literal = check("2016-07-02 01:01:01.12345678", TimeStampNsLiteral::new);
         Assertions.assertEquals(123456, literal.getMicroSecond());

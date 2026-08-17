@@ -20,7 +20,9 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampNsType;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -81,9 +83,17 @@ public class DefaultValue {
      * default value current_timestamp(precision)
      */
     public static DefaultValue currentTimeStampDefaultValueWithPrecision(Long precision) {
-        if (precision > DateTimeV2Type.MAX_SCALE || precision < 0) {
+        return currentTimeStampDefaultValueWithPrecision(precision, DateTimeV2Type.SYSTEM_DEFAULT);
+    }
+
+    /**
+     * default value current_timestamp(precision), validated against the target column type
+     */
+    public static DefaultValue currentTimeStampDefaultValueWithPrecision(Long precision, DataType type) {
+        int maxScale = type.isTimeStampNsType() ? TimeStampNsType.SCALE : DateTimeV2Type.MAX_SCALE;
+        if (precision > maxScale || precision < 0) {
             throw new AnalysisException("column's default value current_timestamp"
-                    + " precision must be between 0 and " + DateTimeV2Type.MAX_SCALE);
+                    + " precision must be between 0 and " + maxScale);
         }
         if (precision == 0) {
             return new DefaultValue(CURRENT_TIMESTAMP, NOW);

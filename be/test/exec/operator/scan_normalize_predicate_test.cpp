@@ -23,6 +23,7 @@
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
@@ -30,6 +31,7 @@
 #include "exec/operator/mock_scan_operator.h"
 #include "exec/operator/operator_helper.h"
 #include "exprs/function/in.h"
+#include "storage/olap_scan_common.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_fn_call.h"
@@ -1909,6 +1911,72 @@ TEST_F(ScanNormalizePredicate, test_timestamptz_predicate) {
                     }
                 },
                 output_range);
+    }
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest assertions inflate it.
+TEST_F(ScanNormalizePredicate, TimestampNsInPredicateBuildsPointScanKeys) {
+    constexpr int kSlotId = 0;
+    const std::vector<TimeStampNsValue> values = {
+            TimeStampNsValue(std::numeric_limits<int64_t>::min()), TimeStampNsValue(-1),
+            TimeStampNsValue(0), TimeStampNsValue(1),
+            TimeStampNsValue(std::numeric_limits<int64_t>::max())};
+
+    SlotDescriptor slot_desc;
+    slot_desc._type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_TIMESTAMP_NS, false);
+    auto local_state = std::make_shared<MockScanLocalState>(state.get(), op.get());
+    local_state->_slot_id_to_value_range[kSlotId] = ColumnValueRange<TYPE_TIMESTAMP_NS>(
+            "dt", false, 0, TimeStampNsValue::FRACTIONAL_DIGITS);
+    local_state->_slot_id_to_predicates[kSlotId] = std::vector<std::shared_ptr<ColumnPredicate>>();
+    op->_slot_id_to_slot_desc[kSlotId] = &slot_desc;
+
+    auto slot_ref = std::make_shared<MockSlotRef>(kSlotId, std::make_shared<DataTypeTimeStampNs>());
+    auto context =
+            MockInExpr::create_with_ctx(ColumnHelper::create_column<DataTypeTimeStampNs>(values));
+    auto in_predicate = context->root();
+    in_predicate->add_child(slot_ref);
+    in_predicate->_node_type = TExprNodeType::IN_PRED;
+    slot_ref->_slot_id = kSlotId;
+    context->_prepared = true;
+    context->_opened = true;
+
+    VExprSPtr new_root;
+    EXPECT_TRUE(local_state->_normalize_predicate(context.get(), context->root(), new_root));
+    EXPECT_EQ(new_root, nullptr);
+    ASSERT_EQ(local_state->_slot_id_to_predicates[kSlotId].size(), 1);
+
+    auto* normalized_range = std::get_if<ColumnValueRange<TYPE_TIMESTAMP_NS>>(
+            &local_state->_slot_id_to_value_range[kSlotId]);
+    ASSERT_NE(normalized_range, nullptr);
+    ASSERT_TRUE(normalized_range->is_fixed_value_range());
+    ASSERT_EQ(normalized_range->get_fixed_value_size(), values.size());
+
+    OlapScanKeys scan_keys;
+    bool exact_value = true;
+    bool eos = false;
+    bool should_break = false;
+    EXPECT_TRUE(scan_keys.extend_scan_key<TYPE_TIMESTAMP_NS>(*normalized_range, 1024, &exact_value,
+                                                             &eos, &should_break));
+    EXPECT_TRUE(exact_value);
+    EXPECT_FALSE(eos);
+    EXPECT_FALSE(should_break);
+    EXPECT_FALSE(scan_keys.has_range_value());
+    ASSERT_EQ(scan_keys.size(), values.size());
+
+    std::vector<std::unique_ptr<OlapScanRange>> key_ranges;
+    EXPECT_TRUE(scan_keys.get_key_range(&key_ranges));
+    ASSERT_EQ(key_ranges.size(), values.size());
+    for (size_t row = 0; row < values.size(); ++row) {
+        const auto& key_range = *key_ranges[row];
+        EXPECT_TRUE(key_range.has_lower_bound);
+        EXPECT_TRUE(key_range.has_upper_bound);
+        EXPECT_TRUE(key_range.begin_include);
+        EXPECT_TRUE(key_range.end_include);
+        ASSERT_EQ(key_range.begin_scan_range.size(), 1);
+        ASSERT_EQ(key_range.end_scan_range.size(), 1);
+        EXPECT_EQ(key_range.begin_scan_range.get_field(0).get<TYPE_TIMESTAMP_NS>(), values[row]);
+        EXPECT_EQ(key_range.end_scan_range.get_field(0).get<TYPE_TIMESTAMP_NS>(), values[row]);
     }
 }
 } // namespace doris

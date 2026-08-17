@@ -48,6 +48,18 @@ suite("test_timestamp_ns_literal") {
             sql "select cast('1970-01-01 00:00:00.000000001' as timestamp_ns(${invalidScale}))"
             exception "timestamp_ns does not support precision"
         }
+
+        test {
+            sql """
+                create table test_timestamp_ns_invalid_scale_${invalidScale} (
+                    id int,
+                    dt timestamp_ns(${invalidScale})
+                )
+                distributed by hash(id) buckets 1
+                properties("replication_num" = "1")
+            """
+            exception "timestamp_ns does not support precision"
+        }
     }
 
     for (def datetimeType : ["datetime", "datetimev2"]) {
@@ -96,21 +108,44 @@ suite("test_timestamp_ns_literal") {
         sql "set enable_strict_cast = ${originalEnableStrictCast}"
     }
 
-    test {
-        sql "select seconds_add(cast('1970-01-01 00:00:00.000000001' as timestamp_ns), 1)"
-        exception "Can not find the compatibility function signature: seconds_add"
-    }
+    qt_seconds_add "select seconds_add(cast('1970-01-01 00:00:00.000000001' as timestamp_ns), 1)"
+
+    qt_current_timestamp_support """
+        select
+            cast(current_timestamp as timestamp_ns) is not null,
+            cast(current_timestamp(6) as timestamp_ns) is not null
+    """
 
     sql "drop table if exists test_timestamp_ns_current_default"
+    sql """
+        create table test_timestamp_ns_current_default (
+            id int,
+            dt_literal timestamp_ns default '1970-01-01 00:00:00.000000001',
+            dt_current timestamp_ns default current_timestamp,
+            dt_current_6 timestamp_ns default current_timestamp(6),
+            dt_current_9 timestamp_ns default current_timestamp(9)
+        )
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql "insert into test_timestamp_ns_current_default(id) values (1)"
+    sql "insert into test_timestamp_ns_current_default values (2, default, default, default, default)"
+    order_qt_timestamp_ns_defaults """
+        select
+            id,
+            dt_literal,
+            dt_current is not null,
+            dt_current_6 is not null,
+            dt_current_9 is not null,
+            dt_current between seconds_sub(cast(current_timestamp as timestamp_ns), 3600)
+                and cast(current_timestamp as timestamp_ns),
+            right(cast(dt_current_6 as string), 3) = '000'
+        from test_timestamp_ns_current_default
+        order by id
+    """
+
     test {
-        sql """
-            create table test_timestamp_ns_current_default (
-                id int,
-                dt timestamp_ns default current_timestamp(6)
-            )
-            distributed by hash(id) buckets 1
-            properties("replication_num" = "1")
-        """
-        exception "cannot use current_timestamp as the default value"
+        sql "create table test_timestamp_ns_invalid_current_default (id int, ts timestamp_ns default current_timestamp(10)) distributed by hash(id) buckets 1 properties('replication_num'='1')"
+        exception "precision"
     }
 }

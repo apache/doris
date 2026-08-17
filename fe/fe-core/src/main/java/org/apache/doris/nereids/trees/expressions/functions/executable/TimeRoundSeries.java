@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.qe.ConnectContext;
 
@@ -104,14 +105,14 @@ public class TimeRoundSeries {
                         + (dt.getHour() - start.getHour()) * 60 * 60
                         + (dt.getMinute() - start.getMinute()) * 60
                         + (dt.getSecond() - start.getSecond());
-                trivialPart = dt.getMicroSecond() - start.getMicroSecond();
+                trivialPart = date.getNano() - origin.getNano();
                 break;
             }
             default: {
                 return null;
             }
         }
-        trivialPart = (trivialPart == 0 ? dt.getMicroSecond() - start.getMicroSecond() : trivialPart);
+        trivialPart = (trivialPart == 0 ? date.getNano() - origin.getNano() : trivialPart);
         if (getCeil) {
             diff = diff + (trivialPart > 0 ? 1 : 0);
         } else {
@@ -1267,5 +1268,319 @@ public class TimeRoundSeries {
             TimestampTzLiteral origin) {
         return TimestampTzLiteral.fromJavaDateType(getDateCeilOrFloorForTimestampTz(DATE.SECOND, date.toJavaDateType(),
                 period.getValue(), origin.toJavaDateType(), false), date.commonScale(origin));
+    }
+
+    private static Expression roundTimeStampNs(DATE tag, TimeStampNsLiteral date, int period,
+            LocalDateTime origin, boolean getCeil) {
+        LocalDateTime result = getDateCeilOrFloor(tag, date.toJavaDateType(), period, origin, getCeil);
+        return TimeStampNsLiteral.fromJavaDateType(result.withNano(origin.getNano()));
+    }
+
+    /** TIMESTAMP_NS overloads of year_ceil. */
+    @ExecFunction(name = "year_ceil")
+    public static Expression yearCeilTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.YEAR, date, 1, START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "year_ceil")
+    public static Expression yearCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.YEAR, date, period.getValue(), START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "year_ceil")
+    public static Expression yearCeilTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.YEAR, date, 1, origin.toJavaDateType(), true);
+    }
+
+    @ExecFunction(name = "year_ceil")
+    public static Expression yearCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.YEAR, date, period.getValue(), origin.toJavaDateType(), true);
+    }
+
+    /** TIMESTAMP_NS overloads of quarter_ceil. */
+    @ExecFunction(name = "quarter_ceil")
+    public static Expression quarterCeilTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.QUARTER, date, 1, START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "quarter_ceil")
+    public static Expression quarterCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.QUARTER, date, period.getValue(), START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "quarter_ceil")
+    public static Expression quarterCeilTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.QUARTER, date, 1, origin.toJavaDateType(), true);
+    }
+
+    @ExecFunction(name = "quarter_ceil")
+    public static Expression quarterCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.QUARTER, date, period.getValue(), origin.toJavaDateType(), true);
+    }
+
+    /** TIMESTAMP_NS overloads of month_ceil. */
+    @ExecFunction(name = "month_ceil")
+    public static Expression monthCeilTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.MONTH, date, 1, START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "month_ceil")
+    public static Expression monthCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.MONTH, date, period.getValue(), START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "month_ceil")
+    public static Expression monthCeilTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.MONTH, date, 1, origin.toJavaDateType(), true);
+    }
+
+    @ExecFunction(name = "month_ceil")
+    public static Expression monthCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.MONTH, date, period.getValue(), origin.toJavaDateType(), true);
+    }
+
+    /** TIMESTAMP_NS overloads of day_ceil. */
+    @ExecFunction(name = "day_ceil")
+    public static Expression dayCeilTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.DAY, date, 1, START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "day_ceil")
+    public static Expression dayCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.DAY, date, period.getValue(), START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "day_ceil")
+    public static Expression dayCeilTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.DAY, date, 1, origin.toJavaDateType(), true);
+    }
+
+    @ExecFunction(name = "day_ceil")
+    public static Expression dayCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.DAY, date, period.getValue(), origin.toJavaDateType(), true);
+    }
+
+    /** TIMESTAMP_NS overloads of hour_ceil. */
+    @ExecFunction(name = "hour_ceil")
+    public static Expression hourCeilTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.HOUR, date, 1, START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "hour_ceil")
+    public static Expression hourCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.HOUR, date, period.getValue(), START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "hour_ceil")
+    public static Expression hourCeilTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.HOUR, date, 1, origin.toJavaDateType(), true);
+    }
+
+    @ExecFunction(name = "hour_ceil")
+    public static Expression hourCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.HOUR, date, period.getValue(), origin.toJavaDateType(), true);
+    }
+
+    /** TIMESTAMP_NS overloads of minute_ceil. */
+    @ExecFunction(name = "minute_ceil")
+    public static Expression minuteCeilTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.MINUTE, date, 1, START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "minute_ceil")
+    public static Expression minuteCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.MINUTE, date, period.getValue(), START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "minute_ceil")
+    public static Expression minuteCeilTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.MINUTE, date, 1, origin.toJavaDateType(), true);
+    }
+
+    @ExecFunction(name = "minute_ceil")
+    public static Expression minuteCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.MINUTE, date, period.getValue(), origin.toJavaDateType(), true);
+    }
+
+    /** TIMESTAMP_NS overloads of second_ceil. */
+    @ExecFunction(name = "second_ceil")
+    public static Expression secondCeilTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.SECOND, date, 1, START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "second_ceil")
+    public static Expression secondCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.SECOND, date, period.getValue(), START_ORIGINAL_DAY, true);
+    }
+
+    @ExecFunction(name = "second_ceil")
+    public static Expression secondCeilTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.SECOND, date, 1, origin.toJavaDateType(), true);
+    }
+
+    @ExecFunction(name = "second_ceil")
+    public static Expression secondCeilTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.SECOND, date, period.getValue(), origin.toJavaDateType(), true);
+    }
+
+    /** TIMESTAMP_NS overloads of year_floor. */
+    @ExecFunction(name = "year_floor")
+    public static Expression yearFloorTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.YEAR, date, 1, START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "year_floor")
+    public static Expression yearFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.YEAR, date, period.getValue(), START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "year_floor")
+    public static Expression yearFloorTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.YEAR, date, 1, origin.toJavaDateType(), false);
+    }
+
+    @ExecFunction(name = "year_floor")
+    public static Expression yearFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.YEAR, date, period.getValue(), origin.toJavaDateType(), false);
+    }
+
+    /** TIMESTAMP_NS overloads of quarter_floor. */
+    @ExecFunction(name = "quarter_floor")
+    public static Expression quarterFloorTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.QUARTER, date, 1, START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "quarter_floor")
+    public static Expression quarterFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.QUARTER, date, period.getValue(), START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "quarter_floor")
+    public static Expression quarterFloorTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.QUARTER, date, 1, origin.toJavaDateType(), false);
+    }
+
+    @ExecFunction(name = "quarter_floor")
+    public static Expression quarterFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.QUARTER, date, period.getValue(), origin.toJavaDateType(), false);
+    }
+
+    /** TIMESTAMP_NS overloads of month_floor. */
+    @ExecFunction(name = "month_floor")
+    public static Expression monthFloorTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.MONTH, date, 1, START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "month_floor")
+    public static Expression monthFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.MONTH, date, period.getValue(), START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "month_floor")
+    public static Expression monthFloorTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.MONTH, date, 1, origin.toJavaDateType(), false);
+    }
+
+    @ExecFunction(name = "month_floor")
+    public static Expression monthFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.MONTH, date, period.getValue(), origin.toJavaDateType(), false);
+    }
+
+    /** TIMESTAMP_NS overloads of day_floor. */
+    @ExecFunction(name = "day_floor")
+    public static Expression dayFloorTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.DAY, date, 1, START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "day_floor")
+    public static Expression dayFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.DAY, date, period.getValue(), START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "day_floor")
+    public static Expression dayFloorTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.DAY, date, 1, origin.toJavaDateType(), false);
+    }
+
+    @ExecFunction(name = "day_floor")
+    public static Expression dayFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.DAY, date, period.getValue(), origin.toJavaDateType(), false);
+    }
+
+    /** TIMESTAMP_NS overloads of hour_floor. */
+    @ExecFunction(name = "hour_floor")
+    public static Expression hourFloorTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.HOUR, date, 1, START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "hour_floor")
+    public static Expression hourFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.HOUR, date, period.getValue(), START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "hour_floor")
+    public static Expression hourFloorTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.HOUR, date, 1, origin.toJavaDateType(), false);
+    }
+
+    @ExecFunction(name = "hour_floor")
+    public static Expression hourFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.HOUR, date, period.getValue(), origin.toJavaDateType(), false);
+    }
+
+    /** TIMESTAMP_NS overloads of minute_floor. */
+    @ExecFunction(name = "minute_floor")
+    public static Expression minuteFloorTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.MINUTE, date, 1, START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "minute_floor")
+    public static Expression minuteFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.MINUTE, date, period.getValue(), START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "minute_floor")
+    public static Expression minuteFloorTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.MINUTE, date, 1, origin.toJavaDateType(), false);
+    }
+
+    @ExecFunction(name = "minute_floor")
+    public static Expression minuteFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.MINUTE, date, period.getValue(), origin.toJavaDateType(), false);
+    }
+
+    /** TIMESTAMP_NS overloads of second_floor. */
+    @ExecFunction(name = "second_floor")
+    public static Expression secondFloorTimeStampNs(TimeStampNsLiteral date) {
+        return roundTimeStampNs(DATE.SECOND, date, 1, START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "second_floor")
+    public static Expression secondFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period) {
+        return roundTimeStampNs(DATE.SECOND, date, period.getValue(), START_ORIGINAL_DAY, false);
+    }
+
+    @ExecFunction(name = "second_floor")
+    public static Expression secondFloorTimeStampNs(TimeStampNsLiteral date, TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.SECOND, date, 1, origin.toJavaDateType(), false);
+    }
+
+    @ExecFunction(name = "second_floor")
+    public static Expression secondFloorTimeStampNs(TimeStampNsLiteral date, IntegerLiteral period,
+            TimeStampNsLiteral origin) {
+        return roundTimeStampNs(DATE.SECOND, date, period.getValue(), origin.toJavaDateType(), false);
     }
 }

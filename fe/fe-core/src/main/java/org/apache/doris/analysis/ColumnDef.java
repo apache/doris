@@ -149,6 +149,8 @@ public class ColumnDef {
                     format = "yyyy-MM-dd HH:mm:ss.SSSSS";
                 } else if (precision == 6) {
                     format = "yyyy-MM-dd HH:mm:ss.SSSSSS";
+                } else {
+                    format = "yyyy-MM-dd HH:mm:ss." + "S".repeat((int) precision);
                 }
                 return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
                         .format(DateTimeFormatter.ofPattern(format));
@@ -323,10 +325,11 @@ public class ColumnDef {
             switch (primitiveType) {
                 case DATETIME:
                 case DATETIMEV2:
+                case TIMESTAMP_NS:
                 case TIMESTAMPTZ:
                     break;
                 default:
-                    throw new AnalysisException("Types other than DATETIME and DATETIMEV2 "
+                    throw new AnalysisException("Types other than DATETIME, DATETIMEV2, TIMESTAMP_NS and TIMESTAMPTZ "
                             + "cannot use current_timestamp as the default value");
             }
         } else if (null != defaultValueExprDef

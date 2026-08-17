@@ -85,12 +85,10 @@ public class DateLiteralUtils {
             TemporalAccessor dateTime = null;
             boolean parsed = false;
             ZoneId sourceZone = null;
-            // Explicit DATETIME and TIMESTAMPTZ retain their pre-TIMESTAMP_NS limit of six
-            // fractional digits. DATETIMEV2 needs the nanosecond parser so inputs wider than its
-            // declared scale can be rounded before DateLiteral discards the extra digits. A null
-            // type is used when decoding an untyped DATE_LITERAL thrift node, where 7-9 digits are
-            // the only information available to infer TIMESTAMP_NS.
-            boolean parseNanoseconds = type == null || type.isDatetimeV2() || type.isTimeStampNs();
+            // Every pre-existing date type retains its six-digit parsing contract. A null type is
+            // used when decoding an untyped DATE_LITERAL thrift node, where 7-9 digits are the only
+            // information available to infer TIMESTAMP_NS.
+            boolean parseNanoseconds = type == null || type.isTimeStampNs();
 
             // parse timezone
             if (haveTimeZoneOffset(s) || haveTimeZoneName(s)) {
@@ -285,17 +283,9 @@ public class DateLiteralUtils {
                 literalDateTime = LocalDateTime.ofInstant(targetInstant, dorisZone);
             }
 
-            if (type.isDatetimeV2() || type.isTimeStampNs()) {
-                int scale = type.isTimeStampNs()
-                        ? ScalarType.TIMESTAMP_NS_SCALE : ((ScalarType) type).getScalarScale();
-                // Round before constructing the legacy literal. DateLiteral stores only
-                // microseconds, so constructing it first would silently truncate discarded digits
-                // and could make FE partition boundaries disagree with Nereids and BE.
-                literalDateTime = roundFractionalSecond(
-                        literalDateTime, scale, nanosecondGuardDigit);
-            }
-
             if (type.isTimeStampNs()) {
+                literalDateTime = roundFractionalSecond(
+                        literalDateTime, ScalarType.TIMESTAMP_NS_SCALE, nanosecondGuardDigit);
                 TimeStampNsLiteral result = new TimeStampNsLiteral(
                         literalDateTime.getYear(), literalDateTime.getMonthValue(),
                         literalDateTime.getDayOfMonth(), literalDateTime.getHour(),
@@ -337,10 +327,9 @@ public class DateLiteralUtils {
     /**
      * Round a fractional second half-up to the target scale.
      *
-     * <p>For DATETIMEV2 scales 0-6, the first discarded digit is already present in the parsed
-     * nanosecond value. At TIMESTAMP_NS scale 9 there is no discarded digit inside that value, so
-     * the separately retained tenth digit decides whether to add one nanosecond. A rounded value
-     * of one billion nanoseconds is carried into the next civil second, including date rollover.</p>
+     * <p>At TIMESTAMP_NS scale 9 there is no discarded digit inside the parsed value, so the
+     * separately retained tenth digit decides whether to add one nanosecond. A rounded value of one
+     * billion nanoseconds is carried into the next civil second, including date rollover.</p>
      */
     private static LocalDateTime roundFractionalSecond(
             LocalDateTime value, int scale, int nanosecondGuardDigit) {

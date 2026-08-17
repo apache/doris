@@ -30,7 +30,9 @@ suite("nereids_scalar_fn_U") {
 	qt_sql_unix_timestamp_Date "select unix_timestamp(kdt) from fn_test order by kdt"
 	qt_sql_unix_timestamp_Date_notnull "select unix_timestamp(kdt) from fn_test_not_nullable order by kdt"
 	qt_sql_unix_timestamp_DateTimeV2 "select unix_timestamp(kdtmv2s1) from fn_test order by kdtmv2s1"
+	qt_sql_unix_timestamp_TimestampNs "select unix_timestamp(cast(kdtmv2s1 as timestamp_ns)) from fn_test order by cast(kdtmv2s1 as timestamp_ns)"
 	qt_sql_unix_timestamp_DateTimeV2_notnull "select unix_timestamp(kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1"
+	qt_sql_unix_timestamp_TimestampNs_notnull "select unix_timestamp(cast(kdtmv2s1 as timestamp_ns)) from fn_test_not_nullable order by cast(kdtmv2s1 as timestamp_ns)"
 	qt_sql_unix_timestamp_DateV2 "select unix_timestamp(kdtv2) from fn_test order by kdtv2"
 	qt_sql_unix_timestamp_DateV2_notnull "select unix_timestamp(kdtv2) from fn_test_not_nullable order by kdtv2"
 	test {

@@ -573,8 +573,9 @@ struct TimeDiffImpl {
     using ValueType = typename PrimitiveTypeTraits<DateType>::CppType;
     using ArgType = typename PrimitiveTypeTraits<DateType>::DataType::FieldType;
     //TODO: remove V1 since FE already removed it.
-    static constexpr bool UsingTimev2 =
-            is_date_v2_or_datetime_v2(DateType) || DateType == TYPE_TIMESTAMPTZ;
+    static constexpr bool UsingTimev2 = is_date_v2_or_datetime_v2(DateType) ||
+                                        DateType == TYPE_TIMESTAMP_NS ||
+                                        DateType == TYPE_TIMESTAMPTZ;
     static constexpr PrimitiveType ReturnType = TYPE_TIMEV2;
 
     static constexpr auto name = "timediff";
@@ -596,10 +597,11 @@ struct TimeDiffImpl {
     }
 
     static DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) {
+        const auto scale = std::min(arguments[0].type->get_scale(), DataTypeTimeV2::MAX_SCALE);
         if (arguments[0].type->is_nullable() || arguments[1].type->is_nullable()) {
-            return make_nullable(std::make_shared<DataTypeTimeV2>(arguments[0].type->get_scale()));
+            return make_nullable(std::make_shared<DataTypeTimeV2>(scale));
         }
-        return std::make_shared<DataTypeTimeV2>(arguments[0].type->get_scale());
+        return std::make_shared<DataTypeTimeV2>(scale);
     }
 };
 
@@ -1613,19 +1615,32 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeTimeV2>(arguments[0]->get_scale());
+        return std::make_shared<DataTypeTimeV2>(
+                std::min(arguments[0]->get_scale(), DataTypeTimeV2::MAX_SCALE));
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 1);
-        ColumnPtr col = block.get_by_position(arguments[0]).column;
-        const auto& arg = assert_cast<const ColumnDateTimeV2&>(*col.get());
+        const auto& argument = block.get_by_position(arguments[0]);
+        if (argument.type->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+            return execute_typed<TYPE_TIMESTAMP_NS>(block, arguments[0], result, input_rows_count);
+        }
+        DORIS_CHECK_EQ(argument.type->get_primitive_type(), TYPE_DATETIMEV2);
+        return execute_typed<TYPE_DATETIMEV2>(block, arguments[0], result, input_rows_count);
+    }
+
+private:
+    template <PrimitiveType PType>
+    Status execute_typed(Block& block, uint32_t argument, uint32_t result,
+                         size_t input_rows_count) const {
+        const auto& arg = assert_cast<const typename PrimitiveTypeTraits<PType>::ColumnType&>(
+                *block.get_by_position(argument).column);
         ColumnTimeV2::MutablePtr res = ColumnTimeV2::create(input_rows_count);
         auto& res_data = res->get_data();
-        for (int i = 0; i < arg.size(); i++) {
+        for (size_t i = 0; i < arg.size(); ++i) {
             const auto& v = arg.get_element(i);
-            // the arg is datetimev2 type, it's store as uint64, so we need to get arg's hour minute second part
+            // TIMEV2 has microsecond precision, so TIMESTAMP_NS intentionally drops digits 7-9.
             res_data[i] = TimeValue::make_time(v.hour(), v.minute(), v.second(), v.microsecond());
         }
         block.replace_by_position(result, std::move(res));
@@ -1871,7 +1886,16 @@ public:
             const auto& arg1 = left_data[index_check_const(i, cols_info[0].is_const)];
             const auto& arg2 = right_data[index_check_const(i, cols_info[1].is_const)];
 
-            if constexpr (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
+            if constexpr (PType == TYPE_TIMESTAMP_NS) {
+                auto result = arg1;
+                auto tv2 = static_cast<TimeValue::TimeType>(arg2);
+                TimeInterval interval(TimeUnit::MICROSECOND, tv2, IsNegative);
+                if (!result.template date_add_interval<TimeUnit::MICROSECOND>(interval))
+                        [[unlikely]] {
+                    throw_invalid_strings(name, arg1.to_string(), std::to_string(arg2));
+                }
+                res_col->insert_value(result);
+            } else if constexpr (PType == TYPE_DATETIMEV2 || PType == TYPE_TIMESTAMPTZ) {
                 DateV2Value<DateTimeV2ValueType> dtv1(arg1.to_date_int_val());
                 auto tv2 = static_cast<TimeValue::TimeType>(arg2);
                 TimeInterval interval(TimeUnit::MICROSECOND, tv2, IsNegative);
@@ -1893,9 +1917,11 @@ public:
 };
 
 using AddTimeDatetimeImpl = AddTimeImplBase<TYPE_DATETIMEV2, false>;
+using AddTimeTimeStampNsImpl = AddTimeImplBase<TYPE_TIMESTAMP_NS, false>;
 using AddTimeTimeImpl = AddTimeImplBase<TYPE_TIMEV2, false>;
 using AddTimeTimestamptzImpl = AddTimeImplBase<TYPE_TIMESTAMPTZ, false>;
 using SubTimeDatetimeImpl = AddTimeImplBase<TYPE_DATETIMEV2, true>;
+using SubTimeTimeStampNsImpl = AddTimeImplBase<TYPE_TIMESTAMP_NS, true>;
 using SubTimeTimeImpl = AddTimeImplBase<TYPE_TIMEV2, true>;
 using SubTimeTimestamptzImpl = AddTimeImplBase<TYPE_TIMESTAMPTZ, true>;
 #include "common/compile_check_avoid_end.h"

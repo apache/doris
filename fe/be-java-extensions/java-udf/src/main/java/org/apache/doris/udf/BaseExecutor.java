@@ -234,7 +234,8 @@ public abstract class BaseExecutor {
                 break;
             }
             case DATETIME:
-            case DATETIMEV2: {
+            case DATETIMEV2:
+            case TIMESTAMP_NS: {
                 if (org.joda.time.DateTime.class.equals(clz)) {
                     return (Object[] columnData) -> {
                         Object[] result = new org.joda.time.DateTime[columnData.length];
@@ -343,7 +344,8 @@ public abstract class BaseExecutor {
                 break;
             }
             case DATETIME:
-            case DATETIMEV2: {
+            case DATETIMEV2:
+            case TIMESTAMP_NS: {
                 if (org.joda.time.DateTime.class.equals(clz)) {
                     return (Object[] columnData) -> {
                         Object[] result = new LocalDateTime[columnData.length];

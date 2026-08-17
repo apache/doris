@@ -29,17 +29,13 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.StringValueContext;
 import org.apache.doris.analysis.ToSqlParams;
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.StructField;
-import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -1412,10 +1408,6 @@ public class StmtExecutor {
             return;
         }
 
-        if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
-            checkArrowFlightSqlOutput(queryStmt.getResultExprs());
-        }
-
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
             LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
@@ -1470,32 +1462,6 @@ public class StmtExecutor {
         }
 
         executeAndSendResult(isOutfileQuery, false, queryStmt, channel, null, null);
-    }
-
-    static void checkArrowFlightSqlOutput(List<Expr> resultExprs) throws AnalysisException {
-        for (Expr resultExpr : resultExprs) {
-            if (containsTimeStampNs(resultExpr.getType())) {
-                throw new AnalysisException("TIMESTAMP_NS is not supported by Arrow Flight SQL");
-            }
-        }
-    }
-
-    private static boolean containsTimeStampNs(Type type) {
-        if (type.isTimeStampNs()) {
-            return true;
-        } else if (type.isArrayType()) {
-            return containsTimeStampNs(((ArrayType) type).getItemType());
-        } else if (type.isMapType()) {
-            MapType mapType = (MapType) type;
-            return containsTimeStampNs(mapType.getKeyType()) || containsTimeStampNs(mapType.getValueType());
-        } else if (type.isStructType()) {
-            for (StructField field : ((StructType) type).getFields()) {
-                if (containsTimeStampNs(field.getType())) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     public void executeAndSendResult(boolean isOutfileQuery, boolean isSendFields,

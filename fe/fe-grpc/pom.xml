@@ -39,7 +39,7 @@ under the License.
             <id>protoc_command</id>
             <activation>
                 <file>
-                    <exists>${doris.thirdparty}/installed/bin/protoc</exists>
+                    <exists>${basedir}/../../thirdparty/installed/bin/protoc</exists>
                 </file>
             </activation>
             <properties>

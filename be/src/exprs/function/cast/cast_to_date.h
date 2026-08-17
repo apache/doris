@@ -19,6 +19,7 @@
 
 #include <sys/types.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <type_traits>
@@ -44,8 +45,7 @@
 
 namespace doris {
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
-    requires(IsStringType<FromDataType> &&
-             (IsDatelikeTypes<ToDataType> || std::is_same_v<ToDataType, DataTypeTimeStampNs>))
+    requires(IsStringType<FromDataType> && IsDatelikeTypes<ToDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -127,6 +127,71 @@ public:
             block.get_by_position(result).column = std::move(nullable_col_to);
         }
 
+        return Status::OK();
+    }
+};
+
+template <CastModeType CastMode, typename FromDataType, typename ToDataType>
+    requires(std::is_same_v<FromDataType, DataTypeTimeStampNs> && IsDatelikeTypes<ToDataType>)
+class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
+public:
+    Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count,
+                        const NullMap::value_type* null_map = nullptr) const override {
+        const auto& col_from =
+                assert_cast<const ColumnTimeStampNs&>(*block.get_by_position(arguments[0]).column);
+        auto col_to = ToDataType::ColumnType::create(input_rows_count);
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            if (null_map && null_map[i]) {
+                continue;
+            }
+
+            const auto& source = col_from.get_data()[i];
+            const auto civil = source.to_datetime();
+            if constexpr (IsDateType<ToDataType>) {
+                DataTypeDateTimeV2::cast_to_date(civil, col_to->get_data()[i]);
+            } else if constexpr (IsDateV2Type<ToDataType>) {
+                DataTypeDateTimeV2::cast_to_date_v2(civil, col_to->get_data()[i]);
+            } else if constexpr (IsDateTimeType<ToDataType>) {
+                DataTypeDateTimeV2::cast_to_date_time(civil, col_to->get_data()[i]);
+            } else if constexpr (IsDateTimeV2Type<ToDataType>) {
+                const auto to_scale = block.get_by_position(result).type->get_scale();
+                const bool success =
+                        transform_date_scale(to_scale, TimeStampNsValue::FRACTIONAL_DIGITS,
+                                             col_to->get_data()[i], source);
+                DORIS_CHECK(success);
+            } else {
+                static_assert(IsTimeV2Type<ToDataType>);
+                const auto to_scale = block.get_by_position(result).type->get_scale();
+                uint32_t hour = civil.hour();
+                uint32_t minute = civil.minute();
+                uint32_t second = civil.second();
+                uint32_t nanoseconds = source.nanosecond();
+                const auto divisor = static_cast<uint32_t>(common::exp10_i64(9 - to_scale));
+                const uint32_t remainder = nanoseconds % divisor;
+                nanoseconds = nanoseconds / divisor * divisor;
+                if (remainder >= divisor / 2) {
+                    nanoseconds += divisor;
+                }
+                uint32_t microseconds = nanoseconds / TimeStampNsValue::NANOS_PER_MICROSECOND;
+                if (microseconds >= TimeValue::ONE_SECOND_MICROSECONDS) {
+                    microseconds = 0;
+                    if (++second == 60) {
+                        second = 0;
+                        if (++minute == 60) {
+                            minute = 0;
+                            ++hour;
+                        }
+                    }
+                }
+                col_to->get_data()[i] =
+                        ((hour * 60 + minute) * 60 + second) * TimeValue::ONE_SECOND_MICROSECONDS +
+                        microseconds;
+            }
+        }
+
+        block.get_by_position(result).column = std::move(col_to);
         return Status::OK();
     }
 };
@@ -484,4 +549,5 @@ public:
         return Status::OK();
     }
 };
+
 } // namespace doris

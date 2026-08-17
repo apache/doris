@@ -74,7 +74,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_compact_String_notnull "select array_compact(kastr) from $not_nullable_tb order by id"
 
         order_qt_sql_array_compact_DatetimeV2 "select array_compact(kadtmv2) from $nullable_tb order by id"
+        order_qt_sql_array_compact_TimestampNs "select array_compact(cast(kadtmv2 as array<timestamp_ns>)) from $nullable_tb order by id"
         order_qt_sql_array_compact_DatetimeV2_notnull "select array_compact(kadtmv2) from $not_nullable_tb order by id"
+        order_qt_sql_array_compact_TimestampNs_notnull "select array_compact(cast(kadtmv2 as array<timestamp_ns>)) from $not_nullable_tb order by id"
         order_qt_sql_array_compact_DateV2 "select array_compact(kadtv2) from $nullable_tb order by id"
         order_qt_sql_array_compact_DateV2_notnull "select array_compact(kadtv2) from $not_nullable_tb order by id"
 
@@ -107,7 +109,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_concat_String_notnull "select array_concat(kastr, kastr) from $not_nullable_tb order by id"
 
         order_qt_sql_array_concat_DatetimeV2 "select array_concat(kadtmv2, kadtmv2) from $nullable_tb order by id"
+        order_qt_sql_array_concat_TimestampNs "select array_concat(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>)) from $nullable_tb order by id"
         order_qt_sql_array_concat_DatetimeV2_notnull "select array_concat(kadtmv2, kadtmv2) from $not_nullable_tb order by id"
+        order_qt_sql_array_concat_TimestampNs_notnull "select array_concat(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>)) from $not_nullable_tb order by id"
         order_qt_sql_array_concat_DateV2 "select array_concat(kadtv2, kadtv2) from $nullable_tb order by id"
         order_qt_sql_array_concat_DateV2_notnull "select array_concat(kadtv2, kadtv2) from $not_nullable_tb order by id"
 
@@ -173,7 +177,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_distinct_String_notnull "select array_distinct(kastr) from $not_nullable_tb order by id"
 
         order_qt_sql_array_distinct_DatetimeV2 "select array_distinct(kadtmv2) from $nullable_tb order by id"
+        order_qt_sql_array_distinct_TimestampNs "select array_distinct(cast(kadtmv2 as array<timestamp_ns>)) from $nullable_tb order by id"
         order_qt_sql_array_distinct_DatetimeV2_notnull "select array_distinct(kadtmv2) from $not_nullable_tb order by id"
+        order_qt_sql_array_distinct_TimestampNs_notnull "select array_distinct(cast(kadtmv2 as array<timestamp_ns>)) from $not_nullable_tb order by id"
         order_qt_sql_array_distinct_DateV2 "select array_distinct(kadtv2) from $nullable_tb order by id"
         order_qt_sql_array_distinct_DateV2_notnull "select array_distinct(kadtv2) from $not_nullable_tb order by id"
 
@@ -211,7 +217,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_except_String_notnull "select array_except(kastr, kastr) from $not_nullable_tb order by id"
 
         order_qt_sql_array_except_DatetimeV2 "select array_except(kadtmv2, kadtmv2) from $nullable_tb order by id"
+        order_qt_sql_array_except_TimestampNs "select array_except(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>)) from $nullable_tb order by id"
         order_qt_sql_array_except_DatetimeV2_notnull "select array_except(kadtmv2, kadtmv2) from $not_nullable_tb order by id"
+        order_qt_sql_array_except_TimestampNs_notnull "select array_except(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>)) from $not_nullable_tb order by id"
         order_qt_sql_array_except_DateV2 "select array_except(kadtv2, kadtv2) from $nullable_tb order by id"
         order_qt_sql_array_except_DateV2_notnull "select array_except(kadtv2, kadtv2) from $not_nullable_tb order by id"
 
@@ -244,7 +252,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_intersect_String_notnull "select array_sort(array_intersect(kastr, kastr)) from $not_nullable_tb order by id"
 
         order_qt_sql_array_intersect_DatetimeV2 "select array_sort(array_intersect(kadtmv2, kadtmv2)) from $nullable_tb order by id"
+        order_qt_sql_array_intersect_TimestampNs "select array_sort(array_intersect(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>))) from $nullable_tb order by id"
         order_qt_sql_array_intersect_DatetimeV2_notnull "select array_sort(array_intersect(kadtmv2, kadtmv2)) from $not_nullable_tb order by id"
+        order_qt_sql_array_intersect_TimestampNs_notnull "select array_sort(array_intersect(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>))) from $not_nullable_tb order by id"
         order_qt_sql_array_intersect_DateV2 "select array_sort(array_intersect(kadtv2, kadtv2)) from $nullable_tb order by id"
         order_qt_sql_array_intersect_DateV2_notnull "select array_sort(array_intersect(kadtv2, kadtv2)) from $not_nullable_tb order by id"
 
@@ -277,7 +287,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_join_String_notnull "select array_join(kastr, ',', 'null') from $not_nullable_tb order by id"
 
         order_qt_sql_array_join_DatetimeV2 "select array_join(kadtmv2, ',', 'null') from $nullable_tb order by id"
+        order_qt_sql_array_join_TimestampNs "select array_join(cast(kadtmv2 as array<timestamp_ns>), ',', 'null') from $nullable_tb order by id"
         order_qt_sql_array_join_DatetimeV2_notnull "select array_join(kadtmv2, ',', 'null') from $not_nullable_tb order by id"
+        order_qt_sql_array_join_TimestampNs_notnull "select array_join(cast(kadtmv2 as array<timestamp_ns>), ',', 'null') from $not_nullable_tb order by id"
         order_qt_sql_array_join_DateV2 "select array_join(kadtv2, ',', 'null') from $nullable_tb order by id"
         order_qt_sql_array_join_DateV2_notnull "select array_join(kadtv2, ',', 'null') from $not_nullable_tb order by id"
 
@@ -309,7 +321,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_join_two_params_String_notnull "select array_join(kastr, ',') from $not_nullable_tb order by id"
 
         order_qt_sql_array_join_two_params_DatetimeV2 "select array_join(kadtmv2, ',') from $nullable_tb order by id"
+        order_qt_sql_array_join_two_params_TimestampNs "select array_join(cast(kadtmv2 as array<timestamp_ns>), ',') from $nullable_tb order by id"
         order_qt_sql_array_join_two_params_DatetimeV2_notnull "select array_join(kadtmv2, ',') from $not_nullable_tb order by id"
+        order_qt_sql_array_join_two_params_TimestampNs_notnull "select array_join(cast(kadtmv2 as array<timestamp_ns>), ',') from $not_nullable_tb order by id"
         order_qt_sql_array_join_two_params_DateV2 "select array_join(kadtv2, ',') from $nullable_tb order by id"
         order_qt_sql_array_join_two_params_DateV2_notnull "select array_join(kadtv2, ',') from $not_nullable_tb order by id"
 
@@ -343,7 +357,9 @@ suite("nereids_scalar_fn_Array1") {
         // order_qt_sql_array_max_String_notnull "select array_max(kastr) from $not_nullable_tb order by id"
 
         order_qt_sql_array_max_DatetimeV2 "select array_max(kadtmv2) from $nullable_tb order by id"
+        order_qt_sql_array_max_TimestampNs "select array_max(cast(kadtmv2 as array<timestamp_ns>)) from $nullable_tb order by id"
         order_qt_sql_array_max_DatetimeV2_notnull "select array_max(kadtmv2) from $not_nullable_tb order by id"
+        order_qt_sql_array_max_TimestampNs_notnull "select array_max(cast(kadtmv2 as array<timestamp_ns>)) from $not_nullable_tb order by id"
         order_qt_sql_array_max_DateV2 "select array_max(kadtv2) from $nullable_tb order by id"
         order_qt_sql_array_max_DateV2_notnull "select array_max(kadtv2) from $not_nullable_tb order by id"
 
@@ -377,7 +393,9 @@ suite("nereids_scalar_fn_Array1") {
         // order_qt_sql_array_min_String_notnull "select array_min(kastr) from $not_nullable_tb order by id"
 
         order_qt_sql_array_min_DatetimeV2 "select array_min(kadtmv2) from $nullable_tb order by id"
+        order_qt_sql_array_min_TimestampNs "select array_min(cast(kadtmv2 as array<timestamp_ns>)) from $nullable_tb order by id"
         order_qt_sql_array_min_DatetimeV2_notnull "select array_min(kadtmv2) from $not_nullable_tb order by id"
+        order_qt_sql_array_min_TimestampNs_notnull "select array_min(cast(kadtmv2 as array<timestamp_ns>)) from $not_nullable_tb order by id"
         order_qt_sql_array_min_DateV2 "select array_min(kadtv2) from $nullable_tb order by id"
         order_qt_sql_array_min_DateV2_notnull "select array_min(kadtv2) from $not_nullable_tb order by id"
 
@@ -410,7 +428,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_popback_String_notnull "select array_popback(kastr) from $not_nullable_tb order by id"
 
         order_qt_sql_array_popback_DatetimeV2 "select array_popback(kadtmv2) from $nullable_tb order by id"
+        order_qt_sql_array_popback_TimestampNs "select array_popback(cast(kadtmv2 as array<timestamp_ns>)) from $nullable_tb order by id"
         order_qt_sql_array_popback_DatetimeV2_notnull "select array_popback(kadtmv2) from $not_nullable_tb order by id"
+        order_qt_sql_array_popback_TimestampNs_notnull "select array_popback(cast(kadtmv2 as array<timestamp_ns>)) from $not_nullable_tb order by id"
         order_qt_sql_array_popback_DateV2 "select array_popback(kadtv2) from $nullable_tb order by id"
         order_qt_sql_array_popback_DateV2_notnull "select array_popback(kadtv2) from $not_nullable_tb order by id"
 
@@ -443,7 +463,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_popfront_String_notnull "select array_popfront(kastr) from $not_nullable_tb order by id"
 
         order_qt_sql_array_popfront_DatetimeV2 "select array_popfront(kadtmv2) from $nullable_tb order by id"
+        order_qt_sql_array_popfront_TimestampNs "select array_popfront(cast(kadtmv2 as array<timestamp_ns>)) from $nullable_tb order by id"
         order_qt_sql_array_popfront_DatetimeV2_notnull "select array_popfront(kadtmv2) from $not_nullable_tb order by id"
+        order_qt_sql_array_popfront_TimestampNs_notnull "select array_popfront(cast(kadtmv2 as array<timestamp_ns>)) from $not_nullable_tb order by id"
         order_qt_sql_array_popfront_DateV2 "select array_popfront(kadtv2) from $nullable_tb order by id"
         order_qt_sql_array_popfront_DateV2_notnull "select array_popfront(kadtv2) from $not_nullable_tb order by id"
 
@@ -474,7 +496,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_position_Varchar_notnull "select array_position(kavchr, element_at(kavchr, 1)) from $not_nullable_tb order by id"
 
         order_qt_sql_array_position_DatetimeV2 "select array_position(kadtmv2, element_at(kadtmv2, 1)) from $nullable_tb order by id"
+        order_qt_sql_array_position_TimestampNs "select array_position(cast(kadtmv2 as array<timestamp_ns>), element_at(cast(kadtmv2 as array<timestamp_ns>), 1)) from $nullable_tb order by id"
         order_qt_sql_array_position_DatetimeV2_notnull "select array_position(kadtmv2, element_at(kadtmv2, 1)) from $not_nullable_tb order by id"
+        order_qt_sql_array_position_TimestampNs_notnull "select array_position(cast(kadtmv2 as array<timestamp_ns>), element_at(cast(kadtmv2 as array<timestamp_ns>), 1)) from $not_nullable_tb order by id"
         order_qt_sql_array_position_DateV2 "select array_position(kadtv2, element_at(kadtv2, 1)) from $nullable_tb order by id"
         order_qt_sql_array_position_DateV2_notnull "select array_position(kadtv2, element_at(kadtv2, 1)) from $not_nullable_tb order by id"
 
@@ -519,7 +543,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_pushback_String_notnull "select array_pushback(kastr, element_at(kastr, 1)) from $not_nullable_tb order by id"
 
         order_qt_sql_array_pushback_DatetimeV2 "select array_pushback(kadtmv2, element_at(kadtmv2, 1)) from $nullable_tb order by id"
+        order_qt_sql_array_pushback_TimestampNs "select array_pushback(cast(kadtmv2 as array<timestamp_ns>), element_at(cast(kadtmv2 as array<timestamp_ns>), 1)) from $nullable_tb order by id"
         order_qt_sql_array_pushback_DatetimeV2_notnull "select array_pushback(kadtmv2, element_at(kadtmv2, 1)) from $not_nullable_tb order by id"
+        order_qt_sql_array_pushback_TimestampNs_notnull "select array_pushback(cast(kadtmv2 as array<timestamp_ns>), element_at(cast(kadtmv2 as array<timestamp_ns>), 1)) from $not_nullable_tb order by id"
         order_qt_sql_array_pushback_DateV2 "select array_pushback(kadtv2, element_at(kadtv2, 1)) from $nullable_tb order by id"
         order_qt_sql_array_pushback_DateV2_notnull "select array_pushback(kadtv2, element_at(kadtv2, 1)) from $not_nullable_tb order by id"
 
@@ -552,7 +578,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_pushfront_String_notnull "select array_pushfront(kastr, element_at(kastr, 1)) from $not_nullable_tb order by id"
 
         order_qt_sql_array_pushfront_DatetimeV2 "select array_pushfront(kadtmv2, element_at(kadtmv2, 1)) from $nullable_tb order by id"
+        order_qt_sql_array_pushfront_TimestampNs "select array_pushfront(cast(kadtmv2 as array<timestamp_ns>), element_at(cast(kadtmv2 as array<timestamp_ns>), 1)) from $nullable_tb order by id"
         order_qt_sql_array_pushfront_DatetimeV2_notnull "select array_pushfront(kadtmv2, element_at(kadtmv2, 1)) from $not_nullable_tb order by id"
+        order_qt_sql_array_pushfront_TimestampNs_notnull "select array_pushfront(cast(kadtmv2 as array<timestamp_ns>), element_at(cast(kadtmv2 as array<timestamp_ns>), 1)) from $not_nullable_tb order by id"
         order_qt_sql_array_pushfront_DateV2 "select array_pushfront(kadtv2, element_at(kadtv2, 1)) from $nullable_tb order by id"
         order_qt_sql_array_pushfront_DateV2_notnull "select array_pushfront(kadtv2, element_at(kadtv2, 1)) from $not_nullable_tb order by id"
 
@@ -599,7 +627,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_remove_String_notnull "select array_remove(kastr, element_at(kastr, 1)) from $not_nullable_tb order by id"
 
         order_qt_sql_array_remove_DatetimeV2 "select array_remove(kadtmv2, element_at(kadtmv2, 1)) from $nullable_tb order by id"
+        order_qt_sql_array_remove_TimestampNs "select array_remove(cast(kadtmv2 as array<timestamp_ns>), element_at(cast(kadtmv2 as array<timestamp_ns>), 1)) from $nullable_tb order by id"
         order_qt_sql_array_remove_DatetimeV2_notnull "select array_remove(kadtmv2, element_at(kadtmv2, 1)) from $not_nullable_tb order by id"
+        order_qt_sql_array_remove_TimestampNs_notnull "select array_remove(cast(kadtmv2 as array<timestamp_ns>), element_at(cast(kadtmv2 as array<timestamp_ns>), 1)) from $not_nullable_tb order by id"
         order_qt_sql_array_remove_DateV2 "select array_remove(kadtv2, element_at(kadtv2, 1)) from $nullable_tb order by id"
         order_qt_sql_array_remove_DateV2_notnull "select array_remove(kadtv2, element_at(kadtv2, 1)) from $not_nullable_tb order by id"
 
@@ -632,7 +662,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_reverse_sort_String_notnull "select array_reverse_sort(kastr) from $not_nullable_tb order by id"
 
         order_qt_sql_array_reverse_sort_DatetimeV2 "select array_reverse_sort(kadtmv2) from $nullable_tb order by id"
+        order_qt_sql_array_reverse_sort_TimestampNs "select array_reverse_sort(cast(kadtmv2 as array<timestamp_ns>)) from $nullable_tb order by id"
         order_qt_sql_array_reverse_sort_DatetimeV2_notnull "select array_reverse_sort(kadtmv2) from $not_nullable_tb order by id"
+        order_qt_sql_array_reverse_sort_TimestampNs_notnull "select array_reverse_sort(cast(kadtmv2 as array<timestamp_ns>)) from $not_nullable_tb order by id"
         order_qt_sql_array_reverse_sort_DateV2 "select array_reverse_sort(kadtv2) from $nullable_tb order by id"
         order_qt_sql_array_reverse_sort_DateV2_notnull "select array_reverse_sort(kadtv2) from $not_nullable_tb order by id"
 
@@ -665,7 +697,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_slice_String_notnull "select array_slice(kastr, element_at(kaint, 1)) from $not_nullable_tb order by id"
 
         order_qt_sql_array_slice_DatetimeV2 "select array_slice(kadtmv2, element_at(kaint, 1)) from $nullable_tb order by id"
+        order_qt_sql_array_slice_TimestampNs "select array_slice(cast(kadtmv2 as array<timestamp_ns>), element_at(kaint, 1)) from $nullable_tb order by id"
         order_qt_sql_array_slice_DatetimeV2_notnull "select array_slice(kadtmv2, element_at(kaint, 1)) from $not_nullable_tb order by id"
+        order_qt_sql_array_slice_TimestampNs_notnull "select array_slice(cast(kadtmv2 as array<timestamp_ns>), element_at(kaint, 1)) from $not_nullable_tb order by id"
         order_qt_sql_array_slice_DateV2 "select array_slice(kadtv2, element_at(kaint, 1)) from $nullable_tb order by id"
         order_qt_sql_array_slice_DateV2_notnull "select array_slice(kadtv2, element_at(kaint, 1)) from $not_nullable_tb order by id"
 
@@ -698,7 +732,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_slice_three_params_String_notnull "select array_slice(kastr, element_at(kaint, 1), element_at(katint, 1)) from $not_nullable_tb order by id"
 
         order_qt_sql_array_slice_three_params_DatetimeV2 "select array_slice(kadtmv2, element_at(kaint, 1), element_at(katint, 1)) from $nullable_tb order by id"
+        order_qt_sql_array_slice_three_params_TimestampNs "select array_slice(cast(kadtmv2 as array<timestamp_ns>), element_at(kaint, 1), element_at(katint, 1)) from $nullable_tb order by id"
         order_qt_sql_array_slice_three_params_DatetimeV2_notnull "select array_slice(kadtmv2, element_at(kaint, 1), element_at(katint, 1)) from $not_nullable_tb order by id"
+        order_qt_sql_array_slice_three_params_TimestampNs_notnull "select array_slice(cast(kadtmv2 as array<timestamp_ns>), element_at(kaint, 1), element_at(katint, 1)) from $not_nullable_tb order by id"
         order_qt_sql_array_slice_three_params_DateV2 "select array_slice(kadtv2, element_at(kaint, 1), element_at(katint, 1)) from $nullable_tb order by id"
         order_qt_sql_array_slice_three_params_DateV2_notnull "select array_slice(kadtv2, element_at(kaint, 1), element_at(katint, 1)) from $not_nullable_tb order by id"
 
@@ -731,7 +767,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_sort_String_notnull "select array_sort(kastr) from $not_nullable_tb order by id"
 
         order_qt_sql_array_sort_DatetimeV2 "select array_sort(kadtmv2) from $nullable_tb order by id"
+        order_qt_sql_array_sort_TimestampNs "select array_sort(cast(kadtmv2 as array<timestamp_ns>)) from $nullable_tb order by id"
         order_qt_sql_array_sort_DatetimeV2_notnull "select array_sort(kadtmv2) from $not_nullable_tb order by id"
+        order_qt_sql_array_sort_TimestampNs_notnull "select array_sort(cast(kadtmv2 as array<timestamp_ns>)) from $not_nullable_tb order by id"
         order_qt_sql_array_sort_DateV2 "select array_sort(kadtv2) from $nullable_tb order by id"
         order_qt_sql_array_sort_DateV2_notnull "select array_sort(kadtv2) from $not_nullable_tb order by id"
 
@@ -782,7 +820,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_union_String_notnull "select array_sort(array_union(kastr, kastr)) from $not_nullable_tb order by id"
 
         order_qt_sql_array_union_DatetimeV2 "select array_sort(array_union(kadtmv2, kadtmv2)) from $nullable_tb order by id"
+        order_qt_sql_array_union_TimestampNs "select array_sort(array_union(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>))) from $nullable_tb order by id"
         order_qt_sql_array_union_DatetimeV2_notnull "select array_sort(array_union(kadtmv2, kadtmv2)) from $not_nullable_tb order by id"
+        order_qt_sql_array_union_TimestampNs_notnull "select array_sort(array_union(cast(kadtmv2 as array<timestamp_ns>), cast(kadtmv2 as array<timestamp_ns>))) from $not_nullable_tb order by id"
         order_qt_sql_array_union_DateV2 "select array_sort(array_union(kadtv2, kadtv2)) from $nullable_tb order by id"
         order_qt_sql_array_union_DateV2_notnull "select array_sort(array_union(kadtv2, kadtv2)) from $not_nullable_tb order by id"
 
@@ -849,7 +889,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_cardinality_String_notnull "select cardinality(kastr) from $not_nullable_tb order by id"
 
         order_qt_sql_cardinality_DatetimeV2 "select cardinality(kadtmv2) from $nullable_tb order by id"
+        order_qt_sql_cardinality_TimestampNs "select cardinality(cast(kadtmv2 as array<timestamp_ns>)) from $nullable_tb order by id"
         order_qt_sql_cardinality_DatetimeV2_notnull "select cardinality(kadtmv2) from $not_nullable_tb order by id"
+        order_qt_sql_cardinality_TimestampNs_notnull "select cardinality(cast(kadtmv2 as array<timestamp_ns>)) from $not_nullable_tb order by id"
         order_qt_sql_cardinality_DateV2 "select cardinality(kadtv2) from $nullable_tb order by id"
         order_qt_sql_cardinality_DateV2_notnull "select cardinality(kadtv2) from $not_nullable_tb order by id"
 
@@ -882,7 +924,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_array_size_String_notnull "select array_size(kastr) from $not_nullable_tb order by id"
 
         order_qt_sql_array_size_DatetimeV2 "select array_size(kadtmv2) from $nullable_tb order by id"
+        order_qt_sql_array_size_TimestampNs "select array_size(cast(kadtmv2 as array<timestamp_ns>)) from $nullable_tb order by id"
         order_qt_sql_array_size_DatetimeV2_notnull "select array_size(kadtmv2) from $not_nullable_tb order by id"
+        order_qt_sql_array_size_TimestampNs_notnull "select array_size(cast(kadtmv2 as array<timestamp_ns>)) from $not_nullable_tb order by id"
         order_qt_sql_array_size_DateV2 "select array_size(kadtv2) from $nullable_tb order by id"
         order_qt_sql_array_size_DateV2_notnull "select array_size(kadtv2) from $not_nullable_tb order by id"
 
@@ -915,7 +959,9 @@ suite("nereids_scalar_fn_Array1") {
         order_qt_sql_size_String_notnull "select size(kastr) from $not_nullable_tb order by id"
 
         order_qt_sql_size_DatetimeV2 "select size(kadtmv2) from $nullable_tb order by id"
+        order_qt_sql_size_TimestampNs "select size(cast(kadtmv2 as array<timestamp_ns>)) from $nullable_tb order by id"
         order_qt_sql_size_DatetimeV2_notnull "select size(kadtmv2) from $not_nullable_tb order by id"
+        order_qt_sql_size_TimestampNs_notnull "select size(cast(kadtmv2 as array<timestamp_ns>)) from $not_nullable_tb order by id"
         order_qt_sql_size_DateV2 "select size(kadtv2) from $nullable_tb order by id"
         order_qt_sql_size_DateV2_notnull "select size(kadtv2) from $not_nullable_tb order by id"
 

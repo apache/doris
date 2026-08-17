@@ -275,7 +275,36 @@
 0
 0
 
+-- !sql_field_TimestampNs --
+\N
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
 -- !sql_field_DateTimeV2_notnull --
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+0
+
+-- !sql_field_TimestampNs_notnull --
 0
 0
 0

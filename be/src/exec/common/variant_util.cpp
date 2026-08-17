@@ -531,7 +531,8 @@ void get_column_by_type(const DataTypePtr& data_type, const std::string& name, T
 
     PrimitiveType type = data_type->get_primitive_type();
     if (is_int_or_bool(type) || is_string_type(type) || is_float_or_double(type) || is_ip(type) ||
-        is_date_or_datetime(type) || type == PrimitiveType::TYPE_DATEV2) {
+        is_date_or_datetime(type) || type == PrimitiveType::TYPE_DATEV2 ||
+        type == PrimitiveType::TYPE_TIMESTAMP_NS) {
         column.set_length(cast_set<int32_t>(data_type->get_size_of_value_in_memory()));
         return;
     }
@@ -722,6 +723,7 @@ bool is_bf_supported_by_fe_for_variant_subcolumn(FieldType type) {
     case FieldType::OLAP_FIELD_TYPE_DATETIME:
     case FieldType::OLAP_FIELD_TYPE_DATEV2:
     case FieldType::OLAP_FIELD_TYPE_DATETIMEV2:
+    case FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS:
     case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
     case FieldType::OLAP_FIELD_TYPE_DECIMAL:
     case FieldType::OLAP_FIELD_TYPE_DECIMAL32:

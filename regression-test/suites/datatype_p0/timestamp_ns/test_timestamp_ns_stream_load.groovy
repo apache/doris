@@ -53,4 +53,23 @@ suite("test_timestamp_ns_stream_load") {
         order by id
     """
 
+    sql "drop table if exists test_timestamp_ns_insert_select"
+    sql """
+        create table test_timestamp_ns_insert_select (
+            id int,
+            dt timestamp_ns
+        )
+        duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """
+        insert into test_timestamp_ns_insert_select
+        select id, dt from test_timestamp_ns_stream_load
+    """
+    order_qt_insert_select """
+        select id, dt
+        from test_timestamp_ns_insert_select
+        order by id
+    """
 }

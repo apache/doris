@@ -155,18 +155,12 @@ public class CreateFunctionTest extends TestWithFeService {
         assertCreateFunctionAnalysisException(ctx, "create function py_obj_type_db.j_bitmap_arg(bitmap) returns int "
                 + "properties('type'='JAVA_UDF', 'symbol'='evaluate');",
                 "JAVA_UDF does not support argument 1 type bitmap");
-        assertCreateFunctionAnalysisException(ctx,
-                "create function py_obj_type_db.j_timestamp_ns_arg(timestamp_ns) returns int "
-                        + "properties('type'='JAVA_UDF', 'symbol'='evaluate');",
-                "JAVA_UDF does not support argument 1 type timestamp_ns");
-        assertCreateFunctionAnalysisException(ctx,
-                "create function py_obj_type_db.j_timestamp_ns_ret(int) returns timestamp_ns "
-                        + "properties('type'='JAVA_UDF', 'symbol'='evaluate');",
-                "JAVA_UDF does not support return type timestamp_ns");
-        assertCreateFunctionAnalysisException(ctx,
-                "create function py_obj_type_db.j_timestamp_ns_array(array<timestamp_ns>) returns int "
-                        + "properties('type'='JAVA_UDF', 'symbol'='evaluate');",
-                "JAVA_UDF does not support argument 1 element type timestamp_ns");
+        createFunction("create function py_obj_type_db.j_timestamp_ns(timestamp_ns) returns timestamp_ns "
+                + "properties('type'='JAVA_UDF', "
+                + "'symbol'='org.apache.doris.catalog.TimestampNsUdf');", ctx);
+        createFunction("create function py_obj_type_db.j_timestamp_ns_array(array<timestamp_ns>) "
+                + "returns array<timestamp_ns> properties('type'='JAVA_UDF', "
+                + "'symbol'='org.apache.doris.catalog.TimestampNsUdf');", ctx);
         assertCreateFunctionAnalysisException(ctx, "create function py_obj_type_db.py_hll_ret(int) returns hll "
                 + "properties('type'='PYTHON_UDF', 'symbol'='evaluate', 'runtime_version'='3.10.2');",
                 "PYTHON_UDF does not support return type hll");

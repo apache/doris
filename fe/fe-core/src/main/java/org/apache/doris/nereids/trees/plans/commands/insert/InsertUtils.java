@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
@@ -68,6 +69,7 @@ import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.nereids.util.TimestampNsDefaultValueUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
@@ -667,6 +669,11 @@ public class InsertUtils {
         // Instead, getting the generated column expr and analyze the expr in BindSink can avoid the error.
         if (generatedColumnInfo != null) {
             return new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())), column.getName());
+        }
+        Optional<TimeStampNsLiteral> timestampNsDefault
+                = TimestampNsDefaultValueUtils.currentTimestampLiteral(column);
+        if (timestampNsDefault.isPresent()) {
+            return new Alias(timestampNsDefault.get(), column.getName());
         }
         String defaultValueSql = column.getDefaultValueSql();
         if (defaultValueSql == null) {

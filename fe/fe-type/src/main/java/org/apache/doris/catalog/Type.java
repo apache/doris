@@ -323,6 +323,7 @@ public abstract class Type {
                     .put(PrimitiveType.DATEV2, DATE_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.DATETIME, DATETIME_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.DATETIMEV2, DATETIME_SUPPORTED_JAVA_TYPE)
+                    .put(PrimitiveType.TIMESTAMP_NS, DATETIME_SUPPORTED_JAVA_TYPE)
                     .put(PrimitiveType.LARGEINT, Sets.newHashSet(BigInteger.class))
                     .put(PrimitiveType.DECIMALV2, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))

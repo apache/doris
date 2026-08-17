@@ -315,7 +315,7 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
     }
 
     // process cast(datetime as date) cmp date
-    private static Expression processDateTimeLikeComparisonPredicateDateLiteral(
+    static Expression processDateTimeLikeComparisonPredicateDateLiteral(
             ComparisonPredicate comparisonPredicate, Expression left, DateLiteral right) {
         DataType leftType = left.getDataType();
         if (!(leftType instanceof DateTimeType) && !(leftType instanceof DateTimeV2Type)

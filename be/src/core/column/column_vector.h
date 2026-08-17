@@ -437,6 +437,7 @@ using ColumnDate = ColumnVector<TYPE_DATE>;
 using ColumnDateTime = ColumnVector<TYPE_DATETIME>;
 using ColumnDateV2 = ColumnVector<TYPE_DATEV2>;
 using ColumnDateTimeV2 = ColumnVector<TYPE_DATETIMEV2>;
+using ColumnTimeStampNs = ColumnVector<TYPE_TIMESTAMP_NS>;
 using ColumnFloat32 = ColumnVector<TYPE_FLOAT>;
 using ColumnFloat64 = ColumnVector<TYPE_DOUBLE>;
 using ColumnIPv4 = ColumnVector<TYPE_IPV4>;

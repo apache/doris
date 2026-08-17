@@ -17,16 +17,12 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
@@ -288,21 +284,6 @@ public class StmtExecutorTest extends TestWithFeService {
 
         StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
         executor.sendTextResultRow(resultSet);
-    }
-
-    @Test
-    public void testArrowFlightSqlRejectsTimestampNsOutput() {
-        Expr timestampNs = Mockito.mock(Expr.class);
-        Mockito.when(timestampNs.getType()).thenReturn(Type.TIMESTAMP_NS);
-        AnalysisException scalarException = Assertions.assertThrows(AnalysisException.class,
-                () -> StmtExecutor.checkArrowFlightSqlOutput(Lists.newArrayList(timestampNs)));
-        Assertions.assertTrue(scalarException.getMessage().contains(
-                "TIMESTAMP_NS is not supported by Arrow Flight SQL"), scalarException.getMessage());
-
-        Expr nestedTimestampNs = Mockito.mock(Expr.class);
-        Mockito.when(nestedTimestampNs.getType()).thenReturn(ArrayType.create(Type.TIMESTAMP_NS, true));
-        Assertions.assertThrows(AnalysisException.class,
-                () -> StmtExecutor.checkArrowFlightSqlOutput(Lists.newArrayList(nestedTimestampNs)));
     }
 
     @Test

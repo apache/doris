@@ -94,7 +94,9 @@ suite("nereids_gen_fn") {
 	order_qt_sql_explode_String_notnull "select id, e from fn_test_not_nullable lateral view explode(kastr) lv as e order by id, e"
 
 	order_qt_sql_explode_DatetimeV2 "select id, e from fn_test lateral view explode(kadtmv2) lv as e order by id, e"
+	order_qt_sql_explode_TimestampNs "select id, e from fn_test lateral view explode(cast(kadtmv2 as array<timestamp_ns>)) lv as e order by id, e"
 	order_qt_sql_explode_DatetimeV2_notnull "select id, e from fn_test_not_nullable lateral view explode(kadtmv2) lv as e order by id, e"
+	order_qt_sql_explode_TimestampNs_notnull "select id, e from fn_test_not_nullable lateral view explode(cast(kadtmv2 as array<timestamp_ns>)) lv as e order by id, e"
 	order_qt_sql_explode_DateV2 "select id, e from fn_test lateral view explode(kadtv2) lv as e order by id, e"
 	order_qt_sql_explode_DateV2_notnull "select id, e from fn_test_not_nullable lateral view explode(kadtv2) lv as e order by id, e"
 }
