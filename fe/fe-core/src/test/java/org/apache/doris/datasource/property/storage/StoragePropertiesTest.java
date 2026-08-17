@@ -71,7 +71,7 @@ public class StoragePropertiesTest {
     }
 
     @Test
-    public void testOssTablesSigningRegionDoesNotCreateAnEmptyS3Provider() throws UserException {
+    public void testOssTablesPropertiesKeepS3AndOssProvidersAvailable() throws UserException {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.signing-name", "osstables");
         props.put("iceberg.rest.signing-region", "cn-beijing");
@@ -84,8 +84,8 @@ public class StoragePropertiesTest {
         List<Class<?>> types = toTypeList(all);
 
         Assertions.assertTrue(types.contains(OSSProperties.class));
-        Assertions.assertFalse(types.contains(S3Properties.class),
-                "The REST signing region must not create a competing default S3 provider");
+        Assertions.assertTrue(types.contains(S3Properties.class),
+                "Global storage detection must keep S3 available when OSS is also configured");
     }
 
     /**
