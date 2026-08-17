@@ -54,7 +54,10 @@ public class LegacyAccessControllerPluginTest {
     private static final AccessRequirement SELECT = AccessTranslation.requirementOf(PrivPredicate.SELECT);
 
     private final CatalogAccessController controller = Mockito.mock(CatalogAccessController.class);
-    private final LegacyAccessControllerPlugin plugin = new LegacyAccessControllerPlugin("legacy", controller);
+    // What the instance-scope source answers, which the adapter grants on; false unless a case says so.
+    private boolean grantedAtGlobalScope;
+    private final LegacyAccessControllerPlugin plugin = new LegacyAccessControllerPlugin("legacy", controller,
+            (subject, requirement) -> grantedAtGlobalScope);
 
     private boolean allows(AuthorizedResource resource) {
         try {
@@ -178,6 +181,54 @@ public class LegacyAccessControllerPluginTest {
 
         Assert.assertEquals(ImmutableSet.of("col1"), masks.keySet());
         Assert.assertSame(spec, masks.get("col1"));
+    }
+
+    /**
+     * The grant the older interface was handed and the current one is not.
+     *
+     * <p>Its scoped methods came in pairs - {@code checkDbPriv(boolean hasGlobal, ...)} in front of
+     * {@code checkDbPriv(...)} - and the engine computed {@code hasGlobal} from whoever governed instance
+     * scope, so a caller holding the privilege globally was granted without the controller being asked at
+     * all. Those default methods are gone. A third-party controller upgraded across that release refuses
+     * nothing it used to refuse only if the adapter reproduces the exemption, which is what this pins: the
+     * controller here says no to every scope, and every scope inside a catalog is allowed anyway.
+     */
+    @Test
+    public void testAGlobalGrantIsHonouredWithoutAskingTheController() throws Exception {
+        grantedAtGlobalScope = true;
+
+        Assert.assertTrue(allows(AuthorizedResource.catalog("ctl")));
+        Assert.assertTrue(allows(AuthorizedResource.database("ctl", "db")));
+        Assert.assertTrue(allows(AuthorizedResource.table("ctl", "db", "tbl")));
+        plugin.checkPrivilege(SUBJECT, AuthorizedResource.columns("ctl", "db", "tbl",
+                ImmutableSet.of("col1")), SELECT, AccessContext.NONE);
+
+        Mockito.verify(controller, Mockito.never()).checkCtlPriv(Mockito.any(), Mockito.anyString(),
+                Mockito.any());
+        Mockito.verify(controller, Mockito.never()).checkDbPriv(Mockito.any(), Mockito.anyString(),
+                Mockito.anyString(), Mockito.any());
+        Mockito.verify(controller, Mockito.never()).checkTblPriv(Mockito.any(), Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyString(), Mockito.any());
+        Mockito.verify(controller, Mockito.never()).checkColsPriv(Mockito.any(), Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyString(), Mockito.any(), Mockito.any());
+    }
+
+    /**
+     * And it stops there. A global grant is not a global override: the global question itself is what the
+     * exemption is made of, so it goes to the controller, and the system-wide names never had a
+     * {@code hasGlobal} form to begin with.
+     */
+    @Test
+    public void testAGlobalGrantDoesNotAnswerForGlobalOrSystemWideNames() {
+        grantedAtGlobalScope = true;
+        Mockito.when(controller.checkGlobalPriv(USER, PrivPredicate.SELECT)).thenReturn(false);
+
+        Assert.assertFalse(allows(AuthorizedResource.global()));
+        Assert.assertFalse(allows(AuthorizedResource.resource("name")));
+        Assert.assertFalse(allows(AuthorizedResource.workloadGroup("name")));
+        Assert.assertFalse(allows(AuthorizedResource.storageVault("name")));
+
+        Mockito.verify(controller).checkGlobalPriv(USER, PrivPredicate.SELECT);
     }
 
     @Test

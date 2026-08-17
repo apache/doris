@@ -126,7 +126,8 @@ public class EngineAuthorizationContextTest {
                 UserIdentity.createAnalyzedUserIdentWithIp("user1", "%"), PrivPredicate.SELECT))
                 .thenReturn(true);
         Deencapsulation.setField(manager, "defaultAccessController",
-                new LegacyAccessControllerPlugin("authority", controller));
+                new LegacyAccessControllerPlugin("authority", controller,
+                        (subject, requirement) -> false));
 
         EngineAuthorizationContext context = new EngineAuthorizationContext(manager, auth);
         context.servedBy(new Recording());

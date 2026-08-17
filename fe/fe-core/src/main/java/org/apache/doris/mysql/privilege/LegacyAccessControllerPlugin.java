@@ -43,15 +43,37 @@ import java.util.Set;
  * of this class, and it is not a temporary shim: {@code CatalogAccessController} is what a catalog's
  * {@code access_controller.class} names, so implementations of it exist outside this repository and keep
  * working unchanged.
+ *
+ * <p>Part of that translation is a grant the old interface never asked its implementations about. Its scoped
+ * methods came in pairs - {@code checkDbPriv(boolean hasGlobal, ...)} in front of
+ * {@code checkDbPriv(...)} - and the engine computed {@code hasGlobal} from whoever governed instance scope
+ * and passed it in, so a caller holding the privilege globally was granted without the controller being
+ * consulted at all. Under the current contract each source decides its own exemptions, and the two Ranger
+ * sources do decide this one for themselves. A controller written against the older interface never had the
+ * chance to, so the exemption is reproduced here rather than taken away from it.
  */
 public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
 
+    /**
+     * Whether whoever governs instance scope already grants this - the {@code hasGlobal} the older interface
+     * was handed. Unlike {@link org.apache.doris.authorization.spi.AuthorizationContext}'s question of the
+     * same shape, this one is asked even when the source asking is itself that authority, because that is
+     * what the engine did before: it computed the global verdict from the instance-wide source in every case.
+     */
+    @FunctionalInterface
+    public interface GlobalScopeAuthority {
+        boolean grants(AuthorizedSubject subject, AccessRequirement requirement);
+    }
+
     private final String name;
     private final CatalogAccessController controller;
+    private final GlobalScopeAuthority globalScope;
 
-    public LegacyAccessControllerPlugin(String name, CatalogAccessController controller) {
+    public LegacyAccessControllerPlugin(String name, CatalogAccessController controller,
+            GlobalScopeAuthority globalScope) {
         this.name = Objects.requireNonNull(name, "name is required");
         this.controller = Objects.requireNonNull(controller, "controller is required");
+        this.globalScope = Objects.requireNonNull(globalScope, "global scope authority is required");
     }
 
     /** The controller this presents, for where the controller itself is the question rather than its answers. */
@@ -71,26 +93,39 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
         PrivPredicate wanted = AccessTranslation.privPredicateOf(requirement);
         switch (resource.getKind()) {
             case GLOBAL:
+                // Deliberately without the exemption below: this is the question the exemption is made of.
                 refuseUnless(controller.checkGlobalPriv(currentUser, wanted), subject, resource, requirement);
                 return;
             case CATALOG:
+                if (grantedAtGlobalScope(subject, requirement)) {
+                    return;
+                }
                 refuseUnless(controller.checkCtlPriv(currentUser,
                         ((AuthorizedResource.Catalog) resource).getCatalog(), wanted),
                         subject, resource, requirement);
                 return;
             case DATABASE: {
+                if (grantedAtGlobalScope(subject, requirement)) {
+                    return;
+                }
                 AuthorizedResource.Database database = (AuthorizedResource.Database) resource;
                 refuseUnless(controller.checkDbPriv(currentUser, database.getCatalog(),
                         database.getDatabase(), wanted), subject, resource, requirement);
                 return;
             }
             case TABLE: {
+                if (grantedAtGlobalScope(subject, requirement)) {
+                    return;
+                }
                 AuthorizedResource.Table table = (AuthorizedResource.Table) resource;
                 refuseUnless(controller.checkTblPriv(currentUser, table.getCatalog(), table.getDatabase(),
                         table.getTable(), wanted), subject, resource, requirement);
                 return;
             }
             case COLUMNS: {
+                if (grantedAtGlobalScope(subject, requirement)) {
+                    return;
+                }
                 AuthorizedResource.Columns columns = (AuthorizedResource.Columns) resource;
                 try {
                     controller.checkColsPriv(currentUser, columns.getCatalog(), columns.getDatabase(),
@@ -131,6 +166,11 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
                 throw new IllegalStateException("access controller " + name + " has no method answering for"
                         + " resource kind " + resource.getKind());
         }
+    }
+
+    /** The {@code hasGlobal} the deleted default methods were handed; see this class's own documentation. */
+    private boolean grantedAtGlobalScope(AuthorizedSubject subject, AccessRequirement requirement) {
+        return globalScope.grants(subject, requirement);
     }
 
     private void refuseUnless(boolean allowed, AuthorizedSubject subject, AuthorizedResource resource,

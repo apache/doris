@@ -33,6 +33,7 @@ import java.lang.reflect.Modifier;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -62,6 +63,18 @@ public final class AccessTranslation {
      * later is covered the day it is added rather than the day someone remembers this map.
      */
     private static final Map<AccessRequirement, PrivPredicate> CANONICAL_PREDICATES = new HashMap<>();
+    /**
+     * The requirement each predicate constant translates to, so that the common path allocates nothing.
+     *
+     * <p>Every check goes through {@link #requirementOf}, and all but a handful of them pass one of these
+     * constants; building the answer means a list, two {@link EnumSet}s and two wrappers, per check, on a
+     * path that runs once per object a statement touches - and once per column of a {@code DESCRIBE}.
+     *
+     * <p>Keyed by identity, which is what {@link PrivPredicate} has: it declares no {@code equals}. That is
+     * the right key anyway, since a predicate built at runtime is exactly the case this table cannot answer
+     * for and {@link #requirementOf} falls through for.
+     */
+    private static final Map<PrivPredicate, AccessRequirement> REQUIREMENT_OF_PREDICATE = new IdentityHashMap<>();
 
     static {
         ACTION_OF_PRIVILEGE.put(Privilege.NODE_PRIV, AccessAction.NODE);
@@ -100,7 +113,9 @@ public final class AccessTranslation {
         // SHOW_RESOURCES and SHOW_WORKLOAD_GROUP - always resolve to the same one of the pair. They ask the
         // same question, so either answers it, but which one it is must not depend on reflection order.
         for (Map.Entry<String, PrivPredicate> constant : new TreeMap<>(declaredPredicates()).entrySet()) {
-            CANONICAL_PREDICATES.putIfAbsent(requirementOf(constant.getValue()), constant.getValue());
+            AccessRequirement requirement = buildRequirementOf(constant.getValue());
+            REQUIREMENT_OF_PREDICATE.put(constant.getValue(), requirement);
+            CANONICAL_PREDICATES.putIfAbsent(requirement, constant.getValue());
         }
     }
 
@@ -150,6 +165,11 @@ public final class AccessTranslation {
      *         one on would decide access by accident; no caller builds one today.
      */
     public static AccessRequirement requirementOf(PrivPredicate wanted) {
+        AccessRequirement known = REQUIREMENT_OF_PREDICATE.get(wanted);
+        return known != null ? known : buildRequirementOf(wanted);
+    }
+
+    private static AccessRequirement buildRequirementOf(PrivPredicate wanted) {
         List<Privilege> privileges = wanted.getPrivs().toPrivilegeList();
         EnumSet<AccessAction> actions = EnumSet.noneOf(AccessAction.class);
         for (Privilege privilege : privileges) {
