@@ -266,7 +266,8 @@ Status MetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
         RETURN_IF_ERROR(_build_partition_values_metadata_request(meta_scan_range, &request));
         break;
     case TMetadataType::LANCE_INDEX_ENTRIES:
-        RETURN_IF_ERROR(_build_lance_index_entries_metadata_request(meta_scan_range, &request));
+        RETURN_IF_ERROR(_build_lance_index_entries_metadata_request(meta_scan_range,
+                                                                    _user_identity, &request));
         break;
     default:
         _meta_eos = true;
@@ -511,7 +512,8 @@ Status MetaScanner::_build_partition_values_metadata_request(
 }
 
 Status MetaScanner::_build_lance_index_entries_metadata_request(
-        const TMetaScanRange& meta_scan_range, TFetchSchemaTableDataRequest* request) {
+        const TMetaScanRange& meta_scan_range, const TUserIdentity& user_identity,
+        TFetchSchemaTableDataRequest* request) {
     VLOG_CRITICAL << "MetaScanner::_build_lance_index_entries_metadata_request";
     if (!meta_scan_range.__isset.lance_index_params) {
         return Status::InternalError(
@@ -526,7 +528,7 @@ Status MetaScanner::_build_lance_index_entries_metadata_request(
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::LANCE_INDEX_ENTRIES);
     metadata_table_params.__set_lance_index_metadata_params(meta_scan_range.lance_index_params);
-    metadata_table_params.__set_current_user_ident(_user_identity);
+    metadata_table_params.__set_current_user_ident(user_identity);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();
