@@ -167,6 +167,9 @@ static TDataSink create_vtablet_writer_sink(const TOlapTableSchemaParam& schema,
 }
 
 TEST_F(TestVTabletWriterV2, shared_delta_writer_should_not_access_destroyed_creator_runtime_state) {
+#ifdef __APPLE__
+    GTEST_SKIP() << "StorageEngine initialization is unavailable in the macOS BE UT sandbox";
+#endif
     const bool old_share_delta_writers = config::share_delta_writers;
     const int32_t old_flush_running_count_limit = config::memtable_flush_running_count_limit;
     const bool old_enable_debug_points = config::enable_debug_points;

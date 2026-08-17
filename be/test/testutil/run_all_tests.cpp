@@ -110,6 +110,10 @@ int main(int argc, char** argv) {
     updatePHDRCache();
     try {
         int res = RUN_ALL_TESTS();
+        // Http handlers can enqueue non-blocking closes while they are being destroyed. Stop and
+        // destroy the service before tearing down the pool they depend on.
+        service->stop();
+        service.reset();
         doris::ExecEnv::GetInstance()->set_non_block_close_thread_pool(nullptr);
         return res;
     } catch (doris::Exception& e) {

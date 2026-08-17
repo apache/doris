@@ -70,6 +70,28 @@ static void pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& 
     static_cast<void>(serde->read_column_from_pb(col, result));
 }
 
+static void expect_columns_equal(const DataTypePtr& data_type, const IColumn& input,
+                                 const IColumn& output) {
+    ASSERT_EQ(input.size(), output.size());
+    if (data_type->get_primitive_type() == TYPE_QUANTILE_STATE) {
+        const auto& input_quantiles = assert_cast<const ColumnQuantileState&>(input);
+        const auto& output_quantiles = assert_cast<const ColumnQuantileState&>(output);
+        for (size_t i = 0; i < input.size(); ++i) {
+            const auto& expected = input_quantiles.get_element(i);
+            const auto& actual = output_quantiles.get_element(i);
+            std::vector<uint8_t> expected_bytes(expected.get_serialized_size());
+            std::vector<uint8_t> actual_bytes(actual.get_serialized_size());
+            ASSERT_EQ(expected.serialize(expected_bytes.data()), expected_bytes.size());
+            ASSERT_EQ(actual.serialize(actual_bytes.data()), actual_bytes.size());
+            EXPECT_EQ(expected_bytes, actual_bytes);
+        }
+        return;
+    }
+    for (size_t i = 0; i < input.size(); ++i) {
+        EXPECT_EQ(0, input.compare_at(i, i, output, -1));
+    }
+}
+
 static void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
     PValues pv = PValues();
     column_to_pb(data_type, col, &pv);
@@ -77,10 +99,7 @@ static void check_pb_col(const DataTypePtr data_type, const IColumn& col) {
     auto col1 = data_type->create_column();
     pb_to_column(data_type, pv, *col1);
 
-    ASSERT_EQ(col.size(), col1->size());
-    for (size_t i = 0; i < col.size(); ++i) {
-        EXPECT_EQ(0, col.compare_at(i, i, *col1, -1));
-    }
+    expect_columns_equal(data_type, col, *col1);
 }
 
 inline void serialize_and_deserialize_pb_test() {

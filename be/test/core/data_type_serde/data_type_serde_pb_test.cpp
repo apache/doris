@@ -84,6 +84,28 @@ static bool pb_to_column(const DataTypePtr data_type, PValues& result, IColumn& 
     return true;
 }
 
+static void expect_columns_equal(const DataTypePtr& data_type, const IColumn& input,
+                                 const IColumn& output) {
+    ASSERT_EQ(input.size(), output.size());
+    if (data_type->get_primitive_type() == TYPE_QUANTILE_STATE) {
+        const auto& input_quantiles = assert_cast<const ColumnQuantileState&>(input);
+        const auto& output_quantiles = assert_cast<const ColumnQuantileState&>(output);
+        for (size_t i = 0; i < input.size(); ++i) {
+            const auto& expected = input_quantiles.get_element(i);
+            const auto& actual = output_quantiles.get_element(i);
+            std::vector<uint8_t> expected_bytes(expected.get_serialized_size());
+            std::vector<uint8_t> actual_bytes(actual.get_serialized_size());
+            ASSERT_EQ(expected.serialize(expected_bytes.data()), expected_bytes.size());
+            ASSERT_EQ(actual.serialize(actual_bytes.data()), actual_bytes.size());
+            EXPECT_EQ(expected_bytes, actual_bytes);
+        }
+        return;
+    }
+    for (size_t i = 0; i < input.size(); ++i) {
+        EXPECT_EQ(0, input.compare_at(i, i, output, -1));
+    }
+}
+
 static void check_pb_col(const DataTypePtr data_type, const IColumn& input_column) {
     PValues pv = PValues();
     column_to_pb(data_type, input_column, &pv);
@@ -99,10 +121,7 @@ static void check_pb_col(const DataTypePtr data_type, const IColumn& input_colum
     // The serialized representation of set-like values can differ while the
     // values remain equal. Compare cells instead of their debug bytes.
     if (success_deserialized) {
-        ASSERT_EQ(input_column.size(), except_column->size());
-        for (size_t i = 0; i < input_column.size(); ++i) {
-            EXPECT_EQ(0, input_column.compare_at(i, i, *except_column, -1));
-        }
+        expect_columns_equal(data_type, input_column, *except_column);
     } else {
         EXPECT_TRUE(false);
     }

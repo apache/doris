@@ -222,13 +222,20 @@ TEST_F(KerberosTicketCacheTest, PeriodicRefresh) {
     // Start periodic refresh
     _cache->start_periodic_refresh();
 
-    // Wait for a short time to allow some refresh attempts
-    // Allow two refresh intervals plus scheduling tolerance. The refresh thread
-    // can start late when the full sanitizer suite is under load.
-    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+    // Wait for the first completed refresh, then stop before a second interval can make the
+    // single-call mock expectations ambiguous. Sanitizer load can delay the refresh thread.
+    bool refreshed = false;
+    for (int i = 0; i < 100; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        if (GetFileLastWriteTime(cache_path) > initial_write_time) {
+            refreshed = true;
+            break;
+        }
+    }
 
     // Stop periodic refresh
     _cache->stop_periodic_refresh();
+    ASSERT_TRUE(refreshed);
 
     // Verify that the test directory still exists
     ASSERT_TRUE(std::filesystem::exists(_test_dir));

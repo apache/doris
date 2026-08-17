@@ -119,11 +119,18 @@ TEST_F(TableRpcQpsRegistryTest, MultipleTables) {
     registry.record(LoadRelatedRpc::COMMIT_ROWSET, 200);
     registry.record(LoadRelatedRpc::COMMIT_ROWSET, 300);
 
-    // Wait for bvar::PerSecond to sample and compute QPS
-    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    // bvar sampling can be delayed when the full sanitizer suite is under load. Keep the
+    // counters active and wait for the sampler instead of assuming one second is sufficient.
+    std::vector<std::pair<int64_t, double>> top_tables;
+    for (int i = 0; i < 100 && top_tables.size() != 3; ++i) {
+        registry.record(LoadRelatedRpc::COMMIT_ROWSET, 100);
+        registry.record(LoadRelatedRpc::COMMIT_ROWSET, 200);
+        registry.record(LoadRelatedRpc::COMMIT_ROWSET, 300);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        top_tables = registry.get_top_k_tables(LoadRelatedRpc::COMMIT_ROWSET, 3);
+    }
 
-    // Each table should have independent counters
-    auto top_tables = registry.get_top_k_tables(LoadRelatedRpc::COMMIT_ROWSET, 3);
+    // Each table should have independent counters.
     ASSERT_EQ(top_tables.size(), 3);
     // All have equal QPS, order is undefined; verify table IDs as a set
     std::vector<int64_t> ids;
@@ -148,11 +155,22 @@ TEST_F(TableRpcQpsRegistryTest, GetTopKTables) {
         registry.record(LoadRelatedRpc::UPDATE_TMP_ROWSET, 300);
     }
 
-    // Wait for bvar::PerSecond to sample and compute QPS
-    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    // Keep the 5:3:1 ratio while waiting for bvar's sampler. A fixed one-second sleep is
+    // insufficient on a busy sanitizer runner.
+    std::vector<std::pair<int64_t, double>> top_tables;
+    for (int i = 0; i < 100 && top_tables.size() != 2; ++i) {
+        for (int j = 0; j < 5; ++j) {
+            registry.record(LoadRelatedRpc::UPDATE_TMP_ROWSET, 100);
+        }
+        for (int j = 0; j < 3; ++j) {
+            registry.record(LoadRelatedRpc::UPDATE_TMP_ROWSET, 200);
+        }
+        registry.record(LoadRelatedRpc::UPDATE_TMP_ROWSET, 300);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        top_tables = registry.get_top_k_tables(LoadRelatedRpc::UPDATE_TMP_ROWSET, 2);
+    }
 
-    // Get top 2 tables
-    auto top_tables = registry.get_top_k_tables(LoadRelatedRpc::UPDATE_TMP_ROWSET, 2);
+    // Get top 2 tables.
     ASSERT_EQ(top_tables.size(), 2);
     EXPECT_EQ(top_tables[0].first, 100); // highest QPS
     EXPECT_EQ(top_tables[1].first, 200); // second highest QPS
