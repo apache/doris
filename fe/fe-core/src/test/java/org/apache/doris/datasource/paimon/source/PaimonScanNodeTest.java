@@ -128,6 +128,9 @@ public class PaimonScanNodeTest {
     @Before
     public void saveVariantV2Config() {
         originalEnableVariantV2 = Config.enable_variant_v2;
+        // Statement-scoped scan task reuse is on by default; the mock's field would otherwise
+        // read false and bypass the cache under test.
+        sv.enableExternalScanTaskReuse = true;
     }
 
     @After
