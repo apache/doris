@@ -32,6 +32,10 @@ PaimonPreparedCommitOwner::~PaimonPreparedCommitOwner() {
     _close();
 }
 
+Status PaimonPreparedCommitOwner::prepare_for_report() {
+    return _backend == nullptr ? Status::OK() : _backend->prepare_close_for_commit();
+}
+
 void PaimonPreparedCommitOwner::finalize(ExternalFileReportOutcome outcome) {
     if (_finalized || outcome == ExternalFileReportOutcome::AMBIGUOUS) {
         return;
@@ -179,6 +183,12 @@ Status PaimonTableWriter::close(Status status) {
         }
         auto owner = std::make_shared<PaimonPreparedCommitOwner>(std::move(_writer),
                                                                  std::move(_backend));
+        Status close_st = owner->prepare_for_report();
+        if (!close_st.ok()) {
+            // Commit messages cannot become coordinator-owned until every SDK user has stopped.
+            owner->finalize(ExternalFileReportOutcome::REJECTED);
+            return close_st;
+        }
         // Paimon's abort API needs the prepared Java writer. Retain that owner until the shared
         // final report is accepted or rejected instead of publishing an irreversible payload.
         _state->add_external_file_report_finalizer(

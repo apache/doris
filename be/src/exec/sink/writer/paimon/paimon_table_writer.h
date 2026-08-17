@@ -40,6 +40,7 @@ public:
                               std::unique_ptr<IPaimonWriteBackend> backend);
     ~PaimonPreparedCommitOwner();
 
+    Status prepare_for_report();
     void finalize(ExternalFileReportOutcome outcome);
 
 private:

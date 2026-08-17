@@ -20,6 +20,12 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/column/column_array.h"
+#include "core/column/column_const.h"
+#include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/operator/spill_utils.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
@@ -27,6 +33,44 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+namespace {
+constexpr size_t MIN_POD_ARRAY_CAPACITY = 4096;
+
+// Admission runs before a writer may allocate; model the structural minimum recursively so a
+// single oversized value cannot be cloned and multiplied by the cold-partition fan-out.
+size_t minimum_selected_column_capacity(const IColumn& column) {
+    if (const auto* constant = check_and_get_column<ColumnConst>(column)) {
+        return minimum_selected_column_capacity(constant->get_data_column());
+    }
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        return iceberg_saturating_add(
+                MIN_POD_ARRAY_CAPACITY,
+                minimum_selected_column_capacity(nullable->get_nested_column()));
+    }
+    if (const auto* array = check_and_get_column<ColumnArray>(column)) {
+        return iceberg_saturating_add(MIN_POD_ARRAY_CAPACITY,
+                                      minimum_selected_column_capacity(array->get_data()));
+    }
+    if (const auto* map = check_and_get_column<ColumnMap>(column)) {
+        size_t capacity = iceberg_saturating_add(MIN_POD_ARRAY_CAPACITY,
+                                                 minimum_selected_column_capacity(map->get_keys()));
+        return iceberg_saturating_add(capacity,
+                                      minimum_selected_column_capacity(map->get_values()));
+    }
+    if (const auto* structure = check_and_get_column<ColumnStruct>(column)) {
+        size_t capacity = 0;
+        for (const auto& child : structure->get_columns()) {
+            capacity = iceberg_saturating_add(capacity, minimum_selected_column_capacity(*child));
+        }
+        return capacity;
+    }
+    if (check_and_get_column<ColumnString>(column) != nullptr) {
+        return 2 * MIN_POD_ARRAY_CAPACITY;
+    }
+    return MIN_POD_ARRAY_CAPACITY;
+}
+} // namespace
 
 size_t iceberg_cold_writer_reserve_size(const Block& block, size_t writer_workspace_bytes) {
     const size_t block_bytes = block.allocated_bytes();
@@ -40,9 +84,8 @@ size_t iceberg_cold_writer_reserve_size(const Block& block, size_t writer_worksp
     if (block.rows() > 0) {
         size_t minimum_selected_block_bytes = 0;
         for (const auto& column : block.get_columns_with_type_and_name()) {
-            minimum_selected_block_bytes =
-                    iceberg_saturating_add(minimum_selected_block_bytes,
-                                           column.column->clone_resized(1)->allocated_bytes());
+            minimum_selected_block_bytes = iceberg_saturating_add(
+                    minimum_selected_block_bytes, minimum_selected_column_capacity(*column.column));
         }
         const size_t max_partition_count = static_cast<size_t>(
                 std::max(1, config::table_sink_partition_write_max_partition_nums_per_writer));

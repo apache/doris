@@ -1116,6 +1116,7 @@ public:
     using TableReader::_materialize_map_mapping_column;
     using TableReader::_materialize_present_child_mapping_column;
     using TableReader::_materialize_struct_mapping_column;
+    using TableReader::_mapping_requires_collection_parent_null_map;
     using TableReader::_project_collection_parent_null_map_for_hidden_entries;
     using TableReader::_requires_collection_parent_null_map;
     using TableReader::_requires_parent_null_map_for_alignment;
@@ -6564,6 +6565,44 @@ TEST(TableReaderTest, CollectionParentMaskSkipsLargeMapWhenOnlyEmptyRowIsHidden)
 
     EXPECT_EQ(nullptr, result);
     EXPECT_TRUE(projected_null_map.empty());
+}
+
+TEST(TableReaderTest, MappingProbeSkipsLargeEvolvedArrayWithoutRequiredConsumer) {
+    constexpr size_t visible_entries = 500000;
+    const size_t entries = visible_entries + 1;
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {nullable_int_type}, Strings {"kept"});
+
+    ColumnMapping child_mapping;
+    child_mapping.table_column_name = "kept";
+    child_mapping.table_type = nullable_int_type;
+    child_mapping.file_local_id = 0;
+    ColumnMapping element_mapping;
+    element_mapping.table_type = make_nullable(struct_type);
+    element_mapping.child_mappings = {child_mapping};
+    element_mapping.is_trivial = false;
+
+    auto values = ColumnInt32::create(entries, 0);
+    auto child_null_map = ColumnUInt8::create(entries, 0);
+    child_null_map->get_data()[0] = 1;
+    MutableColumns physical_children;
+    physical_children.push_back(
+            ColumnNullable::create(std::move(values), std::move(child_null_map)));
+    ColumnPtr physical_elements = ColumnStruct::create(std::move(physical_children));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {1, entries};
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_mapping_requires_collection_parent_null_map(
+            nullptr, &parent_null_map, element_mapping, physical_elements, 2, offsets));
+
+    child_mapping.table_type = int_type;
+    element_mapping.table_type =
+            make_nullable(std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"kept"}));
+    element_mapping.child_mappings = {child_mapping};
+    EXPECT_TRUE(TableReaderCastTestHelper::_mapping_requires_collection_parent_null_map(
+            nullptr, &parent_null_map, element_mapping, physical_elements, 2, offsets));
 }
 
 } // namespace

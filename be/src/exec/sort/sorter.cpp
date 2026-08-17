@@ -204,17 +204,30 @@ size_t FullSorter::get_reserve_mem_size(RuntimeState* state, bool eos) const {
 
 SorterReserveMemory FullSorter::get_reserve_mem_size_components(RuntimeState* state,
                                                                 bool eos) const {
+    return get_reserve_mem_size_components(state, eos, std::numeric_limits<size_t>::max());
+}
+
+SorterReserveMemory FullSorter::get_reserve_mem_size_components(RuntimeState* state, bool eos,
+                                                                size_t sort_threshold_bytes) const {
     const auto rows = _state->unsorted_block()->rows();
     const auto bytes = _state->unsorted_block()->bytes();
     const auto bytes_per_row = rows == 0 ? 0 : bytes / rows;
     return get_reserve_mem_size_components(
             state, eos, state->batch_size(),
-            saturating_multiply_size(bytes_per_row, state->batch_size()));
+            saturating_multiply_size(bytes_per_row, state->batch_size()), sort_threshold_bytes);
 }
 
 SorterReserveMemory FullSorter::get_reserve_mem_size_components(RuntimeState* state, bool eos,
                                                                 size_t incoming_rows,
                                                                 size_t incoming_bytes) const {
+    return get_reserve_mem_size_components(state, eos, incoming_rows, incoming_bytes,
+                                           std::numeric_limits<size_t>::max());
+}
+
+SorterReserveMemory FullSorter::get_reserve_mem_size_components(RuntimeState* state, bool eos,
+                                                                size_t incoming_rows,
+                                                                size_t incoming_bytes,
+                                                                size_t sort_threshold_bytes) const {
     SorterReserveMemory reserve;
     const auto rows = _state->unsorted_block()->rows();
     if (rows != 0) {
@@ -234,8 +247,10 @@ SorterReserveMemory FullSorter::get_reserve_mem_size_components(RuntimeState* st
         }
         // Iceberg close forces every nonempty pending run to sort at EOS, even when the generic
         // append thresholds are not reached, so admission must cover that final allocation too.
+        // The reservation must mirror every caller-side rollover that immediately invokes do_sort().
         auto sort = (eos && new_rows > 0) || new_rows > _buffered_block_size ||
-                    new_block_bytes > _buffered_block_bytes;
+                    new_block_bytes > _buffered_block_bytes ||
+                    new_block_bytes >= sort_threshold_bytes;
         if (sort) {
             // sort_block keeps the source columns live while materializing a fully permuted destination.
             reserve.transient_workspace =

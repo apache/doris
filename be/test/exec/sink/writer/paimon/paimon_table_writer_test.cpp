@@ -43,12 +43,14 @@ private:
 
 class FakePaimonBackend final : public IPaimonWriteBackend {
 public:
-    explicit FakePaimonBackend(int* close_count) : _close_count(close_count) {}
+    explicit FakePaimonBackend(int* close_count, Status prepare_close_status = Status::OK())
+            : _close_count(close_count), _prepare_close_status(std::move(prepare_close_status)) {}
 
     Status open(const TPaimonTableSink&, RuntimeState*, RuntimeProfile*) override {
         return Status::OK();
     }
     Status create_writer(std::unique_ptr<IPaimonWriter>*) override { return Status::OK(); }
+    Status prepare_close_for_commit() override { return _prepare_close_status; }
     Status close() override {
         ++*_close_count;
         return Status::OK();
@@ -57,6 +59,7 @@ public:
 
 private:
     int* _close_count;
+    Status _prepare_close_status;
 };
 
 } // namespace
@@ -97,6 +100,22 @@ TEST(PaimonPreparedCommitOwnerTest, AmbiguousReportRetainsOwnerUntilAcknowledged
         owner.finalize(ExternalFileReportOutcome::ACKNOWLEDGED);
     }
     EXPECT_EQ(0, abort_count);
+    EXPECT_EQ(1, close_count);
+}
+
+TEST(PaimonPreparedCommitOwnerTest, FailedSdkShutdownRejectsCommitBeforeAcknowledgement) {
+    int abort_count = 0;
+    int close_count = 0;
+    PaimonPreparedCommitOwner owner(
+            std::make_unique<FakePaimonWriter>(&abort_count),
+            std::make_unique<FakePaimonBackend>(
+                    &close_count, Status::InternalError("injected SDK shutdown failure")));
+
+    Status status = owner.prepare_for_report();
+    owner.finalize(ExternalFileReportOutcome::REJECTED);
+
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(1, abort_count);
     EXPECT_EQ(1, close_count);
 }
 

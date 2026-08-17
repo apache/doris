@@ -92,7 +92,10 @@ SorterReserveMemory VIcebergSortWriter::get_reserve_mem_size_components(RuntimeS
     if (_sorter == nullptr) {
         return {};
     }
-    auto reservation = _sorter->get_reserve_mem_size_components(state, eos);
+    const size_t target = _target_file_size_bytes >= 0
+                                  ? static_cast<size_t>(_target_file_size_bytes)
+                                  : std::numeric_limits<size_t>::max();
+    auto reservation = _sorter->get_reserve_mem_size_components(state, eos, target);
     _include_spill_merge_reservation(state, eos, &reservation);
     return reservation;
 }
@@ -103,8 +106,11 @@ SorterReserveMemory VIcebergSortWriter::get_reserve_mem_size_components(
     if (_sorter == nullptr) {
         return {};
     }
-    auto reservation =
-            _sorter->get_reserve_mem_size_components(state, eos, incoming_rows, incoming_bytes);
+    const size_t target = _target_file_size_bytes >= 0
+                                  ? static_cast<size_t>(_target_file_size_bytes)
+                                  : std::numeric_limits<size_t>::max();
+    auto reservation = _sorter->get_reserve_mem_size_components(state, eos, incoming_rows,
+                                                                incoming_bytes, target);
     _include_spill_merge_reservation(state, eos, &reservation);
     return reservation;
 }

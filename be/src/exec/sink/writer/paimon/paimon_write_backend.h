@@ -80,6 +80,10 @@ public:
     /// Create a lightweight writer adapter that delegates to this backend.
     virtual Status create_writer(std::unique_ptr<IPaimonWriter>* writer) = 0;
 
+    /// Stop SDK writers before commit metadata can be accepted while preserving enough metadata
+    /// for abort(messages) if the coordinator rejects the final report.
+    virtual Status prepare_close_for_commit() = 0;
+
     /// Stop all SDK users and release backend resources.
     ///
     /// A successful return is the ownership boundary after which native memory
