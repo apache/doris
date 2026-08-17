@@ -17,6 +17,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_insert_with_index", "p0, nonConcurrent") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
 
      def set_be_config = { key, value ->
         def backendId_to_backendIP = [:]
@@ -44,12 +45,12 @@ suite("test_insert_with_index", "p0, nonConcurrent") {
             PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = ${format});
         """
 
-        sql """insert into ${srcName} values(1, '{"a" : 123, "b" : "xxxyyy", "c" : 111999111}')"""
-        sql """insert into ${srcName} values(2, '{"a" : 18811, "b" : "hello world", "c" : 1181111}')"""
-        sql """insert into ${srcName} values(3, '{"a" : 18811, "b" : "hello wworld", "c" : 11111}')"""
-        sql """insert into ${srcName} values(4, '{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}')"""
+        sql """insert into ${srcName} values(1, ${variantV2Function}('{"a" : 123, "b" : "xxxyyy", "c" : 111999111}'))"""
+        sql """insert into ${srcName} values(2, ${variantV2Function}('{"a" : 18811, "b" : "hello world", "c" : 1181111}'))"""
+        sql """insert into ${srcName} values(3, ${variantV2Function}('{"a" : 18811, "b" : "hello wworld", "c" : 11111}'))"""
+        sql """insert into ${srcName} values(4, ${variantV2Function}('{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}'))"""
         qt_sql_2 """select * from ${srcName} where cast(v["a"] as smallint) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 1024 order by k"""
-        sql """insert into ${srcName} values(5, '{"a" : 123456789, "b" : 123456, "c" : 8181111}')"""
+        sql """insert into ${srcName} values(5, ${variantV2Function}('{"a" : 123456789, "b" : 123456, "c" : 8181111}'))"""
         qt_sql_3 """select * from ${srcName} where cast(v["a"] as int) > 123 and cast(v["b"] as string) match 'hello' and cast(v["c"] as int) > 11111 order by k"""
 
         sql """ DROP TABLE IF EXISTS ${dstName}; """

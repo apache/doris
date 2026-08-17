@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_var_index_snii", "p0, nonConcurrent"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
 
@@ -60,10 +61,10 @@ suite("regression_test_variant_var_index_snii", "p0, nonConcurrent"){
         properties("replication_num" = "1", "disable_auto_compaction" = "true",
                    "inverted_index_storage_format" = "SNII");
     """
-    sql """insert into ${typed_table} values(1, 'alpha plain', '{"a" : 123, "b" : "xxxyyy", "c" : 111999111}')"""
-    sql """insert into ${typed_table} values(2, 'beta plain', '{"a" : 18811, "b" : "hello world", "c" : 1181111}')"""
-    sql """insert into ${typed_table} values(3, 'alpha other', '{"a" : 18811, "b" : "hello wworld", "c" : 11111}')"""
-    sql """insert into ${typed_table} values(4, 'gamma plain', '{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}')"""
+    sql """insert into ${typed_table} values(1, 'alpha plain', ${variantV2Function}('{"a" : 123, "b" : "xxxyyy", "c" : 111999111}'))"""
+    sql """insert into ${typed_table} values(2, 'beta plain', ${variantV2Function}('{"a" : 18811, "b" : "hello world", "c" : 1181111}'))"""
+    sql """insert into ${typed_table} values(3, 'alpha other', ${variantV2Function}('{"a" : 18811, "b" : "hello wworld", "c" : 11111}'))"""
+    sql """insert into ${typed_table} values(4, 'gamma plain', ${variantV2Function}('{"a" : 1234, "b" : "hello xxx world", "c" : 8181111}'))"""
 
     sql """set enable_match_without_inverted_index = false"""
     qt_typed_match """select k from ${typed_table} where cast(v["b"] as string) match 'hello' order by k"""
@@ -93,9 +94,9 @@ suite("regression_test_variant_var_index_snii", "p0, nonConcurrent"){
         properties("replication_num" = "1", "disable_auto_compaction" = "true",
                    "inverted_index_storage_format" = "SNII");
     """
-    sql """insert into ${dynamic_table} values(1, '{"a" : 123, "b" : "xxxyyy"}')"""
-    sql """insert into ${dynamic_table} values(2, '{"a" : 18811, "b" : "hello world"}')"""
-    sql """insert into ${dynamic_table} values(3, '{"a" : 1234, "b" : "hello xxx world"}')"""
+    sql """insert into ${dynamic_table} values(1, ${variantV2Function}('{"a" : 123, "b" : "xxxyyy"}'))"""
+    sql """insert into ${dynamic_table} values(2, ${variantV2Function}('{"a" : 18811, "b" : "hello world"}'))"""
+    sql """insert into ${dynamic_table} values(3, ${variantV2Function}('{"a" : 1234, "b" : "hello xxx world"}'))"""
 
     sql """set enable_match_without_inverted_index = false"""
     qt_dynamic_match """select k from ${dynamic_table} where cast(v["b"] as string) match 'hello' order by k"""

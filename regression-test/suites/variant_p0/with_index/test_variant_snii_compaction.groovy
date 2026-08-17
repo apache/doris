@@ -16,6 +16,7 @@
 // under the License.
 
 suite("regression_test_variant_snii_compaction", "p0, nonConcurrent"){
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def table_name = "var_snii_compaction"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
@@ -33,10 +34,10 @@ suite("regression_test_variant_snii_compaction", "p0, nonConcurrent"){
     """
 
     // One rowset per insert, so compaction has several to merge.
-    sql """insert into ${table_name} values(1, '{"a" : 100, "b" : "hello world"}')"""
-    sql """insert into ${table_name} values(2, '{"a" : 200, "b" : "hello doris"}')"""
-    sql """insert into ${table_name} values(3, '{"a" : 300, "b" : "goodbye world"}')"""
-    sql """insert into ${table_name} values(4, '{"a" : 400, "b" : "hello again"}')"""
+    sql """insert into ${table_name} values(1, ${variantV2Function}('{"a" : 100, "b" : "hello world"}'))"""
+    sql """insert into ${table_name} values(2, ${variantV2Function}('{"a" : 200, "b" : "hello doris"}'))"""
+    sql """insert into ${table_name} values(3, ${variantV2Function}('{"a" : 300, "b" : "goodbye world"}'))"""
+    sql """insert into ${table_name} values(4, ${variantV2Function}('{"a" : 400, "b" : "hello again"}'))"""
 
     sql """set enable_match_without_inverted_index = false"""
 

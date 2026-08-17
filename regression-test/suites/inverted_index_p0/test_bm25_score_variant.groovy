@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_bm25_score_variant", "p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     if (isCloudMode()) {
         return
     }
@@ -48,9 +49,9 @@ suite("test_bm25_score_variant", "p0") {
             )
         """
         sql """ insert into test_bm25_score_variant_a1 values
-                (1, '{"host":"alpha database server"}'),
-                (2, '{"host":"beta server cluster"}'),
-                (3, '{"other":"alpha"}')
+                (1, ${variantV2Function}('{"host":"alpha database server"}')),
+                (2, ${variantV2Function}('{"host":"beta server cluster"}')),
+                (3, ${variantV2Function}('{"other":"alpha"}'))
         """
         sql " sync "
 
@@ -86,8 +87,8 @@ suite("test_bm25_score_variant", "p0") {
             )
         """
         sql """ insert into test_bm25_score_variant_c values
-                (1, '{"note":"latency spike at noon"}'),
-                (2, '{"note":"all green"}')
+                (1, ${variantV2Function}('{"note":"latency spike at noon"}')),
+                (2, ${variantV2Function}('{"note":"all green"}'))
         """
         sql " sync "
 

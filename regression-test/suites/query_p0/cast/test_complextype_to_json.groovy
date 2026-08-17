@@ -16,6 +16,7 @@
 // under the License.
 
 suite('test_complextype_to_json', "query_p0") {
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     // do support in nereids
 
     // literal cast
@@ -155,7 +156,7 @@ suite('test_complextype_to_json', "query_p0") {
 
 
     sql """
-        insert into cast_from_variant_to_json values(1, "[-9223372036854775808]");
+        insert into cast_from_variant_to_json values(1, ${variantV2Function}("[-9223372036854775808]"));
     """
 
     sql """
