@@ -61,4 +61,8 @@ private:
     bool _is_tvf;
 };
 
+/// Instantiated once in scan_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class ScanOperatorX<JDBCScanLocalState>;
+extern template class ScanLocalState<JDBCScanLocalState>;
+
 } // namespace doris

@@ -308,4 +308,10 @@ private:
     std::set<int> _materialize_column_ids;
 };
 
+/// Instantiated once in operator.cpp / join_probe_operator.cpp; suppresses per-TU
+/// implicit instantiation.
+extern template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
+extern template class JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>;
+extern template class JoinProbeOperatorX<NestedLoopJoinProbeLocalState>;
+
 } // namespace doris

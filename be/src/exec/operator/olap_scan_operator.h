@@ -394,4 +394,8 @@ private:
     TabletSchemaSPtr _tablet_schema;
 };
 
+/// Instantiated once in scan_operator.cpp; suppresses per-TU implicit instantiation.
+extern template class ScanOperatorX<OlapScanLocalState>;
+extern template class ScanLocalState<OlapScanLocalState>;
+
 } // namespace doris
