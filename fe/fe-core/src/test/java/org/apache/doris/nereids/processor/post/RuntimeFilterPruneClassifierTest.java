@@ -254,6 +254,71 @@ class RuntimeFilterPruneClassifierTest {
     }
 
     @Test
+    void testPartitionUniqueIdCollisionRejected() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        partitionColumn.setUniqueId(0);
+        Column baseTargetColumn = new Column("value_col", PrimitiveType.INT);
+        baseTargetColumn.setUniqueId(1);
+        Column rollupTargetColumn = directRollupColumn("part_col", baseTargetColumn);
+        rollupTargetColumn.setUniqueId(0);
+
+        RuntimeFilterPruneClassifier.Classification classification = classifyDirectPartition(
+                rollupTargetColumn, partitionColumn, 1L, 2L);
+
+        Assertions.assertFalse(classification.canPrunePartitions());
+    }
+
+    @Test
+    void testDirectRollupPartitionColumnSupported() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        Column rollupTargetColumn = directRollupColumn("part_col", partitionColumn);
+
+        RuntimeFilterPruneClassifier.Classification classification = classifyDirectPartition(
+                rollupTargetColumn, partitionColumn, 1L, 2L);
+
+        assertSupportedIncreasingPartitions(classification);
+    }
+
+    @Test
+    void testRenamedRollupPartitionColumnRejected() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        Column rollupTargetColumn = directRollupColumn("mv_part_col", partitionColumn);
+
+        RuntimeFilterPruneClassifier.Classification classification = classifyDirectPartition(
+                rollupTargetColumn, partitionColumn, 1L, 2L);
+
+        Assertions.assertFalse(classification.canPrunePartitions());
+    }
+
+    @Test
+    void testNonBasePartitionTargetWithoutDefinitionRejected() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        Column rollupTargetColumn = new Column("part_col", PrimitiveType.INT);
+
+        RuntimeFilterPruneClassifier.Classification classification = classifyDirectPartition(
+                rollupTargetColumn, partitionColumn, 1L, 2L);
+
+        Assertions.assertFalse(classification.canPrunePartitions());
+        Assertions.assertTrue(classification.getPartitionUnsupportedReason()
+                .contains("no direct base-column"));
+    }
+
+    @Test
+    void testComputedRollupPartitionTargetRejected() {
+        Column partitionColumn = new Column("part_col", PrimitiveType.INT);
+        Column rollupTargetColumn = new Column("part_col", PrimitiveType.INT);
+        rollupTargetColumn.setDefineExpr(new FunctionCallExpr("abs",
+                ImmutableList.of(directSlotRef(partitionColumn)), true));
+
+        RuntimeFilterPruneClassifier.Classification classification = classifyDirectPartition(
+                rollupTargetColumn, partitionColumn, 1L, 2L);
+
+        Assertions.assertFalse(classification.canPrunePartitions());
+        Assertions.assertTrue(classification.getPartitionUnsupportedReason()
+                .contains("no direct base-column"));
+    }
+
+    @Test
     void testBloomRangePartitionRejected() {
         RuntimeFilterPruneClassifier.Classification classification = classifyPartition(
                 TRuntimeFilterType.BLOOM, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM,
@@ -344,6 +409,34 @@ class RuntimeFilterPruneClassifierTest {
         RuntimeFilter filter = newFilter(filterType, target,
                 targetExpression, targetExpression.getDataType(), scan);
         return RuntimeFilterPruneClassifier.classify(filter, partitionOnlySession());
+    }
+
+    private RuntimeFilterPruneClassifier.Classification classifyDirectPartition(
+            Column targetColumn, Column partitionColumn, long baseIndexId, long selectedIndexId) {
+        OlapTable table = Mockito.mock(OlapTable.class);
+        PartitionInfo partitionInfo = partitionInfo(
+                partitionColumn, PartitionType.RANGE, RangePartitionItem.DUMMY_ITEM);
+        Mockito.when(table.getBaseIndexId()).thenReturn(baseIndexId);
+        Mockito.when(table.getPartitionInfo()).thenReturn(partitionInfo);
+        PhysicalOlapScan scan = scan(table, ImmutableList.of(1L, 2L));
+        Mockito.when(scan.getSelectedIndexId()).thenReturn(selectedIndexId);
+        SlotReference target = slot(targetColumn, table, 1);
+        RuntimeFilter filter = newFilter(
+                TRuntimeFilterType.IN, target, target, target.getDataType(), scan);
+        return RuntimeFilterPruneClassifier.classify(filter, partitionOnlySession());
+    }
+
+    private Column directRollupColumn(String name, Column baseColumn) {
+        Column rollupColumn = new Column(name, baseColumn.getType());
+        rollupColumn.setDefineExpr(directSlotRef(baseColumn));
+        return rollupColumn;
+    }
+
+    private SlotRef directSlotRef(Column column) {
+        SlotDescriptor slotDescriptor = new SlotDescriptor(new SlotId(2), new TupleId(2));
+        slotDescriptor.setColumn(column);
+        slotDescriptor.setType(column.getType());
+        return new SlotRef(slotDescriptor);
     }
 
     private PartitionInfo partitionInfo(
