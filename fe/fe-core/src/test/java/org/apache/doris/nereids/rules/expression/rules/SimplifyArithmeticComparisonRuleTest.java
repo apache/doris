@@ -184,6 +184,36 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("seconds_sub(CA, 1) > '2021-01-01 00:00:00'", "(cast(CA as DATETIMEV2(0)) > '2021-01-01 00:00:01')");
     }
 
+    @Test
+    public void testDateOverflowKeepsOriginal() {
+        // Rewriting `date_sub(d, K) <= MAX_DATE` to `d <= date_add(MAX_DATE, K)` would overflow
+        // the DATE / DATETIME domain. Verify the rule keeps the original comparison instead of
+        // producing an unsafe rewrite that explodes downstream (#61761).
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(
+                        SimplifyArithmeticRule.INSTANCE,
+                        SimplifyArithmeticComparisonRule.INSTANCE,
+                        FoldConstantRuleOnFE.VISITOR_INSTANCE
+                )
+        ));
+
+        // DATE: 9999-12-31 + 1 day overflows -> no rewrite
+        assertRewriteAfterTypeCoercion("days_sub(CA, 1) <= '9999-12-31'",
+                "(days_sub(CA, 1) <= date '9999-12-31')");
+
+        // DATETIME: '9999-12-31 23:59:59' + 1 second overflows -> no rewrite
+        assertRewriteAfterTypeCoercion("seconds_sub(AA, 1) <= '9999-12-31 23:59:59'",
+                "(seconds_sub(AA, 1) <= '9999-12-31 23:59:59')");
+
+        // DATE: 9999-12-25 + 1 week overflows -> no rewrite
+        assertRewriteAfterTypeCoercion("weeks_sub(CA, 1) <= '9999-12-25'",
+                "(weeks_sub(CA, 1) <= date '9999-12-25')");
+
+        // Sanity check: when the rearranged constant is safely in range the rule still rewrites.
+        assertRewriteAfterTypeCoercion("days_sub(CA, 1) <= '2021-01-01'",
+                "(CA <= date '2021-01-02')");
+    }
+
     private void assertRewriteAfterSimplify(String expr, String expected) {
         Expression needRewriteExpression = PARSER.parseExpression(expr);
         needRewriteExpression = replaceUnboundSlot(needRewriteExpression, Maps.newHashMap());
