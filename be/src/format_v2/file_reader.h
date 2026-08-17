@@ -86,6 +86,10 @@ struct FileScanRequest {
     std::map<LocalColumnId, LocalIndex> non_predicate_positions;
     // Row-level filters converted to file-local expressions from table-level predicates.
     VExprContextSPtrs conjuncts;
+    // File-local columns still consumed by table-level predicates that could not be localized.
+    // Their values must survive physical reading even when COUNT(*) otherwise permits a synthetic
+    // carrier column.
+    std::vector<LocalColumnId> residual_predicate_columns;
     // Metadata pruning may use only this prefix. A later predicate must not jump over an earlier
     // non-deterministic or error-preserving conjunct in the original row-level order.
     size_t metadata_pruning_safe_conjunct_count = std::numeric_limits<size_t>::max();
@@ -111,6 +115,11 @@ struct FileScanRequest {
     bool is_count_star_placeholder(LocalColumnId column_id) const {
         return std::ranges::find(count_star_placeholder_columns, column_id) !=
                count_star_placeholder_columns.end();
+    }
+
+    bool is_residual_predicate_column(LocalColumnId column_id) const {
+        return std::ranges::find(residual_predicate_columns, column_id) !=
+               residual_predicate_columns.end();
     }
 
     bool is_predicate_only(LocalColumnId column_id) const {

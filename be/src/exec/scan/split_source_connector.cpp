@@ -85,10 +85,9 @@ Status SplitSourceConnector::get_next_split(bool* has_next, FileScanSplit* split
             *has_next = true;
             return Status::OK();
         }
-        if (_active_source_splits.empty()) {
-            return Status::OK();
-        }
-        _split_ready.wait(lock);
+        // A footer producer can publish children while the final remote fetch runs without the
+        // queue lock. Re-enter the queue checks before deciding EOS so the fetching scanner can
+        // claim those children even when no third scanner is waiting to be notified.
     }
 }
 

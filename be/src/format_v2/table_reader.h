@@ -187,6 +187,10 @@ struct SplitReadOptions {
     TFileRangeDesc current_range;
     FileFormat current_split_format = FileFormat::PARQUET;
     std::shared_ptr<const FileContext> file_context;
+    // Generated row-group children keep the FE source coordinates in the cache key so serial and
+    // refined scans address the same predicate bitmap.
+    std::optional<std::pair<int64_t, int64_t>> condition_cache_source_range;
+    std::shared_ptr<ConditionCacheSplitContext> condition_cache_split_context;
     int64_t format_split_id = -1;
     std::optional<GlobalRowIdContext> global_rowid_context;
 };
@@ -491,7 +495,9 @@ protected:
             file_request->count_star_placeholder_columns.reserve(
                     file_request->non_predicate_columns.size());
             for (const auto& column : file_request->non_predicate_columns) {
-                file_request->count_star_placeholder_columns.push_back(column.column_id());
+                if (!file_request->is_residual_predicate_column(column.column_id())) {
+                    file_request->count_star_placeholder_columns.push_back(column.column_id());
+                }
             }
         }
         RETURN_IF_ERROR(customize_file_scan_request(file_request.get()));
@@ -1952,6 +1958,11 @@ protected:
     segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
     std::shared_ptr<std::vector<bool>> _condition_cache;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
+    std::optional<std::pair<int64_t, int64_t>> _condition_cache_source_range;
+    std::shared_ptr<ConditionCacheSplitContext> _condition_cache_split_context;
+    bool _condition_cache_split_participating = false;
+    bool _condition_cache_split_invalid = false;
+    bool _condition_cache_initialized = false;
     int64_t _condition_cache_hit_count = 0;
     bool _current_reader_reached_eof = false;
     int64_t _remaining_table_level_count = -1;

@@ -32,6 +32,8 @@
 
 namespace doris {
 
+struct ConditionCacheSplitContext;
+
 // Opaque immutable metadata shared by all physical splits of one file. Concrete file formats own
 // the derived type so the scanner and split-source layers do not depend on format internals.
 class FileContext {
@@ -95,6 +97,7 @@ struct FileScanSplit {
     int64_t size = -1;
     bool clear_table_level_row_count = false;
     std::shared_ptr<const FileContext> file_context;
+    std::shared_ptr<ConditionCacheSplitContext> condition_cache_split_context;
     int64_t format_split_id = -1;
     bool is_source_split = false;
     uint64_t source_split_id = 0;

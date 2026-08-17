@@ -927,7 +927,9 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
         _push_down_count_columns->empty() && _all_runtime_filters_applied_for_split) {
         for (const auto& column : refreshed_request->non_predicate_columns) {
-            refreshed_request->count_star_placeholder_columns.push_back(column.column_id());
+            if (!refreshed_request->is_residual_predicate_column(column.column_id())) {
+                refreshed_request->count_star_placeholder_columns.push_back(column.column_id());
+            }
         }
     }
     RETURN_IF_ERROR(customize_file_scan_request(refreshed_request.get()));
@@ -943,6 +945,7 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
     if (_condition_cache_ctx != nullptr && !_condition_cache_ctx->is_hit) {
         // Rows before and after a late RF were evaluated by different predicate snapshots. Such a
         // partial MISS bitmap must never be published under either snapshot's cache key.
+        _condition_cache_split_invalid = _condition_cache_split_participating;
         _condition_cache = nullptr;
         _condition_cache_ctx = nullptr;
         _data_reader.reader->set_condition_cache_context(nullptr);
@@ -998,18 +1001,26 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
     _condition_cache = nullptr;
     _condition_cache_ctx = nullptr;
     if (!_should_enable_condition_cache(file_request)) {
+        _condition_cache_split_invalid = _condition_cache_split_participating;
         return Status::OK();
     }
 
     auto* cache = segment_v2::ConditionCache::instance();
     if (cache == nullptr) {
+        _condition_cache_split_invalid = _condition_cache_split_participating;
         return Status::OK();
     }
     const auto& file = *_current_file_description;
+    const auto cache_start = _condition_cache_source_range.has_value()
+                                     ? _condition_cache_source_range->first
+                                     : file.range_start_offset;
+    const auto cache_size = _condition_cache_source_range.has_value()
+                                    ? _condition_cache_source_range->second
+                                    : file.range_size;
     _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
-            file.path, file.mtime, file.file_size, _condition_cache_digest, file.range_start_offset,
-            file.range_size,
+            file.path, file.mtime, file.file_size, _condition_cache_digest, cache_start, cache_size,
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
+    _condition_cache_initialized = true;
 
     segment_v2::ConditionCacheHandle handle;
     const bool condition_cache_hit = cache->lookup(_condition_cache_key, &handle);
@@ -1043,6 +1054,91 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
 }
 
 void TableReader::_finalize_reader_condition_cache() {
+    if (_condition_cache_split_participating) {
+        DORIS_CHECK(_condition_cache_split_context != nullptr);
+        const bool cache_hit = _condition_cache_ctx != nullptr && _condition_cache_ctx->is_hit;
+        const bool complete_miss = _condition_cache_initialized &&
+                                   !_condition_cache_split_invalid && _current_reader_reached_eof;
+        std::shared_ptr<std::vector<bool>> published_filter;
+        int64_t published_base_granule = 0;
+        {
+            std::lock_guard lock(_condition_cache_split_context->lock);
+            auto& split_context = *_condition_cache_split_context;
+            if (!_condition_cache_initialized) {
+                split_context.valid = false;
+            } else {
+                const auto encoded_key = _condition_cache_key.encode();
+                if (!split_context.encoded_key.has_value()) {
+                    split_context.encoded_key = encoded_key;
+                } else if (*split_context.encoded_key != encoded_key) {
+                    // Children can observe different late-RF snapshots. Never combine their
+                    // partial bitmaps under either digest's source-level cache key.
+                    split_context.valid = false;
+                }
+            }
+            if (cache_hit) {
+                split_context.cache_hit_seen = true;
+            } else if (!complete_miss) {
+                split_context.valid = false;
+            } else if (_condition_cache_ctx != nullptr && _condition_cache != nullptr) {
+                DORIS_CHECK(_condition_cache_ctx->num_granules <= _condition_cache->size());
+                const int64_t local_base = _condition_cache_ctx->base_granule;
+                const size_t local_size = _condition_cache_ctx->num_granules;
+                if (split_context.merged_filter_result.empty()) {
+                    split_context.base_granule = local_base;
+                    split_context.merged_filter_result.assign(local_size, false);
+                } else {
+                    const int64_t merged_end =
+                            split_context.base_granule +
+                            cast_set<int64_t>(split_context.merged_filter_result.size());
+                    const int64_t local_end = local_base + cast_set<int64_t>(local_size);
+                    const int64_t combined_base = std::min(split_context.base_granule, local_base);
+                    const int64_t combined_end = std::max(merged_end, local_end);
+                    if (combined_base != split_context.base_granule || combined_end != merged_end) {
+                        std::vector<bool> combined(cast_set<size_t>(combined_end - combined_base),
+                                                   false);
+                        for (size_t index = 0; index < split_context.merged_filter_result.size();
+                             ++index) {
+                            combined[cast_set<size_t>(split_context.base_granule - combined_base) +
+                                     index] = split_context.merged_filter_result[index];
+                        }
+                        split_context.base_granule = combined_base;
+                        split_context.merged_filter_result = std::move(combined);
+                    }
+                }
+                for (size_t index = 0; index < local_size; ++index) {
+                    const auto merged_index =
+                            cast_set<size_t>(local_base - split_context.base_granule) + index;
+                    split_context.merged_filter_result[merged_index] =
+                            split_context.merged_filter_result[merged_index] ||
+                            (*_condition_cache)[index];
+                }
+            }
+
+            DORIS_CHECK(split_context.remaining_children > 0);
+            --split_context.remaining_children;
+            if (split_context.remaining_children == 0 && split_context.valid &&
+                !split_context.cache_hit_seen && !split_context.merged_filter_result.empty()) {
+                // A source-level entry is visible only after every row-group child reaches EOF;
+                // publishing an earlier partial MISS would let a sibling HIT skip valid rows.
+                published_base_granule = split_context.base_granule;
+                published_filter = std::make_shared<std::vector<bool>>(
+                        std::move(split_context.merged_filter_result));
+            }
+        }
+        if (published_filter != nullptr) {
+            if (auto* cache = segment_v2::ConditionCache::instance(); cache != nullptr) {
+                cache->insert(_condition_cache_key, std::move(published_filter),
+                              published_base_granule);
+            }
+        }
+        _condition_cache = nullptr;
+        _condition_cache_ctx = nullptr;
+        _condition_cache_split_context.reset();
+        _condition_cache_split_participating = false;
+        _condition_cache_initialized = false;
+        return;
+    }
     if (_condition_cache_ctx == nullptr || _condition_cache_ctx->is_hit) {
         _condition_cache = nullptr;
         _condition_cache_ctx = nullptr;
@@ -1199,6 +1295,11 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     SCOPED_TIMER(_profile.prepare_split_timer);
     _current_split_pruned = false;
     _all_runtime_filters_applied_for_split = options.all_runtime_filters_applied;
+    _condition_cache_source_range = options.condition_cache_source_range;
+    _condition_cache_split_context = options.condition_cache_split_context;
+    _condition_cache_split_participating = _condition_cache_split_context != nullptr;
+    _condition_cache_split_invalid = false;
+    _condition_cache_initialized = false;
     _condition_cache_digest_covers_current_split = options.condition_cache_digest.has_value();
     if (options.condition_cache_digest.has_value()) {
         // The split snapshot may include RFs that arrived after TableReader::init(). Use the digest
@@ -1300,27 +1401,43 @@ Status TableReader::build_physical_splits(const FileScanSplit& source_split,
         static_cast<void>(close_planning_reader());
         return init_status;
     }
+
+    _data_reader.reader = std::move(reader);
+    if (_batch_size > 0) {
+        _data_reader.reader->set_batch_size(_batch_size);
+    }
+    const auto open_status = open_reader();
+    if (!open_status.ok()) {
+        if (_data_reader.reader != nullptr) {
+            static_cast<void>(close_current_reader());
+        }
+        return open_status;
+    }
+    if (_data_reader.reader == nullptr) {
+        // Constant pruning can close the eagerly opened planning reader. Publish an empty refined
+        // source so scanners do not recreate and reopen the same already-rejected file.
+        *was_split = true;
+        return Status::OK();
+    }
+
     Status status;
     {
         SCOPED_TIMER(_profile.file_reader_total_timer);
-        status = reader->build_physical_splits(source_split, splits, was_split);
+        status = _data_reader.reader->build_physical_splits(source_split, splits, was_split);
     }
     if (!status.ok()) {
-        static_cast<void>(close_planning_reader());
+        static_cast<void>(close_current_reader());
         return status;
     }
     if (!*was_split || splits->size() == 1) {
-        // Reuse the planning reader when refinement is unnecessary. This avoids parsing the same
-        // footer again for an unsplit file or for the common single-row-group case.
+        // Reuse the fully planned reader when refinement is unnecessary. Besides avoiding another
+        // footer parse, this preserves the request snapshot whose footer pruning selected the
+        // single surviving row group.
         splits->clear();
         *was_split = false;
-        _data_reader.reader = std::move(reader);
-        if (_batch_size > 0) {
-            _data_reader.reader->set_batch_size(_batch_size);
-        }
-        return open_reader();
+        return Status::OK();
     }
-    return close_planning_reader();
+    return close_current_reader();
 }
 
 Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,

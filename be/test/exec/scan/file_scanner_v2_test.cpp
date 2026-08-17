@@ -680,6 +680,42 @@ TEST(FileScannerV2Test, RemoteFetchDoesNotBlockGeneratedSplitPublication) {
     EXPECT_FALSE(fetch_has_next);
 }
 
+TEST(FileScannerV2Test, FinalRemoteFetchRechecksChildrenPublishedWhileBlocked) {
+    TFileRangeDesc range;
+    range.__set_path("remote.parquet");
+    BlockingRemoteStyleSplitSourceConnector connector(std::move(range));
+    FileScanSplit source;
+    bool has_next = false;
+    ASSERT_TRUE(connector.get_next_split(&has_next, &source).ok());
+    ASSERT_TRUE(has_next);
+
+    auto remote_fetch = std::async(std::launch::async, [&]() {
+        FileScanSplit split;
+        bool fetch_has_next = false;
+        auto status = connector.get_next_split(&fetch_has_next, &split);
+        return std::make_tuple(status, fetch_has_next, std::move(split));
+    });
+    connector.wait_for_fetch();
+
+    FileScanSplit child;
+    child.range = source.range;
+    child.range.__set_start_offset(101);
+    child.range.__set_size(17);
+    ASSERT_TRUE(connector.finish_source_split(source, {child}).ok());
+    connector.release_fetch();
+
+    ASSERT_EQ(remote_fetch.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    auto [fetch_status, fetch_has_next, generated] = remote_fetch.get();
+    ASSERT_TRUE(fetch_status.ok()) << fetch_status;
+    ASSERT_TRUE(fetch_has_next);
+    EXPECT_EQ(generated.range.start_offset, 101);
+    EXPECT_EQ(generated.range.size, 17);
+
+    FileScanSplit end;
+    ASSERT_TRUE(connector.get_next_split(&has_next, &end).ok());
+    EXPECT_FALSE(has_next);
+}
+
 TEST(FileScannerV2Test, RawSourceClearsGeneratedChildEnvelope) {
     LocalSplitSourceConnector connector({scan_range_with_path("next-local.parquet")}, 1);
     FileScanSplit reused;
@@ -690,6 +726,7 @@ TEST(FileScannerV2Test, RawSourceClearsGeneratedChildEnvelope) {
     reused.size = 17;
     reused.clear_table_level_row_count = true;
     reused.file_context = std::make_shared<const FileContext>();
+    reused.condition_cache_split_context = std::make_shared<ConditionCacheSplitContext>(1);
     reused.format_split_id = 3;
 
     bool has_next = false;
@@ -699,6 +736,7 @@ TEST(FileScannerV2Test, RawSourceClearsGeneratedChildEnvelope) {
     EXPECT_EQ(reused.materialize_range().path, "next-local.parquet");
     EXPECT_EQ(reused.source_range, nullptr);
     EXPECT_EQ(reused.file_context, nullptr);
+    EXPECT_EQ(reused.condition_cache_split_context, nullptr);
     EXPECT_EQ(reused.format_split_id, -1);
     ASSERT_TRUE(connector.finish_source_split(reused, {}).ok());
 }
@@ -722,6 +760,7 @@ TEST(FileScannerV2Test, EosKeepsLastRangeIdentityForFinalAccounting) {
     bool has_next = false;
     ASSERT_TRUE(scanner._get_next_scan_range(&has_next).ok());
     ASSERT_TRUE(has_next);
+    ASSERT_TRUE(scanner._split_source->finish_source_split(scanner._current_split, {}).ok());
     ASSERT_TRUE(scanner._get_next_scan_range(&has_next).ok());
     EXPECT_FALSE(has_next);
     EXPECT_TRUE(scanner._current_range.__isset.file_type);

@@ -602,9 +602,17 @@ Status ParquetReader::build_physical_splits(const FileScanSplit& source_split,
                                                               : _file_description->file_size,
     };
     std::vector<int> selected_row_groups;
-    RETURN_IF_ERROR(detail::select_native_row_groups_by_scan_range(
-            _state->file_context.native_metadata->to_thrift(), scan_range,
-            _state->file_context.native_metadata->row_group_first_rows(), &selected_row_groups));
+    if (_state->scan_plan != nullptr) {
+        selected_row_groups.reserve(_state->scan_plan->row_groups.size());
+        for (const auto& row_group_plan : _state->scan_plan->row_groups) {
+            selected_row_groups.push_back(row_group_plan.row_group_id);
+        }
+    } else {
+        RETURN_IF_ERROR(detail::select_native_row_groups_by_scan_range(
+                _state->file_context.native_metadata->to_thrift(), scan_range,
+                _state->file_context.native_metadata->row_group_first_rows(),
+                &selected_row_groups));
+    }
     const auto& metadata = _state->file_context.native_metadata->to_thrift();
     const auto compat = native::parquet_reader_compat(
             metadata.__isset.created_by ? metadata.created_by : std::string {});
@@ -630,18 +638,25 @@ Status ParquetReader::build_physical_splits(const FileScanSplit& source_split,
         for (size_t column_id = 0; column_id < row_group.columns.size(); ++column_id) {
             const auto& chunk = row_group.columns[column_id];
             if (!chunk.__isset.meta_data) {
-                return Status::Corruption("Parquet row group {} column {} has no metadata",
-                                          row_group_id, column_id);
+                // Scheduling envelopes span every chunk, including columns the current request
+                // does not read. If an unused chunk cannot prove a safe envelope, retain the
+                // initialized source reader so projected-column validation remains authoritative.
+                splits->clear();
+                return Status::OK();
             }
             native::ColumnChunkRange chunk_range;
-            RETURN_IF_ERROR(native::compute_column_chunk_range(
-                    chunk.meta_data, file_size, compat.parquet_816_padding, &chunk_range));
+            const auto range_status = native::compute_column_chunk_range(
+                    chunk.meta_data, file_size, compat.parquet_816_padding, &chunk_range);
+            if (!range_status.ok()) {
+                splits->clear();
+                return Status::OK();
+            }
             group_start = std::min(group_start, chunk_range.offset);
             group_end = std::max(group_end, chunk_range.offset + chunk_range.length);
         }
         if (group_end <= group_start) {
-            return Status::Corruption("Parquet row group {} has an empty physical byte range",
-                                      row_group_id);
+            splits->clear();
+            return Status::OK();
         }
         FileScanSplit child;
         child.source_range = shared_source_range;
@@ -653,6 +668,13 @@ Status ParquetReader::build_physical_splits(const FileScanSplit& source_split,
         child.file_context = _state->file_context.shared_file_context;
         child.format_split_id = row_group_id;
         splits->push_back(std::move(child));
+    }
+    if (splits->size() > 1) {
+        auto condition_cache_split_context =
+                std::make_shared<ConditionCacheSplitContext>(splits->size());
+        for (auto& split : *splits) {
+            split.condition_cache_split_context = condition_cache_split_context;
+        }
     }
     *was_split = true;
     return Status::OK();

@@ -467,7 +467,14 @@ Status FileScannerV2::_open_impl(RuntimeState* state) {
     RETURN_IF_ERROR(Scanner::_open_impl(state));
     // The first split may open its physical reader eagerly while refining row groups. Synchronize
     // ready filters first so COUNT(*) never treats a future RF carrier as a disposable placeholder.
-    RETURN_IF_ERROR(try_append_late_arrival_runtime_filter());
+    const auto rf_status = try_append_late_arrival_runtime_filter();
+    if (!rf_status.ok()) {
+        // Late RF pushdown is optional and the scheduler already treats refresh failures as
+        // best-effort. Keep the original conjunct snapshot instead of failing scanner open after
+        // a consumer has transitioned the ready filter to APPLIED.
+        LOG(WARNING) << "Failed to append late arrival runtime filter before file scanner open: "
+                     << rf_status.to_string();
+    }
     RETURN_IF_ERROR(_get_next_scan_range(&_first_scan_range));
     if (_first_scan_range) {
         RETURN_IF_ERROR(_create_table_reader_for_format(_current_range, &_table_reader));
@@ -801,6 +808,10 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
         // keeps safe partition pruning enabled independently of the legacy session gate.
         RETURN_IF_ERROR(_build_table_conjuncts(&partition_prune_conjuncts));
     }
+    const auto& source_identity = _current_split.source_identity_range();
+    const auto source_start =
+            source_identity.__isset.start_offset ? source_identity.start_offset : 0;
+    const auto source_size = source_identity.__isset.size ? source_identity.size : -1;
     RETURN_IF_ERROR(_table_reader->prepare_split({
             .partition_values = std::move(partition_values),
             .conjuncts = std::move(conjuncts),
@@ -813,6 +824,8 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
             .current_range = range,
             .current_split_format = current_split_format,
             .file_context = _current_split.file_context,
+            .condition_cache_source_range = std::pair(source_start, source_size),
+            .condition_cache_split_context = _current_split.condition_cache_split_context,
             .format_split_id = _current_split.format_split_id,
             .global_rowid_context =
                     _create_global_rowid_context(_current_split.source_identity_range()),

@@ -2359,6 +2359,7 @@ Status TableColumnMapper::create_scan_request(
     }
     file_request->non_predicate_positions.clear();
     file_request->conjuncts.clear();
+    file_request->residual_predicate_columns.clear();
     file_request->metadata_pruning_safe_conjunct_count = 0;
     file_request->constant_pruning_safe_table_filter_count = 0;
     file_request->delete_conjuncts.clear();
@@ -2626,6 +2627,26 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             // A rejected localization must preserve all later filters for post-materialization
             // evaluation, even if a later constant would otherwise prune the complete split.
             in_constant_pruning_safe_prefix = false;
+        }
+    }
+
+    for (size_t table_filter_idx = 0; table_filter_idx < table_filters.size(); ++table_filter_idx) {
+        if (localized_table_filters[table_filter_idx]) {
+            continue;
+        }
+        for (const auto global_index : table_filters[table_filter_idx].global_indices) {
+            const auto* mapping = _find_filter_mapping(global_index);
+            if (mapping == nullptr || !mapping->file_local_id.has_value()) {
+                continue;
+            }
+            const auto local_id = LocalColumnId(*mapping->file_local_id);
+            if (std::ranges::find(file_request->residual_predicate_columns, local_id) ==
+                file_request->residual_predicate_columns.end()) {
+                // Scanner re-evaluates every table predicate after materialization. A predicate
+                // that could not be localized therefore proves its input is semantic data, not a
+                // disposable COUNT(*) carrier.
+                file_request->residual_predicate_columns.push_back(local_id);
+            }
         }
     }
 
