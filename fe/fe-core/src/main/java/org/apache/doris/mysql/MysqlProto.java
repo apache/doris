@@ -314,6 +314,14 @@ public class MysqlProto {
 
     public static byte[] readLenEncodedString(ByteBuffer buffer) {
         long length = readVInt(buffer);
+        // The string payload must fit in the bytes actually remaining in the packet.
+        // Without this bound an attacker-controlled length is passed straight to
+        // new byte[(int) length], where the (int) cast can go negative or request
+        // up to ~2 GiB from a few bytes on the wire.
+        if (length < 0 || length > buffer.remaining()) {
+            throw new IllegalArgumentException("invalid length-encoded string length: " + length
+                    + ", remaining: " + buffer.remaining());
+        }
         byte[] buf = new byte[(int) length];
         buffer.get(buf);
         return buf;
