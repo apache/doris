@@ -28,8 +28,6 @@ import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.NativeFileFormatProperties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
@@ -67,28 +65,6 @@ public class NereidsLoadScanProviderTest {
 
         Assertions.assertEquals(Lists.newArrayList("time", "securityid", "EV"),
                 dataDescription.getFileFieldNames());
-    }
-
-    @Test
-    public void testStreamLoadUsesSessionVariableSnapshot() throws Exception {
-        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
-        request.setLoadId(new TUniqueId(1, 2));
-        request.setTxnId(3);
-        request.setFileType(TFileType.FILE_STREAM);
-        request.setFormatType(TFileFormatType.FORMAT_CSV_PLAIN);
-        request.setCompressType(TFileCompressType.PLAIN);
-
-        SessionVariable sessionVariable = new SessionVariable();
-        sessionVariable.enableHyperscanFallback = false;
-        ConnectContext context = new ConnectContext();
-        context.setSessionVariable(sessionVariable);
-        context.setThreadLocalInfo();
-        try {
-            NereidsStreamLoadTask task = NereidsStreamLoadTask.fromTStreamLoadPutRequest(request);
-            Assertions.assertFalse(NereidsStreamLoadPlanner.getQueryOptions(task).isEnableHyperscanFallback());
-        } finally {
-            ConnectContext.remove();
-        }
     }
 
     @Test

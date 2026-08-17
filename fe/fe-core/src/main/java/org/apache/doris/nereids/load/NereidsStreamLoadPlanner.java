@@ -302,7 +302,7 @@ public class NereidsStreamLoadPlanner {
         params.setLoadStreamPerNode(taskInfo.getStreamPerNode());
         params.setTotalLoadStreams(taskInfo.getStreamPerNode());
         params.setNumLocalSink(1);
-        TQueryOptions queryOptions = getQueryOptions(taskInfo);
+        TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQueryType(TQueryType.LOAD);
         int timeout = taskInfo.getTimeout();
         queryOptions.setQueryTimeout(timeout);
@@ -341,12 +341,5 @@ public class NereidsStreamLoadPlanner {
         params.setIsMowTable(destTable.getEnableUniqueKeyMergeOnWrite());
         params.setEnableTso(destTable.enableTso());
         return params;
-    }
-
-    static TQueryOptions getQueryOptions(NereidsLoadTaskInfo taskInfo) {
-        if (taskInfo instanceof NereidsRoutineLoadTaskInfo) {
-            return new TQueryOptions();
-        }
-        return ConnectContext.get().getSessionVariable().toThrift();
     }
 }
