@@ -178,6 +178,27 @@ public class ExternalDatabaseTest extends TestWithFeService {
     }
 
     @Test
+    public void testReplayCreateTableRemovesCaseEquivalentPreviousIncarnation() {
+        CaseInsensitiveCatalog catalog = new CaseInsensitiveCatalog();
+        catalog.setInitializedForTest(true);
+        long dbId = Util.genIdByName(catalog.getName(), "db_ci");
+        InspectableDatabase db = new InspectableDatabase(catalog, dbId, "db_ci", "db_ci");
+        db.setInitializedForTest(true);
+        long previousTableId = Util.genIdByName(catalog.getName(), "db_ci", "MixedTbl");
+        long createdTableId = Util.genIdByName(catalog.getName(), "db_ci", "mixedtbl");
+        TestExternalTable previousTable =
+                new TestExternalTable(previousTableId, "MixedTbl", "MixedTbl", catalog, db);
+        db.addTableForTest(previousTable);
+        catalog.addDatabaseForTest(db);
+
+        catalog.replayCreateTable("db_ci", "mixedtbl");
+
+        Assertions.assertNotEquals(previousTableId, createdTableId);
+        Assertions.assertNull(db.getCachedTableForTest("MixedTbl"));
+        Assertions.assertNull(db.getCachedTableNameByIdForTest(previousTableId));
+    }
+
+    @Test
     public void testCaseInsensitiveTableUnregisterClearsCanonicalColdIdMap() {
         CaseInsensitiveCatalog catalog = new CaseInsensitiveCatalog();
         InspectableDatabase db = new InspectableDatabase(catalog, 231L, "db_ci", "db_ci");
