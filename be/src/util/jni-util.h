@@ -31,10 +31,8 @@
 #include "util/defer_op.h"
 #include "util/thrift_util.h"
 
-#ifdef USE_HADOOP_HDFS
 // defined in hadoop/hadoop-hdfs-project/hadoop-hdfs/src/main/native/libhdfs/jni_helper.c
 extern "C" JNIEnv* getJNIEnv(void);
-#endif
 
 namespace doris {
 
@@ -904,6 +902,20 @@ public:
         }
     }
 
+    /**
+     * Whether an object is an instance of this class.
+     *
+     * The one way to check the kind of something a plugin handed back: the object's own class is
+     * private to the plugin's classloader, so the only comparable identity is a shared base class
+     * BE resolved itself. IsInstanceOf raises no exception, hence the plain bool.
+     */
+    template <RefType R>
+    bool is_instance(JNIEnv* env, const Object<R>& object) const {
+        DCHECK(!this->uninitialized());
+        DCHECK(!object.uninitialized());
+        return env->IsInstanceOf(object._obj, (jclass)this->_obj) == JNI_TRUE;
+    }
+
     Status get_static_method(JNIEnv* env, const char* method_str, const char* method_signature,
                              MethodId* method_id) const {
         DCHECK(!this->uninitialized());
@@ -1193,6 +1205,10 @@ private:
     friend class Env;
 
     static void _parse_max_heap_memory_size_from_jvm();
+
+    // Bytes named by the last -Xmx in `options`, or 0 when none of them says. Split out from the
+    // above so that the parsing can be tested without a JVM; see jni_util_test.cpp.
+    static jlong _parse_xmx(const std::string& options);
 
     static Status _init_jni_base() WARN_UNUSED_RESULT;
     static Status _init_collect_class() WARN_UNUSED_RESULT;

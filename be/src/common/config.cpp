@@ -1672,6 +1672,17 @@ DEFINE_String(trino_connector_plugin_dir, "${DORIS_HOME}/plugins/trino_plugins")
 // replaces wholesale - a plugin deployed there would not survive one.
 DEFINE_String(jni_plugin_dir, "${DORIS_HOME}/plugins/jni");
 
+// The hadoop configuration files (core-site.xml, hdfs-site.xml, ...) that Java plugins can read.
+// A plugin's classloader deliberately cannot reach BE's own classpath, and conf/ is on that
+// classpath - so a hadoop Configuration built inside a plugin sees nothing dropped into conf/,
+// which is where it came from before plugins were isolated. This directory is the drop point that
+// replaces it, and it is a directory of its own rather than conf/ so that what BE reads and what
+// plugins read stay two separate lists. FE has always had the same directory for the XML its
+// catalogs name through hadoop.config.resources (FE config hadoop_config_dir).
+//
+// Nothing has to be here: a catalog that carries its hadoop properties explicitly needs no file.
+DEFINE_String(jni_plugin_hadoop_conf_dir, "${DORIS_HOME}/plugins/hadoop_conf");
+
 // Whether to load every deployed plugin at startup rather than on the query that first needs
 // one. Off by default: warming a plugin keeps its whole jar closure open for the life of the
 // process - one classloader per plugin, holding every jar in its directory - which is several

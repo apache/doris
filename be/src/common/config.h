@@ -1754,6 +1754,7 @@ DECLARE_String(tmp_file_dir);
 DECLARE_String(trino_connector_plugin_dir);
 
 DECLARE_String(jni_plugin_dir);
+DECLARE_String(jni_plugin_hadoop_conf_dir);
 DECLARE_Bool(java_plugin_warmup);
 
 // the file paths(one or more) of CA cert, splite using ";" aws s3 lib use it to init s3client
