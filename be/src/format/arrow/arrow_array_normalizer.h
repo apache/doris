@@ -30,8 +30,9 @@ namespace doris {
 /// emits string_view, Go-based drivers may emit large_* and dictionary. This normalizes them into
 /// a shape the serdes accept.
 ///
-/// Only top-level types are normalized. A nested type whose child is an unaccepted variant (say
-/// list<large_utf8>) passes through and fails inside the serde, loudly rather than silently.
+/// Encoding-only descendants are normalized recursively so a complex serde never mistakes encoded
+/// child buffers for logical values. Nested list views remain unsupported because their shared
+/// ranges cannot be canonicalized safely by an outer Arrow cast.
 
 /// Whether the serdes take this Arrow type as-is.
 bool is_serde_acceptable_arrow_type(const arrow::DataType& type);

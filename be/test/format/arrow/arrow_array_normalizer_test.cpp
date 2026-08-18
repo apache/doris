@@ -431,6 +431,62 @@ TEST(ArrowArrayNormalizerTest, InvalidLargeListViewRangeIsRejectedBeforeCopy) {
     EXPECT_FALSE(normalize_arrow_array(in, arrow::default_memory_pool(), &out).ok());
 }
 
+void expect_dictionary_child_list_view_is_decoded(bool large_offsets) {
+    arrow::Int8Builder dictionary_builder;
+    ASSERT_TRUE(dictionary_builder.AppendValues({42, 43}).ok());
+    std::shared_ptr<arrow::Array> dictionary;
+    ASSERT_TRUE(dictionary_builder.Finish(&dictionary).ok());
+
+    arrow::Int8Builder indices_builder;
+    ASSERT_TRUE(indices_builder.AppendValues({0, 1}).ok());
+    std::shared_ptr<arrow::Array> indices;
+    ASSERT_TRUE(indices_builder.Finish(&indices).ok());
+    auto dictionary_type = arrow::dictionary(arrow::int8(), arrow::int8());
+    auto values = std::make_shared<arrow::DictionaryArray>(dictionary_type, indices, dictionary);
+
+    std::shared_ptr<arrow::Array> input;
+    if (large_offsets) {
+        arrow::Int64Builder offsets_builder;
+        ASSERT_TRUE(offsets_builder.Append(0).ok());
+        std::shared_ptr<arrow::Array> offsets;
+        ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+        arrow::Int64Builder sizes_builder;
+        ASSERT_TRUE(sizes_builder.Append(2).ok());
+        std::shared_ptr<arrow::Array> sizes;
+        ASSERT_TRUE(sizes_builder.Finish(&sizes).ok());
+        input = arrow::LargeListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    } else {
+        arrow::Int32Builder offsets_builder;
+        ASSERT_TRUE(offsets_builder.Append(0).ok());
+        std::shared_ptr<arrow::Array> offsets;
+        ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+        arrow::Int32Builder sizes_builder;
+        ASSERT_TRUE(sizes_builder.Append(2).ok());
+        std::shared_ptr<arrow::Array> sizes;
+        ASSERT_TRUE(sizes_builder.Finish(&sizes).ok());
+        input = arrow::ListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    }
+
+    std::shared_ptr<arrow::Array> output;
+    ASSERT_TRUE(normalize_arrow_array(input, arrow::default_memory_pool(), &output).ok());
+    ASSERT_TRUE(is_serde_acceptable_arrow_type(*output->type()));
+    const auto decoded_values =
+            large_offsets ? std::static_pointer_cast<arrow::LargeListArray>(output)->values()
+                          : std::static_pointer_cast<arrow::ListArray>(output)->values();
+    ASSERT_EQ(decoded_values->type_id(), arrow::Type::INT8);
+    const auto decoded = std::static_pointer_cast<arrow::Int8Array>(decoded_values);
+    EXPECT_EQ(decoded->Value(0), 42);
+    EXPECT_EQ(decoded->Value(1), 43);
+}
+
+TEST(ArrowArrayNormalizerTest, ListViewDictionaryChildIsDecoded) {
+    expect_dictionary_child_list_view_is_decoded(false);
+}
+
+TEST(ArrowArrayNormalizerTest, LargeListViewDictionaryChildIsDecoded) {
+    expect_dictionary_child_list_view_is_decoded(true);
+}
+
 // An unsupported type must name itself, otherwise the offending column cannot be found in prod.
 TEST(ArrowArrayNormalizerTest, UnsupportedTypeFailsLoudWithTypeName) {
     auto in = arrow::MakeArrayOfNull(arrow::month_interval(), 1).ValueOrDie();

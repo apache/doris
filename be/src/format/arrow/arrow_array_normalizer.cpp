@@ -34,19 +34,69 @@ namespace doris {
 
 namespace {
 
-// The accepted counterpart of an encoding-only variant. Null when there is none.
-std::shared_ptr<arrow::DataType> target_type_for(const arrow::DataType& type) {
-    switch (type.id()) {
+// The accepted counterpart of an encoding-only variant. Null when neither this type nor any child
+// needs normalization.
+std::shared_ptr<arrow::DataType> target_type_for(const std::shared_ptr<arrow::DataType>& type) {
+    switch (type->id()) {
     case arrow::Type::LARGE_STRING:
     case arrow::Type::STRING_VIEW:
         return arrow::utf8();
     case arrow::Type::LARGE_BINARY:
     case arrow::Type::BINARY_VIEW:
         return arrow::binary();
-    case arrow::Type::DICTIONARY:
-        return static_cast<const arrow::DictionaryType&>(type).value_type();
-    case arrow::Type::RUN_END_ENCODED:
-        return static_cast<const arrow::RunEndEncodedType&>(type).value_type();
+    case arrow::Type::DICTIONARY: {
+        const auto& dictionary = static_cast<const arrow::DictionaryType&>(*type);
+        auto nested_target = target_type_for(dictionary.value_type());
+        return nested_target != nullptr ? nested_target : dictionary.value_type();
+    }
+    case arrow::Type::RUN_END_ENCODED: {
+        const auto& encoded = static_cast<const arrow::RunEndEncodedType&>(*type);
+        auto nested_target = target_type_for(encoded.value_type());
+        return nested_target != nullptr ? nested_target : encoded.value_type();
+    }
+    case arrow::Type::LIST:
+    case arrow::Type::LARGE_LIST:
+    case arrow::Type::FIXED_SIZE_LIST: {
+        const auto& list = static_cast<const arrow::BaseListType&>(*type);
+        auto child_target = target_type_for(list.value_type());
+        if (child_target == nullptr) {
+            return nullptr;
+        }
+        auto child = list.value_field()->WithType(std::move(child_target));
+        if (type->id() == arrow::Type::LIST) {
+            return arrow::list(std::move(child));
+        }
+        if (type->id() == arrow::Type::LARGE_LIST) {
+            return arrow::large_list(std::move(child));
+        }
+        const auto& fixed = static_cast<const arrow::FixedSizeListType&>(*type);
+        return arrow::fixed_size_list(std::move(child), fixed.list_size());
+    }
+    case arrow::Type::STRUCT: {
+        arrow::FieldVector fields;
+        fields.reserve(type->num_fields());
+        bool changed = false;
+        for (const auto& field : type->fields()) {
+            auto child_target = target_type_for(field->type());
+            changed |= child_target != nullptr;
+            fields.push_back(child_target != nullptr ? field->WithType(std::move(child_target))
+                                                     : field);
+        }
+        return changed ? arrow::struct_(fields) : nullptr;
+    }
+    case arrow::Type::MAP: {
+        const auto& map = static_cast<const arrow::MapType&>(*type);
+        auto key_target = target_type_for(map.key_type());
+        auto item_target = target_type_for(map.item_type());
+        if (key_target == nullptr && item_target == nullptr) {
+            return nullptr;
+        }
+        auto key = key_target != nullptr ? map.key_field()->WithType(std::move(key_target))
+                                         : map.key_field();
+        auto item = item_target != nullptr ? map.item_field()->WithType(std::move(item_target))
+                                           : map.item_field();
+        return std::make_shared<arrow::MapType>(std::move(key), std::move(item), map.keys_sorted());
+    }
     default:
         return nullptr;
     }
@@ -167,6 +217,11 @@ bool is_serde_acceptable_arrow_type(const arrow::DataType& type) {
     case arrow::Type::DENSE_UNION:
         return false;
     default:
+        for (const auto& field : type.fields()) {
+            if (!is_serde_acceptable_arrow_type(*field->type())) {
+                return false;
+            }
+        }
         return true;
     }
 }
@@ -213,7 +268,7 @@ Status normalize_arrow_array(const std::shared_ptr<arrow::Array>& arr, arrow::Me
             continue;
         }
 
-        auto target = target_type_for(type);
+        auto target = target_type_for(current->type());
         if (target == nullptr) {
             return Status::NotSupported(
                     "ADBC: arrow type '{}' cannot be materialized into a Doris column",
