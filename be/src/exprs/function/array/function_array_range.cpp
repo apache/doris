@@ -73,7 +73,7 @@ public:
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        auto nested_type = make_nullable(remove_nullable(arguments[0]));
+        auto nested_type = make_nullable(Impl::get_data_type());
         auto res = std::make_shared<DataTypeArray>(nested_type);
         return make_nullable(res);
     }
