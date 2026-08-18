@@ -21,6 +21,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
+#include <optional>
 #include <vector>
 
 #include "common/status.h"
@@ -244,7 +246,8 @@ protected:
     RuntimeProfile* _profile = nullptr;
 
     const TupleDescriptor* _output_tuple_desc = nullptr;
-    const RowDescriptor* _output_row_descriptor = nullptr;
+    std::optional<std::reference_wrapper<const RowDescriptor>> _projection_output_row_descriptor;
+    bool _has_projection = false;
 
     // If _input_tuple_desc is set, the scanner will read data into
     // this _input_block first, then convert to the output block.

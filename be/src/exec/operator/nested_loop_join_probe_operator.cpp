@@ -1113,10 +1113,10 @@ Status NestedLoopJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* 
 Status NestedLoopJoinProbeOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(JoinProbeOperatorX<NestedLoopJoinProbeLocalState>::prepare(state));
     for (auto& conjunct : _join_conjuncts) {
-        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+        RETURN_IF_ERROR(conjunct->prepare(state, join_row_desc()));
     }
     for (auto& conjunct : _mark_join_conjuncts) {
-        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+        RETURN_IF_ERROR(conjunct->prepare(state, join_row_desc()));
     }
     _num_probe_side_columns = _child->row_desc().num_materialized_slots();
     _num_build_side_columns = _build_side_child->row_desc().num_materialized_slots();
@@ -1128,7 +1128,7 @@ Status NestedLoopJoinProbeOperatorX::prepare(RuntimeState* state) {
     }
     if (_has_materialized_slot_ids) {
         for (const auto slot_id : _materialized_slot_ids) {
-            const int column_id = intermediate_row_desc().get_column_id(slot_id);
+            const int column_id = join_row_desc().get_column_id(slot_id);
             DORIS_CHECK(column_id >= 0);
             _materialize_column_ids.insert(column_id);
         }
@@ -1149,10 +1149,9 @@ Status NestedLoopJoinProbeOperatorX::prepare(RuntimeState* state) {
     bool supported_lazy_join = _join_op == TJoinOp::INNER_JOIN || _join_op == TJoinOp::CROSS_JOIN ||
                                _enable_lazy_probe_finalize || _enable_lazy_build_finalize ||
                                _enable_lazy_mark_finalize;
-    _enable_lazy_materialize = _has_materialized_slot_ids &&
-                               (!_is_mark_join || _enable_lazy_mark_finalize) &&
-                               supported_lazy_join && !projections().empty() &&
-                               &projections_row_desc() == &intermediate_row_desc();
+    _enable_lazy_materialize =
+            _has_materialized_slot_ids && (!_is_mark_join || _enable_lazy_mark_finalize) &&
+            supported_lazy_join && has_projection() && !has_intermediate_projection();
     RETURN_IF_ERROR(VExpr::open(_join_conjuncts, state));
     return VExpr::open(_mark_join_conjuncts, state);
 }

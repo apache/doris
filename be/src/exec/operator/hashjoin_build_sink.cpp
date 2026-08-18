@@ -813,7 +813,7 @@ Status HashJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
             }
         }
     };
-    init_keep_column_flags(row_desc().tuple_descriptors(), _should_keep_column_flags);
+    init_keep_column_flags(_child->row_desc().tuple_descriptors(), _should_keep_column_flags);
     RETURN_IF_ERROR(VExpr::prepare(_build_expr_ctxs, state, _child->row_desc()));
     // Prepare ASOF build-side expression against build child's row_desc directly.
     // match_condition is bound on input tuples, so child(1) references build child's slots.

@@ -859,12 +859,12 @@ Status TableFunctionOperatorX::prepare(doris::RuntimeState* state) {
     for (auto* fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
     }
-    RETURN_IF_ERROR(VExpr::prepare(_vfn_ctxs, state, row_descriptor()));
+    RETURN_IF_ERROR(VExpr::prepare(_vfn_ctxs, state, operator_row_desc()));
 
-    RETURN_IF_ERROR(VExpr::prepare(_expand_conjuncts_ctxs, state, row_descriptor()));
+    RETURN_IF_ERROR(VExpr::prepare(_expand_conjuncts_ctxs, state, operator_row_desc()));
 
     // get current all output slots
-    for (const auto& tuple_desc : row_descriptor().tuple_descriptors()) {
+    for (const auto& tuple_desc : operator_row_desc().tuple_descriptors()) {
         for (const auto& slot_desc : tuple_desc->slots()) {
             _output_slots.push_back(slot_desc);
         }

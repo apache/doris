@@ -69,8 +69,7 @@ ScanTask::~ScanTask() {
 
 // ==================== ScannerContext ====================
 ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
-                               const TupleDescriptor* output_tuple_desc,
-                               const RowDescriptor* output_row_descriptor,
+                               const TupleDescriptor* output_tuple_desc, bool has_projection,
                                const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
                                int64_t limit_, std::shared_ptr<Dependency> dependency,
                                std::atomic<int64_t>* shared_scan_limit,
@@ -85,10 +84,7 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
-          _output_tuple_desc(output_row_descriptor
-                                     ? output_row_descriptor->tuple_descriptors().front()
-                                     : output_tuple_desc),
-          _output_row_descriptor(output_row_descriptor),
+          _output_tuple_desc(output_tuple_desc),
           _batch_size(state->batch_size()),
           limit(limit_),
           _shared_scan_limit(shared_scan_limit),
@@ -110,8 +106,11 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
           _ins_idx(ins_idx),
           _enable_adaptive_scanners(enable_adaptive_scan) {
     DCHECK(_state != nullptr);
-    DCHECK(_output_row_descriptor == nullptr ||
-           _output_row_descriptor->tuple_descriptors().size() == 1);
+    if (has_projection) {
+        const auto& output_row_desc = local_state->_parent->row_desc();
+        DCHECK_EQ(output_row_desc.tuple_descriptors().size(), 1);
+        _output_tuple_desc = output_row_desc.tuple_descriptors().front();
+    }
     _query_id = _state->get_query_ctx()->query_id();
     _resource_ctx = _state->get_query_ctx()->resource_ctx();
     ctx_id = UniqueId::gen_uid().to_string();

@@ -325,7 +325,7 @@ void BucketedAggLocalState::_build_output_block(Block* block, MutableColumns& ke
 
     if (p._needs_finalize) {
         auto columns_with_schema =
-                VectorizedUtils::create_columns_with_type_and_name(p.row_descriptor());
+                VectorizedUtils::create_columns_with_type_and_name(p.operator_row_desc());
         MutableColumns value_columns;
         for (size_t i = key_size; i < columns_with_schema.size(); ++i) {
             if (mem_reuse) {

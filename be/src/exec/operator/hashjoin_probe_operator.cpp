@@ -577,12 +577,12 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
                             _right_output_slot_flags);
     // _other_join_conjuncts are evaluated in the context of the rows produced by this node
     for (auto& conjunct : _other_join_conjuncts) {
-        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+        RETURN_IF_ERROR(conjunct->prepare(state, join_row_desc()));
         conjunct->root()->collect_slot_column_ids(_should_not_lazy_materialized_column_ids);
     }
 
     for (auto& conjunct : _mark_join_conjuncts) {
-        RETURN_IF_ERROR(conjunct->prepare(state, *_intermediate_row_desc));
+        RETURN_IF_ERROR(conjunct->prepare(state, join_row_desc()));
         conjunct->root()->collect_slot_column_ids(_should_not_lazy_materialized_column_ids);
     }
 
@@ -601,7 +601,7 @@ Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
     _right_table_column_names = VectorizedUtils::get_column_names(_build_side_child->row_desc());
 
     std::vector<const SlotDescriptor*> slots_to_check;
-    for (const auto& tuple_descriptor : _intermediate_row_desc->tuple_descriptors()) {
+    for (const auto& tuple_descriptor : join_row_desc().tuple_descriptors()) {
         for (const auto& slot : tuple_descriptor->slots()) {
             slots_to_check.emplace_back(slot);
         }

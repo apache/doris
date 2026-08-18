@@ -110,11 +110,13 @@ public:
 
     bool is_source() const override { return true; }
 
-    const RowDescriptor& intermediate_row_desc() const override {
-        return _child->intermediate_row_desc();
+    Status set_child(OperatorPtr child) override {
+        RETURN_IF_ERROR(Base::set_child(child));
+        // Cache source is inserted at runtime and has no FE plan descriptor. Its output schema
+        // therefore follows the child that supplies the cache-compatible blocks.
+        _row_descriptor = _child->row_desc();
+        return Status::OK();
     }
-    RowDescriptor& row_descriptor() override { return _child->row_descriptor(); }
-    const RowDescriptor& row_desc() const override { return _child->row_desc(); }
 
 private:
     TQueryCacheParam _cache_param;

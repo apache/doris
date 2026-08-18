@@ -288,7 +288,7 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, Block
     bool mem_reuse = shared_state.make_nullable_keys.empty() && block->mem_reuse();
 
     auto columns_with_schema = VectorizedUtils::create_columns_with_type_and_name(
-            _parent->cast<AggSourceOperatorX>().row_descriptor());
+            _parent->cast<AggSourceOperatorX>().operator_row_desc());
     size_t key_size = shared_state.probe_expr_ctxs.size();
 
     MutableColumns key_columns;
@@ -498,7 +498,7 @@ Status AggLocalState::_get_without_key_result(RuntimeState* state, Block* block,
     block->clear();
 
     auto& p = _parent->cast<AggSourceOperatorX>();
-    *block = VectorizedUtils::create_empty_columnswithtypename(p.row_descriptor());
+    *block = VectorizedUtils::create_empty_columnswithtypename(p.operator_row_desc());
     size_t agg_size = shared_state.aggregate_evaluators.size();
 
     MutableColumns columns(agg_size);

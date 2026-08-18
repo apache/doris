@@ -58,16 +58,7 @@ public:
     using Base = StatefulOperatorX<LocalStateType>;
     JoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                        const DescriptorTbl& descs);
-    [[nodiscard]] const RowDescriptor& row_desc() const override {
-        if (Base::_output_row_descriptor) {
-            return *Base::_output_row_descriptor;
-        }
-        return *_output_row_desc;
-    }
-
-    [[nodiscard]] const RowDescriptor& intermediate_row_desc() const override {
-        return *_intermediate_row_desc;
-    }
+    [[nodiscard]] const RowDescriptor& join_row_desc() const { return Base::_row_descriptor; }
 
     [[nodiscard]] bool is_source() const override { return false; }
 
@@ -101,8 +92,6 @@ protected:
     const bool _is_outer_join;
     const bool _is_mark_join;
 
-    std::unique_ptr<RowDescriptor> _output_row_desc;
-    std::unique_ptr<RowDescriptor> _intermediate_row_desc;
     OperatorPtr _build_side_child = nullptr;
     const bool _short_circuit_for_null_in_build_side;
 };
