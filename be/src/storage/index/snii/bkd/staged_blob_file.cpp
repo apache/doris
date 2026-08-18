@@ -26,6 +26,7 @@
 
 #include "common/check.h"
 #include "storage/index/snii/writer/temp_dir.h"
+#include "util/debug_points.h"
 
 namespace doris::snii::bkd {
 
@@ -60,6 +61,8 @@ StagedBlobFile::~StagedBlobFile() {
 Status StagedBlobFile::append(Slice data) {
     DORIS_CHECK_GE(fd_, 0);
     DORIS_CHECK(!finalized_);
+    DBUG_EXECUTE_IF("StagedBlobFile::append_error",
+                    { return Status::IOError("injected blob staging append failure"); })
     const uint8_t* cursor = data.data();
     size_t remaining = data.size();
     while (remaining > 0) {
@@ -80,6 +83,8 @@ Status StagedBlobFile::append(Slice data) {
 Status StagedBlobFile::finalize() {
     DORIS_CHECK_GE(fd_, 0);
     DORIS_CHECK(!finalized_);
+    DBUG_EXECUTE_IF("StagedBlobFile::finalize_error",
+                    { return Status::IOError("injected blob staging finalize failure"); })
     // The descriptor stays open on purpose: read_at reads through this same one,
     // so the file survives an unlink and cannot be swapped out from under us.
     // A deferred write error would surface at close(), which happens in remove()

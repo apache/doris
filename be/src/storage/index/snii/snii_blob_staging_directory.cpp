@@ -19,25 +19,22 @@
 
 #include <fmt/format.h>
 
-#include <cstring>
 #include <utility>
 
 #include "common/check.h"
 #include "common/status.h"
+#include "storage/index/snii/bkd/staged_blob_file.h"
 
 namespace doris::segment_v2::snii_doris {
 
-// Appends into one staged buffer. BufferedIndexOutput already batches the
-// writer's byte-at-a-time calls, so flushBuffer sees 64 KiB chunks and the
-// buffer grows geometrically through vector::insert.
-//
-// The buffer is held by shared_ptr because a blob source handed to the container
-// keeps it alive on its own: an output may be closed and destroyed, and the
-// directory itself dropped, long before finish() pulls the bytes.
+// Appends into one staged file. BufferedIndexOutput batches the writer's
+// byte-at-a-time calls, so flushBuffer issues 64 KiB sequential writes while the
+// complete ANN payload remains outside the process heap.
 class SniiBlobStagingDirectory::StagingIndexOutput final
         : public lucene::store::BufferedIndexOutput {
 public:
-    explicit StagingIndexOutput(std::shared_ptr<Buffer> buffer) : _buffer(std::move(buffer)) {}
+    explicit StagingIndexOutput(std::shared_ptr<snii::bkd::StagedBlobFile> file)
+            : _file(std::move(file)) {}
 
     ~StagingIndexOutput() override {
         // MUST close here, qualified. ~BufferedIndexOutput also calls close() if
@@ -49,15 +46,25 @@ public:
         try {
             StagingIndexOutput::close();
         } catch (const CLuceneError&) {
-            // A destructor may not throw. Nothing here can fail anyway --
-            // flushBuffer only appends to a vector -- but the base close() is
-            // declared throwing, so the guard has to exist.
+            // A destructor may not throw. The normal success path closes
+            // explicitly so it can report this staging I/O failure.
         }
     }
 
-    void close() override { BufferedIndexOutput::close(); }
+    void close() override {
+        if (_closed) {
+            return;
+        }
+        BufferedIndexOutput::close();
+        Status status = _file->finalize();
+        if (!status.ok()) {
+            const std::string message = status.to_string();
+            _CLTHROWA(CL_ERR_IO, message.c_str());
+        }
+        _closed = true;
+    }
 
-    int64_t length() const override { return static_cast<int64_t>(_buffer->size()); }
+    int64_t length() const override { return static_cast<int64_t>(_file->bytes_written()); }
 
 protected:
     void flushBuffer(const uint8_t* b, const int32_t size) override {
@@ -66,11 +73,16 @@ protected:
         if (b == nullptr || size <= 0) {
             return;
         }
-        _buffer->insert(_buffer->end(), b, b + size);
+        Status status = _file->append(snii::Slice(b, static_cast<size_t>(size)));
+        if (!status.ok()) {
+            const std::string message = status.to_string();
+            _CLTHROWA(CL_ERR_IO, message.c_str());
+        }
     }
 
 private:
-    const std::shared_ptr<Buffer> _buffer;
+    const std::shared_ptr<snii::bkd::StagedBlobFile> _file;
+    bool _closed = false;
 };
 
 SniiBlobStagingDirectory::~SniiBlobStagingDirectory() = default;
@@ -83,7 +95,7 @@ const char* SniiBlobStagingDirectory::getObjectName() const {
     return getClassName();
 }
 
-const std::shared_ptr<SniiBlobStagingDirectory::Buffer>* SniiBlobStagingDirectory::find_file(
+const std::shared_ptr<snii::bkd::StagedBlobFile>* SniiBlobStagingDirectory::find_file(
         const char* name) const {
     // A null name is a caller bug, not an absent file; reporting "absent" would
     // hide it, and every caller formats `name` into its error message.
@@ -117,13 +129,13 @@ int64_t SniiBlobStagingDirectory::fileModified(const char* name) const {
 }
 
 int64_t SniiBlobStagingDirectory::fileLength(const char* name) const {
-    const std::shared_ptr<Buffer>* buffer = find_file(name);
-    if (buffer == nullptr) {
+    const std::shared_ptr<snii::bkd::StagedBlobFile>* file = find_file(name);
+    if (file == nullptr) {
         const std::string message =
                 fmt::format("File does not exist in the SNII staging directory: {}", name);
         _CLTHROWA(CL_ERR_IO, message.c_str()); // CLuceneError STRDUPs the message
     }
-    return static_cast<int64_t>((*buffer)->size());
+    return static_cast<int64_t>((*file)->bytes_written());
 }
 
 bool SniiBlobStagingDirectory::openInput(const char* name, lucene::store::IndexInput*& ret,
@@ -151,12 +163,18 @@ void SniiBlobStagingDirectory::touchFile(const char* /*name*/) {
 lucene::store::IndexOutput* SniiBlobStagingDirectory::createOutput(const char* name) {
     DORIS_CHECK(name != nullptr);
     // Same semantics as a filesystem directory: creating an existing name
-    // truncates it. The buffer is replaced rather than cleared, so a blob source
-    // already taken over the old content keeps reading the old content instead of
-    // seeing it mutate underneath.
-    auto buffer = std::make_shared<Buffer>();
-    _files[name] = buffer;
-    return _CLNEW StagingIndexOutput(std::move(buffer));
+    // truncates it. The file is replaced rather than reused, so a blob source
+    // already taken over the old content keeps reading the old content instead
+    // of seeing it mutate underneath.
+    std::unique_ptr<snii::bkd::StagedBlobFile> created;
+    Status status = snii::bkd::StagedBlobFile::create(name, &created);
+    if (!status.ok()) {
+        const std::string message = status.to_string();
+        _CLTHROWA(CL_ERR_IO, message.c_str());
+    }
+    auto file = std::shared_ptr<snii::bkd::StagedBlobFile>(std::move(created));
+    _files[name] = file;
+    return _CLNEW StagingIndexOutput(std::move(file));
 }
 
 bool SniiBlobStagingDirectory::doDeleteFile(const char* name) {
@@ -169,8 +187,8 @@ bool SniiBlobStagingDirectory::doDeleteFile(const char* name) {
 
 void SniiBlobStagingDirectory::close() {
     // Deliberately keeps the staged files: close() is what a CLucene writer calls
-    // when it is done producing, and the harvest happens afterwards. The buffers
-    // die with the directory, or with the last blob source over them.
+    // when it is done producing, and the harvest happens afterwards. Each temp
+    // file is unlinked by its final StagedBlobFile owner.
 }
 
 std::string SniiBlobStagingDirectory::toString() const {
@@ -184,18 +202,12 @@ std::vector<snii::writer::BlobFileSource> SniiBlobStagingDirectory::blob_sources
     // std::map iterates in name order, which is the order the filesystem harvest
     // produced by sorting list(). Two builds of one index therefore lay their
     // sub-files out identically in the container.
-    for (const auto& [name, buffer] : _files) {
+    for (const auto& [name, file] : _files) {
         sources.push_back(snii::writer::BlobFileSource {
                 .name = name,
-                .length = buffer->size(),
-                .read_fn = [buffer](uint64_t offset, size_t len, uint8_t* out) -> Status {
-                    if (offset > buffer->size() || len > buffer->size() - offset) {
-                        return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                                "SNII staging read [{}, +{}) is outside the staged {} bytes",
-                                offset, len, buffer->size());
-                    }
-                    std::memcpy(out, buffer->data() + offset, len);
-                    return Status::OK();
+                .length = file->bytes_written(),
+                .read_fn = [file](uint64_t offset, size_t len, uint8_t* out) -> Status {
+                    return file->read_at(offset, len, out);
                 }});
     }
     return sources;
@@ -203,8 +215,8 @@ std::vector<snii::writer::BlobFileSource> SniiBlobStagingDirectory::blob_sources
 
 uint64_t SniiBlobStagingDirectory::staged_bytes() const {
     uint64_t total = 0;
-    for (const auto& [name, buffer] : _files) {
-        total += buffer->size();
+    for (const auto& [name, file] : _files) {
+        total += file->bytes_written();
     }
     return total;
 }

@@ -31,6 +31,7 @@
 #include "storage/index/snii/format/metadata_directory.h"
 #include "storage/index/snii/format/tail_pointer.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "util/defer_op.h"
 
 namespace doris::snii::writer {
 
@@ -312,6 +313,13 @@ void SniiCompoundWriter::release_blob_sources(std::vector<BlobFileSource>* files
     // themselves are destroyed.
     std::vector<BlobFileSource> released;
     files->swap(released);
+}
+
+void SniiCompoundWriter::release_all_blob_sources() {
+    for (PendingBlobIndex& blob : blobs_) {
+        release_blob_sources(&blob.cold_files);
+        release_blob_sources(&blob.hot_files);
+    }
 }
 
 SniiIndexInput SniiStreamedIndexSession::attach_encoded_norms(SniiIndexInput in,
@@ -700,6 +708,7 @@ Status SniiCompoundWriter::finish() {
     if (out_ == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("compound: null file writer");
     if (!failed_.ok()) {
+        release_all_blob_sources();
         return failed_;
     }
     if (finished_)
@@ -713,6 +722,7 @@ Status SniiCompoundWriter::finish() {
                 "compound: finish with an unfinished streamed index session; the half-fed "
                 "index must never be sealed away silently");
     finished_ = true;
+    Defer release_blobs([this] { release_all_blob_sources(); });
 
     RETURN_IF_ERROR(ensure_bootstrap()); // empty container still gets a header
     // Aux sections were written per index at add/finish_streamed time, right after each
@@ -724,13 +734,13 @@ Status SniiCompoundWriter::finish() {
         status = write_blob_files(blob.cold_files, &blob.cold_refs);
         if (!status.ok()) return poison(status);
         // The sources are dead the instant their bytes are in the container and
-        // their extents are in cold_refs -- and a source can OWN its bytes (the
-        // ANN staging directory hands over shared buffers holding a whole faiss
-        // index), so holding the vector until this writer is destroyed would pin
-        // that memory across every remaining blob and, because a rowset build
-        // keeps one writer per segment alive until every segment has been closed,
-        // across every segment of the rowset. Released per blob rather than after
-        // the loop so a multi-blob container never holds two at once.
+        // their extents are in cold_refs -- and a source can own resources (the
+        // ANN staging directory hands over staged files holding a whole Faiss
+        // index), so holding the vector until this writer is destroyed would retain
+        // those files across every remaining blob and, because a rowset build keeps
+        // one writer per segment alive until every segment has been closed, across
+        // every segment of the rowset. Released per blob rather than after the loop
+        // so a multi-blob container never retains two at once.
         release_blob_sources(&blob.cold_files);
     }
     status = write_tail();

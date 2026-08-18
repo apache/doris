@@ -23,7 +23,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -32,6 +34,7 @@
 #include "common/status.h"
 #include "gen_cpp/snii.pb.h"
 #include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
+#include "storage/index/snii/bkd/staged_blob_file.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
@@ -401,6 +404,36 @@ void VerifyAppendFailurePoisonsWriter(size_t fail_on_append) {
     EXPECT_EQ(fail_on_append, file.append_calls());
     EXPECT_EQ(0U, file.valid_footer_appends());
     EXPECT_EQ(0U, file.finalize_calls());
+}
+
+void VerifyFinishFailureReleasesBlobSource(size_t fail_on_append, size_t staged_bytes) {
+    FailOnAppendWriter file(fail_on_append);
+    SniiCompoundWriter writer(&file);
+
+    std::unique_ptr<bkd::StagedBlobFile> created;
+    ASSERT_TRUE(bkd::StagedBlobFile::create("compound_failure", &created).ok());
+    const std::string path = created->path();
+    std::vector<uint8_t> bytes(staged_bytes, 0x5A);
+    ASSERT_TRUE(created->append(Slice(bytes)).ok());
+    ASSERT_TRUE(created->finalize().ok());
+
+    auto staged = std::shared_ptr<bkd::StagedBlobFile>(std::move(created));
+    std::vector<BlobFileSource> cold_files;
+    cold_files.push_back(BlobFileSource {
+            .name = "ann.faiss",
+            .length = staged->bytes_written(),
+            .read_fn = [staged](uint64_t offset, size_t len, uint8_t* out) -> Status {
+                return staged->read_at(offset, len, out);
+            }});
+    ASSERT_TRUE(
+            writer.add_blob_index(7, "", LogicalIndexKind::kAnn, std::move(cold_files), {}).ok());
+    staged.reset();
+    ASSERT_TRUE(std::filesystem::exists(path));
+
+    const Status status = writer.finish();
+    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(std::filesystem::exists(path))
+            << "a terminal compound failure retained the callback-owned staging file";
 }
 
 // A FileReader decorator that counts how many physical reads (single or batched)
@@ -1024,6 +1057,15 @@ TEST(SniiCompoundWriter, NullBitmapAppendFailureReleasesReservationsBeforeReturn
 
 TEST(SniiCompoundWriter, BsbfAppendFailureReleasesReservationsBeforeReturn) {
     VerifyAuxiliaryAppendFailureReleasesReservations(AuxiliarySection::kBsbf);
+}
+
+TEST(SniiCompoundWriter, FinishFailureReleasesBlobSourcesWhileWriterRemainsAlive) {
+    // Append 1 fails while writing a new container's bootstrap, before the blob
+    // is read. Append 3 fails on the second blob chunk, after bootstrap and one
+    // complete chunk have reached the output.
+    VerifyFinishFailureReleasesBlobSource(/*fail_on_append=*/1, /*staged_bytes=*/1);
+    VerifyFinishFailureReleasesBlobSource(
+            /*fail_on_append=*/3, SniiCompoundWriter::kBlobCopyChunkBytes + 1);
 }
 
 TEST(SniiCompoundWriter, ReopeningLogicalReaderClearsPreviousCommonGramsState) {

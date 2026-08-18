@@ -25,7 +25,9 @@
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/io/file_writer.h"
 
-// Build-time staging for one blob sub-file (design 10).
+// Build-time staging for one blob sub-file (design 10). Native BKD and ANN both
+// use this file because their compound-container producers finish long before
+// the container pulls the payload.
 //
 // The container is a PULL consumer: SniiCompoundWriter::add_blob_index registers
 // a BlobFileSource and only asks for the bytes at finish(), because placement
