@@ -187,6 +187,12 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     public void invalidateCatalog(long catalogId) {
         super.invalidateCatalog(catalogId);
         advanceFileCacheInvalidationGeneration(catalogId);
+        // The catalog is being removed (drop or property-driven full rebuild); its id is never
+        // reused, so drop the generation counters instead of letting them accumulate forever.
+        // The advance above already invalidated any in-flight statement keyed on the old
+        // generation; a later get() rebuilds them from zero for a catalog that no longer exists.
+        fileCacheInvalidationGenerations.remove(catalogId);
+        fileCacheValueGenerations.remove(catalogId);
     }
 
     @Override
