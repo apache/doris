@@ -28,10 +28,13 @@ import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPath;
+import org.apache.doris.connector.spi.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.spi.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
@@ -47,6 +50,7 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.SchemaValidation;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
@@ -949,9 +953,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             return paimonHandle.withScanOptions(
                     PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), -1L));
         }
-        Map<String, String> scanOptions = Collections.singletonMap(
-                CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshot.getSnapshotId()));
-        return paimonHandle.withScanOptions(scanOptions);
+        // Route through pinOptionsToSnapshot so the fence pin carries PRESERVE_BOUND_SCHEMA: the
+        // pinned snapshot fixes the DATA version only. A bare scan.snapshot-id would make paimon's
+        // Table.copy time-travel the SCHEMA to that snapshot's generation too, which breaks every
+        // read issued between an ALTER and the next snapshot (the alter bumps the schema without
+        // committing a snapshot, so the latest snapshot still carries the pre-alter generation).
+        return paimonHandle.withScanOptions(
+                PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), snapshot.getSnapshotId()));
     }
 
     /**
@@ -1065,6 +1073,352 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     "Failed to drop Paimon table " + id + ": " + e.getMessage(), e);
         }
         LOG.info("dropped Paimon table {}", id);
+    }
+
+    /**
+     * Rejects row-level DML on a table whose shape cannot express it, with a message that says how to fix it.
+     *
+     * <p>Whether a table can carry a row-level write is a property of the TABLE, not of the connector —
+     * hence this per-table gate behind the connector-level {@code supportedOperations} declaration:
+     *
+     * <ul>
+     * <li><b>Primary-key table</b>: DELETE, UPDATE and MERGE supported. A delete is a
+     *     {@code RowKind.DELETE} record the merge engine cancels against the key; UPDATE/MERGE arrive as
+     *     an operation-tagged stream whose tags the writer maps to keyed upserts and deletes.</li>
+     * <li><b>DELETE on an unaware-bucket append-only table with deletion vectors</b>: supported (UPDATE/
+     *     MERGE on any append-only shape stay rejected: they need a combined vector-plus-append write) — the scan
+     *     projects the synthetic row locator, and the writer records the removed positions in a
+     *     deletion-vector index.</li>
+     * <li><b>DELETE on an append-only table without deletion vectors</b>: rejected — a Paimon requirement,
+     *     not a Doris one: no key to cancel against, no vector to mark, nowhere to record the removal.</li>
+     * <li><b>DELETE on a bucketed-append table</b> (a pinned bucket count): rejected — the vector must be
+     *     filed under the file's REAL bucket, which the row locator does not carry yet.</li>
+     * </ul>
+     *
+     * <p>{@code row-tracking.enabled} (the {@code _ROW_ID} whole-file rewrite Spark also implements) is a
+     * separate shape, likewise not planned by this connector.
+     */
+    @Override
+    public void validateRowLevelDmlMode(ConnectorSession session, ConnectorTableHandle handle,
+            WriteOperation op) {
+        if (op != WriteOperation.DELETE && op != WriteOperation.UPDATE && op != WriteOperation.MERGE) {
+            return;
+        }
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        Table table;
+        try {
+            table = context.executeAuthenticated(() -> resolveTable(paimonHandle));
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to load Paimon table "
+                    + paimonHandle.getDatabaseName() + "." + paimonHandle.getTableName()
+                    + " for " + op + " validation: " + e.getMessage(), e);
+        }
+        if (!table.primaryKeys().isEmpty()) {
+            return;
+        }
+        // Append-only shapes support DELETE only. An UPDATE/MERGE must carry BOTH halves in one write —
+        // deletion-vector marks for the removed rows AND appended replacement rows — and the writer only
+        // implements the keyed-upsert dispatch (primary-key tables) and the pure-delete mode.
+        if (op != WriteOperation.DELETE) {
+            throw new DorisConnectorException(String.format(
+                    "Doris does not support %s on the append-only Paimon table %s.%s: it needs a combined "
+                            + "deletion-vector-plus-append write, which is not implemented. Only DELETE is "
+                            + "supported on append-only tables; use a primary-key table for UPDATE/MERGE.",
+                    op, paimonHandle.getDatabaseName(), paimonHandle.getTableName()));
+        }
+        // A DELETE is recorded as the row's POSITION in a deletion-vector index, so the table must have
+        // deletion vectors enabled — a Paimon requirement, not a Doris one: with no key to cancel against
+        // and no vector to mark, there is nowhere to record the removal.
+        boolean deletionVectors = Boolean.parseBoolean(table.options()
+                .getOrDefault(CoreOptions.DELETION_VECTORS_ENABLED.key(), "false"));
+        if (!deletionVectors) {
+            throw new DorisConnectorException(String.format(
+                    "Doris does not support DELETE on the append-only Paimon table %s.%s: it has no "
+                            + "primary key to cancel rows against and no deletion vectors to mark them. "
+                            + "Either create the table with a primary key, or enable deletion vectors: "
+                            + "ALTER TABLE %s.%s SET ('%s' = 'true').",
+                    paimonHandle.getDatabaseName(), paimonHandle.getTableName(),
+                    paimonHandle.getDatabaseName(), paimonHandle.getTableName(),
+                    CoreOptions.DELETION_VECTORS_ENABLED.key()));
+        }
+        // The writer files a deletion vector under (partition, bucket). For an unaware-bucket table that
+        // grouping is trivially right; a bucketed-append table (a pinned bucket count) needs the file's
+        // REAL bucket, which the row locator does not carry yet. Reject rather than mis-file vectors
+        // under the wrong bucket and corrupt reads of the others.
+        int bucket = Integer.parseInt(table.options()
+                .getOrDefault(CoreOptions.BUCKET.key(), "-1"));
+        if (bucket != -1) {
+            throw new DorisConnectorException(String.format(
+                    "Doris supports DELETE on an append-only Paimon table only in unaware-bucket mode; "
+                            + "%s.%s pins a fixed bucket count ('%s' = %d). Use a primary-key table, or "
+                            + "rewrite the data with INSERT OVERWRITE.",
+                    paimonHandle.getDatabaseName(), paimonHandle.getTableName(),
+                    CoreOptions.BUCKET.key(), bucket));
+        }
+    }
+
+    // ==================== Column evolution: ALTER TABLE ADD/DROP/RENAME/MODIFY COLUMN ====================
+    // Paimon models every column operation as a SchemaChange applied through
+    // Catalog.alterTable(identifier, List<SchemaChange>, ignoreIfNotExists). The neutral SPI column is
+    // translated into paimon types PURELY here (outside the authenticator, mirroring the iceberg
+    // connector), then the whole change list is committed through the seam inside ONE auth scope.
+    //
+    // Every op builds a LIST and commits once, so a MODIFY that changes type + nullability + position is a
+    // single atomic schema commit rather than three partially-applied ones.
+    //
+    // Note a paimon ALTER bumps the schema id WITHOUT creating a snapshot; the read path already accounts
+    // for this by reading schemaManager().latest() instead of the CachingCatalog-frozen rowType()
+    // (see PaimonCatalogOps.latestSchema).
+
+    /**
+     * Adds a column at {@code position} ({@code null} = append at the end).
+     *
+     * <p>Column-level nullability rides on the paimon type via {@code .copy(nullable)}, exactly as the
+     * CREATE TABLE path does in {@code PaimonSchemaBuilder}.
+     */
+    @Override
+    public void addColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        PaimonTableHandle h = (PaimonTableHandle) handle;
+        SchemaChange change = SchemaChange.addColumn(
+                column.getName(),
+                PaimonTypeMapping.toPaimonType(column.getType()).copy(column.isNullable()),
+                column.getComment(),
+                toMove(column.getName(), position));
+        applySchemaChanges(h, Collections.singletonList(change),
+                "add column " + column.getName());
+    }
+
+    /** Adds multiple columns, appended in order, as ONE schema commit. */
+    @Override
+    public void addColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<ConnectorColumn> columns) {
+        PaimonTableHandle h = (PaimonTableHandle) handle;
+        List<SchemaChange> changes = new ArrayList<>(columns.size());
+        for (ConnectorColumn column : columns) {
+            changes.add(SchemaChange.addColumn(
+                    column.getName(),
+                    PaimonTypeMapping.toPaimonType(column.getType()).copy(column.isNullable()),
+                    column.getComment()));
+        }
+        applySchemaChanges(h, changes, "add columns");
+    }
+
+    /** Drops the named top-level column. */
+    @Override
+    public void dropColumn(ConnectorSession session, ConnectorTableHandle handle, String columnName) {
+        PaimonTableHandle h = (PaimonTableHandle) handle;
+        applySchemaChanges(h, Collections.singletonList(SchemaChange.dropColumn(columnName)),
+                "drop column " + columnName);
+    }
+
+    /** Renames a top-level column. */
+    @Override
+    public void renameColumn(ConnectorSession session, ConnectorTableHandle handle,
+            String oldName, String newName) {
+        PaimonTableHandle h = (PaimonTableHandle) handle;
+        applySchemaChanges(h, Collections.singletonList(SchemaChange.renameColumn(oldName, newName)),
+                "rename column " + oldName + " to " + newName);
+    }
+
+    /**
+     * Modifies a column's type, nullability, comment and/or position in ONE schema commit.
+     *
+     * <p>Paimon splits what Doris expresses as a single {@code MODIFY COLUMN} across distinct
+     * {@code SchemaChange}es, so up to four are emitted and committed atomically. The comment is only
+     * carried when the statement actually specified one — {@code isCommentSpecified()} distinguishes
+     * "no COMMENT clause" (keep the existing comment) from {@code COMMENT ''} (clear it), which a bare
+     * null check would conflate.
+     *
+     * <p>Type widening rules are Paimon's own ({@code SchemaChange.updateColumnType} rejects an
+     * unsupported narrowing server-side); this layer does not second-guess them.
+     */
+    @Override
+    public void modifyColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        PaimonTableHandle h = (PaimonTableHandle) handle;
+        String name = column.getName();
+        List<SchemaChange> changes = new ArrayList<>(4);
+        // keepNullability=true: nullability is owned by the explicit updateColumnNullability change below,
+        // emitted only when the statement actually specified NULL / NOT NULL. Letting the type change
+        // carry it (the 2-arg overload, keepNullability=false) would reset a NOT NULL column to the
+        // paimon default (nullable) on a bare "MODIFY COLUMN c BIGINT" that never mentioned nullability.
+        changes.add(SchemaChange.updateColumnType(
+                new String[] {name}, PaimonTypeMapping.toPaimonType(column.getType()),
+                /*keepNullability*/ true));
+        if (column.isNullableSpecified()) {
+            changes.add(SchemaChange.updateColumnNullability(name, column.isNullable()));
+        }
+        if (column.isCommentSpecified()) {
+            changes.add(SchemaChange.updateColumnComment(name, column.getComment()));
+        }
+        SchemaChange.Move move = toMove(name, position);
+        if (move != null) {
+            changes.add(SchemaChange.updateColumnPosition(move));
+        }
+        applySchemaChanges(h, changes, "modify column " + name);
+    }
+
+    /**
+     * Reorders columns to match {@code newOrder} by chaining {@code AFTER} moves: the first column is
+     * moved FIRST, each subsequent one AFTER its predecessor. Committing the whole chain as one schema
+     * change list means an invalid order cannot leave the table half-reordered.
+     */
+    @Override
+    public void reorderColumns(ConnectorSession session, ConnectorTableHandle handle, List<String> newOrder) {
+        if (newOrder == null || newOrder.isEmpty()) {
+            throw new DorisConnectorException("Reorder columns failed: the new order is empty");
+        }
+        PaimonTableHandle h = (PaimonTableHandle) handle;
+        List<SchemaChange> changes = new ArrayList<>(newOrder.size());
+        changes.add(SchemaChange.updateColumnPosition(SchemaChange.Move.first(newOrder.get(0))));
+        for (int i = 1; i < newOrder.size(); i++) {
+            changes.add(SchemaChange.updateColumnPosition(
+                    SchemaChange.Move.after(newOrder.get(i), newOrder.get(i - 1))));
+        }
+        applySchemaChanges(h, changes, "reorder columns");
+    }
+
+    // ---- Nested (dotted-path) column evolution ----
+    // The fe-core bridge routes ONLY nested paths here; a top-level column still flows through the flat
+    // ops above. The single exception is modifyColumnComment, which is the sole entrypoint for
+    // MODIFY COLUMN ... COMMENT and therefore receives flat and nested paths alike. Each op still
+    // degrades to its flat counterpart on a single-part path so a direct call cannot bypass the flat
+    // behaviour (mirrors the iceberg connector).
+
+    /**
+     * Adds a field inside a struct. {@code path} is the FULL path of the new field (parent struct plus
+     * the new leaf name), so the parent is {@code path.getParentPath()}.
+     */
+    @Override
+    public void addNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path, ConnectorColumn column, ConnectorColumnPosition position) {
+        if (!path.isNested()) {
+            addColumn(session, handle, column, position);
+            return;
+        }
+        PaimonTableHandle h = (PaimonTableHandle) handle;
+        SchemaChange change = SchemaChange.addColumn(
+                toFieldNames(path),
+                PaimonTypeMapping.toPaimonType(column.getType()).copy(column.isNullable()),
+                column.getComment(),
+                toMove(path.getLeafName(), position));
+        applySchemaChanges(h, Collections.singletonList(change),
+                "add nested column " + path.getFullPath());
+    }
+
+    /** Drops the field at {@code path}. */
+    @Override
+    public void dropNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path) {
+        if (!path.isNested()) {
+            dropColumn(session, handle, path.getTopLevelName());
+            return;
+        }
+        PaimonTableHandle h = (PaimonTableHandle) handle;
+        applySchemaChanges(h, Collections.singletonList(SchemaChange.dropColumn(toFieldNames(path))),
+                "drop nested column " + path.getFullPath());
+    }
+
+    /** Renames the field at {@code path} to the leaf name {@code newName}. */
+    @Override
+    public void renameNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path, String newName) {
+        if (!path.isNested()) {
+            renameColumn(session, handle, path.getTopLevelName(), newName);
+            return;
+        }
+        PaimonTableHandle h = (PaimonTableHandle) handle;
+        applySchemaChanges(h,
+                Collections.singletonList(SchemaChange.renameColumn(toFieldNames(path), newName)),
+                "rename nested column " + path.getFullPath() + " to " + newName);
+    }
+
+    /**
+     * Modifies the field at {@code path} (type / nullability / comment), optionally repositioning it
+     * within its parent struct. Like {@link #modifyColumn}, the changes are committed as one list.
+     */
+    @Override
+    public void modifyNestedColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path, ConnectorColumn column, ConnectorColumnPosition position) {
+        if (!path.isNested()) {
+            modifyColumn(session, handle, column, position);
+            return;
+        }
+        PaimonTableHandle h = (PaimonTableHandle) handle;
+        String[] fieldNames = toFieldNames(path);
+        List<SchemaChange> changes = new ArrayList<>(4);
+        // keepNullability=true: nullability is owned by the explicit updateColumnNullability change below
+        // (emitted only when the statement specified it), so the type update must not silently reset it.
+        changes.add(SchemaChange.updateColumnType(
+                fieldNames, PaimonTypeMapping.toPaimonType(column.getType()), /*keepNullability*/ true));
+        if (column.isNullableSpecified()) {
+            changes.add(SchemaChange.updateColumnNullability(fieldNames, column.isNullable()));
+        }
+        if (column.isCommentSpecified()) {
+            changes.add(SchemaChange.updateColumnComment(fieldNames, column.getComment()));
+        }
+        SchemaChange.Move move = toMove(path.getLeafName(), position);
+        if (move != null) {
+            changes.add(SchemaChange.updateColumnPosition(move));
+        }
+        applySchemaChanges(h, changes, "modify nested column " + path.getFullPath());
+    }
+
+    /**
+     * Sets (or clears, with {@code ""}) the comment of the field at {@code path}. This is the sole
+     * entrypoint for {@code MODIFY COLUMN ... COMMENT} and accepts both flat and nested paths, so it
+     * uses the {@code String[]} overload unconditionally (a single-element array IS the flat case in
+     * paimon's API).
+     */
+    @Override
+    public void modifyColumnComment(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumnPath path, String comment) {
+        PaimonTableHandle h = (PaimonTableHandle) handle;
+        applySchemaChanges(h,
+                Collections.singletonList(SchemaChange.updateColumnComment(toFieldNames(path), comment)),
+                "modify comment of column " + path.getFullPath());
+    }
+
+    // ---- Column-evolution helpers ----
+
+    /**
+     * Commits {@code changes} as ONE paimon schema commit inside the authenticator, wrapping any failure
+     * with the operation and the qualified table name. {@code ignoreIfNotExists} is false: fe-core
+     * pre-resolves the handle, so a missing table here is a genuine error worth surfacing (unlike
+     * {@link #dropTable}, whose SPI contract is idempotent).
+     */
+    private void applySchemaChanges(PaimonTableHandle handle, List<SchemaChange> changes, String operation) {
+        Identifier id = Identifier.create(handle.getDatabaseName(), handle.getTableName());
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.alterTable(id, changes, /*ignoreIfNotExists*/ false);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException(
+                    "Failed to " + operation + " in Paimon table " + id + ": " + e.getMessage(), e);
+        }
+        LOG.info("applied {} schema change(s) to Paimon table {} ({})", changes.size(), id, operation);
+    }
+
+    /**
+     * Neutral position to paimon {@code Move}. Doris only expresses {@code FIRST | AFTER col} (there is
+     * no BEFORE variant), and a null position means "no position clause" — return null so the caller
+     * omits the reposition change entirely rather than emitting a no-op {@code Move.last()}.
+     */
+    private static SchemaChange.Move toMove(String fieldName, ConnectorColumnPosition position) {
+        if (position == null) {
+            return null;
+        }
+        return position.isFirst()
+                ? SchemaChange.Move.first(fieldName)
+                : SchemaChange.Move.after(fieldName, position.getAfterColumn());
+    }
+
+    /** Neutral dotted path to the {@code String[]} field-name path paimon's nested overloads take. */
+    private static String[] toFieldNames(ConnectorColumnPath path) {
+        return path.getParts().toArray(new String[0]);
     }
 
     @Override
