@@ -14,7 +14,7 @@ PhysicalOlapTableSink
 ------------------PhysicalOlapScan[test_ivm_explain_refresh_t2]
 --------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN broadcast] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
+------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((k1 = __DORIS_IVM_NULL_SIDE_EVENT_KEY_0)) otherCondition=()
 --------------PhysicalProject
 ----------------filter((test_ivm_explain_refresh_t1.__DORIS_DELETE_SIGN__ = 0))
 ------------------PhysicalOlapScan[test_ivm_explain_refresh_t1]

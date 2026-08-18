@@ -33,6 +33,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
@@ -93,37 +94,44 @@ class IvmUtilTest {
     @Test
     void testBuildRowIdEmptyReturnsZero() {
         Expression result = IvmUtil.buildRowIdHash(Collections.emptyList());
-        Assertions.assertInstanceOf(LargeIntLiteral.class, result);
-        Assertions.assertEquals(0L, ((LargeIntLiteral) result).getValue().longValue());
+        Assertions.assertInstanceOf(TinyIntLiteral.class, result);
+        Assertions.assertEquals((byte) 0, ((TinyIntLiteral) result).getValue());
     }
 
     @Test
-    void testBuildRowIdSingleLosslessKeyUsesDirectCast() {
+    void testBuildRowIdSingleEligibleKeyPassesThrough() {
         SlotReference key = intSlot("k1", false);
         Expression result = IvmUtil.buildRowIdHash(ImmutableList.of(key));
-        Assertions.assertEquals(LargeIntType.INSTANCE, result.getDataType());
-        // INT widens losslessly to largeint, so the key is cast directly instead of hashed
-        Assertions.assertInstanceOf(Cast.class, result);
-        Assertions.assertEquals(key, ((Cast) result).child());
+        Assertions.assertSame(key, result, "an eligible key type is used directly as the row-id without hashing");
+        Assertions.assertEquals(IntegerType.INSTANCE, result.getDataType());
+    }
+
+    @Test
+    void testBuildRowIdSingleVarcharKeyPassesThrough() {
+        SlotReference key = varcharSlot("k1", false);
+        Expression result = IvmUtil.buildRowIdHash(ImmutableList.of(key));
+        Assertions.assertSame(key, result, "VARCHAR is an eligible key type, so the row-id keeps the key type");
+        Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, result.getDataType());
     }
 
     @Test
     void testBuildRowIdSingleNullableKeyIsNullable() {
         Expression result = IvmUtil.buildRowIdHash(ImmutableList.of(intSlot("k1", true)));
-        Assertions.assertTrue(result.nullable(), "direct-cast row-id is NULL exactly when the key is NULL");
+        Assertions.assertTrue(result.nullable(), "passthrough row-id is NULL exactly when the key is NULL");
     }
 
     @Test
     void testBuildRowIdSingleLargeIntKeyPassesThrough() {
         SlotReference key = new SlotReference("k1", LargeIntType.INSTANCE, true);
-        Assertions.assertEquals(key, IvmUtil.buildRowIdHash(ImmutableList.of(key)),
+        Assertions.assertSame(key, IvmUtil.buildRowIdHash(ImmutableList.of(key)),
                 "a largeint key (e.g. a chained MV's stored row-id) is used directly without a Cast");
     }
 
     @Test
-    void testBuildRowIdSingleNonLosslessKeyStillHashes() {
-        // VARCHAR cannot widen losslessly to largeint, so a single varchar key is still hashed
-        Expression result = IvmUtil.buildRowIdHash(ImmutableList.of(varcharSlot("k1", false)));
+    void testBuildRowIdSingleIneligibleKeyStillHashes() {
+        // STRING is not a legal MOW key type, so a single string key is still hashed
+        SlotReference key = new SlotReference("k1", StringType.INSTANCE, false);
+        Expression result = IvmUtil.buildRowIdHash(ImmutableList.of(key));
         Assertions.assertInstanceOf(MurmurHash3128.class, result);
     }
 
@@ -152,7 +160,10 @@ class IvmUtilTest {
 
     @Test
     void testBuildRowIdVarcharKeySkipsInnerCast() {
-        Expression result = IvmUtil.buildRowIdHash(ImmutableList.of(varcharSlot("k1", false)));
+        // Two varchar keys force the hash path; the VARCHAR key should not have an inner Cast —
+        // Nvl wraps the slot directly.
+        List<Expression> keys = ImmutableList.of(varcharSlot("k1", false), varcharSlot("k2", false));
+        Expression result = IvmUtil.buildRowIdHash(keys);
         MurmurHash3128 hash = rowIdHash(result);
         Nvl nvl = (Nvl) hash.child(0);
         // VARCHAR key should not have inner Cast — Nvl wraps the slot directly
@@ -161,7 +172,7 @@ class IvmUtilTest {
 
     @Test
     void testBuildRowIdNonVarcharKeyHasInnerCast() {
-        // A single INT key now widens losslessly to largeint and skips the hash; use two keys
+        // A single INT key now passes through directly and skips the hash; use two keys
         // to force the hash path and verify INT is still cast to VARCHAR inside Nvl there.
         List<Expression> keys = ImmutableList.of(intSlot("k1", false), varcharSlot("k2", false));
         Expression result = IvmUtil.buildRowIdHash(keys);
