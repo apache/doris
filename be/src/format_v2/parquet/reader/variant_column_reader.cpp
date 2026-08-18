@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -46,6 +47,7 @@
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_field.h"
 #include "core/value/variant/variant_metadata.h"
+#include "core/value/variant/variant_selected_value_builder.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 
 namespace doris::format::parquet {
@@ -522,6 +524,10 @@ struct DirectResidualSeekResult {
     int64_t selected_value_bytes = 0;
     int64_t container_index_builds = 0;
     int64_t container_index_hits = 0;
+    // Rows published as a typed ColumnVariantV2, so no consumer decodes a Variant header per row.
+    int64_t typed_rows = 0;
+    // One per batch that a value forced back onto canonical encoded rows.
+    int64_t typed_downgrades = 0;
 };
 
 struct DirectSeekContainerKey {
@@ -684,11 +690,13 @@ std::shared_ptr<const UnshreddedMetadataCache> build_unshredded_metadata_cache(
             }
         }
 
-        // Parquet requires every Variant metadata/value pair to be spec-valid. This direct-seek
-        // cache therefore only deduplicates the immutable metadata bytes instead of eagerly
-        // walking every dictionary key. The bounded find_key()/key_at() accessors still reject
-        // truncated layouts before any referenced key is observed.
+        // find_key() binary searches whenever the dictionary claims sorted_strings. A dictionary
+        // that sets that flag while storing unordered keys would silently miss a present key and
+        // turn it into SQL NULL, so validate each distinct dictionary once here instead. The cache
+        // deduplicates metadata bytes, so this walks a handful of dictionaries per batch rather
+        // than one per row.
         VariantMetadataRef metadata {.data = metadata_bytes.data, .size = metadata_bytes.size};
+        metadata.validate();
         if (cache->metadatas.size() == std::numeric_limits<uint32_t>::max()) {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "Parquet Variant metadata dictionary exceeds the uint32 id limit");
@@ -737,10 +745,8 @@ DirectResidualSeekResult seek_unshredded_variant_path(
             }
         }
     }
-    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = physical.size()});
+    VariantSelectedValueBuilder builder(physical.size());
     container_cache.reserve(physical.size());
-    auto nulls = ColumnUInt8::create();
-    nulls->reserve(physical.size());
     int64_t selected_value_bytes = 0;
     DirectResidualSeekResult result;
     DORIS_CHECK_LE(physical.size(), static_cast<size_t>(std::numeric_limits<int64_t>::max()));
@@ -752,10 +758,7 @@ DirectResidualSeekResult seek_unshredded_variant_path(
         selected_value_bytes += static_cast<int64_t>(bytes);
     };
     auto append_missing = [&]() {
-        auto output_row = builder.begin_row();
-        output_row.add_null();
-        output_row.finish();
-        nulls->insert_value(1);
+        builder.append_missing();
         add_selected_bytes(VARIANT_NULL_VALUE.size());
     };
     for (size_t row = 0; row < physical.size(); ++row) {
@@ -816,19 +819,19 @@ DirectResidualSeekResult seek_unshredded_variant_path(
         // Traversed containers perform bounded reads. Validate the selected subtree exactly, but
         // intentionally do not visit unrelated siblings in the unshredded root.
         validate_variant_payload(current, current_depth);
-        // Re-encode only the selected subtree so scalar/missing results use empty metadata and
-        // containers retain only reachable keys with remapped ids. Copying the root dictionary
-        // would multiply wide metadata across independently projected paths and composite states.
-        auto output_row = builder.begin_row();
-        output_row.add_value(current);
-        output_row.finish();
-        nulls->insert_value(0);
+        // A homogeneous scalar projection becomes a typed column, so the selected leaf is decoded
+        // once instead of being re-encoded here and parsed again by every consumer. Containers and
+        // mixed kinds fall back to canonical encoded rows, which keep only the reachable keys with
+        // remapped ids; copying the root dictionary would multiply wide metadata across
+        // independently projected paths and composite states.
+        builder.append_selected(current);
         add_selected_bytes(current.value.size);
     }
 
-    auto values = ColumnVariantV2::create();
-    values->insert_encoded_batch(builder.finish_batch());
-    result.column = ColumnNullable::create(std::move(values), std::move(nulls));
+    // finish() itself degrades a batch that never selected a scalar, so read the outcome after it.
+    result.column = builder.finish();
+    result.typed_downgrades = builder.degraded() ? 1 : 0;
+    result.typed_rows = builder.degraded() ? 0 : static_cast<int64_t>(builder.rows());
     result.selected_value_bytes = selected_value_bytes;
     return result;
 }
@@ -1096,18 +1099,6 @@ bool same_shredded_schema(const ParquetColumnSchema& left, const ParquetColumnSc
 void append_compatible_column(IColumn& output, const IColumn& converted);
 void validate_compatible_column(const IColumn& output, const IColumn& converted);
 
-bool has_multiple_unique_variant_access_paths(const format::VariantAccessPaths& access_paths) {
-    if (access_paths.size() < 2) {
-        return false;
-    }
-    for (size_t index = 1; index < access_paths.size(); ++index) {
-        if (access_paths[index] != access_paths.front()) {
-            return true;
-        }
-    }
-    return false;
-}
-
 bool same_variant_access_paths(const std::shared_ptr<const format::VariantAccessPaths>& left,
                                const std::shared_ptr<const format::VariantAccessPaths>& right) {
     if (!left || !right) {
@@ -1126,10 +1117,7 @@ public:
               _physical(std::move(physical)),
               _complete(complete),
               _profile(profile),
-              _variant_access_paths(std::move(variant_access_paths)),
-              _has_multiple_variant_access_paths(
-                      _variant_access_paths != nullptr &&
-                      has_multiple_unique_variant_access_paths(*_variant_access_paths)) {
+              _variant_access_paths(std::move(variant_access_paths)) {
         DORIS_CHECK(_schema != nullptr && static_cast<bool>(_physical));
         const ColumnPtr wrapper = unwrap_nullable(_physical);
         const auto* structure = check_and_get_column<ColumnStruct>(*wrapper);
@@ -1208,12 +1196,7 @@ public:
     std::optional<VariantShreddedTypedValue> find_typed_value(
             std::span<const VariantShreddedPathSegment> path) const override {
         auto residual_seek_fallback = [&]() -> std::optional<VariantShreddedTypedValue> {
-            // Complete mixed shredded states still need canonical reconstruction when neither a
-            // typed leaf nor the pure unshredded direct-seek path can answer the request.
-            if (_complete && !unshredded_child_indices(*_schema).has_value() &&
-                find_child(*_schema, "value", nullptr) != nullptr) {
-                update_counter(_profile.variant_direct_residual_seek_fallbacks, 1);
-            }
+            note_residual_seek_fallback();
             return std::nullopt;
         };
         auto path_miss = [&]() -> std::optional<VariantShreddedTypedValue> {
@@ -1346,6 +1329,7 @@ public:
                 return normalize_projected_primitive_leaf(*typed_schema, typed);
             }
         }
+        note_residual_seek_fallback();
         if (_complete) {
             return normalize_materialized_path(materialized_column(), path);
         }
@@ -1385,6 +1369,22 @@ public:
     }
 
 private:
+    // A complete mixed state - one that keeps a residual `value` beside shredded leaves - can
+    // answer a path request only from its canonical root. Count that once per state, on the first
+    // request it cannot answer directly. Counting per state rather than per miss keeps the total
+    // independent of which composite segment observed the miss first and of whether the caller
+    // asked for a typed or a normalized value. Whole-column serialization is deliberately not
+    // counted here; it reconstructs for transport, not because a path lookup failed.
+    void note_residual_seek_fallback() const {
+        if (!_complete || unshredded_child_indices(*_schema).has_value() ||
+            find_child(*_schema, "value", nullptr) == nullptr) {
+            return;
+        }
+        if (!_residual_seek_fallback_counted.exchange(true)) {
+            update_counter(_profile.variant_direct_residual_seek_fallbacks, 1);
+        }
+    }
+
     std::optional<ColumnPtr> find_unshredded_normalized_value(
             std::span<const VariantShreddedPathSegment> path) const {
         if (!_complete) {
@@ -1392,14 +1392,6 @@ private:
         }
         const auto indices = unshredded_child_indices(*_schema);
         if (!indices.has_value()) {
-            return std::nullopt;
-        }
-
-        if (_has_multiple_variant_access_paths) {
-            // Direct seek wins for one selected path, but the current owning-result contract still
-            // validates and re-encodes every leaf independently. Benchmarks show that two or more
-            // unique paths cost more than importing the unshredded root once. Returning no direct
-            // match makes the encoded fallback materialize and cache that root for all consumers.
             return std::nullopt;
         }
 
@@ -1419,6 +1411,9 @@ private:
         }
         update_counter(_profile.variant_direct_residual_seek_rows, result.rows);
         update_counter(_profile.variant_direct_residual_seek_bytes, result.selected_value_bytes);
+        update_counter(_profile.variant_direct_residual_seek_typed_rows, result.typed_rows);
+        update_counter(_profile.variant_direct_residual_seek_typed_downgrades,
+                       result.typed_downgrades);
         update_counter(_profile.variant_direct_residual_seek_container_index_builds,
                        result.container_index_builds);
         update_counter(_profile.variant_direct_residual_seek_container_index_hits,
@@ -1442,8 +1437,8 @@ private:
     mutable ColumnVariantV2::MutablePtr _serialized;
     mutable std::shared_ptr<const UnshreddedMetadataCache> _unshredded_metadata_cache;
     mutable DirectSeekContainerCache _direct_seek_container_cache;
+    mutable std::atomic<bool> _residual_seek_fallback_counted {false};
     std::shared_ptr<const format::VariantAccessPaths> _variant_access_paths;
-    bool _has_multiple_variant_access_paths = false;
 };
 
 MutableColumnPtr build_variant_column(

@@ -27,8 +27,8 @@
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/custom_allocator.h"
 #include "core/pod_array.h"
-#include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_parquet_encoding.h"
+#include "core/value/variant/variant_selected_value_builder.h"
 
 namespace doris {
 
@@ -99,12 +99,6 @@ public:
         *output = current;
         return true;
     }
-
-    size_t metadata_count() const noexcept { return _source.metadata_count(); }
-
-    uint32_t metadata_id_at(size_t row) const { return _source.metadata_id_at(row); }
-
-    VariantMetadataRef metadata_at(uint32_t id) { return _source.metadata_at(id); }
 
 private:
     void _resolve_metadata(uint32_t metadata_id) {
@@ -288,122 +282,31 @@ Status extract_variant_element_v2(const ColumnVariantV2& source,
 
 namespace {
 
-constexpr uint32_t UNMAPPED_METADATA = std::numeric_limits<uint32_t>::max();
-
-struct ExtractedRows {
-    PaddedPODArray<char> metadata_bytes;
-    DorisVector<uint32_t> metadata_offsets {0};
-    DorisVector<uint32_t> metadata_ids;
-    PaddedPODArray<char> value_bytes;
-    DorisVector<uint32_t> value_offsets {0};
-
-    ColumnVariantV2::EncodedDataView view() const {
-        return {.metadata_bytes = {metadata_bytes.data(), metadata_bytes.size()},
-                .metadata_offsets = metadata_offsets,
-                .meta_ids = metadata_ids,
-                .value_bytes = {value_bytes.data(), value_bytes.size()},
-                .value_offsets = value_offsets};
-    }
-};
-
-uint32_t append_bytes(PaddedPODArray<char>& destination, StringRef source,
-                      std::string_view description) {
-    if (source.size > std::numeric_limits<uint32_t>::max() - destination.size()) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT,
-                        "Variant element {} exceeds the ColumnString uint32 byte limit",
-                        description);
-    }
-    if (source.size != 0) {
-        destination.insert(source.data, source.data + source.size);
-    }
-    return static_cast<uint32_t>(destination.size());
-}
-
-uint32_t append_metadata(ExtractedRows& rows, VariantMetadataRef metadata) {
-    rows.metadata_offsets.push_back(
-            append_bytes(rows.metadata_bytes, {metadata.data, metadata.size}, "metadata"));
-    return static_cast<uint32_t>(rows.metadata_offsets.size() - 2);
-}
-
-void append_value(ExtractedRows& rows, VariantRef value, uint32_t metadata_id) {
-    rows.value_offsets.push_back(append_bytes(rows.value_bytes, value.value, "value"));
-    rows.metadata_ids.push_back(metadata_id);
-}
-
-ColumnPtr wrap_result(ExtractedRows rows, MutableColumnPtr nulls) {
-    auto values = ColumnVariantV2::create();
-    values->insert_encoded_rows(rows.view());
-    return ColumnNullable::create(std::move(values), std::move(nulls));
-}
-
 Status extract_encoded_variant_element(const ColumnVariantV2& source,
                                        const ResolvedVariantElementV2Path& path,
                                        std::span<const uint8_t> outer_nulls,
                                        ColumnPtr* const output) {
     VariantPathV2BatchReader reader(source, path);
-    const size_t metadata_count = reader.metadata_count();
-    DorisVector<uint32_t> output_metadata_ids(metadata_count, UNMAPPED_METADATA);
-
-    VariantBatchBuilder null_builder(VariantBatchBuilder::ReserveHint {.rows = 1});
-    auto null_row = null_builder.begin_row();
-    null_row.add_null();
-    null_row.finish();
-    VariantBatchBuilder null_block = null_builder.finish_batch();
-    const VariantRef null_value = null_block.value_at(0);
-
-    ExtractedRows rows;
-    rows.metadata_ids.reserve(source.size());
-    rows.value_offsets.reserve(source.size() + 1);
-    auto nulls = ColumnUInt8::create();
-    nulls->reserve(source.size());
-    uint32_t null_metadata_id = UNMAPPED_METADATA;
-
-    auto ensure_null_metadata = [&]() {
-        if (null_metadata_id == UNMAPPED_METADATA) {
-            null_metadata_id = append_metadata(rows, null_value.metadata);
-        }
-        return null_metadata_id;
-    };
-
+    VariantSelectedValueBuilder builder(source.size());
     for (size_t row = 0; row < source.size(); ++row) {
-        if (is_outer_null(outer_nulls, row)) {
-            append_value(rows, null_value, ensure_null_metadata());
-            nulls->insert_value(1);
+        VariantRef current;
+        if (is_outer_null(outer_nulls, row) || !reader.find_at(row, &current)) {
+            builder.append_missing();
             continue;
         }
-
-        const uint32_t source_metadata_id = reader.metadata_id_at(row);
-        if (output_metadata_ids[source_metadata_id] == UNMAPPED_METADATA) {
-            output_metadata_ids[source_metadata_id] =
-                    append_metadata(rows, reader.metadata_at(source_metadata_id));
-        }
-
-        VariantRef current;
-        if (reader.find_at(row, &current)) {
-            append_value(rows, current, output_metadata_ids[source_metadata_id]);
-            nulls->insert_value(0);
-        } else {
-            append_value(rows, null_value, output_metadata_ids[source_metadata_id]);
-            nulls->insert_value(1);
-        }
+        builder.append_selected(current);
     }
-
-    ColumnPtr candidate = wrap_result(std::move(rows), std::move(nulls));
+    ColumnPtr candidate = builder.finish();
     output->swap(candidate);
     return Status::OK();
 }
 
 Status make_all_null_variant_element_result(size_t rows, ColumnPtr* const output) {
-    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = rows});
+    VariantSelectedValueBuilder builder(rows);
     for (size_t row_index = 0; row_index < rows; ++row_index) {
-        auto row = builder.begin_row();
-        row.add_null();
-        row.finish();
+        builder.append_missing();
     }
-    VariantBatchBuilder block = builder.finish_batch();
-    auto values = ColumnVariantV2::create();
-    values->insert_encoded_batch(block);
-    ColumnPtr candidate = ColumnNullable::create(std::move(values), ColumnUInt8::create(rows, 1));
+    ColumnPtr candidate = builder.finish();
     output->swap(candidate);
     return Status::OK();
 }

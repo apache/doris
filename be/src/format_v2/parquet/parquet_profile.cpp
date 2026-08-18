@@ -123,6 +123,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "VariantDirectResidualSeekRows", TUnit::UNIT, parquet_profile);
     variant_direct_residual_seek_bytes = add_persistent_counter(
             profile, "VariantDirectResidualSeekBytes", TUnit::BYTES, parquet_profile);
+    variant_direct_residual_seek_typed_rows = add_persistent_counter(
+            profile, "VariantDirectResidualSeekTypedRows", TUnit::UNIT, parquet_profile);
+    variant_direct_residual_seek_typed_downgrades = add_persistent_counter(
+            profile, "VariantDirectResidualSeekTypedDowngrades", TUnit::UNIT, parquet_profile);
     variant_direct_residual_seek_fallbacks = add_persistent_counter(
             profile, "VariantDirectResidualSeekFallbacks", TUnit::UNIT, parquet_profile);
     variant_direct_residual_seek_container_index_builds = add_persistent_counter(
@@ -373,6 +377,9 @@ ParquetColumnReaderProfile ParquetProfile::column_reader_profile() const {
             .variant_direct_residual_seek_time = variant_direct_residual_seek_time,
             .variant_direct_residual_seek_rows = variant_direct_residual_seek_rows,
             .variant_direct_residual_seek_bytes = variant_direct_residual_seek_bytes,
+            .variant_direct_residual_seek_typed_rows = variant_direct_residual_seek_typed_rows,
+            .variant_direct_residual_seek_typed_downgrades =
+                    variant_direct_residual_seek_typed_downgrades,
             .variant_direct_residual_seek_fallbacks = variant_direct_residual_seek_fallbacks,
             .variant_direct_residual_seek_container_index_builds =
                     variant_direct_residual_seek_container_index_builds,

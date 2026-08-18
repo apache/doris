@@ -59,6 +59,16 @@
 namespace doris::format::parquet {
 namespace {
 
+// A homogeneous scalar projection produces a typed ColumnVariantV2, whose canonical bytes only
+// exist once the column is encoded. Copy the result so a test reads the same Variant values every
+// consumer observes, whichever state the extractor chose.
+ColumnVariantV2::MutablePtr canonical_values(const IColumn& nested) {
+    const auto& values = assert_cast<const ColumnVariantV2&>(nested);
+    auto copy = ColumnVariantV2::create();
+    copy->insert_range_from(values, 0, values.size());
+    return copy;
+}
+
 MutableColumnPtr nullable_strings(const std::vector<StringRef>& values,
                                   const std::vector<uint8_t>& nulls) {
     auto data = ColumnString::create();
@@ -930,19 +940,14 @@ TEST(VariantColumnReaderTest, DirectlySeeksUnshreddedObjectAndArrayPaths) {
     const ColumnPtr array_result = extract(array_path);
     const auto& array_nullable = assert_cast<const ColumnNullable&>(*array_result);
     EXPECT_EQ(array_nullable.get_null_map_data(), (NullMap {0, 1, 1, 1, 1, 1}));
-    EXPECT_EQ(assert_cast<const ColumnVariantV2&>(array_nullable.get_nested_column())
-                      .get_value_ref(0)
-                      .get_int(),
-              2);
+    EXPECT_EQ(canonical_values(array_nullable.get_nested_column())->get_value_ref(0).get_int(), 2);
 
     const std::array numeric_key_path {VariantElementV2PathSegment::object_key(StringRef("0"))};
     const ColumnPtr numeric_key_result = extract(numeric_key_path);
     const auto& numeric_key_nullable = assert_cast<const ColumnNullable&>(*numeric_key_result);
     EXPECT_EQ(numeric_key_nullable.get_null_map_data(), (NullMap {0, 1, 1, 1, 1, 1}));
-    EXPECT_EQ(assert_cast<const ColumnVariantV2&>(numeric_key_nullable.get_nested_column())
-                      .get_value_ref(0)
-                      .get_string(),
-              StringRef("zero"));
+    const auto numeric_key_values = canonical_values(numeric_key_nullable.get_nested_column());
+    EXPECT_EQ(numeric_key_values->get_value_ref(0).get_string(), StringRef("zero"));
 
     const std::array missing_path {VariantElementV2PathSegment::object_key(StringRef("missing"))};
     const ColumnPtr missing_result = extract(missing_path);
@@ -957,7 +962,7 @@ TEST(VariantColumnReaderTest, DirectlySeeksUnshreddedObjectAndArrayPaths) {
     EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 0);
 }
 
-TEST(VariantColumnReaderTest, MultiplePlannedPathsFallBackToFullMaterialization) {
+TEST(VariantColumnReaderTest, MultiplePlannedPathsEachKeepDirectSeeking) {
     VariantBatchBuilder builder;
     {
         auto row = builder.begin_row();
@@ -1004,8 +1009,9 @@ TEST(VariantColumnReaderTest, MultiplePlannedPathsFallBackToFullMaterialization)
     plan.schema = &schema;
     plan.contains_variant = true;
     plan.variant_state_schema = create_variant_state_schema(schema, nullptr);
-    // Duplicate requests still represent only two unique paths. More than one unique path uses one
-    // cached full-root materialization instead of independently re-encoding every selected leaf.
+    // Duplicate requests still represent only two unique paths. Every unique path direct seeks,
+    // because a homogeneous scalar projection writes a typed column instead of re-encoding each
+    // selected leaf into owning Variant bytes.
     plan.variant_access_paths = std::make_shared<const format::VariantAccessPaths>(
             format::VariantAccessPaths {{"b"}, {"a"}, {"b"}});
 
@@ -1036,69 +1042,75 @@ TEST(VariantColumnReaderTest, MultiplePlannedPathsFallBackToFullMaterialization)
     const ColumnPtr b_result = extract(*output, StringRef("b"));
     const auto& b_nullable = assert_cast<const ColumnNullable&>(*b_result);
     EXPECT_EQ(b_nullable.get_null_map_data(), (NullMap {0, 0, 0}));
-    const auto& b_values = assert_cast<const ColumnVariantV2&>(b_nullable.get_nested_column());
-    EXPECT_EQ(b_values.get_value_ref(0).get_int(), 10);
-    EXPECT_TRUE(b_values.get_value_ref(1).is_null());
-    EXPECT_EQ(b_values.get_value_ref(2).get_int(), 30);
-    EXPECT_EQ(b_values.get_value_ref(0).metadata.dict_size(),
-              batch.value_at(0).metadata.dict_size());
+    EXPECT_TRUE(assert_cast<const ColumnVariantV2&>(b_nullable.get_nested_column()).is_typed());
+    const auto b_values = canonical_values(b_nullable.get_nested_column());
+    EXPECT_EQ(b_values->get_value_ref(0).get_int(), 10);
+    EXPECT_TRUE(b_values->get_value_ref(1).is_null());
+    EXPECT_EQ(b_values->get_value_ref(2).get_int(), 30);
+    // The selected leaves are scalars, so no key of the source root survives into the result.
+    EXPECT_EQ(b_values->get_value_ref(0).metadata.dict_size(), 0);
+    EXPECT_GT(batch.value_at(0).metadata.dict_size(), 0);
 
     const ColumnPtr a_result = extract(*output, StringRef("a"));
     const auto& a_nullable = assert_cast<const ColumnNullable&>(*a_result);
     EXPECT_EQ(a_nullable.get_null_map_data(), (NullMap {0, 0, 1}));
-    const auto& a_values = assert_cast<const ColumnVariantV2&>(a_nullable.get_nested_column());
-    EXPECT_EQ(a_values.get_value_ref(0).get_int(), 1);
-    EXPECT_EQ(a_values.get_value_ref(1).get_int(), 2);
-    // Repeated expression use reads the same cached materialized root.
+    const auto a_values = canonical_values(a_nullable.get_nested_column());
+    EXPECT_EQ(a_values->get_value_ref(0).get_int(), 1);
+    EXPECT_EQ(a_values->get_value_ref(1).get_int(), 2);
+    // Repeated expression use seeks again over the same physical rows; the shared container index
+    // absorbs the repeated root lookups instead of forcing a canonical root.
     const ColumnPtr repeated_b_result = extract(*output, StringRef("b"));
     EXPECT_EQ(assert_cast<const ColumnNullable&>(*repeated_b_result).get_null_map_data(),
               (NullMap {0, 0, 0}));
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 0);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value(),
-              0);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexHits")->value(),
-              0);
-    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 3);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 3);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 9);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekTypedRows")->value(), 9);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekTypedDowngrades")->value(), 0);
+    // Every row of every seek resolves exactly one root container, either building or reusing it.
+    EXPECT_EQ(
+            runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value() +
+                    runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexHits")
+                            ->value(),
+            9);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 0);
 
-    // A compatible append invalidates the cached full root and rebuilds it over all four rows.
+    // A compatible append invalidates the per-batch caches and seeks over all four rows.
     ASSERT_TRUE(materialize_variant_columns(plan, unshredded_physical({batch.value_at(3)}), output,
                                             profile)
                         .ok());
     const ColumnPtr appended_b_result = extract(*output, StringRef("b"));
     const auto& appended_b_nullable = assert_cast<const ColumnNullable&>(*appended_b_result);
     EXPECT_EQ(appended_b_nullable.get_null_map_data(), (NullMap {0, 0, 0, 0}));
-    const auto& appended_b_values =
-            assert_cast<const ColumnVariantV2&>(appended_b_nullable.get_nested_column());
-    EXPECT_EQ(appended_b_values.get_value_ref(3).get_int(), 40);
+    const auto appended_b_values = canonical_values(appended_b_nullable.get_nested_column());
+    EXPECT_EQ(appended_b_values->get_value_ref(3).get_int(), 40);
     const ColumnPtr appended_a_result = extract(*output, StringRef("a"));
     const auto& appended_a_nullable = assert_cast<const ColumnNullable&>(*appended_a_result);
     EXPECT_EQ(appended_a_nullable.get_null_map_data(), (NullMap {0, 0, 1, 0}));
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 0);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value(),
-              0);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexHits")->value(),
-              0);
-    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 7);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 7);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 17);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 0);
 
     const IColumn::Filter keep {1, 0, 0, 1};
     const ColumnPtr filtered = output->filter(keep, 2);
     const ColumnPtr filtered_a_result = extract(*filtered, StringRef("a"));
     const auto& filtered_a_nullable = assert_cast<const ColumnNullable&>(*filtered_a_result);
     EXPECT_EQ(filtered_a_nullable.get_null_map_data(), (NullMap {0, 0}));
-    const auto& filtered_a_values =
-            assert_cast<const ColumnVariantV2&>(filtered_a_nullable.get_nested_column());
-    EXPECT_EQ(filtered_a_values.get_value_ref(0).get_int(), 1);
-    EXPECT_EQ(filtered_a_values.get_value_ref(1).get_int(), 4);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 0);
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value(),
-              0);
-    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 9);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 9);
+    const auto filtered_a_values = canonical_values(filtered_a_nullable.get_nested_column());
+    EXPECT_EQ(filtered_a_values->get_value_ref(0).get_int(), 1);
+    EXPECT_EQ(filtered_a_values->get_value_ref(1).get_int(), 4);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 19);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekTypedRows")->value(), 19);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekTypedDowngrades")->value(), 0);
+    EXPECT_EQ(
+            runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value() +
+                    runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexHits")
+                            ->value(),
+            19);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 0);
 }
 
-TEST(VariantColumnReaderTest, ManyPlannedPathsUseOneFullMaterialization) {
+TEST(VariantColumnReaderTest, ManyPlannedPathsEachSeekDirectly) {
     constexpr size_t PATH_COUNT = 6;
     VariantBatchBuilder builder;
     auto row = builder.begin_row();
@@ -1147,21 +1159,29 @@ TEST(VariantColumnReaderTest, ManyPlannedPathsUseOneFullMaterialization) {
     for (size_t path_index = PATH_COUNT; path_index > 0; --path_index) {
         const std::string key = "k" + std::to_string(path_index - 1);
         const ColumnPtr result = extract(StringRef(key));
-        const auto& values = assert_cast<const ColumnVariantV2&>(
-                assert_cast<const ColumnNullable&>(*result).get_nested_column());
-        EXPECT_EQ(values.get_value_ref(0).get_int(), static_cast<int64_t>(100 + path_index - 1));
+        const auto& nullable_result = assert_cast<const ColumnNullable&>(*result);
+        EXPECT_TRUE(assert_cast<const ColumnVariantV2&>(nullable_result.get_nested_column())
+                            .is_typed());
+        const auto values = canonical_values(nullable_result.get_nested_column());
+        EXPECT_EQ(values->get_value_ref(0).get_int(), static_cast<int64_t>(100 + path_index - 1));
     }
     for (const StringRef missing : {StringRef("j_missing"), StringRef("z_missing")}) {
         const ColumnPtr result = extract(missing);
         EXPECT_EQ(assert_cast<const ColumnNullable&>(*result).get_null_map_data(), (NullMap {1}));
     }
-    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 0);
+    // Six selected paths plus two absent ones each seek the single row directly. The root object
+    // is parsed once and reused, so a wide projection never reconstructs the canonical root.
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(),
+              static_cast<int64_t>(PATH_COUNT) + 2);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekTypedRows")->value(),
+              static_cast<int64_t>(PATH_COUNT));
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekTypedDowngrades")->value(), 2);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value(),
-              0);
+              1);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexHits")->value(),
-              0);
-    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 1);
-    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 1);
+              static_cast<int64_t>(PATH_COUNT) + 1);
+    EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
+    EXPECT_EQ(runtime_profile.get_counter("VariantUnshreddedDirectImportRows")->value(), 0);
 }
 
 TEST(VariantColumnReaderTest, DirectSeekHandlesDistinctMetadataAcrossAppendedBatches) {
@@ -1201,9 +1221,9 @@ TEST(VariantColumnReaderTest, DirectSeekHandlesDistinctMetadataAcrossAppendedBat
         ASSERT_TRUE(extract_variant_element_v2(source, *path, nullable.get_null_map_data(),
                                                &first_result)
                             .ok());
-        const auto& first_values = assert_cast<const ColumnVariantV2&>(
+        const auto first_values = canonical_values(
                 assert_cast<const ColumnNullable&>(*first_result).get_nested_column());
-        EXPECT_EQ(first_values.get_value_ref(0).get_int(), 1);
+        EXPECT_EQ(first_values->get_value_ref(0).get_int(), 1);
     }
 
     // Appending another decoded reader batch must invalidate the cached per-row metadata ids.
@@ -1217,10 +1237,10 @@ TEST(VariantColumnReaderTest, DirectSeekHandlesDistinctMetadataAcrossAppendedBat
     ColumnPtr result;
     ASSERT_TRUE(
             extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result).ok());
-    const auto& values = assert_cast<const ColumnVariantV2&>(
-            assert_cast<const ColumnNullable&>(*result).get_nested_column());
-    EXPECT_EQ(values.get_value_ref(0).get_int(), 1);
-    EXPECT_EQ(values.get_value_ref(1).get_int(), 2);
+    const auto values =
+            canonical_values(assert_cast<const ColumnNullable&>(*result).get_nested_column());
+    EXPECT_EQ(values->get_value_ref(0).get_int(), 1);
+    EXPECT_EQ(values->get_value_ref(1).get_int(), 2);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 3);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value(),
               3);
@@ -1245,9 +1265,9 @@ TEST(VariantColumnReaderTest, ProfilesMixedResidualSeekFallback) {
     ColumnPtr result;
     ASSERT_TRUE(
             extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result).ok());
-    const auto& values = assert_cast<const ColumnVariantV2&>(
-            assert_cast<const ColumnNullable&>(*result).get_nested_column());
-    EXPECT_EQ(values.get_value_ref(0).get_int(), 1);
+    const auto values =
+            canonical_values(assert_cast<const ColumnNullable&>(*result).get_nested_column());
+    EXPECT_EQ(values->get_value_ref(0).get_int(), 1);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekFallbacks")->value(), 1);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 0);
     EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 1);
@@ -1295,9 +1315,9 @@ TEST(VariantColumnReaderTest, DirectSeekValidatesOnlyTheSelectedUnshreddedBranch
     ColumnPtr good_result;
     const Status good_status = extract(StringRef("good"), &good_result);
     ASSERT_TRUE(good_status.ok()) << good_status;
-    const auto& good_values = assert_cast<const ColumnVariantV2&>(
-            assert_cast<const ColumnNullable&>(*good_result).get_nested_column());
-    EXPECT_EQ(good_values.get_value_ref(0).get_int(), 7);
+    const auto good_values =
+            canonical_values(assert_cast<const ColumnNullable&>(*good_result).get_nested_column());
+    EXPECT_EQ(good_values->get_value_ref(0).get_int(), 7);
     EXPECT_EQ(runtime_profile.get_counter("VariantReconstructedRows")->value(), 0);
     ColumnPtr bad_result;
     const Status bad_status = extract(StringRef("bad"), &bad_result);
@@ -1359,10 +1379,9 @@ TEST(VariantColumnReaderTest, DirectSeekPreservesNonmonotonicObjectValueOrder) {
         ColumnPtr result;
         EXPECT_TRUE(extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result)
                             .ok());
-        const VariantRef value =
-                assert_cast<const ColumnVariantV2&>(
-                        assert_cast<const ColumnNullable&>(*result).get_nested_column())
-                        .get_value_ref(0);
+        const auto values =
+                canonical_values(assert_cast<const ColumnNullable&>(*result).get_nested_column());
+        const VariantRef value = values->get_value_ref(0);
         EXPECT_EQ(value.is_null(), expected_null);
         if (!expected_null) {
             EXPECT_EQ(value.get_bool(), expected_bool);
@@ -1647,9 +1666,9 @@ TEST(VariantColumnReaderTest, DirectSeekPreservesRootDepthForSelectedSubtree) {
     ColumnPtr maximum_result;
     const Status maximum_status = extract(maximum_depth, &maximum_result);
     ASSERT_TRUE(maximum_status.ok()) << maximum_status;
-    const auto& maximum_values = assert_cast<const ColumnVariantV2&>(
+    const auto maximum_values = canonical_values(
             assert_cast<const ColumnNullable&>(*maximum_result).get_nested_column());
-    EXPECT_EQ(maximum_values.get_value_ref(0).basic_type(), VariantBasicType::ARRAY);
+    EXPECT_EQ(maximum_values->get_value_ref(0).basic_type(), VariantBasicType::ARRAY);
 
     std::string too_deep = nested_single_element_arrays(VARIANT_MAX_NESTING_DEPTH + 1);
     ColumnPtr too_deep_result;
@@ -1697,9 +1716,8 @@ TEST(VariantColumnReaderTest, ReusesDirectSeekContainerIndexesAcrossPathsAndSele
         EXPECT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
         ColumnPtr result;
         EXPECT_TRUE(extract_variant_element_v2(input, *path, {}, &result).ok());
-        return assert_cast<const ColumnVariantV2&>(
-                       assert_cast<const ColumnNullable&>(*result).get_nested_column())
-                .get_value_ref(0)
+        return canonical_values(assert_cast<const ColumnNullable&>(*result).get_nested_column())
+                ->get_value_ref(0)
                 .get_int();
     };
 
@@ -2311,11 +2329,11 @@ TEST(VariantColumnReaderTest, GathersConsecutiveProjectedShreddedBatches) {
     ASSERT_TRUE(extract_variant_element_v2(assert_cast<const ColumnVariantV2&>(*restored),
                                            *resolved_path, {}, &extracted)
                         .ok());
-    const auto& restored_values = assert_cast<const ColumnVariantV2&>(
-            assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
-    EXPECT_EQ(restored_values.get_value_ref(0).get_int(), 20);
-    EXPECT_EQ(restored_values.get_value_ref(1).get_int(), 10);
-    EXPECT_EQ(restored_values.get_value_ref(2).get_int(), 30);
+    const auto restored_values =
+            canonical_values(assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
+    EXPECT_EQ(restored_values->get_value_ref(0).get_int(), 20);
+    EXPECT_EQ(restored_values->get_value_ref(1).get_int(), 10);
+    EXPECT_EQ(restored_values->get_value_ref(2).get_int(), 30);
 }
 
 TEST(VariantColumnReaderTest, SelectsProjectedShreddedRowsWithoutMaterializing) {
@@ -2396,10 +2414,10 @@ TEST(VariantColumnReaderTest, GathersLocalProjectedAndRemoteSerializedRowsInEith
 
         ColumnPtr extracted;
         ASSERT_TRUE(extract_variant_element_v2(gathered, *path, {}, &extracted).ok());
-        const auto& values = assert_cast<const ColumnVariantV2&>(
+        const auto values = canonical_values(
                 assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
         for (size_t row = 0; row < expected.size(); ++row) {
-            EXPECT_EQ(values.get_value_ref(row).get_int(), expected[row]);
+            EXPECT_EQ(values->get_value_ref(row).get_int(), expected[row]);
         }
     };
     auto verify = [&](const std::vector<const IColumn*>& sources,
@@ -2524,9 +2542,8 @@ TEST(VariantColumnReaderTest, GathersCompleteAndProjectedShreddedBatches) {
                             .ok());
         const auto& extracted_nullable = assert_cast<const ColumnNullable&>(*extracted);
         EXPECT_EQ(extracted_nullable.get_null_map_data(), expected_nulls);
-        const auto& extracted_values =
-                assert_cast<const ColumnVariantV2&>(extracted_nullable.get_nested_column());
-        EXPECT_EQ(extracted_values.get_value_ref(value_row).get_int(), 7);
+        const auto extracted_values = canonical_values(extracted_nullable.get_nested_column());
+        EXPECT_EQ(extracted_values->get_value_ref(value_row).get_int(), 7);
     };
 
     // Complete and projected files can alternate in either order; a field absent from the
@@ -2667,12 +2684,11 @@ TEST(VariantColumnReaderTest, CompactsWideMetadataForDirectAndCompositeResults) 
                             .ok());
         const auto& result_nullable = assert_cast<const ColumnNullable&>(*result);
         EXPECT_EQ(result_nullable.get_null_map_data(), (NullMap {0, 0}));
-        const auto& values =
-                assert_cast<const ColumnVariantV2&>(result_nullable.get_nested_column());
-        EXPECT_EQ(values.get_value_ref(0).get_int(), first_value);
-        EXPECT_EQ(values.get_value_ref(1).get_int(), second_value);
-        EXPECT_EQ(values.get_value_ref(0).metadata.dict_size(), 0);
-        EXPECT_EQ(values.get_value_ref(1).metadata.dict_size(), 0);
+        const auto values = canonical_values(result_nullable.get_nested_column());
+        EXPECT_EQ(values->get_value_ref(0).get_int(), first_value);
+        EXPECT_EQ(values->get_value_ref(1).get_int(), second_value);
+        EXPECT_EQ(values->get_value_ref(0).metadata.dict_size(), 0);
+        EXPECT_EQ(values->get_value_ref(1).metadata.dict_size(), 0);
     };
     verify_mixed_order(*unshredded, *projected, 7, 8);
     verify_mixed_order(*projected, *unshredded, 8, 7);
@@ -2692,9 +2708,9 @@ TEST(VariantColumnReaderTest, CompactsWideMetadataForDirectAndCompositeResults) 
     };
 
     const ColumnPtr nested_result = extract_unshredded(StringRef("nested"));
-    const auto& nested_values = assert_cast<const ColumnVariantV2&>(
+    const auto nested_values = canonical_values(
             assert_cast<const ColumnNullable&>(*nested_result).get_nested_column());
-    const VariantRef compact_nested = nested_values.get_value_ref(0);
+    const VariantRef compact_nested = nested_values->get_value_ref(0);
     EXPECT_EQ(compact_nested.metadata.dict_size(), 1);
     EXPECT_EQ(compact_nested.metadata.find_key(StringRef("kept")), 0);
     EXPECT_EQ(compact_nested.metadata.find_key(StringRef("unused_0")), -1);
@@ -2752,16 +2768,21 @@ TEST(VariantColumnReaderTest, ReusesUnshreddedPrefixBeforeCompositeFallback) {
                             assert_cast<const ColumnVariantV2&>(nullable.get_nested_column()),
                             *path, nullable.get_null_map_data(), &result)
                             .ok());
-        const auto& values = assert_cast<const ColumnVariantV2&>(
-                assert_cast<const ColumnNullable&>(*result).get_nested_column());
-        EXPECT_EQ(values.get_value_ref(0).get_int(), first_value);
-        EXPECT_EQ(values.get_value_ref(1).get_int(), second_value);
+        const auto values =
+                canonical_values(assert_cast<const ColumnNullable&>(*result).get_nested_column());
+        EXPECT_EQ(values->get_value_ref(0).get_int(), first_value);
+        EXPECT_EQ(values->get_value_ref(1).get_int(), second_value);
     };
 
+    // The unshredded segment seeks its own row directly in either order, and the mixed segment
+    // reports exactly one reconstruction fallback per gathered state whichever segment is observed
+    // first. Both counters must therefore advance by the same amount for both orders.
     verify_order(*unshredded, *residual, 7, 1);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 1);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekFallbacks")->value(), 1);
     verify_order(*residual, *unshredded, 1, 7);
     EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 2);
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekFallbacks")->value(), 2);
 }
 
 TEST(VariantColumnReaderTest, PreservesPrimitiveWidthsAcrossProjectedFiles) {
@@ -2814,10 +2835,10 @@ TEST(VariantColumnReaderTest, PreservesPrimitiveWidthsAcrossProjectedFiles) {
     ASSERT_TRUE(
             extract_variant_element_v2(variants, *path, nullable.get_null_map_data(), &extracted)
                     .ok());
-    const auto& values = assert_cast<const ColumnVariantV2&>(
-            assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
-    EXPECT_EQ(values.get_value_ref(0).primitive_id(), VariantPrimitiveId::INT64);
-    EXPECT_EQ(values.get_value_ref(1).primitive_id(), VariantPrimitiveId::INT32);
+    const auto values =
+            canonical_values(assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
+    EXPECT_EQ(values->get_value_ref(0).primitive_id(), VariantPrimitiveId::INT64);
+    EXPECT_EQ(values->get_value_ref(1).primitive_id(), VariantPrimitiveId::INT32);
 }
 
 TEST(VariantColumnReaderTest, PreservesWidthsAcrossMaterializedPathFallback) {
@@ -2880,10 +2901,10 @@ TEST(VariantColumnReaderTest, PreservesWidthsAcrossMaterializedPathFallback) {
             ASSERT_TRUE(extract_variant_element_v2(variants, *path, nullable.get_null_map_data(),
                                                    &extracted)
                                 .ok());
-            const auto& values = assert_cast<const ColumnVariantV2&>(
+            const auto values = canonical_values(
                     assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
-            EXPECT_EQ(values.get_value_ref(0).primitive_id(), expected_id);
-            EXPECT_EQ(values.get_value_ref(1).primitive_id(), expected_id);
+            EXPECT_EQ(values->get_value_ref(0).primitive_id(), expected_id);
+            EXPECT_EQ(values->get_value_ref(1).primitive_id(), expected_id);
         }
     };
 
@@ -2942,11 +2963,11 @@ TEST(VariantColumnReaderTest, GathersProjectedShreddedBatchesWithDifferentLeafTy
     ASSERT_TRUE(
             extract_variant_element_v2(variants, *path, nullable.get_null_map_data(), &extracted)
                     .ok());
-    const auto& extracted_variants = assert_cast<const ColumnVariantV2&>(
-            assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
-    EXPECT_EQ(extracted_variants.get_value_ref(0).get_int(), 7);
-    EXPECT_EQ(extracted_variants.get_value_ref(1).get_int(), 8);
-    EXPECT_EQ(extracted_variants.get_value_ref(2).get_binary(), StringRef("seven"));
+    const auto extracted_variants =
+            canonical_values(assert_cast<const ColumnNullable&>(*extracted).get_nested_column());
+    EXPECT_EQ(extracted_variants->get_value_ref(0).get_int(), 7);
+    EXPECT_EQ(extracted_variants->get_value_ref(1).get_int(), 8);
+    EXPECT_EQ(extracted_variants->get_value_ref(2).get_binary(), StringRef("seven"));
 
     variants.sanity_check();
     EXPECT_GT(variants.byte_size(), 0);
@@ -2959,10 +2980,10 @@ TEST(VariantColumnReaderTest, GathersProjectedShreddedBatchesWithDifferentLeafTy
                     .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("a")}});
     ASSERT_TRUE(ranged_match.has_value());
     ASSERT_TRUE(ranged_match->normalized);
-    const auto& ranged_values = assert_cast<const ColumnVariantV2&>(
+    const auto ranged_values = canonical_values(
             assert_cast<const ColumnNullable&>(*ranged_match->normalized).get_nested_column());
-    EXPECT_EQ(ranged_values.get_value_ref(0).get_int(), 8);
-    EXPECT_EQ(ranged_values.get_value_ref(1).get_binary(), StringRef("seven"));
+    EXPECT_EQ(ranged_values->get_value_ref(0).get_int(), 8);
+    EXPECT_EQ(ranged_values->get_value_ref(1).get_binary(), StringRef("seven"));
 
     const std::array shredded_path {VariantShreddedPathSegment {
             .kind = VariantShreddedPathSegment::Kind::OBJECT_KEY, .key = StringRef("a")}};
@@ -3989,9 +4010,9 @@ TEST(VariantColumnReaderTest, ProjectedShreddedStateServesBinaryDeepPathChain) {
     const Status address_status =
             extract_variant_element_v2(profile_value_variant, *address_path, {}, &address_value);
     ASSERT_TRUE(address_status.ok()) << address_status;
-    const auto& address_value_variant = assert_cast<const ColumnVariantV2&>(
+    const auto address_value_variant = canonical_values(
             assert_cast<const ColumnNullable&>(*address_value).get_nested_column());
-    EXPECT_EQ(address_value_variant.get_value_ref(0).get_int(), 17);
+    EXPECT_EQ(address_value_variant->get_value_ref(0).get_int(), 17);
 }
 
 TEST(VariantColumnReaderTest, AlignsNestedPrimitiveNullabilityAroundVariant) {

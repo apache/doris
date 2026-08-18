@@ -71,6 +71,20 @@ const ColumnVariantV2& variant_result(const ColumnPtr& result) {
     return assert_cast<const ColumnVariantV2&>(nullable_result(result).get_nested_column());
 }
 
+// A homogeneous scalar path yields a typed ColumnVariantV2, so canonical bytes are only observable
+// after copying the result into an encoded column. Every consumer that reads Variant values sees
+// exactly these bytes.
+ColumnVariantV2::MutablePtr canonical_result(const ColumnPtr& result) {
+    const ColumnVariantV2& values = variant_result(result);
+    auto copy = ColumnVariantV2::create();
+    copy->insert_range_from(values, 0, values.size());
+    return copy;
+}
+
+std::string_view empty_metadata() {
+    return {VARIANT_EMPTY_METADATA.data(), VARIANT_EMPTY_METADATA.size()};
+}
+
 std::string_view bytes(VariantMetadataRef metadata) {
     return {metadata.data, metadata.size};
 }
@@ -123,15 +137,17 @@ TEST(VariantElementV2EncodedTest, InterleavedMetadataAndCacheIsPerCall) {
 
     ColumnPtr result = extract(*source, *path);
     const auto& nullable = nullable_result(result);
-    const auto& values = variant_result(result);
-    ASSERT_EQ(values.size(), 4);
+    auto values = canonical_result(result);
+    ASSERT_EQ(values->size(), 4);
     EXPECT_EQ(nullable.get_null_map_data()[0], 0);
-    EXPECT_EQ(values.get_value_ref(0).get_int(), 1);
+    EXPECT_EQ(values->get_value_ref(0).get_int(), 1);
     EXPECT_EQ(nullable.get_null_map_data()[1], 1);
     EXPECT_EQ(nullable.get_null_map_data()[2], 0);
-    EXPECT_EQ(values.get_value_ref(2).get_int(), 3);
-    EXPECT_EQ(values.get_value_ref(3).get_int(), 5);
-    EXPECT_EQ(bytes(values.get_value_ref(0).metadata), bytes(source->get_value_ref(0).metadata));
+    EXPECT_EQ(values->get_value_ref(2).get_int(), 3);
+    EXPECT_EQ(values->get_value_ref(3).get_int(), 5);
+    // Every selected leaf is a scalar, so the result keeps no dictionary key from the wide source
+    // roots it was extracted from.
+    EXPECT_EQ(bytes(values->get_value_ref(0).metadata), empty_metadata());
 
     auto next_block = ColumnVariantV2::create();
     append_json(*next_block, R"({"different":7})");
@@ -139,7 +155,7 @@ TEST(VariantElementV2EncodedTest, InterleavedMetadataAndCacheIsPerCall) {
     ColumnPtr next_result = extract(*next_block, *path);
     EXPECT_EQ(nullable_result(next_result).get_null_map_data()[0], 1);
     EXPECT_EQ(nullable_result(next_result).get_null_map_data()[1], 0);
-    EXPECT_EQ(variant_result(next_result).get_value_ref(1).get_int(), 9);
+    EXPECT_EQ(canonical_result(next_result)->get_value_ref(1).get_int(), 9);
 }
 
 TEST(VariantElementV2EncodedTest, ResolvedPathRejectsInvalidInputAndOwnsKeys) {
@@ -149,7 +165,7 @@ TEST(VariantElementV2EncodedTest, ResolvedPathRejectsInvalidInputAndOwnsKeys) {
 
     auto source = ColumnVariantV2::create();
     append_json(*source, R"({"target":7})");
-    EXPECT_EQ(variant_result(extract(*source, *path)).get_value_ref(0).get_int(), 7);
+    EXPECT_EQ(canonical_result(extract(*source, *path))->get_value_ref(0).get_int(), 7);
 
     const ResolvedVariantElementV2Path* identity = path.get();
     Status status = resolve_variant_element_v2_path({}, &path);
@@ -168,23 +184,23 @@ TEST(VariantElementV2EncodedTest, ExplicitSegmentsCoverDeepDotAndArrayBounds) {
     append_json(*source, R"({"a.b":11,"a":{"b":{"c":{"d":22}}},"items":[0,{"v":33}]})");
 
     auto literal_dot = resolve({Segment::object_key(StringRef("a.b"))});
-    EXPECT_EQ(variant_result(extract(*source, *literal_dot)).get_value_ref(0).get_int(), 11);
+    EXPECT_EQ(canonical_result(extract(*source, *literal_dot))->get_value_ref(0).get_int(), 11);
 
     auto deep = resolve({Segment::object_key(StringRef("a")), Segment::object_key(StringRef("b")),
                          Segment::object_key(StringRef("c")), Segment::object_key(StringRef("d"))});
-    EXPECT_EQ(variant_result(extract(*source, *deep)).get_value_ref(0).get_int(), 22);
+    EXPECT_EQ(canonical_result(extract(*source, *deep))->get_value_ref(0).get_int(), 22);
 
     auto first = resolve({Segment::object_key(StringRef("items")), Segment::array_index(0)});
-    EXPECT_EQ(variant_result(extract(*source, *first)).get_value_ref(0).get_int(), 0);
+    EXPECT_EQ(canonical_result(extract(*source, *first))->get_value_ref(0).get_int(), 0);
     auto last = resolve({Segment::object_key(StringRef("items")), Segment::array_index(1),
                          Segment::object_key(StringRef("v"))});
-    EXPECT_EQ(variant_result(extract(*source, *last)).get_value_ref(0).get_int(), 33);
+    EXPECT_EQ(canonical_result(extract(*source, *last))->get_value_ref(0).get_int(), 33);
     auto out_of_bounds =
             resolve({Segment::object_key(StringRef("items")), Segment::array_index(2)});
     EXPECT_EQ(nullable_result(extract(*source, *out_of_bounds)).get_null_map_data()[0], 1);
     auto from_end = resolve({Segment::object_key(StringRef("items")), Segment::array_index(-1),
                              Segment::object_key(StringRef("v"))});
-    EXPECT_EQ(variant_result(extract(*source, *from_end)).get_value_ref(0).get_int(), 33);
+    EXPECT_EQ(canonical_result(extract(*source, *from_end))->get_value_ref(0).get_int(), 33);
     auto before_begin =
             resolve({Segment::object_key(StringRef("items")), Segment::array_index(-3)});
     EXPECT_EQ(nullable_result(extract(*source, *before_begin)).get_null_map_data()[0], 1);
@@ -201,24 +217,66 @@ TEST(VariantElementV2EncodedTest, OuterMissingAndPrimitiveNullAreDistinct) {
 
     ColumnPtr result = extract(*source, *path, outer_nulls);
     const auto& nullable = nullable_result(result);
-    const auto& values = variant_result(result);
+    auto values = canonical_result(result);
     EXPECT_EQ(nullable.get_null_map_data()[0], 0);
-    EXPECT_TRUE(values.get_value_ref(0).is_null());
+    EXPECT_TRUE(values->get_value_ref(0).is_null());
     EXPECT_EQ(nullable.get_null_map_data()[1], 1);
     EXPECT_EQ(nullable.get_null_map_data()[2], 1);
     EXPECT_EQ(nullable.get_null_map_data()[3], 1);
 }
 
-TEST(VariantElementV2EncodedTest, LegalNoncanonicalMetadataIsCopiedWithoutCanonicalizing) {
+TEST(VariantElementV2EncodedTest, LegalNoncanonicalMetadataAndOffsetsStayReadable) {
     const VariantField field = legal_noncanonical_object();
     auto source = ColumnVariantV2::create();
     insert_encoded_field(*source, field);
     auto path = resolve({Segment::object_key(StringRef("a"))});
 
+    // The dictionary is unsorted and the object offset table is not monotonic. Both are legal, so
+    // extraction must still resolve the key and select the exact child.
     ColumnPtr result = extract(*source, *path);
-    const VariantRef value = variant_result(result).get_value_ref(0);
+    auto values = canonical_result(result);
+    const VariantRef value = values->get_value_ref(0);
     EXPECT_TRUE(value.get_bool());
-    EXPECT_EQ(bytes(value.metadata), bytes(source->get_value_ref(0).metadata));
+    // The selected leaf is a scalar, so none of the source dictionary survives into the result.
+    EXPECT_EQ(bytes(value.metadata), empty_metadata());
+}
+
+TEST(VariantElementV2EncodedTest, HomogeneousScalarPathProducesATypedResult) {
+    auto source = ColumnVariantV2::create();
+    append_json(*source, R"({"k":"alpha"})");
+    append_json(*source, R"({"other":1})");
+    append_json(*source, R"({"k":"beta"})");
+    auto path = resolve({Segment::object_key(StringRef("k"))});
+
+    ColumnPtr result = extract(*source, *path);
+    const ColumnVariantV2& values = variant_result(result);
+    ASSERT_TRUE(values.is_typed());
+    EXPECT_EQ(values.typed_type()->get_primitive_type(), TYPE_STRING);
+    EXPECT_EQ(nullable_result(result).get_null_map_data()[1], 1);
+    auto canonical = canonical_result(result);
+    EXPECT_EQ(canonical->get_value_ref(0).get_string(), StringRef("alpha"));
+    EXPECT_EQ(canonical->get_value_ref(2).get_string(), StringRef("beta"));
+}
+
+TEST(VariantElementV2EncodedTest, MixedScalarKindsAndContainersStayEncoded) {
+    auto mixed = ColumnVariantV2::create();
+    append_json(*mixed, R"({"k":"alpha"})");
+    append_json(*mixed, R"({"k":1})");
+    auto path = resolve({Segment::object_key(StringRef("k"))});
+    ColumnPtr mixed_result = extract(*mixed, *path);
+    EXPECT_FALSE(variant_result(mixed_result).is_typed());
+    EXPECT_EQ(variant_result(mixed_result).get_value_ref(0).get_string(), StringRef("alpha"));
+    EXPECT_EQ(variant_result(mixed_result).get_value_ref(1).get_int(), 1);
+
+    auto containers = ColumnVariantV2::create();
+    append_json(*containers, R"({"k":{"inner":2}})");
+    ColumnPtr container_result = extract(*containers, *path);
+    EXPECT_FALSE(variant_result(container_result).is_typed());
+    VariantRef inner;
+    ASSERT_TRUE(variant_result(container_result)
+                        .get_value_ref(0)
+                        .object_find(StringRef("inner"), &inner));
+    EXPECT_EQ(inner.get_int(), 2);
 }
 
 TEST(VariantElementV2EncodedTest, SourceCowBytesRemainUnchanged) {
@@ -229,7 +287,7 @@ TEST(VariantElementV2EncodedTest, SourceCowBytesRemainUnchanged) {
     auto path = resolve({Segment::object_key(StringRef("a")), Segment::object_key(StringRef("b"))});
 
     ColumnPtr result = extract(*source, *path);
-    EXPECT_EQ(variant_result(result).get_value_ref(0).get_int(), 42);
+    EXPECT_EQ(canonical_result(result)->get_value_ref(0).get_int(), 42);
     const VariantField after = VariantField::from_ref(source->get_value_ref(0));
     EXPECT_EQ(std::string_view(before.bytes().data, before.bytes().size),
               std::string_view(after.bytes().data, after.bytes().size));

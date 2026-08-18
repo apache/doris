@@ -166,6 +166,12 @@ Status cast_typed_variant_to_string(FunctionContext* context, const ColumnVarian
     const auto& typed = assert_cast<const ColumnNullable&>(source.typed_column());
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
     const NullMap& inner_nulls = typed.get_null_map_data();
+    // A string typed identity already holds exactly the characters this cast emits, because
+    // with_variant_typed_scalar() would only wrap those same bytes in a Variant string view. Read
+    // them straight from the typed column instead of encoding and reclassifying a scalar per row.
+    const PrimitiveType identity = source.typed_type()->get_primitive_type();
+    const bool string_identity =
+            identity == TYPE_STRING || identity == TYPE_CHAR || identity == TYPE_VARCHAR;
     size_t concrete_rows = 0;
     for (size_t row = 0; row < rows; ++row) {
         if (inner_nulls[row] == 0 && (forced_nulls.empty() || forced_nulls[row] == 0)) {
@@ -173,20 +179,24 @@ Status cast_typed_variant_to_string(FunctionContext* context, const ColumnVarian
         }
     }
     if (concrete_rows == rows) {
+        if (string_identity) {
+            *output = ColumnNullable::create(typed.get_nested_column_ptr(),
+                                             ColumnUInt8::create(rows, 0));
+            return Status::OK();
+        }
         return cast_variant_values_to_scalar(context, source, string_type, rows, {}, output);
     }
 
     ColumnPtr concrete;
-    if (concrete_rows != 0) {
+    const ColumnString* converted_strings = nullptr;
+    if (string_identity) {
+        converted_strings = &assert_cast<const ColumnString&>(typed.get_nested_column());
+    } else if (concrete_rows != 0) {
         RETURN_IF_ERROR(cast_variant_values_to_scalar(context, source, string_type, rows,
                                                       forced_nulls, &concrete));
+        converted_strings = &assert_cast<const ColumnString&>(
+                assert_cast<const ColumnNullable&>(*concrete).get_nested_column());
     }
-    const ColumnNullable* converted =
-            concrete ? &assert_cast<const ColumnNullable&>(*concrete) : nullptr;
-    const ColumnString* converted_strings =
-            converted == nullptr
-                    ? nullptr
-                    : &assert_cast<const ColumnString&>(converted->get_nested_column());
     auto strings = ColumnString::create();
     auto nulls = ColumnUInt8::create();
     strings->reserve(rows);
@@ -200,8 +210,7 @@ Status cast_typed_variant_to_string(FunctionContext* context, const ColumnVarian
             strings->insert_data("null", 4);
             nulls->insert_value(0);
         } else {
-            DCHECK(converted != nullptr);
-            DCHECK_EQ(converted->get_null_map_data()[row], 0);
+            DCHECK(converted_strings != nullptr);
             strings->insert_from(*converted_strings, row);
             nulls->insert_value(0);
         }
