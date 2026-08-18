@@ -24,10 +24,11 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
-import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AggMode;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -53,7 +54,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
-import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -119,15 +119,100 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             return ImmutableList.of();
         }
         PhysicalProperties requiredChildProperty = requiredProperties.get(0);
-        if (!agg.getAggregateParam().canBeBanned) {
-            return visit(agg, context);
-        }
-        // return aggBanByStatistics(agg, context);
-        if (shouldBanOnePhaseAgg(agg, requiredChildProperty)) {
+        if (agg.getAggregateParam().canBeBanned
+                && shouldBanOnePhaseAgg(agg, requiredChildProperty)) {
             return ImmutableList.of();
         }
+        enforceSafeShuffleKeySubsetReuse(agg, requiredChildProperty);
         // process must shuffle
         return visit(agg, context);
+    }
+
+    /**
+     * A REQUIRE(a, b, ...) child request can be satisfied by an existing hash distribution on a strict
+     * subset, such as NATURAL(a). Only keep that no-exchange alternative when the actual subset is itself
+     * safe for reuse, regardless of which distribution the aggregate parent requires.
+     */
+    private void enforceSafeShuffleKeySubsetReuse(
+            PhysicalHashAggregate<? extends Plan> agg, PhysicalProperties requiredChildProperty) {
+        if (!agg.getAggPhase().isGlobal()) {
+            return;
+        }
+
+        DistributionSpec requiredChildDistribution = requiredChildProperty.getDistributionSpec();
+        DistributionSpec actualChildDistribution = originChildrenProperties.get(0).getDistributionSpec();
+        if (!(requiredChildDistribution instanceof DistributionSpecHash)
+                || !(actualChildDistribution instanceof DistributionSpecHash)) {
+            return;
+        }
+        DistributionSpecHash requiredChildHash = (DistributionSpecHash) requiredChildDistribution;
+        DistributionSpecHash actualChildHash = (DistributionSpecHash) actualChildDistribution;
+        List<ExprId> fullShuffleKeys = collectFullAggregateShuffleKeys(agg);
+        List<Set<ExprId>> actualShuffleDimensions =
+                ShuffleKeyPruneUtils.getIndependentShuffleDimensions(actualChildHash);
+        int requiredShuffleDimensionCount =
+                ShuffleKeyPruneUtils.getIndependentShuffleDimensions(requiredChildHash).size();
+        boolean reducedRequirement = !fullShuffleKeys.isEmpty()
+                && requiredShuffleDimensionCount < fullShuffleKeys.size();
+        if (!reducedRequirement && actualShuffleDimensions.size() >= requiredShuffleDimensionCount) {
+            return;
+        }
+        Preconditions.checkState(actualChildHash.satisfy(requiredChildHash),
+                "aggregate child output must satisfy its required property");
+
+        ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
+        if (AggregateUtils.isSingleExecutionInstance(connectContext)) {
+            return;
+        }
+        Statistics inputStatistics = parent.childStatistics(0);
+        List<List<Expression>> actualShuffleKeyDimensions =
+                resolveShuffleKeyDimensions(agg, actualShuffleDimensions);
+        int instanceNum = AggregateUtils.estimateExecutionInstanceNum(connectContext);
+        if (inputStatistics != null && ShuffleKeyPruneUtils.isSafeForShuffleDimensions(
+                actualShuffleKeyDimensions, inputStatistics, instanceNum)) {
+            return;
+        }
+
+        updateChildEnforceAndCost(0, fullAggregateShuffleProperty(fullShuffleKeys, requiredChildHash));
+    }
+
+    private List<ExprId> collectFullAggregateShuffleKeys(PhysicalHashAggregate<? extends Plan> agg) {
+        List<ExprId> fullShuffleKeys = new ArrayList<>();
+        for (Expression groupByExpression : agg.getGroupByExpressions()) {
+            if (groupByExpression instanceof Slot) {
+                ExprId exprId = ((Slot) groupByExpression).getExprId();
+                if (!fullShuffleKeys.contains(exprId)) {
+                    fullShuffleKeys.add(exprId);
+                }
+            }
+        }
+        return fullShuffleKeys;
+    }
+
+    private PhysicalProperties fullAggregateShuffleProperty(
+            List<ExprId> fullShuffleKeys, DistributionSpecHash requiredChildHash) {
+        DistributionSpecHash targetHash = fullShuffleKeys.isEmpty()
+                ? requiredChildHash.withShuffleType(ShuffleType.EXECUTION_BUCKETED)
+                : new DistributionSpecHash(fullShuffleKeys, ShuffleType.EXECUTION_BUCKETED);
+        return PhysicalProperties.createHash(targetHash);
+    }
+
+    private List<List<Expression>> resolveShuffleKeyDimensions(
+            PhysicalHashAggregate<? extends Plan> agg, List<Set<ExprId>> shuffleDimensions) {
+        List<Slot> childOutput = agg.child().getOutput();
+        List<List<Expression>> resolvedDimensions = new ArrayList<>(shuffleDimensions.size());
+        for (Set<ExprId> shuffleDimension : shuffleDimensions) {
+            List<Expression> outputSlots = new ArrayList<>();
+            for (Slot slot : childOutput) {
+                if (shuffleDimension.contains(slot.getExprId())) {
+                    outputSlots.add(slot);
+                }
+            }
+            Preconditions.checkState(!outputSlots.isEmpty(),
+                    "shuffle dimension %s must be present in aggregate child output", shuffleDimension);
+            resolvedDimensions.add(outputSlots);
+        }
+        return resolvedDimensions;
     }
 
     /**
@@ -137,11 +222,13 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
      * */
     private boolean shouldBanOnePhaseAgg(PhysicalHashAggregate<? extends Plan> aggregate,
             PhysicalProperties requiredChildProperty) {
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx != null && ctx.getSessionVariable().aggPhase == 1) {
+        ConnectContext connectContext = Preconditions.checkNotNull(
+                jobContext.getCascadesContext().getConnectContext(),
+                "ConnectContext is required when regulating aggregate properties");
+        if (connectContext.getSessionVariable().aggPhase == 1) {
             return false;
         }
-        if (ctx != null && AggregateUtils.isSingleExecutionInstance(ctx)) {
+        if (AggregateUtils.isSingleExecutionInstance(connectContext)) {
             return false;
         }
         if (banAggUnionAll(aggregate)) {
@@ -157,7 +244,8 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 return true;
             }
             // group by key is skew
-            return skewOnShuffleExpr(aggregate);
+            return skewOnShuffleExpr(
+                    aggregate, AggregateUtils.estimateExecutionInstanceNum(connectContext));
         } else {
             // Bucketed hash agg exception: allow one-phase GLOBAL + distribute
             // pattern so the translator can fuse it into BucketedAggregationNode.
@@ -170,14 +258,14 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         }
     }
 
-    private boolean skewOnShuffleExpr(PhysicalHashAggregate<? extends Plan> agg) {
+    private boolean skewOnShuffleExpr(PhysicalHashAggregate<? extends Plan> agg, int instanceNum) {
         // if statistic is unknown -> not skew
         Statistics aggStatistics = agg.getGroupExpression().get().getOwnerGroup().getStatistics();
         Statistics inputStatistics = agg.getGroupExpression().get().childStatistics(0);
         if (aggStatistics == null || inputStatistics == null) {
             return false;
         }
-        if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), inputStatistics, true)) {
+        if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), inputStatistics)) {
             return false;
         }
         // There are two cases of skew:
@@ -187,41 +275,13 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             return true;
         }
         // 2. There is a hot value, and the ndv of other keys is very low
-        return isSkew(agg.getGroupByExpressions(), inputStatistics);
-    }
-
-    // if one group by key has hot value, and others ndv is low -> skew
-    private boolean isSkew(List<Expression> groupBy, Statistics inputStatistics) {
-        for (int i = 0; i < groupBy.size(); ++i) {
-            Expression expr = groupBy.get(i);
-            ColumnStatistic colStat = inputStatistics.findColumnStatistics(expr);
-            if (colStat == null || colStat.isUnKnown) {
-                continue;
-            }
-            if (StatisticsUtil.getHotValuesWithOriginalThreshold(colStat.getHotValues(), colStat.ndv) == null) {
-                continue;
-            }
-            List<Expression> otherExpr = excludeElement(groupBy, i);
-            double otherNdv = StatsCalculator.estimateGroupByRowCount(otherExpr, inputStatistics);
-            if (otherNdv <= AggregateUtils.LOW_NDV_THRESHOLD) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static <T> List<T> excludeElement(List<T> list, int index) {
-        List<T> newList = new ArrayList<>();
-        for (int i = 0; i < list.size(); i++) {
-            if (index != i) {
-                newList.add(list.get(i));
-            }
-        }
-        return newList;
+        return ShuffleKeyPruneUtils.hasKnownSkewForOnePhaseAgg(
+                agg.getGroupByExpressions(), inputStatistics, instanceNum);
     }
 
     private boolean onePhaseAggWithDistribute(PhysicalHashAggregate<? extends Plan> aggregate) {
-        return aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
+        return aggregate.getAggPhase() == AggPhase.GLOBAL
+                && aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
                 && children.get(0).getPlan() instanceof PhysicalDistribute;
     }
 

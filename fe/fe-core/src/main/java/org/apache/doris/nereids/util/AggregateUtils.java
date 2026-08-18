@@ -95,8 +95,8 @@ public class AggregateUtils {
                 && param.aggPhase.isLocal();
     }
 
-    /** Whether the plan will run with one fragment instance on one BE. */
-    public static boolean isSingleExecutionInstance(ConnectContext connectContext) {
+    /** CBO estimate of fragment instances, aligned with ConnectContext.getTotalInstanceNum(). */
+    public static int estimateExecutionInstanceNum(ConnectContext connectContext) {
         int beNumber = connectContext.getSessionVariable().getBeNumberForTest();
         if (beNumber < 0) {
             beNumber = connectContext.getEnv().getClusterInfo().getAllBackendByCurrentCluster(true).size();
@@ -104,43 +104,25 @@ public class AggregateUtils {
         beNumber = Math.max(1, beNumber);
         String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
         int parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName));
-        return beNumber == 1 && parallelInstance == 1;
+        return beNumber * parallelInstance;
+    }
+
+    /** Whether the plan will run with one fragment instance on one BE. */
+    public static boolean isSingleExecutionInstance(ConnectContext connectContext) {
+        return estimateExecutionInstanceNum(connectContext) == 1;
     }
 
     /**
      * Check whether any expression in the collection has unknown statistics.
      * Statistics are considered unknown if they are null, isUnKnown(), or cannot be estimated.
-     * Note: when returning false, hotValue may still be unknown; use hasUnknownStatistics(..., true)
-     * if hot value presence is required.
-     *
-     * @param expressions expressions to check (e.g. group-by expressions)
-     * @param inputStatistics input statistics
-     * @return true if any expression has unknown statistics
      */
     public static boolean hasUnknownStatistics(Collection<Expression> expressions, Statistics inputStatistics) {
-        return hasUnknownStatistics(expressions, inputStatistics, false);
-    }
-
-    /**
-     * Check whether any expression has unknown statistics, optionally requiring hot values.
-     * When requireHotValues is true, expressions without hotValues are also treated as unknown.
-     *
-     * @param expressions expressions to check
-     * @param inputStatistics input statistics
-     * @param requireHotValues if true, treat missing hotValues as unknown
-     * @return true if any expression has unknown statistics (or missing hot values when requireHotValues)
-     */
-    public static boolean hasUnknownStatistics(Collection<Expression> expressions,
-            Statistics inputStatistics, boolean requireHotValues) {
-        for (Expression gbyExpr : expressions) {
-            ColumnStatistic colStats = inputStatistics.findColumnStatistics(gbyExpr);
-            if (colStats == null) {
-                colStats = ExpressionEstimation.estimate(gbyExpr, inputStatistics);
+        for (Expression expression : expressions) {
+            ColumnStatistic columnStatistic = inputStatistics.findColumnStatistics(expression);
+            if (columnStatistic == null) {
+                columnStatistic = ExpressionEstimation.estimate(expression, inputStatistics);
             }
-            if (colStats == null || colStats.isUnKnown()) {
-                return true;
-            }
-            if (requireHotValues && colStats.hotValues == null) {
+            if (columnStatistic == null || columnStatistic.isUnKnown()) {
                 return true;
             }
         }
