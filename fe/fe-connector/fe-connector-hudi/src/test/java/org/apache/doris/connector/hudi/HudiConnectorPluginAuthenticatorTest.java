@@ -26,15 +26,14 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Unit tests for {@link HudiConnector#buildPluginAuthenticator(Map)} — the connector-owned plugin-side Kerberos
- * authenticator resolution for the hudi sibling. Mirrors {@code HiveConnectorPluginAuthenticatorTest}.
+ * Unit tests for Hudi's separate storage and HMS authenticator resolution.
  *
  * <p>The load-bearing case is <b>HMS-metastore Kerberos with simple (non-Kerberos) storage</b> (e.g. a
  * Kerberized Hive Metastore over S3). After the catalog flip the hudi sibling shares the hms gateway's
  * FE-injected {@code ConnectorContext}, whose {@code executeAuthenticated} resolves to NOOP (SIMPLE) auth, so a
  * Kerberos HMS would be silently downgraded unless the connector owns the login itself. A hudi sibling runs in
  * its OWN classloader, so it must build its OWN authenticator (sharing the gateway's hive-loader authenticator
- * would split the UGI copy across loaders).
+ * would split the UGI copy across loaders). SIMPLE cases pin the user sent by HMS {@code set_ugi}.
  *
  * <p>The actual keytab login is lazy (on first {@code doAs}), so these assertions never touch a KDC.
  */
@@ -67,7 +66,7 @@ public class HudiConnectorPluginAuthenticatorTest {
      */
     @Test
     public void hmsMetastoreKerberosWithSimpleStorageBuildsAuthenticator() {
-        HadoopAuthenticator auth = HudiConnector.buildPluginAuthenticator(
+        HadoopAuthenticator auth = HudiConnector.buildHmsAuthenticator(
                 props("hive.metastore.uris", "thrift://hms:9083",
                         "hive.metastore.authentication.type", "kerberos",
                         "hive.metastore.client.principal", "doris@EXAMPLE.COM",
@@ -76,21 +75,34 @@ public class HudiConnectorPluginAuthenticatorTest {
                 "HMS-metastore kerberos with simple storage must yield a plugin authenticator");
     }
 
-    /** A simple-auth HMS builds no authenticator (a spurious one would force needless SIMPLE-vs-Kerberos churn). */
+    /** A simple-auth HMS needs a UGI because HiveMetaStoreClient sends the current user in set_ugi. */
     @Test
-    public void hmsSimpleAuthReturnsNull() {
-        HadoopAuthenticator auth = HudiConnector.buildPluginAuthenticator(
+    public void hmsSimpleAuthUsesConfiguredUser() throws Exception {
+        HadoopAuthenticator auth = HudiConnector.buildHmsAuthenticator(
                 props("hive.metastore.uris", "thrift://hms:9083",
-                        "hive.metastore.authentication.type", "simple"));
-        Assertions.assertNull(auth, "simple-auth HMS must not build a plugin authenticator");
+                        "hive.metastore.authentication.type", "simple",
+                        "hive.metastore.username", "hudi-hms-user"));
+        Assertions.assertEquals("hudi-hms-user", auth.getUGI().getUserName());
     }
 
-    /** A plain HMS with no auth configured builds no authenticator. */
+    /** A plain HMS preserves the legacy simple-auth default. */
     @Test
-    public void plainHmsWithoutKerberosReturnsNull() {
-        HadoopAuthenticator auth = HudiConnector.buildPluginAuthenticator(
+    public void plainHmsUsesLegacyDefaultUser() throws Exception {
+        HadoopAuthenticator auth = HudiConnector.buildHmsAuthenticator(
                 props("hive.metastore.uris", "thrift://hms:9083"));
-        Assertions.assertNull(auth, "plain HMS without kerberos must not build an authenticator");
+        Assertions.assertEquals("hadoop", auth.getUGI().getUserName());
+    }
+
+    @Test
+    public void explicitSimpleHmsWinsOverKerberosStorage() throws Exception {
+        HadoopAuthenticator auth = HudiConnector.buildHmsAuthenticator(
+                props("hive.metastore.uris", "thrift://hms:9083",
+                        "hive.metastore.authentication.type", "simple",
+                        "hive.metastore.username", "hudi-hms-user",
+                        "hadoop.security.authentication", "kerberos",
+                        "hadoop.kerberos.principal", "storage@EXAMPLE.COM",
+                        "hadoop.kerberos.keytab", "/etc/security/storage.keytab"));
+        Assertions.assertEquals("hudi-hms-user", auth.getUGI().getUserName());
     }
 
     /**
@@ -99,7 +111,7 @@ public class HudiConnectorPluginAuthenticatorTest {
      */
     @Test
     public void hmsKerberosWithBlankCredsReturnsNull() {
-        HadoopAuthenticator auth = HudiConnector.buildPluginAuthenticator(
+        HadoopAuthenticator auth = HudiConnector.buildHmsAuthenticator(
                 props("hive.metastore.uris", "thrift://hms:9083",
                         "hive.metastore.authentication.type", "kerberos"));
         Assertions.assertNull(auth, "kerberos HMS without a client principal/keytab pair must not build one");

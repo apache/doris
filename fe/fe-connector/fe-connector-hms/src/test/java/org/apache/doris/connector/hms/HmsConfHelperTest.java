@@ -78,6 +78,14 @@ public class HmsConfHelperTest {
     }
 
     @Test
+    public void explicitSimpleHmsOverridesKerberosStorageForSasl() {
+        Map<String, String> props = new HashMap<>();
+        props.put("hive.metastore.authentication.type", "simple");
+        props.put("hadoop.security.authentication", "kerberos");
+        Assertions.assertNotEquals("true", saslOf(props));
+    }
+
+    @Test
     public void noAuthPropertyDoesNotEnableSasl() {
         Map<String, String> props = new HashMap<>();
         props.put("hive.metastore.uris", "thrift://host:9083");
@@ -92,5 +100,19 @@ public class HmsConfHelperTest {
         HiveConf conf = HmsConfHelper.createHiveConf(props);
         Assertions.assertEquals("thrift://host:9083", conf.get("hive.metastore.uris"));
         Assertions.assertEquals("custom-value", conf.get("some.custom.key"));
+    }
+
+    @Test
+    public void canonicalOverridesPreserveUnrelatedKeysAndDropBlankUser() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("some.custom.key", "custom-value");
+        raw.put("hadoop.username", "  ");
+        Map<String, String> overrides = new HashMap<>();
+        overrides.put("hive.metastore.uris", "thrift://host:9083");
+
+        Map<String, String> merged = HmsConfHelper.mergeCatalogProperties(raw, overrides);
+        Assertions.assertEquals("custom-value", merged.get("some.custom.key"));
+        Assertions.assertEquals("thrift://host:9083", merged.get("hive.metastore.uris"));
+        Assertions.assertFalse(merged.containsKey("hadoop.username"));
     }
 }

@@ -17,8 +17,12 @@
 
 package org.apache.doris.connector.hms;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
 
+import java.io.File;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -45,6 +49,13 @@ public final class HmsConfHelper {
      * @return a new HiveConf instance
      */
     public static HiveConf createHiveConf(Map<String, String> properties) {
+        return createHiveConfWithResources("", properties);
+    }
+
+    /**
+     * Create a {@link HiveConf} with resource files as the base and catalog properties as overrides.
+     */
+    public static HiveConf createHiveConfWithResources(String confResources, Map<String, String> properties) {
         HiveConf hiveConf = new HiveConf();
         // Pin the conf classloader to the plugin loader, mirroring PaimonCatalogFactory.assembleHiveConf.
         // HiveMetaStoreClient.loadFilterHooks resolves metastore.filter.hook via Configuration.getClass, which
@@ -58,7 +69,13 @@ public final class HmsConfHelper {
         // (fixes SecurityUtil.<clinit>) but cannot fix this conf-cached CL. Pinning here keeps the whole
         // hive-metastore class graph in one loader.
         hiveConf.setClassLoader(HmsConfHelper.class.getClassLoader());
+        addConfResources(hiveConf, confResources);
         for (Map.Entry<String, String> entry : properties.entrySet()) {
+            // A blank username was ignored by the legacy copy-if-present path; preserving a resource value (or
+            // the "hadoop" default) avoids createRemoteUser("") failing before the first HMS RPC.
+            if ("hadoop.username".equals(entry.getKey()) && isBlank(entry.getValue())) {
+                continue;
+            }
             hiveConf.set(entry.getKey(), entry.getValue());
         }
         // A kerberized HMS requires SASL transport on the metastore Thrift connection. The legacy fe-core
@@ -66,11 +83,76 @@ public final class HmsConfHelper {
         // metastore/hadoop auth was kerberos; preserve that here so a catalog that only declares kerberos auth
         // (without an explicit hive.metastore.sasl.enabled) still negotiates SASL, instead of opening a plain
         // TSocket that a kerberized metastore drops with TTransportException.
-        if ("kerberos".equalsIgnoreCase(properties.get("hadoop.security.authentication"))
-                || "kerberos".equalsIgnoreCase(properties.get("hive.metastore.authentication.type"))) {
+        String hmsAuthType = properties.get("hive.metastore.authentication.type");
+        boolean explicitSimple = "simple".equalsIgnoreCase(hmsAuthType);
+        if ("kerberos".equalsIgnoreCase(hmsAuthType)
+                || (!explicitSimple
+                        && "kerberos".equalsIgnoreCase(properties.get("hadoop.security.authentication")))) {
             hiveConf.set("hive.metastore.sasl.enabled", "true");
         }
         return hiveConf;
+    }
+
+    /**
+     * Creates the lightweight Hadoop configuration used only for UGI resolution.
+     */
+    public static Configuration createHadoopConfWithResources(String confResources,
+            Map<String, String> properties) {
+        Configuration conf = new Configuration();
+        conf.setClassLoader(HmsConfHelper.class.getClassLoader());
+        addConfResources(conf, confResources);
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if ("hadoop.username".equals(entry.getKey()) && isBlank(entry.getValue())) {
+                continue;
+            }
+            conf.set(entry.getKey(), entry.getValue());
+        }
+        return conf;
+    }
+
+    /**
+     * Preserves connector-agnostic passthrough keys while applying canonical HMS overrides last.
+     */
+    public static Map<String, String> mergeCatalogProperties(Map<String, String> raw,
+            Map<String, String> overrides) {
+        Map<String, String> merged = new LinkedHashMap<>(raw);
+        // Canonical parsing deliberately omits a blank username; remove the raw value so it cannot reappear
+        // merely because the HMS client also preserves unrelated custom configuration keys.
+        if (isBlank(merged.get("hadoop.username"))) {
+            merged.remove("hadoop.username");
+        }
+        merged.putAll(overrides);
+        return merged;
+    }
+
+    private static void addConfResources(Configuration conf, String confResources) {
+        if (isBlank(confResources)) {
+            return;
+        }
+        String baseDir = resolveHadoopConfigDir();
+        for (String resource : confResources.split(",")) {
+            File file = new File(baseDir, resource.trim());
+            if (!file.isFile()) {
+                throw new IllegalArgumentException("Config resource file does not exist: " + file);
+            }
+            conf.addResource(new Path(file.toURI()));
+        }
+    }
+
+    private static String resolveHadoopConfigDir() {
+        String configured = System.getProperty("doris.hadoop.config.dir");
+        if (!isBlank(configured)) {
+            return configured;
+        }
+        String home = System.getenv("DORIS_HOME");
+        if (isBlank(home)) {
+            home = System.getProperty("doris.home", "");
+        }
+        return home + "/plugins/hadoop_conf/";
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 
     /**

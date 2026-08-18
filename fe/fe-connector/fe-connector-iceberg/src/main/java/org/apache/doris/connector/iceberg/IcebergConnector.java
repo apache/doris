@@ -18,7 +18,6 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
-import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
@@ -41,6 +40,8 @@ import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.kerberos.AuthType;
+import org.apache.doris.kerberos.AuthenticationConfig;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
@@ -941,6 +942,10 @@ public class IcebergConnector implements Connector {
                 conf = IcebergCatalogFactory.assembleHiveConf(
                         hms.getConfResources(),
                         hms.toHiveConfOverrides(IcebergConf.metastoreClientTimeoutSecond(context)));
+                // The SDK cache is JVM-static and URI-only by default. Use configuration-derived identities
+                // instead of the current UGI so catalog/FileIO construction can stay under the storage user.
+                catalogOptions.put("client-pool-cache-keys", appendHmsCacheKeys(
+                        catalogOptions.get("client-pool-cache-keys")));
                 break;
             }
             case IcebergCatalogProperties.TYPE_GLUE:
@@ -969,8 +974,32 @@ public class IcebergConnector implements Connector {
 
         LOG.info("Creating Iceberg catalog '{}' flavor='{}' impl='{}'",
                 catalogName, flavor, catalogOptions.get(CatalogProperties.CATALOG_IMPL));
-        return buildCatalogAuthenticated(flavor,
-                () -> CatalogUtil.buildIcebergCatalog(catalogName, catalogOptions, conf));
+        return buildCatalogAuthenticated(flavor, () -> {
+            if (!IcebergCatalogProperties.TYPE_HMS.equals(flavor)) {
+                return CatalogUtil.buildIcebergCatalog(catalogName, catalogOptions, conf);
+            }
+            HadoopAuthenticator hmsAuth = buildHmsAuthenticator(properties, storageHadoopConfig);
+            Catalog catalog = CatalogUtil.buildIcebergCatalog(catalogName, catalogOptions, conf);
+            return IcebergHmsClientPool.install(catalog, hmsAuth);
+        });
+    }
+
+    static String appendHmsCacheKeys(String existing) {
+        String keys = appendCacheKey(existing, "conf:hadoop.username");
+        keys = appendCacheKey(keys, "conf:hive.metastore.client.principal");
+        return appendCacheKey(keys, "conf:hadoop.kerberos.principal");
+    }
+
+    static String appendCacheKey(String existing, String required) {
+        if (StringUtils.isBlank(existing)) {
+            return required;
+        }
+        for (String element : existing.split(",")) {
+            if (required.equalsIgnoreCase(element.trim())) {
+                return existing;
+            }
+        }
+        return existing + "," + required;
     }
 
     /**
@@ -1248,22 +1277,8 @@ public class IcebergConnector implements Connector {
     }
 
     /**
-     * Resolves the plugin-side Kerberos authenticator for the catalog, or {@code null} for a non-Kerberos
-     * catalog. Two Kerberos sources are covered, in precedence order:
-     * <ol>
-     *   <li><b>Storage</b> Kerberos — the raw {@code hadoop.security.authentication=kerberos} passthrough
-     *       (HDFS / data-lake login), built from the storage Hadoop configuration. Unchanged prior behavior;
-     *       when storage is Kerberos this single login also carries the HMS metastore RPC (same UGI).</li>
-     *   <li><b>HMS-metastore</b> Kerberos with non-Kerberos storage — a secured Hive Metastore whose data
-     *       storage is simple (e.g. a Kerberized HMS over S3). Legacy fe-core served this from the fe-core
-     *       {@code IcebergHMSMetaStoreProperties} HMS authenticator (delivered via {@code DefaultConnectorContext});
-     *       once the fe-core iceberg property cluster is deleted the connector must own it. This mirrors
-     *       {@code HMSBaseProperties.initHadoopAuthenticator}: the HMS client principal/keytab facts
-     *       ({@link HmsMetaStoreProperties#kerberos()}) feed a {@link KerberosAuthenticationConfig}, so the
-     *       {@code doAs} logs in the same client identity fe-core used. The HMS <em>service</em> principal /
-     *       SASL settings ride the catalog's own HiveConf ({@code hms.toHiveConfOverrides}), not the login.</li>
-     * </ol>
-     * Package-visible + static for direct unit testing (mirrors the {@code metaFailureMessage} helpers).
+     * Resolves only the storage-side Kerberos authenticator used by FileIO. HMS authentication is intentionally
+     * resolved separately by {@link #buildHmsAuthenticator} and applied at the client-pool boundary.
      */
     static HadoopAuthenticator buildPluginAuthenticator(Map<String, String> properties,
             Map<String, String> storageHadoopConfig) {
@@ -1271,20 +1286,31 @@ public class IcebergConnector implements Connector {
             return HadoopAuthenticator.getHadoopAuthenticator(
                     IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig));
         }
-        if (IcebergCatalogProperties.TYPE_HMS.equals(IcebergCatalogProperties.of(properties).getFlavor())) {
-            HmsMetaStoreProperties hms = (HmsMetaStoreProperties) MetaStoreProviders.bindForType(
-                    IcebergCatalogProperties.TYPE_HMS, properties, storageHadoopConfig);
-            Optional<KerberosAuthSpec> spec = hms.kerberos();
-            if (spec.isPresent() && spec.get().hasCredentials()) {
-                Configuration conf =
-                        IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
-                conf.set("hadoop.security.authentication", "kerberos");
-                conf.set("hive.metastore.sasl.enabled", "true");
-                return HadoopAuthenticator.getHadoopAuthenticator(
-                        new KerberosAuthenticationConfig(spec.get().getPrincipal(), spec.get().getKeytab(), conf));
-            }
-        }
         return null;
+    }
+
+    static HadoopAuthenticator buildHmsAuthenticator(Map<String, String> properties,
+            Map<String, String> storageHadoopConfig) {
+        if (!IcebergCatalogProperties.TYPE_HMS.equals(IcebergCatalogProperties.of(properties).getFlavor())) {
+            return null;
+        }
+        AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
+                IcebergCatalogProperties.TYPE_HMS, properties, storageHadoopConfig);
+        Optional<KerberosAuthSpec> spec = hms.kerberos();
+        if (spec.isPresent() && spec.get().hasCredentials()) {
+            Configuration conf = IcebergCatalogFactory.assembleHiveConf(
+                    hms.getConfResources(), hms.toHiveConfOverrides(""));
+            conf.set("hadoop.security.authentication", "kerberos");
+            conf.set("hive.metastore.sasl.enabled", "true");
+            return HadoopAuthenticator.getHadoopAuthenticator(
+                    new KerberosAuthenticationConfig(spec.get().getPrincipal(), spec.get().getKeytab(), conf));
+        }
+        if (hms.getAuthType() == AuthType.KERBEROS) {
+            return null;
+        }
+        Configuration conf = IcebergCatalogFactory.assembleHiveConf(
+                hms.getConfResources(), hms.toHiveConfOverrides(""));
+        return HadoopAuthenticator.getHadoopAuthenticator(AuthenticationConfig.getSimpleAuthenticationConfig(conf));
     }
 
     private Catalog buildCatalogAuthenticated(String flavor, Callable<Catalog> builder) {

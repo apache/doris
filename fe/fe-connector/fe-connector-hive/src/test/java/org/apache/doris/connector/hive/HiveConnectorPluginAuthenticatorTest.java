@@ -21,7 +21,10 @@ import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -39,6 +42,9 @@ import java.util.Map;
  * <p>The actual keytab login is lazy (on first {@code doAs}), so these assertions never touch a KDC.
  */
 public class HiveConnectorPluginAuthenticatorTest {
+
+    @TempDir
+    Path tempDir;
 
     private static Map<String, String> props(String... kv) {
         Map<String, String> m = new HashMap<>();
@@ -95,6 +101,51 @@ public class HiveConnectorPluginAuthenticatorTest {
 
         Assertions.assertNotNull(auth, "simple-auth HMS must support the metastore username alias");
         Assertions.assertEquals("hive", auth.getUGI().getUserName());
+    }
+
+    @Test
+    public void explicitSimpleHmsWinsOverKerberosStorage() throws Exception {
+        HadoopAuthenticator auth = HiveConnector.buildPluginAuthenticator(
+                props("hive.metastore.uris", "thrift://hms:9083",
+                        "hive.metastore.authentication.type", "simple",
+                        "hive.metastore.username", "metastore-user",
+                        "hadoop.security.authentication", "kerberos",
+                        "hadoop.kerberos.principal", "storage@EXAMPLE.COM",
+                        "hadoop.kerberos.keytab", "/etc/security/storage.keytab"));
+
+        Assertions.assertEquals("metastore-user", auth.getUGI().getUserName());
+    }
+
+    @Test
+    public void blankHadoopUserFallsBackToLegacyDefault() throws Exception {
+        for (String blank : new String[] {"", "   "}) {
+            HadoopAuthenticator auth = HiveConnector.buildPluginAuthenticator(
+                    props("hive.metastore.uris", "thrift://hms:9083",
+                            "hive.metastore.authentication.type", "simple",
+                            "hadoop.username", blank));
+            Assertions.assertEquals("hadoop", auth.getUGI().getUserName());
+        }
+    }
+
+    @Test
+    public void simpleHmsUserCanComeFromHiveConfResource() throws Exception {
+        Path resource = tempDir.resolve("hive-site.xml");
+        Files.writeString(resource, "<configuration><property><name>hadoop.username</name>"
+                + "<value>resource-user</value></property></configuration>");
+        String previous = System.setProperty("doris.hadoop.config.dir", tempDir + "/");
+        try {
+            HadoopAuthenticator auth = HiveConnector.buildPluginAuthenticator(
+                    props("hive.metastore.uris", "thrift://hms:9083",
+                            "hive.metastore.authentication.type", "simple",
+                            "hive.conf.resources", resource.getFileName().toString()));
+            Assertions.assertEquals("resource-user", auth.getUGI().getUserName());
+        } finally {
+            if (previous == null) {
+                System.clearProperty("doris.hadoop.config.dir");
+            } else {
+                System.setProperty("doris.hadoop.config.dir", previous);
+            }
+        }
     }
 
     @Test
