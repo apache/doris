@@ -135,9 +135,9 @@ TEST_F(StreamLoadTest, JsonBodySizeLimitPlusOneErrorIncludesExactBytes) {
 
     auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
     HttpRequest req(evhttp_req);
-    req.set_header(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
-    req.set_header(HTTP_FORMAT_KEY, "json");
-    req.set_header(HttpHeaders::CONTENT_LENGTH, "104857601");
+    req._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
+    req._headers.emplace(HTTP_FORMAT_KEY, "json");
+    req._headers.emplace(HttpHeaders::CONTENT_LENGTH, "104857601");
 
     StreamLoadAction action(nullptr);
     auto ctx = std::make_shared<StreamLoadContext>(nullptr);
@@ -158,9 +158,9 @@ TEST_F(StreamLoadTest, CsvBodySizeLimitPlusOneErrorIncludesExactBytes) {
 
     auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
     HttpRequest req(evhttp_req);
-    req.set_header(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
-    req.set_header(HTTP_FORMAT_KEY, "csv");
-    req.set_header(HttpHeaders::CONTENT_LENGTH, "104857601");
+    req._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
+    req._headers.emplace(HTTP_FORMAT_KEY, "csv");
+    req._headers.emplace(HttpHeaders::CONTENT_LENGTH, "104857601");
 
     StreamLoadAction action(nullptr);
     auto ctx = std::make_shared<StreamLoadContext>(nullptr);
@@ -181,8 +181,8 @@ TEST_F(StreamLoadTest, HttpStreamBodySizeLimitPlusOneErrorIncludesExactBytes) {
 
     auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
     HttpRequest req(evhttp_req);
-    req.set_header(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
-    req.set_header(HttpHeaders::CONTENT_LENGTH, "104857601");
+    req._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
+    req._headers.emplace(HttpHeaders::CONTENT_LENGTH, "104857601");
 
     HttpStreamAction action(nullptr);
     auto ctx = std::make_shared<StreamLoadContext>(nullptr);
