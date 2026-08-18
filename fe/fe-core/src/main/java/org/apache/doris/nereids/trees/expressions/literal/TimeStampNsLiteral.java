@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.exceptions.CastException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -320,13 +319,9 @@ public final class TimeStampNsLiteral extends DateLiteral {
             return new DoubleLiteral(getValue());
         }
         if (targetType.isIntegralType()) {
-            throw new CastException(getStringValue() + " can't cast to " + targetType.toSql());
+            throw new AnalysisException("TimestampNs can not cast to " + targetType);
         }
-        try {
-            return super.uncheckedCastTo(targetType);
-        } catch (AnalysisException e) {
-            throw new CastException(e.getMessage(), e);
-        }
+        return super.uncheckedCastTo(targetType);
     }
 
     private LocalDateTime roundToScale(int scale) {

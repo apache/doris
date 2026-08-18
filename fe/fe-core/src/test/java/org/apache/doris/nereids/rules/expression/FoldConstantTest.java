@@ -128,6 +128,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
@@ -1500,6 +1501,44 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    void testCheckCastBeforeConstantFolding() {
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        try {
+            for (boolean strictCast : new boolean[] {false, true}) {
+                sessionVariable.enableStrictCast = strictCast;
+                for (boolean skipFoldConstant : new boolean[] {false, true}) {
+                    sessionVariable.setDebugSkipFoldConstant(skipFoldConstant);
+                    assertInvalidCast(
+                            "cast(cast('2024-02-29 12:34:56.123456789' as timestamp_ns) as smallint)",
+                            "cannot cast timestamp_ns to SMALLINT");
+                    assertInvalidCast(
+                            "try_cast(cast('2024-02-29 12:34:56.123456789' as timestamp_ns) as smallint)",
+                            "cannot cast timestamp_ns to SMALLINT");
+                }
+            }
+
+            sessionVariable.enableStrictCast = true;
+            sessionVariable.setDebugSkipFoldConstant(false);
+            assertInvalidCast(
+                    "cast(cast('2024-02-29 12:34:56.123456789' as timestamp_ns) as double)",
+                    "cannot cast timestamp_ns to DOUBLE");
+            assertInvalidCast(
+                    "cast(cast('2024-02-29' as datev2) as double)",
+                    "cannot cast DATEV2 to DOUBLE");
+
+            sessionVariable.enableStrictCast = false;
+            sessionVariable.setEnableFoldConstantByBe(true);
+            assertInvalidCast(
+                    "cast(cast('2024-02-29 12:34:56.123456789' as timestamp_ns) as smallint)",
+                    "cannot cast timestamp_ns to SMALLINT");
+        } finally {
+            sessionVariable.enableStrictCast = false;
+            sessionVariable.setDebugSkipFoldConstant(false);
+            sessionVariable.setEnableFoldConstantByBe(false);
+        }
+    }
+
+    @Test
     void testFoldTypeOfNullLiteral() {
         String actualExpression = "append_trailing_char_if_absent(cast(version() as varchar), cast(null as varchar))";
         ExpressionRewriteContext context = new ExpressionRewriteContext(
@@ -1568,5 +1607,13 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         Expression e1 = parser.parseExpression(actualExpression);
         e1 = new ExpressionNormalization().rewrite(ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(e1, context), context);
         Assertions.assertEquals(expectedExpression, e1.toSql());
+    }
+
+    private void assertInvalidCast(String expression, String expectedMessage) {
+        Expression analyzed = ExpressionAnalyzer.FUNCTION_ANALYZER_RULE.rewrite(
+                PARSER.parseExpression(expression), context);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> new ExpressionNormalization().rewrite(analyzed, context));
+        Assertions.assertEquals(expectedMessage, exception.getMessage());
     }
 }

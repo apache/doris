@@ -17,6 +17,7 @@
 
 suite("test_timestamp_ns_cast", "nonConcurrent") {
     sql "set time_zone = '+08:00'"
+    sql "set enable_sql_cache = false"
     sql "set enable_strict_cast = false"
     setFeConfigTemporary([
             enable_variant_v2: true,
@@ -368,6 +369,50 @@ suite("test_timestamp_ns_cast", "nonConcurrent") {
                 exception badValue[1]
             }
         }
+        sql "set enable_strict_cast = false"
+
+        // Unsupported type pairs must fail during analysis. They are not value conversion
+        // failures, so neither non-strict CAST nor TRY_CAST may turn them into NULL. Exercise
+        // both constant-folding paths to keep constant and column semantics consistent.
+        for (def strictCast : [false, true]) {
+            sql "set enable_strict_cast = ${strictCast}"
+            for (def skipFoldConstant : [false, true]) {
+                sql "set debug_skip_fold_constant = ${skipFoldConstant}"
+                for (def targetType : ["tinyint", "smallint", "int"]) {
+                    test {
+                        sql """
+                            select cast(cast('2024-02-29 12:34:56.123456789' as timestamp_ns)
+                                        as ${targetType})
+                        """
+                        exception "cannot cast timestamp_ns to ${targetType.toUpperCase()}"
+                    }
+                    test {
+                        sql """
+                            select try_cast(cast('2024-02-29 12:34:56.123456789' as timestamp_ns)
+                                            as ${targetType})
+                        """
+                        exception "cannot cast timestamp_ns to ${targetType.toUpperCase()}"
+                    }
+                }
+            }
+        }
+
+        // FLOAT and DOUBLE are intentionally available only in non-strict mode. Before this
+        // fix, successful literal folding could bypass that strict-mode type check as well.
+        sql "set enable_strict_cast = true"
+        for (def skipFoldConstant : [false, true]) {
+            sql "set debug_skip_fold_constant = ${skipFoldConstant}"
+            for (def targetType : ["float", "double"]) {
+                test {
+                    sql """
+                        select cast(cast('2024-02-29 12:34:56.123456789' as timestamp_ns)
+                                    as ${targetType})
+                    """
+                    exception "cannot cast timestamp_ns to ${targetType.toUpperCase()}"
+                }
+            }
+        }
+        sql "set debug_skip_fold_constant = false"
         sql "set enable_strict_cast = false"
 
         for (def targetType : [

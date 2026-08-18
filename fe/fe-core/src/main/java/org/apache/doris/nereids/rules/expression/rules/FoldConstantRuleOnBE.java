@@ -33,6 +33,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -283,10 +284,15 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             return true;
         }
 
-        // Do not constant fold cast(null as dataType) because we cannot preserve the
-        // cast-to-types and that can lead to query failures, e.g., CTAS
-        if (expr instanceof Cast && ((Cast) expr).child().isNullLiteral()) {
-            return true;
+        if (expr instanceof Cast) {
+            Cast cast = (Cast) expr;
+            // Do not fold unsupported type pairs because CheckCast must report them after
+            // expression normalization. Folding them can turn an analysis error into NULL or a
+            // literal. Also preserve cast(null as dataType) for callers such as CTAS.
+            if (!CheckCast.check(cast.child().getDataType(), cast.getDataType(),
+                    SessionVariable.enableStrictCast()) || cast.child().isNullLiteral()) {
+                return true;
+            }
         }
 
         // This kind of function is often used to change the attributes of columns.

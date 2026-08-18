@@ -26,9 +26,11 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -169,7 +171,11 @@ class TimeStampNsLiteralTest {
                 ((BigIntLiteral) normal.checkedCastTo(BigIntType.INSTANCE)).getValue());
         Assertions.assertEquals("20240229123456",
                 ((LargeIntLiteral) normal.checkedCastTo(LargeIntType.INSTANCE)).getValue().toString());
-        Assertions.assertThrows(AnalysisException.class,
+        Assertions.assertThrowsExactly(AnalysisException.class,
+                () -> normal.checkedCastTo(TinyIntType.INSTANCE));
+        Assertions.assertThrowsExactly(AnalysisException.class,
+                () -> normal.checkedCastTo(SmallIntType.INSTANCE));
+        Assertions.assertThrowsExactly(AnalysisException.class,
                 () -> normal.checkedCastTo(IntegerType.INSTANCE));
     }
 

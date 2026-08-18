@@ -36,6 +36,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionTraverseListener;
 import org.apache.doris.nereids.rules.expression.ExpressionTraverseListenerFactory;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
@@ -541,6 +542,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         }
         Expression child = cast.child();
         DataType dataType = cast.getDataType();
+        // Unsupported type pairs must be handled by CheckCast, rather than being folded into a
+        // literal or NULL based on the value-conversion result.
+        if (!CheckCast.check(child.getDataType(), dataType, SessionVariable.enableStrictCast())) {
+            return cast;
+        }
         // todo: process other null case
         if (child.isNullLiteral()) {
             return new NullLiteral(dataType);
