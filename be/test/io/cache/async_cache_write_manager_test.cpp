@@ -271,8 +271,6 @@ TEST_F(AsyncCacheWriteManagerTest, TaskWritesDownloadedBlockAndCleansInflightEnt
     const uint64_t baseline_finished_bytes = manager->_metrics->snapshot().finished_bytes;
     const uint64_t baseline_worker_finished_bytes =
             manager->_metrics->snapshot().worker_finished_bytes;
-    const uint64_t baseline_persisted_blocks = manager->_metrics->snapshot().persisted_blocks;
-    const uint64_t baseline_persisted_bytes = manager->_metrics->snapshot().persisted_bytes;
     const int64_t baseline_submit_latency_count =
             manager->_metrics->snapshot().submit_latency_count;
     const int64_t baseline_buffer_alloc_latency_count =
@@ -332,8 +330,6 @@ TEST_F(AsyncCacheWriteManagerTest, TaskWritesDownloadedBlockAndCleansInflightEnt
     EXPECT_EQ(manager->_metrics->snapshot().finished_bytes - baseline_finished_bytes, block_size);
     EXPECT_EQ(manager->_metrics->snapshot().worker_finished_bytes - baseline_worker_finished_bytes,
               block_size);
-    EXPECT_EQ(manager->_metrics->snapshot().persisted_blocks - baseline_persisted_blocks, 1);
-    EXPECT_EQ(manager->_metrics->snapshot().persisted_bytes - baseline_persisted_bytes, block_size);
     EXPECT_EQ(manager->_metrics->snapshot().submit_latency_count - baseline_submit_latency_count,
               1);
     EXPECT_EQ(manager->_metrics->snapshot().buffer_alloc_latency_count -

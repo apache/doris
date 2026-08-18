@@ -65,10 +65,6 @@ bvar::Adder<uint64_t> g_cached_remote_reader_block_wait_timeout(
         "cached_remote_file_reader_block_wait_timeout_count");
 bvar::Adder<uint64_t> g_cached_remote_reader_remote_after_dedup_miss(
         "cached_remote_file_reader_remote_read_after_all_dedup_miss_count");
-bvar::Adder<uint64_t> g_cached_remote_reader_middle_span_read_bytes(
-        "cached_remote_file_reader_middle_span_read_bytes");
-bvar::Adder<uint64_t> g_cached_remote_reader_middle_span_miss_bytes(
-        "cached_remote_file_reader_middle_span_miss_bytes");
 bvar::LatencyRecorder g_cached_remote_reader_async_read_plan_latency(
         "cached_remote_file_reader_async_read_plan_latency_us");
 bvar::LatencyRecorder g_cached_remote_reader_async_write_submission_latency(
@@ -507,17 +503,12 @@ Status CachedRemoteFileReader::_read_async_remote_range(
         source_read_breakdown.remote_bytes += copy_size;
     }
 
-    size_t miss_bytes = 0;
     for (size_t index = plan.first_remote_block; index < remote_end; ++index) {
         if (plan.blocks[index].submit_write) {
-            miss_bytes += plan.blocks[index].range.size();
+            g_cached_remote_reader_remote_after_dedup_miss << 1;
+            break;
         }
     }
-    if (miss_bytes > 0) {
-        g_cached_remote_reader_remote_after_dedup_miss << 1;
-    }
-    g_cached_remote_reader_middle_span_read_bytes << remote_size;
-    g_cached_remote_reader_middle_span_miss_bytes << miss_bytes;
     return Status::OK();
 }
 

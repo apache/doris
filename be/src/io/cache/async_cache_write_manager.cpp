@@ -623,7 +623,6 @@ Status AsyncCacheWriteManager::_persist_task(const AsyncCacheWriteTask& task) {
                          << ", status=" << status;
             continue;
         }
-        _metrics->record_persisted_block(block->range().size());
     }
     return Status::OK();
 }

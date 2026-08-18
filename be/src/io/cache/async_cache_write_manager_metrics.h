@@ -59,8 +59,6 @@ public:
         uint64_t cache_epoch_invalidate {0};
         uint64_t key_epoch_invalidate {0};
         uint64_t skip_deleting {0};
-        uint64_t persisted_blocks {0};
-        uint64_t persisted_bytes {0};
     };
 
     enum class RejectionReason : uint8_t {
@@ -106,7 +104,6 @@ public:
     void record_block_operation_latency(BlockOperation operation, int64_t latency_us);
     void record_block_operation_failure(BlockOperation operation);
     void record_skipped_block(SkippedBlockReason reason);
-    void record_persisted_block(size_t bytes);
 
     bvar::LatencyRecorder& queue_lock_wait_latency() { return *_queue_lock_wait_latency_metric; }
     bvar::LatencyRecorder& queue_lock_hold_latency() { return *_queue_lock_hold_latency_metric; }
@@ -119,9 +116,6 @@ private:
     std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_count_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_bytes_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _running_worker_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _configured_worker_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _max_pending_bytes_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _active_write_epoch_key_count_metric;
     std::shared_ptr<bvar::PassiveStatus<int64_t>> _buffer_memory_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _submitted_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _submitted_bytes_metric;
@@ -156,8 +150,6 @@ private:
     std::shared_ptr<bvar::Adder<uint64_t>> _skip_deleting_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _append_fail_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _finalize_fail_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _persisted_blocks_metric;
-    std::shared_ptr<bvar::Adder<uint64_t>> _persisted_bytes_metric;
 };
 
 } // namespace doris::io
