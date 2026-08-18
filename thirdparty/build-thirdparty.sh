@@ -1404,12 +1404,22 @@ build_bitshuffle() {
 # croaring bitmap
 build_croaringbitmap() {
     avx_flag=''
-    # String compare, not `-eq`: in bash arithmetic context the string "ON"
+    # USE_AVX2 accepts the same boolean spellings as CMake, case-insensitively:
+    # 0/OFF/FALSE/NO disable AVX2, 1/ON/TRUE/YES or empty/unset keep it enabled.
+    # build.sh defaults USE_AVX2=ON and forwards it verbatim to BE's CMake, so
+    # croaring must agree with BE on whether AVX2 is enabled. String matching is
+    # used instead of `-eq`: in bash arithmetic context the string "ON"
     # evaluates to 0, so exporting USE_AVX2=ON would silently DISABLE AVX2.
-    if [[ -n "${USE_AVX2}" && "${USE_AVX2}" == "0" ]]; then
+    case "${USE_AVX2,,}" in
+    0 | off | false | no)
         echo "set USE_AVX2=${USE_AVX2} to FORCE disable AVX2 in croaringbitmap"
         avx_flag="-DROARING_DISABLE_AVX=ON"
-    fi
+        ;;
+    1 | on | true | yes | '') ;;
+    *)
+        echo "WARNING: unrecognized USE_AVX2=${USE_AVX2}, AVX2 is left enabled in croaringbitmap"
+        ;;
+    esac
 
     check_if_source_exist "${CROARINGBITMAP_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CROARINGBITMAP_SOURCE}"

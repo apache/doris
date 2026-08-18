@@ -42,12 +42,12 @@ Status NGramBloomFilter::init(const char* buf, size_t size, HashStrategyPB strat
         return Status::InvalidArgument(absl::Substitute("invalid strategy:$0", strategy));
     }
     words = (_size + sizeof(UnderType) - 1) / sizeof(UnderType);
-    // resize (not reserve): reserve does not create elements, so indexing
-    // past size() below would be UB if the constructed size ever differs.
-    filter.resize(words);
+    filter.assign(words, 0);
     // buf points into an arbitrarily-offset page buffer; a plain
     // reinterpret_cast<const uint64_t*> read would be misaligned UB.
-    memcpy(filter.data(), buf, words * sizeof(UnderType));
+    // Copy exactly size bytes: the tail bytes of the last word must stay
+    // zero so contains() bit comparisons match query-side filters.
+    memcpy(filter.data(), buf, size);
 
     return Status::OK();
 }
