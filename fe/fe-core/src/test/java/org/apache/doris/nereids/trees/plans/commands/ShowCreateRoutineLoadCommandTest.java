@@ -48,9 +48,10 @@ public class ShowCreateRoutineLoadCommandTest {
      * A multi table job names no table, so what decides whether its statement may be shown is LOAD on the
      * database - the same rule the create path and PAUSE/RESUME apply to it.
      *
-     * <p>The table-level grant is allowed here on purpose and must not be what lets the job through: asking for
-     * a table privilege on a job with no table asks about the empty string, which nobody grants on, so a job an
-     * account may operate would silently vanish from {@code SHOW ALL CREATE ROUTINE LOAD}.
+     * <p>The table-level grant is allowed here on purpose and must not be what lets the job through: a job
+     * with no table has no table privilege to ask about, so were that the question, a job an account may
+     * operate would silently vanish from {@code SHOW ALL CREATE ROUTINE LOAD} - or fail the statement
+     * outright, as AuthorizedResource.Table refuses a question that names no table.
      */
     @Test
     public void testAMultiTableJobIsShownOnTheDatabaseLevelGrant() throws Exception {
