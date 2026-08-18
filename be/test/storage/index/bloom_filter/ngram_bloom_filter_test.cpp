@@ -77,4 +77,37 @@ TEST(NGramBloomFilterTest, InitPreservesContent) {
     EXPECT_EQ(0, memcmp(writer.data(), reader.data(), kBfSize));
 }
 
+// ASan guard for the rounded-up tail over-read in init(): for bf sizes not
+// divisible by sizeof(UnderType), init() must copy exactly size bytes from
+// the input. The source vector is allocated with NO slack, so any read past
+// size bytes lands in an ASan redzone.
+TEST(NGramBloomFilterTest, InitFromExactSizeNonMultipleOfEight) {
+    const char* added[] = {"hello", "doris", "arm64", "bloom-filter"};
+    for (size_t bf_size : {65, 67, 100, 511, 65535}) {
+        NGramBloomFilter writer(bf_size);
+        for (const char* s : added) {
+            writer.add_bytes(s, strlen(s));
+        }
+
+        // Exactly bf_size bytes, no padding.
+        std::vector<uint8_t> exact(bf_size);
+        memcpy(exact.data(), writer.data(), bf_size);
+
+        NGramBloomFilter reader(bf_size);
+        ASSERT_TRUE(reader.init(reinterpret_cast<const char*>(exact.data()), bf_size, CITY_HASH_64)
+                            .ok())
+                << "bf_size=" << bf_size;
+
+        // The deserialized filter must contain the writer filter itself;
+        // this only holds if the tail bytes of the last word stayed zero.
+        EXPECT_TRUE(reader.contains(writer)) << "bf_size=" << bf_size;
+        // Every added entry must be found, queried the same way as above.
+        for (const char* s : added) {
+            NGramBloomFilter query(bf_size);
+            query.add_bytes(s, strlen(s));
+            EXPECT_TRUE(reader.contains(query)) << "bf_size=" << bf_size << " missing: " << s;
+        }
+    }
+}
+
 } // namespace doris::segment_v2
