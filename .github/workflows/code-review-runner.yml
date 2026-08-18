@@ -677,6 +677,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
           HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
         run: |
           GOAL_PROMPT="$(cat "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt")"
           review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -684,7 +685,10 @@ jobs:
           set +e
           # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
           # Codex uses bubblewrap for that mode and uid maps can be unavailable.
-          codex exec --goal "$GOAL_PROMPT" \
+          # Keep the command under an internal process-group timeout so descendants
+          # cannot retain the job token after this step has failed or timed out.
+          timeout --signal=TERM --kill-after=10s 59m \
+            codex exec --goal "$GOAL_PROMPT" \
             --cd "$GITHUB_WORKSPACE" \
             --model "gpt-5.6-sol" \
             --config "model_reasoning_effort=xhigh" \
@@ -699,7 +703,11 @@ jobs:
 
           failure_reason=""
           if [ "$status" -ne 0 ]; then
-            if [ -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
+            if [ "$status" -eq 124 ]; then
+              failure_reason="Codex review exceeded the 59-minute execution budget and was terminated before cleanup."
+            elif [ "$status" -eq 137 ]; then
+              failure_reason="Codex review did not stop after timeout and was force-terminated before cleanup."
+            elif [ -s "$REVIEW_CONTEXT_DIR/codex-events.jsonl" ]; then
               failure_reason="$(jq -r 'select(.type == "turn.failed") | .error.message // empty' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | tail -n 1)"
               if [ -z "$failure_reason" ]; then
                 failure_reason="$(jq -r 'select(.type == "error") | .message // .error.message // empty' "$REVIEW_CONTEXT_DIR/codex-events.jsonl" | tail -n 1)"
@@ -731,6 +739,15 @@ jobs:
               retry_at="$(date -u -d "@$usage_limit_retry_after_epoch" +%Y-%m-%dT%H:%M:%SZ)"
               echo "Codex usage limit detected; account retry time is $retry_at."
               echo "usage_limit_retry_after_epoch=$usage_limit_retry_after_epoch" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
+          if [ -z "$failure_reason" ]; then
+            PR_JSON="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
+            LIVE_HEAD_SHA="$(jq -er '.head.sha' <<<"$PR_JSON")"
+            LIVE_BASE_SHA="$(jq -er '.base.sha' <<<"$PR_JSON")"
+            if [ "$LIVE_HEAD_SHA" != "$HEAD_SHA" ] || [ "$LIVE_BASE_SHA" != "$BASE_SHA" ]; then
+              failure_reason="PR base/head changed while Codex was running; refusing to accept a stale review."
             fi
           fi
 
@@ -860,12 +877,24 @@ jobs:
         timeout-minutes: 2
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.review_inputs.outputs.pr_number }}
           HEAD_SHA: ${{ steps.review_inputs.outputs.head_sha }}
+          BASE_SHA: ${{ steps.review_inputs.outputs.base_sha }}
           JOB_STATUS: ${{ job.status }}
           REPO: ${{ github.repository }}
           REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
         run: |
+          PR_JSON="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
+          LIVE_HEAD_SHA="$(jq -er '.head.sha' <<<"$PR_JSON")"
+          LIVE_BASE_SHA="$(jq -er '.base.sha' <<<"$PR_JSON")"
+          if [ "$LIVE_HEAD_SHA" != "$HEAD_SHA" ] || [ "$LIVE_BASE_SHA" != "$BASE_SHA" ]; then
+            echo "PR base/head changed; leaving the declared head status pending." >&2
+            echo "Declared base/head: $BASE_SHA $HEAD_SHA" >&2
+            echo "Current base/head:  $LIVE_BASE_SHA $LIVE_HEAD_SHA" >&2
+            exit 0
+          fi
+
           state="pending"
           summary="Trigger /review to start automated review for ${HEAD_SHA}."
 
