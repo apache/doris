@@ -44,15 +44,13 @@ jmethodID Env::throwable_to_stack_trace_id_ = nullptr;
 Status Env::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
+    // Attaching implies ensure_jvm(), which is where the JNI base is resolved - once per
+    // process, on the thread that brought the JVM up. So by the time this returns the
+    // natives are registered and the cached classes exist, and there is nothing left to do
+    // here but remember the env for this thread. On failure tls_env_ is left untouched, so
+    // the thread still looks unattached and the next call retries and reports the same
+    // error rather than running without the base.
     RETURN_IF_ERROR(JvmLauncher::attach_current_thread(&tls_env_));
-    // Only now, with tls_env_ in place: resolving the base classes goes through Env::Get()
-    // itself, which must find this thread's env on the fast path instead of coming back
-    // here. On failure the thread looks unattached again, so the next call retries and
-    // reports the same error instead of running without the natives registered.
-    if (Status status = Util::ensure_jni_base(); !status.ok()) {
-        tls_env_ = nullptr;
-        return status;
-    }
     *env = tls_env_;
     return Status::OK();
 }
@@ -230,6 +228,10 @@ Status Util::_init_collect_class() {
     return Status::OK();
 }
 
+// Driven by JvmLauncher::_bootstrap(), right after the JVM it describes exists, and by
+// nothing else: everything below needs a JVM, and everything the JVM has to publish - the
+// jvm_* metrics above all - has to appear as soon as one exists, whether it was a JNI
+// scanner or an HDFS read through libhdfs that brought it up.
 Status Util::ensure_jni_base() {
     static std::once_flag jni_base_once;
     static Status jni_base_status;
@@ -243,7 +245,8 @@ Status Util::_init_jni_base() {
     // unregistered one would surface as an UnsatisfiedLinkError deep inside a scanner.
     RETURN_IF_ERROR(_init_register_natives());
     RETURN_IF_ERROR(_init_collect_class());
-    // The JVM exists from here on, so its metrics have something to report.
+    // The JVM this runs against already exists - the bootstrap that created it is the only
+    // caller - so its metrics have something to report.
     DorisMetrics::instance()->init_jvm_metrics();
     return Status::OK();
 }
@@ -258,7 +261,12 @@ Status Util::_init_register_natives() {
         if (env->ExceptionOccurred()) {
             env->ExceptionDescribe();
         }
-        return Status::JniError("Failed to find JNINativeMethod class.");
+        // Same deployment failure as the JniUtil lookup, and the same answer - see the note
+        // there.
+        return Status::JniError(
+                "Failed to find the JNINativeMethod class of the Java plugin SPI. It ships in "
+                "doris-jni-spi.jar under DORIS_HOME/lib/jni/spi, which bin/start_be.sh puts on "
+                "the class path.");
     }
 
     static char memory_alloc_name[] = "memoryTrackerMalloc";

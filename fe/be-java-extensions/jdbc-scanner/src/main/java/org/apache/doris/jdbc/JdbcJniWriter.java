@@ -334,7 +334,10 @@ public class JdbcJniWriter extends JniWriter {
     }
 
     private void initializeClassLoaderAndDataSource() {
-        this.classLoader = JdbcDriverUtils.driverClassLoader(jdbcDriverUrl, getClass().getClassLoader());
+        // See JdbcJniScanner.initializeClassLoaderAndDataSource: the catalog's checksum is checked
+        // once per driver jar, when the classloader for it is created.
+        this.classLoader = JdbcDriverUtils.driverClassLoader(jdbcDriverUrl, getClass().getClassLoader(),
+                JdbcDriverUtils.checksumVerifier(jdbcDriverChecksum));
         // Must set thread context classloader BEFORE creating HikariDataSource,
         // because HikariCP's setDriverClassName() loads the driver class from
         // the thread context classloader.

@@ -22,11 +22,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
@@ -140,6 +144,49 @@ class JdbcDriverUtilsTest {
                 () -> JdbcDriverUtils.driverClassLoader("not a url", getClass().getClassLoader()));
 
         Assertions.assertTrue(failure.getMessage().contains("not a url"), failure.getMessage());
+    }
+
+    /**
+     * The shipped verifier. The checksum is what Doris was told the jar should be; a jar that does
+     * not match it is a different driver than the catalog was defined against, and running against
+     * it silently is the failure this exists to prevent.
+     */
+    @Test
+    void theShippedVerifierAcceptsTheDeclaredChecksumAndRejectsAnyOther(@TempDir Path dir) throws IOException {
+        String jar = driverJar(dir, "checksummed.jar");
+        String actual = md5Of(jar);
+
+        JdbcDriverUtils.checksumVerifier(actual).verify(new URL(jar));
+        JdbcDriverUtils.checksumVerifier(actual.toUpperCase(Locale.ROOT)).verify(new URL(jar));
+
+        IllegalStateException mismatch = Assertions.assertThrows(IllegalStateException.class,
+                () -> JdbcDriverUtils.checksumVerifier("00000000000000000000000000000000").verify(new URL(jar)));
+        Assertions.assertTrue(mismatch.getMessage().contains(actual), mismatch.getMessage());
+    }
+
+    /**
+     * A catalog defined without a checksum has nothing to verify against. Inventing an expectation
+     * there would reject every such catalog, so "no checksum" has to mean "no verifier".
+     */
+    @Test
+    void noDeclaredChecksumMeansNoVerifier() {
+        Assertions.assertNull(JdbcDriverUtils.checksumVerifier(null));
+        Assertions.assertNull(JdbcDriverUtils.checksumVerifier(""));
+        Assertions.assertNull(JdbcDriverUtils.checksumVerifier("   "));
+    }
+
+    private static String md5Of(String jarUrl) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("MD5");
+            byte[] hash = digest.digest(Files.readAllBytes(Path.of(URI.create(jarUrl))));
+            StringBuilder hex = new StringBuilder(32);
+            for (byte b : hash) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     /** A jar with one class in it, enough to be a stand-in for a real driver. */

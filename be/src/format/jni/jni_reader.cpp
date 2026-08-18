@@ -191,23 +191,6 @@ Status JniReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
 }
 
 // =========================================================================
-// JniReader::get_table_schema  (merged from JniConnector::get_table_schema)
-// =========================================================================
-
-Status JniReader::get_table_schema(std::string& table_schema_str) {
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-
-    Jni::LocalString jstr;
-    RETURN_IF_ERROR(
-            _jni_scanner_obj.call_object_method(env, _scanner_api->get_table_schema).call(&jstr));
-    Jni::LocalStringBufferGuard cstr;
-    RETURN_IF_ERROR(jstr.get_string_chars(env, &cstr));
-    table_schema_str = std::string {cstr.get()};
-    return Status::OK();
-}
-
-// =========================================================================
 // JniReader::close  (merged from JniConnector::close)
 // =========================================================================
 

@@ -72,7 +72,11 @@ final class JniLogging {
             FileHandler handler = new FileHandler(logFile.getPath() + ".%g",
                     ROTATION_BYTES, ROTATION_FILES, true);
             handler.setFormatter(new JniLogFormatter());
-            handler.setLevel(Level.INFO);
+            // ALL, so that the level is decided per logger below rather than clamped here. A
+            // handler level filters after the logger's own level has already let the record
+            // through, so an INFO handler silently drops everything finer no matter how a logger
+            // is configured.
+            handler.setLevel(Level.ALL);
 
             Logger root = Logger.getLogger("");
             for (Handler existing : root.getHandlers()) {
@@ -81,7 +85,13 @@ final class JniLogging {
                 root.removeHandler(existing);
             }
             root.addHandler(handler);
+            // INFO for everything a plugin drags in - table format libraries are extremely chatty
+            // below that - but not for the loader itself: its FINE records are the deployment
+            // diagnostics ("plugin X is not deployed at ...", "provided by ..."), which are one
+            // line per plugin load and are the first thing anybody wants when a plugin does not
+            // show up. Pinning the root at INFO made them unreachable in every default deployment.
             root.setLevel(Level.INFO);
+            Logger.getLogger(PluginRegistry.class.getPackage().getName()).setLevel(Level.FINE);
             Logger.getLogger(JniLogging.class.getName())
                     .info("BE Java plugin logging initialized: " + logFile.getPath() + ".0");
         } catch (Exception | LinkageError e) {

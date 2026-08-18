@@ -60,7 +60,7 @@ under the License.
           surface - adding an interface or a method counts, not only removing or changing one. That
           definition is what makes a differing minor safe to ignore.
         -->
-        <jni.plugin.api.version>2.0</jni.plugin.api.version>
+        <jni.plugin.api.version>3.0</jni.plugin.api.version>
     </properties>
 
     <build>

@@ -17,7 +17,6 @@
 
 package org.apache.doris.jni.spi;
 
-import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.jni.spi.vec.VectorTable;
 
 import java.io.IOException;
@@ -35,8 +34,6 @@ import java.util.Map;
 public abstract class JniWriter {
     protected int batchSize;
     protected Map<String, String> params;
-    protected ColumnType[] columnTypes;
-    protected String[] fields;
     protected long writeTime = 0;
     protected long readTableTime = 0;
 
@@ -71,28 +68,15 @@ public abstract class JniWriter {
     }
 
     /**
-     * Receives one C++ block: the reserved parameter keys describe its schema and the address of
-     * its meta array, which is turned into a readable {@link VectorTable} before handing it to the
-     * plugin. The schema is parsed once and cached, because it is identical for every call.
+     * Receives one C++ block: {@code inputParams} carries the address of its meta array, which is
+     * turned into a readable {@link VectorTable} before handing it to the plugin. The block
+     * describes its own columns, so the schema keys BE also sends - {@code required_fields} and
+     * {@code columns_types}, see PROTOCOL.md section 3 - are left in the map for a writer that
+     * wants them rather than parsed here: no writer read the parsed form, and parsing it here
+     * indexed the names by the types' position, which is only the same list by luck.
      */
     public final void write(Map<String, String> inputParams) throws IOException {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(getClass().getClassLoader())) {
-            if (columnTypes == null) {
-                String requiredFields = inputParams.get("required_fields");
-                String columnsTypes = inputParams.get("columns_types");
-                if (requiredFields != null && !requiredFields.isEmpty()) {
-                    fields = requiredFields.split(",");
-                    String[] typeStrs = columnsTypes.split("#");
-                    columnTypes = new ColumnType[typeStrs.length];
-                    for (int i = 0; i < typeStrs.length; i++) {
-                        columnTypes[i] = ColumnType.parseType(fields[i], typeStrs[i]);
-                    }
-                } else {
-                    fields = new String[0];
-                    columnTypes = new ColumnType[0];
-                }
-            }
-
             long startRead = System.nanoTime();
             VectorTable inputTable = VectorTable.createReadableTable(inputParams);
             readTableTime += System.nanoTime() - startRead;

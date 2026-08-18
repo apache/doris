@@ -47,7 +47,6 @@ reason described on `JniScanner`.
 |---|---|
 | `open` | `()V` |
 | `getNextBatchMeta` | `()J` |
-| `getTableSchema` | `()Ljava/lang/String;` |
 | `getStatistics` | `()Ljava/util/Map;` |
 | `getAppendDataTime` | `()J` |
 | `getCreateVectorTableTime` | `()J` |
@@ -67,6 +66,45 @@ reason described on `JniScanner`.
 
 `JniScannerContractTest` fails if any of these is renamed, re-signed, moved off the base class, or
 made overridable.
+
+### UDF executors
+
+The java-udf plugin is addressed the same way a scanner is — `(plugin, factory)`, through
+`PluginRegistry.createUdfExecutor` — but what comes back is **not** an SPI type. BE resolves the ids
+below on the concrete class the factory returned, so unlike everything else in this section they are
+a contract between BE and one plugin's internals rather than between BE and the SPI. Two things
+follow, and both matter to anyone building a java-udf plugin of their own:
+
+- `Doris-Jni-Plugin-Api-Version` does **not** cover them. A plugin can declare a matching major and
+  still fail on one of these ids, which surfaces as `Failed to find ... method` on the first query
+  that uses the function.
+- The corresponding C++ is `be/src/exprs/function/function_java_udf.cpp` (scalar),
+  `be/src/exprs/table_function/udf_table_function.cpp` (UDTF) and
+  `be/src/exprs/aggregate/aggregate_function_java_udaf.h` (UDAF).
+
+The scalar and table-function factories return the same executor shape:
+
+| Method | Descriptor |
+|---|---|
+| `close` | `()V` |
+| `evaluate` | `(Ljava/util/Map;Ljava/util/Map;)J` |
+
+The aggregate factory returns:
+
+| Method | Descriptor |
+|---|---|
+| `close` | `()V` |
+| `reset` | `(J)V` |
+| `merge` | `(J[B)V` |
+| `serialize` | `(J)[B` |
+| `getValue` | `(JLjava/util/Map;)J` |
+| `destroy` | `()V` |
+| `addBatch` | `(ZIIJILjava/util/Map;)V` |
+
+`close` is resolved first in all three, and deliberately: the executor object exists from the moment
+the factory returns it, so every resolution after the first is a failure that has to be able to
+close it. Nothing may be called on an executor after `close`; the UDAF one drops its state map
+there, and `destroy` walks that map.
 
 ---
 
@@ -96,17 +134,20 @@ keys are set by BE and must not be reused for anything else.
 
 | Key | Direction | Meaning |
 |---|---|---|
-| `required_fields` | BE → plugin | comma-separated column names, in output order |
+| `required_fields` | BE → plugin | comma-separated, in output order. Column **names** for a scanner; for a writer and for a UDF executor they are positional placeholders, `_col_<position>` |
 | `columns_types` | BE → plugin | `#`-separated type strings, positionally paired with `required_fields` |
-| `required_fields_base64` | BE → plugin | same names, base64-encoded; only published for connectors that opt in |
-| `columns_types_base64` | BE → plugin | same types with base64-encoded struct field names, preserving their exact spelling — the plain grammar lowercases them |
-| `replace_string` | BE → plugin | comma-separated per-column replacement directives; absent when every column is `not_replace` |
-| `time_zone` | BE → plugin | session time zone; query-scoped, so it overwrites any catalog-level copy |
+| `required_fields_base64` | BE → plugin | same list, `,`-separated, each element `$` + base64 of the whole name; only published for connectors that opt in (today: paimon) |
+| `columns_types_base64` | BE → plugin | same list, `,`-separated, each element `$` + base64 of the whole type string — which is what preserves struct field name spelling, since the plain grammar lowercases it |
+| `replace_string` | BE → plugin | comma-separated per-column replacement directives. On the v2 scan path it is absent when every column is `not_replace`; the v1 JDBC path sets it unconditionally |
+| `time_zone` | BE → plugin | session time zone. The v2 path assigns it, so it overwrites a catalog-level copy; the v1 path inserts it only if the key is absent, so there a catalog-level copy wins |
 | `meta_address` | BE → writer | address of the meta array of the block being written |
-| `num_rows` | BE → writer | row count of that block |
+
+A writer's map carries exactly `meta_address`, `required_fields` and `columns_types` — no row count,
+and no `time_zone`.
 
 Separators are part of the protocol: `,` between names, `#` between types. A column name containing
-either is only transportable through the base64 pair.
+either is only transportable through the base64 pair. Note that the base64 keys use `,` for both
+lists — the `#` of `columns_types` has no counterpart in `columns_types_base64`.
 
 ---
 
@@ -137,8 +178,10 @@ Notes that have bitten people:
   the original spelling, and each encoded name is prefixed with `$` as a version marker.
 - Nesting is parsed by bracket counting, so `map<string,array<int>>` is fine, but a struct field
   name containing `<`, `>`, `,` or `:` is not representable in the plain grammar.
-- An unrecognised string is not an error: it becomes `UNSUPPORTED`, whose meta contribution is a
-  single 0 (see below). Silently getting nulls for a column usually means a typo here.
+- An unrecognised string does not fail the parse: it becomes `UNSUPPORTED`, whose meta contribution
+  is a single 0 (see below). It fails the query instead, when BE reads that 0 back:
+  `Unsupported type ... in java side`. So that message, and not a column of nulls, is what a typo
+  here looks like.
 
 ---
 
@@ -197,8 +240,14 @@ agree; a mismatch reads whatever memory the wrong offset lands on.
 ## 6. Statistics keys
 
 `getStatistics()` returns `Map<String,String>` where the key is `metricType:metricName` and the
-value is a decimal integer. BE adds `metricName` under the scanner's profile node, labelled with the
-connector name.
+value is a decimal integer. BE adds `metricName` under the **scanner's** profile node, labelled with
+the plugin name.
+
+Only the scanner half is metrics. On the writer side nothing from `getStatistics()` reaches a
+profile at all; the map is a data channel back to BE, and the keys BE reads out of it today are
+MaxCompute's commit payload — `mc_commit_message` and `mc_partition_spec`
+(`be/src/exec/sink/writer/maxcompute/vmc_partition_writer.cpp`). A writer key that is not one of
+those is dropped.
 
 | metricType | Profile unit | Update rule |
 |---|---|---|
@@ -212,8 +261,9 @@ connector name.
 | `peak` | count | keep the maximum |
 | `bytes_peak` | bytes | keep the maximum |
 
-A key with no `:`, or with an unknown type, is logged as a warning and dropped. Metrics never fail a
-query, so a metric that never appears in a profile is a typo here rather than a runtime error.
+For the scanner half, a key with no `:`, or with an unknown type, is logged as a warning and
+dropped. Metrics never fail a query, so a metric that never appears in a profile is a typo here
+rather than a runtime error.
 
 ---
 

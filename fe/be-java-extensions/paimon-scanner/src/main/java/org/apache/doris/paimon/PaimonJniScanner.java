@@ -156,11 +156,12 @@ public class PaimonJniScanner extends JniScanner {
         markScannerOpenedForMetrics();
         long startTime = System.nanoTime();
         try {
-            // When the user does not specify hive-site.xml, Paimon will look for the file from the classpath:
-            //    org.apache.paimon.hive.HiveCatalog.createHiveConf:
-            //        `Thread.currentThread().getContextClassLoader().getResource(HIVE_SITE_FILE)`
-            // so we need to provide a classloader, otherwise it will cause NPE.
-            Thread.currentThread().setContextClassLoader(classLoader);
+            // Paimon reads hive-site.xml off the context classloader when the user does not name
+            // one (org.apache.paimon.hive.HiveCatalog.createHiveConf), and would NPE without it.
+            // JniScanner.open() has already installed this plugin's loader as the context
+            // classloader and restores the caller's on the way out, so there is nothing to pin
+            // here - the previous pin never restored anything, which is what left BE's own
+            // threads carrying a plugin loader after a scan.
             preExecutionAuthenticator.execute(() -> {
                 PaimonJdbcDriverUtils.registerDriverIfNeeded(params, classLoader);
                 initTableAndReader();

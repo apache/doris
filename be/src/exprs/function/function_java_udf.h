@@ -125,11 +125,20 @@ private:
         JniContext() = default;
 
         Status close() {
-            if (!open_successes) {
-                LOG_WARNING("maybe open failed, need check the reason");
-                return Status::OK(); //maybe open failed, so can't call some jni
-            }
             if (is_closed) {
+                return Status::OK();
+            }
+            // Not gated on open_successes: open() creates the Java executor before it resolves
+            // any method id, so a failure in between leaves an executor that only this can
+            // close - and for a non-static-load function that close is what releases the
+            // per-function URLClassLoader and the jar file descriptors it holds. What has to be
+            // bound is the close id itself, which open() resolves first for exactly this
+            // reason.
+            if (executor.uninitialized() || executor_cl.uninitialized() ||
+                executor_close_id.uninitialized()) {
+                if (!open_successes) {
+                    LOG_WARNING("maybe open failed, need check the reason");
+                }
                 return Status::OK();
             }
             VLOG_DEBUG << "Free resources for JniContext";
@@ -139,6 +148,7 @@ private:
                 LOG(WARNING) << "errors while get jni env " << status;
                 return status;
             }
+            is_closed = true;
             return executor.call_nonvirtual_void_method(env, executor_cl, executor_close_id).call();
         }
     };

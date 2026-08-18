@@ -133,10 +133,12 @@ under the License.
           all, so without them a scan of a table on HDFS fails with "No FileSystem for scheme: hdfs".
           Which class serves which scheme is FE's decision and is asserted in IcebergPluginTest.
 
-          Two absences are deliberate. hadoop-cos is on that shared classpath today but nothing
-          reaches it: FE points fs.cosn.impl at S3AFileSystem, and no code in the tree names
-          org.apache.hadoop.fs.CosFileSystem. And oss:// is served by JindoFS, which is not a maven
-          artifact - build.sh copies it into this directory when it was packaged.
+          One absence is deliberate: hadoop-cos is on that shared classpath today but nothing reaches
+          it - FE points fs.cosn.impl at S3AFileSystem, and no code in the tree names
+          org.apache.hadoop.fs.CosFileSystem. oss:// is served by JindoFS, which is not a maven
+          artifact - build.sh copies it into this plugin directory after post-build.sh has packaged
+          them (a no-op unless the build asked for jindofs, i.e. DISABLE_BUILD_JINDOFS=OFF or the
+          corresponding build.sh flag), with the native-library caveat recorded there.
         -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>

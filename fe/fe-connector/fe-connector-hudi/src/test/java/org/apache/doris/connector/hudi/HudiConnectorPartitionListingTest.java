@@ -33,7 +33,6 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -227,8 +226,8 @@ public class HudiConnectorPartitionListingTest {
     @Test
     public void listPartitionNamesMatchesListPartitions() {
         HudiConnectorMetadata md = metadata(false,
-                new RecordingHmsClient(null), stub(new AbstractMap.SimpleImmutableEntry<>(
-                        99L, Arrays.asList("2024/01", "2024/02"))));
+                new RecordingHmsClient(null),
+                stub(HudiConnectorMetadata.unpinnedListing(99L, Arrays.asList("2024/01", "2024/02"))));
         ConnectorTableHandle handle = partitioned();
 
         List<String> names = md.listPartitionNames(null, handle);
@@ -271,7 +270,7 @@ public class HudiConnectorPartitionListingTest {
         // (the prune-to-zero guard), stamped with the metaClient instant — NOT return zero partitions.
         RecordingHmsClient hms = new RecordingHmsClient(Collections.emptyList());
         HudiConnectorMetadata md = metadata(true, hms,
-                stub(new AbstractMap.SimpleImmutableEntry<>(5L, Collections.singletonList("2024/01"))));
+                stub(HudiConnectorMetadata.unpinnedListing(5L, Collections.singletonList("2024/01"))));
 
         List<ConnectorPartitionInfo> parts = md.listPartitions(null, partitioned(), Optional.empty());
 
@@ -285,7 +284,7 @@ public class HudiConnectorPartitionListingTest {
     public void nonHiveSyncTableNeverConsultsHms() {
         RecordingHmsClient hms = new RecordingHmsClient(null); // throws if listPartitionNames is called
         HudiConnectorMetadata md = metadata(false, hms,
-                stub(new AbstractMap.SimpleImmutableEntry<>(88L, Collections.singletonList("2024/01"))));
+                stub(HudiConnectorMetadata.unpinnedListing(88L, Collections.singletonList("2024/01"))));
 
         List<ConnectorPartitionInfo> parts = md.listPartitions(null, partitioned(), Optional.empty());
 

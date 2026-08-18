@@ -60,7 +60,6 @@ class JniScannerContractTest {
         assertSignature("open", void.class);
         assertSignature("close", void.class);
         assertSignature("getNextBatchMeta", long.class);
-        assertSignature("getTableSchema", String.class);
         assertSignature("getStatistics", Map.class);
         assertSignature("getAppendDataTime", long.class);
         assertSignature("getCreateVectorTableTime", long.class);
@@ -107,13 +106,12 @@ class JniScannerContractTest {
 
             scanner.open();
             scanner.getNextBatchMeta();
-            scanner.getTableSchema();
             scanner.getStatistics();
             scanner.releaseTable();
             scanner.close();
 
             Assertions.assertEquals(
-                    new TreeSet<>(Arrays.asList("openInternal", "getNext", "parseTableSchema",
+                    new TreeSet<>(Arrays.asList("openInternal", "getNext",
                             "collectStatistics", "closeInternal")),
                     new TreeSet<>(scanner.observed.keySet()),
                     "an entry point stopped reaching its plugin hook");
@@ -202,12 +200,6 @@ class JniScannerContractTest {
             vectorTable.appendVirtualData(1);
             rowsLeft--;
             return 1;
-        }
-
-        @Override
-        protected String parseTableSchema() {
-            observed.put("parseTableSchema", Thread.currentThread().getContextClassLoader());
-            return "{}";
         }
 
         @Override

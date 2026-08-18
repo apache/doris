@@ -109,6 +109,7 @@ void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
         k_doris_exit = true;
     }
+    // SIGQUIT deliberately does nothing here; see init_signals().
 }
 
 int install_signal(int signo, void (*handler)(int)) {
@@ -131,6 +132,23 @@ void init_signals() {
         exit(-1);
     }
     ret = install_signal(SIGTERM, signal_handler);
+    if (ret < 0) {
+        exit(-1);
+    }
+    // SIGQUIT is taken over even though the BE does nothing with it, because its default
+    // action is not "nothing": it terminates the process and dumps core. `kill -3 <pid>` is
+    // what an operator reaches for to get a thread dump out of a process that looks stuck,
+    // and until the JVM started running with -Xrs it got one - the JVM installed a handler
+    // for this signal along with the shutdown ones. -Xrs stops it from doing that (see
+    // JvmLauncher::_build_options), which would leave SIGQUIT at SIG_DFL and turn that
+    // habitual command into a crash. Handling it and ignoring it is the pre-change
+    // behaviour minus the thread dump; jcmd and jstack, which attach rather than signal,
+    // are how to get one now.
+    //
+    // Installed with a handler rather than SIG_IGN so that the disposition is inheritable
+    // by nothing and visible to JvmLauncher's BeOwnedSignalGuard, which saves and restores
+    // it around any VM creation it does not control.
+    ret = install_signal(SIGQUIT, signal_handler);
     if (ret < 0) {
         exit(-1);
     }
@@ -584,11 +602,13 @@ int main(int argc, char** argv) {
 
     // SIGINT and SIGTERM are how the BE is asked to shut down, and the handler installed
     // here does nothing but raise the flag the loop at the end of main() waits on, so the
-    // shutdown stays orderly. A JVM would rather turn both signals into a Java
-    // Shutdown.exit(), and it installs handlers of its own when it starts. The JVM used to
-    // be created a few lines above this call, which is what left these handlers on top;
-    // now that it is created on demand, Jni::JvmLauncher::_bootstrap() is what puts them
-    // back once the JVM has had its way with them.
+    // shutdown stays orderly. SIGQUIT is claimed here as well, so that it does nothing at
+    // all rather than killing the BE with a core dump. A JVM would rather turn the first
+    // two into a Java Shutdown.exit() and answer the third with a thread dump, and it
+    // installs handlers of its own for all three when it starts. The JVM used to be created
+    // a few lines above this call, which is what left these handlers on top; now that it is
+    // created on demand, Jni::JvmLauncher::_bootstrap() is what puts them back once the JVM
+    // has had its way with them.
     // https://www.oracle.com/java/technologies/javase/signals.html
     doris::init_signals();
     // ATTN: MUST init before `ExecEnv`, `StorageEngine` and other daemon services

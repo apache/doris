@@ -72,16 +72,6 @@ public abstract class JniScanner {
     protected abstract int getNext() throws IOException;
 
     /**
-     * Table schema of a table-valued function source (for example an avro file), serialized the way
-     * BE expects it. It stays a {@code String} on the SPI boundary so that no JSON library has to
-     * live there; a plugin serializes it with whatever it already ships. Only a scanner behind a
-     * schema-inferring TVF implements this at all - the default is to refuse.
-     */
-    protected String parseTableSchema() throws UnsupportedOperationException {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
      * Performance metrics of this scanner. Keys are {@code "metricType:metricName"}; BE attaches
      * metricName to the query profile automatically. PROTOCOL.md lists the metric types, and a key
      * BE does not recognise is logged and dropped rather than failing the query.
@@ -133,12 +123,6 @@ public abstract class JniScanner {
                 return 0;
             }
             return getMetaAddress(numRows);
-        }
-    }
-
-    public final String getTableSchema() throws IOException {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(getClass().getClassLoader())) {
-            return parseTableSchema();
         }
     }
 
