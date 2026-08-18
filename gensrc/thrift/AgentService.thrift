@@ -108,7 +108,7 @@ enum TCredProviderType {
     ENV = 3,  // EnvironmentAWSCredentialsProvider
     SYSTEM_PROPERTIES = 4,  // SystemPropertiesCredentialsProvider
     WEB_IDENTITY = 5,  // STSAssumeRoleWebIdentityCredentialsProvider
-    CONTAINER = 6,  // TaskRoleCredentialsProvider
+    CONTAINER = 6,  // GeneralHTTPCredentialsProvider, for ECS task roles and EKS Pod Identity
     ANONYMOUS = 7  // AnonymousAWSCredentialsProvider
 }
 

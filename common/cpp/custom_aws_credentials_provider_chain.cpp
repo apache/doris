@@ -18,92 +18,44 @@
 #include "custom_aws_credentials_provider_chain.h"
 
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
-#include <aws/core/auth/GeneralHTTPCredentialsProvider.h>
-#include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/core/auth/SSOCredentialsProvider.h>
+#include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/core/platform/Environment.h>
-#include <aws/core/utils/memory/AWSMemory.h>
 #include <aws/core/utils/StringUtils.h>
 #include <aws/core/utils/logging/LogMacros.h>
+#include <aws/core/utils/memory/AWSMemory.h>
+
+#include "aws_common.h"
 
 namespace doris {
 
 using namespace Aws::Auth;
 using namespace Aws::Utils::Threading;
 
-static const char AWS_ECS_CONTAINER_CREDENTIALS_RELATIVE_URI[] =
-        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI";
-static const char AWS_ECS_CONTAINER_CREDENTIALS_FULL_URI[] = "AWS_CONTAINER_CREDENTIALS_FULL_URI";
-static const char AWS_ECS_CONTAINER_AUTHORIZATION_TOKEN[] = "AWS_CONTAINER_AUTHORIZATION_TOKEN";
-static const char AWS_EKS_CONTAINER_AUTHORIZATION_TOKEN_FILE[] =
-        "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE";
 static const char AWS_EC2_METADATA_DISABLED[] = "AWS_EC2_METADATA_DISABLED";
 static const char DefaultCredentialsProviderChainTag[] = "DefaultAWSCredentialsProviderChain";
 
 CustomAwsCredentialsProviderChain::CustomAwsCredentialsProviderChain()
         : AWSCredentialsProviderChain() {
-
     AddProvider(Aws::MakeShared<STSAssumeRoleWebIdentityCredentialsProvider>(
             DefaultCredentialsProviderChainTag));
-
-    // Container credentials are only available when the runtime exports one of the two URI
-    // variables below: ECS sets AWS_CONTAINER_CREDENTIALS_RELATIVE_URI, a path resolved against
-    // the ECS agent's fixed address, while EKS Pod Identity sets
-    // AWS_CONTAINER_CREDENTIALS_FULL_URI, which is a complete URL.
-    const auto relativeUri = Aws::Environment::GetEnv(AWS_ECS_CONTAINER_CREDENTIALS_RELATIVE_URI);
-    AWS_LOGSTREAM_DEBUG(DefaultCredentialsProviderChainTag,
-                        "The environment variable value "
-                                << AWS_ECS_CONTAINER_CREDENTIALS_RELATIVE_URI << " is "
-                                << relativeUri);
-
-    // Under EKS Pod Identity a per-node agent exchanges the pod's service account token for IAM
-    // credentials over a link-local endpoint, and exports that endpoint as
-    // AWS_CONTAINER_CREDENTIALS_FULL_URI. The token is a projected file that the kubelet rotates
-    // well before it expires.
-    const auto absoluteUri = Aws::Environment::GetEnv(AWS_ECS_CONTAINER_CREDENTIALS_FULL_URI);
-    AWS_LOGSTREAM_DEBUG(DefaultCredentialsProviderChainTag,
-                        "The environment variable value " << AWS_ECS_CONTAINER_CREDENTIALS_FULL_URI
-                                                          << " is " << absoluteUri);
 
     const auto ec2MetadataDisabled = Aws::Environment::GetEnv(AWS_EC2_METADATA_DISABLED);
     AWS_LOGSTREAM_DEBUG(DefaultCredentialsProviderChainTag,
                         "The environment variable value " << AWS_EC2_METADATA_DISABLED << " is "
                                                           << ec2MetadataDisabled);
 
-    if (!relativeUri.empty()) {
-        AddProvider(Aws::MakeShared<TaskRoleCredentialsProvider>(DefaultCredentialsProviderChainTag,
-                                                                 relativeUri.c_str()));
-        AWS_LOGSTREAM_INFO(DefaultCredentialsProviderChainTag,
-                           "Added ECS metadata service credentials provider with relative path: ["
-                                   << relativeUri << "] to the provider chain.");
-    } else if (!absoluteUri.empty()) {
-        // The endpoint authenticates each fetch with a bearer token, which the provider takes
-        // either inline or as a file path. Given a path, Reload() re-reads the file and
-        // overrides the inline value before every fetch. ECS sets only the inline variable;
-        // EKS Pod Identity sets only the file one, and the kubelet rewrites that file long
-        // before the token in it expires. Forwarding both is what makes the Authorization
-        // header non-empty under Pod Identity - reading the inline variable alone sends an
-        // empty header, the agent rejects it, and no S3 access works at all - and what keeps
-        // it valid past the first rotation.
-        const auto token = Aws::Environment::GetEnv(AWS_ECS_CONTAINER_AUTHORIZATION_TOKEN);
-        const auto tokenPath = Aws::Environment::GetEnv(AWS_EKS_CONTAINER_AUTHORIZATION_TOKEN_FILE);
-        AddProvider(Aws::MakeShared<GeneralHTTPCredentialsProvider>(
-                DefaultCredentialsProviderChainTag, "", absoluteUri, token, tokenPath));
-
-        //DO NOT log the value of the authorization token for security purposes.
-        AWS_LOGSTREAM_INFO(
-                DefaultCredentialsProviderChainTag,
-                "Added ECS credentials provider with URI: ["
-                        << absoluteUri << "] to the provider chain with a"
-                        << (token.empty() && tokenPath.empty() ? "n empty " : " non-empty ")
-                        << "authorization token.");
+    // One provider serves both container platforms: create_container_credentials_provider() reads
+    // all four AWS_CONTAINER_* variables, applies the provider's own relative-then-absolute
+    // precedence, and logs which variable supplied the endpoint.
+    if (container_credentials_available()) {
+        AddProvider(create_container_credentials_provider());
     }
 
     AddProvider(Aws::MakeShared<InstanceProfileCredentialsProvider>(
             DefaultCredentialsProviderChainTag));
-    AWS_LOGSTREAM_INFO(
-            DefaultCredentialsProviderChainTag,
-            "Added EC2 metadata service credentials provider to the provider chain.");
+    AWS_LOGSTREAM_INFO(DefaultCredentialsProviderChainTag,
+                       "Added EC2 metadata service credentials provider to the provider chain.");
 
     AddProvider(
             Aws::MakeShared<EnvironmentAWSCredentialsProvider>(DefaultCredentialsProviderChainTag));
