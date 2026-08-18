@@ -559,8 +559,25 @@ public:
         bool cache_hit;
     };
 
-    Lookup find_or_build(VariantRef value, size_t path_position, DirectResidualSeekResult& result,
+    Lookup find_or_build(VariantRef value, size_t path_position, size_t row,
+                         DirectResidualSeekResult& result,
                          std::optional<VariantContainerLookup>& uncached_lookup) {
+        // The root container of a row is fully determined by the row itself, because the decoded
+        // physical column is immutable until the state appends or resets. Index it by row so a
+        // projection over many paths reuses the parsed envelope without hashing its borrowed
+        // pointers once per path; a fifty-path projection would otherwise probe this cache fifty
+        // times per row for the same object.
+        if (path_position == 0 && row < _roots.size()) {
+            std::optional<VariantContainerLookup>& root = _roots[row];
+            if (root.has_value()) {
+                ++result.container_index_hits;
+                return {.value = &*root, .cache_hit = true};
+            }
+            ++result.container_index_builds;
+            root.emplace(value);
+            return {.value = &*root, .cache_hit = false};
+        }
+
         const DirectSeekContainerKey key {.metadata_data = value.metadata.data,
                                           .metadata_size = value.metadata.size,
                                           .value_data = value.value.data,
@@ -592,6 +609,10 @@ public:
     }
 
     void reserve(size_t size) {
+        if (_roots.empty()) {
+            // Later paths reuse the roots the first path parsed, so only size this once per batch.
+            _roots.resize(std::min(size, MAX_RETAINED_ROOT_ROWS));
+        }
         if (_entries.empty()) {
             const size_t retained = size > MAX_RETAINED_ENTRIES / MAX_RETAINED_PATH_DEPTH
                                             ? MAX_RETAINED_ENTRIES
@@ -603,12 +624,15 @@ public:
     void reset() {
         ContainerMap empty;
         _entries.swap(empty);
+        RootCache empty_roots;
+        _roots.swap(empty_roots);
         _promoted_offset_bytes = 0;
     }
 
     size_t allocated_bytes() const {
         return _entries.bucket_count() * sizeof(void*) +
-               _entries.size() * sizeof(ContainerMap::value_type) + _promoted_offset_bytes;
+               _entries.size() * sizeof(ContainerMap::value_type) +
+               _roots.capacity() * sizeof(RootCache::value_type) + _promoted_offset_bytes;
     }
 
 private:
@@ -617,13 +641,18 @@ private:
     // paths, appended columns, and noncanonical wide objects.
     static constexpr size_t MAX_RETAINED_PATH_DEPTH = 4;
     static constexpr size_t MAX_RETAINED_ENTRIES = 16 * 1024;
+    // Roots are retained per row rather than per distinct value, so an oversized batch keeps only
+    // this many of them and the rest fall back to the keyed entries below.
+    static constexpr size_t MAX_RETAINED_ROOT_ROWS = 16 * 1024;
     static constexpr size_t MAX_PROMOTED_OFFSET_BYTES = 4 * 1024 * 1024;
 
     using ContainerMap = std::unordered_map<
             DirectSeekContainerKey, VariantContainerLookup, DirectSeekContainerKeyHash,
             std::equal_to<DirectSeekContainerKey>,
             CustomStdAllocator<std::pair<const DirectSeekContainerKey, VariantContainerLookup>>>;
+    using RootCache = DorisVector<std::optional<VariantContainerLookup>>;
     ContainerMap _entries;
+    RootCache _roots;
     size_t _promoted_offset_bytes = 0;
 };
 
@@ -791,7 +820,7 @@ DirectResidualSeekResult seek_unshredded_variant_path(
             if (basic_type == VariantBasicType::OBJECT || basic_type == VariantBasicType::ARRAY) {
                 // Build bounded structural state even when the requested segment has the other
                 // container kind, because the lookup will dereference this container's table.
-                container = container_cache.find_or_build(current, position, result,
+                container = container_cache.find_or_build(current, position, row, result,
                                                           uncached_container);
             }
             if (path[position].kind == VariantShreddedPathSegment::Kind::OBJECT_KEY) {

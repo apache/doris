@@ -1747,9 +1747,12 @@ TEST(VariantColumnReaderTest, ReusesDirectSeekContainerIndexesAcrossPathsAndSele
 }
 
 TEST(VariantColumnReaderTest, BoundsDirectSeekContainerCacheEntries) {
-    constexpr size_t ROWS = 5000;
+    // Roots are retained per row and deeper containers per distinct value, so the batch has to be
+    // wider than both caps for this to observe either of them.
+    constexpr size_t ROWS = 20000;
     constexpr size_t DEPTH = 4;
     constexpr int64_t RETAINED_ENTRIES = 16 * 1024;
+    constexpr int64_t RETAINED_ROOT_ROWS = 16 * 1024;
     std::string nested = nested_single_element_arrays(DEPTH);
     const VariantRef row {
             .metadata = {.data = VARIANT_EMPTY_METADATA.data(),
@@ -1787,8 +1790,66 @@ TEST(VariantColumnReaderTest, BoundsDirectSeekContainerCacheEntries) {
     EXPECT_EQ(hits->value(), 0);
 
     extract();
-    EXPECT_EQ(hits->value(), RETAINED_ENTRIES);
-    EXPECT_EQ(builds->value(), 2 * lookups_per_pass - RETAINED_ENTRIES);
+    // The second pass reuses one root per retained row plus the deeper containers that fit the
+    // keyed cap. Everything past either cap is rebuilt, so retained state stays bounded no matter
+    // how wide the batch is.
+    EXPECT_EQ(hits->value(), RETAINED_ROOT_ROWS + RETAINED_ENTRIES);
+    EXPECT_EQ(builds->value(), 2 * lookups_per_pass - hits->value());
+}
+
+TEST(VariantColumnReaderTest, ReusesRootContainerAcrossEveryProjectedPath) {
+    constexpr size_t ROWS = 4;
+    constexpr size_t PATHS = 3;
+    VariantBatchBuilder builder;
+    for (size_t row_index = 0; row_index < ROWS; ++row_index) {
+        auto row = builder.begin_row();
+        auto object = row.start_object();
+        for (size_t path_index = 0; path_index < PATHS; ++path_index) {
+            const std::string key = "k" + std::to_string(path_index);
+            object.add_key(StringRef(key));
+            row.add_int(static_cast<int64_t>(row_index * PATHS + path_index));
+        }
+        object.finish();
+        row.finish();
+    }
+    VariantBatchBuilder batch = builder.finish_batch();
+    std::vector<VariantRef> rows;
+    for (size_t row_index = 0; row_index < ROWS; ++row_index) {
+        rows.push_back(batch.value_at(row_index));
+    }
+
+    RuntimeProfile runtime_profile("direct-seek-root-reuse");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), unshredded_physical(rows), output,
+                                         parquet_profile.column_reader_profile())
+                        .ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+
+    for (size_t path_index = 0; path_index < PATHS; ++path_index) {
+        const std::string key = "k" + std::to_string(path_index);
+        const std::array segments {VariantElementV2PathSegment::object_key(StringRef(key))};
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        ASSERT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+        ColumnPtr result;
+        ASSERT_TRUE(extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result)
+                            .ok());
+        const auto values =
+                canonical_values(assert_cast<const ColumnNullable&>(*result).get_nested_column());
+        for (size_t row_index = 0; row_index < ROWS; ++row_index) {
+            EXPECT_EQ(values->get_value_ref(row_index).get_int(),
+                      static_cast<int64_t>(row_index * PATHS + path_index));
+        }
+    }
+
+    // Each row's root object is parsed once and then reused by every remaining path, so a wide
+    // projection costs one container build per row rather than one per path and row.
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexBuilds")->value(),
+              static_cast<int64_t>(ROWS));
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekContainerIndexHits")->value(),
+              static_cast<int64_t>(ROWS * (PATHS - 1)));
 }
 
 TEST(VariantColumnReaderTest, BoundsDirectSeekContainerCacheDepth) {
