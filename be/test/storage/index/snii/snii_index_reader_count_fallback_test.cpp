@@ -1005,6 +1005,50 @@ TEST_F(SniiIndexReaderCountFallback, CustomAnalyzerWithNoneParserRetainsAnalyzed
     EXPECT_EQ(second.stats.inverted_index_query_cache_insert, 0);
 }
 
+TEST_F(SniiIndexReaderCountFallback,
+       CommonGramsAnalyzerContractIsValidatedBeforeColdAndWarmCacheLookup) {
+    const auto provider = make_common_grams_provider();
+    ASSERT_NE(provider->common_grams_identity(), nullptr);
+    constexpr std::string_view kPathPrefix =
+            "./ut_dir/snii_index_reader_count_fallback_test/analyzer_contract_cache";
+    assert_ok(write_common_grams_segment(kPathPrefix, *provider->common_grams_identity(),
+                                         inverted_index::CommonGramsCoverage::kComplete,
+                                         /*include_gram=*/true));
+    OpenedSniiIndex opened;
+    assert_ok(open_snii_index(&_meta, std::string(kPathPrefix), &opened));
+
+    const Field query_value = Field::create_field<TYPE_STRING>(std::string("alpha"));
+    QueryExecutionContext cold_missing_context(/*enable_query_cache=*/true);
+    std::shared_ptr<roaring::Roaring> cold_bitmap;
+    const Status cold_status = opened.index_reader->query(
+            cold_missing_context.context, "analyzer_contract_content", query_value,
+            InvertedIndexQueryType::MATCH_ANY_QUERY, cold_bitmap, nullptr);
+    EXPECT_EQ(cold_status.code(), ErrorCode::INVERTED_INDEX_BYPASS) << cold_status;
+    EXPECT_EQ(cold_missing_context.stats.inverted_index_query_cache_lookup, 0);
+
+    InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.analyzer_name = "test_common_grams";
+    analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
+    analyzer_ctx.analyzer_provider = provider;
+    QueryExecutionContext admitted(/*enable_query_cache=*/true);
+    std::shared_ptr<roaring::Roaring> admitted_bitmap;
+    assert_ok(opened.index_reader->query(admitted.context, "analyzer_contract_content", query_value,
+                                         InvertedIndexQueryType::MATCH_ANY_QUERY, admitted_bitmap,
+                                         &analyzer_ctx));
+    ASSERT_NE(admitted_bitmap, nullptr);
+    EXPECT_EQ(bitmap_docids(*admitted_bitmap), (std::vector<uint32_t> {1}));
+    EXPECT_EQ(admitted.stats.inverted_index_query_cache_insert, 1);
+
+    QueryExecutionContext warm_missing_context(/*enable_query_cache=*/true);
+    std::shared_ptr<roaring::Roaring> warm_bitmap;
+    const Status warm_status = opened.index_reader->query(
+            warm_missing_context.context, "analyzer_contract_content", query_value,
+            InvertedIndexQueryType::MATCH_ANY_QUERY, warm_bitmap, nullptr);
+    EXPECT_EQ(warm_status.code(), ErrorCode::INVERTED_INDEX_BYPASS) << warm_status;
+    EXPECT_EQ(warm_missing_context.stats.inverted_index_query_cache_lookup, 0);
+    EXPECT_EQ(warm_missing_context.stats.inverted_index_query_cache_hit, 0);
+}
+
 TEST_F(SniiIndexReaderCountFallback, CustomKeywordAnalyzerWithNoneParserNormalizesSingleTerm) {
     inverted_index::CustomAnalyzerConfig::Builder builder;
     builder.with_tokenizer_config("keyword", {});
