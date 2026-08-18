@@ -675,9 +675,13 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 && filter.isEmpty()
                 && fileCreationTime.isEmpty()
                 && hasTrustworthyLimitAccounting(table)
-                && !usesFallbackRead(table, paimonHandle)) {
+                && !usesFallbackRead(table, paimonHandle)
+                && !ignoreJni
+                && !ignoreNative) {
             // Only append-only FileStore manifests count final output rows: format tables count
             // files, while primary-key metadata may count deletes that its reader later removes.
+            // Ignore routing happens after planning, so pruning first could discard every retained
+            // split and hide rows from the non-ignored reader path.
             readBuilder.withLimit((int) limit);
         }
         TableScan scan = readBuilder.newScan();

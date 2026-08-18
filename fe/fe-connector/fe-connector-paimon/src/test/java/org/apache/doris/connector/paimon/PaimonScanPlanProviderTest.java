@@ -50,6 +50,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.fs.FileStatus;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.io.DataInputViewStreamWrapper;
@@ -64,6 +65,7 @@ import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FormatTable;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.format.FormatDataSplit;
 import org.apache.paimon.table.sink.BatchTableCommit;
 import org.apache.paimon.table.sink.BatchTableWrite;
 import org.apache.paimon.table.sink.BatchWriteBuilder;
@@ -83,6 +85,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -116,6 +119,18 @@ public class PaimonScanPlanProviderTest {
             builder.field(name, DataTypes.INT());
         }
         return builder.build();
+    }
+
+    private static final class OrderedLocalFileIO extends LocalFileIO {
+        @Override
+        public FileStatus[] listFiles(org.apache.paimon.fs.Path path, boolean recursive)
+                throws IOException {
+            FileStatus[] files = super.listFiles(path, recursive);
+            // FormatTableScan preserves FileIO order, so pin it to keep the empty-file regression
+            // independent of the host filesystem's directory iteration order.
+            Arrays.sort(files, Comparator.comparing(file -> file.getPath().getName()));
+            return files;
+        }
     }
 
     @Test
@@ -390,7 +405,7 @@ public class PaimonScanPlanProviderTest {
         Files.write(dataDir.resolve("999-live.csv"), Collections.singletonList("7"),
                 StandardCharsets.UTF_8);
         FormatTable table = FormatTable.builder()
-                .fileIO(LocalFileIO.create())
+                .fileIO(new OrderedLocalFileIO())
                 .identifier(Identifier.create("db", "format_limit"))
                 .rowType(rowType("id"))
                 .partitionKeys(Collections.emptyList())
@@ -398,6 +413,12 @@ public class PaimonScanPlanProviderTest {
                 .format(FormatTable.Format.CSV)
                 .options(Collections.singletonMap(CoreOptions.FILE_FORMAT.key(), "csv"))
                 .build();
+        List<Split> plannedSplits = table.newReadBuilder().newScan().plan().splits();
+        Assertions.assertTrue(plannedSplits.size() >= 2,
+                "fixture must expose both the empty and live format files");
+        Assertions.assertEquals("000-empty.csv",
+                ((FormatDataSplit) plannedSplits.get(0)).filePath().getName(),
+                "the unsafe file-count limit must encounter the empty file first");
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         ops.table = table;
         PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
@@ -441,8 +462,7 @@ public class PaimonScanPlanProviderTest {
                     .column("id", DataTypes.INT())
                     .column("pt", DataTypes.INT())
                     .partitionKeys("pt")
-                    .primaryKey("id", "pt")
-                    .option("bucket", "1")
+                    .option("bucket", "-1")
                     .build(), false);
             Table table = catalog.getTable(id);
             BatchWriteBuilder wb = table.newBatchWriteBuilder();
@@ -475,6 +495,19 @@ public class PaimonScanPlanProviderTest {
                             .build());
 
             List<Predicate> predicates = new PaimonPredicateConverter(table.rowType()).convert(filter);
+            List<Split> filteredSplits = table.newReadBuilder()
+                    .withFilter(predicates)
+                    .newScan()
+                    .plan()
+                    .splits();
+            Assertions.assertEquals(2, filteredSplits.size(),
+                    "both min/max-admitted partitions must remain in the fixture");
+            Assertions.assertEquals(2,
+                    ((DataSplit) filteredSplits.get(0)).partition().getInt(0),
+                    "the first split must contain only non-matching ids 1 and 3");
+            Assertions.assertEquals(1,
+                    ((DataSplit) filteredSplits.get(1)).partition().getInt(0),
+                    "the later split must contain the matching id 2");
             RecordReader<InternalRow> reader = table.newReadBuilder()
                     .withFilter(predicates)
                     .newRead()
@@ -498,8 +531,7 @@ public class PaimonScanPlanProviderTest {
                     .column("pt", DataTypes.INT())
                     .column("val", DataTypes.INT())
                     .partitionKeys("pt")
-                    .primaryKey("id", "pt")
-                    .option("bucket", "1")
+                    .option("bucket", "-1")
                     .build();
             Identifier mainId = Identifier.create("db", "fallback_main");
             Identifier fallbackId = Identifier.create("db", "fallback_old");
@@ -1982,6 +2014,80 @@ public class PaimonScanPlanProviderTest {
                             .noneMatch(range -> range.getProperties().containsKey("paimon.split")),
                     "$ro historical ORC files without physical Variant must remain native-readable");
         }
+    }
+
+    @Test
+    public void ignoreNativeLimitKeepsLaterJniSplit(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "mixed_limit");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("pt", DataTypes.INT())
+                    .partitionKeys("pt")
+                    .option("bucket", "-1")
+                    .option("file.format", "parquet")
+                    .build(), false);
+            Table parquetTable = catalog.getTable(id);
+            BatchWriteBuilder parquetWriteBuilder = parquetTable.newBatchWriteBuilder();
+            try (BatchTableWrite write = parquetWriteBuilder.newWrite()) {
+                write.write(GenericRow.of(1, 1));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = parquetWriteBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            catalog.alterTable(id, SchemaChange.setOption("file.format", "avro"), false);
+            Table mixedTable = catalog.getTable(id);
+            BatchWriteBuilder avroWriteBuilder = mixedTable.newBatchWriteBuilder();
+            try (BatchTableWrite write = avroWriteBuilder.newWrite()) {
+                write.write(GenericRow.of(2, 2));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = avroWriteBuilder.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            List<Split> plannedSplits = mixedTable.newReadBuilder().newScan().plan().splits();
+            Assertions.assertEquals(2, plannedSplits.size(),
+                    "fixture must plan one split for each file format");
+            Assertions.assertEquals("parquet", firstRawFileFormat(plannedSplits.get(0)),
+                    "the native split must be first so an unsafe LIMIT 1 would retain only it");
+            Assertions.assertEquals("avro", firstRawFileFormat(plannedSplits.get(1)),
+                    "the later split must require the JNI reader");
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = mixedTable;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "mixed_limit", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorScanRange> ranges = provider.planScan(
+                    sessionWithProps(Collections.singletonMap(
+                            "ignore_split_type", "IGNORE_NATIVE")),
+                    ConnectorScanRequest.builder(handle, Collections.emptyList())
+                            .limit(1)
+                            .build());
+
+            Assertions.assertEquals(1, ranges.size(),
+                    "ignoring native splits must retain the later JNI split despite LIMIT 1");
+            RecordReader<InternalRow> reader = mixedTable.newReadBuilder()
+                    .newRead()
+                    .createReader(deserializeJniSplits(ranges));
+            List<Integer> ids = new ArrayList<>();
+            reader.forEachRemaining(row -> ids.add(row.getInt(0)));
+            Assertions.assertEquals(Collections.singletonList(2), ids,
+                    "routing after split planning must not turn a non-empty scan into zero rows");
+        }
+    }
+
+    private static String firstRawFileFormat(Split split) {
+        List<RawFile> rawFiles = split.convertToRawFiles().orElseThrow(
+                () -> new AssertionError("fixture split must expose a raw file"));
+        Assertions.assertFalse(rawFiles.isEmpty(), "fixture split must contain a raw file");
+        return rawFiles.get(0).format();
     }
 
     @Test
