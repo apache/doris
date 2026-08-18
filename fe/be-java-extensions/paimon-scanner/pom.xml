@@ -101,8 +101,8 @@ under the License.
           paimon-s3 is a fat jar and self-contained. paimon-jindo is 24KB of adapter: the
           implementation it names, com.aliyun.jindodata.*, ships in the JindoFS jars, which are not
           maven artifacts - build.sh copies them into this plugin directory after post-build.sh has
-          packaged them (a no-op unless the build asked for jindofs, i.e. DISABLE_BUILD_JINDOFS=OFF
-          or the corresponding build.sh flag). The caveat
+          packaged them (a no-op unless the build asked for jindofs, i.e. DISABLE_BUILD_JINDOFS=OFF,
+          or the jindofs flag of post-build.sh; build.sh itself takes no such flag). The caveat
           is recorded there: jindo-core carries a native library, and a JVM binds one of those to
           exactly one classloader, so this copy and the one libhdfs loads off the system classpath
           cannot both be used by one BE process.

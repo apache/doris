@@ -673,8 +673,11 @@ set(COMMON_THIRDPARTY
 )
 # USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
 # the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface.
-# Unconditional since the libhdfs3 alternative was removed: there is only one libhdfs left. Kept as
-# a definition because io/fs/hdfs.h and the hadoop headers still test it.
+# Unconditional since the libhdfs3 alternative was removed: there is only one libhdfs left, and
+# every #ifdef on it went with the alternative - nothing in be/ tests it any more. Kept as a
+# definition rather than deleted because it is part of how this build identifies itself: a
+# doris-thirdparty libhdfs, whose hdfsSetLogger extension io/hdfs_builder.cpp uses unconditionally
+# for that reason.
 add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 
 if (absl_FOUND)

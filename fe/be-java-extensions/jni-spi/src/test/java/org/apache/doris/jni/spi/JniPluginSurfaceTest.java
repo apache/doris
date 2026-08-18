@@ -35,10 +35,19 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Executable;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Deque;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.TreeSet;
 
 /**
@@ -62,7 +71,9 @@ import java.util.TreeSet;
  * {@code jni.plugin.api.version} in {@code fe/be-java-extensions/pom.xml} in the SAME commit.
  *
  * <p>Signatures are recorded with their return type: a changed return type is a MAJOR change by the
- * same definition, and a name-and-parameters-only record cannot see it.
+ * same definition, and a name-and-parameters-only record cannot see it. Fields, constructors,
+ * nested types and the modifiers that matter are recorded for the same reason - see
+ * {@link #renderSurface}.
  */
 public class JniPluginSurfaceTest {
 
@@ -123,33 +134,109 @@ public class JniPluginSurfaceTest {
     }
 
     /**
-     * One line per method reachable on a frozen type, keyed by that type rather than by the class
+     * One line per member reachable on a frozen type, keyed by that type rather than by the class
      * that happens to declare it: what matters is what a plugin can call on the type it was handed.
      * Protected members are included as well - a plugin subclasses {@code JniScanner} and
      * {@code JniWriter}, so their protected hooks are as much of its contract as the public ones.
+     *
+     * <p>Methods, FIELDS and CONSTRUCTORS, each carrying the modifiers that decide whether a plugin
+     * can still do what it did. Methods alone were not enough, and the gap was not hypothetical:
+     * the commit that introduced this baseline removed two protected fields from {@code JniWriter}
+     * in the same breath, a surface change this file could not express and therefore did not
+     * require a major bump for. What the modifiers buy: {@code final} is load-bearing on the JNI
+     * entry points (BE resolves them on the base class and a subclass override would never run),
+     * {@code abstract} is the difference between a hook a plugin must implement and one it may,
+     * and {@code static} changes how a member is reached at all. Visibility is recorded for the
+     * same reason - public to protected is a break for every caller outside the hierarchy.
+     *
+     * <p>Nested types are frozen too, reached from their enclosing type: {@code ColumnType$Type}
+     * and {@code NativeColumnValue$NativeValue} are as much a part of what a plugin compiles
+     * against as the types that hand them out. Enum constants arrive as fields, which is what they
+     * are.
      */
     private static TreeSet<String> renderSurface() {
         TreeSet<String> rendered = new TreeSet<>();
-        for (Class<?> frozen : FROZEN_TYPES) {
+        for (Class<?> frozen : frozenClosure()) {
+            for (Constructor<?> c : frozen.getDeclaredConstructors()) {
+                if (c.isSynthetic() || Modifier.isPrivate(c.getModifiers())) {
+                    continue;
+                }
+                rendered.add(new StringBuilder(frozen.getName()).append("#<init>")
+                        .append(parameters(c)).append(modifiers(c.getModifiers())).toString());
+            }
+            // Constructors are not inherited; everything else is, and is recorded against the type
+            // a plugin actually holds rather than the level that declares it.
             for (Class<?> level = frozen; level != null && level != Object.class; level = level.getSuperclass()) {
                 for (Method m : level.getDeclaredMethods()) {
-                    if (m.isSynthetic() || java.lang.reflect.Modifier.isPrivate(m.getModifiers())) {
+                    if (m.isSynthetic() || Modifier.isPrivate(m.getModifiers())) {
                         continue;
                     }
-                    StringBuilder sb = new StringBuilder(frozen.getName()).append('#')
-                            .append(m.getName()).append('(');
-                    Class<?>[] params = m.getParameterTypes();
-                    for (int i = 0; i < params.length; i++) {
-                        if (i > 0) {
-                            sb.append(',');
-                        }
-                        sb.append(params[i].getTypeName());
+                    rendered.add(new StringBuilder(frozen.getName()).append('#').append(m.getName())
+                            .append(parameters(m)).append(':').append(m.getReturnType().getTypeName())
+                            .append(modifiers(m.getModifiers())).toString());
+                }
+                for (Field f : level.getDeclaredFields()) {
+                    if (f.isSynthetic() || Modifier.isPrivate(f.getModifiers())) {
+                        continue;
                     }
-                    rendered.add(sb.append("):").append(m.getReturnType().getTypeName()).toString());
+                    rendered.add(new StringBuilder(frozen.getName()).append('#').append(f.getName())
+                            .append(':').append(f.getType().getTypeName())
+                            .append(modifiers(f.getModifiers())).toString());
                 }
             }
         }
         return rendered;
+    }
+
+    /** The frozen types plus every non-private type nested inside one of them, transitively. */
+    private static List<Class<?>> frozenClosure() {
+        Set<Class<?>> seen = new LinkedHashSet<>();
+        Deque<Class<?>> pending = new ArrayDeque<>(FROZEN_TYPES);
+        while (!pending.isEmpty()) {
+            Class<?> type = pending.removeFirst();
+            if (!seen.add(type)) {
+                continue;
+            }
+            for (Class<?> nested : type.getDeclaredClasses()) {
+                if (!nested.isSynthetic() && !Modifier.isPrivate(nested.getModifiers())) {
+                    pending.addLast(nested);
+                }
+            }
+        }
+        return new ArrayList<>(seen);
+    }
+
+    private static String parameters(Executable executable) {
+        StringBuilder sb = new StringBuilder("(");
+        Class<?>[] params = executable.getParameterTypes();
+        for (int i = 0; i < params.length; i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(params[i].getTypeName());
+        }
+        return sb.append(')').toString();
+    }
+
+    /** Only the modifiers a plugin can be broken by; ordered so the rendering is stable. */
+    private static String modifiers(int modifiers) {
+        List<String> kept = new ArrayList<>();
+        if (Modifier.isPublic(modifiers)) {
+            kept.add("public");
+        }
+        if (Modifier.isProtected(modifiers)) {
+            kept.add("protected");
+        }
+        if (Modifier.isStatic(modifiers)) {
+            kept.add("static");
+        }
+        if (Modifier.isFinal(modifiers)) {
+            kept.add("final");
+        }
+        if (Modifier.isAbstract(modifiers)) {
+            kept.add("abstract");
+        }
+        return " [" + String.join(",", kept) + "]";
     }
 
     private static TreeSet<String> readBaseline() throws IOException {

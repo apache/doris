@@ -283,57 +283,63 @@ suite("test_hudi_partition_prune", "p2,external") {
         //time travel - use dynamic commit timestamps
         // Note: two_partition_tb has 10 INSERT statements, creating 10 commits
         // Final partitions: (US,1), (US,2), (EU,1), (EU,2) = 4 partitions total
-        if (timestamps_two_partition.size() >= 10) {
-            // Use the last commit timestamp (all 10 records, 4 partitions)
-            def last_commit = timestamps_two_partition[9]
-            def time_travel_two_partition_1_4 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' order by id;"
-            def time_travel_two_partition_2_2 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' where part1='US' order by id;"
-            def time_travel_two_partition_3_2 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' where part2=2 order by id;"
-            def time_travel_two_partition_4_0 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' where part2=10 order by id;"
+        // Asserted rather than guarded, for the same reason as dropped_partition_tb below: the six
+        // mode-aware pinnedPartitions() assertions in here ARE the evidence that pruning is
+        // snapshot-exact in one mode and deliberately coarse in the other. Behind a silent `if` a
+        // half-installed fixture skips all six and two qt_ tags, and the suite still passes.
+        assertTrue(timestamps_two_partition.size() >= 10,
+                "two_partition_tb has ${timestamps_two_partition.size()} commit timestamps, not the 10 "
+                + "its 10 INSERTs produce; the FOR TIME AS OF assertions below cannot run")
 
-            qt_time_travel_two_partition_1_4 time_travel_two_partition_1_4
-            explain {
-                sql("${time_travel_two_partition_1_4}")
-                contains(pinnedPartitions("partition=4/4"))
-            }
+        // Use the last commit timestamp (all 10 records, 4 partitions)
+        def last_commit = timestamps_two_partition[9]
+        def time_travel_two_partition_1_4 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' order by id;"
+        def time_travel_two_partition_2_2 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' where part1='US' order by id;"
+        def time_travel_two_partition_3_2 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' where part2=2 order by id;"
+        def time_travel_two_partition_4_0 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${last_commit}' where part2=10 order by id;"
 
-            qt_time_travel_two_partition_2_2 time_travel_two_partition_2_2
-            explain {
-                sql("${time_travel_two_partition_2_2}")
-                contains(pinnedPartitions("partition=2/4"))
-            }
+        qt_time_travel_two_partition_1_4 time_travel_two_partition_1_4
+        explain {
+            sql("${time_travel_two_partition_1_4}")
+            contains(pinnedPartitions("partition=4/4"))
+        }
 
-            qt_time_travel_two_partition_3_2 time_travel_two_partition_3_2
-            explain {
-                sql("${time_travel_two_partition_3_2}")
-                contains(pinnedPartitions("partition=2/4"))
-            }
+        qt_time_travel_two_partition_2_2 time_travel_two_partition_2_2
+        explain {
+            sql("${time_travel_two_partition_2_2}")
+            contains(pinnedPartitions("partition=2/4"))
+        }
 
-            qt_time_travel_two_partition_4_0 time_travel_two_partition_4_0
-            explain {
-                sql("${time_travel_two_partition_4_0}")
-                contains(pinnedPartitions("partition=0/4"))
-            }
+        qt_time_travel_two_partition_3_2 time_travel_two_partition_3_2
+        explain {
+            sql("${time_travel_two_partition_3_2}")
+            contains(pinnedPartitions("partition=2/4"))
+        }
 
-            // Use the first commit (after first INSERT: 1 record in partition US,1)
-            def first_commit = timestamps_two_partition[0]
-            def time_travel_two_partition_5_1 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${first_commit}' order by id;"
-            qt_time_travel_two_partition_5_1 time_travel_two_partition_5_1
-            explain {
-                sql("${time_travel_two_partition_5_1}")
-                // First commit should have 1 record in partition (US, part2=1)
-                contains(pinnedPartitions("partition=1/1"))
-            }
+        qt_time_travel_two_partition_4_0 time_travel_two_partition_4_0
+        explain {
+            sql("${time_travel_two_partition_4_0}")
+            contains(pinnedPartitions("partition=0/4"))
+        }
 
-            // Use a middle commit (after 3 inserts: 3 records in partition US,1)
-            def middle_commit = timestamps_two_partition[2]
-            def time_travel_two_partition_6_1 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${middle_commit}' order by id;"
-            qt_time_travel_two_partition_6_1 time_travel_two_partition_6_1
-            explain {
-                sql("${time_travel_two_partition_6_1}")
-                // After 3 inserts, should have 1 partition (US, part2=1) with 3 records
-                contains(pinnedPartitions("partition=1/1"))
-            }
+        // Use the first commit (after first INSERT: 1 record in partition US,1)
+        def first_commit = timestamps_two_partition[0]
+        def time_travel_two_partition_5_1 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${first_commit}' order by id;"
+        qt_time_travel_two_partition_5_1 time_travel_two_partition_5_1
+        explain {
+            sql("${time_travel_two_partition_5_1}")
+            // First commit should have 1 record in partition (US, part2=1)
+            contains(pinnedPartitions("partition=1/1"))
+        }
+
+        // Use a middle commit (after 3 inserts: 3 records in partition US,1)
+        def middle_commit = timestamps_two_partition[2]
+        def time_travel_two_partition_6_1 = "select id,name,part1,part2 from two_partition_tb FOR TIME AS OF '${middle_commit}' order by id;"
+        qt_time_travel_two_partition_6_1 time_travel_two_partition_6_1
+        explain {
+            sql("${time_travel_two_partition_6_1}")
+            // After 3 inserts, should have 1 partition (US, part2=1) with 3 records
+            contains(pinnedPartitions("partition=1/1"))
         }
 
         // all types as partition

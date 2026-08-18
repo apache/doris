@@ -116,6 +116,12 @@ int install_signal(int signo, void (*handler)(int)) {
     struct sigaction sa;
     memset(&sa, 0, sizeof(struct sigaction));
     sa.sa_handler = handler;
+    // Restartable syscalls stay restartable. It matters most for SIGQUIT: unlike the two
+    // shutdown signals, that one is sent to a HEALTHY BE - `kill -3` is the operator's habit
+    // for asking a running process for a thread dump, and since the handler now produces
+    // nothing they send it again. Without SA_RESTART each of those turns whatever syscall the
+    // receiving thread happened to be in into EINTR, in the middle of normal serving.
+    sa.sa_flags = SA_RESTART;
     sigemptyset(&sa.sa_mask);
     auto ret = sigaction(signo, &sa, nullptr);
     if (ret != 0) {

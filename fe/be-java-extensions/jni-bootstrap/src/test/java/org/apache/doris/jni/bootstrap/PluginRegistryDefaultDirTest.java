@@ -19,14 +19,20 @@ package org.apache.doris.jni.bootstrap;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The defaults this class falls back to when {@code JvmLauncher::_build_options()} did not set the
@@ -123,5 +129,92 @@ public class PluginRegistryDefaultDirTest {
     public void missingHadoopConfDirEnvLeavesTheDefaultInPlace() {
         Path dir = PluginRegistry.hadoopConfDir("/definitely/not/a/directory");
         Assertions.assertTrue(dir.endsWith(Paths.get("plugins", "hadoop_conf")), dir.toString());
+    }
+
+    /**
+     * The shape a real BE is in, and the reason the two cases below exist at all: BE does not leave
+     * this property unset. {@code JvmLauncher::_build_options()} pushes it on every startup, from a
+     * config whose default is {@code <DORIS_HOME>/plugins/hadoop_conf} - so a fallback that asks
+     * "was a property set" never runs, and the cluster whose HDFS HA nameservice lives in
+     * $HADOOP_CONF_DIR loses it on upgrade with a green test suite watching.
+     */
+    @Test
+    public void thePropertyCarryingTheDefaultDoesNotSuppressTheEnv(@TempDir Path existing) {
+        System.setProperty(HADOOP_CONF_DIR_PROPERTY,
+                Paths.get("/opt/doris/be", "plugins", "hadoop_conf").toString());
+
+        Assertions.assertEquals(existing, PluginRegistry.hadoopConfDir(existing.toString()),
+                "BE always sets this property, so carrying the default value must count as "
+                        + "'not configured'");
+    }
+
+    /**
+     * The other half of the same problem: build.sh creates plugins/hadoop_conf in every output
+     * tree, so the directory EXISTS on a deployment nobody has dropped a file into. An empty drop
+     * point answers no question, and must not stand in the way of the environment.
+     */
+    @Test
+    public void anEmptyPluginConfDirDoesNotSuppressTheEnv(@TempDir Path emptyDefault,
+            @TempDir Path existing) {
+        System.setProperty(HADOOP_CONF_DIR_PROPERTY, emptyDefault.resolve("plugins")
+                .resolve("hadoop_conf").toString());
+        Assertions.assertTrue(emptyDefault.resolve("plugins").resolve("hadoop_conf").toFile()
+                .mkdirs());
+
+        Assertions.assertEquals(existing, PluginRegistry.hadoopConfDir(existing.toString()));
+    }
+
+    /** ...and once an operator drops a file in, that directory is the answer again. */
+    @Test
+    public void populatedPluginConfDirWinsOverTheEnv(@TempDir Path populatedDefault,
+            @TempDir Path existing) throws IOException {
+        Path conf = populatedDefault.resolve("plugins").resolve("hadoop_conf");
+        Files.createDirectories(conf);
+        Files.write(conf.resolve("core-site.xml"), "<configuration/>".getBytes(StandardCharsets.UTF_8));
+        System.setProperty(HADOOP_CONF_DIR_PROPERTY, conf.toString());
+
+        Assertions.assertEquals(conf, PluginRegistry.hadoopConfDir(existing.toString()));
+    }
+
+    /**
+     * The other end of "keep in sync with the BE config": the two constants above are pinned by the
+     * cases at the top of this file, but pinning a Java string to itself proves nothing about the
+     * C++ side it is a copy of. This reads be/src/common/config.cpp and compares.
+     *
+     * <p>Skipped rather than failed when the file cannot be found, so that running these tests out
+     * of an unpacked jar or a partial checkout stays possible; inside the repo it always runs.
+     */
+    @Test
+    public void theBeConfigDefaultsAreTheSamePathsAsTheJavaDefaults() throws IOException {
+        Path config = repoFile("be/src/common/config.cpp");
+        Assumptions.assumeTrue(config != null, "be/src/common/config.cpp not found from "
+                + Paths.get("").toAbsolutePath());
+        String text = new String(Files.readAllBytes(config), StandardCharsets.UTF_8);
+
+        Assertions.assertEquals("${DORIS_HOME}/plugins/jni", definedString(text, "jni_plugin_dir"),
+                "jni_plugin_dir and PluginRegistry.DEFAULT_PLUGIN_SUBDIR name different directories;"
+                        + " a BE started without the property would find no plugin at all");
+        Assertions.assertEquals("${DORIS_HOME}/plugins/hadoop_conf",
+                definedString(text, "jni_plugin_hadoop_conf_dir"),
+                "jni_plugin_hadoop_conf_dir and PluginRegistry.DEFAULT_HADOOP_CONF_SUBDIR name "
+                        + "different directories; hadoop configuration would go unread");
+    }
+
+    private static String definedString(String text, String name) {
+        Matcher matcher = Pattern.compile(
+                "DEFINE_String\\(\\s*" + Pattern.quote(name) + "\\s*,\\s*\"([^\"]*)\"").matcher(text);
+        Assertions.assertTrue(matcher.find(), "no DEFINE_String(" + name + ", ...) in config.cpp");
+        return matcher.group(1);
+    }
+
+    /** Walks up from the working directory, which surefire sets to the module root. */
+    private static Path repoFile(String relative) {
+        for (Path dir = Paths.get("").toAbsolutePath(); dir != null; dir = dir.getParent()) {
+            Path candidate = dir.resolve(relative);
+            if (Files.isRegularFile(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
     }
 }

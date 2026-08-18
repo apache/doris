@@ -167,8 +167,11 @@ public class DorisPluginClassLoader extends URLClassLoader {
         if (hadoopConfResources == null) {
             return fromPlugin;
         }
-        // Hadoop reads every core-site.xml it is handed, in order, so both sources are offered
-        // with the plugin's own first.
+        // Both sources are offered, the plugin's own first. Note that hadoop does NOT read them
+        // all: Configuration resolves a named resource through the singular getResource, so the
+        // first one wins and this enumeration only matters to callers that ask for it directly
+        // (and to the ordering guarantee, which is why the plugin's copy is prepended rather than
+        // appended).
         List<URL> all = new ArrayList<>();
         while (fromPlugin.hasMoreElements()) {
             all.add(fromPlugin.nextElement());

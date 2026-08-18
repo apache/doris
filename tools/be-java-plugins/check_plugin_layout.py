@@ -21,7 +21,7 @@ Run it on a built output tree:
 
     tools/be-java-plugins/check_plugin_layout.py [output/be/lib/jni/spi] [output/be/plugins/jni]
 
-Four checks, each of which has caught a real regression during the plugin migration:
+Five checks, four of which have caught a real regression during the plugin migration:
 
   spi-jar-purity        doris-jni-spi.jar carries only the SPI packages. Everything in that jar
                         is shared by BE and by every plugin at once, so a class that slips in
@@ -37,6 +37,10 @@ Four checks, each of which has caught a real regression during the plugin migrat
                         that plugin directory (plus the SPI jar and the JDK). This is the check
                         that fires when a dependency is switched to `provided` and its jar stops
                         being deployed while the code still calls into it.
+  api-version-stamp     The jar declaring the DorisPlugin service carries the
+                        Doris-Jni-Plugin-Api-Version this build serves. That attribute is the only
+                        thing PluginRuntime's version gate reads, and until this check existed
+                        nothing verified it reached the artifact.
 
 WHAT THIS DOES NOT PROVE. The last check is static and starts from Doris's own classes only, so
 it says nothing about anything reached by ServiceLoader or reflection - filesystem providers,
@@ -61,6 +65,49 @@ _OBS = ("Two builds of the Huawei OBS SDK: the standalone esdk-obs-java-optimise
         "today with the same overlap, and PluginRuntime sorts jar URLs, so the copy that wins "
         "here is the copy that wins today.")
 
+_JINDO = ("build.sh copies the JindoFS jars into the iceberg and paimon plugin directories after "
+          "post-build.sh packages them (DISABLE_BUILD_JINDOFS=OFF), because a plugin classloader "
+          "cannot reach the system classpath those jars otherwise live on and paimon-jindo / "
+          "fs.oss.impl name com.aliyun.jindodata.* as the oss:// implementation. jindo-sdk carries "
+          "a handful of hadoop and jsr305 classes of its own, which is what collides. ")
+
+# WHY THE WINNER DOES NOT MATTER, entry by entry - derived by comparing the two copies with javap,
+# not by assuming. PluginRuntime.jarsIn() sorts by file name, so the winner is the alphabetically
+# first jar: hadoop-common-3.4.2.jar beats jindo-sdk-6.10.4.jar ('h' < 'j'), and jindo-sdk beats
+# jsr305-3.0.2.jar ('j','i' < 'j','s').
+#
+# CAVEAT: that ordering is an accident of two file names, and either version can be bumped without
+# anyone here noticing - jindofs to a name sorting before hadoop-common would silently flip every
+# fs/** collision. Re-derive these entries (javap both copies, compare) whenever either version
+# moves, and name them one by one rather than allowing a prefix, so that a NEW collision the next
+# version brings still fails the build instead of being waved through.
+_JINDO_HADOOP_FS = [
+    ("prefix", "org/apache/hadoop/fs/StreamCapabilities.class",
+     _JINDO + "hadoop-common wins and its copy is a superset: it declares one constant more "
+     "(VECTOREDIO_BUFFERS_SLICED) and is otherwise identical."),
+    ("prefix", "org/apache/hadoop/fs/StreamCapabilities$StreamCapability.class",
+     _JINDO + "hadoop-common wins; the two copies are semantically identical."),
+    ("prefix", "org/apache/hadoop/fs/PositionedReadable.class",
+     _JINDO + "hadoop-common wins, and it is the more capable copy: it implements readVectored "
+     "where jindo-sdk's throws UnsupportedOperationException."),
+    ("prefix", "org/apache/hadoop/fs/impl/AbstractFSBuilderImpl.class",
+     _JINDO + "hadoop-common wins; the two copies are semantically identical."),
+]
+
+_JINDO_JSR305 = [
+    ("prefix", name,
+     _JINDO + "jindo-sdk wins over jsr305, and the two copies are semantically identical - these "
+     "are annotation types and their trivial nested Checker classes.")
+    for name in (
+        "javax/annotation/MatchesPattern$Checker.class",
+        "javax/annotation/Nonnegative$Checker.class",
+        "javax/annotation/Nonnull$Checker.class",
+        "javax/annotation/RegEx$Checker.class",
+        "javax/annotation/Syntax.class",
+        "javax/annotation/meta/When.class",
+    )
+]
+
 # Classes allowed to appear with DIFFERING bytes in two jars of the same plugin directory.
 # Adding an entry means claiming the arbitrary winner is harmless - write down why.
 # Match kinds: "basename" compares the last path segment, "prefix" compares the whole path.
@@ -74,8 +121,9 @@ DUPLICATE_ALLOWLIST = {
          "which carry only its InterfaceAudience/InterfaceStability documentation annotations, "
          "so which one wins changes nothing that executes."),
     ],
-    "iceberg": [("prefix", "com/obs/", _OBS), ("prefix", "com/oef/", _OBS)],
-    "paimon": [("prefix", "com/obs/", _OBS), ("prefix", "com/oef/", _OBS)],
+    "iceberg": [("prefix", "com/obs/", _OBS), ("prefix", "com/oef/", _OBS)] + _JINDO_HADOOP_FS
+              + _JINDO_JSR305,
+    "paimon": [("prefix", "com/obs/", _OBS), ("prefix", "com/oef/", _OBS)] + _JINDO_HADOOP_FS,
     "hudi": [("prefix", "com/obs/", _OBS), ("prefix", "com/oef/", _OBS)],
 }
 
@@ -180,6 +228,75 @@ def check_duplicate_classes(plugin, jars, fail):
              % (plugin, name, where))
 
 
+SERVICE_ENTRY = "META-INF/services/org.apache.doris.jni.spi.DorisPlugin"
+API_VERSION_ATTRIBUTE = "Doris-Jni-Plugin-Api-Version"
+API_VERSION_RESOURCE = "META-INF/doris/jni-plugin-api-version.properties"
+
+
+def _manifest_attribute(jar, attribute):
+    with zipfile.ZipFile(jar) as zf:
+        try:
+            manifest = zf.read("META-INF/MANIFEST.MF").decode("utf-8", "replace")
+        except KeyError:
+            return None
+    # Manifest continuation lines start with a single space; unfold before matching.
+    manifest = manifest.replace("\r\n", "\n").replace("\r", "\n").replace("\n ", "")
+    for line in manifest.split("\n"):
+        name, sep, value = line.partition(":")
+        if sep and name.strip() == attribute:
+            return value.strip()
+    return None
+
+
+def served_api_version(spi_jar):
+    """The major.minor this build serves, out of the resource maven filtering writes."""
+    with zipfile.ZipFile(spi_jar) as zf:
+        try:
+            text = zf.read(API_VERSION_RESOURCE).decode("utf-8", "replace")
+        except KeyError:
+            return None
+    for line in text.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip() == "api.version":
+            return value.strip()
+    return None
+
+
+def check_api_version_stamp(plugin, jars, served, fail):
+    """
+    The manifest attribute PluginRuntime.checkApiVersion compares against, checked on the artifact
+    rather than in the pom that is supposed to produce it. A plugin jar built without the parent's
+    <archive> configuration - a module that overrides maven-jar-plugin, say - carries no stamp or a
+    stale one, and nothing else notices: the loader is the first to look, at which point the failure
+    is a deployment-time "built against plugin API 2.0 but this BE serves 3.0" on a jar that was
+    never built against 2.0 at all.
+
+    Only the jar declaring the service is checked, because that is the only one the loader reads.
+    """
+    if served is None:
+        fail("api-version-stamp",
+             "the SPI jar carries no %s; the version gate has nothing to compare against"
+             % API_VERSION_RESOURCE)
+        return
+    for jar in jars:
+        if SERVICE_ENTRY not in _names(jar):
+            continue
+        declared = _manifest_attribute(jar, API_VERSION_ATTRIBUTE)
+        if declared is None:
+            fail("api-version-stamp",
+                 "plugin '%s': %s declares the DorisPlugin service but its manifest carries no %s. "
+                 "It comes from <jni.plugin.api.version> in fe/be-java-extensions/pom.xml; a module "
+                 "that redefines maven-jar-plugin's <archive> loses it."
+                 % (plugin, os.path.basename(jar), API_VERSION_ATTRIBUTE))
+        elif declared != served:
+            fail("api-version-stamp",
+                 "plugin '%s': %s is stamped %s=%s but this build serves %s. Rebuild the module; a "
+                 "mismatch here is what PluginRuntime.checkApiVersion rejects at deployment."
+                 % (plugin, os.path.basename(jar), API_VERSION_ATTRIBUTE, declared, served))
+        return
+    # No provider jar at all is the sole-provider check's verdict to give, not this one's.
+
+
 def _doris_owned(jars):
     owned = []
     for jar in jars:
@@ -259,11 +376,14 @@ def main(argv):
 
     check_spi_jar_purity(spi_dir, fail)
     spi_jar = os.path.join(spi_dir, "doris-jni-spi.jar")
+    served = served_api_version(spi_jar) if os.path.isfile(spi_jar) else None
     plugins = sorted(d for d in os.listdir(plugins_dir)
                      if os.path.isdir(os.path.join(plugins_dir, d)))
     if not plugins:
         sys.stderr.write("no plugin directories under %s\n" % plugins_dir)
-        return 2
+        # Not "could not run" when the shared layer has already been found broken: 2 is mapped to a
+        # WARN by build.sh, which would report a real SPI failure as a check that did not happen.
+        return 1 if failures else 2
     for plugin in plugins:
         pdir = os.path.join(plugins_dir, plugin)
         jars = sorted(os.path.join(pdir, f) for f in os.listdir(pdir) if f.endswith(".jar"))
@@ -274,9 +394,10 @@ def main(argv):
         check_plugin_ships_no_spi(plugin, jars, fail)
         check_duplicate_classes(plugin, jars, fail)
         check_closure_self_contained(plugin, jars, spi_jar, fail)
+        check_api_version_stamp(plugin, jars, served, fail)
 
     if not failures:
-        print("\nOK: %d plugins pass all four checks. This does NOT prove the closures are "
+        print("\nOK: %d plugins pass all five checks. This does NOT prove the closures are "
               "complete - see the note at the top of this file." % len(plugins))
         return 0
     print("\n%d problem(s):" % len(failures))

@@ -284,7 +284,22 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     private void listLatestPartitions(ConnectorMetadata metadata, ConnectorSession session,
             ConnectorTableHandle handle, Map<String, PartitionItem> nameToPartitionItem,
             Map<String, Long> nameToLastModifiedMillis) {
-        List<Column> partitionColumns = getPartitionColumns();
+        listPartitions(metadata, session, handle, getPartitionColumns(),
+                nameToPartitionItem, nameToLastModifiedMillis);
+    }
+
+    /**
+     * The same listing, typed by the partition columns the CALLER names rather than by the table's current
+     * ones. A pinned read must pass the pinned schema's: the snapshot publishes it through
+     * {@code getPartitionColumns(snapshot)}, so building the items from the latest schema types a partition
+     * value one way and describes it another. A hudi or iceberg partition column widened since the pin is
+     * enough - the values are parsed into today's type while the pin says they are yesterday's, and nothing
+     * says so.
+     */
+    private void listPartitions(ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorTableHandle handle, List<Column> partitionColumns,
+            Map<String, PartitionItem> nameToPartitionItem,
+            Map<String, Long> nameToLastModifiedMillis) {
         List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
         List<ConnectorPartitionInfo> parts = metadata.listPartitions(session, handle, Optional.empty());
         for (ConnectorPartitionInfo part : parts) {
@@ -492,7 +507,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         if (metadata.listsPartitionsAtSnapshot(session, pinnedHandle)) {
             Map<String, PartitionItem> pinnedPartitionItems = Maps.newHashMap();
             Map<String, Long> pinnedLastModifiedMillis = Maps.newHashMap();
-            listLatestPartitions(metadata, session, pinnedHandle,
+            // Typed by the PINNED schema, which is the one this snapshot publishes: see listPartitions.
+            listPartitions(metadata, session, pinnedHandle, pinnedSchema.getPartitionColumns(),
                     pinnedPartitionItems, pinnedLastModifiedMillis);
             return new PluginDrivenMvccSnapshot(connectorSnapshot, pinnedPartitionItems,
                     pinnedLastModifiedMillis, pinnedSchema);

@@ -32,6 +32,7 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/jni-util.h"
@@ -361,12 +362,9 @@ Status JvmLauncher::_bootstrap() {
     }
 
     // The JNI base belongs to the JVM this just created, so it is resolved here rather than on
-    // whichever thread first asks for a JNIEnv: the native methods Java code links against, the
-    // cached classes, and - the reason this is not merely tidier - DorisMetrics' jvm_* metrics.
-    // Those describe the JVM, and publishing them anywhere else means a BE that has a JVM but
-    // reached it through libhdfs (an HDFS catalog served by the native reader, no JNI table
-    // format and no Java UDF anywhere) exports no jvm_* series at all and has its whole Java
-    // heap counted as untracked memory.
+    // whichever thread first asks for a JNIEnv: the native methods Java code links against and
+    // the cached classes both come out of doris-jni-spi.jar, and resolving them once, here, is
+    // what keeps every later Env::Get() on its fast path.
     //
     // Attached and cached by hand rather than through attach_current_thread(): that one calls
     // ensure_jvm(), and we are inside its call_once. Priming the thread-local env is also what
@@ -374,11 +372,32 @@ Status JvmLauncher::_bootstrap() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(_attach_current_thread(&env));
     Env::set_tls_env(env);
-    if (Status status = Util::ensure_jni_base(); !status.ok()) {
+    Status base = Util::ensure_jni_base();
+
+    // The jvm_* metrics describe the JVM and nothing else - JvmStats::init() reaches only for
+    // java.lang.management classes - so they are published whenever a JVM exists, whoever brought
+    // it up and whether or not the plugin SPI resolved. Publishing them anywhere but here would
+    // mean a BE that has a JVM but reached it through libhdfs (an HDFS catalog served by the
+    // native reader, no JNI table format and no Java UDF anywhere) exports no jvm_* series at all
+    // and has its whole Java heap counted as untracked memory. Before reset_tls_env() below: the
+    // constructor calls into JNI, and off the fast path it would re-enter ensure_jvm() and
+    // deadlock on the once flag this bootstrap is holding.
+    DorisMetrics::instance()->init_jvm_metrics();
+
+    if (!base.ok()) {
         // The env stays valid, but nothing that reads it may run without the base - so leave
         // this thread looking unattached, exactly as GetJNIEnvSlowPath() does on failure.
         Env::reset_tls_env();
-        return status;
+        // Deliberately NOT this function's answer. A failure here means doris-jni-spi.jar is
+        // missing or unreadable, which disables every Java feature - but the JVM is up, and
+        // libhdfs needs nothing else from it. Returning the failure used to make ensure_jvm()
+        // fail as well, and since hdfs_file_system.cpp and hdfs_mgr.cpp both go through
+        // ensure_jvm(), a half-finished upgrade that had not yet laid down lib/jni/spi took every
+        // HDFS read down with it, once per query. Java entry points get this same cached status
+        // from Env::GetJNIEnvSlowPath(), which is the only door they come through.
+        LOG(ERROR) << "The JVM is up but the Java plugin SPI could not be resolved, so no Java "
+                      "code can run in this process (HDFS through libhdfs is unaffected): "
+                   << base;
     }
     return Status::OK();
 }
@@ -411,28 +430,35 @@ Status JvmLauncher::ensure_jvm() {
 // main(), long before any bthread existed.)
 Status JvmLauncher::_bootstrap_on_pthread() {
     if (bthread_self() == 0) { // already a pthread
-        return _bootstrap();
+        return _bootstrap_guarded();
     }
 
     Status status;
     std::thread bootstrap([&status]() {
         SCOPED_INIT_THREAD_CONTEXT();
         Thread::set_self_name("jvm_bootstrap");
-        // An exception leaving a std::thread body is std::terminate, and this body walks the
-        // plugin and lib directories: collect_jars() passes an error_code to
-        // recursive_directory_iterator's constructor but not to its operator++, which throws
-        // when a directory becomes unreadable mid-iteration. Same guard, and for the same
-        // reason, as the plugin warmup thread in doris_main.cpp.
-        try {
-            status = _bootstrap();
-        } catch (const std::exception& e) {
-            status = Status::JniError("Failed to create the JVM: {}", e.what());
-        } catch (...) {
-            status = Status::JniError("Failed to create the JVM: unknown exception");
-        }
+        status = _bootstrap_guarded();
     });
     bootstrap.join();
     return status;
+}
+
+// The bootstrap walks the plugin and lib directories: collect_jars() passes an error_code to
+// recursive_directory_iterator's constructor but not to its operator++, which throws when a
+// directory becomes unreadable mid-iteration. On the std::thread branch above an exception leaving
+// the body is std::terminate, which is what this started out guarding - but the throwing path is
+// reachable only when neither CLASSPATH nor DORIS_CLASSPATH is set, i.e. for a process NOT started
+// by start_be.sh, and such a process is a plain pthread and takes the other branch. So the guard
+// belongs here, around the one function, where it covers both. Same reason as the plugin warmup
+// thread in doris_main.cpp.
+Status JvmLauncher::_bootstrap_guarded() {
+    try {
+        return _bootstrap();
+    } catch (const std::exception& e) {
+        return Status::JniError("Failed to create the JVM: {}", e.what());
+    } catch (...) {
+        return Status::JniError("Failed to create the JVM: unknown exception");
+    }
 }
 
 Status JvmLauncher::attach_current_thread(JNIEnv** env) {

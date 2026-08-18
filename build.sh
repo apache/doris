@@ -665,10 +665,14 @@ else
 fi
 export DISABLE_BUILD_JINDOFS
 
-if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
-    BUILD_JUICEFS='OFF'
-else
+# Same polarity as BUILD_JINDOFS above and as post-build.sh, which is what actually installs the
+# jars: unset means OFF, matching the --help text. They used to disagree - this said ON when the
+# variable was unset - and the wipe below then ran on a build that did not repackage, deleting
+# lib/juicefs and not putting it back.
+if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "OFF" ]]; then
     BUILD_JUICEFS='ON'
+else
+    BUILD_JUICEFS='OFF'
 fi
 export DISABLE_BUILD_JUICEFS
 
@@ -1316,7 +1320,8 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # since org.apache.hadoop. became parent-first the cast itself would now succeed, but the copy stays:
     # it keeps the jindo classes in the plugin's own loader (same self-contained intent as the bundled
     # hadoop-aws/S3A) and is what the plugin falls back to once the FE kernel stops shipping hadoop.
-    # Naturally gated: a no-op unless jindofs was packaged (--jindofs / DISABLE_BUILD_JINDOFS=OFF).
+    # Naturally gated: a no-op unless jindofs was packaged (DISABLE_BUILD_JINDOFS=OFF, or
+    # post-build.sh --jindofs; build.sh itself takes no such flag).
     # CAVEAT (docker-gated, enablePaimonTest=true): jindo-core ships a native lib that can bind to only one
     # classloader per JVM, so this is safe only while no concurrent non-paimon path loads jindo from
     # fe/lib/jindofs in the same FE process.
@@ -1549,9 +1554,16 @@ EOF
         # The layout before plugins: one big jar per extension under lib/java_extensions. Nothing
         # deploys there any more, so an output directory reused across the change keeps serving the
         # previous version's jars - JvmLauncher::scan_class_path() still walks lib/ for a BE that was
-        # not started by start_be.sh, and start_be.sh itself still reads
-        # lib/java_extensions/{jindofs,juicefs}.
-        rm -rf "${DORIS_OUTPUT}/be/lib/java_extensions"
+        # not started by start_be.sh.
+        #
+        # Everything EXCEPT jindofs/ and juicefs/, which are not extensions and were never deployed
+        # by the loop above: start_be.sh reads them from here as its WARN fallback, so that an
+        # existing deployment keeps resolving oss-hdfs:// and jfs:// across the upgrade. Wiping them
+        # is what the comment right here used to promise not to do.
+        if [[ -d "${DORIS_OUTPUT}/be/lib/java_extensions" ]]; then
+            find "${DORIS_OUTPUT}/be/lib/java_extensions" -mindepth 1 -maxdepth 1 \
+                ! -name jindofs ! -name juicefs -exec rm -rf {} +
+        fi
 
     fi # BUILD_BE_JAVA_EXTENSIONS
 
@@ -1585,10 +1597,15 @@ EOF
     # of those to exactly one classloader. A process that loads jindo from a plugin AND through
     # libhdfs from the system classpath makes the second bind, which fails - so this is safe only
     # while a single BE does not use both paths at once. Naturally gated: a no-op unless jindofs was
-    # packaged at all (--jindofs / DISABLE_BUILD_JINDOFS=OFF).
-    if [[ -d "${DORIS_OUTPUT}/be/lib/jindofs" ]]; then
+    # packaged at all (DISABLE_BUILD_JINDOFS=OFF).
+    #
+    # Behind the BUILD_BE_JAVA_EXTENSIONS guard, and reaching the directories through
+    # BE_JAVA_PLUGINS_DIR - which only that branch sets - rather than through a literal path. The
+    # duplicate-class check below is behind the same guard, so a copy outside it would edit plugin
+    # directories a previous build left behind with nothing checking the result.
+    if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && -d "${DORIS_OUTPUT}/be/lib/jindofs" ]]; then
         for jindo_plugin in iceberg paimon; do
-            jindo_plugin_dir="${DORIS_OUTPUT}/be/plugins/jni/${jindo_plugin}"
+            jindo_plugin_dir="${BE_JAVA_PLUGINS_DIR}/${jindo_plugin}"
             if [[ -d "${jindo_plugin_dir}" ]] && compgen -G "${DORIS_OUTPUT}/be/lib/jindofs/*.jar" > /dev/null; then
                 echo "Copy JindoFS jars to ${jindo_plugin_dir}"
                 cp -p "${DORIS_OUTPUT}/be/lib/jindofs"/*.jar "${jindo_plugin_dir}/"
@@ -1600,8 +1617,9 @@ EOF
     # The layout the isolation rests on, checked on the tree that was just deployed - after the
     # JindoFS copy above, so what the check sees is what a BE will load: the SPI jars carry nothing
     # but the SPI, no plugin ships a copy of them, no plugin directory holds the same class twice,
-    # and every plugin's dependency closure is complete. All four have caught a real regression, and
-    # none of them is visible in a compiler error - a dependency that turns into <scope>provided</scope>
+    # every plugin's dependency closure is complete, and the jar declaring the service carries the
+    # API version this build serves. Four of the five have caught a real regression, and none of
+    # them is visible in a compiler error - a dependency that turns into <scope>provided</scope>
     # by accident builds fine and fails in a user's query.
     #
     # Here rather than in a GitHub workflow because it needs a built output tree, which only a full

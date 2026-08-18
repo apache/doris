@@ -812,10 +812,16 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      *
      * <p>A partition path, once written, stays in the metadata table forever: {@code listAllPartitionPaths}
      * answers "ever existed", not "existed then". Reading a table at its FIRST commit would otherwise report
-     * every partition the table has today. The membership test is the same view call the scan uses to pick
-     * that partition's files ({@link #collectCowSplits} / {@link #collectMorSplits} both narrow with
-     * {@code BeforeOrOn(queryInstant)}), so what EXPLAIN counts and what the scan reads cannot disagree: a
-     * partition survives here exactly when the scan would find at least one file slice in it.
+     * every partition the table has today.
+     *
+     * <p>The membership test and the scan are not literally the same view call - this one asks
+     * {@code getLatestFileSlicesBeforeOrOn}, while {@link #collectCowSplits} and {@link #collectMorSplits}
+     * ask their own per-type views, each with its own per-slice filtering. What they DO share is the file
+     * group set and the {@code <= queryInstant} cut, and the only extra narrowing on this side
+     * ({@code filterUncommittedFiles}, which accepts an instant that is in the timeline OR archived) covers
+     * everything the scan's own {@code isFileSliceCommitted} accepts. So every difference between them falls
+     * on the safe side: this listing can only be a SUPERSET of the partitions the scan finds files in, never
+     * short of it, and a pruned-away partition that the scan would have read cannot happen.
      *
      * <p>{@code getLatestFileSlicesBeforeOrOn} rather than the base-file view because it covers both table
      * types — a COW slice is its base file, and a MOR partition whose only data at the pin is log files still
@@ -834,6 +840,7 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
         try (HoodieTableFileSystemView fsView = FileSystemViewManager.createInMemoryFileSystemView(
                 engineCtx, metaClient, metadataConfig)) {
             List<String> asOf = new ArrayList<>(allPaths.size());
+            int unresolved = 0;
             for (String partitionPath : allPaths) {
                 // Per partition, and non-fatal per partition: this walks EVERY partition of the table,
                 // including ones the query's predicates would have pruned away, so one unreadable partition
@@ -845,11 +852,31 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                         asOf.add(partitionPath);
                     }
                 } catch (Exception e) {
-                    LOG.warn("Cannot tell whether hudi partition '{}' of {} held data at instant {}; "
-                            + "keeping it in the listing", partitionPath,
-                            metaClient.getBasePath(), queryInstant, e);
+                    // The stack once. A systemic failure - the metadata table unreachable, say - hits every
+                    // partition of the table, and a table with thousands of them would otherwise write
+                    // thousands of stacks into fe.log for one query.
+                    if (unresolved == 0) {
+                        LOG.warn("Cannot tell whether hudi partition '{}' of {} held data at instant {}; "
+                                + "keeping it in the listing. Further partitions failing the same way in "
+                                + "this listing are counted, not logged.", partitionPath,
+                                metaClient.getBasePath(), queryInstant, e);
+                    } else if (LOG.isDebugEnabled()) {
+                        LOG.debug("Cannot tell whether hudi partition '{}' of {} held data at instant {}",
+                                partitionPath, metaClient.getBasePath(), queryInstant, e);
+                    }
+                    unresolved++;
                     asOf.add(partitionPath);
                 }
+            }
+            if (unresolved > 0) {
+                // Said separately from the per-partition warning, because "some partitions could not be
+                // resolved" and "the pin decided nothing at all" read very differently to whoever is looking
+                // at a query that scanned the whole table.
+                LOG.warn("Hudi partition listing at instant {} for {}: {} of {} partitions could not be "
+                        + "resolved and were kept{}", queryInstant, metaClient.getBasePath(), unresolved,
+                        allPaths.size(), unresolved == allPaths.size()
+                                ? " - the listing is NOT snapshot-exact for this query and prunes nothing"
+                                : "");
             }
             return asOf;
         }
@@ -911,22 +938,6 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Renders a Hive-style partition name ({@code "col0=val0/col1=val1/..."}) from a column&rarr;value map, in
-     * partition-key order, ESCAPING each value with {@link #escapePathName} (the canonical Hive {@code
-     * makePartName}).
-     *
-     * <p><b>MANDATORY for the generic MVCC model:</b> fe-core rebuilds the partition item by re-parsing this
-     * name via {@code HiveUtil.toPartitionValues} under a {@code checkState(values.size()==types.size())}. A raw
-     * positional path ({@code "2024/01"}) would yield the wrong value count &rarr; the partition is skipped
-     * &rarr; silent UNPARTITIONED degrade, so a hive-style name is required. Escaping is MANDATORY too:
-     * {@code HiveUtil.toPartitionValues} splits on {@code '/'}, so a value that itself spans {@code '/'} (e.g. a
-     * single partition column with a {@code yyyy/MM/dd} output format &rarr; path {@code "2024/01/02"}) must be
-     * escaped ({@code "%2F"}) or the re-parse would truncate/collide it. Since {@code escapePathName} is the
-     * exact inverse of {@link #escapePathName}'s unescape (the same set {@code HiveUtil.toPartitionValues} uses),
-     * the re-parse recovers EXACTLY the values {@link #parsePartitionValues} produced. Static + package-private
-     * for direct unit testing.
-     */
-    /**
      * How hudi spells a NULL partition value in a directory name. Byte-frozen: it is what this connector has
      * always SENT in columns_from_path, and it is also accepted as an INPUT spelling.
      */
@@ -955,6 +966,22 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 || HUDI_NULL_PARTITION_VALUE.equals(value);
     }
 
+    /**
+     * Renders a Hive-style partition name ({@code "col0=val0/col1=val1/..."}) from a column&rarr;value map, in
+     * partition-key order, ESCAPING each value with {@link #escapePathName} (the canonical Hive {@code
+     * makePartName}).
+     *
+     * <p><b>MANDATORY for the generic MVCC model:</b> fe-core rebuilds the partition item by re-parsing this
+     * name via {@code HiveUtil.toPartitionValues} under a {@code checkState(values.size()==types.size())}. A raw
+     * positional path ({@code "2024/01"}) would yield the wrong value count &rarr; the partition is skipped
+     * &rarr; silent UNPARTITIONED degrade, so a hive-style name is required. Escaping is MANDATORY too:
+     * {@code HiveUtil.toPartitionValues} splits on {@code '/'}, so a value that itself spans {@code '/'} (e.g. a
+     * single partition column with a {@code yyyy/MM/dd} output format &rarr; path {@code "2024/01/02"}) must be
+     * escaped ({@code "%2F"}) or the re-parse would truncate/collide it. Since {@code escapePathName} is the
+     * exact inverse of {@link #escapePathName}'s unescape (the same set {@code HiveUtil.toPartitionValues} uses),
+     * the re-parse recovers EXACTLY the values {@link #parsePartitionValues} produced. Static + package-private
+     * for direct unit testing.
+     */
     static String renderHiveStylePartitionName(List<String> partKeyNames, Map<String, String> values) {
         StringBuilder sb = new StringBuilder();
         for (String col : partKeyNames) {
