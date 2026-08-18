@@ -130,15 +130,60 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
     }
     const size_t normal_column_count = _source_data_writer->normal_column_count();
 
-    bool is_partial_update = _binlog_opts.source.partial_update_info &&
-                             _binlog_opts.source.partial_update_info->is_partial_update() &&
-                             _binlog_opts.source.source_write_type == DataWriteType::TYPE_DIRECT &&
-                             !_binlog_opts.source.is_transient_rowset_writer;
+    const bool is_partial_update =
+            _binlog_opts.source.partial_update_info &&
+            _binlog_opts.source.partial_update_info->is_partial_update() &&
+            _binlog_opts.source.source_write_type == DataWriteType::TYPE_DIRECT &&
+            !_binlog_opts.source.is_transient_rowset_writer;
+    const bool is_flexible_partial_update =
+            is_partial_update &&
+            _binlog_opts.source.partial_update_info->is_flexible_partial_update();
+    const bool is_fixed_partial_update = is_partial_update && !is_flexible_partial_update;
+
+    Block flexible_full_block;
+    std::vector<int64_t> effective_lsn_ids;
+    const std::vector<int64_t>* lsn_ids = _lsn_ids.get();
+    if (is_flexible_partial_update) {
+        if (_historical_data_writer == nullptr) {
+            return Status::NotSupported(
+                    "flexible partial update row binlog requires a merge-on-write unique table");
+        }
+        if (_lsn_ids == nullptr || _lsn_ids->size() < row_pos + num_rows) {
+            return Status::InvalidArgument(
+                    "row binlog LSN count {} is smaller than input row range [{}, {})",
+                    _lsn_ids == nullptr ? 0 : _lsn_ids->size(), row_pos, row_pos + num_rows);
+        }
+
+        // Flexible materialization updates skip bitmaps and can filter/merge rows. Keep those
+        // mutations private to Row Binlog: the base writer owns the input block and may still use
+        // it after this writer returns.
+        auto empty_block = block->create_same_struct_block(num_rows, true);
+        MutableBlock mutable_block = MutableBlock::build_mutable_block(std::move(*empty_block));
+        RETURN_IF_ERROR(mutable_block.add_rows(block, row_pos, num_rows));
+        flexible_full_block = mutable_block.to_block();
+        effective_lsn_ids.assign(_lsn_ids->begin() + row_pos,
+                                 _lsn_ids->begin() + row_pos + num_rows);
+
+        auto* pk_retriever =
+                dynamic_cast<PrimaryKeyModelRowRetriever*>(_historical_data_writer.get());
+        DCHECK(pk_retriever != nullptr);
+        RETURN_IF_ERROR(pk_retriever->materialize_flexible_partial_update(
+                &flexible_full_block, _binlog_opts.source.mow_context, &effective_lsn_ids));
+        block = &flexible_full_block;
+        row_pos = 0;
+        num_rows = block->rows();
+        lsn_ids = &effective_lsn_ids;
+        if (num_rows == 0) {
+            _historical_data_writer->clear();
+            return Status::OK();
+        }
+    }
+
     std::vector<uint32_t> partial_cids =
-            is_partial_update ? _binlog_opts.source.partial_update_info->update_cids
-                              : std::vector<uint32_t>();
+            is_fixed_partial_update ? _binlog_opts.source.partial_update_info->update_cids
+                                    : std::vector<uint32_t>();
     std::vector<uint32_t> row_binlog_partial_cids = partial_cids;
-    if (is_partial_update) {
+    if (is_fixed_partial_update) {
         if (block->columns() <= source_schema->num_key_columns() ||
             block->columns() >= source_schema->num_columns()) {
             return Status::InternalError(fmt::format(
@@ -160,7 +205,7 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
     const Int8* delete_sign_column_data = nullptr;
     int32_t delete_sign_column_id = source_schema->delete_sign_idx();
     int32_t seq_col_id = source_schema->sequence_col_idx();
-    if (is_partial_update) {
+    if (is_fixed_partial_update) {
         delete_sign_column_id = -1;
         seq_col_id = -1;
         int32_t pos = 0;
@@ -205,7 +250,7 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
     // 3. partial update / write_before need the old delete sign to identify INSERT -> DELETE
     //    -> INSERT correctly; otherwise the last INSERT may be treated as UPDATE because lookup
     //    hits the tombstone row.
-    if (is_partial_update || _write_before) {
+    if (!is_flexible_partial_update && (is_fixed_partial_update || _write_before)) {
         auto* pk_retriever =
                 dynamic_cast<PrimaryKeyModelRowRetriever*>(_historical_data_writer.get());
         DCHECK(pk_retriever != nullptr);
@@ -216,7 +261,7 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
                                                                          row_pos, num_rows));
     }
 
-    if (is_partial_update) {
+    if (is_fixed_partial_update) {
         std::vector<uint32_t> row_binlog_missing_column_ids;
         row_binlog_missing_column_ids.reserve(
                 _binlog_opts.source.partial_update_info->missing_cids.size());
@@ -285,7 +330,8 @@ Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, 
         RETURN_IF_ERROR(pk_retriever->revise_operators_by_old_delete_sign(num_rows));
     }
 
-    RETURN_IF_ERROR(_fill_binlog_columns(num_rows, operators));
+    DCHECK(lsn_ids != nullptr);
+    RETURN_IF_ERROR(_fill_binlog_columns(num_rows, operators, *lsn_ids));
 
     // row-binlog key don't need seq column
     RETURN_IF_ERROR(build_key_index(_converted_key_columns, nullptr, num_rows));
@@ -329,7 +375,8 @@ Status RowBinlogSegmentWriter::_append_direct_block(const Block* block, size_t r
 }
 
 Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
-                                                    const std::vector<int64_t>& op_types) {
+                                                    const std::vector<int64_t>& op_types,
+                                                    const std::vector<int64_t>& lsn_ids) {
     std::vector<uint32_t> binlog_cids = {_binlog_tso_col_id, _binlog_lsn_col_id, _binlog_op_col_id};
     Block binlog_prefix_block = _tablet_schema->create_block_by_cids(binlog_cids);
     {
@@ -347,9 +394,9 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
         // we can't get correct lsn number before commit, because we can't get the version before commit,
         // but we can fill auto-inc lsn to ensure the order first, then fill version when read single rowset.
         IColumn* lsn_col_ptr = binlog_prefix_columns[1].get();
-        CHECK(_lsn_ids->size() >= num_rows) << _lsn_ids->size() << " vs " << num_rows;
+        CHECK(lsn_ids.size() >= num_rows) << lsn_ids.size() << " vs " << num_rows;
         for (int i = 0; i < num_rows; i++) {
-            assert_cast<ColumnInt64*>(lsn_col_ptr)->insert_value(_lsn_ids->at(i));
+            assert_cast<ColumnInt64*>(lsn_col_ptr)->insert_value(lsn_ids.at(i));
         }
 
         const FieldType op_col_type = _tablet_schema->column(binlog_cids[2]).type();

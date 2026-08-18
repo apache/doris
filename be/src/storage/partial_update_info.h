@@ -219,18 +219,21 @@ public:
                               IOlapColumnDataAccessor*& seq_column);
     Status aggregate_for_flexible_partial_update(
             Block* block, size_t num_rows, const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            std::vector<int64_t>* row_lsns = nullptr);
 
 private:
     Status aggregate_for_sequence_column(
             Block* block, int num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
             IOlapColumnDataAccessor* seq_column,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            std::vector<int64_t>* row_lsns);
     Status aggregate_for_insert_after_delete(
             Block* block, size_t num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            std::vector<int64_t>* row_lsns);
     Status filter_block(Block* block, size_t num_rows, MutableColumnPtr filter_column,
                         int duplicate_rows, std::string col_name);
 
@@ -243,6 +246,10 @@ private:
                        BitmapValue& skip_bitmap);
     void append_one_row(MutableBlock& dst_block, Block* src_block, int rid);
     void remove_last_n_rows(MutableBlock& dst_block, int n);
+
+    void append_row_lsn(int rid);
+    void merge_row_lsn(int rid);
+    void remove_last_row_lsns(int n);
 
     // aggregate rows with same keys in range [start, end) from block to output_block
     Status aggregate_rows(MutableBlock& output_block, Block* block, int start, int end,
@@ -261,6 +268,12 @@ private:
     std::unique_ptr<OlapBlockDataConvertor> _convertor;
     const segment_v2::MowKeyProbe& _probe;
     HistoricalRowFetcher& _fetcher;
+
+    // Optional sidecar used by Row Binlog. Flexible aggregation can remove or merge input rows;
+    // keep the persisted LSN aligned with the surviving row and retain the largest LSN of all
+    // merged changes.
+    const std::vector<int64_t>* _input_row_lsns = nullptr;
+    std::vector<int64_t>* _output_row_lsns = nullptr;
 
     // used to store state when aggregating rows in block
     struct AggregateState {

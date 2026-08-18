@@ -86,7 +86,8 @@ public:
     // append block directly for binlog compaction
     Status _append_direct_block(const Block* block, size_t row_pos, size_t num_rows);
 
-    Status _fill_binlog_columns(size_t num_rows, const std::vector<int64_t>& op_types);
+    Status _fill_binlog_columns(size_t num_rows, const std::vector<int64_t>& op_types,
+                                const std::vector<int64_t>& lsn_ids);
 
     Status _fill_before_columns(size_t num_rows);
 
