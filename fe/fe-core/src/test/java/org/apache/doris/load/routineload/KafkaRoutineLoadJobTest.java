@@ -206,30 +206,38 @@ public class KafkaRoutineLoadJobTest {
 
     @Test
     public void testUpdateLagRefreshesLatestOffsetCache() throws UserException {
-        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
-                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
-        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
-        partitionIdToOffset.put(1, 10L);
-        partitionIdToOffset.put(2, 20L);
-        Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.cloud_unique_id = "test-cloud";
+            KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                    1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+            routineLoadJob.setCloudCluster("routine-load-compute-group");
+            Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+            partitionIdToOffset.put(1, 10L);
+            partitionIdToOffset.put(2, 20L);
+            Deencapsulation.setField(routineLoadJob, "progress", new KafkaProgress(partitionIdToOffset));
 
-        new MockUp<KafkaUtil>() {
-            @Mock
-            public List<Pair<Integer, Long>> getLatestOffsets(long jobId, UUID taskId, String brokerList, String topic,
-                                                              Map<String, String> convertedCustomProperties,
-                                                              List<Integer> partitionIds) {
-                Assert.assertEquals(1L, jobId);
-                Assert.assertEquals("127.0.0.1:9020", brokerList);
-                Assert.assertEquals("topic1", topic);
-                Assert.assertTrue(partitionIds.contains(1));
-                Assert.assertTrue(partitionIds.contains(2));
-                return Lists.newArrayList(Pair.of(1, 15L), Pair.of(2, 30L));
-            }
-        };
+            new MockUp<KafkaUtil>() {
+                @Mock
+                public List<Pair<Integer, Long>> getLatestOffsets(long jobId, UUID taskId, String brokerList,
+                        String topic, Map<String, String> convertedCustomProperties, List<Integer> partitionIds,
+                        String cloudCluster) {
+                    Assert.assertEquals(1L, jobId);
+                    Assert.assertEquals("127.0.0.1:9020", brokerList);
+                    Assert.assertEquals("topic1", topic);
+                    Assert.assertTrue(partitionIds.contains(1));
+                    Assert.assertTrue(partitionIds.contains(2));
+                    Assert.assertEquals("routine-load-compute-group", cloudCluster);
+                    return Lists.newArrayList(Pair.of(1, 15L), Pair.of(2, 30L));
+                }
+            };
 
-        routineLoadJob.updateLag();
+            routineLoadJob.updateLag();
 
-        Assert.assertEquals(15L, routineLoadJob.totalLag().longValue());
+            Assert.assertEquals(15L, routineLoadJob.totalLag().longValue());
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
     }
 
     @Test
@@ -414,11 +422,12 @@ public class KafkaRoutineLoadJobTest {
             @Mock
             public List<Pair<Integer, Long>> getLatestOffsets(long jobId, UUID taskId, String brokerList, String topic,
                                                               Map<String, String> convertedCustomProperties,
-                                                              List<Integer> partitionIds) {
+                                                              List<Integer> partitionIds, String cloudCluster) {
                 Assert.assertEquals("SASL_PLAINTEXT", convertedCustomProperties.get("security.protocol"));
                 Assert.assertEquals("PLAIN", convertedCustomProperties.get("sasl.mechanism"));
                 Assert.assertEquals(1, partitionIds.size());
                 Assert.assertTrue(partitionIds.contains(1));
+                Assert.assertNull(cloudCluster);
                 return Lists.newArrayList(Pair.of(1, 15L));
             }
         };
@@ -516,7 +525,8 @@ public class KafkaRoutineLoadJobTest {
         new MockUp<KafkaUtil>() {
             @Mock
             public List<Integer> getAllKafkaPartitions(String brokerList, String topic,
-                    Map<String, String> convertedCustomProperties) throws UserException {
+                    Map<String, String> convertedCustomProperties, String cloudCluster) throws UserException {
+                Assert.assertNull(cloudCluster);
                 return Lists.newArrayList(1, 2, 3);
             }
         };
@@ -525,8 +535,10 @@ public class KafkaRoutineLoadJobTest {
             @Mock
             public List<Pair<Integer, Long>> getRealOffsets(String brokerList, String topic,
                                                              Map<String, String> convertedCustomProperties,
-                                                             List<Pair<Integer, Long>> offsetFlags)
+                                                             List<Pair<Integer, Long>> offsetFlags,
+                                                             String cloudCluster)
                                                              throws LoadException {
+                Assert.assertNull(cloudCluster);
                 List<Pair<Integer, Long>> pairList = new ArrayList<>();
                 pairList.add(Pair.of(1, 0L));
                 pairList.add(Pair.of(2, 0L));
