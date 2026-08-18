@@ -18,6 +18,7 @@
 #pragma once
 
 #include <algorithm>
+#include <functional>
 #include <limits>
 #include <vector>
 
@@ -28,6 +29,7 @@ class Block;
 struct IcebergSorterReserveMemory {
     size_t retained_growth = 0;
     size_t retained_growth_trigger_bytes = 0;
+    size_t retained_sorted_destination = 0;
     size_t transient_workspace = 0;
 };
 
@@ -48,6 +50,25 @@ inline size_t bounded_iceberg_reserve_size(
     size_t transient_workspace = 0;
     for (const auto& reservation : per_partition_reservations) {
         transient_workspace = std::max(transient_workspace, reservation.transient_workspace);
+    }
+
+    std::vector<size_t> sorted_destinations;
+    sorted_destinations.reserve(per_partition_reservations.size());
+    for (const auto& reservation : per_partition_reservations) {
+        if (reservation.retained_sorted_destination > 0) {
+            sorted_destinations.push_back(reservation.retained_sorted_destination);
+        }
+    }
+    std::sort(sorted_destinations.begin(), sorted_destinations.end(), std::greater<>());
+    // A row can touch only one partition, but each destination survives serial dispatch. At EOS
+    // every nonempty sorter is closed, so a zero-row final item must retain all destinations.
+    const size_t destination_count = incoming_rows == 0
+                                             ? sorted_destinations.size()
+                                             : std::min(incoming_rows, sorted_destinations.size());
+    size_t retained_sorted_destinations = 0;
+    for (size_t i = 0; i < destination_count; ++i) {
+        retained_sorted_destinations =
+                iceberg_saturating_add(retained_sorted_destinations, sorted_destinations[i]);
     }
 
     std::vector<const IcebergSorterReserveMemory*> growth_candidates;
@@ -104,7 +125,9 @@ inline size_t bounded_iceberg_reserve_size(
     // A block's rows and bytes are divided across partition sorters. The two fractional-relaxation
     // bounds avoid charging the complete input block to every active partition while remaining safe.
     const size_t retained_growth = std::min(row_bound, byte_bound);
-    return iceberg_saturating_add(retained_growth, transient_workspace);
+    return iceberg_saturating_add(
+            iceberg_saturating_add(retained_growth, retained_sorted_destinations),
+            transient_workspace);
 }
 
 inline size_t iceberg_reserve_size(
@@ -119,20 +142,28 @@ inline size_t iceberg_reserve_size(
 
 size_t iceberg_cold_writer_reserve_size(const Block& block, size_t writer_workspace_bytes);
 
+inline size_t iceberg_spill_merge_fan_in(size_t spill_buffer_bytes, size_t merge_limit_bytes) {
+    if (spill_buffer_bytes == 0) {
+        return 0;
+    }
+    const size_t reader_bytes = iceberg_saturating_multiply(3, spill_buffer_bytes);
+    const size_t available_reader_bytes =
+            merge_limit_bytes > spill_buffer_bytes ? merge_limit_bytes - spill_buffer_bytes : 0;
+    return std::max<size_t>(2, reader_bytes == 0 ? 0 : available_reader_bytes / reader_bytes);
+}
+
 inline size_t iceberg_spill_merge_workspace(size_t spill_file_count, size_t spill_buffer_bytes,
                                             size_t merge_limit_bytes) {
     if (spill_file_count == 0 || spill_buffer_bytes == 0) {
         return 0;
     }
-    const size_t max_fan_in = std::max<size_t>(2, merge_limit_bytes / spill_buffer_bytes);
-    const size_t input_count = std::min(spill_file_count, max_fan_in);
-    const size_t max_size = std::numeric_limits<size_t>::max();
-    const size_t input_bytes = input_count > max_size / spill_buffer_bytes
-                                       ? max_size
-                                       : input_count * spill_buffer_bytes;
-    // VSortedRunMerger materializes one block per input cursor plus the block being emitted.
-    return input_bytes > max_size - spill_buffer_bytes ? max_size
-                                                       : input_bytes + spill_buffer_bytes;
+    const size_t reader_bytes = iceberg_saturating_multiply(3, spill_buffer_bytes);
+    const size_t input_count = std::min(
+            spill_file_count, iceberg_spill_merge_fan_in(spill_buffer_bytes, merge_limit_bytes));
+    // Each primed reader retains a serialized read buffer, parsed protobuf storage, and one
+    // deserialized cursor block; the merger additionally owns the block being emitted.
+    return iceberg_saturating_add(iceberg_saturating_multiply(input_count, reader_bytes),
+                                  spill_buffer_bytes);
 }
 
 inline size_t iceberg_final_merge_batch_rows(size_t spill_buffer_rows, size_t runtime_batch_rows) {

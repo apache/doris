@@ -45,12 +45,17 @@ namespace doris {
 struct SorterReserveMemory {
     size_t retained_growth = 0;
     size_t retained_growth_trigger_bytes = 0;
+    size_t retained_sorted_destination = 0;
     size_t transient_workspace = 0;
 
     size_t total() const {
-        return retained_growth > std::numeric_limits<size_t>::max() - transient_workspace
+        const size_t retained =
+                retained_growth > std::numeric_limits<size_t>::max() - retained_sorted_destination
+                        ? std::numeric_limits<size_t>::max()
+                        : retained_growth + retained_sorted_destination;
+        return retained > std::numeric_limits<size_t>::max() - transient_workspace
                        ? std::numeric_limits<size_t>::max()
-                       : retained_growth + transient_workspace;
+                       : retained + transient_workspace;
     }
 };
 

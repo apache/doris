@@ -78,6 +78,7 @@ import org.apache.iceberg.PositionDeletesScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
@@ -2008,6 +2009,57 @@ public class IcebergScanNodeTest {
         Assert.assertTrue(reachable.contains(expiredParentSchema));
         Assert.assertTrue(IcebergScanNode.schemaHistoryRequiresMissingRequiredFieldRejection(
                 selectedSchema, reachable));
+    }
+
+    @Test
+    public void testReachableSchemasIncludeCherryPickSourceSchema() {
+        Schema selectedSchema = new Schema(2, ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.LongType.get())));
+        Schema sourceSchema = new Schema(1, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.LongType.get())));
+        Snapshot selectedSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(selectedSnapshot.snapshotId()).thenReturn(20L);
+        Mockito.when(selectedSnapshot.schemaId()).thenReturn(2);
+        Mockito.when(selectedSnapshot.parentId()).thenReturn(null);
+        Mockito.when(selectedSnapshot.summary()).thenReturn(ImmutableMap.of(
+                SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP, "10"));
+        Snapshot sourceSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(sourceSnapshot.snapshotId()).thenReturn(10L);
+        Mockito.when(sourceSnapshot.schemaId()).thenReturn(1);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
+                1, sourceSchema, 2, selectedSchema));
+        Mockito.when(table.snapshot(10L)).thenReturn(sourceSnapshot);
+
+        List<Schema> reachable = new ArrayList<>();
+        IcebergScanNode.reachableSchemas(table, selectedSnapshot).forEach(reachable::add);
+
+        Assert.assertTrue(reachable.contains(sourceSchema));
+        Assert.assertTrue(IcebergScanNode.schemaHistoryRequiresMissingRequiredFieldRejection(
+                selectedSchema, reachable));
+    }
+
+    @Test
+    public void testReachableSchemasFailClosedForMissingCherryPickSource() {
+        Schema selectedSchema = new Schema(2, ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.LongType.get())));
+        Schema historicalSchema = new Schema(1, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.LongType.get())));
+        Snapshot selectedSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(selectedSnapshot.snapshotId()).thenReturn(20L);
+        Mockito.when(selectedSnapshot.schemaId()).thenReturn(2);
+        Mockito.when(selectedSnapshot.parentId()).thenReturn(null);
+        Mockito.when(selectedSnapshot.summary()).thenReturn(ImmutableMap.of(
+                SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP, "10"));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
+                1, historicalSchema, 2, selectedSchema));
+        Mockito.when(table.snapshot(10L)).thenReturn(null);
+
+        List<Schema> reachable = new ArrayList<>();
+        IcebergScanNode.reachableSchemas(table, selectedSnapshot).forEach(reachable::add);
+
+        Assert.assertTrue(reachable.contains(historicalSchema));
     }
 
     @Test

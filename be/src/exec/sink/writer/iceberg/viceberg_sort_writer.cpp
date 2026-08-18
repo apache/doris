@@ -136,7 +136,7 @@ void VIcebergSortWriter::_include_merge_reservation(RuntimeState* state, bool eo
         // admission must cover the same byte-bounded output used by _write_sorted_data().
         reservation->transient_workspace = std::max(
                 reservation->transient_workspace,
-                iceberg_merge_output_workspace(_avg_row_bytes, state->spill_buffer_size_bytes()));
+                iceberg_merge_output_workspace(_max_row_bytes, state->spill_buffer_size_bytes()));
     }
 }
 
@@ -191,15 +191,20 @@ Status VIcebergSortWriter::_close_locked(const Status& status) {
 }
 
 void VIcebergSortWriter::_update_spill_block_batch_row_count(const Block& block) {
-    auto rows = block.rows();
-    if (rows > 0) {
-        const size_t bytes = block.bytes();
-        const size_t observed_row_bytes = bytes / rows + (bytes % rows != 0);
-        _avg_row_bytes = std::max<size_t>(_avg_row_bytes, std::max<size_t>(1, observed_row_bytes));
+    if (block.rows() > 0) {
+        size_t materialized_row_bytes = 0;
+        for (const auto& column : block.get_columns_with_type_and_name()) {
+            materialized_row_bytes = iceberg_saturating_add(materialized_row_bytes,
+                                                            column.column->get_max_row_byte_size());
+        }
+        // A block average hides an indivisible wide row among small rows, so retain the maximum
+        // materialized width observed by every column instead.
+        _max_row_bytes =
+                std::max<size_t>(_max_row_bytes, std::max<size_t>(1, materialized_row_bytes));
         int64_t spill_batch_bytes = _runtime_state->spill_buffer_size_bytes(); // default 8MB
         // Keep the merge output inside the spill-buffer reservation; a single oversized row is the
         // only unavoidable exception and is still admitted as one row.
-        _spill_block_batch_row_count = std::max<size_t>(1, spill_batch_bytes / _avg_row_bytes);
+        _spill_block_batch_row_count = std::max<size_t>(1, spill_batch_bytes / _max_row_bytes);
     }
 }
 
@@ -223,7 +228,7 @@ Status VIcebergSortWriter::_write_sorted_data() {
     bool eos = false;
     Block block;
     const size_t merge_batch_rows = iceberg_merge_output_batch_rows(
-            _avg_row_bytes, _runtime_state->spill_buffer_size_bytes(),
+            _max_row_bytes, _runtime_state->spill_buffer_size_bytes(),
             static_cast<size_t>(_runtime_state->batch_size()));
     while (!eos && !_runtime_state->is_cancelled()) {
         RETURN_IF_ERROR(_sorter->merge_sort_read_for_spill(
@@ -372,10 +377,8 @@ Status VIcebergSortWriter::_do_intermediate_merge() {
 }
 
 int VIcebergSortWriter::_calc_max_merge_streams() const {
-    // Calculate the maximum number of streams that can be merged simultaneously
-    // based on the available memory limit and per-stream batch size
-    auto count = _runtime_state->spill_sort_merge_mem_limit_bytes() /
-                 _runtime_state->spill_buffer_size_bytes();
+    auto count = iceberg_spill_merge_fan_in(_runtime_state->spill_buffer_size_bytes(),
+                                            _runtime_state->spill_sort_merge_mem_limit_bytes());
     if (count > std::numeric_limits<int>::max()) {
         return std::numeric_limits<int>::max();
     }

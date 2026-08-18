@@ -146,10 +146,12 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
             per_partition_reservations.push_back(
                     {.retained_growth = reservation.retained_growth,
                      .retained_growth_trigger_bytes = reservation.retained_growth_trigger_bytes,
+                     .retained_sorted_destination = reservation.retained_sorted_destination,
                      .transient_workspace = reservation.transient_workspace});
         }
     }
-    // Column growth remains in every touched sorter, while sorting workspace is reused by serial dispatch.
+    // Column growth and sorted destinations remain in touched sorters, while scratch is reused by
+    // serial dispatch.
     // The final queued item may contain rows and also owns the reservation used by async finish().
     const size_t incoming_reserve =
             block == nullptr ? state->minimum_operator_memory_required_bytes()

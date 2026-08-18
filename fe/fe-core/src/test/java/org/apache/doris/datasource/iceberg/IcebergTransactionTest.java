@@ -41,6 +41,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.CommitFailedException;
+import org.apache.iceberg.expressions.Binder;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.UnboundPredicate;
@@ -883,6 +884,19 @@ public class IcebergTransactionTest {
         Assert.assertThrows(IllegalArgumentException.class,
                 () -> getTxn().buildPartitionFilter(
                         Collections.singletonMap("unknown", "2026-01-01"), spec, schema));
+    }
+
+    @Test
+    public void testStaticPartitionFilterBindsNestedIdentitySourceByFullPath() {
+        Schema schema = new Schema(Types.NestedField.required(
+                1, "payload", Types.StructType.of(
+                        Types.NestedField.required(2, "region", Types.StringType.get()))));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("payload.region").build();
+
+        Expression filter = getTxn().buildPartitionFilter(
+                Collections.singletonMap(spec.fields().get(0).name(), "us-east"), spec, schema);
+
+        Assert.assertNotNull(Binder.bind(schema.asStruct(), filter, true));
     }
 
     private DeleteFile buildDeletionVectorDeleteFile(String puffinPath, String referencedDataFile,

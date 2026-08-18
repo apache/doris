@@ -240,6 +240,29 @@ void VIcebergTableWriter::_init_static_partition_values() {
 
     _has_static_partition = true;
     const auto& static_values_map = iceberg_sink.static_partition_values;
+    if (_partition_spec == nullptr) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Static Iceberg partitions require a partition specification");
+    }
+
+    for (const auto& partition_field : _partition_spec->fields()) {
+        if (!static_values_map.contains(partition_field.name())) {
+            continue;
+        }
+        const auto* field_path = _schema->find_field_path(partition_field.source_id());
+        if (field_path == nullptr) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Iceberg partition field {} references a missing source field",
+                            partition_field.field_id());
+        }
+        if (field_path->size() > 1) {
+            // Static values bypass extraction from the row, so they cannot prove that a nested
+            // source leaf written to the file matches the partition label.
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Static Iceberg partition field {} cannot use a nested source column",
+                            partition_field.name());
+        }
+    }
 
     size_t num_cols = _iceberg_partition_columns.size();
     _partition_column_static_values.resize(num_cols);
