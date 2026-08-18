@@ -1539,6 +1539,68 @@ TEST(VariantColumnReaderTest, DirectSeekDoesNotPromoteBeforeSelectedBoundaryVali
     }
 }
 
+TEST(VariantColumnReaderTest, DirectSeekOrdersUnsortedDictionaryByKeyBytes) {
+    // The dictionary stores "b" before "a" and does not claim sorted_strings, so field ids do not
+    // order the object's fields. Direct seek must compare the key bytes here instead of the ids it
+    // can rely on for a sorted dictionary.
+    std::string metadata;
+    metadata.push_back(static_cast<char>(VARIANT_ENCODING_VERSION));
+    append_variant_unsigned(metadata, 2, 1);
+    append_variant_unsigned(metadata, 0, 1);
+    append_variant_unsigned(metadata, 1, 1);
+    append_variant_unsigned(metadata, 2, 1);
+    metadata.append("ba");
+
+    std::string value;
+    value.push_back(static_cast<char>(VariantBasicType::OBJECT));
+    append_variant_unsigned(value, 2, 1);
+    // Fields stay ordered by key: "a" (id 1) then "b" (id 0).
+    append_variant_unsigned(value, 1, 1);
+    append_variant_unsigned(value, 0, 1);
+    append_variant_unsigned(value, 1, 1);
+    append_variant_unsigned(value, 0, 1);
+    append_variant_unsigned(value, 2, 1);
+    value.push_back(static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::NULL_VALUE)
+                                      << VARIANT_VALUE_HEADER_SHIFT));
+    value.push_back(static_cast<char>(static_cast<uint8_t>(VariantPrimitiveId::TRUE_VALUE)
+                                      << VARIANT_VALUE_HEADER_SHIFT));
+
+    const VariantRef row {
+            .metadata = {.data = metadata.data(), .size = metadata.size()},
+            .value = {value.data(), value.size()},
+    };
+
+    RuntimeProfile runtime_profile("unshredded-direct-unsorted-dictionary");
+    ParquetProfile parquet_profile;
+    parquet_profile.init(&runtime_profile);
+    auto output = make_nullable(std::make_shared<DataTypeVariantV2>())->create_column();
+    ASSERT_TRUE(materialize_variant_rows(unshredded_schema(), unshredded_physical({row}), output,
+                                         parquet_profile.column_reader_profile())
+                        .ok());
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output);
+    const auto& source = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+
+    auto seek = [&](StringRef key) {
+        const std::array segments {VariantElementV2PathSegment::object_key(key)};
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        EXPECT_TRUE(resolve_variant_element_v2_path(segments, &path).ok());
+        ColumnPtr result;
+        EXPECT_TRUE(extract_variant_element_v2(source, *path, nullable.get_null_map_data(), &result)
+                            .ok());
+        return result;
+    };
+
+    const auto a_values = canonical_values(
+            assert_cast<const ColumnNullable&>(*seek(StringRef("a"))).get_nested_column());
+    EXPECT_TRUE(a_values->get_value_ref(0).get_bool());
+    const auto b_values = canonical_values(
+            assert_cast<const ColumnNullable&>(*seek(StringRef("b"))).get_nested_column());
+    EXPECT_TRUE(b_values->get_value_ref(0).is_null());
+    EXPECT_EQ(assert_cast<const ColumnNullable&>(*seek(StringRef("missing"))).get_null_map_data(),
+              (NullMap {1}));
+    EXPECT_EQ(runtime_profile.get_counter("VariantDirectResidualSeekRows")->value(), 3);
+}
+
 TEST(VariantColumnReaderTest, DirectSeekRejectsMalformedTraversedObjectTable) {
     VariantBatchBuilder builder;
     auto row = builder.begin_row();

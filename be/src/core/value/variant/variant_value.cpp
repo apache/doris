@@ -506,16 +506,32 @@ VariantContainerLookup::VariantContainerLookup(VariantRef value)
     }
 
     _object_offsets_in_field_order = true;
+    // A dictionary that declares sorted_strings stores its keys in lexicographic order, so field
+    // ids order an object's fields exactly as their keys do. Comparing ids then replaces a
+    // dictionary lookup and a key comparison per field, which a wide root would otherwise repeat
+    // on every row. The only caller that builds this lookup validates that declaration, and every
+    // key offset it depends on, once per distinct dictionary.
+    const uint32_t dictionary_size = _value.metadata.dict_size();
+    const bool ordered_by_field_id = _value.metadata.sorted_strings();
     StringRef previous_key;
+    uint32_t previous_field_id = 0;
     uint32_t previous_offset = 0;
     for (uint32_t index = 0; index < layout.count; ++index) {
-        const uint32_t current_id = _value._object_field_id(layout, index);
-        const StringRef current_key = _value.metadata.key_at(current_id);
-        if (index != 0 && previous_key.compare(current_key) >= 0) {
-            throw Exception(ErrorCode::CORRUPTION,
-                            "Variant object keys are not strictly ordered at field {}", index);
+        const uint32_t current_id = _value._object_field_id(layout, index, &dictionary_size);
+        if (ordered_by_field_id) {
+            if (index != 0 && current_id <= previous_field_id) {
+                throw Exception(ErrorCode::CORRUPTION,
+                                "Variant object keys are not strictly ordered at field {}", index);
+            }
+            previous_field_id = current_id;
+        } else {
+            const StringRef current_key = _value.metadata.key_at(current_id);
+            if (index != 0 && previous_key.compare(current_key) >= 0) {
+                throw Exception(ErrorCode::CORRUPTION,
+                                "Variant object keys are not strictly ordered at field {}", index);
+            }
+            previous_key = current_key;
         }
-        previous_key = current_key;
 
         const uint32_t offset = _value._container_offset(layout, index);
         if (offset >= layout.values_size) {
@@ -673,24 +689,36 @@ bool VariantContainerLookup::array_find(int64_t index, VariantRef* out) const {
 
 bool VariantRef::_object_find_by_id(const ContainerLayout& layout, uint32_t field_id,
                                     VariantRef* out, uint32_t* index_out) const {
-    const StringRef target_key = metadata.key_at(field_id);
+    // Both the sorted flag and the dictionary size come from the metadata header, and the search
+    // consults them once per probe. Resolve them, and the target key the unsorted search compares
+    // against, before the loop so a wide root does not reparse that header on every step of every
+    // row. A sorted dictionary orders fields by id, so it never needs the key bytes at all.
+    const bool ordered_by_field_id = metadata.sorted_strings();
+    const uint32_t dictionary_size = metadata.dict_size();
+    if (field_id >= dictionary_size) {
+        // Resolving the target key used to reject an out-of-range id on the way past. The sorted
+        // search no longer reads that key, so keep the same rejection explicit here.
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Variant metadata dictionary id {} is out of range [0, {})", field_id,
+                        dictionary_size);
+    }
+    const StringRef target_key = ordered_by_field_id ? StringRef {} : metadata.key_at(field_id);
     uint32_t begin = 0;
     uint32_t end = layout.count;
     while (begin < end) {
         const uint32_t middle = begin + (end - begin) / 2;
-        const uint32_t middle_id = _object_field_id(layout, middle);
-        const int comparison = metadata.sorted_strings()
-                                       ? (middle_id > field_id) - (middle_id < field_id)
-                                       : metadata.key_at(middle_id).compare(target_key);
+        const uint32_t middle_id = _object_field_id(layout, middle, &dictionary_size);
+        const int comparison = ordered_by_field_id ? (middle_id > field_id) - (middle_id < field_id)
+                                                   : metadata.key_at(middle_id).compare(target_key);
         if (comparison < 0) {
             begin = middle + 1;
         } else {
             end = middle;
         }
     }
-    if (begin == layout.count || _object_field_id(layout, begin) != field_id) {
-        if (!metadata.sorted_strings() && begin < layout.count &&
-            metadata.key_at(_object_field_id(layout, begin)) == target_key) {
+    if (begin == layout.count || _object_field_id(layout, begin, &dictionary_size) != field_id) {
+        if (!ordered_by_field_id && begin < layout.count &&
+            metadata.key_at(_object_field_id(layout, begin, &dictionary_size)) == target_key) {
             *out = _container_value_at(layout, begin, false);
             if (index_out != nullptr) {
                 *index_out = begin;
