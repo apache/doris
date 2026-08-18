@@ -43,28 +43,6 @@ AsyncCacheWriteManager::Metrics::Metrics(AsyncCacheWriteManager& manager, const 
                 return static_cast<AsyncCacheWriteManager*>(manager)->running_worker_count();
             },
             &manager);
-    _configured_worker_count_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
-            prefix, "async_cache_write_configured_worker_count",
-            [](void* manager) {
-                return static_cast<AsyncCacheWriteManager*>(manager)->_configured_worker_count.load(
-                        std::memory_order_relaxed);
-            },
-            &manager);
-    _max_pending_bytes_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
-            prefix, "async_cache_write_max_pending_bytes",
-            [](void* manager) {
-                return static_cast<AsyncCacheWriteManager*>(manager)
-                        ->_options.load(std::memory_order_acquire)
-                        ->max_pending_bytes;
-            },
-            &manager);
-    _active_write_epoch_key_count_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
-            prefix, "async_cache_write_active_write_epoch_key_count",
-            [](void* manager) {
-                return static_cast<AsyncCacheWriteManager*>(manager)
-                        ->active_write_epoch_key_count();
-            },
-            &manager);
     _buffer_memory_metric = std::make_shared<bvar::PassiveStatus<int64_t>>(
             prefix, "async_cache_write_buffer_memory_bytes",
             [](void* manager) {
@@ -82,12 +60,10 @@ AsyncCacheWriteManager::Metrics::Metrics(AsyncCacheWriteManager& manager, const 
             prefix, "async_cache_write_evicted_oldest_task_count");
     _evicted_oldest_bytes_metric = std::make_shared<bvar::Adder<uint64_t>>();
     _evicted_oldest_age_metric = std::make_shared<bvar::LatencyRecorder>();
-    _rejected_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "async_cache_write_rejected_task_count");
+    _rejected_metric = std::make_shared<bvar::Adder<uint64_t>>();
     _reject_not_running_metric = std::make_shared<bvar::Adder<uint64_t>>();
     _reject_backpressure_metric = std::make_shared<bvar::Adder<uint64_t>>();
-    _buffer_alloc_fail_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "async_cache_write_buffer_allocation_failure_count");
+    _buffer_alloc_fail_metric = std::make_shared<bvar::Adder<uint64_t>>();
     _submit_latency_metric = std::make_shared<bvar::LatencyRecorder>();
     _buffer_alloc_latency_metric = std::make_shared<bvar::LatencyRecorder>();
     _queue_wait_latency_metric = std::make_shared<bvar::LatencyRecorder>();
@@ -100,8 +76,7 @@ AsyncCacheWriteManager::Metrics::Metrics(AsyncCacheWriteManager& manager, const 
     _skip_downloaded_metric = std::make_shared<bvar::Adder<uint64_t>>();
     _skip_downloading_metric = std::make_shared<bvar::Adder<uint64_t>>();
     _skip_partial_overlap_metric = std::make_shared<bvar::Adder<uint64_t>>();
-    _drop_stale_epoch_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "async_cache_write_dropped_stale_epoch_task_count");
+    _drop_stale_epoch_metric = std::make_shared<bvar::Adder<uint64_t>>();
     _drop_stale_cache_epoch_metric = std::make_shared<bvar::Adder<uint64_t>>();
     _drop_stale_key_epoch_metric = std::make_shared<bvar::Adder<uint64_t>>();
     _cache_epoch_invalidate_metric = std::make_shared<bvar::Adder<uint64_t>>();
@@ -109,10 +84,6 @@ AsyncCacheWriteManager::Metrics::Metrics(AsyncCacheWriteManager& manager, const 
     _skip_deleting_metric = std::make_shared<bvar::Adder<uint64_t>>();
     _append_fail_metric = std::make_shared<bvar::Adder<uint64_t>>();
     _finalize_fail_metric = std::make_shared<bvar::Adder<uint64_t>>();
-    _persisted_blocks_metric = std::make_shared<bvar::Adder<uint64_t>>(
-            prefix, "async_cache_write_persisted_block_count");
-    _persisted_bytes_metric =
-            std::make_shared<bvar::Adder<uint64_t>>(prefix, "async_cache_write_persisted_bytes");
 }
 
 void AsyncCacheWriteManager::Metrics::record_stale_epoch(StaleEpochReason reason) {
@@ -219,11 +190,6 @@ void AsyncCacheWriteManager::Metrics::record_skipped_block(SkippedBlockReason re
     }
 }
 
-void AsyncCacheWriteManager::Metrics::record_persisted_block(size_t bytes) {
-    *_persisted_blocks_metric << 1;
-    *_persisted_bytes_metric << bytes;
-}
-
 int64_t AsyncCacheWriteManager::Metrics::queue_lock_wait_p99_us() const {
     return _queue_lock_wait_latency_metric->latency_percentile(0.99);
 }
@@ -264,8 +230,6 @@ AsyncCacheWriteManager::Metrics::Snapshot AsyncCacheWriteManager::Metrics::snaps
             .cache_epoch_invalidate = _cache_epoch_invalidate_metric->get_value(),
             .key_epoch_invalidate = _key_epoch_invalidate_metric->get_value(),
             .skip_deleting = _skip_deleting_metric->get_value(),
-            .persisted_blocks = _persisted_blocks_metric->get_value(),
-            .persisted_bytes = _persisted_bytes_metric->get_value(),
     };
 }
 
