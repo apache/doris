@@ -26,6 +26,7 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.DoubleType;
 import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.RowKind;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
 import org.junit.jupiter.api.Assertions;
@@ -36,6 +37,32 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class PaimonWriteSchemaTest {
+
+    @Test
+    public void testChangelogOperationsSetPaimonRowKind() {
+        PaimonWriteSchema schema = PaimonWriteSchema.create(
+                tableType(),
+                new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "id", "name", "score", "region"},
+                true);
+
+        Assertions.assertEquals(RowKind.INSERT,
+                changelogRow(schema, PaimonWriteSchema.INSERT_OPERATION).getRowKind());
+        Assertions.assertEquals(RowKind.UPDATE_AFTER,
+                changelogRow(schema, PaimonWriteSchema.UPDATE_OPERATION).getRowKind());
+        Assertions.assertEquals(RowKind.DELETE,
+                changelogRow(schema, PaimonWriteSchema.DELETE_OPERATION).getRowKind());
+    }
+
+    @Test
+    public void testUnknownChangelogOperationRejected() {
+        PaimonWriteSchema schema = PaimonWriteSchema.create(
+                tableType(),
+                new String[] {PaimonWriteSchema.ROW_KIND_COLUMN, "id"},
+                true);
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> schema.tableRow(new Object[] {(byte) 9, 1}));
+    }
 
     @Test
     public void testReorderedInputProducesTableSchemaRow() {
@@ -217,5 +244,15 @@ public class PaimonWriteSchemaTest {
                 new DataField(1, "name", new VarCharType()),
                 new DataField(2, "score", new DoubleType()),
                 new DataField(3, "region", new VarCharType())));
+    }
+
+    private static InternalRow changelogRow(PaimonWriteSchema schema, byte operation) {
+        return schema.tableRow(new Object[] {
+                operation,
+                11,
+                BinaryString.fromString("value"),
+                1.0D,
+                BinaryString.fromString("east")
+        });
     }
 }

@@ -20,10 +20,13 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -54,6 +57,17 @@ public class DeleteFromUsingCommand extends DeleteFromCommand {
             throw new AnalysisException("Delete is forbidden since current session is in debug mode."
                     + " Please check the following session variables: "
                     + ctx.getSessionVariable().printDebugModeVariables());
+        }
+        TableIf table = RelationUtil.getTable(RelationUtil.getQualifierName(ctx, nameParts),
+                ctx.getEnv(), Optional.empty());
+        if (table instanceof PaimonExternalTable) {
+            if (isTempPart || !partitions.isEmpty()) {
+                throw new AnalysisException(
+                        "Paimon DELETE does not support partition name lists; use a WHERE predicate");
+            }
+            new PaimonDeleteCommand(nameParts, tableAlias, handleCte(logicalQuery), true)
+                    .run(ctx, executor);
+            return;
         }
         // NOTE: delete from using command is executed as insert command, so txn insert can support it
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), Optional.empty(),

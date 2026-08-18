@@ -371,20 +371,22 @@ public class BindExpression implements AnalysisRuleFactory {
                 castExprs.add(expr);
                 continue;
             }
-            DataType targetType = DataType.fromCatalogType(column.getType());
-            Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
-            NamedExpression namedExpr;
-            if (castExpr instanceof NamedExpression) {
-                namedExpr = (NamedExpression) castExpr;
-                if (!column.getName().equalsIgnoreCase(namedExpr.getName())) {
-                    namedExpr = new Alias(namedExpr, column.getName());
-                }
-            } else {
-                namedExpr = new Alias(castExpr, column.getName());
-            }
-            castExprs.add(namedExpr);
+            castExprs.add(coerceToColumn(expr, column));
         }
         return castExprs;
+    }
+
+    private static NamedExpression coerceToColumn(NamedExpression expr, Column column) {
+        DataType targetType = DataType.fromCatalogType(column.getType());
+        Expression castExpr = TypeCoercionUtils.castIfNotSameType(expr, targetType);
+        if (castExpr instanceof NamedExpression) {
+            NamedExpression namedExpr = (NamedExpression) castExpr;
+            if (column.getName().equalsIgnoreCase(namedExpr.getName())) {
+                return namedExpr;
+            }
+            return new Alias(namedExpr, column.getName());
+        }
+        return new Alias(castExpr, column.getName());
     }
 
     private static boolean hasUnboundPlan(Plan plan) {
