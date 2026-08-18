@@ -51,7 +51,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.HashMap;
@@ -392,20 +391,15 @@ public class JoinUtils {
             }
         }
 
-        Map<DistributionMappingKey, List<DistributionMapping>> rightMappingsByKey =
-                new HashMap<>();
-        for (DistributionMapping rightMapping : rightMappings) {
-            rightMappingsByKey.computeIfAbsent(
-                    new DistributionMappingKey(rightMapping), ignored -> Lists.newArrayList())
-                    .add(rightMapping);
-        }
         for (DistributionMapping leftMapping : leftMappings) {
-            List<DistributionMapping> compatibleRightMappings = rightMappingsByKey.get(
-                    new DistributionMappingKey(leftMapping));
-            if (compatibleRightMappings == null) {
-                continue;
-            }
-            for (DistributionMapping rightMapping : compatibleRightMappings) {
+            for (DistributionMapping rightMapping : rightMappings) {
+                if (!leftMapping.getMappingId().equals(rightMapping.getMappingId())
+                        || !leftMapping.getTargetDistributionIndices()
+                                .equals(rightMapping.getTargetDistributionIndices())
+                        || leftMapping.getDeterminantExprIds().size()
+                                != rightMapping.getDeterminantExprIds().size()) {
+                    continue;
+                }
                 boolean determinantsEqual = true;
                 for (int i = 0; i < leftMapping.getDeterminantExprIds().size(); i++) {
                     if (!equalExprIds.contains(new EqualExprIdPair(
@@ -462,36 +456,6 @@ public class JoinUtils {
         @Override
         public int hashCode() {
             return Objects.hash(first, second);
-        }
-    }
-
-    private static final class DistributionMappingKey {
-        private final String mappingId;
-        private final List<Integer> targetDistributionIndices;
-        private final int determinantCount;
-
-        private DistributionMappingKey(DistributionMapping mapping) {
-            mappingId = mapping.getMappingId();
-            targetDistributionIndices = mapping.getTargetDistributionIndices();
-            determinantCount = mapping.getDeterminantExprIds().size();
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (!(obj instanceof DistributionMappingKey)) {
-                return false;
-            }
-            DistributionMappingKey other = (DistributionMappingKey) obj;
-            return determinantCount == other.determinantCount
-                    && mappingId.equals(other.mappingId)
-                    && targetDistributionIndices.equals(
-                            other.targetDistributionIndices);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(
-                    mappingId, targetDistributionIndices, determinantCount);
         }
     }
 

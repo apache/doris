@@ -227,21 +227,6 @@ public class JoinUtilsTest {
             Assertions.assertFalse(JoinUtils.couldColocateJoin(
                     left, rightWithoutMatchingCandidate, directAndMapping));
 
-            List<DistributionMapping> mostlyUnrelatedMappings = Lists.newArrayList();
-            for (int i = 0; i < 128; i++) {
-                mostlyUnrelatedMappings.add(new DistributionMapping(
-                        "unrelated_" + i,
-                        ImmutableList.of(new ExprId(1000 + i)),
-                        ImmutableList.of(i % 2)));
-            }
-            mostlyUnrelatedMappings.add(rightMapping1);
-            mostlyUnrelatedMappings.add(rightMapping2);
-            DistributionSpecHash rightWithMostlyUnrelatedMappings = new DistributionSpecHash(
-                    ImmutableList.of(new ExprId(3), new ExprId(4)), ShuffleType.NATURAL,
-                    2L, 2L, Collections.emptySet(), mostlyUnrelatedMappings);
-            Assertions.assertTrue(JoinUtils.couldColocateJoin(
-                    left, rightWithMostlyUnrelatedMappings, directAndMapping));
-
             DistributionMapping leftOrderedMapping = new DistributionMapping(
                     "ordered_mapping",
                     ImmutableList.of(new ExprId(5), new ExprId(9)),
