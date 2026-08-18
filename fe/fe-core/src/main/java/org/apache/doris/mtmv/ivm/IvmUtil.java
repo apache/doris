@@ -34,10 +34,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash312
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
@@ -132,9 +132,10 @@ public class IvmUtil {
     /**
      * Builds a null-safe deterministic row-id expression from key expressions:
      * <ul>
-     *   <li>Empty list (scalar agg): returns {@code LargeIntLiteral(0)}</li>
-     *   <li>Single key that widens losslessly to largeint: returns {@code cast(key AS LARGEINT)}
-     *       directly instead of hashing it, which avoids hash collisions and makes the row-id
+     *   <li>Empty list (scalar agg): returns {@code TinyIntLiteral(0)}</li>
+     *   <li>Single key of an eligible MOW key type (see
+     *       {@link ColumnDefinition#isEligibleKeyType}): returns the key itself directly
+     *       instead of hashing it, which avoids hash collisions and makes the row-id
      *       NULL exactly when the key is NULL</li>
      *   <li>Otherwise: returns
      *       {@code murmur_hash3_128(ifnull(k1,''), isnull(k1), ifnull(k2,''), isnull(k2), ...)}</li>
@@ -155,17 +156,13 @@ public class IvmUtil {
             return new LargeIntLiteral(BigInteger.ONE);
         }
         if (keyExprs.isEmpty()) {
-            return new LargeIntLiteral(BigInteger.ZERO);
+            return new TinyIntLiteral((byte) 0);
         }
-        // A single key that widens losslessly to largeint becomes the row-id directly: no hash
-        // means no collision, and the row-id is NULL exactly when the key is NULL. A key that is
-        // already largeint (e.g. a chained MV's stored row-id) is passed through without a Cast.
-        if (keyExprs.size() == 1) {
-            Expression key = keyExprs.get(0);
-            if (key.getDataType().isInjectiveCastTo(LargeIntType.INSTANCE)) {
-                return key.getDataType().equals(LargeIntType.INSTANCE) ? key
-                        : new Cast(key, LargeIntType.INSTANCE);
-            }
+        // A single key of an eligible MOW key type becomes the row-id directly: no hash means
+        // no collision, and the row-id is NULL exactly when the key is NULL. Other types (e.g.
+        // string, float) are not legal MOW keys and must be hashed to stay deterministic.
+        if (keyExprs.size() == 1 && ColumnDefinition.isEligibleKeyType(keyExprs.get(0).getDataType())) {
+            return keyExprs.get(0);
         }
         // For each key, emit two hash arguments:
         //   1. ifnull(cast(key AS VARCHAR), '') — coalesces NULL to '' so hash never receives NULL

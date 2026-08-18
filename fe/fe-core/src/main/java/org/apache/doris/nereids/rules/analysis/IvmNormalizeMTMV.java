@@ -1093,10 +1093,10 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
      * - Other key types: throws IvmException
      *
      * <p>When the base table's only key column is the IVM row-id itself (an IVM MV created
-     * without ivm_use_full_keys), {@link IvmUtil#buildRowIdHash} passes the stored largeint row-id
-     * through directly (a single largeint key is not hashed). The remaining identity keys exclude
-     * the row-id column, so cascading MVs never accumulate ancestor row-id columns in their
-     * unique keys.
+     * without ivm_use_full_keys), {@link IvmUtil#buildRowIdHash} passes the stored row-id
+     * through directly (a single eligible key is not hashed). The remaining identity keys
+     * exclude the row-id column, so cascading MVs never accumulate ancestor row-id columns in
+     * their unique keys.
      */
     private ScanRowId computeScanRowIdAndKeys(OlapTable table, LogicalOlapScan scan) {
         KeysType keysType = table.getKeysType();
