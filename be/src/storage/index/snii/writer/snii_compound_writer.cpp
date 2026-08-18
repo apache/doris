@@ -134,6 +134,29 @@ Status SniiCompoundWriter::inherit(const reader::SniiRewriteSnapshot& snapshot,
 }
 
 Status SniiCompoundWriter::add_logical_index(const SniiIndexInput& in) {
+    std::vector<uint32_t> null_docids(in.null_docids);
+    MemoryReporter::Reservation null_docids_reservation =
+            in.mem_reporter == nullptr ? MemoryReporter::Reservation()
+                                       : in.mem_reporter->make_reservation();
+    if (in.mem_reporter != nullptr) {
+        RETURN_IF_ERROR(null_docids_reservation.set_bytes(
+                static_cast<uint64_t>(null_docids.capacity()) * sizeof(uint32_t)));
+    }
+    return _add_logical_index(
+            in, TrackedNullDocids(std::move(null_docids_reservation), std::move(null_docids)));
+}
+
+Status SniiCompoundWriter::add_logical_index(const SniiIndexInput& in,
+                                             TrackedNullDocids null_docids) {
+    if (!in.null_docids.empty()) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "compound: tracked NULL docids must not also be present in input");
+    }
+    return _add_logical_index(in, std::move(null_docids));
+}
+
+Status SniiCompoundWriter::_add_logical_index(const SniiIndexInput& in,
+                                              TrackedNullDocids null_docids) {
     if (out_ == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("compound: null file writer");
     if (finished_)
@@ -158,7 +181,7 @@ Status SniiCompoundWriter::add_logical_index(const SniiIndexInput& in) {
         }
     }
     RETURN_IF_ERROR(ensure_bootstrap());
-    auto liw = std::make_unique<LogicalIndexWriter>(in);
+    auto liw = std::make_unique<LogicalIndexWriter>(in, std::move(null_docids));
     Placement p;
     // The posting region streams DIRECTLY into the container during build() -- no temp
     // round-trip for the bulk -- followed immediately by this index's compact DICT

@@ -200,10 +200,11 @@ public:
     // holding a partial prefix.
     Status inherit(const reader::SniiRewriteSnapshot& snapshot, io::FileReader* source);
 
-    // Buffers one logical index: builds its section bytes and meta sub-sections.
-    // The actual file writing happens in finish() (single front-to-back pass).
-    // The key (index_id, suffix) must not collide with an inherited one.
+    // Builds one logical index synchronously. The convenience overload copies
+    // and charges in.null_docids; ingestion uses the tracked overload to transfer
+    // the already-charged allocation without a second resident vector.
     Status add_logical_index(const SniiIndexInput& in);
+    Status add_logical_index(const SniiIndexInput& in, TrackedNullDocids null_docids);
 
     // Registers one opaque BLOB logical index (kind must not be kInverted).
     // Registration is pure bookkeeping -- NOT A BYTE is written here, so it is
@@ -287,6 +288,7 @@ private:
     Status write_index_aux_sections(size_t index);
     Status write_tail();
     Status append(const std::vector<uint8_t>& bytes);
+    Status _add_logical_index(const SniiIndexInput& in, TrackedNullDocids null_docids);
     Status poison(Status status);
     // Argument validation for one add_blob_index call; see the .cpp.
     static Status validate_blob_registration(format::LogicalIndexKind kind,
