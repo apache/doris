@@ -231,7 +231,8 @@ TEST(ArrowSchemaUtilTest, test_binary_field_types) {
     nested_fields.reserve(4);
     nested_fields.emplace_back(false, 1, "str_col", std::make_unique<StringType>(), std::nullopt);
     nested_fields.emplace_back(false, 2, "bin_col", std::make_unique<BinaryType>(), std::nullopt);
-    nested_fields.emplace_back(false, 3, "fixed_col", std::make_unique<FixedType>(4), std::nullopt);
+    nested_fields.emplace_back(false, 3, "fixed_col", std::make_unique<FixedType>(256),
+                               std::nullopt);
     nested_fields.emplace_back(false, 4, "uuid_col", std::make_unique<UUIDType>(), std::nullopt);
 
     Schema schema(1, std::move(nested_fields));
@@ -246,7 +247,7 @@ TEST(ArrowSchemaUtilTest, test_binary_field_types) {
 
     ASSERT_EQ(arrow::Type::FIXED_SIZE_BINARY, fields[2]->type()->id());
     auto fixed_type = std::static_pointer_cast<arrow::FixedSizeBinaryType>(fields[2]->type());
-    EXPECT_EQ(4, fixed_type->byte_width());
+    EXPECT_EQ(256, fixed_type->byte_width());
 
     ASSERT_EQ(arrow::Type::FIXED_SIZE_BINARY, fields[3]->type()->id());
     auto uuid_type = std::static_pointer_cast<arrow::FixedSizeBinaryType>(fields[3]->type());
