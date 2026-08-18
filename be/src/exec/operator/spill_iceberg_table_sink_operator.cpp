@@ -17,7 +17,15 @@
 
 #include "exec/operator/spill_iceberg_table_sink_operator.h"
 
+#include "common/config.h"
 #include "common/status.h"
+#include "core/block/block.h"
+#include "core/column/column_array.h"
+#include "core/column/column_const.h"
+#include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_struct.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/operator/spill_utils.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
@@ -26,12 +34,79 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
+namespace {
+constexpr size_t MIN_POD_ARRAY_CAPACITY = 4096;
+
+// Admission runs before a writer may allocate; model the structural minimum recursively so a
+// single oversized value cannot be cloned and multiplied by the cold-partition fan-out.
+size_t minimum_selected_column_capacity(const IColumn& column) {
+    if (const auto* constant = check_and_get_column<ColumnConst>(column)) {
+        return minimum_selected_column_capacity(constant->get_data_column());
+    }
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        return iceberg_saturating_add(
+                MIN_POD_ARRAY_CAPACITY,
+                minimum_selected_column_capacity(nullable->get_nested_column()));
+    }
+    if (const auto* array = check_and_get_column<ColumnArray>(column)) {
+        return iceberg_saturating_add(MIN_POD_ARRAY_CAPACITY,
+                                      minimum_selected_column_capacity(array->get_data()));
+    }
+    if (const auto* map = check_and_get_column<ColumnMap>(column)) {
+        size_t capacity = iceberg_saturating_add(MIN_POD_ARRAY_CAPACITY,
+                                                 minimum_selected_column_capacity(map->get_keys()));
+        return iceberg_saturating_add(capacity,
+                                      minimum_selected_column_capacity(map->get_values()));
+    }
+    if (const auto* structure = check_and_get_column<ColumnStruct>(column)) {
+        size_t capacity = 0;
+        for (const auto& child : structure->get_columns()) {
+            capacity = iceberg_saturating_add(capacity, minimum_selected_column_capacity(*child));
+        }
+        return capacity;
+    }
+    if (check_and_get_column<ColumnString>(column) != nullptr) {
+        return 2 * MIN_POD_ARRAY_CAPACITY;
+    }
+    return MIN_POD_ARRAY_CAPACITY;
+}
+} // namespace
+
+size_t iceberg_cold_writer_reserve_size(const Block& block, size_t writer_workspace_bytes) {
+    const size_t block_bytes = block.allocated_bytes();
+    const size_t row_index_bytes =
+            std::min(std::numeric_limits<size_t>::max() / sizeof(size_t), block.rows()) *
+            sizeof(size_t);
+    const size_t dispatch_copies = block_bytes > std::numeric_limits<size_t>::max() / 4
+                                           ? std::numeric_limits<size_t>::max()
+                                           : block_bytes * 4;
+    size_t reserve = iceberg_saturating_add(writer_workspace_bytes, dispatch_copies);
+    if (block.rows() > 0) {
+        size_t minimum_selected_block_bytes = 0;
+        for (const auto& column : block.get_columns_with_type_and_name()) {
+            minimum_selected_block_bytes = iceberg_saturating_add(
+                    minimum_selected_block_bytes, minimum_selected_column_capacity(*column.column));
+        }
+        const size_t max_partition_count = static_cast<size_t>(
+                std::max(1, config::table_sink_partition_write_max_partition_nums_per_writer));
+        const size_t touched_partitions = std::min(block.rows(), max_partition_count);
+        const size_t retained_sorter_capacity = iceberg_saturating_multiply(
+                iceberg_saturating_multiply(minimum_selected_block_bytes, touched_partitions), 2);
+        // Sorter append growth can retain twice the minimum selected-column capacity for every new
+        // partition even though only the current selection itself is temporary during dispatch.
+        reserve = iceberg_saturating_add(reserve, retained_sorter_capacity);
+    }
+    return iceberg_saturating_add(reserve, row_index_bytes);
+}
+
 SpillIcebergTableSinkLocalState::SpillIcebergTableSinkLocalState(DataSinkOperatorXBase* parent,
                                                                  RuntimeState* state)
         : Base(parent, state) {}
 
 Status SpillIcebergTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
+    // Admission samples async sorter state, so wait until the prior append has published it.
+    _writer->wait_for_processing_before_next_sink();
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
 
@@ -53,30 +128,53 @@ bool SpillIcebergTableSinkLocalState::is_blockable() const {
     return true;
 }
 
-size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
+size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos,
+                                                             const Block* block) {
     if (!_writer) {
         return 0;
     }
-    auto current_writer = _writer->current_writer();
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
-    if (!sort_writer) {
-        return 0;
+    std::vector<IcebergSorterReserveMemory> per_partition_reservations;
+    const size_t incoming_rows = block == nullptr ? 0 : block->rows();
+    const size_t incoming_bytes = block == nullptr ? 0 : block->allocated_bytes();
+    auto dispatch_lock = _writer->lock_partition_dispatch();
+    auto active_writers = _writer->active_writers();
+    per_partition_reservations.reserve(active_writers->size());
+    for (const auto& writer : *active_writers) {
+        if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
+            auto reservation = sort_writer->get_reserve_mem_size_components(
+                    state, eos, incoming_rows, incoming_bytes);
+            per_partition_reservations.push_back(
+                    {.retained_growth = reservation.retained_growth,
+                     .retained_growth_trigger_bytes = reservation.retained_growth_trigger_bytes,
+                     .retained_sorted_destination = reservation.retained_sorted_destination,
+                     .transient_workspace = reservation.transient_workspace});
+        }
     }
-
-    return sort_writer->get_reserve_mem_size(state, eos);
+    // Column growth and sorted destinations remain in touched sorters, while scratch is reused by
+    // serial dispatch.
+    // The final queued item may contain rows and also owns the reservation used by async finish().
+    const size_t incoming_reserve =
+            block == nullptr ? state->minimum_operator_memory_required_bytes()
+                             : iceberg_cold_writer_reserve_size(
+                                       *block, state->minimum_operator_memory_required_bytes());
+    return iceberg_reserve_size(per_partition_reservations, incoming_reserve, incoming_rows,
+                                incoming_bytes);
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {
     if (!_writer) {
         return 0;
     }
-    auto current_writer = _writer->current_writer();
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
-    if (!sort_writer) {
-        return 0;
+    size_t revocable_size = 0;
+    auto dispatch_lock = _writer->lock_partition_dispatch();
+    // Retain the published container while the async writer may replace the current snapshot.
+    auto active_writers = _writer->active_writers();
+    for (const auto& writer : *active_writers) {
+        if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
+            revocable_size += sort_writer->data_size();
+        }
     }
-
-    return sort_writer->data_size();
+    return revocable_size;
 }
 
 Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
@@ -84,20 +182,26 @@ Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
     if (!_writer) {
         return Status::OK();
     }
-    auto current_writer = _writer->current_writer();
-    auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(current_writer.get());
-    if (!sort_writer) {
-        return Status::OK();
+    auto dispatch_lock = _writer->lock_partition_dispatch();
+    std::shared_ptr<IPartitionWriterBase> largest_writer;
+    size_t largest_size = 0;
+    // Retain the snapshot while the async writer may publish a replacement.
+    auto active_writers = _writer->active_writers();
+    for (const auto& writer : *active_writers) {
+        if (auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(writer.get())) {
+            size_t size = sort_writer->data_size();
+            if (size > largest_size) {
+                largest_size = size;
+                largest_writer = writer;
+            }
+        }
     }
-
-    auto exception_catch_func = [current_writer, sort_writer]() {
-        auto status = [&]() {
-            RETURN_IF_CATCH_EXCEPTION({ return sort_writer->trigger_spill(); });
-        }();
-        return status;
-    };
-
-    return run_spill_task(state, exception_catch_func);
+    if (largest_writer != nullptr) {
+        // Drain one largest partition per revocation to avoid launching O(P) spill tasks.
+        auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(largest_writer.get());
+        RETURN_IF_CATCH_EXCEPTION({ RETURN_IF_ERROR(sort_writer->trigger_spill()); });
+    }
+    return Status::OK();
 }
 
 SpillIcebergTableSinkOperatorX::SpillIcebergTableSinkOperatorX(
@@ -127,9 +231,10 @@ Status SpillIcebergTableSinkOperatorX::sink_impl(RuntimeState* state, Block* in_
     return local_state.sink(state, in_block, eos);
 }
 
-size_t SpillIcebergTableSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
+size_t SpillIcebergTableSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos,
+                                                            const Block* block) {
     auto& local_state = get_local_state(state);
-    return local_state.get_reserve_mem_size(state, eos);
+    return local_state.get_reserve_mem_size(state, eos, block);
 }
 
 size_t SpillIcebergTableSinkOperatorX::revocable_mem_size(RuntimeState* state) const {

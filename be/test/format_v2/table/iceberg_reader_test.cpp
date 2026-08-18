@@ -2781,6 +2781,8 @@ TEST(IcebergV2ReaderTest, ParquetUsesUnprojectedSiblingIdToRetainNullableWrapper
             std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"a"});
     auto projected_s = make_table_column(10, "s", projected_struct_type);
     projected_s.children = {projected_a};
+    // Tests that initialize the reader directly must mirror FileScannerV2's Iceberg annotation.
+    ASSERT_TRUE(iceberg::prepare_iceberg_initial_default_exprs(&projected_s).ok());
     std::vector<ColumnDefinition> projected_columns = {projected_s};
 
     auto schema_a =
@@ -2853,7 +2855,7 @@ TEST(IcebergV2ReaderTest, ReusedRootNameReadsNewFieldInitialDefault) {
     auto projected_b = make_table_column(-1, "b", std::make_shared<DataTypeInt32>());
     ProjectedColumnBuildContext context {.scan_params = &scan_params};
     TFileScanSlotInfo slot_info;
-    TableReader annotation_reader;
+    iceberg::IcebergTableReader annotation_reader;
     ASSERT_TRUE(
             annotation_reader.annotate_projected_column(slot_info, &context, &projected_b).ok());
     std::vector<ColumnDefinition> projected_columns = {projected_b};
@@ -2960,7 +2962,7 @@ TEST(IcebergV2ReaderTest, ReusedNestedNameReadsNewFieldInitialDefault) {
     auto projected_s = make_table_column(-1, "s", struct_type);
     ProjectedColumnBuildContext context {.scan_params = &scan_params};
     TFileScanSlotInfo slot_info;
-    TableReader annotation_reader;
+    iceberg::IcebergTableReader annotation_reader;
     ASSERT_TRUE(
             annotation_reader.annotate_projected_column(slot_info, &context, &projected_s).ok());
     ASSERT_TRUE(context.schema_column.has_value());

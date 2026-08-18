@@ -54,7 +54,7 @@ public:
     /// messages (DPCM-framed). Called once at EOS.
     virtual Status prepare_commit(std::vector<TPaimonCommitMessage>& messages) = 0;
 
-    /// Discard written data files on error. Called when write or prepare_commit fails.
+    /// Discard written data files on error or when FE rejects the final prepared-file report.
     virtual Status abort() = 0;
 };
 
@@ -80,11 +80,15 @@ public:
     /// Create a lightweight writer adapter that delegates to this backend.
     virtual Status create_writer(std::unique_ptr<IPaimonWriter>* writer) = 0;
 
+    /// Stop SDK writers before commit metadata can be accepted while preserving enough metadata
+    /// for abort(messages) if the coordinator rejects the final report.
+    virtual Status prepare_close_for_commit() = 0;
+
     /// Stop all SDK users and release backend resources.
     ///
     /// A successful return is the ownership boundary after which native memory
-    /// backing SDK buffers can be reclaimed safely. Callers must not publish
-    /// prepared commit messages until this succeeds.
+    /// backing SDK buffers can be reclaimed safely. A prepared writer may defer
+    /// this call while the final report outcome is pending so rejection can abort it.
     virtual Status close() = 0;
 
     virtual PaimonBackendType type() const = 0;

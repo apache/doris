@@ -44,7 +44,7 @@ struct ObjectStoragePathOptions {
     std::string bucket = std::string();                  // blob container in azure
     std::string key = std::string();                     // blob name in azure
     std::string prefix = std::string();                  // for batch delete and recursive delete
-    std::optional<std::string> upload_id = std::nullopt; // only used for S3 upload
+    std::optional<std::string> upload_id = std::nullopt; // token identifying this writer's parts
 };
 
 struct ObjectCompleteMultiPart {
@@ -86,7 +86,8 @@ struct ObjectStorageHeadResponse : ObjectStorageResponse {
 class ObjStorageClient {
 public:
     virtual ~ObjStorageClient() = default;
-    // Create a multi-part upload request. On AWS-compatible systems, it will return an upload ID, but not on Azure.
+    // Create a multi-part upload request. The returned token may be provider-issued or local and
+    // identifies this writer's parts.
     // The input parameters should include the bucket and key for the object storage.
     virtual ObjectStorageUploadResponse create_multipart_upload(
             const ObjectStoragePathOptions& opts) = 0;
@@ -106,6 +107,11 @@ public:
     virtual ObjectStorageResponse complete_multipart_upload(
             const ObjectStoragePathOptions& opts,
             const std::vector<ObjectCompleteMultiPart>& completed_parts) = 0;
+    // Providers without an explicit abort operation may let unpublished parts expire. S3
+    // overrides this so a coordinator rejection can release multipart resources immediately.
+    virtual ObjectStorageResponse abort_multipart_upload(const ObjectStoragePathOptions&) {
+        return ObjectStorageResponse::OK();
+    }
     // According to the passed bucket and key, it will access whether the corresponding file exists in the object storage.
     // If it exists, it will return the corresponding file size
     virtual ObjectStorageHeadResponse head_object(const ObjectStoragePathOptions& opts) = 0;

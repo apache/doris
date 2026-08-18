@@ -58,6 +58,8 @@ class RuntimeProfile;
  *    to produce final sorted output files.
  */
 class VIcebergSortWriter : public IPartitionWriterBase {
+    friend class VIcebergSortWriterTest;
+
 public:
     // Lambda type for creating new VIcebergPartitionWriter instances.
     // Used when a file is completed and a new file needs to be opened.
@@ -105,12 +107,20 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
 
+    SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos) const;
+
+    SorterReserveMemory get_reserve_mem_size_components(RuntimeState* state, bool eos,
+                                                        size_t incoming_rows,
+                                                        size_t incoming_bytes) const;
+
     // Called by the memory management system to trigger spilling data to disk
     Status trigger_spill();
 
 private:
-    // Calculate average row size from the first non-empty block to determine
-    // the optimal batch row count for spill operations
+    void _include_merge_reservation(RuntimeState* state, bool eos,
+                                    SorterReserveMemory* reservation) const;
+
+    // Track the largest observed materialized row size to bound merge output batches.
     void _update_spill_block_batch_row_count(const Block& block);
 
     // Sort in-memory data and flush to a Parquet/ORC file, then open a new writer
@@ -189,9 +199,9 @@ private:
     // Target file size in bytes; files are split when this threshold is exceeded
     // Default: config::iceberg_sink_max_file_size (1GB)
     int64_t _target_file_size_bytes = 0;
-    // Average row size in bytes, computed from the first non-empty block
-    size_t _avg_row_bytes = 0;
-    // Number of rows per spill batch, computed from average row size and spill_sort_batch_bytes
+    // Largest observed materialized row size, used to byte-bound merge output batches.
+    size_t _max_row_bytes = 0;
+    // Number of rows per spill batch, computed from observed row size and spill_sort_batch_bytes.
     size_t _spill_block_batch_row_count = 4096;
 
     // Counter tracking how many times spill has been triggered

@@ -48,6 +48,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.UnboundPredicate;
@@ -396,7 +397,8 @@ public class IcebergUtilsTest {
         IcebergUtils.validateVariantWriteProperties(variantColumns,
                 ImmutableMap.of(shredVariantsProperty, "false"));
 
-        AnalysisException exception = Assert.assertThrows(AnalysisException.class,
+        AnalysisException exception = Assert.assertThrows(
+                AnalysisException.class,
                 () -> IcebergUtils.validateVariantWriteProperties(variantColumns,
                         ImmutableMap.of(shredVariantsProperty, "true")));
         Assert.assertTrue(exception.getMessage().contains("only unshredded Iceberg VARIANT writes"));
@@ -466,6 +468,24 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testRejectNestedPartitionWriteWhenOldBackendIsEligible() {
+        Schema schema = new Schema(Types.NestedField.optional(1, "payload", Types.StructType.of(
+                Types.NestedField.optional(2, "part", Types.IntegerType.get()))));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).bucket("payload.part", 8).build();
+        Backend oldBackend = Mockito.mock(Backend.class);
+        Mockito.when(oldBackend.isQueryAvailable()).thenReturn(true);
+        Mockito.when(oldBackend.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(oldBackend.getId()).thenReturn(10005L);
+
+        org.apache.doris.common.AnalysisException exception = Assert.assertThrows(
+                org.apache.doris.common.AnalysisException.class,
+                () -> IcebergUtils.validateNestedPartitionWriteBackendCompatibility(
+                        spec, schema, Collections.singletonList(oldBackend)));
+
+        Assert.assertTrue(exception.getMessage().contains("backend 10005"));
+    }
+
+    @Test
     public void testIcebergVariantEnablesParquetMetricsCollection() {
         Table table = Mockito.mock(Table.class);
         Mockito.when(table.properties()).thenReturn(ImmutableMap.of(
@@ -530,6 +550,41 @@ public class IcebergUtilsTest {
         List<Column> columns = IcebergUtils.parseSchema(schema, true, false);
 
         Assert.assertEquals("7", columns.get(0).getChildren().get(0).getDefaultValue());
+    }
+
+    @Test
+    public void testIcebergRequirednessIsCollectedRecursively() {
+        Schema schema = new Schema(Types.NestedField.required(10, "s", Types.StructType.of(
+                Types.NestedField.required(11, "required_child", Types.IntegerType.get()),
+                Types.NestedField.optional(12, "optional_child", Types.IntegerType.get()))));
+
+        Map<Integer, Boolean> optionality = IcebergUtils.getFieldOptionality(schema);
+
+        Assert.assertFalse(optionality.get(10));
+        Assert.assertFalse(optionality.get(11));
+        Assert.assertTrue(optionality.get(12));
+    }
+
+    @Test
+    public void testComplexInitialDefaultUsesIcebergSingleValueJson() {
+        Types.StructType structType = Types.StructType.of(
+                Types.NestedField.optional(11, "bytes", Types.BinaryType.get()),
+                Types.NestedField.optional(12, "uuid", Types.UUIDType.get()));
+        GenericRecord value = GenericRecord.create(structType);
+        value.set(0, ByteBuffer.wrap(new byte[] {0, 1, (byte) 0xFF}));
+        value.set(1, UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"));
+
+        Assert.assertEquals("{\"11\":\"0001FF\",\"12\":\"00112233-4455-6677-8899-aabbccddeeff\"}",
+                IcebergUtils.serializeInitialDefault(structType, value, false));
+    }
+
+    @Test
+    public void testBinaryLikeFieldIdsIncludeNestedLeavesWithoutDefaults() {
+        Schema schema = new Schema(Types.NestedField.optional(10, "s", Types.StructType.of(
+                Types.NestedField.optional(11, "bytes", Types.BinaryType.get()),
+                Types.NestedField.optional(12, "text", Types.StringType.get()))));
+
+        Assert.assertEquals(Collections.singleton(11), IcebergUtils.getBinaryLikeFieldIds(schema));
     }
 
     @Test

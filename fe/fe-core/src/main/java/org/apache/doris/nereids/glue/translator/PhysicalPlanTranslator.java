@@ -3419,7 +3419,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         field.getTransform(),
                         field.getParam(),
                         field.getName(),
-                        field.getSourceId()));
+                        field.getSourceId(),
+                        field.getSourceFieldPath()));
             }
             return new DataPartition(TPartitionType.MERGE_PARTITIONED, operationExpr,
                     insertPartitionExprs, deletePartitionExprs, mergeSpec.isInsertRandom(),

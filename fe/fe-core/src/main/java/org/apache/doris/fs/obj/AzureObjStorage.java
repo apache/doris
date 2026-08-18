@@ -57,8 +57,6 @@ import org.jetbrains.annotations.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
@@ -69,7 +67,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     private static final Logger LOG = LogManager.getLogger(AzureObjStorage.class);
@@ -280,13 +277,23 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
-        List<String> blockIds = parts.keySet().stream()
-                .map(k -> Base64.getEncoder()
-                        .encodeToString(ByteBuffer.allocate(4)
-                                .order(ByteOrder.LITTLE_ENDIAN)
-                                .putInt(k)
-                                .array())).collect(Collectors.toList());
-        blockBlobClient.commitBlockList(blockIds);
+        blockBlobClient.commitBlockList(multipartBlockIds(parts));
+    }
+
+    static List<String> multipartBlockIds(Map<Integer, String> parts) {
+        return parts.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> {
+                    // The value is the exact UUID-namespaced Azure block ID staged by BE;
+                    // deriving an ID from the part number can publish another writer's block.
+                    if (entry.getValue() == null || entry.getValue().isEmpty()) {
+                        throw new IllegalArgumentException(
+                                "Azure multipart completion requires the staged block ID for part "
+                                        + entry.getKey());
+                    }
+                    return entry.getValue();
+                })
+                .collect(java.util.stream.Collectors.toList());
     }
 
     @Override

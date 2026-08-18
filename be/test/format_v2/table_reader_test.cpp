@@ -57,6 +57,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/iceberg_scan_semantics.h"
+#include "format_v2/table/iceberg_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -1116,6 +1117,10 @@ public:
     using TableReader::_materialize_map_mapping_column;
     using TableReader::_materialize_present_child_mapping_column;
     using TableReader::_materialize_struct_mapping_column;
+    using TableReader::_mapping_requires_collection_parent_null_map;
+    using TableReader::_project_collection_parent_null_map_for_hidden_entries;
+    using TableReader::_requires_collection_parent_null_map;
+    using TableReader::_requires_parent_null_map_for_alignment;
 };
 
 TEST(TableReaderTest, TruncateCharOrVarcharPredicateOnlyAppliesToParquetStringWidthMismatch) {
@@ -2665,6 +2670,38 @@ TEST(TableReaderTest, AnnotateProjectedColumnUsesCurrentHistorySchemaForNestedTy
     EXPECT_EQ(context.schema_column->children[1].children[1].get_identifier_field_id(), 25);
 }
 
+TEST(TableReaderTest, NestedCurrentNameTakesPrecedenceOverSiblingAlias) {
+    auto renamed_field =
+            external_array_field("renamed", 11, external_schema_field("element", 13), {"old"});
+    auto reused_field = external_map_field("old", 12, external_schema_field("key", 14),
+                                           external_schema_field("value", 15));
+    auto parent_field = external_struct_field("s", 10, {renamed_field, reused_field});
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {parent_field})});
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto old_type = std::make_shared<DataTypeMap>(string_type, string_type);
+    auto renamed_type = std::make_shared<DataTypeArray>(int_type);
+    auto parent_type = std::make_shared<DataTypeStruct>(DataTypes {old_type, renamed_type},
+                                                        Strings {"old", "renamed"});
+    ColumnDefinition projected = make_table_column(-1, "s", parent_type);
+    ProjectedColumnBuildContext context {.scan_params = &scan_params};
+    TFileScanSlotInfo slot_info;
+    TableReader reader;
+
+    ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &projected).ok());
+
+    ASSERT_TRUE(context.schema_column.has_value());
+    ASSERT_EQ(context.schema_column->children.size(), 2);
+    EXPECT_EQ(TYPE_ARRAY,
+              remove_nullable(context.schema_column->children[0].type)->get_primitive_type());
+    EXPECT_EQ(TYPE_MAP,
+              remove_nullable(context.schema_column->children[1].type)->get_primitive_type());
+}
+
 TEST(TableReaderTest, AnnotateProjectedColumnPrefersCurrentNameOverHistoricalAlias) {
     auto renamed_field = external_schema_field("renamed_b", 1, {"b"});
     renamed_field.field_ptr->__set_name_mapping_is_authoritative(true);
@@ -2736,7 +2773,8 @@ TEST(TableReaderTest, IcebergInitialDefaultMetadataOverridesGenericBinaryDefault
             Field::create_field<TYPE_VARBINARY>(StringView("Ej5FZ+ibEtOkVkJmFBdAAA=="))));
     ProjectedColumnBuildContext context {.scan_params = &scan_params};
     TFileScanSlotInfo slot_info;
-    TableReader annotation_reader;
+    // Mirror FileScannerV2 so Iceberg transport metadata is typed before generic mapping.
+    iceberg::IcebergTableReader annotation_reader;
     ASSERT_TRUE(
             annotation_reader.annotate_projected_column(slot_info, &context, &binary_column).ok());
     ASSERT_TRUE(binary_column.initial_default_value.has_value());
@@ -5865,6 +5903,8 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithBinaryInitialDefault) 
                                                         Strings {"id", "missing_child"});
     auto struct_column = make_table_column(100, "s", struct_type);
     struct_column.children = {id_child, missing_child};
+    // Direct TableReader tests must perform the Iceberg annotation stage that scanners provide.
+    ASSERT_TRUE(iceberg::prepare_iceberg_initial_default_exprs(&struct_column).ok());
     std::vector<ColumnDefinition> projected_columns = {struct_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -6343,6 +6383,262 @@ TEST(TableReaderTest, ProjectedColumnsUseMapperExpressionsForParquetSchemaMismat
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+TEST(TableReaderTest, CollectionParentMaskSkipsLargeArrayWhenNearerMaskCoversVisibleNull) {
+    constexpr size_t visible_entries = 500000;
+    const size_t entries = visible_entries + 1;
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"});
+    const auto nullable_struct_type = make_nullable(struct_type);
+
+    auto values = ColumnInt32::create(entries, 0);
+    auto value_null_map = ColumnUInt8::create(entries, 0);
+    value_null_map->get_data().back() = 1;
+    MutableColumns struct_children;
+    struct_children.push_back(ColumnNullable::create(std::move(values), std::move(value_null_map)));
+    auto element_null_map = ColumnUInt8::create(entries, 0);
+    element_null_map->get_data().back() = 1;
+    ColumnPtr nullable_elements = ColumnNullable::create(
+            ColumnStruct::create(std::move(struct_children)), std::move(element_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {1, entries};
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_elements, nullable_struct_type, 2, offsets));
+}
+
+TEST(TableReaderTest, CollectionParentMaskSkipsLargeMapWhenNearerMaskCoversVisibleNull) {
+    constexpr size_t visible_entries = 500000;
+    const size_t entries = visible_entries + 1;
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"});
+    const auto nullable_struct_type = make_nullable(struct_type);
+
+    auto values = ColumnInt32::create(entries, 0);
+    auto value_null_map = ColumnUInt8::create(entries, 0);
+    value_null_map->get_data().back() = 1;
+    MutableColumns struct_children;
+    struct_children.push_back(ColumnNullable::create(std::move(values), std::move(value_null_map)));
+    auto value_struct_null_map = ColumnUInt8::create(entries, 0);
+    value_struct_null_map->get_data().back() = 1;
+    ColumnPtr nullable_value_structs = ColumnNullable::create(
+            ColumnStruct::create(std::move(struct_children)), std::move(value_struct_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {1, entries};
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_value_structs, nullable_struct_type, 2, offsets));
+}
+
+TEST(TableReaderTest, CollectionParentMaskKeepsRequiredNullInHiddenEntry) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"});
+    const auto nullable_struct_type = make_nullable(struct_type);
+
+    auto values = ColumnInt32::create(2, 0);
+    auto value_null_map = ColumnUInt8::create();
+    value_null_map->get_data().assign({1, 1});
+    MutableColumns struct_children;
+    struct_children.push_back(ColumnNullable::create(std::move(values), std::move(value_null_map)));
+    auto element_null_map = ColumnUInt8::create();
+    element_null_map->get_data().assign({0, 1});
+    ColumnPtr nullable_elements = ColumnNullable::create(
+            ColumnStruct::create(std::move(struct_children)), std::move(element_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {1, 2};
+
+    EXPECT_TRUE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_elements, nullable_struct_type, 2, offsets));
+}
+
+TEST(TableReaderTest, TrivialArrayChildProjectsNullableStructParentMask) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto element_struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"value"});
+    const auto nullable_element_struct_type = make_nullable(element_struct_type);
+    const auto array_type = std::make_shared<DataTypeArray>(nullable_element_struct_type);
+    const auto table_struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {array_type, int_type}, Strings {"items", "added"}));
+    const auto file_struct_type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {array_type}, Strings {"items"}));
+
+    auto table_items = make_table_column(0, "items", array_type);
+    table_items.type = array_type;
+    auto table_element = make_table_column(0, "element", element_struct_type);
+    table_element.type = element_struct_type;
+    auto table_value = make_table_column(0, "value", int_type);
+    table_value.type = int_type;
+    table_element.children = {table_value};
+    table_items.children = {table_element};
+    auto table_added = make_table_column(1, "added", int_type);
+    table_added.type = int_type;
+    auto table_struct = make_table_column(0, "payload", table_struct_type);
+    table_struct.type = table_struct_type;
+    table_struct.children = {table_items, table_added};
+
+    auto file_items = make_file_column(0, "items", array_type);
+    file_items.type = array_type;
+    auto file_element = make_file_column(0, "element", element_struct_type);
+    file_element.type = element_struct_type;
+    auto file_value = make_file_column(0, "value", int_type);
+    file_value.type = int_type;
+    file_element.children = {file_value};
+    file_items.children = {file_element};
+    auto file_struct = make_file_column(0, "payload", file_struct_type);
+    file_struct.type = file_struct_type;
+    file_struct.children = {file_items};
+
+    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
+    ASSERT_EQ(mapper.mappings().size(), 1);
+    ASSERT_FALSE(mapper.mappings()[0].is_trivial);
+    ASSERT_TRUE(mapper.mappings()[0].child_mappings[0].is_trivial);
+
+    auto values = ColumnInt32::create();
+    values->get_data().assign({0, 7});
+    auto value_null_map = ColumnUInt8::create();
+    value_null_map->get_data().assign({1, 0});
+    MutableColumns element_children;
+    element_children.push_back(
+            ColumnNullable::create(std::move(values), std::move(value_null_map)));
+    auto element_null_map = ColumnUInt8::create(2, 0);
+    auto array_values = ColumnNullable::create(ColumnStruct::create(std::move(element_children)),
+                                               std::move(element_null_map));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().assign({1, 2});
+    MutableColumns struct_children;
+    struct_children.push_back(ColumnArray::create(std::move(array_values), std::move(offsets)));
+    auto parent_null_map = ColumnUInt8::create();
+    parent_null_map->get_data().assign({1, 0});
+    ColumnPtr file_data = ColumnNullable::create(ColumnStruct::create(std::move(struct_children)),
+                                                 std::move(parent_null_map));
+
+    TableReaderCastTestHelper reader;
+    ColumnPtr result;
+    const auto status =
+            reader._materialize_struct_mapping_column(mapper.mappings()[0], file_data, 2, &result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result_struct = assert_cast<const ColumnStruct&>(
+            assert_cast<const ColumnNullable&>(*result).get_nested_column());
+    const auto& result_array = assert_cast<const ColumnArray&>(result_struct.get_column(0));
+    const auto& result_elements = assert_cast<const ColumnNullable&>(result_array.get_data());
+    const auto& result_element_struct =
+            assert_cast<const ColumnStruct&>(result_elements.get_nested_column());
+    ASSERT_FALSE(result_element_struct.get_column(0).is_nullable());
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(result_element_struct.get_column(0)).get_element(1),
+              7);
+}
+
+TEST(TableReaderTest, ParentMaskProjectionOnlyWhenRequiredDescendantCanConsumeIt) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    auto mutable_values = ColumnInt32::create();
+    mutable_values->get_data().assign({1, 2});
+    ColumnPtr values = std::move(mutable_values);
+    EXPECT_FALSE(
+            TableReaderCastTestHelper::_requires_parent_null_map_for_alignment(values, int_type));
+
+    ColumnPtr nullable_values = ColumnNullable::create(values->clone(), ColumnUInt8::create(2, 0));
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_parent_null_map_for_alignment(nullable_values,
+                                                                                    int_type));
+    auto null_map = ColumnUInt8::create(2, 0);
+    null_map->get_data()[0] = 1;
+    ColumnPtr nullable_values_with_null =
+            ColumnNullable::create(values->clone(), std::move(null_map));
+    EXPECT_TRUE(TableReaderCastTestHelper::_requires_parent_null_map_for_alignment(
+            nullable_values_with_null, int_type));
+
+    NullMap all_clear_parent_mask(2, 0);
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &all_clear_parent_mask, nullable_values_with_null, int_type));
+    NullMap hidden_parent_mask {1, 0};
+    EXPECT_TRUE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &hidden_parent_mask, nullable_values_with_null, int_type));
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            nullptr, nullable_values_with_null, int_type));
+}
+
+TEST(TableReaderTest, CollectionParentMaskSkipsLargeArrayWhenOnlyEmptyRowIsHidden) {
+    constexpr size_t entries = 500000;
+    auto values = ColumnInt32::create(entries, 0);
+    auto value_null_map = ColumnUInt8::create(entries, 0);
+    value_null_map->get_data().back() = 1;
+    ColumnPtr nullable_values =
+            ColumnNullable::create(std::move(values), std::move(value_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {0, entries};
+    NullMap projected_null_map;
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_values, std::make_shared<DataTypeInt32>(), 2, offsets));
+    const auto* result =
+            TableReaderCastTestHelper::_project_collection_parent_null_map_for_hidden_entries(
+                    nullptr, &parent_null_map, 2, offsets, entries, &projected_null_map);
+
+    EXPECT_EQ(nullptr, result);
+    EXPECT_TRUE(projected_null_map.empty());
+}
+
+TEST(TableReaderTest, CollectionParentMaskSkipsLargeMapWhenOnlyEmptyRowIsHidden) {
+    constexpr size_t entries = 500000;
+    auto values = ColumnInt32::create(entries, 0);
+    auto value_null_map = ColumnUInt8::create(entries, 0);
+    value_null_map->get_data().back() = 1;
+    ColumnPtr nullable_values =
+            ColumnNullable::create(std::move(values), std::move(value_null_map));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {0, entries};
+    NullMap projected_null_map;
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_requires_collection_parent_null_map(
+            &parent_null_map, nullable_values, std::make_shared<DataTypeInt32>(), 2, offsets));
+    const auto* result =
+            TableReaderCastTestHelper::_project_collection_parent_null_map_for_hidden_entries(
+                    nullptr, &parent_null_map, 2, offsets, entries, &projected_null_map);
+
+    EXPECT_EQ(nullptr, result);
+    EXPECT_TRUE(projected_null_map.empty());
+}
+
+TEST(TableReaderTest, MappingProbeSkipsLargeEvolvedArrayWithoutRequiredConsumer) {
+    constexpr size_t visible_entries = 500000;
+    const size_t entries = visible_entries + 1;
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    const auto struct_type =
+            std::make_shared<DataTypeStruct>(DataTypes {nullable_int_type}, Strings {"kept"});
+
+    ColumnMapping child_mapping;
+    child_mapping.table_column_name = "kept";
+    child_mapping.table_type = nullable_int_type;
+    child_mapping.file_local_id = 0;
+    ColumnMapping element_mapping;
+    element_mapping.table_type = make_nullable(struct_type);
+    element_mapping.child_mappings = {child_mapping};
+    element_mapping.is_trivial = false;
+
+    auto values = ColumnInt32::create(entries, 0);
+    auto child_null_map = ColumnUInt8::create(entries, 0);
+    child_null_map->get_data()[0] = 1;
+    MutableColumns physical_children;
+    physical_children.push_back(
+            ColumnNullable::create(std::move(values), std::move(child_null_map)));
+    ColumnPtr physical_elements = ColumnStruct::create(std::move(physical_children));
+    NullMap parent_null_map {1, 0};
+    ColumnArray::Offsets64 offsets {1, entries};
+
+    EXPECT_FALSE(TableReaderCastTestHelper::_mapping_requires_collection_parent_null_map(
+            nullptr, &parent_null_map, element_mapping, physical_elements, 2, offsets));
+
+    child_mapping.table_type = int_type;
+    element_mapping.table_type =
+            make_nullable(std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"kept"}));
+    element_mapping.child_mappings = {child_mapping};
+    EXPECT_TRUE(TableReaderCastTestHelper::_mapping_requires_collection_parent_null_map(
+            nullptr, &parent_null_map, element_mapping, physical_elements, 2, offsets));
 }
 
 } // namespace

@@ -37,6 +37,8 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,6 +49,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class QeProcessorImpl implements QeProcessor {
@@ -57,6 +60,10 @@ public final class QeProcessorImpl implements QeProcessor {
     private Map<TUniqueId, Integer> queryToInstancesNum;
     private Map<String, AtomicInteger> userToInstancesCount;
     private ExecutorService writeProfileExecutor;
+    private final Cache<String, Boolean> acceptedExternalFileReports = CacheBuilder.newBuilder()
+            .maximumSize(1_000_000)
+            .expireAfterWrite(30, TimeUnit.MINUTES)
+            .build();
 
     public static final QeProcessor INSTANCE;
 
@@ -277,22 +284,72 @@ public final class QeProcessorImpl implements QeProcessor {
             }
         }
 
+        boolean hasExternalCommitData = hasExternalCommitData(params);
+        // Legacy BEs may attach the same vectors to periodic reports and resend them at EOS. Only
+        // the final report transfers ownership, so rollout must not reject or cache the preview.
+        boolean transfersExternalFileOwnership = hasExternalCommitData && params.isDone();
+        String reportKey = transfersExternalFileOwnership ? externalFileReportKey(params) : null;
+        if (transfersExternalFileOwnership && reportKey == null) {
+            return rejectedExternalFileReport(result, "External-file report is missing its identity fields");
+        }
+        if (transfersExternalFileOwnership && acceptedExternalFileReports.getIfPresent(reportKey) != null) {
+            // Keep acceptance available after coordinator removal so a lost response is retry-safe.
+            result.setStatus(new TStatus(TStatusCode.OK));
+            result.setExternalFileCommitDataAccepted(true);
+            return result;
+        }
+
         final QueryInfo info = coordinatorMap.get(params.query_id);
         result.setStatus(new TStatus(TStatusCode.OK));
         if (info == null) {
             // Currently, the execution of query is splited from the exec status process.
             // So, it is very likely that when exec status arrived on FE asynchronously, coordinator
             // has been removed from coordinatorMap.
-            return result;
+            return transfersExternalFileOwnership
+                    ? rejectedExternalFileReport(result, "Coordinator no longer owns this external-file report")
+                    : result;
         }
         try {
-            info.getCoord().updateFragmentExecStatus(params);
+            boolean accepted = info.getCoord().updateFragmentExecStatus(params);
+            if (transfersExternalFileOwnership && !accepted) {
+                return rejectedExternalFileReport(result, "FE has not accepted the external-file report");
+            }
         } catch (Exception e) {
             LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
                     DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id), e);
-            return result;
+            return transfersExternalFileOwnership
+                    ? rejectedExternalFileReport(result, "FE did not accept the external-file report")
+                    : result;
         }
         result.setStatus(new TStatus(TStatusCode.OK));
+        if (transfersExternalFileOwnership) {
+            // Publish the retry token before replying; a transport loss cannot revoke FE ownership.
+            acceptedExternalFileReports.put(reportKey, Boolean.TRUE);
+            result.setExternalFileCommitDataAccepted(true);
+        }
+        return result;
+    }
+
+    private static boolean hasExternalCommitData(TReportExecStatusParams params) {
+        // Paimon uses the same ownership-transfer report path in the branch-4.1 connector architecture.
+        return params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
+                || params.isSetMcCommitDatas() || params.isSetPaimonCommitMessages();
+    }
+
+    private static String externalFileReportKey(TReportExecStatusParams params) {
+        if (!params.isSetQueryId() || !params.isSetFragmentId() || !params.isSetBackendId()) {
+            return null;
+        }
+        return params.getQueryId().getHi() + ":" + params.getQueryId().getLo() + ":"
+                + params.getFragmentId() + ":" + params.getBackendId();
+    }
+
+    private static TReportExecStatusResult rejectedExternalFileReport(
+            TReportExecStatusResult result, String message) {
+        TStatus status = new TStatus(TStatusCode.INTERNAL_ERROR);
+        status.addToErrorMsgs(message);
+        result.setStatus(status);
+        result.setExternalFileCommitDataAccepted(false);
         return result;
     }
 

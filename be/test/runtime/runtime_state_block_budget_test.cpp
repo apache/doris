@@ -18,11 +18,187 @@
 #include <gtest/gtest.h>
 
 #include "common/config.h"
+#include "exec/pipeline/report_exec_status_size.h"
 #include "runtime/runtime_state.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/block_budget.h"
 
 namespace doris {
+
+TEST(RuntimeStateIcebergCommitDataTest, RejectsMetadataBeforeItCanExceedTheThriftLimit) {
+    RuntimeState state;
+    const int32_t saved_limit = config::thrift_max_message_size;
+    config::thrift_max_message_size = 128;
+    TIcebergCommitData commit_data;
+    commit_data.__set_file_path(std::string(256, 'x'));
+
+    Status status = state.add_iceberg_commit_datas(commit_data);
+
+    config::thrift_max_message_size = saved_limit;
+    EXPECT_FALSE(status.ok());
+    std::vector<TIcebergCommitData> collected;
+    state.append_iceberg_commit_datas(&collected);
+    EXPECT_TRUE(collected.empty());
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, SharesTheReportBudgetAcrossParallelTasks) {
+    RuntimeState first;
+    RuntimeState second;
+    auto budget = std::make_shared<ExternalFileReportState>();
+    first.set_external_file_report_state(budget);
+    second.set_external_file_report_state(budget);
+    const int32_t saved_limit = config::thrift_max_message_size;
+    config::thrift_max_message_size = 1024 * 1024 + 512;
+    TIcebergCommitData commit_data;
+    commit_data.__set_file_path(std::string(300, 'x'));
+
+    Status first_status = first.add_iceberg_commit_datas(commit_data);
+    Status second_status = second.add_iceberg_commit_datas(commit_data);
+
+    config::thrift_max_message_size = saved_limit;
+    EXPECT_TRUE(first_status.ok()) << first_status;
+    EXPECT_FALSE(second_status.ok());
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, UsesTheSmallerCoordinatorThriftLimit) {
+    RuntimeState state;
+    const int32_t saved_limit = config::thrift_max_message_size;
+    config::thrift_max_message_size = 4 * 1024 * 1024;
+    state._query_options.__set_coordinator_thrift_max_message_size(1024 * 1024 + 128);
+    TIcebergCommitData commit_data;
+    commit_data.__set_file_path(std::string(256, 'x'));
+
+    Status status = state.add_iceberg_commit_datas(commit_data);
+
+    config::thrift_max_message_size = saved_limit;
+    EXPECT_FALSE(status.ok());
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, ValidatesTheCompleteReportEnvelope) {
+    TReportExecStatusParams params;
+    params.__set_error_log({std::string(2 * 1024 * 1024, 'x')});
+
+    EXPECT_FALSE(validate_report_exec_status_size(params, 1024 * 1024).ok());
+    EXPECT_TRUE(validate_report_exec_status_size(params, 3 * 1024 * 1024).ok());
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, EveryOwnershipBearingVectorRequiresExplicitAck) {
+    TReportExecStatusParams params;
+    EXPECT_FALSE(report_transfers_external_file_ownership(params));
+
+    params.__set_hive_partition_updates({THivePartitionUpdate()});
+    EXPECT_TRUE(report_transfers_external_file_ownership(params));
+    params.__isset.hive_partition_updates = false;
+
+    params.__set_paimon_commit_messages({TPaimonCommitMessage()});
+    EXPECT_TRUE(report_transfers_external_file_ownership(params));
+    params.__isset.paimon_commit_messages = false;
+
+    params.__set_mc_commit_datas({TMCCommitData()});
+    EXPECT_TRUE(report_transfers_external_file_ownership(params));
+    params.__isset.mc_commit_datas = false;
+
+    params.__set_iceberg_commit_datas({TIcebergCommitData()});
+    EXPECT_TRUE(report_transfers_external_file_ownership(params));
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, PeriodicReportOmitsExternalCommitData) {
+    RuntimeState state;
+    THivePartitionUpdate hive_update;
+    state.add_hive_partition_updates(hive_update);
+    TIcebergCommitData iceberg_data;
+    iceberg_data.__set_file_path("data.parquet");
+    ASSERT_TRUE(state.add_iceberg_commit_datas(iceberg_data).ok());
+    TMCCommitData mc_data;
+    state.add_mc_commit_datas(mc_data);
+    TReportExecStatusParams periodic_params;
+
+    state.append_external_file_commit_data(&periodic_params, false);
+
+    EXPECT_FALSE(periodic_params.__isset.hive_partition_updates);
+    EXPECT_FALSE(periodic_params.__isset.iceberg_commit_datas);
+    EXPECT_FALSE(periodic_params.__isset.mc_commit_datas);
+
+    TReportExecStatusParams final_params;
+    state.append_external_file_commit_data(&final_params, true);
+    EXPECT_TRUE(final_params.__isset.hive_partition_updates);
+    EXPECT_TRUE(final_params.__isset.iceberg_commit_datas);
+    EXPECT_TRUE(final_params.__isset.mc_commit_datas);
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, RejectedFileCleanupRunsOnce) {
+    RuntimeState coordinator_state;
+    RuntimeState task_state;
+    auto report_state = std::make_shared<ExternalFileReportState>();
+    coordinator_state.set_external_file_report_state(report_state);
+    task_state.set_external_file_report_state(report_state);
+    int cleanup_count = 0;
+    task_state.add_rejected_external_file_report_cleanup([&] { ++cleanup_count; });
+
+    coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+    coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+
+    EXPECT_EQ(1, cleanup_count);
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, AmbiguousOwnershipCannotBecomeRejected) {
+    RuntimeState state;
+    int cleanup_count = 0;
+    state.add_rejected_external_file_report_cleanup([&] { ++cleanup_count; });
+
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::AMBIGUOUS);
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+
+    EXPECT_EQ(0, cleanup_count);
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, FinalizersKeepOwnersUntilAReportOutcome) {
+    RuntimeState state;
+    int acknowledged_count = 0;
+    int rejected_count = 0;
+    state.add_external_file_report_finalizer([&](ExternalFileReportOutcome outcome) {
+        if (outcome == ExternalFileReportOutcome::ACKNOWLEDGED) {
+            ++acknowledged_count;
+        } else if (outcome == ExternalFileReportOutcome::REJECTED) {
+            ++rejected_count;
+        }
+    });
+
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::ACKNOWLEDGED);
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+
+    EXPECT_EQ(1, acknowledged_count);
+    EXPECT_EQ(0, rejected_count);
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, LateFinalizerObservesTerminalReportOutcome) {
+    RuntimeState state;
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+    int rejected_count = 0;
+
+    state.add_external_file_report_finalizer([&](ExternalFileReportOutcome outcome) {
+        if (outcome == ExternalFileReportOutcome::REJECTED) {
+            ++rejected_count;
+        }
+    });
+
+    EXPECT_EQ(1, rejected_count);
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, AcknowledgementAfterAmbiguityReleasesOwner) {
+    RuntimeState state;
+    int acknowledged_count = 0;
+    state.add_external_file_report_finalizer([&](ExternalFileReportOutcome outcome) {
+        if (outcome == ExternalFileReportOutcome::ACKNOWLEDGED) {
+            ++acknowledged_count;
+        }
+    });
+
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::AMBIGUOUS);
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::ACKNOWLEDGED);
+
+    EXPECT_EQ(1, acknowledged_count);
+}
 
 // ---------------------------------------------------------------------------
 // RuntimeState::batch_size()

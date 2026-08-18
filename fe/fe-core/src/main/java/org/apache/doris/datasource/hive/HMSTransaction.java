@@ -162,7 +162,11 @@ public class HMSTransaction implements Transaction {
                 THivePartitionUpdate old = mm.get(pu.getName());
                 old.setFileSize(old.getFileSize() + pu.getFileSize());
                 old.setRowCount(old.getRowCount() + pu.getRowCount());
-                if (old.getS3MpuPendingUploads() != null && pu.getS3MpuPendingUploads() != null) {
+                if (pu.getS3MpuPendingUploads() != null && !pu.getS3MpuPendingUploads().isEmpty()) {
+                    // A missing legacy list is empty state, not ownership of later completion records.
+                    if (old.getS3MpuPendingUploads() == null) {
+                        old.setS3MpuPendingUploads(new ArrayList<>());
+                    }
                     old.getS3MpuPendingUploads().addAll(pu.getS3MpuPendingUploads());
                 }
                 old.getFileNames().addAll(pu.getFileNames());
@@ -175,11 +179,46 @@ public class HMSTransaction implements Transaction {
 
     private void collectUncompletedMpuPendingUploads(List<THivePartitionUpdate> hivePUs) {
         for (THivePartitionUpdate pu : hivePUs) {
-            if (pu.getS3MpuPendingUploads() != null) {
-                for (TS3MPUPendingUpload s3MPUPendingUpload : pu.getS3MpuPendingUploads()) {
-                    uncompletedMpuPendingUploads.add(
-                            new UncompletedMpuPendingUpload(s3MPUPendingUpload, pu.getLocation().getWritePath()));
+            List<TS3MPUPendingUpload> uploads = pu.getS3MpuPendingUploads();
+            if (uploads == null) {
+                continue;
+            }
+            String writePath = pu.getLocation() == null ? null : pu.getLocation().getWritePath();
+            if (Strings.isNullOrEmpty(writePath)) {
+                // One malformed record must not prevent valid sibling uploads from being cleaned up.
+                LOG.warn("Skipping MPU cleanup record without a write path");
+                continue;
+            }
+            for (TS3MPUPendingUpload upload : uploads) {
+                if (!isCompleteObjectStoreUpload(upload)) {
+                    LOG.warn("Skipping incomplete MPU cleanup record for write path {}", writePath);
+                    continue;
                 }
+                uncompletedMpuPendingUploads.add(new UncompletedMpuPendingUpload(upload, writePath));
+            }
+        }
+    }
+
+    private static boolean isCompleteObjectStoreUpload(TS3MPUPendingUpload upload) {
+        return upload != null && !Strings.isNullOrEmpty(upload.getUploadId())
+                && !Strings.isNullOrEmpty(upload.getBucket()) && !Strings.isNullOrEmpty(upload.getKey());
+    }
+
+    private void validateObjectStoreCommitRecords() {
+        if (fileType != TFileType.FILE_S3) {
+            return;
+        }
+        for (THivePartitionUpdate update : hivePartitionUpdates) {
+            int fileCount = update.getFileNames() == null ? 0 : update.getFileNames().size();
+            List<TS3MPUPendingUpload> uploads = update.getS3MpuPendingUploads();
+            int uploadCount = uploads == null ? 0 : uploads.size();
+            boolean completeRecords = uploads != null
+                    && uploads.stream().allMatch(HMSTransaction::isCompleteObjectStoreUpload);
+            if (fileCount != uploadCount || (fileCount > 0 && !completeRecords)) {
+                throw new IllegalStateException(String.format(
+                        "Object-store write reported %d file(s) but %d valid multipart completion record(s); "
+                                + "all backends must support deferred multipart completion before metadata commit",
+                        fileCount, completeRecords ? uploadCount : 0));
             }
         }
     }
@@ -219,6 +258,8 @@ public class HMSTransaction implements Transaction {
     }
 
     public void finishInsertTable(NameMapping nameMapping) {
+        // Validate ownership records before classification can publish a filesystem or HMS mutation.
+        validateObjectStoreCommitRecords();
         Table table = getTable(nameMapping);
         if (hivePartitionUpdates.isEmpty() && isOverwrite && table.getPartitionKeysSize() == 0) {
             // use an empty hivePartitionUpdate to clean source table
@@ -1573,8 +1614,16 @@ public class HMSTransaction implements Transaction {
                 return;
             }
             for (UncompletedMpuPendingUpload uncompletedMpuPendingUpload : uncompletedMpuPendingUploads) {
-                S3FileSystem s3FileSystem = (S3FileSystem) ((SwitchingFileSystem) fs)
+                FileSystem uploadFileSystem = ((SwitchingFileSystem) fs)
                         .fileSystem(uncompletedMpuPendingUpload.path);
+                if (!(uploadFileSystem instanceof S3FileSystem)) {
+                    // Azure cannot selectively abort UUID-namespaced blocks; deleting the target could
+                    // destroy a competing committed blob, so service-side expiry is the safe cleanup.
+                    LOG.info("Leaving uncommitted object-store blocks for service-side expiry at {}",
+                            uncompletedMpuPendingUpload.path);
+                    continue;
+                }
+                S3FileSystem s3FileSystem = (S3FileSystem) uploadFileSystem;
 
                 S3Client s3Client;
                 try {

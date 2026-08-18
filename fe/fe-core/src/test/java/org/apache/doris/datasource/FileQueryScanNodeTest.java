@@ -229,4 +229,36 @@ public class FileQueryScanNodeTest {
         Mockito.verify(externalTable, Mockito.never()).getFullSchema();
     }
 
+    @Test
+    public void testNonFiniteFloatingDefaultsBuildTypedScanExpressions() throws Exception {
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable());
+        IcebergExternalTable externalTable = Mockito.mock(IcebergExternalTable.class);
+        Column floatColumn = new Column("float_default", Type.FLOAT, false,
+                AggregateType.NONE, true, "NaN", "");
+        Column doubleColumn = new Column("double_default", Type.DOUBLE, false,
+                AggregateType.NONE, true, "Infinity", "");
+        List<Column> columns = Arrays.asList(floatColumn, doubleColumn);
+        node.setTargetTable(externalTable);
+        node.getTupleDescriptor().setTable(externalTable);
+        Mockito.when(externalTable.getBaseSchema(Optional.empty(), false)).thenReturn(columns);
+        Mockito.when(externalTable.getFullSchema(Optional.empty())).thenReturn(columns);
+
+        SlotDescriptor floatSlot = new SlotDescriptor(new SlotId(1), node.getTupleDescriptor());
+        floatSlot.setColumn(floatColumn);
+        node.getTupleDescriptor().addSlot(floatSlot);
+        SlotDescriptor doubleSlot = new SlotDescriptor(new SlotId(2), node.getTupleDescriptor());
+        doubleSlot.setColumn(doubleColumn);
+        node.getTupleDescriptor().addSlot(doubleSlot);
+
+        node.initSchemaParams();
+
+        TExpr floatExpr = node.params.getDefaultValueOfSrcSlot().get(floatSlot.getId().asInt());
+        TExpr doubleExpr = node.params.getDefaultValueOfSrcSlot().get(doubleSlot.getId().asInt());
+        Assert.assertEquals(TExprNodeType.FLOAT_LITERAL, floatExpr.getNodes().get(0).getNodeType());
+        Assert.assertTrue(Double.isNaN(floatExpr.getNodes().get(0).getFloatLiteral().getValue()));
+        Assert.assertEquals(TExprNodeType.FLOAT_LITERAL, doubleExpr.getNodes().get(0).getNodeType());
+        Assert.assertEquals(Double.POSITIVE_INFINITY,
+                doubleExpr.getNodes().get(0).getFloatLiteral().getValue(), 0.0);
+    }
+
 }

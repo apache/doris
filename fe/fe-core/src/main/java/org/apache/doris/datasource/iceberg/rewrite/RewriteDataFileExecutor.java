@@ -27,7 +27,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.system.Backend;
+import org.apache.doris.transaction.TransactionManager;
 
 import com.google.common.collect.Lists;
 // Keep third-party imports lexical to preserve the repository's CustomImportOrder invariant.
@@ -61,86 +63,113 @@ public class RewriteDataFileExecutor {
      */
     public RewriteResult executeGroupsConcurrently(List<RewriteDataGroup> groups, long targetFileSizeBytes)
             throws UserException {
-        // Begin transaction
-        long transactionId = dorisTable.getCatalog().getTransactionManager().begin();
-        IcebergTransaction transaction = (IcebergTransaction) dorisTable.getCatalog().getTransactionManager()
-                .getTransaction(transactionId);
-        MvccSnapshot targetSnapshot = dorisTable.loadSnapshot(Optional.empty(), Optional.empty());
-        Table targetIcebergTable = ((IcebergMvccSnapshot) targetSnapshot).getSnapshotCacheValue()
-                .getIcebergTable().orElseThrow(
-                        () -> new UserException("Iceberg rewrite target metadata is not available"));
-        transaction.beginRewrite(dorisTable, targetIcebergTable);
-
-        // Register files to delete
-        for (RewriteDataGroup group : groups) {
-            transaction.updateRewriteFiles(Lists.newArrayList(group.getDataFiles()));
-        }
-
-        // Create result collector and tasks
+        TransactionManager transactionManager = dorisTable.getCatalog().getTransactionManager();
+        long transactionId = transactionManager.begin();
         List<RewriteGroupTask> tasks = Lists.newArrayList();
-        RewriteResultCollector resultCollector = new RewriteResultCollector(groups.size(), tasks);
-
-        // Get available BE count once before creating tasks
-        // This avoids calling getBackendsNumber() in each task during multi-threaded execution.
-        // Use compute group from connect context to align with actual BE selection for queries.
-        int availableBeCount = getAvailableBeCount();
-
-        // Create tasks with callbacks
-        for (RewriteDataGroup group : groups) {
-            RewriteGroupTask task = new RewriteGroupTask(
-                    group,
-                    transactionId,
-                    dorisTable,
-                    targetSnapshot,
-                    connectContext,
-                    targetFileSizeBytes,
-                    availableBeCount,
-                    new RewriteGroupTask.RewriteResultCallback() {
-                        @Override
-                        public void onTaskCompleted(Long taskId) {
-                            resultCollector.onTaskCompleted(taskId);
-                        }
-
-                        @Override
-                        public void onTaskFailed(Long taskId, Exception error) {
-                            resultCollector.onTaskFailed(taskId, error);
-                        }
-                    });
-            tasks.add(task);
-        }
-
-        // Submit tasks to TransientTaskManager
+        boolean committed = false;
         try {
-            for (TransientTaskExecutor task : tasks) {
-                Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(task);
+            IcebergTransaction transaction = (IcebergTransaction) transactionManager
+                    .getTransaction(transactionId);
+            MvccSnapshot targetSnapshot = dorisTable.loadSnapshot(Optional.empty(), Optional.empty());
+            Table targetIcebergTable = ((IcebergMvccSnapshot) targetSnapshot).getSnapshotCacheValue()
+                    .getIcebergTable().orElseThrow(
+                            () -> new UserException("Iceberg rewrite target metadata is not available"));
+            transaction.beginRewrite(dorisTable, targetIcebergTable);
+
+            for (RewriteDataGroup group : groups) {
+                transaction.updateRewriteFiles(Lists.newArrayList(group.getDataFiles()));
             }
-        } catch (JobException e) {
-            throw new UserException("Failed to submit rewrite tasks: " + e.getMessage(), e);
+
+            RewriteResultCollector resultCollector = new RewriteResultCollector(groups.size(), tasks);
+            int availableBeCount = getAvailableBeCount();
+            for (RewriteDataGroup group : groups) {
+                RewriteGroupTask task = new RewriteGroupTask(
+                        group, transactionId, dorisTable, targetSnapshot, connectContext,
+                        targetFileSizeBytes, availableBeCount,
+                        new RewriteGroupTask.RewriteResultCallback() {
+                            @Override
+                            public void onTaskCompleted(Long taskId) {
+                                resultCollector.onTaskCompleted(taskId);
+                            }
+
+                            @Override
+                            public void onTaskFailed(Long taskId, Exception error) {
+                                resultCollector.onTaskFailed(taskId, error);
+                            }
+                        });
+                tasks.add(task);
+            }
+
+            try {
+                for (TransientTaskExecutor task : tasks) {
+                    Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(task);
+                }
+            } catch (JobException e) {
+                throw new UserException("Failed to submit rewrite tasks: " + e.getMessage(), e);
+            }
+
+            waitForTasksCompletion(resultCollector, groups.size());
+            transaction.finishRewrite();
+
+            int rewrittenDataFilesCount = groups.stream()
+                    .mapToInt(group -> group.getDataFiles().size()).sum();
+            int addedDataFilesCount = transaction.getFilesToAddCount();
+            long rewrittenBytesCount = groups.stream().mapToLong(group -> group.getTotalSize()).sum();
+            int removedDeleteFilesCount = groups.stream()
+                    .mapToInt(group -> group.getDeleteFileCount()).sum();
+
+            transactionManager.commit(transactionId);
+            committed = true;
+            invalidateTableCacheAfterCommit();
+            return new RewriteResult(rewrittenDataFilesCount, addedDataFilesCount,
+                    rewrittenBytesCount, removedDeleteFilesCount);
+        } finally {
+            if (!committed) {
+                cancelAndQuiesce(tasks);
+                // No task may update the transaction after rollback releases its rewrite fence.
+                transactionManager.rollback(transactionId);
+            }
         }
-
-        // Wait for all tasks to complete
-        waitForTasksCompletion(resultCollector, groups.size());
-
-        // Finish rewrite operation
-        transaction.finishRewrite();
-
-        // Collect statistics from transaction after all tasks are completed
-        int rewrittenDataFilesCount = groups.stream().mapToInt(group -> group.getDataFiles().size()).sum();
-        // this should after finishRewrite
-        int addedDataFilesCount = transaction.getFilesToAddCount();
-        long rewrittenBytesCount = groups.stream().mapToLong(group -> group.getTotalSize()).sum();
-        int removedDeleteFilesCount = groups.stream().mapToInt(group -> group.getDeleteFileCount()).sum();
-
-        commitAndInvalidate(transaction);
-
-        return new RewriteResult(rewrittenDataFilesCount, addedDataFilesCount,
-                rewrittenBytesCount, removedDeleteFilesCount);
     }
 
-    void commitAndInvalidate(IcebergTransaction transaction) throws UserException {
-        transaction.commit();
-        // Rewrite commits bypass the external-table DDL path, so evict the pre-rewrite snapshot before reuse.
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
+    void invalidateTableCacheAfterCommit() {
+        try {
+            // Rewrite commits bypass the external-table DDL path, so evict the pre-rewrite snapshot before reuse.
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
+        } catch (Exception e) {
+            // Cache refresh is outside the durable Iceberg commit boundary and cannot make it retryable.
+            LOG.warn("Post-commit cache invalidation failed for rewritten table {}",
+                    dorisTable.getName(), e);
+        }
+    }
+
+    private void cancelAndQuiesce(List<RewriteGroupTask> tasks) {
+        if (tasks.isEmpty()) {
+            return;
+        }
+        TransientTaskManager taskManager = Env.getCurrentEnv().getTransientTaskManager();
+        for (RewriteGroupTask task : tasks) {
+            try {
+                taskManager.cancelMemoryTask(task.getId());
+            } catch (JobException e) {
+                LOG.warn("Failed to remove rewrite task {} from the transient queue", task.getId(), e);
+            }
+            try {
+                task.cancel();
+            } catch (JobException e) {
+                LOG.warn("Failed to cancel rewrite task {}", task.getId(), e);
+            }
+        }
+        // Cleanup shares one deadline so a wedged task cannot hold the rewrite fence forever.
+        long timeoutNanos = TimeUnit.SECONDS.toNanos(Math.max(1,
+                connectContext.getSessionVariable().getInsertTimeoutS()));
+        long deadlineNanos = System.nanoTime() + timeoutNanos;
+        for (RewriteGroupTask task : tasks) {
+            long remainingNanos = Math.max(0, deadlineNanos - System.nanoTime());
+            if (!task.awaitCompletionUninterruptibly(remainingNanos, TimeUnit.NANOSECONDS)) {
+                LOG.warn("Timed out waiting for canceled rewrite task {} to finish", task.getId());
+            }
+        }
     }
 
     /**

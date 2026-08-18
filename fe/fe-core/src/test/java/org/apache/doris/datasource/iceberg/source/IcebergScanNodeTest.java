@@ -74,6 +74,7 @@ import org.apache.iceberg.PositionDeletesScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
@@ -97,6 +98,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public class IcebergScanNodeTest {
@@ -114,6 +116,13 @@ public class IcebergScanNodeTest {
         Method method = IcebergScanNode.class.getDeclaredMethod("useFrozenTableGeneration", Table.class);
         method.setAccessible(true);
         return (Table) method.invoke(node, table);
+    }
+
+    private static boolean hasApplicableEqualityDeletes(IcebergScanNode node, TableScan scan)
+            throws Exception {
+        Method method = IcebergScanNode.class.getDeclaredMethod("hasApplicableEqualityDeletes", TableScan.class);
+        method.setAccessible(true);
+        return (boolean) method.invoke(node, scan);
     }
 
     private static class TestIcebergScanNode extends IcebergScanNode {
@@ -218,6 +227,18 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testPositiveEqualityDeleteSummaryAvoidsManifestIo() throws Exception {
+        Snapshot snapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(snapshot.summary()).thenReturn(ImmutableMap.of("total-equality-deletes", "1"));
+        TableScan scan = Mockito.mock(TableScan.class);
+        Mockito.when(scan.snapshot()).thenReturn(snapshot);
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+
+        Assert.assertTrue(hasApplicableEqualityDeletes(node, scan));
+        Mockito.verify(snapshot, Mockito.never()).deleteManifests(Mockito.any());
+    }
+
+    @Test
     public void testPartitionEvolutionKeepsNonFileSlotInReaderSchema() throws Exception {
         Column evolvedIdentityColumn = new Column("int_col", Type.BIGINT, true);
         evolvedIdentityColumn.setUniqueId(1);
@@ -235,6 +256,8 @@ public class IcebergScanNodeTest {
         node.addSlot(1, projectedColumn);
         setIcebergSource(node, source);
         Mockito.doReturn(Collections.emptyMap()).when(node).getBase64EncodedInitialDefaultsForScan();
+        Mockito.doReturn(Collections.emptySet()).when(node).getBinaryLikeFieldIdsForScan();
+        Mockito.doReturn(Collections.emptyMap()).when(node).getFieldOptionalityForScan();
 
         TFileScanRangeParams scanParams = node.initializeAndGetIcebergSchemaInfo();
 
@@ -1306,6 +1329,155 @@ public class IcebergScanNodeTest {
             Assert.assertTrue(e.getMessage().contains("backend 10002 is a smooth upgrade source"));
             Assert.assertTrue(e.getMessage().contains("Variant"));
         }
+    }
+
+    @Test
+    public void testRejectSmoothUpgradeSourceBackendForScanSemanticsV2() throws Exception {
+        Backend currentBackend = Mockito.mock(Backend.class);
+        Mockito.when(currentBackend.isSmoothUpgradeSrc()).thenReturn(false);
+        Backend smoothUpgradeSource = Mockito.mock(Backend.class);
+        Mockito.when(smoothUpgradeSource.isSmoothUpgradeSrc()).thenReturn(true);
+        Mockito.when(smoothUpgradeSource.getId()).thenReturn(10004L);
+        List<Backend> backends = ImmutableList.of(currentBackend, smoothUpgradeSource);
+
+        IcebergScanNode.checkIcebergScanSemanticsV2Compatibility(false, backends);
+        try {
+            IcebergScanNode.checkIcebergScanSemanticsV2Compatibility(true, backends);
+            Assert.fail("nested default and requiredness semantics must not run on a V1 backend");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("backend 10004 is a smooth upgrade source"));
+        }
+    }
+
+    @Test
+    public void testRequirednessHistoryTriggersCurrentScanSemantics() {
+        Schema current = new Schema(2, ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.LongType.get())));
+        Schema historicalOptional = new Schema(1, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.LongType.get())));
+        Schema historicalRequired = new Schema(1, ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.LongType.get())));
+
+        Assert.assertTrue(IcebergScanNode.schemaHistoryRequiresMissingRequiredFieldRejection(
+                current, ImmutableList.of(historicalOptional)));
+        Assert.assertFalse(IcebergScanNode.schemaHistoryRequiresMissingRequiredFieldRejection(
+                current, ImmutableList.of(historicalRequired)));
+    }
+
+    @Test
+    public void testReachableSchemasExcludeLaterAndUnrelatedHistory() {
+        Schema selectedSchema = new Schema(1, ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.LongType.get())));
+        Schema unrelatedSchema = new Schema(2, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.LongType.get())));
+        Snapshot selectedSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(selectedSnapshot.snapshotId()).thenReturn(10L);
+        Mockito.when(selectedSnapshot.schemaId()).thenReturn(1);
+        Mockito.when(selectedSnapshot.parentId()).thenReturn(null);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
+                1, selectedSchema, 2, unrelatedSchema));
+
+        List<Schema> reachable = new ArrayList<>();
+        IcebergScanNode.reachableSchemas(table, selectedSnapshot).forEach(reachable::add);
+
+        Assert.assertEquals(ImmutableList.of(selectedSchema), reachable);
+        Assert.assertFalse(IcebergScanNode.schemaHistoryRequiresMissingRequiredFieldRejection(
+                selectedSchema, reachable));
+    }
+
+    @Test
+    public void testReachableSchemasConservativelyIncludeHistoryAfterExpiredParent() {
+        Schema selectedSchema = new Schema(2, ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.LongType.get())));
+        Schema expiredParentSchema = new Schema(1, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.LongType.get())));
+        Snapshot selectedSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(selectedSnapshot.snapshotId()).thenReturn(20L);
+        Mockito.when(selectedSnapshot.schemaId()).thenReturn(2);
+        Mockito.when(selectedSnapshot.parentId()).thenReturn(10L);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
+                1, expiredParentSchema, 2, selectedSchema));
+        Mockito.when(table.snapshot(10L)).thenReturn(null);
+
+        List<Schema> reachable = new ArrayList<>();
+        IcebergScanNode.reachableSchemas(table, selectedSnapshot).forEach(reachable::add);
+
+        Assert.assertTrue(reachable.contains(expiredParentSchema));
+        Assert.assertTrue(IcebergScanNode.schemaHistoryRequiresMissingRequiredFieldRejection(
+                selectedSchema, reachable));
+    }
+
+    @Test
+    public void testReachableSchemasIncludeCherryPickSourceSchema() {
+        Schema selectedSchema = new Schema(2, ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.LongType.get())));
+        Schema sourceSchema = new Schema(1, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.LongType.get())));
+        Snapshot selectedSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(selectedSnapshot.snapshotId()).thenReturn(20L);
+        Mockito.when(selectedSnapshot.schemaId()).thenReturn(2);
+        Mockito.when(selectedSnapshot.parentId()).thenReturn(null);
+        Mockito.when(selectedSnapshot.summary()).thenReturn(ImmutableMap.of(
+                SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP, "10"));
+        Snapshot sourceSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(sourceSnapshot.snapshotId()).thenReturn(10L);
+        Mockito.when(sourceSnapshot.schemaId()).thenReturn(1);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
+                1, sourceSchema, 2, selectedSchema));
+        Mockito.when(table.snapshot(10L)).thenReturn(sourceSnapshot);
+
+        List<Schema> reachable = new ArrayList<>();
+        IcebergScanNode.reachableSchemas(table, selectedSnapshot).forEach(reachable::add);
+
+        Assert.assertTrue(reachable.contains(sourceSchema));
+        Assert.assertTrue(IcebergScanNode.schemaHistoryRequiresMissingRequiredFieldRejection(
+                selectedSchema, reachable));
+    }
+
+    @Test
+    public void testReachableSchemasFailClosedForMissingCherryPickSource() {
+        Schema selectedSchema = new Schema(2, ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.LongType.get())));
+        Schema historicalSchema = new Schema(1, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.LongType.get())));
+        Snapshot selectedSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(selectedSnapshot.snapshotId()).thenReturn(20L);
+        Mockito.when(selectedSnapshot.schemaId()).thenReturn(2);
+        Mockito.when(selectedSnapshot.parentId()).thenReturn(null);
+        Mockito.when(selectedSnapshot.summary()).thenReturn(ImmutableMap.of(
+                SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP, "10"));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
+                1, historicalSchema, 2, selectedSchema));
+        Mockito.when(table.snapshot(10L)).thenReturn(null);
+
+        List<Schema> reachable = new ArrayList<>();
+        IcebergScanNode.reachableSchemas(table, selectedSnapshot).forEach(reachable::add);
+
+        Assert.assertTrue(reachable.contains(historicalSchema));
+    }
+
+    @Test
+    public void testProjectedFieldIdsExcludePrunedSibling() {
+        Schema schema = new Schema(ImmutableList.of(Types.NestedField.required(
+                1, "payload", Types.StructType.of(
+                        Types.NestedField.required(2, "keep", Types.StringType.get()),
+                        Types.NestedField.required(3, "added", Types.IntegerType.get())))));
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        Column column = new Column("payload", new StructType(
+                new StructField("keep", Type.STRING), new StructField("added", Type.INT)));
+        column.setUniqueId(1);
+        SlotDescriptor slot = node.addSlot(1, column);
+        slot.setType(new StructType(new StructField("keep", Type.STRING)));
+
+        Set<Integer> projected = IcebergScanNode.projectedFieldIds(
+                schema, ImmutableList.of(slot));
+
+        Assert.assertEquals(ImmutableList.of(1, 2), projected.stream().sorted()
+                .collect(java.util.stream.Collectors.toList()));
     }
 
     @Test

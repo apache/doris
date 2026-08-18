@@ -58,6 +58,7 @@ public:
     Status open(const TPaimonTableSink& sink, RuntimeState* state,
                 RuntimeProfile* profile) override;
     Status create_writer(std::unique_ptr<IPaimonWriter>* writer) override;
+    Status prepare_close_for_commit() override;
     Status close() override;
     PaimonBackendType type() const override { return PaimonBackendType::JNI; }
 
@@ -74,6 +75,7 @@ private:
     jmethodID _write_id = nullptr;
     jmethodID _prepare_commit_id = nullptr;
     jmethodID _abort_id = nullptr;
+    jmethodID _prepare_close_for_commit_id = nullptr;
     jmethodID _close_id = nullptr;
 
     TPaimonTableSink _sink;

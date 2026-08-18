@@ -150,6 +150,8 @@ public:
 
 private:
     void _coordinator_callback(const ReportStatusRequest& req);
+    void _append_external_file_commit_data(const ReportStatusRequest& req,
+                                           TReportExecStatusParams* params) const;
     std::string _to_http_path(const std::string& file_name) const;
 
     void _release_resource();

@@ -86,7 +86,8 @@ S3FileWriter::~S3FileWriter() {
         _wait_until_finish(fmt::format("wait s3 file {} upload to be finished",
                                        _obj_storage_path_opts.path.native()));
     }
-    // We won't do S3 abort operation in BE, we let s3 service do it own.
+    // Deferred uploads are reported to FE for cleanup. Uploads that never reach FE are left to
+    // the provider lifecycle policy, so destroying a writer must not mutate provider state here.
     if (state() == State::OPENED && !_failed) {
         s3_bytes_written_total << _bytes_appended;
     }
@@ -104,6 +105,22 @@ Status S3FileWriter::_create_multi_upload_request() {
         _obj_storage_path_opts.upload_id = resp.upload_id;
     }
     return {resp.resp.status.code, std::move(resp.resp.status.msg)};
+}
+
+std::function<void()> S3FileWriter::rejected_report_cleanup() const {
+    auto client_holder = _obj_client;
+    auto path_opts = _obj_storage_path_opts;
+    return [client_holder = std::move(client_holder), path_opts = std::move(path_opts)]() {
+        auto client = client_holder->get();
+        if (client == nullptr || !path_opts.upload_id.has_value()) {
+            return;
+        }
+        auto response = client->abort_multipart_upload(path_opts);
+        if (response.status.code != ErrorCode::OK) {
+            LOG(WARNING) << "Failed to abort rejected multipart upload " << path_opts.path.native()
+                         << ": " << response.status.msg;
+        }
+    };
 }
 
 void S3FileWriter::_wait_until_finish(std::string_view task_name) {

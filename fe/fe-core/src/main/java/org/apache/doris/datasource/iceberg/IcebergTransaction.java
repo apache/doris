@@ -45,8 +45,10 @@ import org.apache.iceberg.ReplacePartitions;
 import org.apache.iceberg.RewriteFiles;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
@@ -77,6 +79,7 @@ public class IcebergTransaction implements Transaction {
     private Table table;
 
     private org.apache.iceberg.Transaction transaction;
+    private IcebergCommitCoordinator.Guard commitGuard;
     private final List<TIcebergCommitData> commitDataList = Lists.newArrayList();
     private Optional<Expression> conflictDetectionFilter = Optional.empty();
 
@@ -131,12 +134,12 @@ public class IcebergTransaction implements Transaction {
     public void beginInsert(ExternalTable dorisTable, Table targetTable,
             Optional<InsertCommandContext> ctx) throws UserException {
         ctx.ifPresent(c -> this.insertCtx = (IcebergInsertCommandContext) c);
+        acquireCommitFence(targetTable);
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 // Planning, BE serialization, and commit must share one Iceberg metadata
                 // generation even if the catalog refreshes between those phases.
                 this.table = targetTable;
-                this.baseSnapshotId = null;
                 // check branch
                 if (insertCtx != null && insertCtx.getBranchName().isPresent()) {
                     this.branchName = insertCtx.getBranchName().get();
@@ -149,10 +152,19 @@ public class IcebergTransaction implements Transaction {
                                         + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
                     }
                 }
+                if (insertCtx != null && insertCtx.isOverwrite()) {
+                    // OVERWRITE must validate against the exact target branch generation retained at binding.
+                    Snapshot baseSnapshot = branchName == null
+                            ? table.currentSnapshot() : table.snapshot(branchName);
+                    this.baseSnapshotId = baseSnapshot == null ? null : baseSnapshot.snapshotId();
+                } else {
+                    this.baseSnapshotId = null;
+                }
                 this.transaction = createTransactionTable(dorisTable, table).newTransaction();
                 this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
             });
         } catch (Exception e) {
+            releaseCommitFence();
             throw new UserException("Failed to begin insert for iceberg table " + dorisTable.getName()
                     + " because: " + e.getMessage(), e);
         }
@@ -164,6 +176,7 @@ public class IcebergTransaction implements Transaction {
         // For rewrite operations, we work directly on the main table
         this.branchName = null;
         this.isRewriteMode = true;
+        acquireCommitFence(targetTable);
 
         try {
             ops.getExecutionAuthenticator().execute(() -> {
@@ -183,6 +196,7 @@ public class IcebergTransaction implements Transaction {
                 return null;
             });
         } catch (Exception e) {
+            releaseCommitFence();
             throw new UserException("Failed to begin rewrite for iceberg table " + dorisTable.getName()
                     + " because: " + e.getMessage(), e);
         }
@@ -268,6 +282,7 @@ public class IcebergTransaction implements Transaction {
      * Begin delete operation for Iceberg table
      */
     public void beginDelete(ExternalTable dorisTable, Table targetTable) throws UserException {
+        acquireCommitFence(targetTable);
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 // RowDelta's validation base must match the generation used to select row IDs;
@@ -287,6 +302,7 @@ public class IcebergTransaction implements Transaction {
                 LOG.info("Started delete transaction for table: {}", dorisTable.getName());
             });
         } catch (Exception e) {
+            releaseCommitFence();
             throw new UserException("Failed to begin delete for iceberg table " + dorisTable.getName()
                     + " because: " + e.getMessage(), e);
         }
@@ -304,6 +320,7 @@ public class IcebergTransaction implements Transaction {
 
     /** Begin UPDATE/MERGE against the metadata generation retained by the merge sink. */
     public void beginMerge(ExternalTable dorisTable, Table targetTable) throws UserException {
+        acquireCommitFence(targetTable);
         try {
             ops.getExecutionAuthenticator().execute(() -> {
                 this.branchName = null;
@@ -324,6 +341,7 @@ public class IcebergTransaction implements Transaction {
                 return null;
             });
         } catch (Exception e) {
+            releaseCommitFence();
             throw new UserException("Failed to begin merge for iceberg table " + dorisTable.getName()
                     + " because: " + e.getMessage(), e);
         }
@@ -552,23 +570,44 @@ public class IcebergTransaction implements Transaction {
 
     @Override
     public void commit() throws UserException {
-        // commit the iceberg transaction
-        transaction.commitTransaction();
+        try {
+            transaction.commitTransaction();
+        } finally {
+            releaseCommitFence();
+        }
     }
 
     @Override
     public void rollback() {
-        if (isRewriteMode) {
-            // Clear the collected files for rewrite mode
-            synchronized (filesToDelete) {
-                filesToDelete.clear();
+        try {
+            if (isRewriteMode) {
+                // Clear the collected files for rewrite mode
+                synchronized (filesToDelete) {
+                    filesToDelete.clear();
+                }
+                synchronized (filesToAdd) {
+                    filesToAdd.clear();
+                }
+                LOG.info("Rewrite transaction rolled back");
             }
-            synchronized (filesToAdd) {
-                filesToAdd.clear();
-            }
-            LOG.info("Rewrite transaction rolled back");
+            // For insert mode, do nothing as original implementation
+        } finally {
+            releaseCommitFence();
         }
-        // For insert mode, do nothing as original implementation
+    }
+
+    private void acquireCommitFence(Table targetTable) {
+        Preconditions.checkState(commitGuard == null, "Iceberg transaction fence is already held");
+        // Hold a shared fence before files can be selected or written. Destructive maintenance
+        // takes the exclusive side, while unrelated and concurrent table writes remain parallel.
+        commitGuard = IcebergCommitCoordinator.beginCommit(targetTable.location());
+    }
+
+    private void releaseCommitFence() {
+        if (commitGuard != null) {
+            commitGuard.close();
+            commitGuard = null;
+        }
     }
 
     public long getUpdateCnt() {
@@ -745,14 +784,18 @@ public class IcebergTransaction implements Transaction {
             if (sourceField == null) {
                 return null;
             }
+            String sourceColumnName = identitySourceColumnName(schema, field.sourceId());
+            if (sourceColumnName == null) {
+                return null;
+            }
             String valueStr = partitionValues.get(i);
             if ("null".equals(valueStr)) {
                 valueStr = null;
             }
             Object value = IcebergUtils.parsePartitionValueFromString(valueStr, sourceField.type());
             Expression predicate = value == null
-                    ? Expressions.isNull(sourceField.name())
-                    : Expressions.equal(sourceField.name(), value);
+                    ? Expressions.isNull(sourceColumnName)
+                    : Expressions.equal(sourceColumnName, value);
             expression = expression == null ? predicate : Expressions.and(expression, predicate);
         }
         return expression;
@@ -858,7 +901,13 @@ public class IcebergTransaction implements Transaction {
                     overwriteFiles = overwriteFiles.toBranch(branchName);
                 }
                 overwriteFiles = overwriteFiles.scanManifestsWith(ops.getThreadPoolWithPreAuth());
-                try (CloseableIterable<FileScanTask> fileScanTasks = table.newScan().planFiles()) {
+                overwriteFiles = validateOverwrite(overwriteFiles, Expressions.alwaysTrue());
+                TableScan overwriteScan = table.newScan();
+                if (branchName != null) {
+                    // The files removed must come from the same branch whose head anchors OCC validation.
+                    overwriteScan = overwriteScan.useRef(branchName);
+                }
+                try (CloseableIterable<FileScanTask> fileScanTasks = overwriteScan.planFiles()) {
                     OverwriteFiles finalOverwriteFiles = overwriteFiles;
                     fileScanTasks.forEach(f -> finalOverwriteFiles.deleteFile(f.file()));
                 } catch (IOException e) {
@@ -875,6 +924,11 @@ public class IcebergTransaction implements Transaction {
             appendPartitionOp = appendPartitionOp.toBranch(branchName);
         }
         appendPartitionOp = appendPartitionOp.scanManifestsWith(ops.getThreadPoolWithPreAuth());
+        // Partition replacement must not delete or revive files committed after sink binding.
+        if (baseSnapshotId != null) {
+            appendPartitionOp = appendPartitionOp.validateFromSnapshot(baseSnapshotId);
+        }
+        appendPartitionOp = appendPartitionOp.validateNoConflictingData().validateNoConflictingDeletes();
         for (WriteResult result : pendingResults) {
             Preconditions.checkState(result.referencedDataFiles().length == 0,
                     "Should have no referenced data files.");
@@ -905,6 +959,7 @@ public class IcebergTransaction implements Transaction {
 
         // Set partition filter to overwrite only matching partitions
         overwriteFiles = overwriteFiles.overwriteByRowFilter(partitionFilter);
+        overwriteFiles = validateOverwrite(overwriteFiles, partitionFilter);
 
         // Add new data files
         for (WriteResult result : pendingResults) {
@@ -915,6 +970,14 @@ public class IcebergTransaction implements Transaction {
 
         // Commit the overwrite operation
         overwriteFiles.commit();
+    }
+
+    private OverwriteFiles validateOverwrite(OverwriteFiles overwriteFiles, Expression conflictFilter) {
+        overwriteFiles = overwriteFiles.conflictDetectionFilter(conflictFilter);
+        if (baseSnapshotId != null) {
+            overwriteFiles = overwriteFiles.validateFromSnapshot(baseSnapshotId);
+        }
+        return overwriteFiles.validateNoConflictingData().validateNoConflictingDeletes();
     }
 
     /**
@@ -947,14 +1010,18 @@ public class IcebergTransaction implements Transaction {
                     throw new RuntimeException(String.format("Source field not found for partition field: %s",
                         partitionColName));
                 }
+                String sourceColName = identitySourceColumnName(schema, field.sourceId());
+                if (sourceColName == null) {
+                    throw new RuntimeException(String.format(
+                            "Source column path not found for partition field: %s", partitionColName));
+                }
 
                 // Convert partition value string to appropriate type
                 Object partitionValue = IcebergUtils.parsePartitionValueFromString(
                         partitionValueStr, sourceField.type());
 
-                // Build equality expression using source field name (not partition field name)
-                // For identity partitions, Iceberg requires the source column name in expressions
-                String sourceColName = sourceField.name();
+                // Build equality expression using the source column path (not partition field name).
+                // For identity partitions, Iceberg requires the source column in expressions.
                 Expression eqExpr;
                 if (partitionValue == null) {
                     eqExpr = Expressions.isNull(sourceColName);
@@ -982,5 +1049,11 @@ public class IcebergTransaction implements Transaction {
             result = Expressions.and(result, predicates.get(i));
         }
         return result;
+    }
+
+    private String identitySourceColumnName(Schema schema, int sourceId) {
+        // Nested identity predicates must bind to the complete schema path; a leaf name alone can
+        // bind another field or fail open when sibling structs reuse that name.
+        return schema.findColumnName(sourceId);
     }
 }

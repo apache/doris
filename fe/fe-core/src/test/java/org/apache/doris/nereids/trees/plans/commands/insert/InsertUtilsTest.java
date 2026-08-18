@@ -26,6 +26,8 @@ import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergPartitionInfo;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundInlineTable;
@@ -95,6 +97,32 @@ public class InsertUtilsTest {
         List<List<NamedExpression>> rows = normalizedValues.getConstantExprsList();
         Assertions.assertEquals("2", rows.get(0).get(0).child(0).toSql());
         Mockito.verify(table, Mockito.times(1)).loadSnapshot(Optional.empty(), Optional.empty());
+    }
+
+    @Test
+    public void testFirstInsertPlanAttemptKeepsInjectedSnapshot() {
+        StatementContext statementContext = new StatementContext();
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(table.getName()).thenReturn("table");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("catalog");
+        MvccSnapshot snapshot = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot newerSnapshot = Mockito.mock(MvccSnapshot.class);
+        Mockito.when(table.loadSnapshot(Optional.empty(), Optional.empty())).thenReturn(newerSnapshot);
+        statementContext.setSnapshot(new MvccTableInfo(table), snapshot);
+
+        InsertIntoTableCommand.prepareMvccSnapshotsForPlanAttempt(statementContext, 1);
+
+        Assertions.assertSame(snapshot,
+                statementContext.loadSnapshots(table, Optional.empty(), Optional.empty())
+                        .orElseThrow(AssertionError::new));
+        Mockito.verify(table, Mockito.never()).loadSnapshot(Optional.empty(), Optional.empty());
+        InsertIntoTableCommand.prepareMvccSnapshotsForPlanAttempt(statementContext, 2);
+        Assertions.assertFalse(statementContext.getSnapshot(table).isPresent());
     }
 
     private String generateString(int length) {

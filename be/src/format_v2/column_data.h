@@ -281,6 +281,8 @@ struct ColumnDefinition {
     // that are absent from the query projection.
     std::optional<std::string> initial_default_value = std::nullopt;
     bool initial_default_value_is_base64 = false;
+    // Iceberg uses explicit false to reject files missing a required field without a default.
+    std::optional<bool> is_optional = std::nullopt;
     // Partition columns are constants from split metadata and should not be matched against file
     // schema unless table-format logic explicitly asks for it.
     bool is_partition_key = false;
