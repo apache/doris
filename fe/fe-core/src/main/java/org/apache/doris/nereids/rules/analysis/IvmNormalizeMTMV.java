@@ -26,6 +26,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.ivm.IvmDeltaRewriteHelper;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
@@ -146,12 +147,16 @@ import java.util.stream.Collectors;
  *   <li>Other key types: not supported, throws.
  * </ul>
  *
- * <p>IVM row-id invariant: every row that really exists in a normalized child plan must have
- * a non-null {@code __DORIS_IVM_ROW_ID_COL__}. Outer join null-side filling is the only place where
- * a child row-id slot may become NULL, and that NULL means the corresponding side has no
- * matching row. This lets outer join compose the MV row-id as
- * {@code hash(left_row_id, right_row_id)} and use the null-side row-id as NULL for unmatched rows
- * without confusing them with real rows.
+ * <p>Outer join null-side filling turns every column of the unmatched side to NULL. To let the
+ * join compose the MV row-id as {@code hash(left_row_id, right_row_id)} without relying on the
+ * child row-id being non-NULL (a real row may carry a NULL row-id once single-column MOW keys
+ * are used directly), a constant-1 match flag column is injected on each null side of the outer
+ * join: LOJ injects on the right, ROJ on the left, FULL on both. The join's null filling turns
+ * the flag NULL for unmatched rows, so {@code hash(left_row_id, [left_flag], right_row_id,
+ * [right_flag])} distinguishes an unmatched null-side row from a real row whose row-id is NULL.
+ * The preserved side needs no flag: its rows are always real, so a NULL preserved-side row-id
+ * can only be a real value. The flag is consumed by the compose project and never stored in the
+ * MV.
  *
  * <h3>Supported plan nodes</h3>
  * OlapScan, filter, project, aggregate, inner/cross join, left/right/full outer join chain, result sink,
@@ -193,6 +198,13 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             return new NormalizeContext(false, isInsideAggregate, true);
         }
     }
+
+    // Outer-join null-side match flag columns (__DORIS_IVM_JOIN_{LEFT,RIGHT}_MATCH_COL__). Injected
+    // as a constant 1 on the null side of an outer join; the join's null filling turns them NULL
+    // for unmatched rows, so the compose hash can distinguish a real NULL child row-id from an
+    // unmatched null-side row. Consumed by the compose project above the join, never stored.
+    private static final String JOIN_LEFT_MATCH_COL = Column.IVM_HIDDEN_COLUMN_PREFIX + "JOIN_LEFT_MATCH_COL__";
+    private static final String JOIN_RIGHT_MATCH_COL = Column.IVM_HIDDEN_COLUMN_PREFIX + "JOIN_RIGHT_MATCH_COL__";
 
     private IvmRewriteResult rewriteResult;
     private final IvmAggFunctionRegistry aggFunctionRegistry = IvmAggFunctionRegistry.INSTANCE;
@@ -425,6 +437,31 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         NormalizeContext childContext = context.enterJoin();
         Plan newLeft = join.left().accept(this, childContext);
         Plan newRight = join.right().accept(this, childContext);
+
+        // Inject a constant-1 match flag on each null side of an outer join (LOJ: right,
+        // ROJ: left, FULL: both; inner/cross: none). The join's null filling turns the flag
+        // NULL for unmatched rows, so the compose hash can distinguish a real NULL child
+        // row-id from an unmatched null-side row. The preserved side needs no flag: its rows
+        // are always real, so a NULL preserved-side row-id can only be a real value.
+        // The flag is consumed by the compose project above the join and never stored in the MV.
+        List<Slot> leftKeys = useFullKeys && !context.isInsideAggregate
+                ? identityKeysByNode.get(newLeft) : null;
+        List<Slot> rightKeys = useFullKeys && !context.isInsideAggregate
+                ? identityKeysByNode.get(newRight) : null;
+        boolean flagOnLeft = isNullSideOnLeft(joinType);
+        boolean flagOnRight = isNullSideOnRight(joinType);
+        if (flagOnLeft) {
+            newLeft = addJoinNullSideMatchedColumn(newLeft, JOIN_LEFT_MATCH_COL);
+            if (leftKeys != null) {
+                identityKeysByNode.put(newLeft, leftKeys);
+            }
+        }
+        if (flagOnRight) {
+            newRight = addJoinNullSideMatchedColumn(newRight, JOIN_RIGHT_MATCH_COL);
+            if (rightKeys != null) {
+                identityKeysByNode.put(newRight, rightKeys);
+            }
+        }
         LogicalJoin<Plan, Plan> newJoin = (LogicalJoin<Plan, Plan>) join.withChildren(newLeft, newRight);
 
         // Find left and right row_id slots from children's output
@@ -443,17 +480,32 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
             checkOuterJoinDeterministicRowId(joinType, leftDet, rightDet);
         }
 
-        // Compose join row_id = hash(left_row_id, right_row_id).
-        // Valid child row_ids are non-null by the normalize invariant above. For OUTER JOIN,
-        // a NULL row_id on a null side can only come from outer join null-side filling and means no matching row.
-        Expression joinRowIdExpr = IvmUtil.buildRowIdHash(ImmutableList.of(leftRowIdSlot, rightRowIdSlot));
+        // Compose join row_id = hash(left_row_id, [left_flag], right_row_id, [right_flag]).
+        // A null-side match flag is NULL exactly when that side was filled as NULL by the outer
+        // join, so the hash encoding distinguishes an unmatched null-side row from a real row
+        // whose row-id is NULL. buildRowIdHash encodes each argument as (nvl(value,''), isnull(value)),
+        // so flag 1 vs NULL produce different encodings.
+        ImmutableList.Builder<Expression> rowIdKeys = ImmutableList.builderWithExpectedSize(4);
+        rowIdKeys.add(leftRowIdSlot);
+        if (flagOnLeft) {
+            rowIdKeys.add(IvmDeltaRewriteHelper.INSTANCE.findSlotByName(
+                    newJoin.getOutput(), JOIN_LEFT_MATCH_COL));
+        }
+        rowIdKeys.add(rightRowIdSlot);
+        if (flagOnRight) {
+            rowIdKeys.add(IvmDeltaRewriteHelper.INSTANCE.findSlotByName(
+                    newJoin.getOutput(), JOIN_RIGHT_MATCH_COL));
+        }
+        Expression joinRowIdExpr = IvmUtil.buildRowIdHash(rowIdKeys.build());
         Alias joinRowIdAlias = new Alias(joinRowIdExpr, Column.IVM_ROW_ID_COL);
 
-        // Build Project output: [composedRowId, joinOutput minus child row_ids]
+        // Build Project output: [composedRowId, joinOutput minus child row_ids and match flags]
         ImmutableList.Builder<NamedExpression> projectOutputs = ImmutableList.builder();
         projectOutputs.add(joinRowIdAlias);
         for (Slot slot : newJoin.getOutput()) {
-            if (!Column.IVM_ROW_ID_COL.equals(slot.getName())) {
+            if (!Column.IVM_ROW_ID_COL.equals(slot.getName())
+                    && !JOIN_LEFT_MATCH_COL.equals(slot.getName())
+                    && !JOIN_RIGHT_MATCH_COL.equals(slot.getName())) {
                 projectOutputs.add(slot);
             }
         }
@@ -463,17 +515,29 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         LogicalProject<?> result = new LogicalProject<>(projectOutputs.build(), newJoin);
         if (useFullKeys && !context.isInsideAggregate) {
             List<Slot> joinKeys = new ArrayList<>();
-            List<Slot> leftKeys = identityKeysByNode.get(newLeft);
             if (leftKeys != null) {
                 joinKeys.addAll(leftKeys);
             }
-            List<Slot> rightKeys = identityKeysByNode.get(newRight);
             if (rightKeys != null) {
                 joinKeys.addAll(rightKeys);
             }
             identityKeysByNode.put(result, joinKeys);
         }
         return result;
+    }
+
+    /**
+     * Wrap a join child with a Project that appends a constant-1 match flag column. The flag is
+     * injected on the null side of an outer join; the join's null filling makes it NULL for
+     * unmatched rows. The appended flag survives the join output and is consumed by the compose
+     * project above the join.
+     */
+    private LogicalProject<?> addJoinNullSideMatchedColumn(Plan child, String flagColumnName) {
+        ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builderWithExpectedSize(
+                child.getOutput().size() + 1);
+        outputs.addAll(child.getOutput());
+        outputs.add(new Alias(new TinyIntLiteral((byte) 1), flagColumnName));
+        return new LogicalProject<>(outputs.build(), child);
     }
 
     /**
