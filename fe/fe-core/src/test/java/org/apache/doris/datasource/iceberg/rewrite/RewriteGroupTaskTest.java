@@ -19,8 +19,12 @@ package org.apache.doris.datasource.iceberg.rewrite;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.nereids.trees.plans.commands.insert.IcebergRewriteExecutor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.system.SystemInfoService;
 
 import org.apache.iceberg.DataFile;
@@ -29,14 +33,17 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Unit tests for RewriteGroupTask, specifically testing calculateRewriteStrategy logic
@@ -468,6 +475,36 @@ public class RewriteGroupTaskTest {
         Assertions.assertTrue(exception.getCause() instanceof IllegalStateException);
         Assertions.assertTrue(exception.getCause().getMessage().contains("availableBeCount"),
                 "Exception message should mention availableBeCount");
+    }
+
+    @Test
+    public void testCancellationRemainsStickyAcrossPlanningHandoff() throws Exception {
+        RewriteGroupTask task = new RewriteGroupTask(
+                mockGroup, 1L, mockTable, mockConnectContext, 512 * MB, 1, null);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        IcebergRewriteExecutor insertExecutor = Mockito.mock(IcebergRewriteExecutor.class);
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Mockito.when(insertExecutor.getCoordinator()).thenReturn(coordinator);
+
+        Field executorField = RewriteGroupTask.class.getDeclaredField("stmtExecutor");
+        executorField.setAccessible(true);
+        executorField.set(task, executor);
+        task.cancel();
+
+        Assertions.assertThrows(JobException.class,
+                () -> task.publishCoordinatorAndCheckCancellation(insertExecutor));
+        InOrder handoff = Mockito.inOrder(executor);
+        handoff.verify(executor).cancel(Mockito.any());
+        handoff.verify(executor).setCoord(coordinator);
+        handoff.verify(executor).cancel(Mockito.any());
+    }
+
+    @Test
+    public void testCancellationWaitHasDeadline() {
+        RewriteGroupTask task = new RewriteGroupTask(
+                mockGroup, 1L, mockTable, mockConnectContext, 512 * MB, 1, null);
+
+        Assertions.assertFalse(task.awaitCompletionUninterruptibly(1, TimeUnit.MILLISECONDS));
     }
 
     /**

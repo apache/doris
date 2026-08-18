@@ -59,9 +59,10 @@ Status VIcebergSortWriter::open(RuntimeState* state, RuntimeProfile* profile,
 Status VIcebergSortWriter::write(Block& block) {
     std::lock_guard<std::mutex> lock(_sorter_mutex);
 
+    // FullSorter consumes the input columns, so sample row width before append clears the block.
+    _update_spill_block_batch_row_count(block);
     // Append incoming block data to the sorter's internal buffer
     RETURN_IF_ERROR(_sorter->append_block(&block));
-    _update_spill_block_batch_row_count(block);
 
     // When accumulated data size reaches the target file size threshold,
     // sort the data in memory and flush it directly to a Parquet/ORC file.
@@ -96,7 +97,7 @@ SorterReserveMemory VIcebergSortWriter::get_reserve_mem_size_components(RuntimeS
                                   ? static_cast<size_t>(_target_file_size_bytes)
                                   : std::numeric_limits<size_t>::max();
     auto reservation = _sorter->get_reserve_mem_size_components(state, eos, target);
-    _include_spill_merge_reservation(state, eos, &reservation);
+    _include_merge_reservation(state, eos, &reservation);
     return reservation;
 }
 
@@ -111,13 +112,16 @@ SorterReserveMemory VIcebergSortWriter::get_reserve_mem_size_components(
                                   : std::numeric_limits<size_t>::max();
     auto reservation = _sorter->get_reserve_mem_size_components(state, eos, incoming_rows,
                                                                 incoming_bytes, target);
-    _include_spill_merge_reservation(state, eos, &reservation);
+    _include_merge_reservation(state, eos, &reservation);
     return reservation;
 }
 
-void VIcebergSortWriter::_include_spill_merge_reservation(RuntimeState* state, bool eos,
-                                                          SorterReserveMemory* reservation) const {
-    if (eos && !_sorted_spill_files.empty()) {
+void VIcebergSortWriter::_include_merge_reservation(RuntimeState* state, bool eos,
+                                                    SorterReserveMemory* reservation) const {
+    if (!eos) {
+        return;
+    }
+    if (!_sorted_spill_files.empty()) {
         size_t spill_file_count = _sorted_spill_files.size();
         if (_sorter->data_size() > 0) {
             ++spill_file_count;
@@ -127,6 +131,12 @@ void VIcebergSortWriter::_include_spill_merge_reservation(RuntimeState* state, b
                                               state->spill_sort_merge_mem_limit_bytes());
         reservation->transient_workspace =
                 std::max(reservation->transient_workspace, merge_workspace);
+    } else if (_sorter->data_size() > 0) {
+        // Non-spill reads retain all sorted runs while materializing the output block, so EOS
+        // admission must cover the same byte-bounded output used by _write_sorted_data().
+        reservation->transient_workspace = std::max(
+                reservation->transient_workspace,
+                iceberg_merge_output_workspace(_avg_row_bytes, state->spill_buffer_size_bytes()));
     }
 }
 
@@ -182,10 +192,10 @@ Status VIcebergSortWriter::_close_locked(const Status& status) {
 
 void VIcebergSortWriter::_update_spill_block_batch_row_count(const Block& block) {
     auto rows = block.rows();
-    // Calculate average row size from the first non-empty block to determine
-    // the optimal batch size for spill operations
-    if (rows > 0 && 0 == _avg_row_bytes) {
-        _avg_row_bytes = std::max(1UL, block.bytes() / rows);
+    if (rows > 0) {
+        const size_t bytes = block.bytes();
+        const size_t observed_row_bytes = bytes / rows + (bytes % rows != 0);
+        _avg_row_bytes = std::max<size_t>(_avg_row_bytes, std::max<size_t>(1, observed_row_bytes));
         int64_t spill_batch_bytes = _runtime_state->spill_buffer_size_bytes(); // default 8MB
         // Keep the merge output inside the spill-buffer reservation; a single oversized row is the
         // only unavoidable exception and is still admitted as one row.
@@ -212,8 +222,15 @@ Status VIcebergSortWriter::_write_sorted_data() {
     // to the underlying partition writer (Parquet/ORC file)
     bool eos = false;
     Block block;
+    const size_t merge_batch_rows = iceberg_merge_output_batch_rows(
+            _avg_row_bytes, _runtime_state->spill_buffer_size_bytes(),
+            static_cast<size_t>(_runtime_state->batch_size()));
     while (!eos && !_runtime_state->is_cancelled()) {
-        RETURN_IF_ERROR(_sorter->get_next(_runtime_state, &block, &eos));
+        RETURN_IF_ERROR(_sorter->merge_sort_read_for_spill(
+                _runtime_state, &block,
+                static_cast<int>(
+                        std::min<size_t>(merge_batch_rows, std::numeric_limits<int>::max())),
+                &eos));
         RETURN_IF_ERROR(_iceberg_partition_writer->write(block));
         block.clear_column_data();
     }

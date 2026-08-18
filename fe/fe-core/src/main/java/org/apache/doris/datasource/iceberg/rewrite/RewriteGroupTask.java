@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -187,19 +188,24 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         LOG.info("[Rewrite Task] taskId: {} cancelled", taskId);
     }
 
-    void awaitCompletionUninterruptibly() {
+    boolean awaitCompletionUninterruptibly(long timeout, TimeUnit unit) {
         boolean interrupted = false;
-        while (true) {
+        long remainingNanos = unit.toNanos(timeout);
+        long deadlineNanos = System.nanoTime() + remainingNanos;
+        boolean completed = false;
+        while (remainingNanos > 0) {
             try {
-                completionLatch.await();
+                completed = completionLatch.await(remainingNanos, TimeUnit.NANOSECONDS);
                 break;
             } catch (InterruptedException e) {
                 interrupted = true;
+                remainingNanos = deadlineNanos - System.nanoTime();
             }
         }
         if (interrupted) {
             Thread.currentThread().interrupt();
         }
+        return completed || completionLatch.getCount() == 0;
     }
 
     /**
@@ -220,6 +226,7 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         AbstractInsertExecutor insertExecutor = taskLogicalPlan.initPlan(taskConnectContext, stmtExecutor);
         Preconditions.checkState(insertExecutor instanceof IcebergRewriteExecutor,
                 "Expected IcebergRewriteExecutor, got: " + insertExecutor.getClass());
+        publishCoordinatorAndCheckCancellation(insertExecutor);
 
         // Step 3: Set transaction id for updating CommitData
         insertExecutor.getCoordinator().setTxnId(transactionId);
@@ -228,6 +235,16 @@ public class RewriteGroupTask implements TransientTaskExecutor {
         insertExecutor.executeSingleInsert(stmtExecutor);
 
         LOG.debug("[Rewrite Task] taskId: {} completed execution successfully", taskId);
+    }
+
+    void publishCoordinatorAndCheckCancellation(AbstractInsertExecutor insertExecutor)
+            throws JobException {
+        stmtExecutor.setCoord(insertExecutor.getCoordinator());
+        if (isCanceled.get()) {
+            // Replaying cancellation after coordinator publication makes the planning handoff sticky.
+            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "rewrite task cancelled"));
+            throw new JobException("Rewrite task has been canceled, task id: " + taskId);
+        }
     }
 
     /**

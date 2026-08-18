@@ -141,4 +141,16 @@ inline size_t iceberg_final_merge_batch_rows(size_t spill_buffer_rows, size_t ru
     return std::max<size_t>(1, std::min(spill_buffer_rows, runtime_batch_rows));
 }
 
+inline size_t iceberg_merge_output_workspace(size_t observed_row_bytes, size_t spill_buffer_bytes) {
+    // A row wider than the byte budget is indivisible, so admission must still cover one such row.
+    return std::max(observed_row_bytes, spill_buffer_bytes);
+}
+
+inline size_t iceberg_merge_output_batch_rows(size_t observed_row_bytes, size_t spill_buffer_bytes,
+                                              size_t runtime_batch_rows) {
+    const size_t row_bytes = std::max<size_t>(1, observed_row_bytes);
+    const size_t byte_bounded_rows = std::max<size_t>(1, spill_buffer_bytes / row_bytes);
+    return std::max<size_t>(1, std::min(byte_bounded_rows, runtime_batch_rows));
+}
+
 } // namespace doris
