@@ -103,6 +103,10 @@ public class PaimonJniScanner extends JniScanner {
     private final String tableCacheKey;
     private Table table;
     private PaimonTableCache.TableCacheEntry tableCacheEntry;
+    // Field-slot metadata for the synthetic row locator (see initReader): flags which required
+    // fields are synthetic-null, and maps each real field slot to its paimon projection index.
+    private boolean[] syntheticNullFields;
+    private int[] fieldToProjected;
     private RecordReader<InternalRow> reader;
     private IOManager ioManager;
     private String ioManagerTempDirs;
@@ -186,19 +190,51 @@ public class PaimonJniScanner extends JniScanner {
 
     private void initReader() throws IOException {
         ReadBuilder readBuilder = table.newReadBuilder();
-        if (this.fields.length > this.paimonAllFieldNames.size()) {
+        // The row-level DML plan projects the synthetic row locator alongside the data columns. A
+        // JNI split is by definition a merged (keyed) read with no single backing data file, so the
+        // locator has no value here and is materialized as NULL — exactly like the native reader's
+        // merge-on-read branch. It must not participate in the paimon projection: it is not a table
+        // field.
+        this.syntheticNullFields = new boolean[fields.length];
+        int realCount = 0;
+        for (int i = 0; i < fields.length; i++) {
+            if (PaimonWriteSchema.ROWID_COL.equalsIgnoreCase(fields[i])) {
+                syntheticNullFields[i] = true;
+            } else {
+                realCount++;
+            }
+        }
+        if (realCount > this.paimonAllFieldNames.size()) {
             throw new IOException(
                     String.format(
                             "The jni reader fields' size {%s} is not matched with paimon fields' size {%s}."
                                     + " Please refresh table and try again",
-                            fields.length, paimonAllFieldNames.size()));
+                            realCount, paimonAllFieldNames.size()));
         }
-        int[] projected = getProjected();
+        int[] projected = new int[realCount];
+        this.fieldToProjected = new int[fields.length];
+        int next = 0;
+        for (int i = 0; i < fields.length; i++) {
+            if (syntheticNullFields[i]) {
+                fieldToProjected[i] = -1;
+                continue;
+            }
+            int index = getFieldIndex(paimonAllFieldNames, fields[i]);
+            Preconditions.checkArgument(index >= 0, "RequiredField %s not found in schema", fields[i]);
+            projected[next] = index;
+            fieldToProjected[i] = next;
+            next++;
+        }
         readBuilder.withProjection(projected);
         readBuilder.withFilter(getPredicates());
         reader = newReadWithOptionalIOManager(readBuilder).executeFilter().createReader(getSplit());
-        paimonDataTypeList =
-                Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
+        // Aligned with fields (NOT with the projection): the append loop indexes it by field slot,
+        // and a synthetic slot carries null — the ColumnValue null sentinel.
+        paimonDataTypeList = new java.util.ArrayList<>(fields.length);
+        for (int i = 0; i < fields.length; i++) {
+            paimonDataTypeList.add(syntheticNullFields[i]
+                    ? null : table.rowType().getTypeAt(projected[fieldToProjected[i]]));
+        }
     }
 
     private TableRead newReadWithOptionalIOManager(ReadBuilder readBuilder) throws IOException {
@@ -284,14 +320,6 @@ public class PaimonJniScanner extends JniScanner {
         } catch (InvocationTargetException e) {
             throw e;
         }
-    }
-
-    private int[] getProjected() {
-        return Arrays.stream(fields).mapToInt(fieldName -> {
-            int index = getFieldIndex(paimonAllFieldNames, fieldName);
-            Preconditions.checkArgument(index >= 0, "RequiredField %s not found in schema", fieldName);
-            return index;
-        }).toArray();
     }
 
     static int getFieldIndex(List<String> fieldNames, String fieldName) {
@@ -406,7 +434,11 @@ public class PaimonJniScanner extends JniScanner {
                     rows++;
                     columnValue.setOffsetRow(record);
                     for (int i = 0; i < fields.length; i++) {
-                        columnValue.setIdx(i, types[i], paimonDataTypeList.get(i));
+                        // A synthetic slot has no paimon type (null sentinel -> isNull()) and no
+                        // projected position; a real slot reads its PROJECTED index, which differs
+                        // from the field slot once a synthetic column precedes it.
+                        columnValue.setIdx(syntheticNullFields[i] ? -1 : fieldToProjected[i],
+                                types[i], paimonDataTypeList.get(i));
                         appendData(i, columnValue);
                     }
                     if (rows >= batchSize) {
