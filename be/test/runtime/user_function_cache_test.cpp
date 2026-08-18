@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -37,7 +38,9 @@ protected:
 
     void SetUp() override {
         // Save original DORIS_HOME
-        original_doris_home_ = getenv("DORIS_HOME");
+        if (const char* value = getenv("DORIS_HOME")) {
+            original_doris_home_ = value;
+        }
 
         // Create a unique test directory
         test_dir_ = std::filesystem::temp_directory_path().string() + "/ufc_test_" +
@@ -48,7 +51,7 @@ protected:
     void TearDown() override {
         // Restore original DORIS_HOME
         if (original_doris_home_) {
-            setenv("DORIS_HOME", original_doris_home_, 1);
+            setenv("DORIS_HOME", original_doris_home_->c_str(), 1);
         } else {
             unsetenv("DORIS_HOME");
         }
@@ -100,7 +103,7 @@ protected:
     }
 
 private:
-    const char* original_doris_home_ = nullptr;
+    std::optional<std::string> original_doris_home_;
 };
 
 TEST_F(UserFunctionCacheTest, SplitStringByChecksumTest) {
