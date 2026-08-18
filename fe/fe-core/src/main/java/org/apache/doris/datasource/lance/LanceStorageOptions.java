@@ -47,8 +47,21 @@ public final class LanceStorageOptions {
     private static final Logger LOG = LogManager.getLogger(LanceStorageOptions.class);
 
     private static final String ENDPOINT = "aws_endpoint";
+    /**
+     * The S3-specific endpoint, which object_store keeps as a config key of its own and prefers
+     * over the generic one: {@code let endpoint = self.s3_endpoint.or(self.endpoint)}. It carries
+     * the same value as {@link #ENDPOINT} rather than a meaning of its own here.
+     */
+    private static final String S3_ENDPOINT = "aws_endpoint_url_s3";
     private static final String VIRTUAL_HOSTED_STYLE = "aws_virtual_hosted_style_request";
-    /** Not prefixed: object_store reports this shared client option as canonical under this name. */
+    /**
+     * Not prefixed: object_store reports this shared client option as canonical under this name.
+     *
+     * <p>Unlike the options below, the spelling buys no protection from the environment here.
+     * {@code StorageOptions::new} overwrites this key outright from {@code AWS_ALLOW_HTTP} or
+     * {@code AZURE_STORAGE_ALLOW_HTTP} before {@code with_env_s3} ever runs, so whatever is derived
+     * for it can be overridden per process.
+     */
     private static final String ALLOW_HTTP = "allow_http";
 
     /**
@@ -106,10 +119,10 @@ public final class LanceStorageOptions {
             .put("endpoint_url", ENDPOINT)
             .put("aws_endpoint", ENDPOINT)
             .put("aws_endpoint_url", ENDPOINT)
-            // object_store parses this one into a config key of its own that wins over the generic
-            // endpoint: `let endpoint = self.s3_endpoint.or(self.endpoint)`. Left alone it would not
-            // displace the catalog's endpoint, and allow_http would be derived from the losing one.
-            .put("aws_endpoint_url_s3", ENDPOINT)
+            // Resolved onto the same entry, then written back under both spellings by
+            // withResolvedEndpoint. Left alone it would not displace the catalog's endpoint, and
+            // allow_http would be derived from the entry object_store was about to discard.
+            .put(S3_ENDPOINT, ENDPOINT)
             .put("region", "aws_region")
             .put("aws_region", "aws_region")
             .put("virtual_hosted_style_request", VIRTUAL_HOSTED_STYLE)
@@ -150,7 +163,7 @@ public final class LanceStorageOptions {
         if (usePathStyle != null && !usePathStyle.isEmpty()) {
             result.put(VIRTUAL_HOSTED_STYLE, String.valueOf(!Boolean.parseBoolean(usePathStyle)));
         }
-        return withDerivedAllowHttp(result);
+        return withResolvedEndpoint(result);
     }
 
     /**
@@ -168,22 +181,28 @@ public final class LanceStorageOptions {
 
         Map<String, String> accepted = new HashMap<>();
         Set<String> superseded = new HashSet<>();
-        vendedOptions.forEach((key, value) -> {
+        String s3SpecificEndpoint = null;
+        for (Map.Entry<String, String> vended : vendedOptions.entrySet()) {
+            String key = vended.getKey();
+            String value = vended.getValue();
             if (key == null || value == null || value.isEmpty()) {
-                return;
+                continue;
             }
             if (key.indexOf('\0') >= 0 || value.indexOf('\0') >= 0) {
                 // lance-c reads these as C strings, so a NUL would truncate the option there while
                 // leaving it unrecognized here - the two halves would disagree about the key.
-                LOG.warn("Ignoring Lance storage option vended by the namespace because its key or "
-                        + "value contains a NUL character");
-                return;
+                LOG.warn("Ignoring Lance storage option '{}' vended by the namespace because its "
+                        + "key or value contains a NUL character", withoutNul(key));
+                continue;
             }
             String lowerCased = key.toLowerCase(Locale.ROOT);
             if (PROTECTED_KEYS.contains(lowerCased)) {
                 LOG.warn("Ignoring Lance storage option '{}' vended by the namespace because it "
                         + "would change which data is read", key);
-                return;
+                continue;
+            }
+            if (S3_ENDPOINT.equals(lowerCased)) {
+                s3SpecificEndpoint = value;
             }
             String canonical = CANONICAL_BY_ALIAS.get(lowerCased);
             if (canonical != null) {
@@ -191,7 +210,13 @@ public final class LanceStorageOptions {
             }
             accepted.put(canonical != null && !AMBIGUOUS_ALIASES.contains(lowerCased)
                     ? canonical : key, value);
-        });
+        }
+        // A namespace vending both endpoint spellings means the S3-specific one, because that is
+        // the one object_store would have used. Resolving it by map order instead would leave the
+        // FE and the BE free to pick differently.
+        if (s3SpecificEndpoint != null) {
+            accepted.put(ENDPOINT, s3SpecificEndpoint);
+        }
 
         // Drop the catalog's spelling of every option the namespace just supplied, so the two can
         // never reach Lance as competing entries for one config key.
@@ -202,21 +227,37 @@ public final class LanceStorageOptions {
             result.remove(ALLOW_HTTP);
         }
         result.putAll(accepted);
-        return withDerivedAllowHttp(result);
+        return withResolvedEndpoint(result);
     }
 
     /**
-     * Allows plain HTTP when the endpoint in use asks for it.
+     * Writes the endpoint under both spellings object_store keeps a config key for, and allows
+     * plain HTTP when that endpoint asks for it.
      *
      * <p>Applied after merging, because a namespace can replace the endpoint the catalog was
      * configured with - or supply the only one there is.
+     *
+     * <p>Emitting only the generic spelling would leave the S3-specific one for
+     * {@code with_env_s3} to fill from {@code AWS_ENDPOINT_URL_S3}, and object_store prefers that
+     * key, so a stray environment variable would silently redirect every request. Both carry the
+     * same value, so which one object_store picks stops mattering.
      */
-    private static Map<String, String> withDerivedAllowHttp(Map<String, String> options) {
+    private static Map<String, String> withResolvedEndpoint(Map<String, String> options) {
         String endpoint = options.get(ENDPOINT);
-        if (endpoint != null && endpoint.startsWith("http://")) {
+        if (endpoint == null) {
+            options.remove(S3_ENDPOINT);
+            return options;
+        }
+        options.put(S3_ENDPOINT, endpoint);
+        if (endpoint.startsWith("http://")) {
             options.putIfAbsent(ALLOW_HTTP, "true");
         }
         return options;
+    }
+
+    /** Renders a key that carries a NUL for a log line, since the NUL itself is what is wrong. */
+    private static String withoutNul(String key) {
+        return key.replace('\0', '?');
     }
 
     private static void putIfNotEmpty(Map<String, String> target, String key, String value) {

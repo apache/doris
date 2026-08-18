@@ -23,9 +23,11 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 public class LanceStorageOptionsTest {
 
@@ -49,6 +51,8 @@ public class LanceStorageOptionsTest {
         Assertions.assertEquals("sk", options.get("aws_secret_access_key"));
         Assertions.assertEquals("token", options.get("aws_session_token"));
         Assertions.assertEquals("http://minio:9000", options.get("aws_endpoint"));
+        // object_store prefers its S3-specific endpoint key, so both carry the same value.
+        Assertions.assertEquals("http://minio:9000", options.get("aws_endpoint_url_s3"));
         Assertions.assertEquals("us-east-1", options.get("aws_region"));
         Assertions.assertEquals("true", options.get("allow_http"));
         Assertions.assertEquals("false", options.get("aws_virtual_hosted_style_request"));
@@ -71,7 +75,7 @@ public class LanceStorageOptionsTest {
         // because object_store carries it as a shared client option rather than an S3 one.
         Assertions.assertEquals(
                 new TreeSet<>(Arrays.asList("aws_access_key_id", "aws_secret_access_key",
-                        "aws_session_token", "aws_endpoint", "aws_region",
+                        "aws_session_token", "aws_endpoint", "aws_endpoint_url_s3", "aws_region",
                         "aws_virtual_hosted_style_request", "allow_http")),
                 new TreeSet<>(options.keySet()));
     }
@@ -141,13 +145,10 @@ public class LanceStorageOptionsTest {
     /**
      * object_store accepts five spellings of the endpoint and four of the session token. Any one
      * this class fails to recognize reintroduces the race, so the whole equivalence class has to
-     * collapse onto a single entry.
+     * collapse - onto one value, carried by the two keys object_store actually consults.
      */
     @Test
-    public void testEveryAcceptedAliasCollapsesOntoOneEntry() {
-        // aws_endpoint_url_s3 parses into a config key of its own that object_store prefers over
-        // the generic endpoint, so leaving it beside one would not even be a coin toss - the vended
-        // value would win while allow_http was derived from the catalog's.
+    public void testEveryAcceptedAliasCollapsesOntoOneValue() {
         for (String alias : new String[] {"endpoint", "endpoint_url", "aws_endpoint",
                 "aws_endpoint_url", "aws_endpoint_url_s3", "ENDPOINT", "AWS_Endpoint_Url"}) {
             Map<String, String> vended = new HashMap<>();
@@ -156,12 +157,41 @@ public class LanceStorageOptionsTest {
             Map<String, String> merged = LanceStorageOptions.mergeVended(
                     LanceStorageOptions.toLanceOptions(minioCatalogProperties()), vended);
 
-            long endpoints = merged.entrySet().stream()
-                    .filter(e -> e.getKey().toLowerCase(Locale.ROOT).contains("endpoint"))
-                    .count();
-            Assertions.assertEquals(1, endpoints, "alias " + alias + " left a competing entry");
+            Assertions.assertEquals(
+                    new TreeSet<>(Arrays.asList("aws_endpoint", "aws_endpoint_url_s3")),
+                    merged.keySet().stream()
+                            .filter(key -> key.toLowerCase(Locale.ROOT).contains("endpoint"))
+                            .collect(Collectors.toCollection(TreeSet::new)),
+                    "alias " + alias + " left a competing entry");
             Assertions.assertEquals("http://127.0.0.1:9000", merged.get("aws_endpoint"),
                     "alias " + alias + " did not win");
+            Assertions.assertEquals("http://127.0.0.1:9000", merged.get("aws_endpoint_url_s3"),
+                    "alias " + alias + " did not reach the key object_store prefers");
+        }
+    }
+
+    /**
+     * object_store resolves the endpoint as {@code s3_endpoint.or(endpoint)}, so a namespace that
+     * vends both spellings means the S3-specific one. Both have to end up on the same value anyway,
+     * or the FE and the BE could each read a different key and disagree.
+     */
+    @Test
+    public void testS3SpecificEndpointWinsOverAGenericOneVendedBesideIt() {
+        for (boolean s3First : new boolean[] {true, false}) {
+            Map<String, String> vended = new LinkedHashMap<>();
+            if (s3First) {
+                vended.put("aws_endpoint_url_s3", "http://minio:9000");
+                vended.put("endpoint", "https://generic.example.com");
+            } else {
+                vended.put("endpoint", "https://generic.example.com");
+                vended.put("aws_endpoint_url_s3", "http://minio:9000");
+            }
+
+            Map<String, String> merged = LanceStorageOptions.mergeVended(
+                    LanceStorageOptions.toLanceOptions(minioCatalogProperties()), vended);
+            Assertions.assertEquals("http://minio:9000", merged.get("aws_endpoint"));
+            Assertions.assertEquals("http://minio:9000", merged.get("aws_endpoint_url_s3"));
+            Assertions.assertEquals("true", merged.get("allow_http"));
         }
     }
 
@@ -238,16 +268,24 @@ public class LanceStorageOptionsTest {
      */
     @Test
     public void testAllowHttpIsRetractedWhenTheEndpointBecomesHttps() {
-        Map<String, String> catalogOptions =
-                LanceStorageOptions.toLanceOptions(minioCatalogProperties());
-        Assertions.assertEquals("true", catalogOptions.get("allow_http"));
+        // Every spelling has to retract it, including the canonical one the catalog itself emits:
+        // an alias that resolves to no canonical name would leave the derived value standing.
+        for (String alias : new String[] {"endpoint", "aws_endpoint", "aws_endpoint_url_s3"}) {
+            Map<String, String> catalogOptions =
+                    LanceStorageOptions.toLanceOptions(minioCatalogProperties());
+            Assertions.assertEquals("true", catalogOptions.get("allow_http"));
 
-        Map<String, String> vended = new HashMap<>();
-        vended.put("endpoint", "https://s3.amazonaws.com");
+            Map<String, String> vended = new HashMap<>();
+            vended.put(alias, "https://s3.amazonaws.com");
 
-        Map<String, String> merged = LanceStorageOptions.mergeVended(catalogOptions, vended);
-        Assertions.assertEquals("https://s3.amazonaws.com", merged.get("aws_endpoint"));
-        Assertions.assertNull(merged.get("allow_http"));
+            Map<String, String> merged = LanceStorageOptions.mergeVended(catalogOptions, vended);
+            Assertions.assertEquals("https://s3.amazonaws.com", merged.get("aws_endpoint"),
+                    "alias " + alias + " did not replace the endpoint");
+            Assertions.assertEquals("https://s3.amazonaws.com", merged.get("aws_endpoint_url_s3"),
+                    "alias " + alias + " left a stale S3-specific endpoint");
+            Assertions.assertNull(merged.get("allow_http"),
+                    "alias " + alias + " left allow_http standing");
+        }
     }
 
     /**
