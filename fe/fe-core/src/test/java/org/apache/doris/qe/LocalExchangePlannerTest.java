@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.planner.AddLocalExchange;
+import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.LocalExchangeNode;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.PlanFragment;
@@ -77,6 +78,11 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
         sv.setIgnoreStorageDataDistribution(true);
         sv.setPipelineTaskNum("4");
         sv.setForceToLocalShuffle(false);
+        // The test class keeps one ConnectContext across methods, so reset the knobs
+        // that the per-test tweaks below may have changed (and restore agg_phase to
+        // the default strategy) before applying this test's own tweaks.
+        sv.aggPhase = 0;
+        sv.enableBroadcastJoinForcePassthrough = false;
         if (tweaks != null) {
             tweaks.accept(sv);
         }
@@ -161,6 +167,106 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
                                         agg(
                                                 localExchange(PT,
                                                         olapScan("t1")))))));
+    }
+
+    @Test
+    public void testCountDistinctNoGroupByRequiresHashBeforeAgg() throws Exception {
+        // count(distinct k2) without group-by: the finalize merge agg emits per-instance
+        // scalar values that the parent sums (sum0(multi_distinct_count(...))), so its
+        // input must be hash-partitioned by the distinct key. With the broadcast-join
+        // probe forced to PASSTHROUGH, rows are scattered below the join — the agg must
+        // still get a LOCAL_HASH exchange directly beneath it. Pre-fix this agg received
+        // NoRequire (no hash LE) and the parent double-counted overlapping keys.
+        // agg_phase=1 forces the multi_distinct_count two-phase shape (the default
+        // strategy splits into a group-by + count shape which is already safe).
+        setupLocalShuffleSession(sv -> {
+            sv.enableBroadcastJoinForcePassthrough = true;
+            sv.aggPhase = 1;
+        });
+        assertFinalizeDistinctAggChildHashKeyedBy("select count(distinct a.k2) from test.t1 a "
+                        + "left join [shuffle] test.t2 b on a.k2 = b.k2 "
+                        + "left join [broadcast] test.t2 c on b.k1 = c.k1",
+                "k2");
+
+    }
+
+    @Test
+    public void testCountDistinctNoGroupByWithoutForcePassthroughNoRedundantLe() throws Exception {
+        // Same multi_distinct shape but without broadcast-join force-passthrough: the
+        // shuffle join's probe output is already hash-partitioned by k2, which satisfies
+        // the finalize agg's hash demand — so no LOCAL_HASH local exchange may appear.
+        // The explicit aggPhase=1 + force-passthrough=false (reset in setup) pins the
+        // exact shape this test means to verify.
+        setupLocalShuffleSession(sv -> {
+            sv.enableBroadcastJoinForcePassthrough = false;
+            sv.aggPhase = 1;
+        });
+        assertNoLocalExchangeOfType("select count(distinct a.k2) from test.t1 a "
+                        + "left join [shuffle] test.t2 b on a.k2 = b.k2 "
+                        + "left join [broadcast] test.t2 c on b.k1 = c.k1",
+                LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+    }
+
+    @Test
+    public void testDirectMultiDistinctNoKeyHasNoHashLe() throws Exception {
+        // A directly called scalar multi_distinct_count(k2) has no distribute exprs
+        // and no group keys: a zero-key LOCAL_HASH exchange would collapse the whole
+        // input onto one task per BE. The plan must not contain any LOCAL_HASH.
+        setupLocalShuffleSession(sv -> sv.aggPhase = 1);
+        assertNoLocalExchangeOfType("select multi_distinct_count(k2) from test.t1",
+                LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+    }
+
+    @Test
+    public void testCountStarNoGroupByHasNoHashLe() throws Exception {
+        // COUNT(*) has no partition requirement: no LOCAL_HASH local exchange may appear
+        // anywhere in the plan (the two-phase agg only gets the PASSTHROUGH fan-out of
+        // the pooling scan).
+        setupLocalShuffleSession(null);
+        assertNoLocalExchangeOfType("select count(*) from test.t1",
+                LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+    }
+
+    /**
+     * Assert that every finalize DISTINCT agg (multi_distinct_* output) has a
+     * LOCAL_EXECUTION_HASH_SHUFFLE local exchange directly beneath it, keyed by
+     * {@code keyName}. This pins the agg-to-exchange edge and its partition
+     * expressions — a flatten-to-enum check could not distinguish a keyless or
+     * wrong-key HASH exchange.
+     */
+    protected void assertFinalizeDistinctAggChildHashKeyedBy(String sql, String keyName) throws Exception {
+        StmtExecutor executor = executeNereidsSql("explain distributed plan " + sql);
+        NereidsPlanner planner = (NereidsPlanner) executor.planner();
+        List<AggregationNode> finalizeAggs = new ArrayList<>();
+        for (PlanFragment fragment : planner.getFragments()) {
+            collectFinalizeDistinctAggs(fragment.getPlanRoot(), finalizeAggs);
+        }
+        Assertions.assertFalse(finalizeAggs.isEmpty(), "no finalize DISTINCT agg found in plan");
+        for (AggregationNode agg : finalizeAggs) {
+            PlanNode child = agg.getChild(0);
+            Assertions.assertTrue(child instanceof LocalExchangeNode,
+                    "expected LocalExchangeNode directly below finalize DISTINCT agg, got: " + child);
+            LocalExchangeNode le = (LocalExchangeNode) child;
+            Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, le.getExchangeType(),
+                    "hash LE below finalize DISTINCT agg must be LOCAL_EXECUTION_HASH_SHUFFLE");
+            Assertions.assertFalse(le.getDistributeExprLists().isEmpty(),
+                    "hash LE below finalize DISTINCT agg must be keyed");
+            Assertions.assertTrue(le.getDistributeExprLists().stream()
+                            .anyMatch(e -> e.toString().contains(keyName)),
+                    "hash LE must be keyed by " + keyName + ", actual: " + le.getDistributeExprLists());
+        }
+    }
+
+    private void collectFinalizeDistinctAggs(PlanNode node, List<AggregationNode> found) {
+        // "output: multi_distinct_count(...)" pins the merge/finalize DISTINCT agg;
+        // the sum0(multi_distinct_count(...)) parent above it must not match.
+        if (node instanceof AggregationNode && node.getNodeExplainString("", TExplainLevel.NORMAL)
+                .contains("output: multi_distinct_count")) {
+            found.add((AggregationNode) node);
+        }
+        for (PlanNode child : node.getChildren()) {
+            collectFinalizeDistinctAggs(child, found);
+        }
     }
 
     @Test

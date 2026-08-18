@@ -17,9 +17,11 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AssertNumRowsElement;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.OrderByElement;
@@ -28,6 +30,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
@@ -35,6 +38,8 @@ import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.WindowFuncType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanNode;
@@ -853,6 +858,296 @@ public class LocalShuffleNodeCoverageTest {
         Pair<PlanNode, LocalExchangeType> noopOutput = noopExchange.enforceAndDeriveLocalExchange(
                 ctx, null, LocalExchangeTypeRequire.requireHash());
         Assertions.assertEquals(LocalExchangeType.NOOP, noopOutput.second);
+    }
+
+    @Test
+    public void testAggregationNodeDistinctFinalizeRequiresHash() {
+        // count(distinct k) without group-by: the finalize merge agg emits per-instance
+        // scalar values that the parent sums (sum0(multi_distinct_count(...)) above), so
+        // the input must be hash-partitioned by the distinct key. Pre-fix this agg got
+        // NoRequire and a PASSTHROUGH local exchange below scattered same-key rows across
+        // instances → the parent double-counted (result = correct × task count).
+        for (String fn : new String[] {"multi_distinct_count", "multi_distinct_sum",
+                "multi_distinct_group_concat"}) {
+            AggContext agg = buildAggContext(Collections.singletonList(multiDistinctFunction(fn)), /* groupByExprs */ true,
+                    /* merge */ true, /* needsFinalize */ true, LocalExchangeType.NOOP, KEYED_DISTRIBUTE_EXPRS);
+            Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
+                    agg.ctx, null, LocalExchangeTypeRequire.noRequire());
+            Assertions.assertEquals(LocalExchangeNode.RequireHash.class, agg.child.lastRequire.getClass(),
+                    fn + " finalize agg must require hash input");
+            Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, output.second);
+            assertChildLocalExchangeType(agg.node, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        }
+    }
+
+    @Test
+    public void testAggregationNodeDistinctFinalizeWithParentHashRequirement() {
+        // A parent that already requires hash must not change the agg's own hash demand.
+        AggContext agg = buildAggContext(Collections.singletonList(multiDistinctFunction("multi_distinct_count")), /* groupByExprs */ true,
+                /* merge */ true, /* needsFinalize */ true, LocalExchangeType.NOOP, KEYED_DISTRIBUTE_EXPRS);
+        Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
+                agg.ctx, null, LocalExchangeTypeRequire.requireHash());
+        Assertions.assertEquals(LocalExchangeNode.RequireHash.class, agg.child.lastRequire.getClass());
+        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, output.second);
+        assertChildLocalExchangeType(agg.node, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+    }
+
+    @Test
+    public void testAggregationNodeDirectMultiDistinctNoKeyStaysNoRequire() {
+        // A directly called scalar multi_distinct_count(col) has isDistinct=false and
+        // no child distribute exprs (SplitAggWithoutDistinct builds a LOCAL aggregate
+        // without partition exprs). It must NOT be given a HASH requirement — a
+        // zero-key HASH exchange would collapse the whole input onto one task per BE.
+        AggContext agg = buildAggContext(Collections.singletonList(multiDistinctFunction("multi_distinct_count")),
+                /* groupByExprs */ true, /* merge */ true, /* needsFinalize */ true,
+                LocalExchangeType.NOOP, null);
+        Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
+                agg.ctx, null, LocalExchangeTypeRequire.noRequire());
+        Assertions.assertEquals(LocalExchangeNode.NoRequire.class, agg.child.lastRequire.getClass(),
+                "direct multi_distinct with no effective key must stay NoRequire");
+        Assertions.assertEquals(LocalExchangeType.NOOP, output.second);
+        Assertions.assertSame(agg.child, agg.node.getChild(0));
+    }
+
+    @Test
+    public void testAggregationNodeNoPartitionNonFinalizeBaseClassRequire() {
+        // COUNT(*)-style non-finalize (LOCAL) agg: no partition requirement, so
+        // the non-finalize arm of the first branch falls back to base class
+        // behavior (NOOP for a non-serial child). The agg exprs are non-empty
+        // (a plain count function) so the AggSink branch is exercised rather
+        // than DistinctStreamingAgg.
+        AggContext agg = buildAggContext(
+                Collections.singletonList(plainAggregateFunction("count")), /* groupByExprs */ true,
+                /* merge */ false, /* needsFinalize */ false, LocalExchangeType.NOOP, null);
+        Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
+                agg.ctx, null, LocalExchangeTypeRequire.noRequire());
+        Assertions.assertEquals(LocalExchangeNode.NoRequire.class, agg.child.lastRequire.getClass());
+        Assertions.assertEquals(LocalExchangeType.NOOP, output.second);
+        Assertions.assertSame(agg.child, agg.node.getChild(0));
+    }
+
+    @Test
+    public void testAggregationNodeNoPartitionFinalizeStaysNoRequire() {
+        // COUNT(*)-style agg (no group keys, no DISTINCT aggregates) genuinely has no
+        // partition requirement: the input distribution is irrelevant.
+        AggContext agg = buildAggContext(Collections.singletonList(plainAggregateFunction("count")), /* groupByExprs */ true,
+                /* merge */ true, /* needsFinalize */ true, LocalExchangeType.NOOP, null);
+        Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
+                agg.ctx, null, LocalExchangeTypeRequire.noRequire());
+        Assertions.assertEquals(LocalExchangeNode.NoRequire.class, agg.child.lastRequire.getClass());
+        Assertions.assertEquals(LocalExchangeType.NOOP, output.second);
+        Assertions.assertSame(agg.child, agg.node.getChild(0));
+    }
+
+    @Test
+    public void testAggregationNodeDistinctLocalPhaseDefaultLeRequiresHash() {
+        // LOCAL (FIRST/SECOND, non-merge, non-finalize) phase of a distinct agg with the
+        // default enable_local_exchange_before_agg=true: BE requires HASH here
+        // (partition_exprs non-empty), so the FE must mirror that.
+        AggContext agg = buildAggContext(Collections.singletonList(multiDistinctFunction("multi_distinct_count")), /* groupByExprs */ true,
+                /* merge */ false, /* needsFinalize */ false, LocalExchangeType.NOOP, KEYED_DISTRIBUTE_EXPRS);
+        Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
+                agg.ctx, null, LocalExchangeTypeRequire.noRequire());
+        Assertions.assertEquals(LocalExchangeNode.RequireHash.class, agg.child.lastRequire.getClass(),
+                "LOCAL distinct phase with default LE requires hash");
+        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, output.second);
+        assertChildLocalExchangeType(agg.node, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+    }
+
+    @Test
+    public void testAggregationNodeDistinctLocalPhaseWithLeDisabledStaysNoRequire() {
+        // LOCAL distinct phase + enable_local_exchange_before_agg=false → base class
+        // behavior (NOOP for a non-serial child): user explicitly opted out of pre-agg LE.
+        AggContext agg = buildAggContext(Collections.singletonList(multiDistinctFunction("multi_distinct_count")), /* groupByExprs */ true,
+                /* merge */ false, /* needsFinalize */ false, LocalExchangeType.NOOP, KEYED_DISTRIBUTE_EXPRS);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableLocalExchangeBeforeAgg = false;
+        Mockito.when(agg.connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
+                agg.ctx, null, LocalExchangeTypeRequire.noRequire());
+        Assertions.assertEquals(LocalExchangeNode.NoRequire.class, agg.child.lastRequire.getClass(),
+                "LOCAL distinct phase with LE disabled keeps no alignment requirement");
+        Assertions.assertEquals(LocalExchangeType.NOOP, output.second);
+        Assertions.assertSame(agg.child, agg.node.getChild(0));
+    }
+
+    @Test
+    public void testAggregationNodeDistinctFirstMergeRequiresHash() {
+        // FIRST_MERGE (correctness-required) keeps the hash demand even when the
+        // user opts out of pre-agg local exchanges (enable_local_exchange_before_agg
+        // = false): removing the !isMerge() exemption must not weaken it.
+        AggContext agg = buildAggContext(Collections.singletonList(multiDistinctFunction("multi_distinct_count")), /* groupByExprs */ true,
+                /* merge */ true, /* needsFinalize */ false, LocalExchangeType.NOOP, KEYED_DISTRIBUTE_EXPRS);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableLocalExchangeBeforeAgg = false;
+        Mockito.when(agg.connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
+                agg.ctx, null, LocalExchangeTypeRequire.noRequire());
+        Assertions.assertEquals(LocalExchangeNode.RequireHash.class, agg.child.lastRequire.getClass(),
+                "FIRST_MERGE must keep the hash demand with enable_local_exchange_before_agg=false");
+        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, output.second);
+        assertChildLocalExchangeType(agg.node, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+    }
+
+    @Test
+    public void testAggregationNodeGroupByFinalizeRequiresHash() {
+        // GROUP BY finalize agg requires hash input; when the parent has no hash
+        // requirement the semantic partition exprs (group keys) drive the decision.
+        AggContext agg = buildAggContext(Collections.singletonList(plainAggregateFunction("count")), /* groupByExprs */ false,
+                /* merge */ true, /* needsFinalize */ true, LocalExchangeType.NOOP, null);
+        Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
+                agg.ctx, null, LocalExchangeTypeRequire.noRequire());
+        Assertions.assertEquals(LocalExchangeNode.RequireHash.class, agg.child.lastRequire.getClass());
+        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, output.second);
+        assertChildLocalExchangeType(agg.node, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+    }
+
+    @Test
+    public void testAggregationNodeGroupByLocalPhaseWithLeDisabledStaysNoRequire() {
+        // GROUP BY local phase + enable_local_exchange_before_agg=false → base class
+        // behavior (NOOP for a non-serial child): user explicitly opted out of pre-agg LE.
+        // aggExprs is non-empty so the AggSink branch is exercised (an empty aggExprs
+        // would route through DistinctStreamingAgg with its own hash logic).
+        AggContext agg = buildAggContext(Collections.singletonList(multiDistinctFunction("multi_distinct_count")), /* groupByExprs */ false,
+                /* merge */ false, /* needsFinalize */ false, LocalExchangeType.NOOP, KEYED_DISTRIBUTE_EXPRS);
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableLocalExchangeBeforeAgg = false;
+        Mockito.when(agg.connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
+                agg.ctx, null, LocalExchangeTypeRequire.noRequire());
+        Assertions.assertEquals(LocalExchangeNode.NoRequire.class, agg.child.lastRequire.getClass());
+        Assertions.assertEquals(LocalExchangeType.NOOP, output.second);
+        Assertions.assertSame(agg.child, agg.node.getChild(0));
+    }
+
+    @Test
+    public void testAggregationNodeRequiresShuffleForCorrectness() {
+        // Mirrors BE is_shuffled_operator(): finalize agg with partition exprs
+        // (group keys or DISTINCT aggregates) needs hash-distributed input.
+        AggContext distinctAgg = buildAggContext(Collections.singletonList(multiDistinctFunction("multi_distinct_count")),
+                /* groupByExprs */ true, /* merge */ true, /* needsFinalize */ true,
+                LocalExchangeType.NOOP, KEYED_DISTRIBUTE_EXPRS);
+        Assertions.assertTrue(distinctAgg.node.requiresShuffleForCorrectness(),
+                "distinct finalize agg must require shuffle for correctness");
+
+        AggContext noPartitionAgg = buildAggContext(Collections.singletonList(plainAggregateFunction("count")), /* groupByExprs */ true,
+                /* merge */ true, /* needsFinalize */ true, LocalExchangeType.NOOP, null);
+        Assertions.assertFalse(noPartitionAgg.node.requiresShuffleForCorrectness(),
+                "COUNT(*) finalize agg has no partition requirement");
+
+        AggContext groupByAgg = buildAggContext(Collections.singletonList(plainAggregateFunction("count")), /* groupByExprs */ false,
+                /* merge */ true, /* needsFinalize */ true, LocalExchangeType.NOOP, null);
+        Assertions.assertTrue(groupByAgg.node.requiresShuffleForCorrectness(),
+                "GROUP BY finalize agg must require shuffle for correctness");
+
+        AggContext localAgg = buildAggContext(Collections.singletonList(multiDistinctFunction("multi_distinct_count")),
+                /* groupByExprs */ true, /* merge */ false, /* needsFinalize */ false,
+                LocalExchangeType.NOOP, KEYED_DISTRIBUTE_EXPRS);
+        Assertions.assertFalse(localAgg.node.requiresShuffleForCorrectness(),
+                "non-finalize agg does not require shuffle for correctness");
+    }
+
+    @Test
+    public void testAggregationNodeInheritedShuffleUsesChildDistributeExprs() {
+        // An intermediate agg that inherits a shuffle-for-correctness ancestor (e.g.
+        // DISTINCT_GLOBAL/FIRST_MERGE chain above a Union) keeps the child distribute
+        // exprs as its hash key even though the agg itself has no DISTINCT functions.
+        // The grouping key is deliberately different from the child distribution key:
+        // dropping the inherited state or selecting the grouping key must fail this test.
+        Expr groupingExpr = Mockito.mock(Expr.class, "groupingExpr");
+        Expr childDistributeExpr = Mockito.mock(Expr.class, "childDistributeExpr");
+        List<Expr> childDistributeExprs = Collections.singletonList(childDistributeExpr);
+        AggContext agg = buildAggContext(
+                Collections.singletonList(plainAggregateFunction("count")),
+                Collections.singletonList(groupingExpr), /* merge */ true,
+                /* needsFinalize */ false, LocalExchangeType.NOOP, childDistributeExprs);
+        Mockito.when(agg.ctx.hasShuffleForCorrectnessAncestor(agg.node)).thenReturn(true);
+        Pair<PlanNode, LocalExchangeType> output = agg.node.enforceAndDeriveLocalExchange(
+                agg.ctx, null, LocalExchangeTypeRequire.noRequire());
+        Assertions.assertEquals(LocalExchangeNode.RequireHash.class, agg.child.lastRequire.getClass(),
+                "inherited shuffle ancestor must keep the hash demand");
+        Assertions.assertEquals(LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE, output.second);
+        assertChildLocalExchangeType(agg.node, 0, LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+        LocalExchangeNode exchangeNode = (LocalExchangeNode) agg.node.getChild(0);
+        Assertions.assertEquals(childDistributeExprs, exchangeNode.getDistributeExprLists(),
+                "inherited intermediate agg must hash by the child's distribution key");
+        Assertions.assertNotEquals(Collections.singletonList(groupingExpr), exchangeNode.getDistributeExprLists(),
+                "the grouping key must not replace the inherited child distribution key");
+    }
+
+    /** A non-empty child distribute expr list, as fragment planning sets for a keyed DISTINCT agg. */
+    private static final List<Expr> KEYED_DISTRIBUTE_EXPRS =
+            Collections.singletonList(Mockito.mock(Expr.class));
+
+    private static class AggContext {
+        final AggregationNode node;
+        final PlanTranslatorContext ctx;
+        final TrackingPlanNode child;
+        final ConnectContext connectContext;
+
+        AggContext(AggregationNode node, PlanTranslatorContext ctx, TrackingPlanNode child,
+                ConnectContext connectContext) {
+            this.node = node;
+            this.ctx = ctx;
+            this.child = child;
+            this.connectContext = connectContext;
+        }
+    }
+
+    /**
+     * noGroupByExprs == true → no group keys (mirrors the scalar COUNT(DISTINCT));
+     * distributeExprs != null → the plan set child distribute exprs for this agg
+     * (as fragment planning does for a DISTINCT agg), which is what makes
+     * hasPartitionRequirement() true for a keyed agg.
+     */
+    private static AggContext buildAggContext(List<FunctionCallExpr> aggExprs, boolean noGroupByExprs,
+            boolean merge, boolean needsFinalize, LocalExchangeType childProvided,
+            List<Expr> distributeExprs) {
+        List<Expr> groupingExprs = noGroupByExprs
+                ? Collections.emptyList() : Collections.singletonList(Mockito.mock(Expr.class));
+        return buildAggContext(aggExprs, groupingExprs, merge, needsFinalize,
+                childProvided, distributeExprs);
+    }
+
+    private static AggContext buildAggContext(List<FunctionCallExpr> aggExprs, List<Expr> groupingExprs,
+            boolean merge, boolean needsFinalize, LocalExchangeType childProvided,
+            List<Expr> distributeExprs) {
+        PlanTranslatorContext ctx = Mockito.mock(PlanTranslatorContext.class);
+        ConnectContext connectContext = Mockito.mock(ConnectContext.class);
+        Mockito.when(connectContext.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(ctx.getConnectContext()).thenReturn(connectContext);
+
+        AggregateInfo aggInfo = Mockito.mock(AggregateInfo.class);
+        Mockito.when(aggInfo.getOutputTupleId()).thenReturn(new TupleId(NEXT_ID.getAndIncrement()));
+        Mockito.when(aggInfo.getGroupingExprs()).thenReturn(new ArrayList<>(groupingExprs));
+        Mockito.when(aggInfo.getAggregateExprs()).thenReturn(new ArrayList<>(aggExprs));
+        Mockito.when(aggInfo.isMerge()).thenReturn(merge);
+
+        TrackingPlanNode child = new TrackingPlanNode(nextPlanNodeId(), childProvided);
+        AggregationNode agg = new AggregationNode(nextPlanNodeId(), child, aggInfo);
+        if (distributeExprs != null) {
+            agg.setChildrenDistributeExprLists(Collections.singletonList(distributeExprs));
+        }
+        if (!needsFinalize) {
+            agg.unsetNeedsFinalize();
+        }
+        return new AggContext(agg, ctx, child, connectContext);
+    }
+
+    private static FunctionCallExpr plainAggregateFunction(String functionName) {
+        FunctionCallExpr fce = Mockito.mock(FunctionCallExpr.class);
+        FunctionName fnName = Mockito.mock(FunctionName.class);
+        Mockito.when(fnName.getFunction()).thenReturn(functionName);
+        Mockito.when(fce.getFnName()).thenReturn(fnName);
+        return fce;
+    }
+
+    private static FunctionCallExpr multiDistinctFunction(String functionName) {
+        FunctionCallExpr fce = Mockito.mock(FunctionCallExpr.class);
+        FunctionName fnName = Mockito.mock(FunctionName.class);
+        Mockito.when(fnName.getFunction()).thenReturn(functionName);
+        Mockito.when(fce.getFnName()).thenReturn(fnName);
+        return fce;
     }
 
     private static PlanNodeId nextPlanNodeId() {
