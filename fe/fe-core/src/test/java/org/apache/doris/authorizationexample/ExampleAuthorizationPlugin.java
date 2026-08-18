@@ -23,13 +23,16 @@ import org.apache.doris.authorization.AccessDeniedException;
 import org.apache.doris.authorization.AccessRequirement;
 import org.apache.doris.authorization.AuthorizedResource;
 import org.apache.doris.authorization.AuthorizedSubject;
+import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
 
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -97,8 +100,15 @@ public class ExampleAuthorizationPlugin implements AuthorizationPlugin {
     public static final String READER_ROW_FILTER_PROPERTY = "example.reader_row_filter";
     public static final String DEFAULT_READER_ROW_FILTER = "region = 'EU'";
 
+    /** Column a reader may not see in the clear, and the expression it is read as instead. */
+    public static final String READER_MASKED_COLUMN_PROPERTY = "example.reader_masked_column";
+    public static final String DEFAULT_READER_MASKED_COLUMN = "region";
+    public static final String READER_COLUMN_MASK_PROPERTY = "example.reader_column_mask";
+    public static final String DEFAULT_READER_COLUMN_MASK = "concat(left(region, 1), '***')";
+
     /** Names the policy in diagnostics; a real source would use whatever its own policies are called. */
     static final String ROW_FILTER_IDENT = "example-reader-rows";
+    static final String DATA_MASK_IDENT = "example-reader-columns";
 
     private static final Set<AccessAction> EVERY_ACTION =
             Collections.unmodifiableSet(EnumSet.allOf(AccessAction.class));
@@ -110,6 +120,8 @@ public class ExampleAuthorizationPlugin implements AuthorizationPlugin {
     private final String readerRole;
     private final String auditorRole;
     private final String readerRowFilter;
+    private final String readerMaskedColumn;
+    private final String readerColumnMask;
 
     ExampleAuthorizationPlugin(Map<String, String> properties, AuthorizationContext context) {
         this.context = context;
@@ -118,6 +130,10 @@ public class ExampleAuthorizationPlugin implements AuthorizationPlugin {
         this.auditorRole = properties.getOrDefault(AUDITOR_ROLE_PROPERTY, DEFAULT_AUDITOR_ROLE);
         this.readerRowFilter =
                 properties.getOrDefault(READER_ROW_FILTER_PROPERTY, DEFAULT_READER_ROW_FILTER);
+        this.readerMaskedColumn =
+                properties.getOrDefault(READER_MASKED_COLUMN_PROPERTY, DEFAULT_READER_MASKED_COLUMN);
+        this.readerColumnMask =
+                properties.getOrDefault(READER_COLUMN_MASK_PROPERTY, DEFAULT_READER_COLUMN_MASK);
     }
 
     @Override
@@ -145,6 +161,30 @@ public class ExampleAuthorizationPlugin implements AuthorizationPlugin {
         // real source looks the policy up by table, and returns several when several apply - RESTRICTIVE
         // ones are ANDed together, PERMISSIVE ones ORed.
         return Collections.singletonList(RowFilterSpec.restrictive(ROW_FILTER_IDENT, readerRowFilter));
+    }
+
+    /**
+     * How each of {@code columns} must be read instead of in the clear, for the columns this source masks.
+     *
+     * <p>Asked once per table with every column the statement reads, not once per column: a source reached
+     * over the network would otherwise pay a round trip per column of every table in the query. The answer is
+     * keyed by the lower-cased column name, which is the form the engine looks each column up by - a source
+     * that keys its answer by whatever case the policy was written in silently stops masking.
+     */
+    @Override
+    public Map<String, DataMaskSpec> getDataMasks(AuthorizedSubject subject, AuthorizedResource.Table table,
+            Set<String> columns, AccessContext accessContext) {
+        if (!isReader(subject)) {
+            return Collections.emptyMap();
+        }
+        Map<String, DataMaskSpec> masks = new HashMap<>();
+        for (String column : columns) {
+            if (column.equalsIgnoreCase(readerMaskedColumn)) {
+                masks.put(column.toLowerCase(Locale.ROOT),
+                        new DataMaskSpec(DATA_MASK_IDENT, readerColumnMask));
+            }
+        }
+        return masks;
     }
 
     /**

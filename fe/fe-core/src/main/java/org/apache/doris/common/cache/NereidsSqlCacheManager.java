@@ -555,13 +555,15 @@ public class NereidsSqlCacheManager {
         // Grouped by table so the source is asked once per table, not once per cached column - the same
         // reason the planner asks that way. A hit has to re-check every column it planned with, so this runs
         // on the cheapest path there is.
+        // Read once: the accessor is synchronized and copies the whole table, so asking twice pays for both
+        // on a path whose whole point is being cheap.
+        Map<FullColumnName, Optional<DataMaskSpec>> cached = sqlCacheContext.getDataMaskPolicies();
         Map<FullTableName, Set<String>> columnsByTable = new LinkedHashMap<>();
-        for (FullColumnName qualifiedColumn : sqlCacheContext.getDataMaskPolicies().keySet()) {
+        for (FullColumnName qualifiedColumn : cached.keySet()) {
             columnsByTable.computeIfAbsent(
                     new FullTableName(qualifiedColumn.catalog, qualifiedColumn.db, qualifiedColumn.table),
                     table -> new LinkedHashSet<>()).add(qualifiedColumn.column);
         }
-        Map<FullColumnName, Optional<DataMaskSpec>> cached = sqlCacheContext.getDataMaskPolicies();
         for (Entry<FullTableName, Set<String>> kv : columnsByTable.entrySet()) {
             FullTableName table = kv.getKey();
             Map<String, DataMaskSpec> masks = env.getAccessManager().evalDataMaskPolicies(

@@ -20,6 +20,7 @@ package org.apache.doris.catalog.authorizer.ranger.doris;
 import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.authorization.spi.AuthorizationPluginFactory;
+import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -51,6 +52,14 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
      * <p>Bindings configured alike still share one controller, so a catalog bound to this source while it also
      * governs the instance is the identical object in both places - which is what lets the engine recognise
      * that asking about instance scope would be asking this very source.
+     *
+     * <p>Once started it runs until the process ends, and the last binding letting go does not stop it. It is
+     * keyed on a hard-coded service name and holds no per-binding state, so what an idle one costs is one
+     * policy download timer against one Ranger service - bounded, not a leak that grows. Stopping it would
+     * cost far more than that: a plain {@code ALTER CATALOG} detaches and re-attaches the catalog's access
+     * controller, and a plugin torn down and rebuilt between those two has no policies until its next download
+     * completes, so every check against that catalog is refused and both data policy paths throw for the whole
+     * of that window.
      */
     private static RangerBasePlugin sharedPlugin;
     private static final Map<Map<String, String>, Held> byConfiguration = new LinkedHashMap<>();
@@ -90,6 +99,11 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
                 held.holders++;
                 return held.controller;
             }
+            // Settle what this binding configured before anything is started. The controller's constructor is
+            // what parses these properties, and it refuses a value that is neither true nor false - so
+            // building the plugin first would leave a rejected binding behind a policy refresher that no
+            // controller, and therefore no release(), can ever reach.
+            RangerAccessController.validateProperties(properties);
             if (sharedPlugin == null) {
                 sharedPlugin = new RangerDorisPlugin(SERVICE_NAME);
             }
@@ -102,8 +116,11 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
     }
 
     /**
-     * Gives up one binding's hold on a controller, fencing it off and stopping the shared Ranger plugin once
-     * nothing holds it any more.
+     * Gives up one binding's hold on a controller, fencing the controller off once nothing holds it any more.
+     *
+     * <p>The shared plugin stays up either way - see {@link #sharedPlugin} for why the alternative is worse
+     * than an idle policy download timer. What has to stop here is this controller: a query may still be
+     * holding it, and from here it must refuse rather than answer.
      *
      * @return whether this factory owned {@code controller}; false means it was built some other way and its
      *         caller has to stop it itself.
@@ -112,7 +129,6 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
         if (controller == null) {
             return false;
         }
-        RangerBasePlugin pluginToStop;
         synchronized (LOCK) {
             Map<String, String> configuration = configurationOf(controller);
             if (configuration == null) {
@@ -123,25 +139,13 @@ public class RangerDorisAccessControllerFactory implements AuthorizationPluginFa
                 return true;
             }
             byConfiguration.remove(configuration);
-            // The plugin outlives any single controller: it goes only when no configuration is left in use.
-            pluginToStop = byConfiguration.isEmpty() ? sharedPlugin : null;
-            if (pluginToStop != null) {
-                sharedPlugin = null;
-            }
+            LOG.info("Last binding of configuration {} of {} released; {} configuration(s) of this source"
+                            + " still in use.", describe(configuration), RangerDorisAccessController.NAME,
+                    byConfiguration.size());
         }
-        // Fence first, and with no lock held: from here nothing reaches the plugin through this controller,
-        // whether or not the plugin itself is going away. A query that is still holding it is refused rather
-        // than answered out of a plugin being cleaned up.
+        // Fence with no lock held: from here nothing reaches the plugin through this controller. A query that
+        // is still holding it is refused rather than answered by a controller nothing is bound to.
         controller.fenceOff();
-        if (pluginToStop != null) {
-            LOG.info("Last binding of {} released; shutting the Ranger controller down.",
-                    RangerDorisAccessController.NAME);
-            try {
-                pluginToStop.cleanup();
-            } catch (Throwable e) {
-                LOG.warn("Failed to clean up the Ranger Doris plugin", e);
-            }
-        }
         return true;
     }
 

@@ -61,8 +61,27 @@ public final class AccessTranslation {
     /**
      * The predicate constant each requirement came from, discovered reflectively so that a constant added
      * later is covered the day it is added rather than the day someone remembers this map.
+     *
+     * <p>Keyed by value, so it answers for any requirement naming those actions - including the
+     * {@link org.apache.doris.authorization.AccessRequirements} constants, which are built in the plugin API
+     * and never pass through {@link #requirementOf}. Where two predicate constants name the same actions it
+     * can only answer with one of them, which is what {@link #PREDICATE_OF_REQUIREMENT} is for.
      */
     private static final Map<AccessRequirement, PrivPredicate> CANONICAL_PREDICATES = new HashMap<>();
+    /**
+     * The predicate constant each requirement <em>object</em> was built from, so that a requirement the engine
+     * derived from a predicate translates back to that very predicate.
+     *
+     * <p>{@code SHOW_RESOURCES} and {@code SHOW_WORKLOAD_GROUP} name the same privileges with the same
+     * operator, so they are one value and {@link #CANONICAL_PREDICATES} cannot tell them apart - the only such
+     * pair among the seventeen constants. But {@link #REQUIREMENT_OF_PREDICATE} gave each constant a
+     * requirement object of its own, and the engine hands that object on unchanged: through {@code decide},
+     * through {@code ask}, into {@code checkPrivilege}. Keying on identity here is therefore what carries the
+     * caller's predicate all the way to a controller written against the older interface, where comparing a
+     * predicate against a constant with {@code ==} is established practice and being handed the other half of
+     * the pair silently takes a branch away.
+     */
+    private static final Map<AccessRequirement, PrivPredicate> PREDICATE_OF_REQUIREMENT = new IdentityHashMap<>();
     /**
      * The requirement each predicate constant translates to, so that the common path allocates nothing.
      *
@@ -115,6 +134,7 @@ public final class AccessTranslation {
         for (Map.Entry<String, PrivPredicate> constant : new TreeMap<>(declaredPredicates()).entrySet()) {
             AccessRequirement requirement = buildRequirementOf(constant.getValue());
             REQUIREMENT_OF_PREDICATE.put(constant.getValue(), requirement);
+            PREDICATE_OF_REQUIREMENT.put(requirement, constant.getValue());
             CANONICAL_PREDICATES.putIfAbsent(requirement, constant.getValue());
         }
     }
@@ -188,8 +208,17 @@ public final class AccessTranslation {
     /**
      * The privilege predicate {@code requirement} stands for; the constant it came from when there is one,
      * so that the {@code ==} comparisons the engine still makes against those constants keep working.
+     *
+     * <p>By identity first and by value second. The first answers with the predicate this very requirement
+     * object was derived from, which is the only way to tell {@code SHOW_RESOURCES} and
+     * {@code SHOW_WORKLOAD_GROUP} apart - they are the same value. The second answers for a requirement built
+     * anywhere else, where either half of that pair asks the same question and either may be given.
      */
     public static PrivPredicate privPredicateOf(AccessRequirement requirement) {
+        PrivPredicate origin = PREDICATE_OF_REQUIREMENT.get(requirement);
+        if (origin != null) {
+            return origin;
+        }
         PrivPredicate canonical = CANONICAL_PREDICATES.get(requirement);
         if (canonical != null) {
             return canonical;

@@ -41,7 +41,8 @@ public class SqlModeHelper {
     //  of how they works and to be compatible with MySQL, so for now they are not
     //  really meaningful.
     /* Bits for different SQL MODE modes, you can add custom SQL MODE here */
-    /* When a new session is created, its sql mode is set to MODE_DEFAULT */
+    /* The mode a session carries when nothing has said otherwise. Not what a new session starts with:
+     * SessionVariable initialises sql_mode to MODE_ONLY_FULL_GROUP_BY. */
     public static final long MODE_DEFAULT = 1L;
     public static final long MODE_PIPES_AS_CONCAT = 2L;
     public static final long MODE_ANSI_QUOTES = 4L;
@@ -220,68 +221,76 @@ public class SqlModeHelper {
      * {@code NO_BACKSLASH_ESCAPES} changes how a string literal decodes and {@code PIPES_AS_CONCAT} turns
      * {@code ||} from OR into concatenation. Reading the mode off the caller would therefore let the
      * restricted user decide what their own restriction says. So policy text is parsed under a fixed mode
-     * instead - the one a fresh session has, which is what the mode was when nothing said otherwise.
+     * instead - {@link #MODE_DEFAULT}, the mode a session carries when nothing has said otherwise. It is
+     * not the mode a fresh session starts with: {@code SessionVariable.sqlMode} is initialised to
+     * {@code MODE_ONLY_FULL_GROUP_BY}, a bit that changes nothing about what SQL text means.
      */
     public static final long MODE_FOR_POLICY_TEXT = MODE_DEFAULT;
+
+    /**
+     * The mode {@link #withSqlMode} is currently running under, or null outside such a window.
+     *
+     * <p>An override held beside the session rather than written into it: the parse it wraps may itself set
+     * {@code sql_mode}, and a {@code SET_VAR} hint in the text does exactly that. Writing the fixed mode into
+     * the live {@code SessionVariable} let such a hint snapshot the swapped-in value as the caller's own and
+     * restore it as permanent when the statement ended, silently dropping the caller's {@code sql_mode} for
+     * the rest of the connection. Holding it here instead makes the window immune to anything that writes the
+     * session variable, and gives it effect on threads that have no connection at all - the ones that replay
+     * a journal or load an image and have to recover a stored policy under the same mode that will execute it.
+     */
+    private static final ThreadLocal<Long> MODE_OVERRIDE = new ThreadLocal<>();
 
     /**
      * Runs {@code parse} with this session's {@code sql_mode} temporarily replaced, and restores it after.
      *
      * <p>An override rather than a parameter because the mode is not threaded through the parser: the lexer
-     * reads it when it is built and the plan builder reads it again when it reaches a {@code ||}, both from
-     * the session variable. A statement is planned on one thread, and nothing outside that thread reads this
-     * session's {@code sql_mode} while it is swapped - the one thing that writes it from elsewhere is
-     * {@code WorkloadActionSetSessionVar}, which sets session variables by name on a policy's behalf; a write
-     * landing inside this window is restored on the way out, the same as it would be lost to any other
-     * concurrent {@code SET}.
+     * reads it when it is built and the plan builder reads it again when it reaches a {@code ||}, both
+     * through {@link #hasNoBackSlashEscapes} and {@link #hasPipeAsConcat}. Those readers take the override
+     * ahead of any session, so the window holds whatever the parse does to the session variable - a
+     * {@code SET_VAR} hint in the text included - and holds on threads that have no connection.
      *
-     * <p>With no connection on the thread this is a no-op, and what the parser then reads is the <em>global</em>
-     * {@code sql_mode} - {@code VariableMgr.newSessionVariable()} clones the defaults an operator can set - not
-     * {@link #MODE_FOR_POLICY_TEXT}. That is where a replay thread recovering a stored policy stands, so a
-     * global {@code sql_mode} still decides what such a policy's text means until a session reads it again.
+     * <p>Windows nest: an inner one restores the outer mode rather than dropping back to the session.
      */
     public static <T> T withSqlMode(long sqlMode, Supplier<T> parse) {
-        ConnectContext context = ConnectContext.get();
-        if (context == null) {
-            // Nothing to override: both readers fall back to a fresh session variable when there is no
-            // connection, which already holds the default mode.
-            return parse.get();
-        }
-        SessionVariable sessionVariable = context.getSessionVariable();
-        long callerMode = sessionVariable.getSqlMode();
-        if (callerMode == sqlMode) {
-            return parse.get();
-        }
-        sessionVariable.setSqlMode(sqlMode);
+        Long enclosing = MODE_OVERRIDE.get();
+        MODE_OVERRIDE.set(sqlMode);
         try {
             return parse.get();
         } finally {
-            sessionVariable.setSqlMode(callerMode);
+            if (enclosing == null) {
+                MODE_OVERRIDE.remove();
+            } else {
+                MODE_OVERRIDE.set(enclosing);
+            }
         }
     }
 
-    public static boolean hasNoBackSlashEscapes() {
+    /**
+     * The {@code sql_mode} that decides what the text being read right now means: the mode
+     * {@link #withSqlMode} put in force if one is, this session's otherwise, and the global one when there is
+     * no session on the thread.
+     */
+    private static long readingMode() {
+        Long override = MODE_OVERRIDE.get();
+        if (override != null) {
+            return override;
+        }
         SessionVariable sessionVariable = ConnectContext.get() == null
                 ? VariableMgr.newSessionVariable()
                 : ConnectContext.get().getSessionVariable();
-        return ((sessionVariable.getSqlMode() & MODE_ALLOWED_MASK)
-                & MODE_NO_BACKSLASH_ESCAPES) != 0;
+        return sessionVariable.getSqlMode();
+    }
+
+    public static boolean hasNoBackSlashEscapes() {
+        return ((readingMode() & MODE_ALLOWED_MASK) & MODE_NO_BACKSLASH_ESCAPES) != 0;
     }
 
     public static boolean hasPipeAsConcat() {
-        SessionVariable sessionVariable = ConnectContext.get() == null
-                ? VariableMgr.newSessionVariable()
-                : ConnectContext.get().getSessionVariable();
-        return ((sessionVariable.getSqlMode() & MODE_ALLOWED_MASK)
-                & MODE_PIPES_AS_CONCAT) != 0;
+        return ((readingMode() & MODE_ALLOWED_MASK) & MODE_PIPES_AS_CONCAT) != 0;
     }
 
     public static boolean hasOnlyFullGroupBy() {
-        SessionVariable sessionVariable = ConnectContext.get() == null
-                ? VariableMgr.newSessionVariable()
-                : ConnectContext.get().getSessionVariable();
-        return ((sessionVariable.getSqlMode() & MODE_ALLOWED_MASK)
-                & MODE_ONLY_FULL_GROUP_BY) != 0;
+        return ((readingMode() & MODE_ALLOWED_MASK) & MODE_ONLY_FULL_GROUP_BY) != 0;
     }
 
 }

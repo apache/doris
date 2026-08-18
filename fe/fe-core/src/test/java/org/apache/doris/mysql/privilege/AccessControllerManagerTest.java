@@ -27,6 +27,7 @@ import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.authorization.spi.AuthorizationPluginFactory;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogIf;
@@ -35,6 +36,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -108,6 +110,41 @@ public class AccessControllerManagerTest {
 
             Assert.assertTrue(accessControllerManager.checkCtlPriv(
                     userIdentity, "custom_catalog", PrivPredicate.SHOW));
+        }
+    }
+
+    /**
+     * A catalog naming the built-in model as its own source still has its catalog-level grants checked.
+     *
+     * <p>The exemption {@code skip_catalog_priv_check} grants is built on "a catalog bound to a source of its
+     * own keeps no catalog level grants anywhere, so there is nobody left to ask". That holds for an external
+     * source and not for this one: {@code access_controller.class = "default"} became a legal configuration
+     * in this release, and the built-in model does keep catalog level grants. Treating it like any other
+     * binding would answer yes for every account, including one holding nothing on the catalog.
+     */
+    @Test
+    public void testTheBuiltInModelNamedByACatalogIsStillAsked() {
+        CatalogAccessController defaultAccessController = Mockito.mock(CatalogAccessController.class);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            AccessControllerManager accessControllerManager = createAccessControllerManager(defaultAccessController);
+            UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+            Config.skip_catalog_priv_check = true;
+
+            Mockito.when(defaultAccessController.checkCtlPriv(
+                    Mockito.any(), Mockito.anyString(), Mockito.any())).thenReturn(false);
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("builtin_catalog")).thenReturn(catalog);
+            Mockito.when(catalog.isInternalCatalog()).thenReturn(false);
+            Mockito.when(catalog.getProperties()).thenReturn(ImmutableMap.of(
+                    CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, InternalAuthorizationPlugin.NAME));
+
+            Assert.assertFalse("a catalog naming the built-in model was exempted from its own grants",
+                    accessControllerManager.checkCtlPriv(userIdentity, "builtin_catalog", PrivPredicate.SELECT));
         }
     }
 
@@ -513,6 +550,26 @@ public class AccessControllerManagerTest {
             Mockito.when(catalogMgr.getCatalog(catalog.getName())).thenReturn(catalog);
             action.run();
         }
+    }
+
+    /**
+     * A column check naming no column is refused rather than answered.
+     *
+     * <p>Every source decides such a check by walking the columns, so an empty set is a loop with nothing in
+     * it - which each of them answers yes to by construction, each for a reason of its own. Not reachable from
+     * the planner, which branches to the table check when a statement reads no column in particular; reachable
+     * from {@code FrontendServiceImpl.checkAuth}, which takes the column list off the wire.
+     */
+    @Test
+    public void testAColumnCheckNamingNoColumnIsRefused() {
+        CatalogAccessController defaultAccessController = Mockito.mock(CatalogAccessController.class);
+        AccessControllerManager manager = createAccessControllerManager(defaultAccessController);
+        UserIdentity userIdentity = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "%");
+
+        Assert.assertThrows(AuthorizationException.class, () -> manager.checkColumnsPriv(userIdentity,
+                "internal", "db", "tbl", ImmutableSet.of(), PrivPredicate.SELECT));
+        Assert.assertThrows(AuthorizationException.class, () -> manager.checkColumnsPriv(userIdentity,
+                "internal", "db", "tbl", null, PrivPredicate.SELECT));
     }
 
     private AccessControllerManager createAccessControllerManager(CatalogAccessController defaultAccessController) {

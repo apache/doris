@@ -1222,6 +1222,12 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
             continue
         fi
         mkdir -p "${fs_plugin_target}"
+        # unzip -o overwrites but never removes: the one jar in these zips whose name carries the version is
+        # also the one holding the plugin's own classes, so a version bump would leave both copies here and the
+        # loader would bind whichever the sorted URL order reached first. Clear what the zip owns - the jars -
+        # and leave anything else in the directory alone.
+        rm -rf "${fs_plugin_target}/lib"
+        rm -f "${fs_plugin_target}"/*.jar
         # Unpack the self-contained plugin zip produced by maven-assembly-plugin.
         # Layout inside the zip: <plugin>.jar at root + lib/*.jar for runtime deps.
         # DirectoryPluginRuntimeManager picks up both root and lib/ jars automatically.
@@ -1244,6 +1250,13 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
             continue
         fi
         mkdir -p "${conn_plugin_target}"
+        # unzip -o overwrites but never removes: the one jar in these zips whose name carries the version is
+        # also the one holding the plugin's own classes, so a version bump would leave both copies here and the
+        # loader would bind whichever the sorted URL order reached first. Clear what the zip owns - the jars -
+        # and leave anything else in the directory alone.
+        # A connector's live <name>.conf is not a jar, so it survives this and the seeding below keeps it.
+        rm -rf "${conn_plugin_target}/lib"
+        rm -f "${conn_plugin_target}"/*.jar
         unzip -o "${conn_zip}" -d "${conn_plugin_target}/"
         # A connector's own settings file. The zip carries only <name>.conf.template; the live
         # <name>.conf is seeded from it here and never overwritten, so an upgrade that unzips a new
@@ -1275,6 +1288,12 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
             continue
         fi
         mkdir -p "${authz_plugin_target}"
+        # unzip -o overwrites but never removes: the one jar in these zips whose name carries the version is
+        # also the one holding the plugin's own classes, so a version bump would leave both copies here and the
+        # loader would bind whichever the sorted URL order reached first. Clear what the zip owns - the jars -
+        # and leave anything else in the directory alone.
+        rm -rf "${authz_plugin_target}/lib"
+        rm -f "${authz_plugin_target}"/*.jar
         unzip -o "${authz_zip}" -d "${authz_plugin_target}/"
     done
     unset AUTHZ_PLUGIN_DIR authz_module authz_plugin_target authz_module_dir authz_zip

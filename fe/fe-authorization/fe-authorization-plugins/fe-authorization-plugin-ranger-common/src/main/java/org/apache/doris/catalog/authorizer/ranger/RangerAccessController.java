@@ -208,6 +208,19 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
         return deferToGlobalScopeAuthority && context.grantedByGlobalScopeAuthority(subject, requirement);
     }
 
+    /**
+     * Settles what {@code properties} configures without building anything, throwing what the constructor
+     * would have thrown.
+     *
+     * <p>For a factory that has to start a Ranger plugin before it can construct a controller: the plugin
+     * starts a policy refresher and a policy download timer that only {@code cleanup()} stops, so a value
+     * this class refuses must be refused before that, or the rejected binding leaves a refresher behind that
+     * no controller - and therefore no release - can reach.
+     */
+    public static void validateProperties(Map<String, String> properties) {
+        deferenceFrom(properties);
+    }
+
     private static boolean deferenceFrom(Map<String, String> properties) {
         String configured = properties == null ? null : properties.get(DEFER_TO_GLOBAL_SCOPE_AUTHORITY);
         if (configured == null) {
@@ -253,9 +266,18 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
     /**
      * Refuses on the first request Ranger denied, naming the resource that request was about - which is the
      * answer when a batch of requests stands for the columns of one table.
+     *
+     * <p>A null result set is the batch form of the null {@link #checkRequestResult} reads as a refusal:
+     * {@code RangerBasePlugin} answers null when its policy engine cannot answer at all. Reading it as "every
+     * column is allowed" would be the one place this source answers a question it cannot answer.
      */
     protected void checkRequestResults(Collection<RangerAccessResult> results, String name,
             AuthorizedResource resource) throws AccessDeniedException {
+        if (results == null) {
+            throw AccessDeniedException.withMessage("the Ranger policy engine of authorization source "
+                    + name() + " has no answer for " + resource + "; please check your ranger config and make"
+                    + " sure the policy engine is initialized", resource, name());
+        }
         for (RangerAccessResult result : results) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("request {} match policy {}", result.getAccessRequest(), result.getPolicyId());

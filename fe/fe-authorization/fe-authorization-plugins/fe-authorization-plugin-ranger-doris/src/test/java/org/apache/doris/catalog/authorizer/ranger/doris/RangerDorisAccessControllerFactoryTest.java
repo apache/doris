@@ -155,15 +155,17 @@ public class RangerDorisAccessControllerFactoryTest {
     }
 
     /**
-     * The Ranger plugin is stopped when no configuration is in use any more, and not before.
+     * The Ranger plugin is never stopped, and the binding that comes after the last one to let go reuses it.
      *
-     * <p>Nothing else can stop it: the refresher and the policy download timer a Ranger plugin starts run
-     * until {@code cleanup()}, so a plugin no binding holds and that was never stopped keeps polling the
-     * Ranger service for as long as the FE runs. And it must not be stopped early either - one configuration
-     * going away leaves the other one answering out of that same plugin.
+     * <p>Not an oversight: a plain {@code ALTER CATALOG} detaches the catalog's access controller and the next
+     * check attaches one again, so a plugin stopped when the last binding lets go would be rebuilt moments
+     * later with no policies downloaded yet - refusing every check against that catalog, and throwing on both
+     * data policy paths, until the next download completed. What an unstopped one costs instead is one policy
+     * download timer against one Ranger service: it is keyed on a hard-coded service name and holds no
+     * per-binding state, so it does not accumulate.
      */
     @Test
-    public void testThePluginIsStoppedOnceNoConfigurationIsInUse() {
+    public void testThePluginOutlivesEveryBindingAndIsReusedByTheNextOne() {
         AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
         try (MockedConstruction<RangerDorisPlugin> construction =
                 Mockito.mockConstruction(RangerDorisPlugin.class)) {
@@ -175,13 +177,42 @@ public class RangerDorisAccessControllerFactoryTest {
             RangerDorisPlugin plugin = construction.constructed().get(0);
 
             first.close();
-            Mockito.verify(plugin, Mockito.never()).cleanup();
-
             second.close();
-            Mockito.verify(plugin, Mockito.never()).cleanup();
-
             other.close();
-            Mockito.verify(plugin).cleanup();
+            Mockito.verify(plugin, Mockito.never()).cleanup();
+            Assert.assertEquals("releasing every binding built a second Ranger plugin",
+                    1, construction.constructed().size());
+
+            // What a re-attach after ALTER CATALOG does: the plugin it gets is the one already holding the
+            // service's policies, not a fresh one with none.
+            new RangerDorisAccessControllerFactory().create(Collections.emptyMap(), context);
+            Assert.assertEquals("re-acquiring after the last release built a second Ranger plugin",
+                    1, construction.constructed().size());
+            Mockito.verify(plugin, Mockito.never()).cleanup();
+        }
+    }
+
+    /**
+     * A property value this source refuses fails the statement without starting anything.
+     *
+     * <p>The controller's constructor is what parses these properties, so a factory that started the plugin
+     * first would leave a rejected binding behind a policy refresher and a policy download timer that nothing
+     * holds - and release() only ever reaches a controller that was constructed, so nothing could stop it
+     * short of restarting the FE.
+     */
+    @Test
+    public void testARefusedPropertyStartsNoPlugin() {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        try (MockedConstruction<RangerDorisPlugin> construction =
+                Mockito.mockConstruction(RangerDorisPlugin.class)) {
+            IllegalArgumentException refused = Assert.assertThrows(IllegalArgumentException.class,
+                    () -> new RangerDorisAccessControllerFactory().create(
+                            Collections.singletonMap(RangerAccessController.DEFER_TO_GLOBAL_SCOPE_AUTHORITY,
+                                    "yes"), context));
+            Assert.assertTrue(refused.getMessage(),
+                    refused.getMessage().contains(RangerAccessController.DEFER_TO_GLOBAL_SCOPE_AUTHORITY));
+            Assert.assertTrue("a refused binding left a Ranger plugin polling behind it",
+                    construction.constructed().isEmpty());
         }
     }
 

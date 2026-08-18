@@ -35,10 +35,17 @@ import org.apache.ranger.plugin.policyengine.RangerAccessResult;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ScheduledFuture;
 
 public class RangerHiveAccessControllerTest {
 
@@ -204,11 +211,189 @@ public class RangerHiveAccessControllerTest {
         }
     }
 
+    /**
+     * A database and a table are each put to the policy engine as one request, naming the Hive resource the
+     * question is about and carrying the access type the requirement maps to.
+     *
+     * <p>The access type is a string that reaches a Ranger server nobody rebuilds when Doris changes, and it
+     * has to be the spelling the stock Hive service definition declares - lower case. Nothing else pinned it
+     * on the privilege path: spelling it {@code SELECT} instead left every test here green while matching no
+     * Hive policy at all, which is the shape of the bug this release fixes on the data-policy path.
+     */
+    @Test
+    public void testDatabaseAndTableAreAskedAboutOneResourceAtATime() throws AccessDeniedException {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        try (MockedConstruction<RangerHivePlugin> plugin = Mockito.mockConstruction(RangerHivePlugin.class,
+                        (built, ignored) -> Mockito.when(built.isAccessAllowed(
+                                        Mockito.any(RangerAccessRequest.class), Mockito.any()))
+                                .thenAnswer(RangerHiveAccessControllerTest::allow));
+                MockedConstruction<RangerHiveAuditHandler> audit =
+                        Mockito.mockConstruction(RangerHiveAuditHandler.class)) {
+            RangerHiveAccessController controller = new RangerHiveAccessController(
+                    ImmutableMap.of("ranger.service.name", "hive"), context);
+            try {
+                controller.checkPrivilege(SUBJECT, AuthorizedResource.database("ctl", "db"),
+                        AccessRequirements.SELECT, AccessContext.NONE);
+                controller.checkPrivilege(SUBJECT, AuthorizedResource.table("ctl", "db", "tbl"),
+                        AccessRequirements.LOAD, AccessContext.NONE);
+
+                ArgumentCaptor<RangerAccessRequest> asked = ArgumentCaptor.forClass(RangerAccessRequest.class);
+                Mockito.verify(plugin.constructed().get(0), Mockito.times(2))
+                        .isAccessAllowed(asked.capture(), Mockito.any());
+
+                RangerAccessRequest database = asked.getAllValues().get(0);
+                Assert.assertEquals("select", database.getAccessType());
+                Assert.assertEquals("db", database.getResource().getValue("database"));
+                Assert.assertNull(database.getResource().getValue("table"));
+
+                RangerAccessRequest table = asked.getAllValues().get(1);
+                Assert.assertEquals("update", table.getAccessType());
+                Assert.assertEquals("db", table.getResource().getValue("database"));
+                Assert.assertEquals("tbl", table.getResource().getValue("table"));
+            } finally {
+                controller.close();
+            }
+        }
+    }
+
+    /**
+     * The columns of one table go to the policy engine as one batch of requests, one per column, each naming
+     * its own column and carrying the access type the requirement maps to - and a column the engine denies
+     * refuses the whole check.
+     */
+    @Test
+    public void testColumnsAreAskedAboutAsOneBatchAndADeniedColumnRefusesTheCheck()
+            throws AccessDeniedException {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        try (MockedConstruction<RangerHivePlugin> plugin = Mockito.mockConstruction(RangerHivePlugin.class,
+                        (built, ignored) -> Mockito.when(built.isAccessAllowed(
+                                        Mockito.anyCollection(), Mockito.any()))
+                                .thenAnswer(RangerHiveAccessControllerTest::allowEveryColumnBut));
+                MockedConstruction<RangerHiveAuditHandler> audit =
+                        Mockito.mockConstruction(RangerHiveAuditHandler.class)) {
+            RangerHiveAccessController controller = new RangerHiveAccessController(
+                    ImmutableMap.of("ranger.service.name", "hive"), context);
+            try {
+                controller.checkPrivilege(SUBJECT,
+                        AuthorizedResource.columns("ctl", "db", "tbl", ImmutableSet.of("col1", "col2")),
+                        AccessRequirements.SELECT, AccessContext.NONE);
+
+                ArgumentCaptor<Collection<RangerAccessRequest>> asked =
+                        ArgumentCaptor.forClass(Collection.class);
+                Mockito.verify(plugin.constructed().get(0)).isAccessAllowed(asked.capture(), Mockito.any());
+                Assert.assertEquals("one request per column, in one call", 2, asked.getValue().size());
+                Set<String> columnsAsked = new LinkedHashSet<>();
+                for (RangerAccessRequest request : asked.getValue()) {
+                    Assert.assertEquals("select", request.getAccessType());
+                    Assert.assertEquals("db", request.getResource().getValue("database"));
+                    Assert.assertEquals("tbl", request.getResource().getValue("table"));
+                    columnsAsked.add((String) request.getResource().getValue("column"));
+                }
+                Assert.assertEquals(ImmutableSet.of("col1", "col2"), columnsAsked);
+
+                AccessDeniedException denied = Assert.assertThrows(AccessDeniedException.class,
+                        () -> controller.checkPrivilege(SUBJECT, AuthorizedResource.columns("ctl", "db", "tbl",
+                                ImmutableSet.of("col1", "secret")), AccessRequirements.SELECT,
+                                AccessContext.NONE));
+                Assert.assertEquals(RangerHiveAccessController.NAME, denied.getDeniedBy().orElse(null));
+            } finally {
+                controller.close();
+            }
+        }
+    }
+
+    /**
+     * A batch the policy engine has no answer for is refused, not read as "every column is allowed".
+     *
+     * <p>{@code RangerBasePlugin.isAccessAllowed(Collection, ...)} answers null for the same reasons the
+     * single-request form does - policies not downloaded yet, or being cleaned up - and this was the one
+     * Ranger entry point still reading that as an answer. What the caller got was a NullPointerException out
+     * of a loop with nothing to say about which source could not answer, or why.
+     */
+    @Test
+    public void testABatchWithNoAnswerIsRefusedRatherThanRead() {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        try (MockedConstruction<RangerHivePlugin> plugin = Mockito.mockConstruction(RangerHivePlugin.class,
+                        (built, ignored) -> Mockito.when(built.isAccessAllowed(
+                                Mockito.anyCollection(), Mockito.any())).thenReturn(null));
+                MockedConstruction<RangerHiveAuditHandler> audit =
+                        Mockito.mockConstruction(RangerHiveAuditHandler.class)) {
+            RangerHiveAccessController controller = new RangerHiveAccessController(
+                    ImmutableMap.of("ranger.service.name", "hive"), context);
+            try {
+                AccessDeniedException denied = Assert.assertThrows(AccessDeniedException.class,
+                        () -> controller.checkPrivilege(SUBJECT, AuthorizedResource.columns("ctl", "db", "tbl",
+                                ImmutableSet.of("col1")), AccessRequirements.SELECT, AccessContext.NONE));
+                Assert.assertTrue(denied.getMessage(),
+                        denied.getMessage().contains(RangerHiveAccessController.NAME));
+            } finally {
+                controller.close();
+            }
+        }
+    }
+
+    /**
+     * Closing a binding cancels its audit flush task, and drains what it buffered before stopping the plugin.
+     *
+     * <p>Four things here can each be removed without any other case noticing, and each has a cost of its own:
+     * never scheduling the task stops auditing entirely; never cancelling it leaks one periodic task per
+     * binding closed, against a handler nothing will read again; not draining on the way out loses up to
+     * twenty seconds of audit events on every {@code DROP CATALOG}; and draining after {@code cleanup()}
+     * drains through a plugin already torn down.
+     */
+    @Test
+    public void testClosingABindingCancelsItsFlusherAndDrainsWhatItBuffered() {
+        AuthorizationContext context = Mockito.mock(AuthorizationContext.class);
+        try (MockedConstruction<RangerHivePlugin> plugin = Mockito.mockConstruction(RangerHivePlugin.class);
+                MockedConstruction<RangerHiveAuditHandler> audit =
+                        Mockito.mockConstruction(RangerHiveAuditHandler.class)) {
+            RangerHiveAccessController controller = new RangerHiveAccessController(
+                    ImmutableMap.of("ranger.service.name", "hive"), context);
+            ScheduledFuture<?> scheduled = controller.logFlushFuture;
+            Assert.assertNotNull("no audit flush task was scheduled, so this binding audits nothing",
+                    scheduled);
+
+            controller.close();
+
+            Assert.assertTrue("the audit flush task outlived the binding that scheduled it",
+                    scheduled.isCancelled() || scheduled.isDone());
+            Assert.assertNull(controller.logFlushFuture);
+
+            RangerHiveAuditHandler handler = audit.constructed().get(0);
+            RangerHivePlugin hive = plugin.constructed().get(0);
+            InOrder order = Mockito.inOrder(handler, hive);
+            order.verify(handler).flushAudit();
+            order.verify(hive).cleanup();
+        }
+    }
+
     /** A policy engine that answers, with no row filter to report - the ordinary case for most tables. */
     private static void answerRowFilterLookups(RangerHivePlugin plugin,
             MockedConstruction.Context ignored) {
         Mockito.when(plugin.evalRowFilterPolicies(Mockito.any(), Mockito.any())).thenAnswer(
                 invocation -> new RangerAccessResult(RangerPolicy.POLICY_TYPE_ROWFILTER, "hive", null,
                         invocation.getArgument(0)));
+    }
+
+    /** Grants whatever is asked, so that what reaches the policy engine is what the case is about. */
+    private static RangerAccessResult allow(InvocationOnMock invocation) {
+        RangerAccessRequest request = invocation.getArgument(0);
+        RangerAccessResult result = new RangerAccessResult(RangerPolicy.POLICY_TYPE_ACCESS, "hive", null,
+                request);
+        result.setIsAllowed(true);
+        return result;
+    }
+
+    /** Grants every column but the one named "secret", so that the refusal has a column to name. */
+    private static Collection<RangerAccessResult> allowEveryColumnBut(InvocationOnMock invocation) {
+        Collection<RangerAccessRequest> requests = invocation.getArgument(0);
+        List<RangerAccessResult> results = new ArrayList<>();
+        for (RangerAccessRequest request : requests) {
+            RangerAccessResult result = new RangerAccessResult(RangerPolicy.POLICY_TYPE_ACCESS, "hive", null,
+                    request);
+            result.setIsAllowed(!"secret".equals(request.getResource().getValue("column")));
+            results.add(result);
+        }
+        return results;
     }
 }

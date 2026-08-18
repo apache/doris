@@ -1324,11 +1324,11 @@ Common Development and Distribution License (CDDL) v1.1 -- licenses/LICENSE-CDDL
     * JAXB API bundle for GlassFish V3:
         - javax.xml.bind:jaxb-api:2.2.2 (https://jaxb.dev.java.net/)
     * jersey-core:
-        - com.sun.jersey:jersey-core:1.9 (https://jersey.java.net/jersey-core/)
+        - com.sun.jersey:jersey-core:1.19.4 (https://jersey.java.net/jersey-core/)
     * JAXB RI:
         - com.sun.xml.bind:jaxb-impl:2.2.3-1 (http://jaxb.java.net/)
     * jersey-client:
-        - com.sun.jersey:jersey-client:1.9 (https://jersey.java.net/jersey-client/)
+        - com.sun.jersey:jersey-client:1.19.4 (https://jersey.java.net/jersey-client/)
 
 Creative Commons Zero -- licenses/LICENSE-CC0.txt
     * reactive-streams:

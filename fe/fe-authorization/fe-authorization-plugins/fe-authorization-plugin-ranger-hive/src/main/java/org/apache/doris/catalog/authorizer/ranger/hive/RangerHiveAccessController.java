@@ -43,6 +43,7 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -57,8 +58,9 @@ public class RangerHiveAccessController extends RangerAccessController {
     private static final Logger LOG = LogManager.getLogger(RangerHiveAccessController.class);
 
     /**
-     * Drains the audit buffers. One thread for the process: every catalog bound to a Hive Ranger service
-     * schedules its own task on this timer.
+     * Drains the audit buffers. One thread per load of this class - which is one per plugin directory, since
+     * the loader is child-first - and every catalog bound to a Hive Ranger service schedules its own task on
+     * the timer of the directory it was loaded from.
      *
      * <p>Built here rather than through the engine's thread pool manager, which a plugin outside fe-core
      * cannot reach. What that costs is the pool's entry in the FE thread-pool metrics
@@ -80,7 +82,10 @@ public class RangerHiveAccessController extends RangerAccessController {
     // reaching a cleaned plugin.
     private final RangerHivePlugin hivePlugin;
     private final RangerHiveAuditHandler auditHandler;
-    private ScheduledFuture<?> logFlushFuture;
+    // Package-private so the case about this binding's audit lifecycle can see whether a task was scheduled
+    // and whether closing cancelled it; nothing else here says so.
+    @VisibleForTesting
+    ScheduledFuture<?> logFlushFuture;
 
     public RangerHiveAccessController(Map<String, String> properties, AuthorizationContext context) {
         this(properties, null, context);
@@ -207,7 +212,12 @@ public class RangerHiveAccessController extends RangerAccessController {
     }
 
     private RangerAccessRequestImpl createRequest(AuthorizedSubject subject, HiveAccessType accessType) {
-        RangerAccessRequestImpl request = createRequest(subject);
+        return createRequest(subject, accessType, getContext().rolesOf(subject));
+    }
+
+    private RangerAccessRequestImpl createRequest(AuthorizedSubject subject, HiveAccessType accessType,
+            Set<String> roles) {
+        RangerAccessRequestImpl request = createRequest(subject, roles);
         if (accessType == HiveAccessType.USE) {
             request.setAccessType(RangerPolicyEngine.ANY_ACCESS);
         } else {
@@ -236,11 +246,15 @@ public class RangerHiveAccessController extends RangerAccessController {
 
     @Override
     protected RangerAccessRequestImpl createRequest(AuthorizedSubject subject) {
-        RangerAccessRequestImpl request = new RangerAccessRequestImpl();
-        request.setUser(subject.getUser());
         // Policies in Ranger may be written against a role rather than a user, and the roles a Doris account
         // holds are the engine's to know, not this service's.
-        request.setUserRoles(getContext().rolesOf(subject));
+        return createRequest(subject, getContext().rolesOf(subject));
+    }
+
+    private RangerAccessRequestImpl createRequest(AuthorizedSubject subject, Set<String> roles) {
+        RangerAccessRequestImpl request = new RangerAccessRequestImpl();
+        request.setUser(subject.getUser());
+        request.setUserRoles(roles);
         request.setClientIPAddress(subject.getHost());
         request.setClusterType(CLIENT_TYPE_DORIS);
         request.setClientType(CLIENT_TYPE_DORIS);
@@ -252,9 +266,13 @@ public class RangerHiveAccessController extends RangerAccessController {
     private void checkPrivileges(AuthorizedSubject subject, HiveAccessType accessType,
             List<RangerHiveResource> hiveResources, AuthorizedResource asked) throws AccessDeniedException {
         checkWhileOpen(asked, () -> {
+            // Asked once for the whole batch. Every request in it is about the same subject, and reading the
+            // roles takes a read lock on the engine's privilege tables - a 200 column table would take 200 of
+            // them to build 200 identical sets.
+            Set<String> roles = getContext().rolesOf(subject);
             List<RangerAccessRequest> requests = new ArrayList<>();
             for (RangerHiveResource resource : hiveResources) {
-                RangerAccessRequestImpl request = createRequest(subject, accessType);
+                RangerAccessRequestImpl request = createRequest(subject, accessType, roles);
                 request.setResource(resource);
                 requests.add(request);
             }

@@ -50,10 +50,22 @@ import java.util.Set;
  * and {@code org.apache.doris.mysql.privilege.RowFilterPolicy}; both types are gone, replaced by
  * {@link org.apache.doris.authorization.DataMaskSpec} and {@link org.apache.doris.authorization.RowFilterSpec}.
  * Both signatures erase to {@code Optional} and {@code List}, so a controller compiled against the old types
- * still loads and still answers every {@code check*Priv} - and then fails with {@code NoClassDefFoundError}
- * the first time a query reaches a table it holds a policy for. Both methods have always been abstract here,
- * so every implementation has one of each; what is unaffected is a controller whose two answers are always
- * empty, since nothing it returns names either type.
+ * still loads and still answers every {@code check*Priv} - and then fails the first time a query reaches a
+ * table it holds a policy for. How it fails depends on what the method body touches: one that names a deleted
+ * type fails with {@code NoClassDefFoundError}, while one that only passes objects through - which is what
+ * the reference implementation in this repository did, returning {@code PolicyMgr.getUserPolicies(...)}
+ * verbatim - runs to completion and is refused by {@link LegacyAccessControllerPlugin} on the way out, with
+ * an {@code IllegalStateException} naming this source and this notice. Both methods have always been abstract
+ * here, so every implementation has one of each; what is unaffected is a controller whose two answers are
+ * always empty, since nothing it returns names either type.
+ *
+ * <p><b>Comparing a {@link PrivPredicate} with {@code ==} holds only for the questions the engine asks by
+ * name.</b> Those are handed over as the very constant the caller named - including {@code SHOW_RESOURCES}
+ * and {@code SHOW_WORKLOAD_GROUP}, which name the same actions and so are one value, told apart by the
+ * requirement object the engine derived from each. A check built for a single statement, on the other hand -
+ * granting a privilege requires holding both it and the right to grant it - translates back to a predicate
+ * built to match, equal to no constant and identical to none. Read {@link PrivPredicate#getPrivs()} and
+ * {@link PrivPredicate#getOp()} to recognise those.
  *
  * @deprecated implement {@link org.apache.doris.authorization.spi.AuthorizationPlugin} instead. This
  *         interface still works and is still what {@code access_controller.class} may name, but it is not

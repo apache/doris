@@ -26,11 +26,14 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.extension.loader.ApiVersionGate;
 import org.apache.doris.extension.loader.PluginRegistry;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.PluginJarWriter;
 import org.apache.doris.utframe.TestWithFeService;
@@ -62,7 +65,9 @@ import java.util.List;
  *   <li>an account the built-in model granted {@code SELECT} on that same table cannot, because the plugin
  *       does not - the source governing a resource is the whole answer for it;</li>
  *   <li>the row filter the plugin returns is planned over the table, for the account it applies to and not
- *       for the one it does not.</li>
+ *       for the one it does not;</li>
+ *   <li>the column mask the plugin returns is projected over the table, the same way and with the same
+ *       control.</li>
  * </ul>
  *
  * <p>The second of those records today's behaviour deliberately: {@code GRANT} still succeeds under an
@@ -219,8 +224,58 @@ public class AuthorizationPluginFromDirectoryTest extends TestWithFeService {
                 "an account the source returns no filter for was filtered anyway: " + auditorFilters);
     }
 
+    /**
+     * The column mask the source returns is planned as a projection over the table.
+     *
+     * <p>Masks reach the planner by a different route from row filters - a batch call keyed by column name,
+     * folded with {@code Locale.ROOT} on both sides - and nothing else exercises that route end to end: every
+     * other masking test either stubs the manager out or stops short of the planner, so the whole of it could
+     * be removed and stay green. The column is named in mixed case on purpose, since matching it is what the
+     * case folding is for.
+     *
+     * <p>With the same negative control the row filter case has: an account this source masks nothing for
+     * must read the column unchanged, or an implementation masking everything for everybody would pass too.
+     */
+    @Test
+    public void theColumnMaskTheSourceReturnsIsProjectedOverTheTable() throws Exception {
+        useUser(READER);
+        Plan masked = rewrite("select id, REGION from " + QUALIFIED_TBL);
+
+        Assertions.assertTrue(projectionsOf(masked).stream().anyMatch(this::isTheExampleColumnMask),
+                "the column mask the source returned never reached the plan: " + projectionsOf(masked));
+
+        useUser(AUDITOR);
+        Plan unmasked = rewrite("select id, REGION from " + QUALIFIED_TBL);
+
+        Assertions.assertTrue(projectionsOf(unmasked).stream().noneMatch(this::isTheExampleColumnMask),
+                "an account the source masks nothing for was masked anyway: " + projectionsOf(unmasked));
+    }
+
     private Plan rewrite(String sql) {
         return PlanChecker.from(connectContext).parse(sql).analyze().rewrite().getPlan();
+    }
+
+    private List<NamedExpression> projectionsOf(Plan plan) {
+        List<NamedExpression> projections = new ArrayList<>();
+        for (Object node : plan.<Plan>collectToList(LogicalProject.class::isInstance)) {
+            projections.addAll(((LogicalProject<?>) node).getProjects());
+        }
+        return projections;
+    }
+
+    /**
+     * Matches the masked form of {@code region} - an alias standing in for the column, carrying the mask's
+     * own marker text.
+     *
+     * <p>Matched on the marker rather than on {@code concat(...)}: the row filter this same source imposes
+     * pins {@code region} to one value, so the rewrite folds the mask expression to a literal. That the
+     * expression was folded is beside the point - what this case is about is that the column reaching the
+     * plan is the source's rewriting of it and not the column itself.
+     */
+    private boolean isTheExampleColumnMask(NamedExpression projection) {
+        return projection instanceof Alias
+                && "region".equalsIgnoreCase(projection.getName())
+                && projection.child(0).toSql().contains("***");
     }
 
     private List<Expression> filterConjunctsOf(Plan plan) {
