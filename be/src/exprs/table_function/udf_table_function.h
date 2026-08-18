@@ -83,12 +83,11 @@ private:
                 LOG(WARNING) << "errors while get jni env " << status;
                 return status;
             }
-            RETURN_IF_ERROR(
-                    executor.call_nonvirtual_void_method(env, executor_cl, executor_close_id)
-                            .call());
-
+            // Before the call, not after: a close that threw halfway is still a close, and the
+            // executor it was closing must not be handed to a second one. Same order as the
+            // scalar path in function_java_udf.h and the UDAF path.
             is_closed = true;
-            return Status::OK();
+            return executor.call_nonvirtual_void_method(env, executor_cl, executor_close_id).call();
         }
     };
 

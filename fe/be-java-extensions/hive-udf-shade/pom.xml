@@ -42,7 +42,7 @@ under the License.
           Source of the UDF contract classes. Marked optional so java-udf, which
           depends on this shaded module, does NOT transitively re-pull the full
           hive-exec:core jar: the ~handful of classes it needs are already baked
-          into hive-udf-shade.jar by the shade filter below. The wildcard
+          into hive-udf-shade.jar by the unpack <includes> below. The wildcard
           exclusion prunes hive-exec's heavy transitive tree (calcite/orc/...)
           from resolution entirely, since we bundle nothing but hive-exec itself.
         -->
@@ -65,6 +65,33 @@ under the License.
         <finalName>hive-udf-shade</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
+            <!--
+              The unpack below writes into a directory build.sh does not clean - it runs
+              `mvn package` without `clean` - and maven-dependency-plugin only ever adds. A hive
+              version bump would otherwise leave the previous version's classes in the jar beside
+              the new ones. Emptied first, every time; scoped to this one directory so the rest of
+              target/ survives an incremental build. Same reasoning as hive-apache-shade.
+            -->
+            <plugin>
+                <artifactId>maven-clean-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>empty-classes-before-unpack</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                        <configuration>
+                            <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                            <filesets>
+                                <fileset>
+                                    <directory>${project.build.outputDirectory}</directory>
+                                </fileset>
+                            </filesets>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <!--
               Unpack rather than shade, into this module's own class output. The shade plugin
               produces its jar in the package phase, so a `mvn test` run - which stops before

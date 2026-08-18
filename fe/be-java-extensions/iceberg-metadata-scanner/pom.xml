@@ -137,8 +137,9 @@ under the License.
           it - FE points fs.cosn.impl at S3AFileSystem, and no code in the tree names
           org.apache.hadoop.fs.CosFileSystem. oss:// is served by JindoFS, which is not a maven
           artifact - build.sh copies it into this plugin directory after post-build.sh has packaged
-          them (a no-op unless the build asked for jindofs, i.e. DISABLE_BUILD_JINDOFS=OFF or the
-          corresponding build.sh flag), with the native-library caveat recorded there.
+          them (a no-op unless the build asked for jindofs, i.e. DISABLE_BUILD_JINDOFS=OFF, or the
+          jindofs flag of post-build.sh; build.sh itself takes no such flag), with the
+          native-library caveat recorded there.
         -->
         <dependency>
             <groupId>org.apache.hadoop</groupId>

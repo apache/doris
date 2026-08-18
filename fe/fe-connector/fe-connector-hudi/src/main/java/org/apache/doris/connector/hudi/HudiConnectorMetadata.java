@@ -750,19 +750,20 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
                     ? hmsClient.listPartitionNamesFresh(handle.getDbName(), handle.getTableName(), -1)
                     : hmsClient.listPartitionNames(handle.getDbName(), handle.getTableName(), -1);
             if (hmsNames != null && !hmsNames.isEmpty()) {
-                if (queryInstant == null) {
-                    return buildPartitionInfos(hmsNames, partKeyNames, latestInstantMillis(handle));
-                }
-                // HMS knows nothing about instants, so the pin needs a metaClient of its own here - unlike the
-                // metadata-table branch below, where one visit answers both.
-                PinnedListing pinned = metaClientExecutor.execute(() -> {
-                    HoodieTableMetaClient metaClient =
-                            HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath());
-                    return pinnedListing(metaClient, queryInstant,
-                            HudiScanPlanProvider.listAllPartitionPaths(metaClient));
-                });
-                return restrictToPin(handle, partKeyNames,
-                        buildPartitionInfos(hmsNames, partKeyNames, pinned.pinMillis), pinned, queryInstant);
+                // Never narrowed to the pin, whether or not the handle carries one - which is the same
+                // answer {@link #listsPartitionsAtSnapshot} gives for a hive-sync table, and it has to be
+                // the same answer: a listing narrowed here would be pruned against, while that method says
+                // this listing knows nothing about snapshots. The two used to be written separately, and
+                // the narrowing one was unreachable for pruning - carrying, unexercised, the double-escape
+                // hazard restrictToPin's own javadoc warns about, since HMS partition values are escaped
+                // differently from the ones in a metadata path.
+                //
+                // What the pin costs instead is coarseness: a partition dropped after the pin is gone from
+                // HMS and cannot be listed, so restricting to what HMS holds now could only ever be a
+                // SUBSET of the pinned set. Reporting a superset (everything HMS knows) and letting the
+                // scan filter is the direction that cannot lose rows.
+                return buildPartitionInfos(hmsNames, partKeyNames,
+                        queryInstant == null ? latestInstantMillis(handle) : pinMillis(handle, queryInstant));
             }
             LOG.warn("hive-sync hudi table {}.{} has no HMS partitions; "
                     + "falling back to hudi metadata partition listing",
@@ -818,6 +819,16 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         return new Listing(rawPaths, lastModifiedMillis, null);
     }
 
+    /**
+     * The listing a metaClient visit produces for a table read AT a pin: everything the table has ever held,
+     * plus the subset that held data at the pin. For tests - it is the only way to drive
+     * {@link #restrictToPin}, which is otherwise reachable only behind a live metadata table.
+     */
+    static Listing pinnedListing(long lastModifiedMillis, List<String> rawPaths, long pinMillis,
+            List<String> rawPathsAtPin) {
+        return new Listing(rawPaths, lastModifiedMillis, new PinnedListing(pinMillis, rawPathsAtPin));
+    }
+
     /** The pin rendered as epoch millis, and the raw paths that held data at it. */
     private static final class PinnedListing {
         private final long pinMillis;
@@ -844,15 +855,33 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * The pin expressed in epoch millis, for a listing that is reported AT a pin: the partitions of a past
+     * snapshot are frozen, and reporting "now" as their last-modified would tell the engine that a past
+     * snapshot keeps changing. Unlike {@link #latestInstantMillis} the instant is given rather than read;
+     * only the timeline zone needs a metaClient.
+     */
+    private long pinMillis(HudiTableHandle handle, String queryInstant) {
+        return metaClientExecutor.execute(() -> {
+            HoodieTableMetaClient metaClient =
+                    HudiScanPlanProvider.buildMetaClient(buildHadoopConf(), handle.getBasePath());
+            return HudiScanPlanProvider.instantToEpochMillis(
+                    parseInstantOrZero(queryInstant), HudiScanPlanProvider.timelineZone(metaClient));
+        });
+    }
+
+    /**
      * Keeps only the partitions that held data at the pin, by VALUE rather than by re-listing.
      *
-     * <p>Restricting rather than re-listing is deliberate. The pinned paths come from hudi's metadata table
-     * while the listing may come from HMS, and the two spell an escaped partition value differently - a
-     * timestamp partition rendered from the metadata path comes out double-escaped, fails to parse into its
-     * column type, and is dropped, which prunes a live partition away. So the names and values stay exactly the
-     * ones the unpinned listing produced, and the pin only decides which of them survive. The freshness marker
-     * becomes the pin itself: at a pin the partitions are frozen, and reporting "now" would tell the engine a
-     * past snapshot keeps changing.
+     * <p>Restricting rather than re-listing is deliberate, and both sides of the comparison come from the
+     * SAME listing: {@code partitions} is built from the raw paths of one {@code listAllPartitionPaths}, and
+     * {@code pinned.rawPaths} is a subset of those same strings. That is what makes the value comparison
+     * exact. It also rules out the failure that shaped this method - comparing HMS-escaped partition values
+     * against ones rendered from a metadata path, where a timestamp partition comes out double-escaped,
+     * fails to parse into its column type and is dropped, pruning a live partition away. The hive-sync
+     * listing therefore never reaches here at all; see {@link #collectPartitions} and
+     * {@link #listsPartitionsAtSnapshot}, which agree that a hive-sync listing knows nothing about pins.
+     *
+     * <p>The freshness marker becomes the pin itself, for the reason on {@link #pinMillis}.
      */
     private List<ConnectorPartitionInfo> restrictToPin(HudiTableHandle handle, List<String> partKeyNames,
             List<ConnectorPartitionInfo> partitions, PinnedListing pinned, String queryInstant) {

@@ -28,7 +28,10 @@ import org.apache.doris.jni.testplugin.TestScanner;
 import org.apache.doris.jni.testplugin.TestScannerFactory;
 import org.apache.doris.jni.testplugin.TestUdfExecutorFactory;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -37,6 +40,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -336,6 +340,61 @@ class PluginRuntimeTest {
         Assertions.assertTrue(json.contains("\"name\":\"broken\",\"state\":\"FAILED\""), json);
         Assertions.assertTrue(json.contains("\"scanners\":[\"sample\"]"), json);
         Assertions.assertTrue(json.contains("\"apiVersion\":\"" + SpiVersion.version() + "\""), json);
+    }
+
+    /**
+     * The response is JSON, not a string that happens to contain the right substrings. Every other
+     * assertion on this method - here and in the regression suite that reads
+     * /api/jni_plugin_status - is a substring match, and all of them stay green with the escaping in
+     * appendJsonString deleted. The escaping exists because a FAILED plugin's message is a
+     * Status::to_string(), which carries bare newlines and a stack trace; the only consumer of this
+     * endpoint is a parser, so an unescaped one is a response nobody can read.
+     */
+    @Test
+    void statusIsParseableJsonEvenWhenTheNamesAndMessagesAreHostile(@TempDir Path plugins)
+            throws IOException {
+        PluginJars.deploy(plugins, "sample", TestPlugin.class, SAMPLE_CLASSES);
+        // Every character appendJsonString has a case for except the backslash, which cannot reach
+        // here at all: requirePluginName rejects one in a plugin name. Left EMPTY rather than given
+        // a corrupt jar, because "no jars in <dir>" is a failure message that quotes the path - so
+        // these characters are asserted twice over, once through "deployed" and once through the
+        // free-form message that motivated the escaping in the first place.
+        String hostile = "qu\"ote\bback\fform\nfeed\rand\ttabs\u0001control";
+        try {
+            Files.createDirectories(plugins.resolve(hostile));
+        } catch (IOException | RuntimeException e) {
+            Assumptions.abort("this filesystem refuses the name under test: " + e);
+            return;
+        }
+        PluginRuntime runtime = runtimeOver(plugins);
+        runtime.warmup();
+
+        JsonNode status = new ObjectMapper().readTree(runtime.statusJson());
+
+        List<String> deployed = new ArrayList<>();
+        status.get("deployed").forEach(name -> deployed.add(name.asText()));
+        Assertions.assertTrue(deployed.contains(hostile),
+                "the deployed name did not survive the round trip: " + deployed);
+        Assertions.assertEquals(SpiVersion.version(), status.get("apiVersion").asText());
+        Assertions.assertEquals(1, status.get("loadedCount").asInt());
+        Assertions.assertEquals(1, status.get("failedCount").asInt());
+
+        JsonNode failed = null;
+        JsonNode ready = null;
+        for (JsonNode plugin : status.get("plugins")) {
+            if ("FAILED".equals(plugin.get("state").asText())) {
+                failed = plugin;
+            } else if ("READY".equals(plugin.get("state").asText())) {
+                ready = plugin;
+            }
+        }
+        Assertions.assertNotNull(ready, runtime.statusJson());
+        Assertions.assertEquals("sample", ready.get("name").asText());
+        Assertions.assertEquals("sample", ready.get("scanners").get(0).asText());
+        Assertions.assertNotNull(failed, runtime.statusJson());
+        Assertions.assertEquals(hostile, failed.get("name").asText());
+        Assertions.assertTrue(failed.get("error").asText().contains(hostile),
+                "the failure message must survive the round trip: " + failed.get("error"));
     }
 
     @Test

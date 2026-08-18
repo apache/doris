@@ -110,6 +110,39 @@ under the License.
         <directory>${project.basedir}/target/</directory>
         <plugins>
             <!--
+              The two unpacks below MERGE into a directory that build.sh does not clean: it runs
+              `mvn package` without `clean`, so whatever the previous build left in target/classes
+              is still there. maven-dependency-plugin only ever adds, so a version bump would leave
+              the old hive's classes beside the new one's - two hive versions in one jar, and all
+              three tests still green, because they only look at classes the NEW jars also carry.
+              The META-INF/maven exclusion on each unpack has the same hole: it stops the entry from
+              being written again, not from surviving.
+
+              So the merge starts from an empty directory, every time. Bound to generate-resources,
+              which is the phase before the unpacks, and scoped to this one directory rather than
+              the whole of target/ so that an incremental build keeps everything else.
+            -->
+            <plugin>
+                <artifactId>maven-clean-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>empty-merged-classes-before-unpack</id>
+                        <phase>generate-resources</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                        <configuration>
+                            <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                            <filesets>
+                                <fileset>
+                                    <directory>${merged.classes}</directory>
+                                </fileset>
+                            </filesets>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!--
               The merge, stated as an order rather than as a list of classes: unpack the repackaged
               hive, then unpack the standalone storage API on top of it. The overlapping classes are
               whichever ones the second unpack happens to bring, so bumping either version keeps

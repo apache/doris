@@ -1220,12 +1220,18 @@ private:
     // collection classes cached below. Runs once, right after the JVM appears; every
     // caller that follows gets the outcome of that one attempt.
     //
-    // Only JvmLauncher may call this, and only from inside its bootstrap with the calling
+    // Deliberately NOT part of "does this process have a JVM": all of it comes out of
+    // doris-jni-spi.jar, and a BE whose Java deployment is incomplete still serves HDFS through
+    // libhdfs. JvmLauncher runs it once at the end of its bootstrap and logs a failure; Env, the
+    // door every Java caller comes through, refuses to hand out a JNIEnv while it is failing.
+    //
+    // Only those two may call it, and JvmLauncher only from inside its bootstrap with the calling
     // thread already attached and its env cached: the resolution asks Env::Get() for a
     // JNIEnv, and reaching this from an unattached thread would go back through
     // ensure_jvm() and deadlock on the once flag the bootstrap is already holding.
     static Status ensure_jni_base();
     friend class JvmLauncher;
+    friend class Env;
 
     static void _parse_max_heap_memory_size_from_jvm();
 

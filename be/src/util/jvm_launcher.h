@@ -41,11 +41,15 @@ namespace doris::Jni {
 // pays for no JVM at all.
 class JvmLauncher {
 public:
-    // Makes sure this process has a JVM, creating one if needed, and that the JNI base -
-    // Doris' native methods, its cached classes and the jvm_* metrics - is resolved against
-    // it. The two are one step on purpose: everything that describes the JVM has to appear
-    // as soon as the JVM does, whoever brought it up, including a caller that only wanted
-    // libhdfs. Thread-safe; the JVM is created at most once and the outcome of that single
+    // Makes sure this process has a JVM, creating one if needed. Succeeding means exactly that
+    // and nothing more: the jvm_* metrics are published along the way, because they describe the
+    // JVM itself and a BE that reached one only through libhdfs must still export them, but
+    // resolving the plugin SPI is NOT part of the answer. That comes out of doris-jni-spi.jar,
+    // and a deployment missing it has a Java problem, not an HDFS one - both hdfs_file_system.cpp
+    // and hdfs_mgr.cpp gate on this call. Java callers get that second failure from
+    // Jni::Env::Get(), the door they all come through.
+    //
+    // Thread-safe; the JVM is created at most once and the outcome of that single
     // attempt is what every later call returns. Fails with a clear message when Java support
     // is turned off, which is what every Java entry point of the BE reports to the user.
     //
@@ -54,7 +58,8 @@ public:
     static Status ensure_jvm();
 
     // Attaches the calling thread to the JVM and hands out its JNIEnv, arranging for the
-    // thread to be detached again when it exits. Implies ensure_jvm().
+    // thread to be detached again when it exits. Implies ensure_jvm(), and like it says nothing
+    // about the plugin SPI - Jni::Env::Get() is the entry point that checks that too.
     static Status attach_current_thread(JNIEnv** env);
 
     // The VM of this process, nullptr until ensure_jvm() has succeeded.
@@ -62,6 +67,9 @@ public:
 
 private:
     static Status _bootstrap_on_pthread();
+    // _bootstrap() with the directory-walk exceptions turned into a Status, for both branches
+    // of _bootstrap_on_pthread().
+    static Status _bootstrap_guarded();
     static Status _bootstrap();
     // attach_current_thread() without the ensure_jvm(), for the bootstrap itself: it runs
     // inside that call_once and would deadlock on it.

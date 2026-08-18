@@ -25,7 +25,9 @@ import java.net.URLClassLoader;
 import java.net.URLConnection;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -51,6 +53,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * different driver worlds. Note that a driver jar replaced in place at the same URL is not picked
  * up until BE restarts; {@link #checksumVerifier}, which the JDBC scanner, writer and connection
  * tester all pass, is what turns that from a silent stale read into an error.
+ *
+ * <p>Whether a jar has been checked is remembered SEPARATELY from the classloader, keyed by jar and
+ * expected checksum rather than by jar and parent. Folding the two together looks equivalent and is
+ * not: the connection tester runs first, under the same parent as the scanner, so once it had built
+ * the loader every later scan took the cache's early return and never reached its own verifier -
+ * one un-checksummed CREATE CATALOG disabled the check for that jar for the life of the process.
  */
 public final class JdbcDriverUtils {
 
@@ -63,6 +71,14 @@ public final class JdbcDriverUtils {
     /** One lock per driver jar, so that loading two different drivers does not serialize. */
     private static final ConcurrentHashMap<DriverKey, Object> LOAD_LOCKS = new ConcurrentHashMap<>();
 
+    /**
+     * Jars already checked, as "<url>\0<expectation>". Not keyed by parent: the bytes behind a URL
+     * are the same bytes whichever plugin asked, so one read answers for all of them - which is the
+     * whole reason this is remembered at all. Two catalogs naming the same URL with DIFFERENT
+     * checksums are two entries and both get checked; exactly one of them can pass.
+     */
+    private static final Set<String> VERIFIED = ConcurrentHashMap.newKeySet();
+
     private JdbcDriverUtils() {
     }
 
@@ -74,6 +90,19 @@ public final class JdbcDriverUtils {
     public interface DriverJarVerifier {
         /** Throws to reject the jar; the classloader is then not created or cached. */
         void verify(URL driverJar);
+
+        /**
+         * What this verifier expects of the jar, or null when it cannot say.
+         *
+         * <p>It is what lets "already checked" be remembered without holding on to the verifier:
+         * two calls naming the same jar and the same expectation ask the same question, so the
+         * second is skipped even when the classloader was built by somebody else. A verifier that
+         * returns null keeps the older, weaker rule - it runs only when the classloader is created
+         * - because nothing can tell two of them apart.
+         */
+        default String expectation() {
+            return null;
+        }
     }
 
     /**
@@ -93,13 +122,23 @@ public final class JdbcDriverUtils {
             return null;
         }
         String expected = expectedChecksum.trim();
-        return driverJar -> {
-            String actual = md5Of(driverJar);
-            if (!expected.equalsIgnoreCase(actual)) {
-                throw new IllegalStateException("Checksum mismatch for JDBC driver " + driverJar
-                        + ": the catalog expects " + expected + " but the jar is " + actual
-                        + ". The driver jar behind this URL is not the one the catalog was defined"
-                        + " with; replace the jar or redefine the catalog with the new checksum");
+        return new DriverJarVerifier() {
+            @Override
+            public void verify(URL driverJar) {
+                String actual = md5Of(driverJar);
+                if (!expected.equalsIgnoreCase(actual)) {
+                    throw new IllegalStateException("Checksum mismatch for JDBC driver " + driverJar
+                            + ": the catalog expects " + expected + " but the jar is " + actual
+                            + ". The driver jar behind this URL is not the one the catalog was defined"
+                            + " with; replace the jar or redefine the catalog with the new checksum");
+                }
+            }
+
+            @Override
+            public String expectation() {
+                // Lower-cased because the comparison above is case-insensitive: the same MD5 in two
+                // spellings is one question, and must not be asked twice.
+                return expected.toLowerCase(Locale.ROOT);
             }
         };
     }
@@ -143,25 +182,55 @@ public final class JdbcDriverUtils {
         DriverKey key = new DriverKey(toUrl(driverUrl), parent);
         ClassLoader cached = DRIVER_CLASS_LOADERS.get(key);
         if (cached != null) {
+            // Before the early return, not after the cache miss: a cached loader says nothing about
+            // whether THIS caller's expectation was ever checked against the jar.
+            verifyOnce(key.driverUrl, verifier, false);
             return cached;
         }
         // Per-key lock plus a second look, rather than computeIfAbsent: verifying a driver jar
         // reads and checksums it and creating the loader opens it, and neither may run while a
         // ConcurrentHashMap bin lock is held - two catalogs whose keys share a bin would then
         // serialize on each other's jar download, and a nested load would be a recursive update.
-        // What computeIfAbsent bought is kept: exactly one classloader per jar is ever published,
-        // and the verifier runs exactly once for it.
+        // What computeIfAbsent bought is kept: exactly one classloader per jar is ever published.
         synchronized (LOAD_LOCKS.computeIfAbsent(key, entry -> new Object())) {
             ClassLoader loaded = DRIVER_CLASS_LOADERS.get(key);
+            // Before the loader exists, so that a jar that fails the check is neither opened nor
+            // cached. Throwing here leaves nothing behind and the next request checks again.
+            verifyOnce(key.driverUrl, verifier, loaded == null);
             if (loaded == null) {
-                if (verifier != null) {
-                    verifier.verify(key.driverUrl);
-                }
                 loaded = URLClassLoader.newInstance(new URL[] {key.driverUrl}, key.parent);
                 DRIVER_CLASS_LOADERS.put(key, loaded);
             }
             return loaded;
         }
+    }
+
+    /**
+     * Runs the verifier unless this exact question - this jar, this expectation - was already
+     * answered in this process.
+     *
+     * @param loaderIsNew whether the classloader is about to be created, which is the only thing a
+     *                    verifier that cannot state its expectation can be keyed on
+     */
+    private static void verifyOnce(URL driverJar, DriverJarVerifier verifier, boolean loaderIsNew) {
+        if (verifier == null) {
+            return;
+        }
+        String expectation = verifier.expectation();
+        if (expectation == null) {
+            if (loaderIsNew) {
+                verifier.verify(driverJar);
+            }
+            return;
+        }
+        String token = driverJar.toString() + '\0' + expectation;
+        if (VERIFIED.contains(token)) {
+            return;
+        }
+        // Recorded after it passes, so a throw is not remembered as a pass. Two threads racing here
+        // both read the jar once, which is a cheap price for not holding a lock across the read.
+        verifier.verify(driverJar);
+        VERIFIED.add(token);
     }
 
     /**
@@ -174,7 +243,12 @@ public final class JdbcDriverUtils {
      * class resolution into a NoClassDefFoundError.
      */
     public static void invalidate(String driverUrl, ClassLoader parent) {
-        DRIVER_CLASS_LOADERS.remove(new DriverKey(toUrl(driverUrl), parent));
+        DriverKey key = new DriverKey(toUrl(driverUrl), parent);
+        DRIVER_CLASS_LOADERS.remove(key);
+        // ...and re-verifies it, which is what this promises. The jar behind the URL may well be a
+        // different one by now - that is a reason someone invalidates.
+        String prefix = key.driverUrl.toString() + '\0';
+        VERIFIED.removeIf(token -> token.startsWith(prefix));
     }
 
     private static URL toUrl(String driverUrl) {
