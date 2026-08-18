@@ -106,6 +106,42 @@ public class JdbcSourceOffsetProviderLagTest {
     }
 
     @Test
+    public void testMysqlLastSourceEventTimestampUsesCommittedOffsetSeconds() {
+        JdbcSourceOffsetProvider provider = provider(DataSourceType.MYSQL, DataSourceConfigKeys.OFFSET_INITIAL);
+        Map<String, String> committedOffset = mysqlOffset("mysql-bin.000002", 250);
+        committedOffset.put("ts_sec", "1787039821");
+        provider.currentOffset =
+                new JdbcOffset(Collections.singletonList(new BinlogSplit(committedOffset)));
+
+        Assert.assertEquals(1787039821L, provider.getLastSourceEventTimestampSeconds());
+    }
+
+    @Test
+    public void testPostgresLastSourceEventTimestampConvertsCommittedOffsetMicrosToSeconds() {
+        JdbcSourceOffsetProvider provider = provider(DataSourceType.POSTGRES, DataSourceConfigKeys.OFFSET_INITIAL);
+        Map<String, String> committedOffset = new HashMap<>();
+        committedOffset.put("lsn", "700");
+        committedOffset.put("ts_usec", "1787039821987654");
+        provider.currentOffset =
+                new JdbcOffset(Collections.singletonList(new BinlogSplit(committedOffset)));
+
+        Assert.assertEquals(1787039821L, provider.getLastSourceEventTimestampSeconds());
+    }
+
+    @Test
+    public void testLastSourceEventTimestampUnavailableBeforeCommittedBinlogTimestamp() {
+        JdbcSourceOffsetProvider provider = provider(DataSourceType.MYSQL, DataSourceConfigKeys.OFFSET_INITIAL);
+        provider.currentOffset = new JdbcOffset(Collections.singletonList(
+                snapshotSplit("split-1", mysqlOffset("mysql-bin.000001", 100))));
+
+        Assert.assertEquals(0L, provider.getLastSourceEventTimestampSeconds());
+
+        provider.currentOffset = new JdbcOffset(Collections.singletonList(
+                new BinlogSplit(mysqlOffset("mysql-bin.000002", 250))));
+        Assert.assertEquals(0L, provider.getLastSourceEventTimestampSeconds());
+    }
+
+    @Test
     public void testUnavailableLagDoesNotOverwriteLastSuccessfulValue() {
         JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
         provider.setLagBytes(4096);

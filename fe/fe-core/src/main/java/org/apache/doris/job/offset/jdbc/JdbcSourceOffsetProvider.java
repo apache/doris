@@ -1002,6 +1002,33 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
+    public long getLastSourceEventTimestampSeconds() {
+        synchronized (splitsLock) {
+            if (currentOffset == null || currentOffset.snapshotSplit()) {
+                return 0;
+            }
+            BinlogSplit binlogSplit = (BinlogSplit) currentOffset.getSplits().get(0);
+            Map<String, String> offsetMap = binlogSplit.getStartingOffset();
+            if (MapUtils.isEmpty(offsetMap)) {
+                return 0;
+            }
+            try {
+                String timestampSeconds = offsetMap.get("ts_sec");
+                if (timestampSeconds != null) {
+                    return Long.parseLong(timestampSeconds);
+                }
+                String timestampMicros = offsetMap.get("ts_usec");
+                if (timestampMicros != null) {
+                    return Long.parseLong(timestampMicros) / 1_000_000;
+                }
+            } catch (NumberFormatException e) {
+                log.warn("Failed to parse source event timestamp from offset: {}", offsetMap, e);
+            }
+            return 0;
+        }
+    }
+
+    @Override
     public void resetLag() {
         lagBytes = -1;
     }

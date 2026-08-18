@@ -211,6 +211,11 @@ public interface SourceOffsetProvider {
         return -1;
     }
 
+    /** Get the source event timestamp at the committed offset as Unix seconds, or 0 if unavailable. */
+    default long getLastSourceEventTimestampSeconds() {
+        return 0;
+    }
+
     /** Discard a lag value that was calculated from an offset explicitly replaced by the user. */
     default void resetLag() {}
 

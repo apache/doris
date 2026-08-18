@@ -140,7 +140,7 @@ suite("test_streaming_oceanbase_job",
         assert status.size() == 1 && status[0][0] == "RUNNING"
 
         Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
-            def jobInfo = sql """SELECT Lag FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+            def jobInfo = sql """SELECT LagBytes FROM jobs("type"="insert") WHERE Name='${jobName}'"""
             if (jobInfo.size() != 1) {
                 return false
             }

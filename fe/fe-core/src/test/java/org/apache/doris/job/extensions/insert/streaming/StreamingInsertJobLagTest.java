@@ -20,15 +20,36 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.base.TimerDefinition;
+import org.apache.doris.job.cdc.split.BinlogSplit;
+import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
 public class StreamingInsertJobLagTest {
+
+    @Test
+    public void testLastSourceEventTimestampUsesOffsetProvider() {
+        StreamingInsertJob job = Deencapsulation.newInstance(StreamingInsertJob.class);
+        Assert.assertEquals(0L, job.getLastSourceEventTimestampSeconds());
+
+        JdbcSourceOffsetProvider provider = new JdbcSourceOffsetProvider();
+        Map<String, String> committedOffset = new HashMap<>();
+        committedOffset.put("file", "mysql-bin.000001");
+        committedOffset.put("pos", "100");
+        committedOffset.put("ts_sec", "1787039821");
+        provider.setCurrentOffset(new JdbcOffset(Collections.singletonList(new BinlogSplit(committedOffset))));
+        Deencapsulation.setField(job, "offsetProvider", provider);
+
+        Assert.assertEquals(1787039821L, job.getLastSourceEventTimestampSeconds());
+        job.setLastTaskSuccessTime(1787039821123L);
+        Assert.assertEquals(1787039821L, job.getLastTaskSuccessTimeSeconds());
+    }
 
     @Test
     public void testExplicitOffsetChangeInvalidatesLastObservedLag() throws Exception {

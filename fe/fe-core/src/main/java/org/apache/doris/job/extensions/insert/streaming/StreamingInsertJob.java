@@ -1007,6 +1007,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return offsetProvider != null ? offsetProvider.getLagBytes() : -1;
     }
 
+    public long getLastSourceEventTimestampSeconds() {
+        return offsetProvider != null ? offsetProvider.getLastSourceEventTimestampSeconds() : 0;
+    }
+
+    public long getLastTaskSuccessTimeSeconds() {
+        return lastTaskSuccessTime / 1000L;
+    }
+
     /**
      * Because the offset statistics of the streamingInsertJob are all stored in txn,
      * only some fields are replayed here.
@@ -1166,6 +1174,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
                 ? "" : jobRuntimeMsg));
         trow.addToColumnValue(new TCell().setStringVal(getLag()));
+        long lastSourceEventTimestampSeconds = getLastSourceEventTimestampSeconds();
+        trow.addToColumnValue(new TCell().setStringVal(lastSourceEventTimestampSeconds > 0
+                ? String.valueOf(lastSourceEventTimestampSeconds) : ""));
         trow.addToColumnValue(new TCell().setStringVal(lastTaskSuccessTime > 0
                 ? TimeUtils.longToTimeString(lastTaskSuccessTime) : ""));
         return trow;
