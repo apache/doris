@@ -185,7 +185,7 @@ protected:
         auto lsn_buffer = AutoIncIDBuffer::create_shared(1, 1, kBinlogLsnAutoIncId);
         lsn_buffer->append_range_for_test(1000, num_rows);
         auto lsn_ids = std::make_shared<std::vector<int64_t>>();
-        RETURN_IF_ERROR(allocate_binlog_lsn(lsn_buffer, num_rows, *lsn_ids));
+        RETURN_IF_ERROR_RESULT(allocate_binlog_lsn(lsn_buffer, num_rows, *lsn_ids));
         binlog_options.insert_seg_lsn(0, lsn_ids);
         return _row_binlog_tablet->create_rowset_writer(row_binlog_context, false);
     }
