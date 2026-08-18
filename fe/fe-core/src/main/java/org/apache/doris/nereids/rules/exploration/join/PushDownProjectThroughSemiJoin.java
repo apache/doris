@@ -57,6 +57,12 @@ public class PushDownProjectThroughSemiJoin implements ExplorationRuleFactory {
         return ImmutableList.of(
                 logicalJoin(logicalProject(logicalJoin().whenNot(LogicalJoin::isMarkJoin)), group())
                     .when(j -> j.left().child().getJoinType().isLeftSemiOrAntiJoin())
+                    // a project computing a NoneMovableFunction (e.g. assert_true) or a volatile
+                    // expression must not be pushed below the semi/anti join: the join prunes
+                    // unmatched rows before the project in the original plan, so the pushed-down
+                    // project would evaluate the expression on rows that the join removes,
+                    // turning returned rows into errors (or changing results).
+                    .whenNot(j -> j.left().containsNoneMovableOrVolatile())
                     // Just pushdown project with non-column expr like (t.id + 1)
                     .whenNot(j -> j.left().isAllSlots())
                     .whenNot(j -> j.left().child().hasDistributeHint())
@@ -71,6 +77,10 @@ public class PushDownProjectThroughSemiJoin implements ExplorationRuleFactory {
 
                 logicalJoin(group(), logicalProject(logicalJoin().whenNot(LogicalJoin::isMarkJoin)))
                     .when(j -> j.right().child().getJoinType().isLeftSemiOrAntiJoin())
+                    // same as the left variant: reject pushing a project computing a
+                    // NoneMovableFunction (assert_true) or a volatile expression below the
+                    // semi/anti join, where it would be evaluated on rows that the join removes
+                    .whenNot(j -> j.right().containsNoneMovableOrVolatile())
                     // Just pushdown project with non-column expr like (t.id + 1)
                     .whenNot(j -> j.right().isAllSlots())
                     .whenNot(j -> j.right().child().hasDistributeHint())

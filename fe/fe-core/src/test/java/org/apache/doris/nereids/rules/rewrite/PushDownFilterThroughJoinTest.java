@@ -248,4 +248,30 @@ public class PushDownFilterThroughJoinTest implements MemoPatternMatchSupported 
                         ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(assertTrueExpr)))
                 );
     }
+
+    @Test
+    void testNotConvertNoneMovableEqualToToJoinCondition() {
+        /*
+         * a cross-side EqualTo containing a NoneMovableFunction (assert_true) must not be
+         * converted into a join condition: the join condition is evaluated on a superset of
+         * rows (all A x B pairs) compared with the filter on the join output, which changes
+         * the assertion's error behavior. the base implementation moves it into the join's
+         * otherJoinConjuncts; this implementation must retain it in the filter above the join.
+         */
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(rScore.getOutput().get(2), Literal.of(60)), new StringLiteral("msg"));
+        Expression equalTo = new EqualTo(rStudent.getOutput().get(0), assertTrueExpr);
+        LogicalPlan plan = new LogicalPlanBuilder(rStudent)
+                .joinEmptyOn(rScore, JoinType.INNER_JOIN)
+                .filter(equalTo)
+                .build();
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(PushDownFilterThroughJoin.INSTANCE)
+                .matchesFromRoot(
+                        logicalFilter(
+                                logicalJoin(logicalOlapScan(), logicalOlapScan())
+                                        .when(join -> join.getOtherJoinConjuncts().isEmpty())
+                        ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(equalTo)))
+                );
+    }
 }

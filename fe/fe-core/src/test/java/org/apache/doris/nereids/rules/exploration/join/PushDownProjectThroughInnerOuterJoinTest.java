@@ -20,8 +20,11 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -253,6 +256,52 @@ class PushDownProjectThroughInnerOuterJoinTest implements MemoPatternMatchSuppor
                 .build();
 
         PlanChecker.from(connectContext, plan)
+                .applyExploration(PushDownProjectThroughInnerOuterJoin.INSTANCE.buildRules())
+                .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
+    }
+
+    @Test
+    public void testRejectedWhenProjectContainsNoneMovableFunction() {
+        testRejectedWhenProjectContainsNoneMovableFunctionHelper(JoinType.INNER_JOIN);
+    }
+
+    private void testRejectedWhenProjectContainsNoneMovableFunctionHelper(JoinType joinType) {
+        /*
+         * the push-down must be rejected when the side-local project computes a
+         * NoneMovableFunction (assert_true): the join prunes unmatched rows before the
+         * project in the original plan, so the pushed-down project would evaluate the
+         * assertion on rows the join removes, turning returned rows into errors.
+         */
+        // left-side project: assert_true(t1.id > 0) as alias, t1.name
+        List<NamedExpression> leftProjectExprs = ImmutableList.of(
+                new Alias(new AssertTrue(
+                        new GreaterThan(scan1.getOutput().get(0), Literal.of(0)), new StringLiteral("msg")), "alias"),
+                scan1.getOutput().get(1)
+        );
+        LogicalPlan leftPlan = new LogicalPlanBuilder(scan1)
+                .join(scan2, joinType, Pair.of(1, 1))
+                .projectExprs(leftProjectExprs)
+                .join(scan3, joinType, Pair.of(1, 1))
+                .build();
+        PlanChecker.from(connectContext, leftPlan)
+                .applyExploration(PushDownProjectThroughInnerOuterJoin.INSTANCE.buildRules())
+                .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
+
+        // right-side project: assert_true(t2.id > 0) as alias, t2.name
+        List<NamedExpression> rightProjectExprs = ImmutableList.of(
+                new Alias(new AssertTrue(
+                        new GreaterThan(scan2.getOutput().get(0), Literal.of(0)), new StringLiteral("msg")), "alias"),
+                scan2.getOutput().get(1)
+        );
+        LogicalPlan rightPlan = new LogicalPlanBuilder(scan1)
+                .join(
+                        new LogicalPlanBuilder(scan2)
+                                .join(scan3, joinType, Pair.of(1, 1))
+                                .projectExprs(rightProjectExprs)
+                                .build(),
+                        joinType, Pair.of(1, 1))
+                .build();
+        PlanChecker.from(connectContext, rightPlan)
                 .applyExploration(PushDownProjectThroughInnerOuterJoin.INSTANCE.buildRules())
                 .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
     }
