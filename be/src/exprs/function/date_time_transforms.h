@@ -519,13 +519,25 @@ struct FromUnixTimeDecimalImpl {
         return true;
     }
 
+    static int32_t get_nanosecond(const ArgType& fraction) {
+        return static_cast<int32_t>(fraction) * common::exp10_i32(9 - Scale);
+    }
+
     static DateV2Value<DateTimeV2ValueType> get_datetime_value(const ArgType& interger,
                                                                const ArgType& fraction,
                                                                const cctz::time_zone& time_zone) {
+        auto epoch_second = static_cast<int64_t>(interger);
+        int32_t nanosecond = get_nanosecond(fraction);
+        if constexpr (WithNanosecond) {
+            constexpr int32_t NANOS_PER_MICROSECOND = 1000;
+            constexpr int32_t MICROS_PER_SECOND = 1000000;
+            const int32_t rounded_microseconds =
+                    (nanosecond + NANOS_PER_MICROSECOND / 2) / NANOS_PER_MICROSECOND;
+            epoch_second += rounded_microseconds / MICROS_PER_SECOND;
+            nanosecond = rounded_microseconds % MICROS_PER_SECOND * NANOS_PER_MICROSECOND;
+        }
         DateV2Value<DateTimeV2ValueType> dt;
-        dt.from_unixtime(static_cast<int64_t>(interger),
-                         static_cast<int32_t>(fraction) * common::exp10_i32(9 - Scale), time_zone,
-                         6);
+        dt.from_unixtime(epoch_second, nanosecond, time_zone, 6);
         return dt;
     }
 
@@ -543,9 +555,9 @@ struct FromUnixTimeDecimalImpl {
         }
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
-            if (!dt.to_format_string_conservative(
-                        format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN,
-                        static_cast<int32_t>(fraction) * common::exp10_i32(9 - Scale))) {
+            if (!dt.to_format_string_conservative(format.data, format.size, buf,
+                                                  100 + SAFE_FORMAT_STRING_MARGIN,
+                                                  get_nanosecond(fraction))) {
                 return true;
             }
 

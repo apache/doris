@@ -57,6 +57,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
+import java.time.DateTimeException;
 import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.Instant;
@@ -737,11 +738,16 @@ public class DateTimeExtractAndTransform {
             throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
         }
 
-        ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
-                .plusSeconds(second.getValue())
-                .atZone(ZoneId.of("UTC+0"))
-                .toOffsetDateTime()
-                .atZoneSameInstant(DateUtils.getTimeZone());
+        ZonedDateTime dateTime;
+        try {
+            dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
+                    .plusSeconds(second.getValue())
+                    .atZone(ZoneId.of("UTC+0"))
+                    .toOffsetDateTime()
+                    .atZoneSameInstant(DateUtils.getTimeZone());
+        } catch (DateTimeException e) {
+            throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range", e);
+        }
         DateTimeV2Literal datetime = new DateTimeV2Literal(dateTime.getYear(), dateTime.getMonthValue(),
                 dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
         if (datetime.checkRange()) {
@@ -770,11 +776,22 @@ public class DateTimeExtractAndTransform {
         if (second.signum() < 0) {
             throw new AnalysisException("Operation from_unixtime of " + second + " out of range");
         }
-        long epochSecond = second.setScale(0, RoundingMode.DOWN).longValueExact();
-        int nanosecond = second.subtract(BigDecimal.valueOf(epochSecond)).movePointRight(9)
-                .setScale(0, RoundingMode.DOWN).intValueExact();
-        ZonedDateTime dateTime = Instant.ofEpochSecond(epochSecond, nanosecond)
-                .atZone(DateUtils.getTimeZone());
+        int nanosecond;
+        ZonedDateTime dateTime;
+        try {
+            long unroundedEpochSecond = second.setScale(0, RoundingMode.DOWN).longValueExact();
+            nanosecond = second.subtract(BigDecimal.valueOf(unroundedEpochSecond)).movePointRight(9)
+                    .setScale(0, RoundingMode.DOWN).intValueExact();
+
+            BigDecimal microsecondRounded = second.setScale(6, RoundingMode.HALF_UP);
+            long epochSecond = microsecondRounded.setScale(0, RoundingMode.DOWN).longValueExact();
+            int microsecond = microsecondRounded.subtract(BigDecimal.valueOf(epochSecond)).movePointRight(6)
+                    .intValueExact();
+            dateTime = Instant.ofEpochSecond(epochSecond, microsecond * 1000L)
+                    .atZone(DateUtils.getTimeZone());
+        } catch (ArithmeticException | DateTimeException e) {
+            throw new AnalysisException("Operation from_unixtime of " + second + " out of range", e);
+        }
         DateTimeV2Literal datetime = new DateTimeV2Literal(DateTimeV2Type.of(6), dateTime.getYear(),
                 dateTime.getMonthValue(),
                 dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),

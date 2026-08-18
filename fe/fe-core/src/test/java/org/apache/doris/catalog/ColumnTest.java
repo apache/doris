@@ -28,6 +28,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.proto.OlapFile;
+import org.apache.doris.thrift.TColumn;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -44,6 +46,31 @@ public class ColumnTest {
     private Env env;
 
     private FakeEnv fakeEnv;
+
+    @Test
+    public void testSchemaChangeDefaultExpressionSerialization() throws Exception {
+        Column column = new Column("ts", Type.TIMESTAMP_NS, false, null, true,
+                "CURRENT_TIMESTAMP(9)", "", true, null, 1,
+                "2000-01-01 00:00:00.000000000");
+
+        TColumn thriftColumn = ColumnToThrift.toThrift(column);
+
+        Assert.assertEquals("2000-01-01 00:00:00.000000000", thriftColumn.getDefaultValue());
+        Assert.assertEquals("CURRENT_TIMESTAMP(9)", thriftColumn.getDefaultValueExpr());
+
+        OlapFile.ColumnPB protobufColumn = ColumnToProtobuf.toPb(column, null, null);
+        Assert.assertEquals("2000-01-01 00:00:00.000000000",
+                protobufColumn.getDefaultValue().toStringUtf8());
+        Assert.assertEquals("CURRENT_TIMESTAMP(9)", protobufColumn.getDefaultValueExpr().toStringUtf8());
+
+        Column datetimeColumn = new Column("dt", ScalarType.createDatetimeV2Type(6), false, null, true,
+                "CURRENT_TIMESTAMP(6)", "", true, null, 2,
+                "2000-01-01 00:00:00.000000");
+        Assert.assertFalse(ColumnToThrift.toThrift(datetimeColumn).isSetDefaultValueExpr());
+        OlapFile.ColumnPB datetimeProtobufColumn = ColumnToProtobuf.toPb(datetimeColumn, null, null);
+        Assert.assertEquals("CURRENT_TIMESTAMP(6)", datetimeProtobufColumn.getDefaultValue().toStringUtf8());
+        Assert.assertFalse(datetimeProtobufColumn.hasDefaultValueExpr());
+    }
 
     @Before
     public void setUp() {

@@ -504,27 +504,29 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
         Expression castToTimestampNs = new Cast(datetimeV2, TimeStampNsType.INSTANCE);
         TimeStampNsLiteral exact = new TimeStampNsLiteral("2024-01-02 03:04:05.123456000");
         TimeStampNsLiteral inexact = new TimeStampNsLiteral("2024-01-02 03:04:05.123456789");
-        DateTimeV2Literal floor = new DateTimeV2Literal(
-                DateTimeV2Type.of(6), "2024-01-02 03:04:05.123456");
-        DateTimeV2Literal ceiling = new DateTimeV2Literal(
-                DateTimeV2Type.of(6), "2024-01-02 03:04:05.123457");
+        EqualTo exactComparison = new EqualTo(castToTimestampNs, exact);
+        EqualTo inexactComparison = new EqualTo(castToTimestampNs, inexact);
+        NullSafeEqual nullSafeComparison = new NullSafeEqual(castToTimestampNs, inexact);
+        GreaterThan greaterThanComparison = new GreaterThan(castToTimestampNs, inexact);
+        LessThanEqual lessThanEqualComparison = new LessThanEqual(castToTimestampNs, inexact);
+        LessThan lessThanComparison = new LessThan(castToTimestampNs, inexact);
+        GreaterThanEqual greaterThanEqualComparison = new GreaterThanEqual(castToTimestampNs, inexact);
 
-        assertRewrite(new EqualTo(castToTimestampNs, exact), new EqualTo(datetimeV2, floor));
-        assertRewrite(new EqualTo(castToTimestampNs, inexact), ExpressionUtils.falseOrNull(datetimeV2));
-        assertRewrite(new NullSafeEqual(castToTimestampNs, inexact), BooleanLiteral.FALSE);
-        assertRewrite(new GreaterThan(castToTimestampNs, inexact), new GreaterThan(datetimeV2, floor));
-        assertRewrite(new LessThanEqual(castToTimestampNs, inexact), new LessThanEqual(datetimeV2, floor));
-        assertRewrite(new LessThan(castToTimestampNs, inexact), new LessThan(datetimeV2, ceiling));
-        assertRewrite(new GreaterThanEqual(castToTimestampNs, inexact),
-                new GreaterThanEqual(datetimeV2, ceiling));
+        assertRewrite(exactComparison, exactComparison);
+        assertRewrite(inexactComparison, inexactComparison);
+        assertRewrite(nullSafeComparison, nullSafeComparison);
+        assertRewrite(greaterThanComparison, greaterThanComparison);
+        assertRewrite(lessThanEqualComparison, lessThanEqualComparison);
+        assertRewrite(lessThanComparison, lessThanComparison);
+        assertRewrite(greaterThanEqualComparison, greaterThanEqualComparison);
 
         Expression datetime = new SlotReference("datetime", DateTimeType.INSTANCE, true);
         Expression castDatetimeToTimestampNs = new Cast(datetime, TimeStampNsType.INSTANCE);
         TimeStampNsLiteral subsecond = new TimeStampNsLiteral("2024-01-02 03:04:05.000000001");
-        assertRewrite(new GreaterThan(castDatetimeToTimestampNs, subsecond),
-                new GreaterThan(datetime, new DateTimeLiteral("2024-01-02 03:04:05")));
-        assertRewrite(new LessThan(castDatetimeToTimestampNs, subsecond),
-                new LessThan(datetime, new DateTimeLiteral("2024-01-02 03:04:06")));
+        GreaterThan datetimeGreaterThan = new GreaterThan(castDatetimeToTimestampNs, subsecond);
+        LessThan datetimeLessThan = new LessThan(castDatetimeToTimestampNs, subsecond);
+        assertRewrite(datetimeGreaterThan, datetimeGreaterThan);
+        assertRewrite(datetimeLessThan, datetimeLessThan);
 
         Expression timestampNs = new SlotReference("timestampNs", TimeStampNsType.INSTANCE, true);
         Expression noOpCast = new Cast(timestampNs, TimeStampNsType.INSTANCE);

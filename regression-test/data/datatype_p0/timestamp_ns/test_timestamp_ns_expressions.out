@@ -67,6 +67,9 @@
 2	true	false	false	true	false	true	true	true	false	false	true	false	true	true
 3	\N	\N	\N	\N	\N	\N	false	\N	\N	\N	\N	\N	\N	false
 
+-- !mixed_datetime_range_comparisons --
+true	true	true	true
+
 -- !mixed_temporal_in --
 1	false	true
 2	true	false

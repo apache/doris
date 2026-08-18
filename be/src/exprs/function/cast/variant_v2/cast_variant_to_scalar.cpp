@@ -44,6 +44,7 @@
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
 #include "exprs/function_context.h"
+#include "runtime/runtime_state.h"
 
 namespace doris::CastWrapper::variant_v2_internal {
 namespace {

@@ -27,10 +27,11 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 
 import com.google.common.collect.ImmutableList;
@@ -316,7 +317,7 @@ public class InsertUtilsTest {
     }
 
     @Test
-    public void timestampNsCurrentTimestampNineDefaultExpandsToLiteral() {
+    public void timestampNsCurrentTimestampNineDefaultRemainsDynamic() {
         Column column = new Column("ts", Type.TIMESTAMP_NS, false, null, true,
                 ColumnDef.DefaultValue.CURRENT_TIMESTAMP + "(9)", "", true,
                 new DefaultValueExprDef(ColumnDef.DefaultValue.NOW, 9L),
@@ -324,10 +325,10 @@ public class InsertUtilsTest {
 
         NamedExpression expression = InsertUtils.generateDefaultExpression(column);
 
-        TimeStampNsLiteral literal = Assertions.assertInstanceOf(
-                TimeStampNsLiteral.class, expression.child(0));
-        Assertions.assertEquals(9, literal.getScale());
-        Assertions.assertTrue(literal.getStringValue().matches(".*\\.\\d{9}"));
+        UnboundFunction currentTimestamp = Assertions.assertInstanceOf(
+                UnboundFunction.class, expression.child(0));
+        Assertions.assertEquals(ColumnDef.DefaultValue.NOW, currentTimestamp.getName());
+        Assertions.assertEquals(new TinyIntLiteral((byte) 9), currentTimestamp.child(0));
     }
 
     @Test

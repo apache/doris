@@ -123,35 +123,6 @@ private:
         }
     }
 
-    void _execute_timestamp_ns(const IColumn& expr_column, const IColumn& min_value_column,
-                               const IColumn& max_value_column, const int64_t num_buckets,
-                               ColumnInt64::MutablePtr& nested_column) const {
-        const auto& expr_data = assert_cast<const ColumnTimeStampNs&>(expr_column).get_data();
-        const auto& min_value_data =
-                assert_cast<const ColumnTimeStampNs&>(min_value_column).get_data();
-        const auto& max_value_data =
-                assert_cast<const ColumnTimeStampNs&>(max_value_column).get_data();
-        auto& nested_data = nested_column->get_data();
-
-        for (size_t i = 0; i < expr_data.size(); ++i) {
-            const int64_t expr = expr_data[i].epoch_nanos();
-            const int64_t min_value = min_value_data[i].epoch_nanos();
-            const int64_t max_value = max_value_data[i].epoch_nanos();
-            if (expr < min_value) {
-                continue;
-            } else if (expr >= max_value) {
-                nested_data[i] = num_buckets + 1;
-            } else {
-                const auto range = static_cast<__int128>(max_value) - min_value;
-                if (range / num_buckets == 0) {
-                    continue;
-                }
-                const auto offset = static_cast<__int128>(expr) - min_value;
-                nested_data[i] = static_cast<int64_t>(1 + offset * num_buckets / range);
-            }
-        }
-    }
-
     bool _execute_by_type(const IColumn& expr_column, const IColumn& min_value_column,
                           const IColumn& max_value_column, const int64_t num_buckets,
                           ColumnInt64::MutablePtr& nested_column_column,
@@ -180,10 +151,6 @@ private:
         case PrimitiveType::TYPE_DOUBLE:
             _execute<ColumnFloat64>(expr_column, min_value_column, max_value_column, num_buckets,
                                     nested_column_column);
-            break;
-        case PrimitiveType::TYPE_TIMESTAMP_NS:
-            _execute_timestamp_ns(expr_column, min_value_column, max_value_column, num_buckets,
-                                  nested_column_column);
             break;
         default:
             return false;

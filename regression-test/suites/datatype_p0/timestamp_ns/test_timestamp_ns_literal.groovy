@@ -114,8 +114,15 @@ suite("test_timestamp_ns_literal") {
         select
             cast(current_timestamp as timestamp_ns) is not null,
             cast(current_timestamp(6) as timestamp_ns) is not null,
+            current_timestamp(7) is not null,
+            current_timestamp(8) is not null,
             current_timestamp(9) is not null,
-            right(cast(current_timestamp(7) as string), 2) = '00'
+            length(substring_index(cast(current_timestamp(6) as string), '.', -1)) = 6,
+            length(substring_index(cast(current_timestamp(7) as string), '.', -1)) = 9,
+            length(substring_index(cast(current_timestamp(8) as string), '.', -1)) = 9,
+            length(substring_index(cast(current_timestamp(9) as string), '.', -1)) = 9,
+            right(cast(current_timestamp(7) as string), 2) = '00',
+            right(cast(current_timestamp(8) as string), 1) = '0'
     """
 
     sql "drop table if exists test_timestamp_ns_current_default"

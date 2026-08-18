@@ -57,6 +57,9 @@ suite("test_timestamp_ns_functions") {
             second_ceil(cast('2024-02-29 12:34:56.123456789' as timestamp_ns)),
             convert_tz(cast('2024-02-29 12:34:56.123456789' as timestamp_ns),
                        '+08:00', '+00:00'),
+            field(cast('1970-01-01 00:00:00.000000001' as timestamp_ns),
+                  cast('1969-12-31 23:59:59.999999999' as timestamp_ns),
+                  cast('1970-01-01 00:00:00.000000001' as timestamp_ns)),
             sequence(cast('1969-12-31 23:59:59.000000001' as timestamp_ns),
                      cast('1970-01-01 00:00:02.000000001' as timestamp_ns), interval 1 second)
     """
@@ -66,6 +69,18 @@ suite("test_timestamp_ns_functions") {
     qt_scalar_functions_runtime scalarFunctionConstantsSql
     sql "set debug_skip_fold_constant = false"
     testFoldConst(scalarFunctionConstantsSql)
+
+    def fromUnixTimeMicrosecondRoundingSql = """
+        select
+            from_unixtime(0.123456499, '%s.%f|%n'),
+            from_unixtime(0.123456500, '%s.%f|%n'),
+            from_unixtime(0.999999499, '%s.%f|%n'),
+            from_unixtime(0.999999500, '%s.%f|%n')
+    """
+    qt_from_unixtime_microsecond_rounding_fold fromUnixTimeMicrosecondRoundingSql
+    sql "set debug_skip_fold_constant = true"
+    qt_from_unixtime_microsecond_rounding_runtime fromUnixTimeMicrosecondRoundingSql
+    sql "set debug_skip_fold_constant = false"
 
     def datetimeTimeNanosecondFormatSql = """
         select
@@ -299,6 +314,12 @@ suite("test_timestamp_ns_functions") {
             cast('2024-05-01 12:34:56.123456789' as timestamp_ns),
             interval 1 month)
     """
+    qt_sequence_terminal_overflow """
+        select sequence(
+            cast('2262-04-11 23:47:16.854775806' as timestamp_ns),
+            cast('2262-04-11 23:47:16.854775807' as timestamp_ns),
+            interval 1 second)
+    """
     qt_sequence_all_units """
         select
             sequence(cast('2024-02-29 12:34:56.123456789' as timestamp_ns),
@@ -352,7 +373,8 @@ suite("test_timestamp_ns_functions") {
             sequence_match('(?1)(?2)', value, id = 2, id = 3),
             window_funnel(86400, 'default', value, id = 2, id = 3),
             window_funnel_v2(86400, 'default', value, id = 2, id = 3),
-            topn_weighted(value, cast(id as bigint), 3)
+            topn_weighted(value, cast(id as bigint), 3),
+            topn_weighted(value, cast(id as bigint), 3, 100)[1]
         from timestamp_ns_functions
     """
     qt_array_and_map_functions """

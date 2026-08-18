@@ -36,6 +36,7 @@
 #include "core/string_buffer.hpp"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_parameters.h"
+#include "storage/field_type.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"

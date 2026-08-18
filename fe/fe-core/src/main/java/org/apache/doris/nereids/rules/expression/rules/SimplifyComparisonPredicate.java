@@ -187,8 +187,10 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
                     || cast.child().getDataType() instanceof TimeStampNsType) {
                 // right is datetime
                 if (right instanceof TimeStampNsLiteral) {
-                    return processDateTimeLikeComparisonPredicateTimeStampNsLiteral(
-                            cp, cast.child(), (TimeStampNsLiteral) right);
+                    // DATETIME and DATETIMEV2 have a wider calendar range than TIMESTAMP_NS.
+                    // Removing the cast would turn an out-of-range cast result (NULL or an error)
+                    // into an ordinary boolean comparison.
+                    return cp;
                 }
                 if (right instanceof DateTimeV2Literal) {
                     return processDateTimeLikeComparisonPredicateDateTimeV2Literal(
@@ -208,40 +210,6 @@ public class SimplifyComparisonPredicate implements ExpressionPatternRuleFactory
         }
 
         return cp;
-    }
-
-    private static Expression processDateTimeLikeComparisonPredicateTimeStampNsLiteral(
-            ComparisonPredicate comparisonPredicate, Expression left, TimeStampNsLiteral right) {
-        DataType leftType = left.getDataType();
-        if (leftType instanceof TimeStampNsType) {
-            return comparisonPredicate;
-        }
-        if (!(leftType instanceof DateTimeType) && !(leftType instanceof DateTimeV2Type)) {
-            return comparisonPredicate;
-        }
-        int toScale = leftType instanceof DateTimeV2Type ? ((DateTimeV2Type) leftType).getScale() : 0;
-        if (toScale >= TimeStampNsType.SCALE) {
-            return comparisonPredicate;
-        }
-
-        DateTimeV2Literal rounded;
-        if (comparisonPredicate instanceof EqualTo || comparisonPredicate instanceof NullSafeEqual) {
-            rounded = right.roundFloorToDateTimeV2(toScale);
-            if (rounded.getNanoSecond() != right.getNanoSecond()) {
-                return comparisonPredicate instanceof NullSafeEqual
-                        ? BooleanLiteral.FALSE : ExpressionUtils.falseOrNull(left);
-            }
-        } else if (comparisonPredicate instanceof GreaterThan
-                || comparisonPredicate instanceof LessThanEqual) {
-            rounded = right.roundFloorToDateTimeV2(toScale);
-        } else if (comparisonPredicate instanceof LessThan
-                || comparisonPredicate instanceof GreaterThanEqual) {
-            rounded = right.roundCeilingToDateTimeV2(toScale);
-        } else {
-            return comparisonPredicate;
-        }
-        Expression newRight = leftType instanceof DateTimeType ? migrateToDateTime(rounded) : rounded;
-        return comparisonPredicate.withChildren(left, newRight);
     }
 
     // process cast(datetime as datetime) cmp datetime

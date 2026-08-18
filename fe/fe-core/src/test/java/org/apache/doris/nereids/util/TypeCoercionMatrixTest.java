@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -700,7 +703,11 @@ public class TypeCoercionMatrixTest {
         testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT,
                 TimeStampNsType.INSTANCE);
         testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DateV2Type.INSTANCE, TimeStampNsType.INSTANCE);
-        testProcessComparisonPredicate(TimeStampNsType.INSTANCE, DateTimeV2Type.MAX, TimeStampNsType.INSTANCE);
+        Expression timestampNsDateTime = TypeCoercionUtils.processComparisonPredicate(
+                new EqualTo(new SlotReference("left", TimeStampNsType.INSTANCE),
+                        new SlotReference("right", DateTimeV2Type.MAX)));
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, timestampNsDateTime.child(0).getDataType());
+        Assertions.assertEquals(DateTimeV2Type.MAX, timestampNsDateTime.child(1).getDataType());
         testProcessComparisonPredicate(TimeStampNsType.INSTANCE, TimeStampTzType.MAX, TimeStampNsType.INSTANCE);
         testProcessComparisonPredicate(TimeStampNsType.INSTANCE, TimeV2Type.MAX, TimeStampNsType.INSTANCE);
         testProcessComparisonPredicate(TimeStampNsType.INSTANCE, StringType.INSTANCE, TimeStampNsType.INSTANCE);

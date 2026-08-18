@@ -636,6 +636,40 @@ private:
         return Status::OK();
     }
 
+    template <bool timestamp_ns_on_left>
+    Status execute_timestamp_ns_datetime_v2(Block& block, uint32_t result,
+                                            const ColumnPtr& left_column,
+                                            const ColumnPtr& right_column,
+                                            size_t input_rows_count) const {
+        const auto& timestamp_column = timestamp_ns_on_left ? left_column : right_column;
+        const auto& datetime_column = timestamp_ns_on_left ? right_column : left_column;
+        auto [timestamp_unpacked, timestamp_is_const] = unpack_if_const(timestamp_column);
+        auto [datetime_unpacked, datetime_is_const] = unpack_if_const(datetime_column);
+        const auto& timestamps =
+                assert_cast<const ColumnTimeStampNs&>(*timestamp_unpacked).get_data();
+        const auto& datetimes = assert_cast<const ColumnDateTimeV2&>(*datetime_unpacked).get_data();
+
+        auto result_column = ColumnUInt8::create(input_rows_count);
+        auto& result_data = result_column->get_data();
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            const auto& timestamp = timestamps[timestamp_is_const ? 0 : row];
+            const auto datetime = datetimes[datetime_is_const ? 0 : row];
+            const auto timestamp_as_datetime = timestamp.to_datetime();
+            int comparison = 0;
+            if (timestamp_as_datetime < datetime) {
+                comparison = -1;
+            } else if (timestamp_as_datetime > datetime || timestamp.nanosecond_remainder()) {
+                comparison = 1;
+            }
+            if constexpr (!timestamp_ns_on_left) {
+                comparison = -comparison;
+            }
+            result_data[row] = Op<TYPE_INT>::apply(comparison, 0);
+        }
+        block.replace_by_position(result, std::move(result_column));
+        return Status::OK();
+    }
+
 public:
     String get_name() const override { return name; }
 
@@ -766,6 +800,17 @@ public:
 
         const DataTypePtr& left_type = col_with_type_and_name_left.type;
         const DataTypePtr& right_type = col_with_type_and_name_right.type;
+
+        if (left_type->get_primitive_type() == TYPE_TIMESTAMP_NS &&
+            right_type->get_primitive_type() == TYPE_DATETIMEV2) {
+            return execute_timestamp_ns_datetime_v2<true>(block, result, col_left_ptr,
+                                                          col_right_ptr, input_rows_count);
+        }
+        if (left_type->get_primitive_type() == TYPE_DATETIMEV2 &&
+            right_type->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+            return execute_timestamp_ns_datetime_v2<false>(block, result, col_left_ptr,
+                                                           col_right_ptr, input_rows_count);
+        }
 
         /// The case when arguments are the same (tautological comparison). Return constant.
         /// NOTE: Nullable types are special case. (BTW, this function use default implementation for Nullable, so Nullable types cannot be here. Check just in case.)

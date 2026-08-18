@@ -39,6 +39,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
@@ -57,7 +58,7 @@ class TimestampNsFunctionSignatureTest {
     private final NereidsParser parser = new NereidsParser();
 
     @Test
-    void testTimestampNsUsesDedicatedScalarFunctionSignatures() {
+    void testTimestampNsScalarFunctionSignatures() {
         assertSignature(new WeeksAdd(timestampNs, new IntegerLiteral(1)),
                 TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE, IntegerType.INSTANCE);
         assertSignature(new Year(timestampNs), SmallIntType.INSTANCE, TimeStampNsType.INSTANCE);
@@ -68,16 +69,26 @@ class TimestampNsFunctionSignatureTest {
                 TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE, VarcharType.SYSTEM_DEFAULT);
         assertSignature(new UnixTimestamp(timestampNs),
                 DecimalV3Type.createDecimalV3Type(21, 9), TimeStampNsType.INSTANCE);
+    }
+
+    @Test
+    void testWidthBucketMatchesDateTimeV2Signature() {
+        Expression dateTimeV2 = SlotReference.of("datetimev2", DateTimeV2Type.MAX);
         assertSignature(new WidthBucket(timestampNs, timestampNs, timestampNs,
                         new IntegerLiteral(1)),
-                BigIntType.INSTANCE, TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE,
-                TimeStampNsType.INSTANCE, TinyIntType.INSTANCE);
+                BigIntType.INSTANCE, DoubleType.INSTANCE, DoubleType.INSTANCE,
+                DoubleType.INSTANCE, TinyIntType.INSTANCE);
+        assertSignature(new WidthBucket(dateTimeV2, dateTimeV2, dateTimeV2,
+                        new IntegerLiteral(1)),
+                BigIntType.INSTANCE, DoubleType.INSTANCE, DoubleType.INSTANCE,
+                DoubleType.INSTANCE, TinyIntType.INSTANCE);
     }
 
     @Test
     void testNowUsesTimestampNsForNanosecondPrecision() {
         assertAnalyzedType("now(6)", DateTimeV2Type.MAX);
         assertAnalyzedType("now(7)", TimeStampNsType.INSTANCE);
+        assertAnalyzedType("now(8)", TimeStampNsType.INSTANCE);
         assertAnalyzedType("now(9)", TimeStampNsType.INSTANCE);
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 () -> ExpressionAnalyzer.analyzeFunction(null, null, parser.parseExpression("now(10)")));
@@ -164,8 +175,6 @@ class TimestampNsFunctionSignatureTest {
         assertSignature(new ArrayRange(timestampNs, datetime),
                 ArrayType.of(TimeStampNsType.INSTANCE),
                 TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
-        assertSignature(new Field(timestampNs, datetime), IntegerType.INSTANCE,
-                TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE);
     }
 
     @Test
@@ -224,6 +233,10 @@ class TimestampNsFunctionSignatureTest {
         assertSignature(new TopNWeighted(timestampNs, weight, new IntegerLiteral(2)),
                 ArrayType.of(TimeStampNsType.INSTANCE), TimeStampNsType.INSTANCE,
                 BigIntType.INSTANCE, IntegerType.INSTANCE);
+        assertSignature(new TopNWeighted(timestampNs, weight,
+                        new IntegerLiteral(2), new IntegerLiteral(100)),
+                ArrayType.of(TimeStampNsType.INSTANCE), TimeStampNsType.INSTANCE,
+                BigIntType.INSTANCE, IntegerType.INSTANCE, IntegerType.INSTANCE);
     }
 
     private void assertTimestampNsBinary(ScalarFunction function) {

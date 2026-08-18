@@ -53,8 +53,6 @@ ColumnBitmap* get_mutable_skip_bitmap_column(Block* block, size_t skip_bitmap_co
     return skip_bitmap_column_ptr;
 }
 
-} // namespace
-
 Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
                                UniqueKeyUpdateModePB unique_key_update_mode,
                                PartialUpdateNewRowPolicyPB policy,
@@ -296,16 +294,21 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                     }
                 }
             } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS &&
-                                to_lower(column.default_value())
+                                to_lower(column.has_default_value_expr()
+                                                 ? column.default_value_expr()
+                                                 : column.default_value())
                                                 .find(to_lower("CURRENT_TIMESTAMP")) !=
                                         std::string::npos)) {
-                auto pos = to_lower(column.default_value()).find('(');
+                const auto& default_value_expr = column.has_default_value_expr()
+                                                         ? column.default_value_expr()
+                                                         : column.default_value();
+                auto pos = to_lower(default_value_expr).find('(');
                 DateV2Value<DateTimeV2ValueType> dtv;
                 uint16_t nanosecond_remainder = 0;
                 if (pos == std::string::npos) {
                     dtv.from_unixtime(timestamp_ms / 1000, timezone);
                 } else {
-                    int precision = std::stoi(column.default_value().substr(pos + 1));
+                    int precision = std::stoi(default_value_expr.substr(pos + 1));
                     dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
                     if (precision > 6) {
                         const int64_t factor = static_cast<int64_t>(int_exp10(9 - precision));

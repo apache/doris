@@ -153,9 +153,11 @@ public class JavaUdfDataType {
             return Sets.newHashSet(JavaUdfDataType.STRING);
         } else if (Type.DATE_SUPPORTED_JAVA_TYPE.contains(c)) {
             return Sets.newHashSet(JavaUdfDataType.DATE, JavaUdfDataType.DATEV2);
-        } else if (Type.DATETIME_SUPPORTED_JAVA_TYPE.contains(c)) {
+        } else if (c == java.time.LocalDateTime.class) {
             return Sets.newHashSet(JavaUdfDataType.DATETIME, JavaUdfDataType.DATETIMEV2,
                     JavaUdfDataType.TIMESTAMP_NS);
+        } else if (Type.DATETIME_SUPPORTED_JAVA_TYPE.contains(c)) {
+            return Sets.newHashSet(JavaUdfDataType.DATETIME, JavaUdfDataType.DATETIMEV2);
         } else if (c == BigInteger.class) {
             return Sets.newHashSet(JavaUdfDataType.LARGEINT);
         } else if (c == BigDecimal.class) {

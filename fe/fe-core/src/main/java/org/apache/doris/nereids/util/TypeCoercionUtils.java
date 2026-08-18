@@ -249,6 +249,9 @@ public class TypeCoercionUtils {
                     && (input instanceof NumericType || input.isDateLikeType()
                             || input instanceof TimeV2Type || input instanceof CharacterType)) {
                 return Optional.of(expected);
+            } else if (input instanceof TimeStampNsType
+                    && (expected instanceof FloatType || expected instanceof DoubleType)) {
+                return Optional.of(expected);
             } else if (input instanceof TimeStampNsType && expected instanceof CharacterType) {
                 return Optional.of(expected.defaultConcreteType());
             }
@@ -1084,11 +1087,14 @@ public class TypeCoercionUtils {
     }
 
     /**
-     * Choose TIMESTAMP_NS as the lossless common type whenever the other operand has a supported
-     * conversion. In particular, DATETIMEV2 must be promoted rather than truncating a nanosecond
-     * operand to DATETIMEV2(6).
+     * Choose TIMESTAMP_NS only when the other operand has a total conversion. DATETIMEV2 has a
+     * wider calendar range, so value-producing expressions must require an explicit cast instead
+     * of silently producing NULL for valid values outside the signed-nanos range.
      */
     private static Optional<DataType> getCommonDataTypeWithTimeStampNsType(DataType otherType) {
+        if (otherType instanceof DateTimeV2Type) {
+            return Optional.empty();
+        }
         if (otherType instanceof TimeStampNsType || otherType.isNumericType()
                 || otherType.isDateLikeType() || otherType instanceof TimeV2Type
                 || otherType.isStringLikeType()) {
@@ -1425,7 +1431,15 @@ public class TypeCoercionUtils {
         right = comparisonPredicate.right();
 
         Optional<DataType> commonType;
-        if (GlobalVariable.enableNewTypeCoercionBehavior) {
+        if (isTimeStampNsAndDateTimeV2Pair(left.getDataType(), right.getDataType())) {
+            commonType = findExactCommonTypeForTimeStampNsAndDateTimeV2(
+                    ImmutableList.of(left, right));
+            // The BE comparison kernel compares the two physical types exactly. Keep a mixed
+            // comparison only when neither operand is a literal that can be converted losslessly.
+            if (!commonType.isPresent()) {
+                return comparisonPredicate;
+            }
+        } else if (GlobalVariable.enableNewTypeCoercionBehavior) {
             commonType = findWiderTypeForTwo(left.getDataType(), right.getDataType(), false, false);
         } else {
             commonType = findWiderTypeForTwoForComparison(left.getDataType(), right.getDataType(), false);
@@ -1496,15 +1510,8 @@ public class TypeCoercionUtils {
         final InPredicate fmtInPredicate =
                 hitString ? new InPredicate(inPredicate.getCompareExpr(), newOptions) : inPredicate;
 
-        List<DataType> waitForCoercion = fmtInPredicate.children()
-                .stream()
-                .map(Expression::getDataType).collect(Collectors.toList());
-        Optional<DataType> optionalCommonType;
-        if (GlobalVariable.enableNewTypeCoercionBehavior) {
-            optionalCommonType = TypeCoercionUtils.findWiderCommonType(waitForCoercion, false, false);
-        } else {
-            optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForComparison(waitForCoercion, true);
-        }
+        Optional<DataType> optionalCommonType = findWiderCommonTypeForExpressionsByVariable(
+                fmtInPredicate.children(), false, false, true);
 
         if (optionalCommonType.isPresent() && !supportCompare(optionalCommonType.get(), true)) {
             throw new AnalysisException("data type " + optionalCommonType.get()
@@ -1613,21 +1620,23 @@ public class TypeCoercionUtils {
         caseWhen.checkLegalityBeforeTypeCoercion();
 
         // type coercion
-        List<DataType> dataTypesForCoercion = caseWhen.dataTypesForCoercion();
-        if (dataTypesForCoercion.size() <= 1) {
+        List<Expression> expressionsForCoercion = caseWhen.getWhenClauses().stream()
+                .map(wc -> wc.getResult())
+                .collect(Collectors.toList());
+        caseWhen.getDefaultValue().ifPresent(expressionsForCoercion::add);
+        if (expressionsForCoercion.size() <= 1) {
             return caseWhen;
         }
+        List<DataType> dataTypesForCoercion = expressionsForCoercion.stream()
+                .map(Expression::getDataType)
+                .collect(Collectors.toList());
         DataType first = dataTypesForCoercion.get(0);
         if (dataTypesForCoercion.stream().allMatch(dataType -> dataType.equals(first))) {
             return caseWhen;
         }
 
-        Optional<DataType> optionalCommonType;
-        if (GlobalVariable.enableNewTypeCoercionBehavior) {
-            optionalCommonType = TypeCoercionUtils.findWiderCommonType(dataTypesForCoercion, false, true);
-        } else {
-            optionalCommonType = TypeCoercionUtils.findWiderCommonTypeForCaseWhen(dataTypesForCoercion);
-        }
+        Optional<DataType> optionalCommonType = findWiderCommonTypeForExpressionsByVariable(
+                expressionsForCoercion, false, true, false);
         return optionalCommonType
                 .map(commonType -> {
                     List<Expression> newChildren
@@ -1693,6 +1702,115 @@ public class TypeCoercionUtils {
         } else {
             return findWiderTypeForTwoForCaseWhen(left, right);
         }
+    }
+
+    /** Find a common type for two value-producing expressions using exact literal conversions. */
+    public static Optional<DataType> findWiderTypeForTwoByVariable(Expression left, Expression right,
+            boolean overflowToDouble, boolean stringIsHighPriority) {
+        return findWiderCommonTypeForExpressionsByVariable(
+                ImmutableList.of(left, right), overflowToDouble, stringIsHighPriority, false);
+    }
+
+    /** Find a common type using literal values when TIMESTAMP_NS and DATETIMEV2 are mixed. */
+    public static Optional<DataType> findWiderCommonTypeForExpressionsByVariable(
+            List<? extends Expression> expressions, boolean overflowToDouble,
+            boolean stringIsHighPriority, boolean comparison) {
+        Optional<List<DataType>> exactTypes = replaceExactTimeStampNsAndDateTimeV2Types(expressions);
+        if (!exactTypes.isPresent()) {
+            return Optional.empty();
+        }
+        if (GlobalVariable.enableNewTypeCoercionBehavior) {
+            return findWiderCommonType(exactTypes.get(), overflowToDouble, stringIsHighPriority);
+        }
+        return comparison
+                ? findWiderCommonTypeForComparison(exactTypes.get(), true)
+                : findWiderCommonTypeForCaseWhen(exactTypes.get());
+    }
+
+    /** Whether the two scalar types are the mixed temporal pair with no total common type. */
+    public static boolean isTimeStampNsAndDateTimeV2Pair(DataType left, DataType right) {
+        return left instanceof TimeStampNsType && right instanceof DateTimeV2Type
+                || left instanceof DateTimeV2Type && right instanceof TimeStampNsType;
+    }
+
+    private static Optional<DataType> findExactCommonTypeForTimeStampNsAndDateTimeV2(
+            List<? extends Expression> expressions) {
+        Optional<List<DataType>> exactTypes = replaceExactTimeStampNsAndDateTimeV2Types(expressions);
+        if (!exactTypes.isPresent()) {
+            return Optional.empty();
+        }
+        DataType first = exactTypes.get().get(0);
+        return exactTypes.get().stream().allMatch(first::equals) ? Optional.of(first) : Optional.empty();
+    }
+
+    private static Optional<List<DataType>> replaceExactTimeStampNsAndDateTimeV2Types(
+            List<? extends Expression> expressions) {
+        boolean containsTimeStampNs = expressions.stream()
+                .anyMatch(expression -> expression.getDataType() instanceof TimeStampNsType);
+        boolean containsDateTimeV2 = expressions.stream()
+                .anyMatch(expression -> expression.getDataType() instanceof DateTimeV2Type);
+        if (!containsTimeStampNs || !containsDateTimeV2) {
+            return Optional.of(expressions.stream().map(Expression::getDataType).collect(Collectors.toList()));
+        }
+
+        boolean allDateTimeV2ValuesFitTimeStampNs = expressions.stream()
+                .filter(expression -> expression.getDataType() instanceof DateTimeV2Type)
+                .allMatch(expression -> getDateTimeV2Literal(expression)
+                        .map(literal -> TimeStampNsLiteral.isInRange(literal.toJavaDateType()))
+                        .orElse(false));
+        if (allDateTimeV2ValuesFitTimeStampNs) {
+            return Optional.of(expressions.stream()
+                    .map(expression -> expression.getDataType() instanceof DateTimeV2Type
+                            ? TimeStampNsType.INSTANCE : expression.getDataType())
+                    .collect(Collectors.toList()));
+        }
+
+        boolean allTimeStampNsValuesFitDateTimeV2 = expressions.stream()
+                .filter(expression -> expression.getDataType() instanceof TimeStampNsType)
+                .allMatch(expression -> getTimeStampNsLiteral(expression)
+                        .map(literal -> literal.getNanoSecond() % 1000 == 0)
+                        .orElse(false));
+        if (allTimeStampNsValuesFitDateTimeV2) {
+            return Optional.of(expressions.stream()
+                    .map(expression -> expression.getDataType() instanceof TimeStampNsType
+                            ? DateTimeV2Type.MAX : expression.getDataType())
+                    .collect(Collectors.toList()));
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<DateTimeV2Literal> getDateTimeV2Literal(Expression expression) {
+        if (expression instanceof DateTimeV2Literal) {
+            return Optional.of((DateTimeV2Literal) expression);
+        }
+        if (expression instanceof Cast && expression.getDataType() instanceof DateTimeV2Type
+                && expression.child(0) instanceof Literal) {
+            try {
+                Expression value = ((Literal) expression.child(0)).checkedCastTo(expression.getDataType());
+                return value instanceof DateTimeV2Literal
+                        ? Optional.of((DateTimeV2Literal) value) : Optional.empty();
+            } catch (AnalysisException e) {
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<TimeStampNsLiteral> getTimeStampNsLiteral(Expression expression) {
+        if (expression instanceof TimeStampNsLiteral) {
+            return Optional.of((TimeStampNsLiteral) expression);
+        }
+        if (expression instanceof Cast && expression.getDataType() instanceof TimeStampNsType
+                && expression.child(0) instanceof Literal) {
+            try {
+                Expression value = ((Literal) expression.child(0)).checkedCastTo(expression.getDataType());
+                return value instanceof TimeStampNsLiteral
+                        ? Optional.of((TimeStampNsLiteral) value) : Optional.empty();
+            } catch (AnalysisException e) {
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
     }
 
     @Deprecated
@@ -2004,6 +2122,8 @@ public class TypeCoercionUtils {
         for (DataType dataType : dataTypes) {
             if (dataType instanceof TimeStampNsType) {
                 containsTimeStampNs = true;
+            } else if (dataType instanceof DateTimeV2Type) {
+                return false;
             } else if (!dataType.isNullType() && !dataType.isDateLikeType()
                     && !(dataType instanceof TimeV2Type)) {
                 return false;

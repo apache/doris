@@ -49,8 +49,16 @@ TEST(PartialUpdateInfoTest, MaterializesTimestampNsCurrentTimestampDefaults) {
                                      "CURRENT_TIMESTAMP(7)"));
     schema.append_column(make_column("ts8", FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, false,
                                      "CURRENT_TIMESTAMP(8)"));
-    schema.append_column(make_column("ts9", FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, false,
-                                     "CURRENT_TIMESTAMP(9)"));
+    auto schema_change_ts9 = make_column("ts9", FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS, false,
+                                         "2000-01-01 00:00:00.000000000");
+    schema_change_ts9.set_default_value_expr("CURRENT_TIMESTAMP(9)");
+    schema.append_column(std::move(schema_change_ts9));
+
+    ColumnPB schema_change_column_pb;
+    schema.column(5).to_schema_pb(&schema_change_column_pb);
+    TabletColumn schema_change_column(schema_change_column_pb);
+    EXPECT_EQ(schema_change_column.default_value(), "2000-01-01 00:00:00.000000000");
+    EXPECT_EQ(schema_change_column.default_value_expr(), "CURRENT_TIMESTAMP(9)");
 
     PartialUpdateInfo utc_info;
     ASSERT_TRUE(utc_info.init(1, 2, schema, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,

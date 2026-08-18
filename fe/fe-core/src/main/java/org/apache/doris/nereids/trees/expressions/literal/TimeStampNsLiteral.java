@@ -122,6 +122,11 @@ public final class TimeStampNsLiteral extends DateLiteral {
         return new TimeStampNsLiteral(dateTime);
     }
 
+    /** Return whether a civil datetime is representable as a signed epoch-nanosecond value. */
+    public static boolean isInRange(LocalDateTime value) {
+        return !value.isBefore(MIN_VALUE) && !value.isAfter(MAX_VALUE);
+    }
+
     /** Return whether the civil fields are invalid or outside the signed epoch-nanosecond range. */
     public boolean checkRange() {
         if (checkRange(year, month, day) || month < 1 || day < 1 || checkDate(year, month, day)
@@ -129,8 +134,7 @@ public final class TimeStampNsLiteral extends DateLiteral {
                 || second < 0 || second > 59 || nanosecond < 0 || nanosecond > MAX_NANOSECOND) {
             return true;
         }
-        LocalDateTime value = toJavaDateType();
-        return value.isBefore(MIN_VALUE) || value.isAfter(MAX_VALUE);
+        return !isInRange(toJavaDateType());
     }
 
     @Override

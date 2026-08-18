@@ -18,6 +18,7 @@
 package org.apache.doris.common.jni;
 
 
+import org.apache.doris.common.jni.utils.JavaUdfDataType;
 import org.apache.doris.common.jni.utils.OffHeap;
 import org.apache.doris.common.jni.vec.ColumnType;
 import org.apache.doris.common.jni.vec.VectorTable;
@@ -26,10 +27,23 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
 
 public class JniScannerTest {
+    @Test
+    public void testOnlyJavaTimeLocalDateTimeSupportsTimestampNsUdf() {
+        Assert.assertTrue(JavaUdfDataType.getCandidateTypes(LocalDateTime.class)
+                .contains(JavaUdfDataType.TIMESTAMP_NS));
+        Assert.assertFalse(JavaUdfDataType.getCandidateTypes(org.joda.time.LocalDateTime.class)
+                .contains(JavaUdfDataType.TIMESTAMP_NS));
+        Assert.assertFalse(JavaUdfDataType.getCandidateTypes(org.joda.time.DateTime.class)
+                .contains(JavaUdfDataType.TIMESTAMP_NS));
+        Assert.assertTrue(JavaUdfDataType.getCandidateTypes(org.joda.time.LocalDateTime.class)
+                .contains(JavaUdfDataType.DATETIMEV2));
+    }
+
     @Test
     public void testUnencodedStructFieldNamesRemainLowerCase() {
         ColumnType structType = ColumnType.parseType(

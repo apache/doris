@@ -22,7 +22,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
-import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -81,10 +80,8 @@ public class Coalesce extends ScalarFunction implements CustomSignature, NeedSes
         Map<Boolean, List<Expression>> partitioned = getArguments().stream()
                 .collect(Collectors.partitioningBy(
                         e -> (e instanceof Literal && ((Literal) e).isStringLikeLiteral())));
-        List<DataType> forFindCommon = partitioned.get(false).stream()
-                .map(ExpressionTrait::getDataType)
-                .collect(Collectors.toList());
-        Optional<DataType> commonType = TypeCoercionUtils.findWiderCommonTypeByVariable(forFindCommon, false, true);
+        Optional<DataType> commonType = TypeCoercionUtils.findWiderCommonTypeForExpressionsByVariable(
+                partitioned.get(false), false, true, false);
         if (!commonType.isPresent()) {
             SearchSignature.throwCanNotFoundFunctionException(this.getName(), getArguments());
             return null;

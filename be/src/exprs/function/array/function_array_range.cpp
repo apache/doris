@@ -218,7 +218,8 @@ private:
                                                     std::integral_constant<TimeUnit, TimeUnit::DAY>,
                                                     TimeUnitOrVoid>;
                     int move = 0;
-                    while (doris::datetime_diff<UNIT::value>(idx, end_row) > 0) {
+                    const TimeInterval interval(UNIT::value, step_row, false);
+                    while (idx < end_row) {
                         if (move > max_array_size_as_field) {
                             return Status::InvalidArgument("Array size exceeds the limit {}",
                                                            max_array_size_as_field);
@@ -227,8 +228,9 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        idx = doris::date_time_add<UNIT::value, SourceDataPType, Int32>(idx,
-                                                                                        step_row);
+                        if (!idx.template date_add_interval<UNIT::value>(interval)) {
+                            break;
+                        }
                     }
                     dest_offsets.push_back(offset);
                 }

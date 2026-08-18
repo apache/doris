@@ -22,6 +22,8 @@ namespace doris {
 using namespace ut_type;
 
 TEST(TimestampNsFunctionTest, calendar_extract_and_format) {
+    TimezoneUtils::load_timezones_to_cache();
+
     const InputTypeSet one_argument = {{PrimitiveType::TYPE_TIMESTAMP_NS}};
 
     EXPECT_TRUE((check_function<DataTypeInt16, true>(
@@ -141,7 +143,25 @@ TEST(TimestampNsFunctionTest, from_unixtime_formats_nanoseconds) {
                          "from_unixtime_new", decimal_arguments,
                          {{{DECIMAL128V3(1565080737, 123456789, 9),
                             std::string("%Y-%m-%d %H:%i:%s.%f|%n")},
-                           std::string("2019-08-06 16:38:57.123456|123456789")}})
+                           std::string("2019-08-06 16:38:57.123457|123456789")}})
+                         .ok()));
+    EXPECT_TRUE((check_function<DataTypeString, true>(
+                         "from_unixtime_new", decimal_arguments,
+                         {{{DECIMAL128V3(1565080737, 123456499, 9),
+                            std::string("%Y-%m-%d %H:%i:%s.%f|%n")},
+                           std::string("2019-08-06 16:38:57.123456|123456499")}})
+                         .ok()));
+    EXPECT_TRUE((check_function<DataTypeString, true>(
+                         "from_unixtime_new", decimal_arguments,
+                         {{{DECIMAL128V3(1565080737, 123456500, 9),
+                            std::string("%Y-%m-%d %H:%i:%s.%f|%n")},
+                           std::string("2019-08-06 16:38:57.123457|123456500")}})
+                         .ok()));
+    EXPECT_TRUE((check_function<DataTypeString, true>(
+                         "from_unixtime_new", decimal_arguments,
+                         {{{DECIMAL128V3(1565080737, 999999500, 9),
+                            std::string("%Y-%m-%d %H:%i:%s.%f|%n")},
+                           std::string("2019-08-06 16:38:58.000000|999999500")}})
                          .ok()));
     EXPECT_TRUE(
             (check_function<DataTypeString, true>("from_unixtime_new", decimal_arguments,
@@ -331,32 +351,6 @@ TEST(TimestampNsFunctionTest, trunc_floor_and_ceil) {
                           {{{std::string("2262-04-11 23:47:16.854775807")}, std::string("unused")}},
                           -1, -1, true)
                           .ok()));
-}
-
-TEST(TimestampNsFunctionTest, width_bucket_uses_epoch_nanoseconds) {
-    const InputTypeSet arguments = {{PrimitiveType::TYPE_TIMESTAMP_NS},
-                                    {PrimitiveType::TYPE_TIMESTAMP_NS},
-                                    {PrimitiveType::TYPE_TIMESTAMP_NS},
-                                    {PrimitiveType::TYPE_TINYINT}};
-    EXPECT_TRUE((check_function<DataTypeInt64, true>(
-                         "width_bucket", arguments,
-                         {{{std::string("2024-01-01 00:00:00.000000000"),
-                            std::string("2024-01-01 00:00:00.000000000"),
-                            std::string("2024-01-01 00:00:01.000000000"), int8_t(4)},
-                           int64_t(1)},
-                          {{std::string("2023-12-31 23:59:59.999999999"),
-                            std::string("2024-01-01 00:00:00.000000000"),
-                            std::string("2024-01-01 00:00:01.000000000"), int8_t(4)},
-                           int64_t(0)},
-                          {{std::string("2024-01-01 00:00:00.750000000"),
-                            std::string("2024-01-01 00:00:00.000000000"),
-                            std::string("2024-01-01 00:00:01.000000000"), int8_t(4)},
-                           int64_t(4)},
-                          {{std::string("2024-01-01 00:00:01.000000000"),
-                            std::string("2024-01-01 00:00:00.000000000"),
-                            std::string("2024-01-01 00:00:01.000000000"), int8_t(4)},
-                           int64_t(5)}})
-                         .ok()));
 }
 
 } // namespace doris

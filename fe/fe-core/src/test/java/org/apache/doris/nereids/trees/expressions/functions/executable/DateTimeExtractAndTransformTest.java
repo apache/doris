@@ -186,6 +186,25 @@ class DateTimeExtractAndTransformTest {
         DecimalV3Literal dec = new DecimalV3Literal(big);
         Assertions.assertThrows(AnalysisException.class,
                 () -> DateTimeExtractAndTransform.fromUnixTime(dec));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromUnixTime(new BigIntLiteral(Long.MAX_VALUE)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("100000000000000000000"))));
+    }
+
+    @Test
+    void testFromUnixTimeNanosecondKeepsMicrosecondRounding() {
+        VarcharLiteral format = new VarcharLiteral("%s.%f|%n");
+        Assertions.assertEquals(new VarcharLiteral("00.123456|123456499"),
+                DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("0.123456499")), format));
+        Assertions.assertEquals(new VarcharLiteral("00.123457|123456500"),
+                DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("0.123456500")), format));
+        Assertions.assertEquals(new VarcharLiteral("01.000000|999999500"),
+                DateTimeExtractAndTransform.fromUnixTime(
+                        new DecimalV3Literal(new BigDecimal("0.999999500")), format));
     }
 
     @Test

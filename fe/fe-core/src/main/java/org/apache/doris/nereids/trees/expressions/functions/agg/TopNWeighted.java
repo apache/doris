@@ -117,7 +117,7 @@ public class TopNWeighted extends NullableAggregateFunction
                             BigIntType.INSTANCE,
                             IntegerType.INSTANCE,
                             IntegerType.INSTANCE),
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT)
+            FunctionSignature.ret(ArrayType.of(TimeStampNsType.INSTANCE))
                     .args(TimeStampNsType.INSTANCE,
                             BigIntType.INSTANCE,
                             IntegerType.INSTANCE,
