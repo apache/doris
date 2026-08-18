@@ -642,6 +642,12 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     const bool common_grams_query_eligible = common_grams_phrase_shape && !actual_similarity;
     const bool raw_pattern_query = query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY ||
                                    query_type == InvertedIndexQueryType::WILDCARD_QUERY;
+    // Pattern queries consume the raw bytes. Every other tokenizing path may share a pre-analysis
+    // result only when its context proves that the segment fixes the analyzer semantics.
+    const auto can_share_raw_query_semantics =
+            [raw_pattern_query](const InvertedIndexAnalyzerCtx* ctx) {
+                return raw_pattern_query || ctx == nullptr || ctx->can_share_raw_query_semantics();
+            };
     // Lucene-style CommonGrams: the plan decision is local to the segment and query. Snapshot the
     // switch once so this query's plan and cache identity use the same mode.
     const bool common_grams_query_plan_enabled = config::enable_common_grams_query_plan;
@@ -660,7 +666,8 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     // its metadata is open. Delay every eligible forced-plain lookup, then restore ordinary cache
     // access below only for a segment that cannot contain gram terms.
     const bool initial_force_plain = common_grams_query_eligible && safety_requires_plain;
-    const bool initial_allow_result_cache = !actual_similarity && !initial_force_plain;
+    const bool initial_allow_result_cache = !actual_similarity && !initial_force_plain &&
+                                            can_share_raw_query_semantics(analyzer_ctx);
     const bool defer_result_cache_lookup = !actual_similarity && !initial_allow_result_cache;
     const InvertedIndexRawQuerySemantic raw_semantic {
             .raw_query_bytes = search_str,
@@ -712,7 +719,8 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     const bool force_plain =
             common_grams_query_eligible && safety_requires_plain &&
             (effective_common_grams_configured || segment_may_contain_common_grams);
-    allow_result_cache = !actual_similarity && !force_plain;
+    allow_result_cache = !actual_similarity && !force_plain &&
+                         can_share_raw_query_semantics(effective_analyzer_context);
     if (defer_result_cache_lookup && allow_result_cache &&
         handle_query_cache(context, cache, cache_key, &cache_handler, bit_map,
                            allow_result_cache)) {

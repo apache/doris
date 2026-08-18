@@ -561,7 +561,7 @@ TEST(InvertedIndexAnalyzerCtxTest, UsesProviderCommonGramsIdentityWithoutCopying
 }
 
 TEST_F(InvertedIndexReaderAnalysisPurposeTest,
-       SniiRawCacheLookupIsIndependentOfRequestAnalyzerIdentity) {
+       SniiRawCacheLookupRequiresImmutableAnalyzerIdentity) {
     const bool original = config::enable_common_grams_query_plan;
     Defer restore([original] {
         EXPECT_TRUE(config::set_config("enable_common_grams_query_plan",
@@ -575,16 +575,22 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest,
             .common_grams_dictionary_identity = "dictionary:complete",
             .base_analyzer_fingerprint = "base:complete",
             .common_grams_fingerprint = "grams:complete"};
-    const inverted_index::CommonGramsQueryIdentity empty_identity;
-    for (const auto& identity : {complete_identity, empty_identity}) {
-        expect_raw_cache_hit_before_analysis(
-                _snii_reader, _snii_file_reader,
-                std::make_shared<IdentityFailingAnalyzerProvider>(identity),
-                config::enable_common_grams_query_plan);
-    }
-    expect_raw_cache_hit_before_analysis(_snii_reader, _snii_file_reader,
-                                         std::make_shared<RecordingFailingAnalyzerProvider>(),
-                                         config::enable_common_grams_query_plan);
+    expect_raw_cache_hit_before_analysis(
+            _snii_reader, _snii_file_reader,
+            std::make_shared<IdentityFailingAnalyzerProvider>(complete_identity),
+            config::enable_common_grams_query_plan);
+
+    // The same raw query is already cached above. Providers without a complete immutable identity
+    // must still bypass it, enter the segment, and analyze under their own generation.
+    preload_legacy_searcher_cache_entries();
+    expect_analysis_failure_after_segment_admission(
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false,
+            AnalysisPurpose::kPlainQuery,
+            std::make_shared<IdentityFailingAnalyzerProvider>(
+                    inverted_index::CommonGramsQueryIdentity {}));
+    expect_provider_failure_after_segment_admission(
+            _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false,
+            AnalysisPurpose::kPlainQuery);
 }
 
 TEST_F(InvertedIndexReaderAnalysisPurposeTest, DisabledResultCacheDoesNotLookupCountOrInsert) {
@@ -623,13 +629,13 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest, SniiSelectsPurposeAfterSegmentAdm
     preload_legacy_searcher_cache_entries();
     expect_provider_failure_after_segment_admission(
             _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false,
-            AnalysisPurpose::kPlainQuery, /*expected_query_cache_lookups=*/1);
+            AnalysisPurpose::kPlainQuery);
     expect_provider_failure_after_segment_admission(
             _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history ~2", false,
-            AnalysisPurpose::kPlainQuery, /*expected_query_cache_lookups=*/1);
+            AnalysisPurpose::kPlainQuery);
     expect_provider_failure_after_segment_admission(
             _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "the hist", false,
-            AnalysisPurpose::kPlainQuery, /*expected_query_cache_lookups=*/1);
+            AnalysisPurpose::kPlainQuery);
     expect_provider_failure_after_segment_admission(
             _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", true,
             AnalysisPurpose::kPlainQuery);
@@ -640,7 +646,7 @@ TEST_F(InvertedIndexReaderAnalysisPurposeTest, PartialAnalysisFailureDoesNotPubl
     auto snii_provider = std::make_shared<RecordingPartialFailureAnalyzerProvider>();
     expect_analysis_failure_after_segment_admission(
             _snii_reader, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "the history", false,
-            AnalysisPurpose::kPlainQuery, snii_provider, /*expected_query_cache_lookups=*/1);
+            AnalysisPurpose::kPlainQuery, snii_provider);
     EXPECT_EQ(snii_provider->emitted_tokens->load(std::memory_order_relaxed), 1);
 }
 
