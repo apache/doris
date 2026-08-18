@@ -74,11 +74,13 @@ if (GLIBC_COMPATIBILITY)
     if (ARCH_ARM AND (CMAKE_BUILD_TYPE STREQUAL "ASAN_UT" OR CMAKE_BUILD_TYPE STREQUAL "ASAN"))
         add_library(glibc-compatibility-explicit OBJECT
             musl/getrandom.c
+            resolv_shim.c
             ${lance_compatibility_source}
         )
     else()
         add_library(glibc-compatibility-explicit OBJECT
             musl/getrandom.c
+            resolv_shim.c
             ${MEMCPY_SOURCE}
             ${lance_compatibility_source}
         )
