@@ -16,6 +16,13 @@
 // under the License.
 
 #include <gtest/gtest.h>
+// Must precede exec/common/join_utils.h below. AsofIndexGroup::sort_and_finalize calls the
+// global pdqsort, which ADL cannot reach from std::vector's iterators, so the name has to be
+// visible where the template is defined rather than where it is instantiated. join_utils.h
+// deliberately does not include it: core/column/column.h stopped pulling exec/sort/hybrid_sorter.h
+// (pdqsort + timsort) out of 808 TUs, and production TUs reach join_utils.h through headers that
+// already supply pdqsort. Only this test pays for it.
+#include <pdqsort.h>
 
 #include <initializer_list>
 #include <type_traits>

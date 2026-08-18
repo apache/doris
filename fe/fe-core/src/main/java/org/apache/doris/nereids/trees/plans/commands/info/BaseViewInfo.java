@@ -65,9 +65,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
+import org.apache.doris.nereids.types.ConnectorComputeVariantType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -171,6 +173,10 @@ public class BaseViewInfo {
             for (Slot output : outputs) {
                 DataType dataType = TypeCoercionUtils.replaceSpecifiedType(output.getDataType(), NullType.class,
                         TinyIntType.INSTANCE);
+                // View schemas are persisted, so strip connector execution markers without changing
+                // unrelated legacy types at this durable boundary.
+                dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                        ConnectorComputeVariantType.class, VariantType.INSTANCE);
                 Column column = new Column(output.getName(), dataType.toCatalogDataType(), output.nullable());
                 finalCols.add(column);
             }
@@ -182,6 +188,9 @@ public class BaseViewInfo {
                 Slot output = outputs.get(i);
                 DataType dataType = TypeCoercionUtils.replaceSpecifiedType(output.getDataType(), NullType.class,
                         TinyIntType.INSTANCE);
+                // Keep explicit-column views on the same durable type boundary as inferred-column views.
+                dataType = TypeCoercionUtils.replaceSpecifiedType(dataType,
+                        ConnectorComputeVariantType.class, VariantType.INSTANCE);
                 Column column = new Column(simpleColumnDefinitions.get(i).getName(),
                         dataType.toCatalogDataType(), output.nullable());
                 column.setComment(simpleColumnDefinitions.get(i).getComment());

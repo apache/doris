@@ -288,6 +288,16 @@ public:
     // returns 0 for success otherwise error
     int recycle_deleted_instance();
 
+    int recycle_deleted_instance_data();
+
+    int recycle_deleted_instance_metadata();
+
+    int update_instance_recycle_state(InstanceRecycleState expected_state,
+                                      InstanceRecycleState target_state);
+
+    int update_instance_recycle_state(InstanceRecycleState expected_state,
+                                      InstanceRecycleState target_state, Transaction* txn);
+
     // scan and recycle expired indexes:
     // 1. dropped table, dropped mv
     // 2. half-successtable/index when create
@@ -431,10 +441,26 @@ public:
 
 private:
     // returns 0 for success otherwise error
+    int remove_instance_key();
+
+    // returns 0 for success otherwise error
     int init_obj_store_accessors();
 
     // returns 0 for success otherwise error
     int init_storage_vault_accessors();
+
+    int recycle_stream(int64_t stream_id, const RecycleIndexPB& recycle_index,
+                       std::string_view recycle_key);
+
+    int recycle_table_stream_offset_prefix(std::string prefix,
+                                           RecyclerMetricsContext* metrics_context);
+
+    int finalize_recycle_stream(int64_t stream_id, const RecycleIndexPB& recycle_index,
+                                std::string_view recycle_key);
+
+    int recycle_partition_table_stream_offsets(
+            int64_t db_id, int64_t table_id, int64_t partition_id,
+            const google::protobuf::RepeatedPtrField<TableStreamIdentityPB>& table_streams);
 
     /**
      * Scan key-value pairs between [`begin`, `end`) with multiple rounds of range get(`RangeGetIterator`),

@@ -60,6 +60,7 @@ RULES = [
             # A leaf statistics struct with no project includes of its own, which
             # storage/olap_common.h carries as a plain data type.
             "storage/index/inverted/inverted_index_stats.h",
+            "storage/index/snii/snii_query_stats.h",
         },
         "ExecEnv only ever names index types as pointers and already forward-declares "
         "them; reaching the index implementation headers from here puts the whole "
@@ -197,7 +198,109 @@ RULES = [
         "thrift and forward-declared); this was a dead include spreading PBlock "
         "and segment_v2.pb.h to ~595 TUs through thread_context.h",
     ),
+    (
+        "core/pod_array.h",
+        "runtime/thread_context.h",
+        set(),
+        "dead include left over from the PODArray memory-tracking experiment "
+        "(#50549); the tracking logic since moved into Allocator and pod_array.h "
+        "references no thread_context symbol, yet the edge dragged thread_context, "
+        "exec_env.h and mem_tracker_limiter.h into 203 TUs of core/",
+    ),
+    (
+        "core/column/column.h",
+        "exec/sort/",
+        set(),
+        "core must not depend on the exec sort machinery: column.h only names "
+        "HybridSorter in virtual signatures (forward-declared, bodies in "
+        "column.cpp); the old hybrid_sorter.h include was a layering violation "
+        "that pushed pdqsort/timsort into 808 TUs "
+        "(exec/common/endian.h still rides in via storage/olap_common.h -> "
+        "util/hash_util.hpp, a separate pre-existing wart)",
+    ),
+    (
+        "format/parquet/decoder.h",
+        "util/rle_encoding.h",
+        set(),
+        "BaseDictDecoder holds RleBatchDecoder<uint32_t> behind a unique_ptr "
+        "(forward-declared; the dtor and every member that dereferences it are "
+        "defined in decoder.cpp); the old include made every one of ~530 TUs "
+        "that transitively see a parquet decoder instantiate the whole "
+        "RLE/BitPacking decode chain at ~0.4 CPU s each",
+    ),
+    (
+        "format_v2/parquet/reader/native/decoder.h",
+        "util/rle_encoding.h",
+        set(),
+        "same contract as format/parquet/decoder.h: the dictionary index "
+        "decoder is forward-declared and only decoder.cpp needs the complete "
+        "RleBatchDecoder type; keeping rle_encoding.h (and the unrolled "
+        "bit_packing.inline.h it carries) out of this header keeps the RLE "
+        "instantiation chain out of the native-reader include tree",
+    ),
+    (
+        "exec/pipeline/dependency.h",
+        "exec/common/hash_table/",
+        {
+            # Declarations-only phmap forward header (the sanctioned way through
+            # the barrier; its name predates the *_fwd.h convention).
+            "exec/common/hash_table/phmap_fwd_decl.h",
+        },
+        "the SharedState classes hold every DataVariants behind unique_ptr/"
+        "shared_ptr with ctors/dtors/close bodies defined in dependency.cpp; "
+        "any path back into the hash-table machinery re-instantiates the "
+        "Agg/Join/Set variant surface (~0.85 CPU s) in each of the ~128 TUs "
+        "that include dependency.h transitively",
+    ),
+    (
+        "exec/pipeline/dependency.h",
+        "exec/operator/join/process_hash_table_probe.h",
+        set(),
+        "dead include: dependency.h references no ProcessHashTableProbe "
+        "symbol; the probe machinery belongs to the hash-join TUs that "
+        "include process_hash_table_probe_impl.h",
+    ),
+    (
+        "exec/pipeline/dependency.h",
+        "util/brpc_closure.h",
+        set(),
+        "dead include: dependency.h references no brpc symbol, yet this edge "
+        "carried runtime/query_context.h, runtime/thread_context.h and "
+        "service/brpc.h (1.36 MB of preprocessed payload) into ~100 TUs "
+        "whose only other route to them was this header",
+    ),
+    (
+        "exec/pipeline/rec_cte_shared_state.h",
+        "exec/common/hash_table/",
+        {
+            "exec/common/hash_table/phmap_fwd_decl.h",
+        },
+        "DistinctDataVariants is forward-declared and only touched in "
+        "rec_cte_shared_state.cpp (emplace_block's std::visit); the distinct "
+        "hash-table family must not ride the rec_cte operator headers into "
+        "the pipeline registry TUs",
+    ),
+    (
+        "exec/pipeline/rec_cte_shared_state.h",
+        "util/brpc_client_cache.h",
+        set(),
+        "send_data_to_targets/build_basic_param bodies live in "
+        "rec_cte_shared_state.cpp; the brpc client stack must not ride a "
+        "SharedState header",
+    ),
 ]
+
+# Not expressible as RULES entries (the scanner only follows quoted project
+# includes and <gen_cpp/...>): core/uint24.h and core/value/large_int_value.h
+# must not regain <fmt/compile.h> / <fmt/format.h>. Their to_string/to_buffer
+# bodies live in the matching .cpp files precisely so the FMT_COMPILE formatter
+# templates (53.5 CPU s over ~1150 TUs for the uint24 date format alone) are
+# instantiated once instead of in every includer.
+#
+# Likewise <concurrentqueue.h> must not return to exec/pipeline/dependency.h:
+# it was a dead 152 KB third-party include there; the moodycamel users
+# (local_exchanger.h, scanner_context.h, async_result_writer.h) include it
+# themselves.
 
 # Forward-declaration headers are the sanctioned way through a barrier: they carry
 # declarations only, so they cost nothing to include.

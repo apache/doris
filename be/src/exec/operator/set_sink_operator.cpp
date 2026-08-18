@@ -21,6 +21,7 @@
 
 #include "core/block/materialize_block.h"
 #include "exec/common/hash_table/hash_table_set_build.h"
+#include "exec/common/set_utils.h"
 #include "exec/operator/operator.h"
 
 namespace doris {

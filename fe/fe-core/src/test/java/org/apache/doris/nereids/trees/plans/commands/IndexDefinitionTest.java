@@ -18,12 +18,17 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.MapType;
@@ -55,6 +60,115 @@ public class IndexDefinitionTest {
                     org.apache.doris.nereids.exceptions.AnalysisException.class, e);
             Assertions.assertTrue(e.getMessage().contains("not supported in inverted index format V1"));
         }
+    }
+
+    @Test
+    void testSniiInvertedIndexColumnTypes() throws AnalysisException {
+        IndexDefinition def = new IndexDefinition("snii_index", false, Lists.newArrayList("col1"),
+                "INVERTED", null, "comment");
+
+        def.checkColumn(new ColumnDefinition("col1", StringType.INSTANCE, false, AggregateType.NONE, true,
+                        null, "comment"), KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.SNII);
+        def.checkColumn(new ColumnDefinition("col1", ArrayType.of(StringType.INSTANCE), false,
+                        AggregateType.NONE, true, null, "comment"), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+
+        // Scalar numerics are served by the SNII-native BKD.
+        def.checkColumn(new ColumnDefinition("col1", IntegerType.INSTANCE, false, AggregateType.NONE,
+                        true, null, "comment"), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+        def.checkColumn(new ColumnDefinition("col1", BigIntType.INSTANCE, false, AggregateType.NONE,
+                        true, null, "comment"), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+        def.checkColumn(new ColumnDefinition("col1", DateTimeV2Type.SYSTEM_DEFAULT, false, AggregateType.NONE,
+                        true, null, "comment"), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+        def.checkColumn(new ColumnDefinition("col1", DoubleType.INSTANCE, false, AggregateType.NONE,
+                        true, null, "comment"), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+
+        // A one-level ARRAY of numerics is served too: each element becomes its own
+        // point under the row's id, so a row matches when any of its elements does.
+        def.checkColumn(new ColumnDefinition("col1", ArrayType.of(IntegerType.INSTANCE), false,
+                        AggregateType.NONE, true, null, "comment"), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+
+        // A NESTED array has no flattening on the BE side and stays refused.
+        AnalysisException nestedException = Assertions.assertThrows(AnalysisException.class, () ->
+                def.checkColumn(new ColumnDefinition("col1",
+                                ArrayType.of(ArrayType.of(IntegerType.INSTANCE)), false,
+                                AggregateType.NONE, true, null, "comment"), KeysType.DUP_KEYS, false,
+                        TInvertedIndexFileStorageFormat.SNII));
+        Assertions.assertTrue(nestedException.getMessage().contains("not supported"));
+    }
+
+    @Test
+    void testSniiInvertedIndexCatalogColumnTypes() throws AnalysisException {
+        IndexDefinition def = new IndexDefinition("snii_index", false, Lists.newArrayList("col1"),
+                "INVERTED", null, "comment");
+
+        def.checkColumn(new Column("col1", Type.STRING, true), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+        def.checkColumn(new Column("col1", org.apache.doris.catalog.ArrayType.create(Type.STRING), true),
+                KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.SNII);
+
+        def.checkColumn(new Column("col1", Type.INT, true), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+        def.checkColumn(new Column("col1", Type.BIGINT, true), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+        def.checkColumn(new Column("col1", Type.DATETIMEV2, true), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+
+        def.checkColumn(new Column("col1", org.apache.doris.catalog.ArrayType.create(Type.INT), true),
+                KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.SNII);
+    }
+
+    // A SNII index may be declared on a VARIANT column, exactly as on V2 and V3. The parent
+    // column holds no postings of its own: each extracted sub-column is indexed under its own
+    // suffix path, and it is the sub-column type that the BE writer factory routes on. The
+    // parent type therefore cannot decide anything here, so it must not be refused here.
+    @Test
+    void testSniiAcceptsVariantColumn() throws AnalysisException {
+        IndexDefinition def = new IndexDefinition("snii_variant_index", false,
+                Lists.newArrayList("col1"), "INVERTED", null, "comment");
+
+        def.checkColumn(new ColumnDefinition("col1", VariantType.INSTANCE, false, AggregateType.NONE,
+                        true, null, "comment"), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+
+        def.checkColumn(new Column("col1", Type.VARIANT, true), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+    }
+
+    // SNII stores an ANN index as a blob logical index, the same mechanism the
+    // native BKD uses, so it accepts ANN exactly as V2/V3 do. V1 still cannot:
+    // it has no container to put one in.
+    @Test
+    void testSniiAcceptsAnnIndex() throws AnalysisException {
+        IndexDefinition def = new IndexDefinition("ann_index", false, Lists.newArrayList("col1"),
+                "ANN", null, "comment");
+        def.checkColumn(new ColumnDefinition("col1", ArrayType.of(FloatType.INSTANCE), false,
+                        AggregateType.NONE, false, null, "comment"), KeysType.DUP_KEYS, false,
+                TInvertedIndexFileStorageFormat.SNII);
+        def.checkColumn(new Column("col1", org.apache.doris.catalog.ArrayType.create(Type.FLOAT), false),
+                KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.SNII);
+    }
+
+    @Test
+    void testV1RejectsAnnIndex() {
+        IndexDefinition def = new IndexDefinition("ann_index", false, Lists.newArrayList("col1"),
+                "ANN", null, "comment");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () ->
+                def.checkColumn(new ColumnDefinition("col1", ArrayType.of(FloatType.INSTANCE), false,
+                                AggregateType.NONE, false, null, "comment"), KeysType.DUP_KEYS, false,
+                        TInvertedIndexFileStorageFormat.V1));
+        Assertions.assertTrue(exception.getMessage().contains("ANN index is not supported in index format V1"));
+
+        AnalysisException catalogException = Assertions.assertThrows(AnalysisException.class, () ->
+                def.checkColumn(new Column("col1", org.apache.doris.catalog.ArrayType.create(Type.FLOAT), false),
+                        KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.V1));
+        Assertions.assertTrue(catalogException.getMessage().contains(
+                "ANN index is not supported in index format V1"));
     }
 
     void testArrayTypeSupport() throws AnalysisException {

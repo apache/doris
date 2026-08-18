@@ -144,6 +144,7 @@ public class ExternalRowLevelUpdatePlanBuilder {
                 writeSchema.getWriteMetadataIdentity(),
                 writeColumns,
                 outputExprs,
+                true,
                 false,
                 Optional.empty(),
                 Optional.empty(),

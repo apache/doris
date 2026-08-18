@@ -47,6 +47,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format/table/iceberg_default_value.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/expr/equality_delete_predicate.h"
 #include "format_v2/orc/orc_reader.h"
@@ -62,6 +63,97 @@ namespace doris::format::iceberg {
 
 static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
 static constexpr int32_t ROW_LINEAGE_ROW_ID_FIELD_ID = 2147483540;
+
+namespace {
+
+bool contains_variant_type(const DataTypePtr& input) {
+    if (input == nullptr) {
+        return false;
+    }
+    const auto type = remove_nullable(input);
+    switch (type->get_primitive_type()) {
+    case TYPE_VARIANT:
+        return true;
+    case TYPE_ARRAY:
+        return contains_variant_type(assert_cast<const DataTypeArray&>(*type).get_nested_type());
+    case TYPE_MAP: {
+        const auto& map = assert_cast<const DataTypeMap&>(*type);
+        return contains_variant_type(map.get_key_type()) ||
+               contains_variant_type(map.get_value_type());
+    }
+    case TYPE_STRUCT:
+        return std::ranges::any_of(assert_cast<const DataTypeStruct&>(*type).get_elements(),
+                                   contains_variant_type);
+    default:
+        return false;
+    }
+}
+
+bool mapping_reads_variant(const format::ColumnMapping& mapping) {
+    if (!mapping.file_local_id.has_value()) {
+        return false;
+    }
+    if (contains_variant_type(mapping.original_file_type)) {
+        return true;
+    }
+    if (mapping.table_type != nullptr &&
+        remove_nullable(mapping.table_type)->get_primitive_type() == TYPE_VARIANT) {
+        return true;
+    }
+    return std::ranges::any_of(mapping.child_mappings, mapping_reads_variant);
+}
+
+const char* file_format_name(FileFormat format) {
+    switch (format) {
+    case FileFormat::PARQUET:
+        return "PARQUET";
+    case FileFormat::ORC:
+        return "ORC";
+    case FileFormat::CSV:
+        return "CSV";
+    case FileFormat::JSON:
+        return "JSON";
+    case FileFormat::TEXT:
+        return "TEXT";
+    case FileFormat::JNI:
+        return "JNI";
+    case FileFormat::NATIVE:
+        return "NATIVE";
+    case FileFormat::ARROW:
+        return "ARROW";
+    case FileFormat::WAL:
+        return "WAL";
+    }
+    return "UNKNOWN";
+}
+
+} // namespace
+
+Status IcebergTableReader::validate_variant_file_mappings(
+        FileFormat format, const std::vector<format::ColumnMapping>& mappings) {
+    if (format == FileFormat::PARQUET || !std::ranges::any_of(mappings, mapping_reads_variant)) {
+        return Status::OK();
+    }
+    // Gate on a physical mapping, not the table schema: an older ORC/Avro file may legitimately
+    // omit a Variant field added by schema evolution, in which case the mapper synthesizes NULL.
+    return Status::NotSupported(
+            "Iceberg Variant is supported only for Parquet files in FileScannerV2; file format {} "
+            "(including ORC/Avro readers) is not supported",
+            file_format_name(format));
+}
+
+Status IcebergTableReader::validate_file_mapping(const format::TableColumnMapper& mapper) const {
+    const bool metadata_only_count = _push_down_agg_type == TPushAggOp::type::COUNT &&
+                                     _push_down_count_columns.has_value() &&
+                                     _push_down_count_columns->empty() &&
+                                     _supports_aggregate_pushdown(TPushAggOp::type::COUNT);
+    if (metadata_only_count) {
+        // COUNT(*) may retain a physical carrier only when aggregate pushdown will bypass decoding;
+        // delete/filter fallbacks must still validate that carrier against the selected file reader.
+        return Status::OK();
+    }
+    return validate_variant_file_mappings(_format, mapper.mappings());
+}
 
 template <typename T>
 static std::string join_values_for_debug(const std::vector<T>& values) {
@@ -357,6 +449,10 @@ static Status build_v2_json_scalar_default(const format::ColumnDefinition& field
         return Status::OK();
     }
     normalize_iceberg_json_timestamp(primitive_type, &serialized_value);
+    if (doris::iceberg::detail::parse_non_finite_default(primitive_type, serialized_value,
+                                                         result)) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(serialized_value, *result));
     return Status::OK();
 }
@@ -432,6 +528,10 @@ static Status build_v2_initial_default_field(const format::ColumnDefinition& fie
         return Status::OK();
     }
 
+    if (doris::iceberg::detail::parse_non_finite_default(primitive_type,
+                                                         *field.initial_default_value, result)) {
+        return Status::OK();
+    }
     RETURN_IF_ERROR(value_type->get_serde()->from_fe_string(*field.initial_default_value, *result));
     return Status::OK();
 }
@@ -451,7 +551,7 @@ static Status build_initial_default_literal(const format::ColumnDefinition& tabl
     return Status::OK();
 }
 
-static Status build_initial_default_exprs(format::ColumnDefinition* column) {
+Status prepare_iceberg_initial_default_exprs(format::ColumnDefinition* column) {
     DORIS_CHECK(column != nullptr);
     if (column->initial_default_value.has_value()) {
         VExprSPtr literal;
@@ -459,7 +559,7 @@ static Status build_initial_default_exprs(format::ColumnDefinition* column) {
         column->default_expr = VExprContext::create_shared(std::move(literal));
     }
     for (auto& child : column->children) {
-        RETURN_IF_ERROR(build_initial_default_exprs(&child));
+        RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&child));
     }
     return Status::OK();
 }
@@ -771,7 +871,7 @@ Status IcebergTableReader::annotate_projected_column(const TFileScanSlotInfo& sl
     }
 
     auto& schema_column = *context->schema_column;
-    RETURN_IF_ERROR(build_initial_default_exprs(&schema_column));
+    RETURN_IF_ERROR(prepare_iceberg_initial_default_exprs(&schema_column));
     column->initial_default_value = schema_column.initial_default_value;
     column->initial_default_value_is_base64 = schema_column.initial_default_value_is_base64;
     column->is_optional = schema_column.is_optional;

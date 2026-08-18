@@ -67,6 +67,9 @@ REPO_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 SOURCE_EXTS = (".cpp", ".cc", ".c", ".cxx")
 HEADER_EXTS = (".h", ".hpp", ".hh", ".inc", ".ipp")
 
+# CMake writes unity sources as <target-dir>/Unity/unity_<n>_cxx.cxx (or _c.c).
+UNITY_SOURCE_RE = re.compile(r"/Unity/unity_\d+_c(?:xx)?\.c(?:xx)?$")
+
 INCLUDE_RE = re.compile(r'^\s*#\s*include\s+(["<])([^">]+)[">]', re.M)
 COMMENT_RE = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
 TOKEN_RE = re.compile(r"[A-Za-z_]\w{2,}")
@@ -170,7 +173,15 @@ class IncludeGraph:
 
 
 def load_tus(build_dir, graph):
-    """source abs path -> set of project files in its real (ninja) closure."""
+    """source abs path -> set of project files in its real (ninja) closure.
+
+    Refuses a unity build dir instead of analyzing it. A unity TU concatenates
+    many sources into one jumbo .cxx, so ninja reports a single flat closure for
+    the whole batch: the per-source closures this tool needs are simply not in
+    the database. Splitting the union back over the members would be worse than
+    useless -- every member would appear to reach every header any sibling pulls
+    in, inflating both the affected-TU counts and the seeding advice.
+    """
     proc = subprocess.Popen(
         ["ninja", "-C", build_dir, "-t", "deps"],
         stdout=subprocess.PIPE,
@@ -178,6 +189,7 @@ def load_tus(build_dir, graph):
         text=True,
     )
     tus = {}
+    unity = 0  # unity TUs seen: their member sources are not individually visible
     src_prefix = os.path.join(REPO_ROOT, "be", "src") + os.sep
     gen_prefix = os.path.join(REPO_ROOT, "gensrc", "build") + os.sep
     cur = None  # dep set of the current block's TU; None while skipping a block
@@ -195,6 +207,8 @@ def load_tus(build_dir, graph):
                     cur = tus.setdefault(key, set())
                     cur.add(key)
                 else:
+                    if UNITY_SOURCE_RE.search(p):
+                        unity += 1
                     cur = None  # foreign TU (contrib etc.): skip whole block
             elif cur is not None and p in graph.files:
                 cur.add(sys.intern(p))
@@ -202,6 +216,13 @@ def load_tus(build_dir, graph):
             expect_source = line.rstrip().endswith("(VALID)")
             cur = None
     proc.wait()
+    if unity:
+        sys.exit(
+            "error: {} unity translation units in {}\n"
+            "  Unity TUs hide their member sources from `ninja -t deps`, so this\n"
+            "  analysis would silently run on a partial TU set. Reconfigure that\n"
+            "  build directory with unity builds off and rebuild:\n"
+            "    ENABLE_UNITY_BUILD=OFF ./build.sh --compile-bench".format(unity, build_dir))
     return tus
 
 

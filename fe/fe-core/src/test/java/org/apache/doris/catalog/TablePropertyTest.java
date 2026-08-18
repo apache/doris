@@ -18,13 +18,17 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 public class TablePropertyTest {
@@ -114,6 +118,26 @@ public class TablePropertyTest {
         Assert.assertFalse(tableProperty.hasInvalidDynamicPartition());
         Assert.assertEquals(3, tableProperty.getDynamicPartitionProperty().getEnd());
         Assert.assertEquals(1, tableProperty.getDynamicPartitionProperty().getBuckets());
+    }
+
+    @Test
+    public void testStorageMediumIsCaseInsensitiveAfterSerialization() {
+        List<String> storageMediumValues = Arrays.asList("hdd", "HDD", "HdD", "ssd", "SSD", "SsD");
+        for (String storageMediumValue : storageMediumValues) {
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, storageMediumValue);
+            TableProperty tableProperty = new TableProperty(properties).buildStorageMedium();
+
+            String serialized = GsonUtils.GSON.toJson(tableProperty);
+            TableProperty deserialized = GsonUtils.GSON.fromJson(serialized, TableProperty.class);
+
+            TStorageMedium expectedStorageMedium = storageMediumValue.equalsIgnoreCase("hdd")
+                    ? TStorageMedium.HDD : TStorageMedium.SSD;
+            Assert.assertEquals(expectedStorageMedium, tableProperty.getStorageMedium());
+            Assert.assertEquals(expectedStorageMedium, deserialized.getStorageMedium());
+            Assert.assertEquals(storageMediumValue,
+                    deserialized.getProperties().get(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM));
+        }
     }
 
     @Test

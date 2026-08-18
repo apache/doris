@@ -19,13 +19,18 @@ package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.thrift.TNetworkAddress;
 
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import io.grpc.ManagedChannel;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -227,5 +232,30 @@ public class BackendServiceClientTest {
         // Cleanup
         client1.shutdown();
         client2.shutdown();
+    }
+
+    @Test
+    public void testSyncTabletMeta() {
+        TNetworkAddress address = new TNetworkAddress("localhost", 9060);
+        BackendServiceClient client = new BackendServiceClient(address, "127.0.0.1", executor);
+
+        PBackendServiceGrpc.PBackendServiceFutureStub stub =
+                Mockito.mock(PBackendServiceGrpc.PBackendServiceFutureStub.class);
+        Deencapsulation.setField(client, "stub", stub);
+
+        InternalService.PSyncTabletMetaRequest request = InternalService.PSyncTabletMetaRequest.newBuilder()
+                .addTabletIds(10001L)
+                .build();
+        ListenableFuture<InternalService.PSyncTabletMetaResponse> expectedFuture = Futures.immediateFuture(
+                InternalService.PSyncTabletMetaResponse.newBuilder()
+                        .setSyncedTablets(1)
+                        .build());
+        Mockito.when(stub.syncTabletMeta(request)).thenReturn(expectedFuture);
+
+        ListenableFuture<InternalService.PSyncTabletMetaResponse> actualFuture = client.syncTabletMeta(request);
+
+        Assert.assertSame(expectedFuture, actualFuture);
+        Mockito.verify(stub).syncTabletMeta(request);
+        client.shutdown();
     }
 }

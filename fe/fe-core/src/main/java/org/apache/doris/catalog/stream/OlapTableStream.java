@@ -88,7 +88,16 @@ public class OlapTableStream extends BaseTableStream {
     // used for init, should inside base table read lock
     @Override
     public void setProperties(Map<String, String> properties) throws AnalysisException {
+        setPropertiesWithoutOffsetInitialization(properties);
+        initializeLocalOffsets();
+    }
+
+    public void setPropertiesWithoutOffsetInitialization(Map<String, String> properties)
+            throws AnalysisException {
         super.setProperties(properties);
+    }
+
+    private void initializeLocalOffsets() {
         // set offset according to baseTable
         if (!showInitialRows) {
             // set partition offset

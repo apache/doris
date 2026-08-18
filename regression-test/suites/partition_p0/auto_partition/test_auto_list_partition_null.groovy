@@ -49,4 +49,15 @@ suite("test_auto_list_partition_null") {
     assertTrue(res[0][1].contains("PARTITION p6 VALUES IN ((\"1\", MAXVALUE))"))
     assertTrue(res[0][1].contains("PARTITION p5 VALUES IN ((MAXVALUE, NULL))"))
     assertTrue(res[0][1].contains("PARTITION p7 VALUES IN ((MAXVALUE, \"1\"))"))
+
+    // Insert into a table containing MAXVALUE list partitions should not fail.
+    // (NULL, "1") -> p1, ("1", NULL) -> p2, (NULL, NULL) -> p3,
+    // ("2", "2") matches no predefined partition and is auto-created since the table is AUTO.
+    sql """ insert into list_table_null values (null, "1"), ("1", null), (null, null), ("2", "2") """
+
+    order_qt_select_all """ select * from list_table_null order by id, k """
+
+    // Predicate on the partition columns must not crash partition pruning:
+    // partition keys containing MAXVALUE cannot be evaluated, they are kept conservatively.
+    order_qt_select_with_predicate """ select * from list_table_null where id = 2 and k = 2 order by id, k """
 }

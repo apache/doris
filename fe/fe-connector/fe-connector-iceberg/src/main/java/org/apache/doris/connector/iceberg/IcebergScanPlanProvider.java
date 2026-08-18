@@ -55,6 +55,8 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.ManifestFiles;
+import org.apache.iceberg.ManifestReader;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
@@ -66,7 +68,6 @@ import org.apache.iceberg.ScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
-import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SplittableScanTask;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
@@ -100,10 +101,8 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.ZoneId;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -151,15 +150,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // FIX-M3 streaming (file-count) batch gate — keys byte-identical to fe-core SessionVariable.
     private static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
     private static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
+    private static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
     private static final long DEFAULT_NUM_FILES_IN_BATCH_MODE = 1024L;
 
-    // COUNT(*) pushdown (T05). The snapshot-summary keys are the stable iceberg spec strings — byte-identical
-    // to legacy IcebergUtils.TOTAL_* (themselves local constants, not org.apache.iceberg.SnapshotSummary.*).
-    private static final String TOTAL_RECORDS = "total-records";
-    private static final String TOTAL_POSITION_DELETES = "total-position-deletes";
+    // Equality-delete schema discovery uses this stable Iceberg snapshot-summary key as a read-avoidance hint.
     private static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
-    // Session var: when a table has only (dangling) position deletes, ignore them and still push count down.
-    private static final String IGNORE_ICEBERG_DANGLING_DELETE = "ignore_iceberg_dangling_delete";
 
     // System-table (P6.5-T05) JNI split: a placeholder path matching legacy IcebergSplit.DUMMY_PATH. A sys split
     // carries no real file (BE reads the serialized FileScanTask), so the path is never opened — it only keeps
@@ -230,8 +225,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // null in offline unit tests via the 2-arg ctor, in which case resolveTable resolves directly.
     private final ConnectorContext context;
     // T08: per-catalog manifest cache, owned by the long-lived IcebergConnector and injected via getScanPlanProvider.
-    // Nullable — null via the 2-/3-arg ctors (offline tests, default-disabled gate); when null the gate is
-    // forced off and planScan uses the SDK splitFiles path.
+    // Its compact equality-delete field-id projection is used regardless of the full-cache feature gate. Nullable
+    // via the 2-/3-arg ctors (offline tests); when null the projection is loaded directly, the full-cache gate is
+    // forced off, and planScan uses the SDK splitFiles path.
     private final IcebergManifestCache manifestCache;
     // PERF-01: cross-query RAW-table cache shared with the metadata layer, owned by the long-lived
     // IcebergConnector and injected via getScanPlanProvider. Nullable — null via the offline-test ctors and
@@ -418,8 +414,18 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
-        return planScanInternal(session, request.getTableHandle(), request.getColumns(),
-                request.getFilter(), request.isCountPushdown());
+        IcebergTableHandle handle = (IcebergTableHandle) request.getTableHandle();
+        try {
+            return planScanInternal(session, handle, request.getColumns(),
+                    request.getFilter(), request.isCountPushdown());
+        } catch (RuntimeException e) {
+            // Normal data scans and native position_deletes run on File Scanner V2. Keep the serialized JNI
+            // system-table route untouched because its deferred reads belong to the V1 scanner contract.
+            if (!handle.isSystemTable() || isPositionDeletesSysTable(handle)) {
+                throw IcebergExceptionUtils.wrapMetadataReadFailure(handle, e);
+            }
+            throw e;
+        }
     }
 
     /**
@@ -447,10 +453,23 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (snapshot == null) {
             return -1;
         }
-        if (getFormatVersion(table) >= 3) {
-            return -1;
+        if (countPushdown && filter.isEmpty()) {
+            boolean netPositionDeletes = sessionBool(session, IGNORE_ICEBERG_DANGLING_DELETE, false);
+            ManifestDeleteState deleteState = manifestDeleteState(snapshot.deleteManifests(table.io()));
+            // Keep synchronous planning only while COUNT(*) can still collapse to one range. Once live deletes
+            // make that impossible, normal file enumeration needs the same streaming OOM protection as SELECT.
+            if (deleteState == ManifestDeleteState.NONE) {
+                return -1;
+            }
+            if (deleteState != ManifestDeleteState.PRESENT || netPositionDeletes) {
+                OptionalLong positionDeleteRows = livePositionDeleteRowCount(table, snapshot);
+                if (positionDeleteRows.isPresent()
+                        && (netPositionDeletes || positionDeleteRows.getAsLong() == 0)) {
+                    return -1;
+                }
+            }
         }
-        if (countPushdown && getCountFromSnapshot(scan, session) >= 0) {
+        if (getFormatVersion(table) >= 3) {
             return -1;
         }
         long threshold = sessionLong(session, NUM_FILES_IN_BATCH_MODE, DEFAULT_NUM_FILES_IN_BATCH_MODE);
@@ -465,10 +484,25 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 fileCount += (added == null ? 0 : added) + (existing == null ? 0 : existing);
             }
         } catch (IOException e) {
-            throw new RuntimeException("Failed to count iceberg manifest files for batch decision, error message is:"
-                    + e.getMessage(), e);
+            throw IcebergExceptionUtils.wrapTableLoadFailure(iceHandle, e,
+                    "Failed to count iceberg manifest files for batch decision, error message is:");
+        } catch (RuntimeException e) {
+            throw IcebergExceptionUtils.wrapMetadataReadFailure(iceHandle, e);
         }
         return fileCount >= threshold ? fileCount : -1;
+    }
+
+    @Override
+    public boolean canServeMetadataOnlyCount(ConnectorSession session, ConnectorTableHandle handle,
+            Optional<ConnectorExpression> filter) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isSystemTable() || filter.isPresent()) {
+            // A metadata count describes the whole table and cannot prove a filtered row count.
+            return false;
+        }
+        Table table = resolveTable(session, iceHandle);
+        TableScan scan = buildScan(table, iceHandle, filter, session);
+        return canProveCountFromManifests(table, scan, session);
     }
 
     /**
@@ -501,9 +535,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         long fileSplitSize = sessionLong(session, FILE_SPLIT_SIZE, 0L);
         long sliceSize = fileSplitSize > 0 ? fileSplitSize
                 : sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
-        CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(scan, session, table, filter, sliceSize);
-        return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
-                orderedPartitionKeys, zone, uriNormalizer, sliceSize, iceHandle.getRewriteFileScope());
+        try {
+            CloseableIterable<FileScanTask> tasks = streamingFileScanTasks(
+                    scan, session, table, filter, sliceSize);
+            return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
+                    orderedPartitionKeys, zone, uriNormalizer, sliceSize,
+                    iceHandle.getRewriteFileScope(), iceHandle);
+        } catch (RuntimeException e) {
+            throw IcebergExceptionUtils.wrapMetadataReadFailure(iceHandle, e);
+        }
     }
 
     private static ConnectorSplitSource emptySplitSource() {
@@ -564,6 +604,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private final UnaryOperator<String> uriNormalizer;
         private final long sliceSize;
         private final Set<String> rewriteScope;
+        private final IcebergTableHandle handle;
         // Lazily opened on first hasNext() so the ctor never throws — iceberg's ParallelIterable submits
         // manifest readers in tasks.iterator(), which can fail; opening it eagerly here would throw out of
         // streamSplits() BEFORE the source is returned, leaking the planFiles() iterable (the engine pump's
@@ -578,7 +619,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
         IcebergStreamingSplitSource(CloseableIterable<FileScanTask> tasks, Table table, int formatVersion,
                 boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-                UnaryOperator<String> uriNormalizer, long sliceSize, Set<String> rewriteScope) {
+                UnaryOperator<String> uriNormalizer, long sliceSize, Set<String> rewriteScope,
+                IcebergTableHandle handle) {
             this.tasks = tasks;
             this.table = table;
             this.formatVersion = formatVersion;
@@ -588,25 +630,31 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             this.uriNormalizer = uriNormalizer;
             this.sliceSize = sliceSize;
             this.rewriteScope = rewriteScope;
+            this.handle = handle;
         }
 
         @Override
         public boolean hasNext() {
-            if (buffered != null) {
-                return true;
-            }
-            if (iterator == null) {
-                iterator = tasks.iterator();
-            }
-            while (iterator.hasNext()) {
-                IcebergScanRange range = buildRangeForTask(iterator.next(), table, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null, scratch);
-                if (range != null) {
-                    buffered = range;
+            try {
+                if (buffered != null) {
                     return true;
                 }
+                if (iterator == null) {
+                    iterator = tasks.iterator();
+                }
+                while (iterator.hasNext()) {
+                    IcebergScanRange range = buildRangeForTask(iterator.next(), table, formatVersion, partitioned,
+                            orderedPartitionKeys, zone, uriNormalizer, sliceSize, rewriteScope, null, scratch);
+                    if (range != null) {
+                        buffered = range;
+                        return true;
+                    }
+                }
+                return false;
+            } catch (RuntimeException e) {
+                // Lazy manifest opening happens on the split-pump thread, after streamSplits has returned.
+                throw IcebergExceptionUtils.wrapMetadataReadFailure(handle, e);
             }
-            return false;
         }
 
         @Override
@@ -681,16 +729,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // per-file path normalization below, instead of rebuilding it per data/delete file (C3).
         UnaryOperator<String> uriNormalizer = newUriNormalizer(vendedToken);
 
-        // COUNT(*) pushdown (T05): when the count is servable from the snapshot summary, collapse the scan to
-        // a single whole-file range carrying the full count (mirrors paimon's collapse + legacy's <=10000
-        // case; the legacy >10000 parallel multi-split trim is a perf-only divergence, dropped). A -1 (equality
-        // deletes, or dangling position deletes without the ignore flag) falls through to the normal scan so
-        // BE reads and counts.
-        if (countPushdown) {
-            long realCount = getCountFromSnapshot(scan, session);
-            if (realCount >= 0) {
-                return planCountPushdown(table, scan, realCount, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, uriNormalizer, session, filter);
+        // COUNT(*) pushdown (T05): derive an exact count from the current manifest list and collapse the scan to
+        // a single whole-file range. Snapshot summary fields are optional writer-provided metadata and must never
+        // become a query result. If manifest aggregates are absent, fall back to bounded per-file enumeration; if
+        // deletes or invalid record counts prevent an exact proof, use the normal scan so BE reads and counts.
+        // A data-row predicate can leave partially matching files, whose file-level recordCount is only an
+        // upper bound. Keep those scans on the normal path even if the engine supplies the count signal.
+        if (countPushdown && filter.isEmpty()) {
+            Optional<List<ConnectorScanRange>> countRanges = planCountPushdown(table, scan, formatVersion,
+                    partitioned, orderedPartitionKeys, zone, uriNormalizer, session, filter);
+            if (countRanges.isPresent()) {
+                return countRanges.get();
             }
         }
 
@@ -936,7 +985,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Table metadataTable, List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter,
             ConnectorSession session) {
         BatchScan scan = metadataTable.newBatchScan();
-        if (handle.hasSnapshotPin()) {
+        if (handle.hasSnapshotSelection()) {
             if (handle.getRef() != null) {
                 scan = scan.useRef(handle.getRef());
             } else {
@@ -1128,7 +1177,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * (profile) and {@code planWith(threadPool)} are intentionally dropped — the iceberg SDK default worker
      * pool plans, and the file set is identical (see design deviations). The MVCC / time-travel pin (T07) is
      * applied here ({@code useRef} for a tag/branch, else {@code useSnapshot}), mirroring legacy
-     * {@code createTableScan}; {@code getCountFromSnapshot} reads {@code scan.snapshot()} so the count follows.
+     * {@code createTableScan}; COUNT planning reads this pinned scan's manifest list, so the count follows.
      */
     private TableScan buildScan(Table table, IcebergTableHandle handle, Optional<ConnectorExpression> filter,
             ConnectorSession session) {
@@ -1157,6 +1206,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     /** Whether this table type's scan can actually honor Iceberg's snapshot/ref selection APIs. */
     private static boolean supportsSnapshotSelection(IcebergTableHandle handle) {
+        if (!handle.hasSnapshotSelection()) {
+            return false;
+        }
         if (!handle.isSystemTable()) {
             return true;
         }
@@ -1212,58 +1264,277 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Emit the single collapsed COUNT(*)-pushdown range: the first whole-file {@link FileScanTask} from
-     * {@code scan.planFiles()} carrying the full {@code realCount} via {@code table_level_row_count} → BE's
-     * count reader serves it without opening the data file. Mirrors paimon's {@code buildCountRange} (one
-     * range bearing the summed total). Result-identical to legacy's count short-circuit even though legacy
-     * takes a different shape: legacy byte-splits the count file ({@code planFileScanTask} →
-     * {@code splitFiles} → {@code TableScanUtil.splitFiles}), keeps the first split task's byte-range for
-     * {@code count < 10000}, and {@code assignCountToSplits} distributes the same total — but under count
-     * pushdown BE's count reader never reads the file (the range's start/length are irrelevant) and sums
-     * {@code table_level_row_count} across ranges, so one whole-file range yields the identical total (and
-     * legacy's {@code >10000} parallel multi-split trim is the perf-only divergence we drop). An empty table
-     * (no files) yields no range, so BE gets 0 ranges and COUNT returns 0 (legacy returns empty splits too).
+     * Build a collapsed COUNT(*) range from current manifest-list aggregates. Summing each data manifest's
+     * added and existing row counts is O(manifests), while only the first live {@link FileScanTask} is needed as
+     * the representative range. Old manifest lists that omit these aggregates use the bounded O(files) fallback.
+     * Equality deletes and non-netted position deletes make the optimization unsafe and tell the caller to
+     * perform a normal scan.
      */
-    private List<ConnectorScanRange> planCountPushdown(Table table, TableScan scan, long realCount,
+    private Optional<List<ConnectorScanRange>> planCountPushdown(Table table, TableScan scan,
             int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
             UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter) {
-        try (CloseableIterable<FileScanTask> tasks = countPushdownFileScanTasks(scan, session, table, filter)) {
-            for (FileScanTask task : tasks) {
-                // targetSplitSize = -1: the count-pushdown collapse emits a single range, so its scheduling
-                // weight is irrelevant → PluginDrivenSplit keeps SplitWeight.standard().
-                return Collections.singletonList(buildRange(table, task.file(), task, formatVersion,
-                        partitioned, orderedPartitionKeys, zone, uriNormalizer, realCount, -1, null));
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null) {
+            return Optional.of(Collections.emptyList());
+        }
+
+        boolean netPositionDeletes = sessionBool(session, IGNORE_ICEBERG_DANGLING_DELETE, false);
+        ManifestDeleteState deleteState = manifestDeleteState(snapshot.deleteManifests(table.io()));
+        if (deleteState == ManifestDeleteState.PRESENT && !netPositionDeletes) {
+            return Optional.empty();
+        }
+        OptionalLong positionDeleteRows = deleteState == ManifestDeleteState.NONE
+                ? OptionalLong.of(0)
+                : livePositionDeleteRowCount(table, snapshot);
+        if (!positionDeleteRows.isPresent()
+                || (!netPositionDeletes && positionDeleteRows.getAsLong() != 0)) {
+            return Optional.empty();
+        }
+
+        OptionalLong manifestCount = liveRowCountFromManifests(snapshot.dataManifests(table.io()));
+        if (manifestCount.isPresent()) {
+            // Compatibility mode nets each live position-delete file's rows once without trusting summary
+            // counters; it intentionally cannot distinguish dangling entries, which is why the flag is opt-in.
+            OptionalLong visibleRows = subtractPositionDeleteRows(
+                    manifestCount.getAsLong(), netPositionDeletes ? positionDeleteRows.getAsLong() : 0);
+            if (!visibleRows.isPresent()) {
+                return Optional.empty();
+            }
+            return planManifestCountRange(table, scan, visibleRows.getAsLong(), formatVersion,
+                    partitioned, orderedPartitionKeys, zone, uriNormalizer, session, filter,
+                    netPositionDeletes);
+        }
+
+        // Older manifest lists may omit aggregate counters. Preserve correctness by falling back to the
+        // bounded per-file enumeration instead of trusting snapshot summary metadata.
+        return planCountPushdownFromFileTasks(table, scan, formatVersion, partitioned,
+                orderedPartitionKeys, zone, uriNormalizer, session, filter, netPositionDeletes,
+                netPositionDeletes ? positionDeleteRows.getAsLong() : 0);
+    }
+
+    /**
+     * The capability probe behind {@link #canServeMetadataOnlyCount}: the delete gate of
+     * {@link #planCountPushdown} plus the requirement that the data manifests really carry aggregate row
+     * counters. Reading only the manifest list keeps this O(manifests) with no data-file enumeration, which is
+     * what a pre-planning probe can afford; the price is answering {@code false} for the older manifest lists
+     * that {@code planCountPushdown} still serves through its bounded per-file fallback. Never derives the
+     * count from snapshot summary fields — those are writer-provided hints, not a query result.
+     */
+    private static boolean canProveCountFromManifests(Table table, TableScan scan, ConnectorSession session) {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null) {
+            // No snapshot (empty table, or a pinned empty snapshot) is an exact count of 0 without any read.
+            return true;
+        }
+        boolean netPositionDeletes = sessionBool(session, IGNORE_ICEBERG_DANGLING_DELETE, false);
+        ManifestDeleteState deleteState = manifestDeleteState(snapshot.deleteManifests(table.io()));
+        if (deleteState == ManifestDeleteState.PRESENT && !netPositionDeletes) {
+            return false;
+        }
+        OptionalLong positionDeleteRows = deleteState == ManifestDeleteState.NONE
+                ? OptionalLong.of(0)
+                : livePositionDeleteRowCount(table, snapshot);
+        if (!positionDeleteRows.isPresent()
+                || (!netPositionDeletes && positionDeleteRows.getAsLong() != 0)) {
+            return false;
+        }
+        OptionalLong manifestCount = liveRowCountFromManifests(snapshot.dataManifests(table.io()));
+        return manifestCount.isPresent()
+                && subtractPositionDeleteRows(manifestCount.getAsLong(),
+                        netPositionDeletes ? positionDeleteRows.getAsLong() : 0).isPresent();
+    }
+
+    private Optional<List<ConnectorScanRange>> planManifestCountRange(Table table, TableScan scan, long exactCount,
+            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter,
+            boolean netPositionDeletes) {
+        if (!isManifestCacheEnabled()) {
+            return buildManifestCountRange(table, scan.planFiles(), exactCount, formatVersion, partitioned,
+                    orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes);
+        }
+        String statsQueryId = session != null ? session.getQueryId() : null;
+        try {
+            return buildManifestCountRange(table,
+                    cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId), exactCount,
+                    formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes);
+        } catch (Exception e) {
+            LOG.warn("Iceberg count-pushdown representative plan with manifest cache failed, "
+                    + "falling back to SDK scan: {}", e.getMessage(), e);
+            manifestCache.recordFailure(statsQueryId);
+            // The SDK retry must own a new iterable because a lazy cache failure may leave the first one partial.
+            return buildManifestCountRange(table, scan.planFiles(), exactCount, formatVersion, partitioned,
+                    orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes);
+        }
+    }
+
+    private Optional<List<ConnectorScanRange>> buildManifestCountRange(Table table,
+            CloseableIterable<FileScanTask> tasks, long exactCount, int formatVersion, boolean partitioned,
+            List<String> orderedPartitionKeys, ZoneId zone, UnaryOperator<String> uriNormalizer,
+            boolean netPositionDeletes) {
+        try (CloseableIterable<FileScanTask> closeableTasks = tasks) {
+            for (FileScanTask task : closeableTasks) {
+                // Data-manifest rows and the separately netted live delete files are authoritative, but retain
+                // this defensive check for malformed metadata before exposing the aggregate as a query result.
+                if (hasNonIgnorableTaskDeletes(task, netPositionDeletes) || task.file().recordCount() < 0) {
+                    return Optional.empty();
+                }
+                return Optional.of(Collections.singletonList(buildRange(table, task.file(), task, formatVersion,
+                        partitioned, orderedPartitionKeys, zone, uriNormalizer, exactCount, -1, null)));
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to plan iceberg count-pushdown file, error message is:"
                     + e.getMessage(), e);
         }
-        return Collections.emptyList();
+        return exactCount == 0 ? Optional.of(Collections.emptyList()) : Optional.empty();
     }
 
-    /**
-     * The COUNT(*)-pushdown placeholder enumeration: only the FIRST surviving file is consumed (BE serves the
-     * count from {@code table_level_row_count} and never reads the file). PERF-04 (C18): when the manifest cache is
-     * enabled, read through the lazy {@link #cacheBackedFileScanTasks} (stats overload — this runs on the single
-     * planning thread) so the manifest reads are cache hits and, being lazy, stop at the first file's manifest
-     * instead of the SDK {@code planFiles()}'s {@code ParallelIterable} eagerly submitting every manifest reader.
-     * An eager cache failure falls back to the SDK path (mirrors {@link #planFileScanTask}). The first surviving
-     * (pruned) file may differ from the SDK path's first file (its {@code ParallelIterable} order is
-     * non-deterministic), but the count is identical (from the snapshot summary) and BE ignores the file. Cache
-     * disabled -> the SDK path, byte-unchanged.
-     */
-    private CloseableIterable<FileScanTask> countPushdownFileScanTasks(TableScan scan, ConnectorSession session,
-            Table table, Optional<ConnectorExpression> filter) {
-        if (isManifestCacheEnabled()) {
-            try {
-                return cacheBackedFileScanTasks(scan, session, table, filter, session.getQueryId());
-            } catch (Exception e) {
-                LOG.warn("Iceberg count-pushdown plan with manifest cache failed, falling back to SDK scan: {}",
-                        e.getMessage(), e);
-                manifestCache.recordFailure(session.getQueryId());
+    private Optional<List<ConnectorScanRange>> planCountPushdownFromFileTasks(Table table, TableScan scan,
+            int formatVersion, boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+            UnaryOperator<String> uriNormalizer, ConnectorSession session, Optional<ConnectorExpression> filter,
+            boolean netPositionDeletes, long positionDeleteRows) {
+        if (!isManifestCacheEnabled()) {
+            return accumulateCountPushdownFileTasks(table, scan.planFiles(), formatVersion, partitioned,
+                    orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes, positionDeleteRows);
+        }
+        String statsQueryId = session != null ? session.getQueryId() : null;
+        try {
+            return accumulateCountPushdownFileTasks(table,
+                    cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId), formatVersion,
+                    partitioned, orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes,
+                    positionDeleteRows);
+        } catch (Exception e) {
+            LOG.warn("Iceberg count-pushdown plan with manifest cache failed, falling back to SDK scan: {}",
+                    e.getMessage(), e);
+            manifestCache.recordFailure(statsQueryId);
+            // The retry owns a fresh accumulator so rows consumed before a lazy cache failure are never counted
+            // twice and the SDK fallback remains an exact restart.
+            return accumulateCountPushdownFileTasks(table, scan.planFiles(), formatVersion, partitioned,
+                    orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes, positionDeleteRows);
+        }
+    }
+
+    private Optional<List<ConnectorScanRange>> accumulateCountPushdownFileTasks(Table table,
+            CloseableIterable<FileScanTask> tasks, int formatVersion, boolean partitioned,
+            List<String> orderedPartitionKeys, ZoneId zone, UnaryOperator<String> uriNormalizer,
+            boolean netPositionDeletes, long positionDeleteRows) {
+        FileScanTask representative = null;
+        long exactCount = 0;
+        try (CloseableIterable<FileScanTask> closeableTasks = tasks) {
+            for (FileScanTask task : closeableTasks) {
+                // A metadata count is safe only when manifests alone prove the exact visible row count.
+                if (hasNonIgnorableTaskDeletes(task, netPositionDeletes) || task.file().recordCount() < 0) {
+                    return Optional.empty();
+                }
+                try {
+                    exactCount = Math.addExact(exactCount, task.file().recordCount());
+                } catch (ArithmeticException e) {
+                    return Optional.empty();
+                }
+                if (representative == null) {
+                    representative = task;
+                }
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to plan iceberg count-pushdown file, error message is:"
+                    + e.getMessage(), e);
+        }
+        OptionalLong visibleRows = subtractPositionDeleteRows(exactCount, positionDeleteRows);
+        if (!visibleRows.isPresent()) {
+            return Optional.empty();
+        }
+        if (representative == null) {
+            return visibleRows.getAsLong() == 0
+                    ? Optional.of(Collections.emptyList()) : Optional.empty();
+        }
+        // targetSplitSize = -1: the count-pushdown collapse emits a single range, so its scheduling weight is
+        // irrelevant and PluginDrivenSplit keeps SplitWeight.standard().
+        return Optional.of(Collections.singletonList(buildRange(table, representative.file(), representative,
+                formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer,
+                visibleRows.getAsLong(), -1, null)));
+    }
+
+    private static boolean hasNonIgnorableTaskDeletes(FileScanTask task, boolean netPositionDeletes) {
+        if (task.deletes() == null) {
+            return false;
+        }
+        for (DeleteFile delete : task.deletes()) {
+            if (!netPositionDeletes || delete.content() != FileContent.POSITION_DELETES) {
+                return true;
             }
         }
-        return scan.planFiles();
+        return false;
+    }
+
+    private enum ManifestDeleteState {
+        NONE,
+        PRESENT,
+        UNKNOWN
+    }
+
+    private static ManifestDeleteState manifestDeleteState(List<ManifestFile> manifests) {
+        for (ManifestFile manifest : manifests) {
+            Integer addedFiles = manifest.addedFilesCount();
+            Integer existingFiles = manifest.existingFilesCount();
+            if (manifest.content() != ManifestContent.DELETES || addedFiles == null || existingFiles == null
+                    || addedFiles < 0 || existingFiles < 0) {
+                return ManifestDeleteState.UNKNOWN;
+            }
+            if (addedFiles > 0 || existingFiles > 0) {
+                return ManifestDeleteState.PRESENT;
+            }
+        }
+        return ManifestDeleteState.NONE;
+    }
+
+    private static OptionalLong livePositionDeleteRowCount(Table table, Snapshot snapshot) {
+        long exactCount = 0;
+        for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
+            try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
+                    manifest, table.io(), table.specs())) {
+                for (DeleteFile delete : reader) {
+                    if (delete.content() != FileContent.POSITION_DELETES || delete.recordCount() < 0) {
+                        return OptionalLong.empty();
+                    }
+                    try {
+                        exactCount = Math.addExact(exactCount, delete.recordCount());
+                    } catch (ArithmeticException e) {
+                        return OptionalLong.empty();
+                    }
+                }
+            } catch (IOException e) {
+                throw new DorisConnectorException(
+                        "Failed to inspect iceberg delete manifest " + manifest.path() + ": " + e.getMessage(), e);
+            }
+        }
+        return OptionalLong.of(exactCount);
+    }
+
+    private static OptionalLong subtractPositionDeleteRows(long dataRows, long positionDeleteRows) {
+        try {
+            long visibleRows = Math.subtractExact(dataRows, positionDeleteRows);
+            return visibleRows >= 0 ? OptionalLong.of(visibleRows) : OptionalLong.empty();
+        } catch (ArithmeticException e) {
+            return OptionalLong.empty();
+        }
+    }
+
+    private static OptionalLong liveRowCountFromManifests(List<ManifestFile> manifests) {
+        long exactCount = 0;
+        for (ManifestFile manifest : manifests) {
+            Long addedRows = manifest.addedRowsCount();
+            Long existingRows = manifest.existingRowsCount();
+            if (manifest.content() != ManifestContent.DATA || addedRows == null || existingRows == null
+                    || addedRows < 0 || existingRows < 0) {
+                return OptionalLong.empty();
+            }
+            try {
+                exactCount = Math.addExact(exactCount, addedRows);
+                exactCount = Math.addExact(exactCount, existingRows);
+            } catch (ArithmeticException e) {
+                return OptionalLong.empty();
+            }
+        }
+        return OptionalLong.of(exactCount);
     }
 
     /**
@@ -1601,11 +1872,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         boolean systemTable = iceHandle.isSystemTable();
         Schema scanSchema = null;
         TableScan exactScan = null;
+        Set<Integer> applicableEqualityDeleteFieldIds = Collections.emptySet();
         boolean hasApplicableEqualityDeletes = false;
         if (!systemTable) {
             scanSchema = pinnedSchema(table, iceHandle);
             exactScan = buildScan(table, iceHandle, filter, session);
-            hasApplicableEqualityDeletes = hasApplicableEqualityDeletes(exactScan);
+            try {
+                applicableEqualityDeleteFieldIds = cachedApplicableEqualityDeleteFieldIds(table, exactScan);
+            } catch (RuntimeException e) {
+                throw IcebergExceptionUtils.wrapMetadataReadFailure(iceHandle, e);
+            }
+            hasApplicableEqualityDeletes = !applicableEqualityDeleteFieldIds.isEmpty();
             Optional<Map<Integer, List<String>>> nameMapping = IcebergSchemaUtils.extractNameMapping(table);
             if (requiresCurrentScanSemantics(
                     table, exactScan, scanSchema, columns, hasApplicableEqualityDeletes, nameMapping)) {
@@ -1623,11 +1900,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // PERF-03: the non-system format resolution falls back to an unfiltered whole-table planFiles() when the
         // table sets neither write-format nor write.format.default; memoize that inference per (table, snapshot)
         // across queries via formatCache (pure metadata, no credential gate). Null cache (offline) resolves live.
-        props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE,
-                systemTable ? "jni"
-                        : IcebergWriterHelper.getFileFormat(table,
+        String fileFormatType = "jni";
+        if (!systemTable) {
+            try {
+                fileFormatType = IcebergWriterHelper.getFileFormat(table,
                                 TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), formatCache)
-                        .name().toLowerCase(Locale.ROOT));
+                        .name().toLowerCase(Locale.ROOT);
+            } catch (RuntimeException e) {
+                throw IcebergExceptionUtils.wrapMetadataReadFailure(iceHandle, e);
+            }
+        }
+        props.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, fileFormatType);
         // [D-065] System (metadata) tables ($snapshots/$files/...) read via the JNI serialized-split path
         // (planSystemTableScan): the metadata-table schema travels INSIDE the serialized FileScanTask, so BE
         // needs neither the base-table path_partition_keys (a metadata table is not base-spec partitioned ->
@@ -1654,7 +1937,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // overlay, just the vended one below.
         if (context != null) {
             Map<String, String> backendStorageProps = new HashMap<>();
-            for (StorageProperties sp : storage().getStorageProperties()) {
+            for (StorageProperties sp : IcebergCatalogFactory.selectEffectiveStorages(
+                    storage().getStorageProperties())) {
                 sp.toBackendProperties().ifPresent(b -> backendStorageProps.putAll(b.toMap()));
             }
             backendStorageProps.forEach((k, v) -> props.put(ScanNodePropertyKeys.LOCATION_PREFIX + k, v));
@@ -1701,7 +1985,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // every branch so the default and current field type match BE's read.
             if (hasApplicableEqualityDeletes) {
                 List<NestedField> equalityFields = schemaForPotentialEqualityDeletes(
-                        table, exactScan, scanSchema);
+                        table, scanSchema, applicableEqualityDeleteFieldIds);
                 dict = IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
                         table, equalityFields, appendRowLineage,
                         enableVarbinary, enableTimestampTz);
@@ -1725,6 +2009,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
             props.put(SCHEMA_EVOLUTION_PROP, dict);
         } else if (isPositionDeletesSysTable(iceHandle)) {
+            // The native position-delete row reader depends on the current nested-default and requiredness
+            // semantics, so rolling upgrades must not route this system-table scan to an older backend.
+            // Metadata-only projections never materialize `row`, so fencing those scans needlessly reduces
+            // rolling-upgrade availability without preserving a reader invariant.
+            if (requestsColumn(columns, "row")) {
+                props.put(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS,
+                        "Current Iceberg position delete semantics");
+            }
             // [D-065] narrowed: $position_deletes is the ONE system table BE reads with a NATIVE reader, so
             // the "schema rides inside the serialized FileScanTask" rationale above does not hold for it — no
             // FileScanTask is serialized on this path. Both native readers resolve the `row` column through
@@ -1801,47 +2093,77 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return names;
     }
 
-    @VisibleForTesting
-    static boolean hasApplicableEqualityDeletes(TableScan scan) {
-        Snapshot snapshot = scan.snapshot();
-        if (snapshot == null
-                || "0".equals(snapshot.summary().get(TOTAL_EQUALITY_DELETES))) {
-            return false;
+    private static boolean requestsColumn(List<ConnectorColumnHandle> columns, String requestedName) {
+        if (columns == null || columns.isEmpty()) {
+            return true;
         }
-        // planFiles binds delete files to the exact filtered data-file tasks after partition and sequence
-        // pruning. A snapshot summary of zero returns above without planning; a positive or missing summary
-        // needs this exact proof. Iterate whole-file tasks lazily and stop at the first equality delete: this
-        // keeps memory O(1), does not create or retain byte-split tasks, and avoids snapshot-wide delete
-        // counters forcing new-BE-only semantics when no dispatched task can consume an equality delete.
-        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
-            for (FileScanTask task : tasks) {
-                for (DeleteFile delete : task.deletes()) {
-                    if (delete.content() == FileContent.EQUALITY_DELETES) {
-                        return true;
-                    }
-                }
+        for (ConnectorColumnHandle column : columns) {
+            if (requestedName.equalsIgnoreCase(((IcebergColumnHandle) column).getName())) {
+                return true;
             }
-        } catch (IOException e) {
-            throw new DorisConnectorException(
-                    "Failed to inspect applicable Iceberg equality deletes: " + e.getMessage(), e);
         }
         return false;
     }
 
+    @VisibleForTesting
+    static Set<Integer> applicableEqualityDeleteFieldIds(Table table, TableScan scan) {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null || "0".equals(snapshot.summary().get(TOTAL_EQUALITY_DELETES))) {
+            return Collections.emptySet();
+        }
+        Set<Integer> fieldIds = new HashSet<>();
+        for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
+            if (!manifest.hasAddedFiles() && !manifest.hasExistingFiles()) {
+                continue;
+            }
+            try (ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
+                    manifest, table.io(), table.specs())) {
+                for (DeleteFile deleteFile : reader) {
+                    if (deleteFile.content() == FileContent.EQUALITY_DELETES) {
+                        fieldIds.addAll(deleteFile.equalityFieldIds());
+                    }
+                }
+            } catch (IOException e) {
+                throw new DorisConnectorException(
+                        "Failed to read iceberg delete manifest " + manifest.path() + ": " + e.getMessage(), e);
+            }
+        }
+        return fieldIds;
+    }
+
+    private Set<Integer> cachedApplicableEqualityDeleteFieldIds(Table table, TableScan scan) {
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null || "0".equals(snapshot.summary().get(TOTAL_EQUALITY_DELETES))) {
+            return Collections.emptySet();
+        }
+        if (manifestCache == null) {
+            return applicableEqualityDeleteFieldIds(table, scan);
+        }
+        // Snapshot contents are immutable, so this compact projection can be shared even when the optional
+        // full manifest cache is disabled; a loader failure must still escape and remain retryable.
+        return manifestCache.getOrLoadEqualityDeleteFieldIds(
+                table.location(), snapshot.snapshotId(), () -> applicableEqualityDeleteFieldIds(table, scan));
+    }
+
     /**
-     * Build a schema carrier that can resolve any equality key reachable before the selected schema without
-     * enumerating data files, manifests, or byte-split tasks. Its retained state is bounded by table schema
-     * history rather than scan cardinality. At execution time BE looks fields up by the exact IDs on each
-     * {@link FileScanTask#deletes()}; unrelated carrier fields never participate in delete matching.
+     * Build a schema carrier that can resolve the field IDs referenced by live equality delete files. Reading
+     * delete manifests does not enumerate data files or byte-split tasks, and retained state is bounded by the
+     * number of equality keys rather than the table's entire schema history.
      *
-     * <p>The selected snapshot lineage wins when a field was renamed. The metadata schema list, in its actual
-     * chronology up to the selected schema (schema IDs are identifiers, not a sequence), fills schema-only
-     * changes and expired ancestors. Current fields remain first, so a dropped/re-added name still resolves the
-     * projected current field by name while a historical equality key resolves by its stable field ID.</p>
+     * <p>The metadata schema list is searched in reverse chronology up to the selected schema (schema IDs are
+     * identifiers, not a sequence), so the latest definition of each stable field ID wins. Current fields remain
+     * first, allowing a dropped/re-added name to resolve the projected field by name while a live historical
+     * equality key resolves by its stable field ID.</p>
      */
     @VisibleForTesting
     static List<NestedField> schemaForPotentialEqualityDeletes(
             Table table, TableScan scan, Schema scanSchema) {
+        return schemaForPotentialEqualityDeletes(
+                table, scanSchema, applicableEqualityDeleteFieldIds(table, scan));
+    }
+
+    private static List<NestedField> schemaForPotentialEqualityDeletes(
+            Table table, Schema scanSchema, Set<Integer> equalityFieldIds) {
         List<Schema> metadataSchemas = metadataSchemaHistory(table);
         int selectedSchemaIndex = -1;
         for (int index = 0; index < metadataSchemas.size(); index++) {
@@ -1851,45 +2173,19 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         int lastRelevantIndex = selectedSchemaIndex >= 0
                 ? selectedSchemaIndex : metadataSchemas.size() - 1;
-        Set<Integer> missing = new HashSet<>();
-        for (int index = 0; index <= lastRelevantIndex; index++) {
-            Schema schema = metadataSchemas.get(index);
-            for (NestedField field : TypeUtil.indexById(schema.asStruct()).values()) {
-                if (field.type().isPrimitiveType()) {
-                    missing.add(field.fieldId());
-                }
-            }
-        }
+        Set<Integer> missing = new HashSet<>(equalityFieldIds);
         missing.removeAll(TypeUtil.indexById(scanSchema.asStruct()).keySet());
         if (missing.isEmpty()) {
             return scanSchema.columns();
         }
 
         List<NestedField> fields = new ArrayList<>(scanSchema.columns());
-        Map<Integer, Schema> schemasById = table.schemas();
-        Snapshot snapshot = scan.snapshot();
-        while (snapshot != null && !missing.isEmpty()) {
-            Integer schemaId = snapshot.schemaId();
-            if (schemaId != null) {
-                Schema historicalSchema = schemasById.get(schemaId);
-                if (historicalSchema == null) {
-                    throw new IllegalStateException(
-                            "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
-                }
-                addHistoricalEqualityFields(fields, missing, historicalSchema);
-            }
-            if (missing.isEmpty()) {
-                break;
-            }
-            Long parentId = snapshot.parentId();
-            snapshot = parentId == null ? null : table.snapshot(parentId);
-        }
         for (int index = lastRelevantIndex; index >= 0 && !missing.isEmpty(); index--) {
             addHistoricalEqualityFields(fields, missing, metadataSchemas.get(index));
         }
         if (!missing.isEmpty()) {
             throw new IllegalStateException(
-                    "Iceberg historical primitive fields are absent from schema history: " + missing);
+                    "Iceberg equality-delete fields are absent from schema history: " + missing);
         }
         return fields;
     }
@@ -2081,62 +2377,22 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     static boolean selectedHistoryRequiresMissingRequiredFieldRejection(
             Table table, Schema scanSchema, Set<Integer> projectedFieldIds,
             Snapshot selectedSnapshot) {
-        Map<Integer, Schema> schemasById = table.schemas();
-        Set<Integer> relevantSchemaIds = schemaIdsRequiringMissingRequiredFieldRejection(
-                scanSchema, projectedFieldIds, schemasById.values());
-        if (relevantSchemaIds.isEmpty()) {
+        if (!schemaHistoryRequiresMissingRequiredFieldRejection(
+                scanSchema, projectedFieldIds, table.schemas().values())) {
             return false;
         }
-        Deque<Snapshot> snapshots = new ArrayDeque<>();
-        if (selectedSnapshot != null) {
-            snapshots.add(selectedSnapshot);
-        }
-        Set<Long> visitedSnapshotIds = new HashSet<>();
-        while (!snapshots.isEmpty()) {
-            Snapshot snapshot = snapshots.removeFirst();
-            if (!visitedSnapshotIds.add(snapshot.snapshotId())) {
-                continue;
-            }
-            Integer schemaId = snapshot.schemaId();
-            if (schemaId != null) {
-                Schema historical = schemasById.get(schemaId);
-                if (historical == null) {
-                    throw new IllegalStateException(
-                            "Iceberg snapshot schema " + schemaId + " is absent from table metadata");
-                }
-                if (relevantSchemaIds.contains(schemaId)) {
-                    return true;
-                }
-            }
-            Long parentId = snapshot.parentId();
-            if (parentId != null) {
-                Snapshot parent = table.snapshot(parentId);
-                if (parent == null) {
-                    return true;
-                }
-                snapshots.addLast(parent);
-            }
-            String sourceSnapshotId =
-                    snapshot.summary().get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP);
-            if (sourceSnapshotId != null) {
-                Snapshot source = table.snapshot(Long.parseLong(sourceSnapshotId));
-                if (source == null) {
-                    return true;
-                }
-                snapshots.addLast(source);
-            }
-        }
-        return false;
+        // Snapshot schema IDs are optional and proving ancestry is O(snapshot count). Once schema history
+        // exposes a requiredness hazard, conservatively fence every non-empty selected snapshot.
+        return selectedSnapshot != null;
     }
 
-    private static Set<Integer> schemaIdsRequiringMissingRequiredFieldRejection(
+    private static boolean schemaHistoryRequiresMissingRequiredFieldRejection(
             Schema scanSchema, Set<Integer> projectedFieldIds,
             Iterable<Schema> historicalSchemas) {
         Map<Integer, NestedField> currentFields = TypeUtil.indexById(scanSchema.asStruct());
         Map<Integer, Integer> parentById = TypeUtil.indexParents(scanSchema.asStruct());
         Set<Integer> collectionWrapperIds = new HashSet<>();
         collectCollectionWrapperFieldIds(scanSchema.asStruct(), collectionWrapperIds);
-        Set<Integer> schemaIds = new HashSet<>();
         for (Schema historicalSchema : historicalSchemas) {
             Map<Integer, NestedField> historicalFields =
                     TypeUtil.indexById(historicalSchema.asStruct());
@@ -2149,8 +2405,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 NestedField historicalField = historicalFields.get(fieldId);
                 if (historicalField != null) {
                     if (historicalField.isOptional()) {
-                        schemaIds.add(historicalSchema.schemaId());
-                        break;
+                        return true;
                     }
                     continue;
                 }
@@ -2164,12 +2419,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 if (!collectionWrapperIds.contains(highestMissing.fieldId())
                         && highestMissing.isRequired()
                         && highestMissing.initialDefault() == null) {
-                    schemaIds.add(historicalSchema.schemaId());
-                    break;
+                    return true;
                 }
             }
         }
-        return schemaIds;
+        return false;
     }
 
     private static void collectCollectionWrapperFieldIds(Type type, Set<Integer> result) {
@@ -2746,68 +3000,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return Boolean.parseBoolean(raw.trim());
     }
 
-    /**
-     * Compute the COUNT(*)-pushdown row count from the scan's snapshot summary, a faithful port of legacy
-     * {@code IcebergScanNode.getCountFromSnapshot}. No snapshot (empty table) &rarr; {@code 0}; otherwise
-     * delegates to {@link #getCountFromSummary}. Reads the scan's snapshot ({@code scan.snapshot()}) so the
-     * count tracks the scan automatically (the current snapshot today; the pinned snapshot once MVCC
-     * time-travel lands) — equivalent to legacy's {@code currentSnapshot()} for every non-time-travel query.
-     */
-    private static long getCountFromSnapshot(TableScan scan, ConnectorSession session) {
-        Snapshot snapshot = scan.snapshot();
-        if (snapshot == null) {
-            return 0;
-        }
-        return getCountFromSummary(snapshot.summary(), ignoreIcebergDanglingDelete(session));
-    }
-
-    /**
-     * Null-safe port of fe-core {@code IcebergUtils.getCountFromSummary} (upstream 32a2651f66b, #64648).
-     * Returns {@code -1} — this module's "count not pushable / unknown" sentinel; the {@code planScan} gate
-     * and count-collapse callers both test {@code >= 0} — in two cases:
-     * <ul>
-     *   <li>any required {@code total-*} counter is ABSENT: compaction / replace / overwrite snapshots may
-     *       omit {@code total-records} / {@code total-position-deletes} / {@code total-equality-deletes}, and
-     *       the pre-fix code NPE-d on {@code summary.get(...).equals(...)} / {@code Long.parseLong(null)};</li>
-     *   <li>any equality delete ({@code total-equality-deletes != "0"}) — not pushable, since equality
-     *       deletes re-project at read time and the summary cannot net them out.</li>
-     * </ul>
-     * Otherwise: no position deletes &rarr; {@code total-records}; position deletes present and
-     * {@code ignoreDanglingDelete} &rarr; {@code total-records - total-position-deletes}; else {@code -1}.
-     */
-    static long getCountFromSummary(Map<String, String> summary, boolean ignoreDanglingDelete) {
-        String equalityDeletes = summary.get(TOTAL_EQUALITY_DELETES);
-        String positionDeletes = summary.get(TOTAL_POSITION_DELETES);
-        String totalRecords = summary.get(TOTAL_RECORDS);
-        if (equalityDeletes == null || positionDeletes == null || totalRecords == null) {
-            // a summary that omits any total-* counter can't be netted safely -> fall back to a real scan
-            return -1;
-        }
-        if (!equalityDeletes.equals("0")) {
-            // has equality delete files, can not push down count
-            return -1;
-        }
-        long deleteCount = Long.parseLong(positionDeletes);
-        if (deleteCount == 0) {
-            // no delete files, can push down count directly
-            return Long.parseLong(totalRecords);
-        }
-        if (ignoreDanglingDelete) {
-            // has position delete files; if we ignore dangling deletes, the netted count can be pushed down
-            return Long.parseLong(totalRecords) - deleteCount;
-        }
-        // otherwise, can not push down count
-        return -1;
-    }
-
-    private static boolean ignoreIcebergDanglingDelete(ConnectorSession session) {
-        if (session == null) {
-            return false;
-        }
-        String raw = session.getSessionProperties().get(IGNORE_ICEBERG_DANGLING_DELETE);
-        return raw != null && Boolean.parseBoolean(raw.trim());
-    }
-
     // The session time zone drives zone-adjusted (timestamptz) literal pushdown. Delegates to the shared
     // IcebergTimeUtils (Doris alias map, mirrors fe-core TimeUtils.getTimeZone()) so aliases like CST/PRC/EST
     // match legacy instead of throwing; null/blank/genuinely-invalid -> UTC. Package-private for unit testing.
@@ -2828,13 +3020,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // re-validates the credential even on a scope hit).
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         Table raw = IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(), () -> {
-            if (context == null) {
-                return loadRawTable(ops, handle);
-            }
             try {
-                return context.executeAuthenticated(() -> loadRawTable(ops, handle));
+                return context == null
+                        ? loadRawTable(ops, handle)
+                        : context.executeAuthenticated(() -> loadRawTable(ops, handle));
             } catch (Exception e) {
-                throw new RuntimeException("Failed to load table for scan, error message is:" + e.getMessage(), e);
+                throw IcebergExceptionUtils.wrapTableLoadFailure(
+                        handle, e, "Failed to load table for scan, error message is:");
             }
         });
         return wrapTableForScan(raw);

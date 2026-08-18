@@ -352,6 +352,12 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             //     PARTITION p2 VALUES IN ("5","6","7","8"),
             //     PARTITION p3 )  p3 is default partition
             boolean notDefaultPartition = !evaluator.isDefaultPartition();
+            if (((OneListPartitionEvaluator) evaluator).containsMaxValueKey()) {
+                // partition keys containing MAXVALUE (e.g. VALUES IN ((NULL, MAXVALUE)))
+                // cannot be evaluated against the predicate: MaxLiteral has no concrete
+                // value. Conservatively keep the partition and do not prune the predicate.
+                return Pair.of(false, false);
+            }
             Pair<Boolean, Boolean> res = Pair.of(notDefaultPartition, notDefaultPartition);
             for (Map<Slot, PartitionSlotInput> currentInputs : onePartitionInputs) {
                 // evaluate whether there's possible for this partition to accept this predicate

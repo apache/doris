@@ -33,8 +33,8 @@ using JsonbWriter = JsonbWriterT<JsonbOutStream>;
 
 // Appends exactly one complete JSONB value to an active batch-builder row. This is the storage
 // assembler adapter over the same bounded parser; failure aborts the active row.
-void jsonb_to_variant(StringRef document, VariantBatchBuilder::Row& row,
-                      uint32_t initial_depth = 0);
+void jsonb_to_variant(StringRef document, VariantBatchBuilder::Row& row, uint32_t initial_depth = 0,
+                      bool* root_is_null = nullptr);
 
 // Converts a sequence of complete JSONB documents into one shared-metadata Variant batch. Input
 // bytes only need to remain alive for add_jsonb(). A failed add_jsonb()/finish_batch() is terminal,

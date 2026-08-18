@@ -29,6 +29,17 @@
 # to check if all thirdparties have been downloaded, unpacked and patched.
 #################################################################################
 
+# The shebang above only takes effect when this script is executed directly.
+# `sh build-thirdparty.sh` hands it to /bin/sh instead, which is dash on Debian
+# and Ubuntu and parses none of the `[[ ]]`, arrays and here-strings this script
+# is built on. It does not stop at the first of them either, it keeps going and
+# runs a mangled version of the script. Re-exec under bash so that the way the
+# script was invoked cannot decide whether the build works. Keep this block
+# POSIX, it has to be parsed by the shell that is about to be replaced.
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
+
 set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -2361,6 +2372,10 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
+        # hadoop_libs, the 3.3.6 fork, stays Linux-only: it carries none of the macOS fixes
+        # apache/doris-thirdparty#407 made to the 3.4 fork, and nothing built here reads its
+        # hadoop_hdfs/ prefix - the cloud module, its only other consumer, is Linux-only too.
+        read -r -a packages <<<"${packages[*]} hadoop_libs_3_4"
     elif [[ "$(uname -s)" == 'Linux' ]]; then
         read -r -a packages <<<"${packages[*]} hadoop_libs"
         read -r -a packages <<<"${packages[*]} hadoop_libs_3_4"

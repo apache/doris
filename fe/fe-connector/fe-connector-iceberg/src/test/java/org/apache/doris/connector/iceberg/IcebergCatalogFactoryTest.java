@@ -326,6 +326,17 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
+    public void selectEffectiveStoragesDropsGenericS3WhenOssIsPresent() {
+        FakeS3CompatibleStorageProperties genericS3 = new FakeS3CompatibleStorageProperties("S3");
+        FakeS3CompatibleStorageProperties oss = new FakeS3CompatibleStorageProperties("OSS");
+
+        List<StorageProperties> selected = IcebergCatalogFactory.selectEffectiveStorages(
+                Arrays.asList(genericS3, oss));
+
+        Assertions.assertEquals(Collections.singletonList(oss), selected);
+    }
+
+    @Test
     public void chooseS3CompatibleEmptyWhenNoS3Storage() {
         // WHY: a credential-less / HDFS-only catalog has no S3-compatible storage, so no S3FileIO props
         // are emitted (empty Optional). MUTATION: returning a present value -> red.
@@ -436,7 +447,7 @@ public class IcebergCatalogFactoryTest {
     @Test
     public void appendRestSigningBlockEmitsSigningKeysAndS3ExplicitCredentials() {
         // WHY: when signing-name is set, legacy emits rest.signing-name/sigv4-enabled/signing-region; for
-        // glue/s3tables the credentials come from the chosen S3 store, EXPLICIT (static AK/SK) -> rest.* creds
+        // managed signing names get credentials from the chosen S3 store, EXPLICIT (static AK/SK) -> rest.* creds
         // (AwsProperties.REST_*). MUTATION: wrong signing keys, or sourcing creds from the wrong place -> red.
         Map<String, String> opts = new HashMap<>();
         appendRest(opts,
@@ -453,9 +464,48 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
+    public void buildRestCatalogForOssTablesUsesSharedS3Credentials() {
+        Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
+                IcebergCatalogProperties.of(props("type", "iceberg",
+                        "iceberg.catalog.type", "rest",
+                        "iceberg.rest.uri", "https://cn-hangzhou.oss-tables.aliyuncs.com/iceberg",
+                        "warehouse", "acs:osstables:cn-hangzhou:1234567890:bucket/my-table-bucket",
+                        "iceberg.rest.signing-name", "osstables",
+                        "iceberg.rest.signing-region", "cn-hangzhou",
+                        "iceberg.rest.sigv4-enabled", "true",
+                        "iceberg.rest.view-enabled", "false",
+                        "io-impl", "org.apache.iceberg.aws.s3.S3FileIO")),
+                Optional.of(new FakeS3CompatibleStorageProperties("OSS")
+                        .endpoint("https://oss-cn-hangzhou.aliyuncs.com")
+                        .region("cn-hangzhou")
+                        .accessKey("OSS_AK")
+                        .secretKey("OSS_SK")
+                        .sessionToken("OSS_TOKEN")
+                        .usePathStyle("false")));
+
+        Assertions.assertEquals("https://cn-hangzhou.oss-tables.aliyuncs.com/iceberg", opts.get("uri"));
+        Assertions.assertEquals("acs:osstables:cn-hangzhou:1234567890:bucket/my-table-bucket",
+                opts.get("warehouse"));
+        Assertions.assertEquals("org.apache.iceberg.aws.s3.S3FileIO", opts.get("io-impl"));
+        Assertions.assertEquals("osstables", opts.get("rest.signing-name"));
+        Assertions.assertEquals("cn-hangzhou", opts.get("rest.signing-region"));
+        Assertions.assertEquals("true", opts.get("rest.sigv4-enabled"));
+        Assertions.assertEquals("OSS_AK", opts.get("rest.access-key-id"));
+        Assertions.assertEquals("OSS_SK", opts.get("rest.secret-access-key"));
+        Assertions.assertEquals("OSS_TOKEN", opts.get("rest.session-token"));
+        Assertions.assertEquals("https://oss-cn-hangzhou.aliyuncs.com", opts.get("s3.endpoint"));
+        Assertions.assertEquals("cn-hangzhou", opts.get("client.region"));
+        Assertions.assertEquals("OSS_AK", opts.get("s3.access-key-id"));
+        Assertions.assertEquals("OSS_SK", opts.get("s3.secret-access-key"));
+        Assertions.assertEquals("OSS_TOKEN", opts.get("s3.session-token"));
+        Assertions.assertEquals("false", opts.get("s3.path-style-access"));
+        Assertions.assertNull(opts.get("type"));
+    }
+
+    @Test
     public void appendRestSigningGlueAssumeRoleWhenNoStaticCreds() {
         // WHY: legacy getCredentialType precedence is EXPLICIT then ASSUME_ROLE; with no static AK/SK but a role
-        // ARN the glue/s3tables signing path emits the assume-role block (client.factory + client.assume-role.*).
+        // ARN the managed signing path emits the assume-role block (client.factory + client.assume-role.*).
         // MUTATION: emitting rest.access-key-id from a blank AK, or skipping assume-role -> red.
         Map<String, String> opts = new HashMap<>();
         appendRest(opts,
@@ -470,7 +520,7 @@ public class IcebergCatalogFactoryTest {
 
     @Test
     public void appendRestSigningOtherNameUsesIcebergRestCredentials() {
-        // WHY: a signing-name NOT in {glue,s3tables} uses the iceberg.rest.* explicit creds (not the S3 store).
+        // WHY: a non-managed signing name uses the iceberg.rest.* explicit creds (not the S3 store).
         // MUTATION: reading the S3 store here -> red.
         Map<String, String> opts = new HashMap<>();
         appendRest(opts,
@@ -484,7 +534,7 @@ public class IcebergCatalogFactoryTest {
 
     @Test
     public void appendRestSigningGlueProviderChainPinsNonDefaultProvider() {
-        // F14: glue/s3tables signing with NO static creds and NO role -> PROVIDER_CHAIN. A non-DEFAULT
+        // F14: managed signing with NO static creds and NO role -> PROVIDER_CHAIN. A non-DEFAULT
         // s3.credentials_provider_type must pin client.credentials-provider to that provider class (was silently
         // dropped). MUTATION: dropping the else branch -> the key is absent -> red.
         Map<String, String> opts = new HashMap<>();
@@ -505,7 +555,7 @@ public class IcebergCatalogFactoryTest {
 
     @Test
     public void appendRestSigningOtherNameProviderChainPinsNonDefaultProvider() {
-        // F14: a non-glue/s3tables signing-name with NO explicit iceberg.rest.* creds falls to PROVIDER_CHAIN;
+        // F14: a non-managed signing name with NO explicit iceberg.rest.* creds falls to PROVIDER_CHAIN;
         // iceberg.rest.credentials_provider_type pins the provider class. MUTATION: dropping the else -> absent.
         Map<String, String> opts = new HashMap<>();
         appendRest(opts,

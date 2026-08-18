@@ -349,7 +349,8 @@ public:
         if (_predicate_input_rows_counter == nullptr ||
             _predicate_filtered_rows_counter == nullptr ||
             _predicate_always_true_rows_counter == nullptr) {
-            throw Exception(INTERNAL_ERROR, "Predicate profile counters are not initialized");
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "Predicate profile counters are not initialized");
         }
         COUNTER_UPDATE(_predicate_input_rows_counter, input_rows);
         COUNTER_UPDATE(_predicate_filtered_rows_counter, filter_rows);
@@ -397,7 +398,7 @@ public:
 protected:
     virtual bool _can_ignore() const { return _runtime_filter_id != -1; }
     virtual uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const {
-        throw Exception(INTERNAL_ERROR, "Not Implemented _evaluate_inner");
+        throw Exception(ErrorCode::INTERNAL_ERROR, "Not Implemented _evaluate_inner");
     }
 
     void reset_judge_selectivity() const { _rf_selectivity.reset_judge_selectivity(); }

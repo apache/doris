@@ -309,7 +309,7 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     ASSERT_TRUE(res.ok());
 
     // publish version success

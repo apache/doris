@@ -102,6 +102,7 @@ private:
     bool _is_args_all_constant = false;
     bool _zonemap_materialized = false;
     bool _seg_filter_contains_null = false;
+    bool _seg_filter_contains_nan = false;
     std::shared_ptr<HybridSetBase> _direct_filter_set;
     std::vector<Field> _seg_filter_values;
     Field _seg_filter_min;

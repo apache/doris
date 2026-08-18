@@ -43,6 +43,11 @@ suite('test_f_segment_writer', 'docker') {
         sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
         qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
 
+        qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
+
+        // Since the block transform chain fills flexible blocks to full width
+        // before any segment writer runs, the horizontal SegmentWriter accepts
+        // flexible partial update too: the load must succeed in this mode.
         streamLoad {
             table "${tableName}"
             set 'format', 'json'
@@ -56,8 +61,9 @@ suite('test_f_segment_writer', 'docker') {
                     throw exception
                 }
                 def json = parseJson(result)
-                assertEquals("fail", json.Status.toLowerCase())
-                assertTrue(json.Message.contains("[NOT_IMPLEMENTED_ERROR]SegmentWriter doesn't support flexible partial update, please set enable_vertical_segment_writer=true in be.conf on all BEs to use VerticalSegmentWriter."));
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(8, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
             }
         }
         qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"

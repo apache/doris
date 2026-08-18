@@ -1859,6 +1859,8 @@ TEST(RecycleVersionedKeysTest, RecycleDeletedInstance) {
     {
         // Recycle deleted instance
         ASSERT_EQ(recycler.recycle_deleted_instance(), 0);
+        ASSERT_EQ(recycler.recycle_deleted_instance(), 0);
+        ASSERT_EQ(recycler.recycle_deleted_instance(), 0);
     }
 
     {
@@ -1889,6 +1891,11 @@ TEST(RecycleVersionedKeysTest, RecycleDeletedInstance) {
         std::string log_key = versioned::log_key_prefix(instance_id);
         std::string log_key_end = versioned::log_key_prefix(instance_id + '\x00');
         ASSERT_EQ(count_range(txn_kv.get(), log_key, log_key_end), 0) << dump_range(txn_kv.get());
+
+        std::string instance_key_st = instance_key(instance_id);
+        std::string instance_key_ed = instance_key(instance_id + '\x00');
+        ASSERT_EQ(count_range(txn_kv.get(), instance_key_st, instance_key_ed), 0)
+                << dump_range(txn_kv.get());
 
         for (int i = 1; i < rowsets.size(); ++i) {
             std::unique_ptr<ListIterator> list_iter;

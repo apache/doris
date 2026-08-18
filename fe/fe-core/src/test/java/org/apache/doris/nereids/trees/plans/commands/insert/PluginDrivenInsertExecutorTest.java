@@ -33,6 +33,7 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.planner.PluginDrivenTableSink;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
+import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TransactionType;
 
 import org.junit.jupiter.api.Assertions;
@@ -213,6 +214,17 @@ public class PluginDrivenInsertExecutorTest {
         Long loadedRows = Deencapsulation.getField(exec, "loadedRows");
         Assertions.assertEquals(7L, loadedRows.longValue(),
                 "a -1 (no count) transaction must leave the coordinator-counted loadedRows untouched");
+    }
+
+    @Test
+    public void postCommitListenerFailureDoesNotTurnACommittedWriteIntoAnError() {
+        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
+        Deencapsulation.setField(exec, "txnStatus", TransactionStatus.COMMITTED);
+        Deencapsulation.setField(exec, "table", Mockito.mock(PluginDrivenExternalTable.class));
+
+        Assertions.assertDoesNotThrow(() -> Deencapsulation.invoke(exec,
+                "handleAfterCompleteFailure", new RuntimeException("listener failure")),
+                "a listener cannot roll back or fail a connector write after its remote commit is durable");
     }
 
     /**

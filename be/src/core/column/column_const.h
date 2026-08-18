@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <utility>

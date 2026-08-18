@@ -68,7 +68,11 @@ fail_on_unparsed_test_failures() {
         if [[ "${failures:-0}" -gt 0 || "${errors:-0}" -gt 0 ]]; then
             broken+=("${report#"${DORIS_HOME}/"} -- failures=${failures:-0} errors=${errors:-0}")
         fi
-    done < <(find "${DORIS_HOME}/fe" -type f -path '*/target/surefire-reports/*.xml')
+        # A here-string, not `done < <(find ...)`: this script is documented and invoked as
+        # `sh run-fe-ut.sh`, and bash in sh/POSIX mode rejects process substitution outright --
+        # a parse error, so the whole script dies before it builds anything. Piping into the
+        # loop instead would put the body in a subshell and throw `broken` away.
+    done <<<"$(find "${DORIS_HOME}/fe" -type f -path '*/target/surefire-reports/*.xml')"
 
     if [[ "${#broken[@]}" -ne 0 ]]; then
         echo ""
