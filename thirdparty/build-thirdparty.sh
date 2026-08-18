@@ -2137,16 +2137,66 @@ EOF
         azure_link_flags=(-DCMAKE_EXE_LINKER_FLAGS="-ldl" -DCMAKE_SHARED_LINKER_FLAGS="-ldl")
     fi
 
+    # vcpkg fetches the sources of curl, libxml2, openssl and zlib from their upstream
+    # hosts while cmake configures, and none of that goes through download-thirdparty.sh
+    # and its mirror. Keep those tarballs outside "${BUILD_DIR}", which was wiped above,
+    # so a retry - or a later run in the same tree - only fetches what the attempt
+    # before it missed. "thirdparty/src*" is already gitignored.
+    VCPKG_DOWNLOADS="${TP_SOURCE_DIR}/vcpkg-downloads"
+    export VCPKG_DOWNLOADS
+    mkdir -p "${VCPKG_DOWNLOADS}"
+
+    # vcpkg's own retry is three attempts inside one second, which rides out nothing:
+    # in apache/doris run 32032837067 all three jobs died on
+    # github.com/madler/zlib/archive/v1.3.1.tar.gz answering 429 (500 on macOS arm64),
+    # and because azure is the last package this script builds, each of them threw away
+    # a finished tree over one file. So wait out a rate limit window instead. Only a
+    # download is worth waiting on - a port that will not compile, or a bad option,
+    # fails identically every time - so the configure is retried on nothing else, and
+    # the ports that did build come back from vcpkg's binary cache, which lives outside
+    # this directory. cmake is piped through tee rather than redirected so that a
+    # vcpkg install that takes twenty minutes still shows progress; this script runs
+    # under `set -o pipefail`, so the status tested below is cmake's, not tee's.
+    #
     # DISABLE_AMQP and DISABLE_AZURE_CORE_OPENTELEMETRY are already the patched
     # defaults; passing them here keeps the reason visible from the build script.
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-        -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" \
-        "${azure_link_flags[@]}" \
-        -DVCPKG_TARGET_TRIPLET="${vcpkg_triplet}" \
-        -DVCPKG_OVERLAY_TRIPLETS="${vcpkg_triplet_dir}" \
-        -DDISABLE_RUST_IN_BUILD=ON -DDISABLE_AMQP=ON -DDISABLE_AZURE_CORE_OPENTELEMETRY=ON \
-        -DBUILD_TESTING=OFF -DBUILD_SAMPLES=OFF -DBUILD_PERFORMANCE_TESTS=OFF \
-        -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    local azure_attempt
+    local azure_attempts=5
+    local azure_backoff
+    local azure_log="${PWD}/doris-azure-configure.log"
+    for ((azure_attempt = 1; azure_attempt <= azure_attempts; azure_attempt++)); do
+        if "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_CXX_FLAGS="-Wno-maybe-uninitialized" \
+            "${azure_link_flags[@]}" \
+            -DVCPKG_TARGET_TRIPLET="${vcpkg_triplet}" \
+            -DVCPKG_OVERLAY_TRIPLETS="${vcpkg_triplet_dir}" \
+            -DDISABLE_RUST_IN_BUILD=ON -DDISABLE_AMQP=ON -DDISABLE_AZURE_CORE_OPENTELEMETRY=ON \
+            -DBUILD_TESTING=OFF -DBUILD_SAMPLES=OFF -DBUILD_PERFORMANCE_TESTS=OFF \
+            -DVCPKG_MANIFEST_MODE=ON -DVCPKG_OVERLAY_PORTS="${azure_dir}/${AZURE_PORTS}" -DVCPKG_MANIFEST_DIR="${azure_dir}/${AZURE_MANIFEST_DIR}" -DWARNINGS_AS_ERRORS=FALSE -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release .. 2>&1 | tee "${azure_log}"; then
+            break
+        fi
+
+        if ! grep -qE 'Download failed, halting portfile|error: curl: \(' "${azure_log}"; then
+            echo "azure: cmake configure failed, and not on a download - see above" >&2
+            exit 1
+        fi
+
+        if [[ "${azure_attempt}" -eq "${azure_attempts}" ]]; then
+            echo "azure: vcpkg could not download its sources in ${azure_attempts} attempts" >&2
+            exit 1
+        fi
+
+        # A configure that died inside the vcpkg toolchain file leaves a cache with no
+        # compiler in it, and cmake would report that instead of running vcpkg again.
+        rm -rf CMakeCache.txt CMakeFiles
+
+        azure_backoff=$((azure_attempt * 120))
+        echo "azure: vcpkg could not download a source, retrying in ${azure_backoff}s" \
+            "(attempt $((azure_attempt + 1)) of ${azure_attempts})" >&2
+        sleep "${azure_backoff}"
+    done
+    rm -f "${azure_log}"
+
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
 }

@@ -80,8 +80,8 @@ jobs:
       - name: Test focused thirdparty lifecycle
         run: thirdparty/test/arrow-paimon-lifecycle-test.sh
 
-  download_script_test:
-    name: Download Script Test
+  script_test:
+    name: Thirdparty Script Test
     needs: changes
     if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
     runs-on: ubuntu-22.04
@@ -97,6 +97,13 @@ jobs:
           thirdparty/test/download-thirdparty-fallback-test.sh
           thirdparty/test/juicefs-default-mirror-test.sh
           thirdparty/test/download-thirdparty-md5-test.sh
+
+      # azure is the only package that fetches its own sources, and it is the
+      # last one built, so a download that fails there costs the whole tree.
+      # This drives build_azure against a stubbed cmake, in seconds.
+      - name: Test build-thirdparty.sh
+        run: |
+          thirdparty/test/azure-vcpkg-retry-test.sh
 
   build_linux:
     name: Build Third Party Libraries (Linux)
