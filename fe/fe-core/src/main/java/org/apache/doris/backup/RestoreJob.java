@@ -2757,6 +2757,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         || olapTbl.getState() == OlapTableState.RESTORE_WITH_LOAD) {
                     LOG.info("table {} set state from {} to normal", tableName, olapTbl.getState());
                     olapTbl.setState(OlapTableState.NORMAL);
+                    olapTbl.analyze(db.getFullName());
                 }
                 if (olapTbl.isInAtomicRestore()) {
                     olapTbl.clearInAtomicRestore();
