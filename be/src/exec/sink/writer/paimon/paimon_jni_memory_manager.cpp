@@ -63,7 +63,7 @@ public:
         }
     }
 
-    jobject allocate_page(JNIEnv* env, jint bytes, bool wait_for_memory) {
+    jobject allocate_page(JNIEnv* env, jint bytes) {
         if (bytes <= 0) {
             throw Exception(Status::InvalidArgument(
                     "Paimon JNI memory page size must be positive, actual={}", bytes));
@@ -95,22 +95,18 @@ public:
         // relying on the calling BE thread's context would bypass query
         // memory accounting.
         void* address = with_resource_context([&]() {
-            bool memory_reserved = false;
-            auto reserve_status = _reserve_memory(bytes, wait_for_memory, &memory_reserved);
+            auto reserve_status = _reserve_memory_or_wait(bytes);
             if (!reserve_status.ok()) {
                 throw Exception(reserve_status);
             }
-            if (!memory_reserved) {
-                return static_cast<void*>(nullptr);
-            }
+
             enable_thread_catch_bad_alloc++;
             Defer restore_bad_alloc_catch {[&]() { enable_thread_catch_bad_alloc--; }};
             void* allocated = nullptr;
             {
-                // try_reserve() has already checked and charged the query,
-                // workload group and process. The allocator hook below
-                // consumes that reservation, so checking the same limits a
-                // second time would double-count this page.
+                // try_reserve() has already checked and charged this page. The allocator hook
+                // consumes that reservation, so checking the same limits again would double
+                // count it.
                 SCOPED_SKIP_MEMORY_CHECK();
                 allocated = _allocator.alloc(static_cast<size_t>(bytes));
             }
@@ -128,9 +124,6 @@ public:
             }
             return allocated;
         });
-        if (address == nullptr) {
-            return nullptr;
-        }
 
         // NewDirectByteBuffer does not copy memory; Paimon will read/write the
         // page directly.  If JNI rejects the address, undo the native
@@ -151,9 +144,7 @@ public:
     }
 
 private:
-    Status _reserve_memory(int64_t bytes, bool wait_for_memory, bool* memory_reserved) const {
-        DORIS_CHECK(memory_reserved != nullptr);
-        *memory_reserved = false;
+    Status _reserve_memory_or_wait(int64_t bytes) const {
         constexpr auto RETRY_INTERVAL = std::chrono::milliseconds(100);
         bool waiting = false;
         std::chrono::steady_clock::time_point wait_start;
@@ -174,7 +165,6 @@ private:
 
             auto status = thread_context()->thread_mem_tracker_mgr->try_reserve(bytes);
             if (status.ok()) {
-                *memory_reserved = true;
                 if (waiting) {
                     const auto waited_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                                    std::chrono::steady_clock::now() - wait_start)
@@ -185,19 +175,11 @@ private:
                 return Status::OK();
             }
 
-            if (!wait_for_memory) {
-                if (status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>() ||
-                    status.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>() ||
-                    status.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
-                    return Status::OK();
-                }
-                return status;
-            }
-
-            // Blocking is requested only at a safe Paimon write boundary,
-            // after Paimon has completed its owner-preemption and spill paths.
-            // Waiting cannot fix a query-local hard limit because this writer
-            // retains its native pages until close.
+            // A query-local hard limit is not temporary: the synchronous JNI call still owns its
+            // input Block and Arrow buffers, and this writer retains allocated pages until close.
+            // Waiting for the same call to release memory would deadlock. Workload-group and
+            // process pressure can be relieved by other tasks, so this blockable pipeline task
+            // waits here and retries.
             if (status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
                 return status;
             }
@@ -219,9 +201,9 @@ private:
     template <typename Function>
     auto with_resource_context(Function&& function)
             -> decltype(std::forward<Function>(function)()) {
-        // JNI normally re-enters on the attached blocking pipeline thread.
-        // Attach Java-created threads explicitly too, so every allocation/free
-        // is charged to the query rather than to an unrelated thread context.
+        // JNI normally re-enters on the attached blocking pipeline thread. Attach
+        // Java-created threads explicitly too, so every allocation/free is
+        // charged to the query rather than to an unrelated thread context.
         if (!pthread_context_ptr_init && bthread_self() == 0) {
             SCOPED_ATTACH_TASK(_resource_context);
             return std::forward<Function>(function)();
@@ -296,8 +278,7 @@ private:
 
 namespace {
 
-jobject allocate_paimon_memory_page(JNIEnv* env, jclass, jlong manager_handle, jint bytes,
-                                    jboolean wait_for_memory) {
+jobject allocate_paimon_memory_page(JNIEnv* env, jclass, jlong manager_handle, jint bytes) {
     // This is called from PaimonJniWriter's Java memory pool.  The handle is
     // the native manager address passed when the writer is opened; ownership
     // stays with the C++ writer/backend, so this callback must never delete it.
@@ -309,24 +290,21 @@ jobject allocate_paimon_memory_page(JNIEnv* env, jclass, jlong manager_handle, j
         return nullptr;
     }
     try {
-        return manager->allocate_page(env, bytes, wait_for_memory == JNI_TRUE);
+        return manager->allocate_page(env, bytes);
     } catch (const Exception& e) {
         const bool cancelled = e.code() == ErrorCode::CANCELLED;
         jclass exception_class =
                 env->FindClass(cancelled ? "java/util/concurrent/CancellationException"
-                                         : "java/lang/OutOfMemoryError");
-        // Avoid heap allocation while reporting an allocation failure.
+                                         : "java/lang/RuntimeException");
+        // Avoid dynamic allocation while reporting a failed allocation.
         char message[1024];
-        std::snprintf(message, sizeof(message),
-                      cancelled ? "Paimon JNI native page allocation cancelled: %.900s"
-                                : "Paimon JNI native page allocation failed: %.900s",
+        std::snprintf(message, sizeof(message), "Paimon JNI native page allocation failed: %.900s",
                       e.what());
         env->ThrowNew(exception_class, message);
         env->DeleteLocalRef(exception_class);
         return nullptr;
     } catch (const std::exception& e) {
-        jclass exception_class = env->FindClass("java/lang/OutOfMemoryError");
-        // Avoid heap allocation while reporting an allocation failure.
+        jclass exception_class = env->FindClass("java/lang/RuntimeException");
         char message[1024];
         std::snprintf(message, sizeof(message), "Paimon JNI native page allocation failed: %.900s",
                       e.what());
@@ -373,8 +351,8 @@ Status PaimonJniMemoryManager::create(RuntimeState* state,
                 PrettyPrinter::print_bytes(memory_limit));
     }
 
-    // ResourceContext is retained by Impl for the manager's whole lifetime;
-    // this is what keeps asynchronous JNI callbacks associated with the query.
+    // ResourceContext is retained by Impl for the manager's whole lifetime so JNI callbacks stay
+    // associated with the query even if Paimon invokes one from a Java-created thread.
     auto impl = std::make_unique<Impl>(state->get_query_ctx()->resource_ctx(), memory_limit);
     *manager = std::unique_ptr<PaimonJniMemoryManager>(new PaimonJniMemoryManager(std::move(impl)));
     return Status::OK();
@@ -384,7 +362,7 @@ Status PaimonJniMemoryManager::register_natives(JNIEnv* env, jclass writer_class
     // Keep the JNI surface minimal: Java asks native code only for a page;
     // all ownership, limits, and cleanup stay in PaimonJniMemoryManager.
     static char allocate_name[] = "allocatePaimonMemoryPage";
-    static char allocate_signature[] = "(JIZ)Ljava/nio/ByteBuffer;";
+    static char allocate_signature[] = "(JI)Ljava/nio/ByteBuffer;";
     static ::JNINativeMethod methods[] = {
             {allocate_name, allocate_signature,
              reinterpret_cast<void*>(&allocate_paimon_memory_page)},
@@ -398,8 +376,8 @@ Status PaimonJniMemoryManager::register_natives(JNIEnv* env, jclass writer_class
     return Status::OK();
 }
 
-jobject PaimonJniMemoryManager::allocate_page(JNIEnv* env, jint bytes, bool wait_for_memory) {
-    return _impl->allocate_page(env, bytes, wait_for_memory);
+jobject PaimonJniMemoryManager::allocate_page(JNIEnv* env, jint bytes) {
+    return _impl->allocate_page(env, bytes);
 }
 
 int64_t PaimonJniMemoryManager::memory_limit() const {

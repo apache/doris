@@ -25,11 +25,9 @@ namespace doris {
 Status to_doris_status(const arrow::Status& status) {
     if (status.ok()) {
         return Status::OK();
+    } else {
+        return Status::InternalError(status.ToString());
     }
-    if (status.IsOutOfMemory()) {
-        return Status::MemoryLimitExceeded(status.ToString());
-    }
-    return Status::InternalError(status.ToString());
 }
 
 arrow::Status to_arrow_status(const Status& status) {

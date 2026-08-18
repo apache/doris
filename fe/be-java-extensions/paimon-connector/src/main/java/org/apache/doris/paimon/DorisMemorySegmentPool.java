@@ -17,13 +17,10 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.paimon.memory.AbstractMemorySegmentPool;
 import org.apache.paimon.memory.MemorySegment;
-import org.apache.paimon.memory.MemorySegmentPool;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayDeque;
-import java.util.List;
-import java.util.Objects;
 
 /**
  * Paimon write-buffer pool backed by memory allocated and tracked by Doris BE.
@@ -31,190 +28,33 @@ import java.util.Objects;
  * <p>This class only adapts the Paimon page interface to the BE allocator. The native memory
  * manager owns every returned page and releases them after the Java writer has closed.
  */
-final class DorisMemorySegmentPool implements MemorySegmentPool {
-    @FunctionalInterface
-    interface PageAllocator {
-        ByteBuffer allocate(long nativeMemoryManager, int pageSize, boolean waitForMemory);
-    }
-
+final class DorisMemorySegmentPool extends AbstractMemorySegmentPool {
     private final long nativeMemoryManager;
-    private final int pageSize;
-    private final int maxPages;
-    private final PageAllocator pageAllocator;
-    private final ArrayDeque<MemorySegment> availableSegments = new ArrayDeque<>();
-    private int allocatedPages;
-    private boolean nativeMemoryPressure;
 
     DorisMemorySegmentPool(long maxMemory, int pageSize, long nativeMemoryManager) {
-        this(maxMemory, pageSize, nativeMemoryManager,
-                PaimonJniWriter::allocatePaimonMemoryPage);
-    }
-
-    DorisMemorySegmentPool(long maxMemory, int pageSize, long nativeMemoryManager,
-            PageAllocator pageAllocator) {
+        super(maxMemory, pageSize);
         if (nativeMemoryManager == 0) {
             throw new IllegalArgumentException("Doris native memory manager must not be null");
-        }
-        if (pageSize <= 0) {
-            throw new IllegalArgumentException(
-                    "Doris-managed Paimon memory page size must be positive: " + pageSize);
         }
         if (maxMemory < pageSize) {
             throw new IllegalArgumentException(
                     "Doris-managed Paimon memory pool must contain at least one page: maxMemory="
                             + maxMemory + ", pageSize=" + pageSize);
         }
-        long pages = maxMemory / pageSize;
-        if (pages > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException(
-                    "Doris-managed Paimon memory pool has too many pages: " + pages);
-        }
         this.nativeMemoryManager = nativeMemoryManager;
-        this.pageSize = pageSize;
-        this.maxPages = (int) pages;
-        this.pageAllocator = Objects.requireNonNull(pageAllocator, "pageAllocator");
     }
 
     @Override
-    public MemorySegment nextSegment() {
-        synchronized (this) {
-            MemorySegment available = availableSegments.pollFirst();
-            if (available != null) {
-                nativeMemoryPressure = false;
-                return available;
-            }
-            if (allocatedPages >= maxPages) {
-                return null;
-            }
-            ++allocatedPages;
-        }
-
-        final ByteBuffer buffer;
-        try {
-            buffer = pageAllocator.allocate(nativeMemoryManager, pageSize, false);
-        } catch (Throwable t) {
-            rollbackAllocation();
-            throw t;
-        }
-
+    protected MemorySegment allocateMemory() {
+        ByteBuffer buffer =
+                PaimonJniWriter.allocatePaimonMemoryPage(nativeMemoryManager, pageSize);
         if (buffer == null) {
-            recordNativeMemoryPressure();
-            return null;
+            // Temporary memory pressure is handled by blocking in the native callback. A null
+            // result without a pending JNI exception therefore indicates a broken JNI contract,
+            // not an out-of-memory signal for Paimon's pool machinery.
+            throw new IllegalStateException(
+                    "Doris returned no native Paimon memory page of " + pageSize + " bytes");
         }
-        clearNativeMemoryPressure();
         return MemorySegment.wrapOffHeapMemory(buffer);
-    }
-
-    /**
-     * Provision pages required by Paimon owner constructors before any owner starts writing.
-     *
-     * <p>Some Paimon buffers require their first pages in the constructor and cannot propagate a
-     * nullable allocation to a later safe write boundary. Provisioning happens while opening the
-     * asynchronous writer, before owners exist, so there is no Paimon preemption or spill path to
-     * bypass.
-     */
-    void preallocate(int requiredPages) {
-        if (requiredPages <= 0 || requiredPages > maxPages) {
-            throw new IllegalArgumentException(
-                    "Invalid Doris-managed Paimon preallocation: requiredPages="
-                            + requiredPages + ", maxPages=" + maxPages);
-        }
-
-        while (true) {
-            synchronized (this) {
-                if (allocatedPages >= requiredPages) {
-                    return;
-                }
-                ++allocatedPages;
-            }
-
-            final ByteBuffer buffer;
-            try {
-                buffer = pageAllocator.allocate(nativeMemoryManager, pageSize, true);
-            } catch (Throwable t) {
-                rollbackAllocation();
-                throw t;
-            }
-            if (buffer == null) {
-                rollbackAllocation();
-                throw allocationFailure("while provisioning Paimon owner memory");
-            }
-            synchronized (this) {
-                availableSegments.addLast(MemorySegment.wrapOffHeapMemory(buffer));
-            }
-        }
-    }
-
-    /**
-     * Wait for one native page only after a Paimon write operation has reached a safe boundary.
-     *
-     * <p>{@link #nextSegment()} deliberately returns {@code null} on Doris memory pressure so the
-     * standard Paimon memory pool can first preempt another owner and let the requesting owner run
-     * its own spill path. If neither path produced a reusable page, this method allocates one page
-     * in blocking mode and leaves it in the pool for the next Paimon operation.
-     */
-    void waitForMemoryIfNeeded() {
-        synchronized (this) {
-            if (!nativeMemoryPressure) {
-                return;
-            }
-            if (!availableSegments.isEmpty() || allocatedPages >= maxPages) {
-                nativeMemoryPressure = false;
-                return;
-            }
-            ++allocatedPages;
-            nativeMemoryPressure = false;
-        }
-
-        final ByteBuffer buffer;
-        try {
-            buffer = pageAllocator.allocate(nativeMemoryManager, pageSize, true);
-        } catch (Throwable t) {
-            rollbackAllocation();
-            throw t;
-        }
-
-        if (buffer == null) {
-            rollbackAllocation();
-            throw allocationFailure("while waiting at a safe write boundary");
-        }
-
-        synchronized (this) {
-            availableSegments.addFirst(MemorySegment.wrapOffHeapMemory(buffer));
-        }
-    }
-
-    @Override
-    public int pageSize() {
-        return pageSize;
-    }
-
-    @Override
-    public synchronized void returnAll(List<MemorySegment> memory) {
-        availableSegments.addAll(memory);
-    }
-
-    @Override
-    public synchronized int freePages() {
-        return availableSegments.size() + maxPages - allocatedPages;
-    }
-
-    private synchronized void recordNativeMemoryPressure() {
-        --allocatedPages;
-        nativeMemoryPressure = true;
-    }
-
-    private synchronized void clearNativeMemoryPressure() {
-        nativeMemoryPressure = false;
-    }
-
-    private synchronized void rollbackAllocation() {
-        --allocatedPages;
-    }
-
-    private OutOfMemoryError allocationFailure(String operation) {
-        return new OutOfMemoryError(
-                "Doris failed to allocate a native Paimon memory page of "
-                        + pageSize + " bytes " + operation);
     }
 }

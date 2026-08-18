@@ -91,20 +91,19 @@ final class PaimonArrowConverter {
         private final List<Field> fields;
         private final List<FieldVector> vectors;
         private final DataType[] targetTypes;
-        private final Object[] reusableValues;
 
         private RowReader(
                 List<Field> fields, List<FieldVector> vectors, DataType[] targetTypes) {
             this.fields = fields;
             this.vectors = vectors;
             this.targetTypes = targetTypes;
-            this.reusableValues = new Object[vectors.size()];
         }
 
         Object[] values(int rowIndex) {
+            Object[] values = new Object[vectors.size()];
             for (int column = 0; column < vectors.size(); column++) {
                 try {
-                    reusableValues[column] = convertVectorValue(
+                    values[column] = convertVectorValue(
                             vectors.get(column), rowIndex, fields.get(column), targetTypes[column]);
                 } catch (RuntimeException e) {
                     throw new IllegalArgumentException(
@@ -114,7 +113,7 @@ final class PaimonArrowConverter {
                             e);
                 }
             }
-            return reusableValues;
+            return values;
         }
     }
 

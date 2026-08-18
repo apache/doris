@@ -38,11 +38,9 @@
 #include <cstring>
 #include <ctime>
 #include <memory>
-#include <new>
 #include <utility>
 #include <vector>
 
-#include "common/exception.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
@@ -317,22 +315,7 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
                         *column, nullptr, _cur_builder, _cur_start, _cur_start + _cur_rows,
                         _timezone_obj));
             }
-        } catch (const Exception& e) {
-            if (e.code() == ErrorCode::MEM_ALLOC_FAILED ||
-                e.code() == ErrorCode::MEM_LIMIT_EXCEEDED ||
-                e.code() == ErrorCode::QUERY_MEMORY_EXCEEDED) {
-                return Status::MemoryLimitExceeded(
-                        "Failed to allocate memory converting block data to Arrow, type: {}, "
-                        "name: {}, error: {}",
-                        _cur_type->get_name(), _block.get_by_position(idx).name, e.what());
-            }
-            return e.to_status();
-        } catch (const std::bad_alloc& e) {
-            return Status::MemoryLimitExceeded(
-                    "Failed to allocate memory converting block data to Arrow, type: {}, name: "
-                    "{}, error: {}",
-                    _cur_type->get_name(), _block.get_by_position(idx).name, e.what());
-        } catch (const std::exception& e) {
+        } catch (std::exception& e) {
             return Status::InternalError(
                     "Fail to convert block data to arrow data, type: {}, name: {}, error: {}",
                     _cur_type->get_name(), _block.get_by_position(idx).name, e.what());

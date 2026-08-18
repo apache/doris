@@ -600,11 +600,6 @@ template <typename ColumnType, typename BuilderType>
 inline Status checkArrowStatus(const arrow::Status& status, const ColumnType& column,
                                const BuilderType& builder) {
     if (!status.ok()) {
-        if (status.IsOutOfMemory()) {
-            return Status::MemoryLimitExceeded(
-                    "arrow serde with arrow: {} with column: {} ran out of memory: {}",
-                    builder.type()->name(), column.get_name(), status.ToString());
-        }
         return Status::FatalError("arrow serde with arrow: {} with column : {} with error msg: {}",
                                   builder.type()->name(), column.get_name(), status.ToString());
     }

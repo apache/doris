@@ -22,7 +22,6 @@ import org.apache.doris.common.security.authentication.PreExecutionAuthenticator
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
 import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.memory.OutOfMemoryException;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
@@ -60,7 +59,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
 
 /**
  * JNI entry point for Paimon write operations.
@@ -88,25 +86,12 @@ import java.util.concurrent.CancellationException;
  */
 public class PaimonJniWriter {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniWriter.class);
-    private static final long ARROW_MIN_HEADROOM_BYTES = 16L * 1024 * 1024;
-    private static final int ARROW_HEADROOM_DIVISOR = 4;
-    private static final int APPEND_ONLY_MIN_PAGES = 1;
-    private static final int MERGE_TREE_MIN_PAGES = 3;
-    // Keep these values in sync with C++ PaimonMemoryErrorType.
-    static final int MEMORY_ERROR_NONE = 0;
-    static final int MEMORY_ERROR_ARROW = 1;
-    static final int MEMORY_ERROR_PAIMON_PAGE = 2;
-    static final int MEMORY_ERROR_JVM_HEAP = 3;
-    static final int MEMORY_ERROR_COMMIT_PAYLOAD = 4;
-    static final int MEMORY_ERROR_CANCELLED = 5;
-    private static final String NATIVE_PAGE_ALLOCATION_ERROR_PREFIX =
-            "Paimon JNI native page allocation failed:";
+    private static final long ARROW_MEMORY_LIMIT_BYTES = 16L * 1024 * 1024;
 
     private final ClassLoader classLoader;
     private final PaimonCommitCodec commitCodec = new PaimonCommitCodec();
 
     private BufferAllocator allocator;
-    private DorisMemorySegmentPool memorySegmentPool;
     private PreExecutionAuthenticator preExecutionAuthenticator;
     private PaimonArrowConverter arrowConverter;
 
@@ -124,12 +109,11 @@ public class PaimonJniWriter {
     private final Set<PartitionBucket> fullCompactionBuckets = new HashSet<>();
     private List<CommitMessage> preparedCommitMessages = Collections.emptyList();
     private boolean sdkCloseFailed;
-    private long arrowMemoryLimitBytes;
-    private long arrowMemoryPeakBytes;
-    private long paimonPageMemoryLimitBytes;
-    private volatile int lastMemoryErrorType = MEMORY_ERROR_NONE;
 
     public PaimonJniWriter() {
+        // Arrow decoding is the only direct-memory consumer in this writer. Keep it behind one
+        // fixed allocator boundary; Paimon write-buffer pages use the Doris native manager below.
+        this.allocator = new RootAllocator(ARROW_MEMORY_LIMIT_BYTES);
         this.classLoader = this.getClass().getClassLoader();
     }
 
@@ -164,7 +148,6 @@ public class PaimonJniWriter {
                      String[] columnNames, long transactionId, String commitUser,
                      boolean overwrite, boolean changelogWrite, String timeZone, String spillDirectories,
                      long memoryPoolLimitBytes, long nativeMemoryManager) throws Exception {
-        lastMemoryErrorType = MEMORY_ERROR_NONE;
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             if (memoryPoolLimitBytes <= 0) {
                 throw new IllegalArgumentException(
@@ -205,13 +188,12 @@ public class PaimonJniWriter {
                             nativeMemoryManager);
                     return null;
                 } catch (Throwable t) {
-                    recordMemoryError(t);
                     try {
                         closeResources();
                     } catch (Throwable closeFailure) {
                         t.addSuppressed(closeFailure);
                     }
-                    throw memoryFailure("open", t);
+                    throw new RuntimeException("PaimonJniWriter open failed", t);
                 }
             });
         }
@@ -229,7 +211,6 @@ public class PaimonJniWriter {
      * @param directBuffer direct view of the native Arrow IPC Stream bytes (no copy)
      */
     public void write(ByteBuffer directBuffer) throws Exception {
-        lastMemoryErrorType = MEMORY_ERROR_NONE;
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             preExecutionAuthenticator.execute(() -> {
                 try {
@@ -242,52 +223,11 @@ public class PaimonJniWriter {
                     }
                     return null;
                 } catch (Throwable t) {
-                    recordMemoryError(t);
-                    if (hasCause(t, OutOfMemoryException.class)) {
-                        throw new RuntimeException(
-                                "PaimonJniWriter Arrow decode exceeded its memory limit: limit="
-                                        + arrowMemoryLimitBytes + ", peak="
-                                        + getArrowMemoryPeakBytes() + ", ipcBytes="
-                                        + directBuffer.capacity(), t);
-                    }
-                    if (lastMemoryErrorType != MEMORY_ERROR_NONE) {
-                        throw memoryFailure("write", t);
-                    }
                     throw new RuntimeException(
                             "PaimonJniWriter write failed: bytes=" + directBuffer.capacity(), t);
-                } finally {
-                    updateArrowMemoryPeak();
                 }
             });
         }
-    }
-
-    /** Current direct-memory bytes retained by Arrow decoding for this writer. */
-    public long getArrowMemoryCurrentBytes() {
-        return allocator == null ? 0 : allocator.getAllocatedMemory();
-    }
-
-    /** Peak direct-memory bytes allocated by Arrow decoding for this writer. */
-    public long getArrowMemoryPeakBytes() {
-        updateArrowMemoryPeak();
-        return arrowMemoryPeakBytes;
-    }
-
-    /** Hard limit of the finite Arrow allocator for this writer. */
-    public long getArrowMemoryLimitBytes() {
-        return arrowMemoryLimitBytes;
-    }
-
-    /** Effective Paimon page-pool limit after reserving Arrow headroom. */
-    public long getPaimonPageMemoryLimitBytes() {
-        return paimonPageMemoryLimitBytes;
-    }
-
-    /** Return and clear the last memory failure recorded by a JNI entry point. */
-    public int consumeLastMemoryErrorType() {
-        int memoryErrorType = lastMemoryErrorType;
-        lastMemoryErrorType = MEMORY_ERROR_NONE;
-        return memoryErrorType;
     }
 
     /**
@@ -301,23 +241,18 @@ public class PaimonJniWriter {
      * @return byte[][]  each element is a DPCM-framed serialized CommitMessage chunk
      */
     public byte[][] prepareCommit() throws Exception {
-        lastMemoryErrorType = MEMORY_ERROR_NONE;
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             return preExecutionAuthenticator.execute(() -> {
                 try {
-                    memorySegmentPool.waitForMemoryIfNeeded();
                     List<CommitMessage> messages = prepareCommitMessages();
                     if (messages.isEmpty()) {
                         LOG.info("PaimonJniWriter prepareCommit: empty");
                         return new byte[0][];
                     }
                     LOG.info("PaimonJniWriter prepareCommit: {} messages", messages.size());
-                    // No Arrow reader is active during commit, so reuse its transient headroom as
-                    // the total Java-heap cap for all serialized commit payload chunks.
-                    return commitCodec.encode(messages, arrowMemoryLimitBytes);
+                    return commitCodec.encode(messages);
                 } catch (Throwable t) {
-                    recordMemoryError(t);
-                    throw memoryFailure("prepareCommit", t);
+                    throw new RuntimeException("PaimonJniWriter prepareCommit failed", t);
                 }
             });
         }
@@ -378,8 +313,7 @@ public class PaimonJniWriter {
             writer.withIgnorePreviousFiles(true);
         }
         openMemoryResources(
-                coreOptions, spillDirectories, memoryPoolLimitBytes, nativeMemoryManager,
-                table.primaryKeys().isEmpty() ? APPEND_ONLY_MIN_PAGES : MERGE_TREE_MIN_PAGES);
+                coreOptions, spillDirectories, memoryPoolLimitBytes, nativeMemoryManager);
         openDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
     }
 
@@ -401,27 +335,15 @@ public class PaimonJniWriter {
             CoreOptions coreOptions,
             String spillDirectories,
             long memoryPoolLimitBytes,
-            long nativeMemoryManager,
-            int minimumPaimonPages) throws Exception {
+            long nativeMemoryManager) throws Exception {
         int pageSize = coreOptions.pageSize();
-        WriterMemoryBudget budget = splitWriterMemoryBudget(
-                memoryPoolLimitBytes, coreOptions.writeBufferSize(), pageSize,
-                minimumPaimonPages);
-        allocator = new RootAllocator(budget.arrowHeadroomBytes);
-        arrowMemoryLimitBytes = budget.arrowHeadroomBytes;
-        memorySegmentPool = new DorisMemorySegmentPool(
-                budget.paimonPageBudgetBytes, pageSize, nativeMemoryManager);
-        memorySegmentPool.preallocate(minimumPaimonPages);
+        long effectivePoolLimit = Math.min(coreOptions.writeBufferSize(), memoryPoolLimitBytes);
+        DorisMemorySegmentPool memorySegmentPool =
+                new DorisMemorySegmentPool(effectivePoolLimit, pageSize, nativeMemoryManager);
         MemoryPoolFactory memoryPoolFactory = new MemoryPoolFactory(memorySegmentPool);
         writer.withMemoryPoolFactory(memoryPoolFactory);
-        paimonPageMemoryLimitBytes = memoryPoolFactory.totalBufferSize();
-        LOG.info(
-                "Paimon writer memory budget: total={} bytes, pagePool={} bytes, "
-                        + "arrowHeadroom={} bytes, pageSize={}",
-                memoryPoolLimitBytes,
-                paimonPageMemoryLimitBytes,
-                arrowMemoryLimitBytes,
-                pageSize);
+        LOG.info("Paimon writer uses Doris-managed memory pool: limit={} bytes, pageSize={}",
+                memoryPoolFactory.totalBufferSize(), pageSize);
 
         if (!coreOptions.writeBufferSpillable()) {
             return;
@@ -493,8 +415,8 @@ public class PaimonJniWriter {
         if (rowCount == 0) {
             return;
         }
-        // Convert and write one row at a time. RowReader reuses its outer Object array, while
-        // tableRow copies the values into a new GenericRow before the next row is converted.
+        // Convert and write one row at a time. Keeping only one row of boxed values
+        // avoids retaining a second, Object[][] representation of the full Arrow batch.
         PaimonArrowConverter.RowReader rows =
                 arrowConverter.rows(root, writeSchema.targetTypes());
         for (int r = 0; r < rowCount; r++) {
@@ -538,7 +460,6 @@ public class PaimonJniWriter {
     }
 
     private void writeRow(InternalRow row) throws Exception {
-        memorySegmentPool.waitForMemoryIfNeeded();
         if (!fullCompactionChangelog) {
             writer.write(row);
             return;
@@ -548,7 +469,6 @@ public class PaimonJniWriter {
     }
 
     private void writeRow(InternalRow row, int bucket) throws Exception {
-        memorySegmentPool.waitForMemoryIfNeeded();
         if (!fullCompactionChangelog) {
             writer.write(row, bucket);
             return;
@@ -577,7 +497,6 @@ public class PaimonJniWriter {
             writeSchema = null;
             arrowConverter = null;
             if (allocator != null) {
-                updateArrowMemoryPeak();
                 allocator.close();
                 allocator = null;
             }
@@ -685,148 +604,7 @@ public class PaimonJniWriter {
     // Utilities
     // ────────────────────────────────────────────────────────────
 
-    static WriterMemoryBudget splitWriterMemoryBudget(
-            long writerBudgetBytes, long configuredWriteBufferBytes, int pageSize,
-            int minimumPaimonPages) {
-        if (writerBudgetBytes <= 0) {
-            throw new IllegalArgumentException(
-                    "Paimon JNI writer memory budget must be positive: " + writerBudgetBytes);
-        }
-        if (configuredWriteBufferBytes <= 0) {
-            throw new IllegalArgumentException(
-                    "Paimon write buffer size must be positive: " + configuredWriteBufferBytes);
-        }
-        if (pageSize <= 0) {
-            throw new IllegalArgumentException("Paimon page size must be positive: " + pageSize);
-        }
-        if (minimumPaimonPages <= 0) {
-            throw new IllegalArgumentException(
-                    "Paimon minimum page count must be positive: " + minimumPaimonPages);
-        }
-
-        long minimumPaimonBytes = (long) pageSize * minimumPaimonPages;
-        long arrowHeadroomBytes = Math.max(
-                writerBudgetBytes / ARROW_HEADROOM_DIVISOR, ARROW_MIN_HEADROOM_BYTES);
-        if (minimumPaimonBytes > writerBudgetBytes
-                || arrowHeadroomBytes > writerBudgetBytes - minimumPaimonBytes) {
-            throw new IllegalArgumentException(
-                    "Paimon JNI writer memory budget cannot provide Arrow headroom and "
-                            + minimumPaimonPages + " required Paimon page(s): "
-                            + "budget=" + writerBudgetBytes + ", arrowHeadroom="
-                            + arrowHeadroomBytes + ", pageSize=" + pageSize);
-        }
-        long paimonPageBudgetBytes = Math.min(
-                configuredWriteBufferBytes, writerBudgetBytes - arrowHeadroomBytes);
-        if (paimonPageBudgetBytes < minimumPaimonBytes) {
-            throw new IllegalArgumentException(
-                    "Paimon write buffer cannot contain " + minimumPaimonPages
-                            + " pages after reserving Arrow memory: "
-                            + "writeBuffer=" + configuredWriteBufferBytes + ", pageBudget="
-                            + paimonPageBudgetBytes + ", pageSize=" + pageSize);
-        }
-        return new WriterMemoryBudget(arrowHeadroomBytes, paimonPageBudgetBytes);
-    }
-
-    private void updateArrowMemoryPeak() {
-        if (allocator != null) {
-            arrowMemoryPeakBytes = Math.max(
-                    arrowMemoryPeakBytes, allocator.getPeakMemoryAllocation());
-        }
-    }
-
-    private static boolean hasCause(Throwable throwable, Class<? extends Throwable> causeClass) {
-        Throwable current = throwable;
-        while (current != null) {
-            if (causeClass.isInstance(current)) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
-    }
-
-    private void recordMemoryError(Throwable throwable) {
-        int memoryErrorType = classifyMemoryError(throwable);
-        if (memoryErrorType != MEMORY_ERROR_NONE) {
-            lastMemoryErrorType = memoryErrorType;
-        }
-    }
-
-    static int classifyMemoryError(Throwable throwable) {
-        if (hasCause(throwable, CancellationException.class)) {
-            return MEMORY_ERROR_CANCELLED;
-        }
-        if (hasCause(throwable, OutOfMemoryException.class)) {
-            return MEMORY_ERROR_ARROW;
-        }
-        if (hasCause(throwable, PaimonCommitCodec.CommitPayloadMemoryException.class)) {
-            return MEMORY_ERROR_COMMIT_PAYLOAD;
-        }
-        Throwable current = throwable;
-        while (current != null) {
-            if (current instanceof OutOfMemoryError) {
-                String message = current.getMessage();
-                boolean nativePageFailure = message != null
-                        && message.startsWith(NATIVE_PAGE_ALLOCATION_ERROR_PREFIX);
-                return nativePageFailure
-                        ? MEMORY_ERROR_PAIMON_PAGE
-                        : MEMORY_ERROR_JVM_HEAP;
-            }
-            current = current.getCause();
-        }
-        return MEMORY_ERROR_NONE;
-    }
-
-    private RuntimeException memoryFailure(String operation, Throwable throwable) {
-        if (lastMemoryErrorType == MEMORY_ERROR_NONE) {
-            return new RuntimeException("PaimonJniWriter " + operation + " failed", throwable);
-        }
-        Throwable rootCause = throwable;
-        while (rootCause.getCause() != null) {
-            rootCause = rootCause.getCause();
-        }
-        if (lastMemoryErrorType == MEMORY_ERROR_CANCELLED) {
-            return new RuntimeException(
-                    "PaimonJniWriter " + operation + " was cancelled: "
-                            + rootCause.getMessage(),
-                    throwable);
-        }
-        return new RuntimeException(
-                "PaimonJniWriter " + operation + " memory failure: type="
-                        + memoryErrorName(lastMemoryErrorType) + ", detail="
-                        + rootCause.getMessage(),
-                throwable);
-    }
-
-    private static String memoryErrorName(int memoryErrorType) {
-        switch (memoryErrorType) {
-            case MEMORY_ERROR_ARROW:
-                return "ARROW";
-            case MEMORY_ERROR_PAIMON_PAGE:
-                return "PAIMON_PAGE";
-            case MEMORY_ERROR_JVM_HEAP:
-                return "JVM_HEAP";
-            case MEMORY_ERROR_COMMIT_PAYLOAD:
-                return "COMMIT_PAYLOAD";
-            case MEMORY_ERROR_CANCELLED:
-                return "CANCELLED";
-            default:
-                return "UNKNOWN";
-        }
-    }
-
-    static final class WriterMemoryBudget {
-        final long arrowHeadroomBytes;
-        final long paimonPageBudgetBytes;
-
-        private WriterMemoryBudget(long arrowHeadroomBytes, long paimonPageBudgetBytes) {
-            this.arrowHeadroomBytes = arrowHeadroomBytes;
-            this.paimonPageBudgetBytes = paimonPageBudgetBytes;
-        }
-    }
-
-    static native ByteBuffer allocatePaimonMemoryPage(
-            long nativeMemoryManager, int bytes, boolean waitForMemory);
+    static native ByteBuffer allocatePaimonMemoryPage(long nativeMemoryManager, int bytes);
 
     private static class PartitionBucket {
         private final BinaryRow partition;

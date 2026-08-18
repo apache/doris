@@ -81,34 +81,6 @@ public class PaimonCommitCodecTest {
         Assertions.assertTrue(payloads[1].length <= 1024);
     }
 
-    @Test
-    public void testRejectTotalPayloadMemoryLimit() throws Exception {
-        PaimonCommitCodec codec = new PaimonCommitCodec(1024, 1);
-        List<CommitMessage> messages = new ArrayList<>();
-        messages.add(commitMessage("x".repeat(400)));
-        messages.add(commitMessage("y".repeat(400)));
-        byte[][] encoded = codec.encode(messages);
-        long totalBytes = encoded[0].length + encoded[1].length;
-
-        Exception exception = Assertions.assertThrows(
-                PaimonCommitCodec.CommitPayloadMemoryException.class,
-                () -> codec.encode(messages, totalBytes - 1));
-
-        Assertions.assertTrue(exception.getMessage().contains("total memory limit"));
-    }
-
-    @Test
-    public void testTotalLimitIncludesSerializationBackingAndFinalCopy() throws Exception {
-        PaimonCommitCodec codec = new PaimonCommitCodec(1024, 1);
-        List<CommitMessage> messages = Collections.singletonList(commitMessage("x".repeat(400)));
-        int payloadBytes = codec.encode(messages)[0].length;
-
-        Assertions.assertThrows(
-                PaimonCommitCodec.CommitPayloadMemoryException.class,
-                () -> codec.encode(messages, 2L * payloadBytes - 1));
-        Assertions.assertEquals(payloadBytes, codec.encode(messages, 2L * payloadBytes)[0].length);
-    }
-
     private static CommitMessage commitMessage(String fileName) {
         DataFileMeta dataFile = DataFileMeta.forAppend(
                 fileName,

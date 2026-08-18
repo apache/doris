@@ -21,10 +21,10 @@ import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.sink.CommitMessageSerializer;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -51,7 +51,6 @@ final class PaimonCommitCodec {
     static final int MAX_PAYLOAD_BYTES = 8 * 1024 * 1024;
     /** Starting number of commit messages per chunk. */
     static final int DEFAULT_CHUNK_SIZE = 512;
-    private static final int SERIALIZATION_WORKING_COPIES = 2;
 
     private final CommitMessageSerializer serializer = new CommitMessageSerializer();
     private final int maxPayloadBytes;
@@ -76,14 +75,6 @@ final class PaimonCommitCodec {
      * @return byte[][] where each element is a complete DPCM-framed chunk
      */
     byte[][] encode(List<CommitMessage> messages) throws Exception {
-        return encode(messages, Long.MAX_VALUE);
-    }
-
-    byte[][] encode(List<CommitMessage> messages, long maxTotalPayloadBytes) throws Exception {
-        if (maxTotalPayloadBytes <= 0) {
-            throw new IllegalArgumentException(
-                    "Paimon commit payload memory limit must be positive");
-        }
         if (messages.isEmpty()) {
             return new byte[0][];
         }
@@ -92,51 +83,29 @@ final class PaimonCommitCodec {
         // therefore stops before allocating beyond one chunk's budget.
         int chunkSize = defaultChunkSize;
         List<byte[]> payloads = new ArrayList<>();
-        long totalPayloadBytes = 0;
         int offset = 0;
         while (offset < messages.size()) {
-            long remainingPayloadMemory = maxTotalPayloadBytes - totalPayloadBytes;
-            int chunkWorkingLimit = (int) Math.min(
-                    maxPayloadBytes, remainingPayloadMemory / SERIALIZATION_WORKING_COPIES);
-            if (chunkWorkingLimit <= HEADER_BYTES) {
-                throw totalPayloadMemoryException(
-                        maxTotalPayloadBytes, totalPayloadBytes, chunkWorkingLimit);
-            }
             int end = Math.min(offset + chunkSize, messages.size());
             byte[] payload;
             try {
-                payload = encodeChunk(messages.subList(offset, end), chunkWorkingLimit);
+                payload = encodeChunk(messages.subList(offset, end));
             } catch (PayloadTooLargeException e) {
                 if (chunkSize > 1) {
                     chunkSize = Math.max(1, chunkSize / 2);
                     continue;
                 }
-                if (chunkWorkingLimit < maxPayloadBytes) {
-                    throw totalPayloadMemoryException(
-                            maxTotalPayloadBytes, totalPayloadBytes, chunkWorkingLimit);
-                }
-                throw new CommitPayloadMemoryException(
-                        "A single Paimon commit message exceeds the "
-                                + maxPayloadBytes + " byte framed payload limit",
-                        e);
-            }
-            if (payload.length > maxTotalPayloadBytes - totalPayloadBytes) {
-                throw new CommitPayloadMemoryException(
-                        "Paimon commit payloads exceed their total memory limit: limit="
-                                + maxTotalPayloadBytes + ", completed=" + totalPayloadBytes
-                                + ", nextChunk=" + payload.length);
+                throw new IOException("A single Paimon commit message exceeds the "
+                        + maxPayloadBytes + " byte framed payload limit", e);
             }
             payloads.add(payload);
-            totalPayloadBytes += payload.length;
             offset = end;
         }
         return payloads.toArray(new byte[0][]);
     }
 
     /** Serialize one chunk of messages and wrap it in a DPCM frame. */
-    private byte[] encodeChunk(List<CommitMessage> messages, int chunkWorkingLimit)
-            throws Exception {
-        BoundedOutputStream output = new BoundedOutputStream(chunkWorkingLimit);
+    private byte[] encodeChunk(List<CommitMessage> messages) throws Exception {
+        BoundedOutputStream output = new BoundedOutputStream(maxPayloadBytes);
         output.write(new byte[HEADER_BYTES]);
         serializer.serializeList(messages, new DataOutputViewStreamWrapper(output));
 
@@ -148,14 +117,6 @@ final class PaimonCommitCodec {
         writeInt(payload, 4, serializer.getVersion());
         writeInt(payload, 8, payload.length - HEADER_BYTES);
         return payload;
-    }
-
-    private static CommitPayloadMemoryException totalPayloadMemoryException(
-            long maxTotalPayloadBytes, long completedPayloadBytes, int nextWorkingBufferBytes) {
-        return new CommitPayloadMemoryException(
-                "Paimon commit payload serialization exceeds its total memory limit: limit="
-                        + maxTotalPayloadBytes + ", completed=" + completedPayloadBytes
-                        + ", nextWorkingBuffer=" + nextWorkingBufferBytes);
     }
 
     /**
@@ -188,53 +149,36 @@ final class PaimonCommitCodec {
         }
     }
 
-    static final class CommitPayloadMemoryException extends IOException {
-        private CommitPayloadMemoryException(String message) {
-            super(message);
-        }
-
-        private CommitPayloadMemoryException(String message, Throwable cause) {
-            super(message, cause);
-        }
-    }
-
     /** Output stream which fails before Paimon serialization can exceed one framed chunk. */
     private static final class BoundedOutputStream extends OutputStream {
-        private byte[] output;
+        private final ByteArrayOutputStream output;
         private final int limit;
-        private int size;
 
         private BoundedOutputStream(int limit) {
-            this.output = new byte[Math.min(1024, limit)];
+            this.output = new ByteArrayOutputStream(Math.min(1024, limit));
             this.limit = limit;
         }
 
         private void reserve(int bytes) throws IOException {
-            if (bytes < 0 || bytes > limit - size) {
+            if (bytes < 0 || bytes > limit - output.size()) {
                 throw new PayloadTooLargeException(limit);
-            }
-            int required = size + bytes;
-            if (required > output.length) {
-                int doubled = output.length > limit / 2 ? limit : output.length * 2;
-                output = Arrays.copyOf(output, Math.max(required, doubled));
             }
         }
 
         @Override
         public void write(int value) throws IOException {
             reserve(1);
-            output[size++] = (byte) value;
+            output.write(value);
         }
 
         @Override
         public void write(byte[] value, int offset, int length) throws IOException {
             reserve(length);
-            System.arraycopy(value, offset, output, size, length);
-            size += length;
+            output.write(value, offset, length);
         }
 
         private byte[] toByteArray() {
-            return Arrays.copyOf(output, size);
+            return output.toByteArray();
         }
     }
 }
