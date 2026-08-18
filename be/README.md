@@ -63,6 +63,13 @@ What each gate guards, and what to do when it fires:
   (`doris_skip_unity_inclusion`), otherwise the BE UT link fails with
   duplicate symbols an hour later. The error names the exact entry to add.
 
+The gates are python3 sources and resolve their own interpreter (`python3`,
+then `python`, then `/usr/libexec/platform-python`, the RHEL8/AlmaLinux8 system
+Python that the build-env image ships in place of `/usr/bin/python3`). They
+deliberately ignore `PYTHON`, which `env.sh` exports as the interpreter the
+*build* uses for code generation and which is python2 by default. Set
+`BUILD_HYGIENE_PYTHON` to pin a specific interpreter.
+
 Escape hatch for emergencies: configure with `-DENABLE_BUILD_HYGIENE=OFF`.
 Self-tests live in `build-support/tests/` (`run.sh`).
 

@@ -35,7 +35,9 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 GATE="${ROOT}/build-support/check-unity-skip-coverage.py"
-PYTHON="${PYTHON:-python3}"
+# Not ${PYTHON}: env.sh exports that as the build's interpreter (python2 on
+# the build-env image). Same selector the gates themselves use.
+PYTHON="${BUILD_HYGIENE_PYTHON:-python3}"
 
 PROBE_SRC="${ROOT}/be/src/util/tmp_hygiene_probe.cpp"
 PROBE_DIR="${ROOT}/be/test/tmp_hygiene_probe"
