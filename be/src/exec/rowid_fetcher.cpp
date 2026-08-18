@@ -1000,7 +1000,7 @@ Status RowIdStorageReader::read_batch_external_row(
                     semaphore.acquire();
                     RETURN_IF_ERROR(remote_scan_sched->submit_scan_task(
                             SimplifiedScanTask(
-                                    [&, idx, scan_info]() -> Status {
+                                    [&, idx, scan_info]() -> bool {
                                         Defer complete_task {[&]() {
                                             semaphore.release();
                                             if (++producer_count == scan_rows.size()) {
@@ -1020,7 +1020,10 @@ Status RowIdStorageReader::read_batch_external_row(
                                                 scan_status = status;
                                             }
                                         }
-                                        return status;
+                                        // The return value indicates whether this one-shot
+                                        // scheduler task has completed, not whether the fetch
+                                        // succeeded. The fetch status is propagated by scan_status.
+                                        return true;
                                     },
                                     nullptr, nullptr),
                             fmt::format("{}-read_batch_external_row-{}", print_id(query_id), idx)));
