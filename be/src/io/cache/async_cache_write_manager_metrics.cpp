@@ -25,18 +25,6 @@ AsyncCacheWriteManager::Metrics::Metrics(AsyncCacheWriteManager& manager, const 
     // Keep the per-disk scrape surface limited to capacity, lifecycle, and outcome metrics. The
     // unnamed bvars below retain focused test and benchmark diagnostics without multiplying
     // Prometheus series for every file-cache instance.
-    _pending_count_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
-            prefix, "async_cache_write_pending_task_count",
-            [](void* manager) {
-                return static_cast<AsyncCacheWriteManager*>(manager)->pending_count();
-            },
-            &manager);
-    _pending_bytes_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
-            prefix, "async_cache_write_pending_bytes",
-            [](void* manager) {
-                return static_cast<AsyncCacheWriteManager*>(manager)->pending_bytes();
-            },
-            &manager);
     _running_worker_count_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
             prefix, "async_cache_write_running_worker_count",
             [](void* manager) {

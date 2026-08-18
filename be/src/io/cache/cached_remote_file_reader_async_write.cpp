@@ -34,7 +34,6 @@
 #include "io/cache/inflight_write_buffer_index.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
-#include "util/defer_op.h"
 #include "util/time.h"
 
 namespace doris::io {
@@ -55,20 +54,6 @@ bvar::Adder<uint64_t> g_cached_remote_reader_probe_downloading(
         "cached_remote_file_reader_probe_hit_downloading_count");
 bvar::Adder<uint64_t> g_cached_remote_reader_probe_miss(
         "cached_remote_file_reader_probe_miss_count");
-bvar::Adder<uint64_t> g_cached_remote_reader_inflight_hit(
-        "cached_remote_file_reader_inflight_write_buffer_hit_count");
-bvar::Adder<uint64_t> g_cached_remote_reader_async_skip_existing(
-        "cached_remote_file_reader_async_write_skip_inflight_existing_count");
-bvar::Adder<uint64_t> g_cached_remote_reader_block_wait(
-        "cached_remote_file_reader_block_wait_count");
-bvar::Adder<uint64_t> g_cached_remote_reader_block_wait_timeout(
-        "cached_remote_file_reader_block_wait_timeout_count");
-bvar::Adder<uint64_t> g_cached_remote_reader_remote_after_dedup_miss(
-        "cached_remote_file_reader_remote_read_after_all_dedup_miss_count");
-bvar::LatencyRecorder g_cached_remote_reader_async_read_plan_latency(
-        "cached_remote_file_reader_async_read_plan_latency_us");
-bvar::LatencyRecorder g_cached_remote_reader_async_write_submission_latency(
-        "cached_remote_file_reader_async_write_submission_latency_us");
 
 } // namespace
 
@@ -204,10 +189,6 @@ CacheWriteMode CachedRemoteFileReader::_resolve_cache_write_mode(const IOContext
 CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_plan(
         size_t remaining_offset, size_t remaining_size, AsyncCacheWriteEpoch write_epoch,
         const IOContext* io_ctx, ReadStatistics& stats) {
-    const int64_t plan_start_us = MonotonicMicros();
-    Defer record_plan_latency {[&]() {
-        g_cached_remote_reader_async_read_plan_latency << (MonotonicMicros() - plan_start_us);
-    }};
     DORIS_CHECK(io_ctx != nullptr);
     DORIS_CHECK(remaining_offset < size());
     DORIS_CHECK(remaining_size > 0);
@@ -261,7 +242,6 @@ CachedRemoteFileReader::AsyncReadPlan CachedRemoteFileReader::_build_async_read_
             read_block.source = AsyncReadBlock::Source::INFLIGHT;
             read_block.inflight_entry = std::move(entry);
             ++stats.inflight_write_buffer_index_hit;
-            g_cached_remote_reader_inflight_hit << 1;
         }
     }
     if (all_blocks_inflight) {
@@ -386,11 +366,9 @@ bool CachedRemoteFileReader::_materialize_async_block(const AsyncReadPlan& plan,
         }
         if (state != FileBlock::State::DOWNLOADED) {
             ++stats.block_wait_timeout;
-            g_cached_remote_reader_block_wait_timeout << 1;
             return false;
         }
         ++stats.block_wait_success;
-        g_cached_remote_reader_block_wait << 1;
     }
     if (state != FileBlock::State::DOWNLOADED) {
         return false;
@@ -503,12 +481,6 @@ Status CachedRemoteFileReader::_read_async_remote_range(
         source_read_breakdown.remote_bytes += copy_size;
     }
 
-    for (size_t index = plan.first_remote_block; index < remote_end; ++index) {
-        if (plan.blocks[index].submit_write) {
-            g_cached_remote_reader_remote_after_dedup_miss << 1;
-            break;
-        }
-    }
     return Status::OK();
 }
 
@@ -518,11 +490,6 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
                                                        const std::unique_ptr<char[]>& remote_buffer,
                                                        const IOContext* io_ctx,
                                                        ReadStatistics& stats) {
-    const int64_t submission_start_us = MonotonicMicros();
-    Defer record_submission_latency {[&]() {
-        g_cached_remote_reader_async_write_submission_latency
-                << (MonotonicMicros() - submission_start_us);
-    }};
     auto* manager = _cache->async_write_manager();
     auto* inflight_index = _cache->inflight_write_buffer_index();
     DORIS_CHECK(manager != nullptr);
@@ -591,7 +558,6 @@ void CachedRemoteFileReader::_submit_async_write_tasks(const AsyncReadPlan& plan
             auto existing =
                     inflight_index->insert_if_absent(_cache_hash, read_block.range.left, entry);
             if (existing) {
-                g_cached_remote_reader_async_skip_existing << 1;
                 continue;
             }
             task.on_finalized = [cache_hash = _cache_hash, offset = read_block.range.left,

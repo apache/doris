@@ -124,7 +124,6 @@ private:
     std::atomic<size_t> _count {0};
     std::atomic<size_t> _buffer_bytes {0};
 
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _count_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _buffer_bytes_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _lookup_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _hit_metric;

@@ -65,13 +65,9 @@ InflightWriteBufferIndex::InflightWriteBufferIndex(size_t shard_count, std::stri
     }
 
     const char* prefix = metric_prefix.c_str();
-    // The retained entry count and bytes are the operational signals needed to diagnose inflight
-    // memory. Keep operation breakdowns and lock timings unnamed so they do not add per-disk
+    // Retained buffer bytes are the operational signal needed to diagnose inflight memory. Keep
+    // entry count, operation breakdowns, and lock timings unexposed so they do not add per-disk
     // Prometheus series.
-    _count_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
-            prefix, "inflight_write_buffer_index_entry_count",
-            [](void* index) { return static_cast<InflightWriteBufferIndex*>(index)->count(); },
-            this);
     _buffer_bytes_metric = std::make_shared<bvar::PassiveStatus<size_t>>(
             prefix, "inflight_write_buffer_index_buffer_bytes",
             [](void* index) {

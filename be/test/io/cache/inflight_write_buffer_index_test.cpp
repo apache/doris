@@ -55,7 +55,6 @@ TEST(InflightWriteBufferIndexTest, InsertLookupAndConditionalRemove) {
     EXPECT_EQ(index.insert_if_absent(hash, 0, entry), nullptr);
     EXPECT_EQ(index.count(), 1);
     EXPECT_EQ(index.buffer_bytes(), 4096);
-    EXPECT_EQ(index._count_metric->get_value(), 1);
     EXPECT_EQ(index._buffer_bytes_metric->get_value(), 4096);
     EXPECT_EQ(index.lookup(hash, 0), entry);
 

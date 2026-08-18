@@ -113,8 +113,6 @@ public:
     Snapshot snapshot() const;
 
 private:
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_count_metric;
-    std::shared_ptr<bvar::PassiveStatus<size_t>> _pending_bytes_metric;
     std::shared_ptr<bvar::PassiveStatus<size_t>> _running_worker_count_metric;
     std::shared_ptr<bvar::PassiveStatus<int64_t>> _buffer_memory_metric;
     std::shared_ptr<bvar::Adder<uint64_t>> _submitted_metric;
