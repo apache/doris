@@ -356,12 +356,6 @@ public class ConstraintManager implements Writable, GsonPostProcessable {
                 UniqueConstraint.class);
     }
 
-    /** Returns all distribution mapping constraints for the given table. */
-    public ImmutableList<DistributionMappingConstraint> getDistributionMappingConstraints(
-            TableNameInfo tableNameInfo) {
-        return getConstraintsByType(toKey(tableNameInfo), DistributionMappingConstraint.class);
-    }
-
     /**
      * Returns mappings owned by the concrete table object.
      *
