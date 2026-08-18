@@ -2000,7 +2000,7 @@ public class Config extends ConfigBase {
      * Data version of backends serialize block.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int be_exec_version = max_be_exec_version;
+    public static int be_exec_version = 11;
 
     /**
      * If set to true, query on external table will prefer to assign to compute node.
