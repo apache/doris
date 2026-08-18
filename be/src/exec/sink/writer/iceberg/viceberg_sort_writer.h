@@ -115,11 +115,10 @@ public:
     Status trigger_spill();
 
 private:
-    void _include_spill_merge_reservation(RuntimeState* state, bool eos,
-                                          SorterReserveMemory* reservation) const;
+    void _include_merge_reservation(RuntimeState* state, bool eos,
+                                    SorterReserveMemory* reservation) const;
 
-    // Calculate average row size from the first non-empty block to determine
-    // the optimal batch row count for spill operations
+    // Track the largest observed average row size to bound merge output batches.
     void _update_spill_block_batch_row_count(const Block& block);
 
     // Sort in-memory data and flush to a Parquet/ORC file, then open a new writer
@@ -198,9 +197,9 @@ private:
     // Target file size in bytes; files are split when this threshold is exceeded
     // Default: config::iceberg_sink_max_file_size (1GB)
     int64_t _target_file_size_bytes = 0;
-    // Average row size in bytes, computed from the first non-empty block
+    // Largest observed average row size, used to byte-bound merge output batches.
     size_t _avg_row_bytes = 0;
-    // Number of rows per spill batch, computed from average row size and spill_sort_batch_bytes
+    // Number of rows per spill batch, computed from observed row size and spill_sort_batch_bytes.
     size_t _spill_block_batch_row_count = 4096;
 
     // Counter tracking how many times spill has been triggered

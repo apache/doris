@@ -110,6 +110,8 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
 
         try {
             if (namedArguments.getBoolean(DRY_RUN)) {
+                // Preview must classify files against the latest metadata generation just like deletion.
+                table.refresh();
                 return scanAndDeleteOrphans(table, olderThan, true);
             }
             // Refresh only after acquiring the commit fence, then keep the same metadata generation

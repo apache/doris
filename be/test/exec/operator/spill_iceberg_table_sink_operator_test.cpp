@@ -151,6 +151,15 @@ TEST(SpillIcebergTableSinkOperatorTest, FinalMergeBatchFitsTheReservedSpillOutpu
     EXPECT_EQ(1, iceberg_final_merge_batch_rows(0, 4062));
 }
 
+TEST(SpillIcebergTableSinkOperatorTest, NonSpillMergeOutputFitsItsEosReservation) {
+    constexpr size_t MB = 1024 * 1024;
+
+    EXPECT_EQ(8 * MB, iceberg_merge_output_workspace(1024, 8 * MB));
+    EXPECT_EQ(16 * MB, iceberg_merge_output_workspace(16 * MB, 8 * MB));
+    EXPECT_EQ(4, iceberg_merge_output_batch_rows(2 * MB, 8 * MB, 4096));
+    EXPECT_EQ(1, iceberg_merge_output_batch_rows(16 * MB, 8 * MB, 4096));
+}
+
 TEST(SpillIcebergTableSinkOperatorTest, WaitsUntilDequeuedBlockUpdatesSorterState) {
     AsyncWriterQueueAdmission stateful_admission;
     stateful_admission.wait_for_processing_before_next_sink();

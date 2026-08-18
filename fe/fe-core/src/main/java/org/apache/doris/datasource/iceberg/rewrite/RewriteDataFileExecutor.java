@@ -160,8 +160,15 @@ public class RewriteDataFileExecutor {
                 LOG.warn("Failed to cancel rewrite task {}", task.getId(), e);
             }
         }
+        // Cleanup shares one deadline so a wedged task cannot hold the rewrite fence forever.
+        long timeoutNanos = TimeUnit.SECONDS.toNanos(Math.max(1,
+                connectContext.getSessionVariable().getInsertTimeoutS()));
+        long deadlineNanos = System.nanoTime() + timeoutNanos;
         for (RewriteGroupTask task : tasks) {
-            task.awaitCompletionUninterruptibly();
+            long remainingNanos = Math.max(0, deadlineNanos - System.nanoTime());
+            if (!task.awaitCompletionUninterruptibly(remainingNanos, TimeUnit.NANOSECONDS)) {
+                LOG.warn("Timed out waiting for canceled rewrite task {} to finish", task.getId());
+            }
         }
     }
 
