@@ -246,7 +246,7 @@ public class DatabaseTransactionMgrTest {
     @Test
     public void testResourceGroupSuccessQuorum() throws UserException {
         FakeEnv.setEnv(masterEnv);
-        String[] originalResourceGroupSuccQuorum = Config.resource_group_succ_quorum;
+        String[] originalResourceGroupSuccQuorum = Config.resource_group_load_success_quorum;
         Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
         Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
         Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
@@ -266,7 +266,7 @@ public class DatabaseTransactionMgrTest {
                         Tag.createNotCheck(Tag.TYPE_LOCATION, "group2"), (short) 1)));
 
         try {
-            Config.resource_group_succ_quorum = new String[] {"group1:2", "group2:1"};
+            Config.resource_group_load_success_quorum = new String[] {"group1:2", "group2:1"};
             long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                     Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_failure",
                     transactionSource,
@@ -311,14 +311,14 @@ public class DatabaseTransactionMgrTest {
 
             // Invalid items are ignored. The parse result is cached, so only the first commit after
             // a config change may warn; later commits on the hot path must stay silent.
-            Config.resource_group_succ_quorum = new String[] {"invalid", "group1:not-a-number"};
+            Config.resource_group_load_success_quorum = new String[] {"invalid", "group1:not-a-number"};
             try (TestLogAppender appender = TestLogAppender.attach(DatabaseTransactionMgr.class, Level.WARN)) {
                 transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                         Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_invalid_0",
                         transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
                 masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
                         transactionId, commitInfos, null);
-                Assert.assertTrue(appender.contains(Level.WARN, "Invalid resource_group_succ_quorum item"));
+                Assert.assertTrue(appender.contains(Level.WARN, "Invalid resource_group_load_success_quorum item"));
             }
             try (TestLogAppender appender = TestLogAppender.attach(DatabaseTransactionMgr.class, Level.WARN)) {
                 transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
@@ -326,11 +326,11 @@ public class DatabaseTransactionMgrTest {
                         transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
                 masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
                         transactionId, commitInfos, null);
-                Assert.assertFalse(appender.contains(Level.WARN, "Invalid resource_group_succ_quorum item"));
+                Assert.assertFalse(appender.contains(Level.WARN, "Invalid resource_group_load_success_quorum item"));
             }
 
         } finally {
-            Config.resource_group_succ_quorum = originalResourceGroupSuccQuorum;
+            Config.resource_group_load_success_quorum = originalResourceGroupSuccQuorum;
             table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1, originalAllocation);
             backend1.setTagMap(backend1TagMap);
             backend2.setTagMap(backend2TagMap);
@@ -341,7 +341,7 @@ public class DatabaseTransactionMgrTest {
     @Test
     public void testResourceGroupSuccessQuorumDoesNotShrinkAfterReplicaBecomesUnavailable() throws UserException {
         FakeEnv.setEnv(masterEnv);
-        String[] originalResourceGroupSuccQuorum = Config.resource_group_succ_quorum;
+        String[] originalResourceGroupSuccQuorum = Config.resource_group_load_success_quorum;
         Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
         Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
         Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
@@ -365,7 +365,7 @@ public class DatabaseTransactionMgrTest {
                 .getReplicaByBackendId(CatalogTestUtil.testBackendId2);
 
         try {
-            Config.resource_group_succ_quorum = new String[] {"group1:2"};
+            Config.resource_group_load_success_quorum = new String[] {"group1:2"};
             List<TabletCommitInfo> commitInfos = GlobalTransactionMgrTest.generateTabletCommitInfos(
                     CatalogTestUtil.testTabletId1,
                     Lists.newArrayList(CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId3));
@@ -394,7 +394,7 @@ public class DatabaseTransactionMgrTest {
                 Assert.assertTrue(e.getMessage().contains("resource group success quorum failed for group1"));
             }
         } finally {
-            Config.resource_group_succ_quorum = originalResourceGroupSuccQuorum;
+            Config.resource_group_load_success_quorum = originalResourceGroupSuccQuorum;
             backend2.setAlive(true);
             backend2Replica.setBad(false);
             table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1, originalAllocation);
@@ -407,7 +407,7 @@ public class DatabaseTransactionMgrTest {
     @Test
     public void testResourceGroupSuccessQuorumIgnoresExtraReplicaBeyondAllocation() throws UserException {
         FakeEnv.setEnv(masterEnv);
-        String[] originalResourceGroupSuccQuorum = Config.resource_group_succ_quorum;
+        String[] originalResourceGroupSuccQuorum = Config.resource_group_load_success_quorum;
         Backend backend1 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId1);
         Backend backend2 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId2);
         Backend backend3 = masterEnv.getCurrentSystemInfo().getBackend(CatalogTestUtil.testBackendId3);
@@ -446,7 +446,7 @@ public class DatabaseTransactionMgrTest {
             Assert.assertEquals(Replica.ReplicaState.NORMAL,
                     tablet.getReplicaByBackendId(extraBackendId).getState());
 
-            Config.resource_group_succ_quorum = new String[] {"group1:2"};
+            Config.resource_group_load_success_quorum = new String[] {"group1:2"};
             long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                     Lists.newArrayList(CatalogTestUtil.testTableId1), "resource_group_quorum_ignore_extra_replica",
                     transactionSource, LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
@@ -459,7 +459,7 @@ public class DatabaseTransactionMgrTest {
         } finally {
             tablet.deleteReplica(extraReplica);
             masterEnv.getCurrentSystemInfo().dropBackend(extraBackendId);
-            Config.resource_group_succ_quorum = originalResourceGroupSuccQuorum;
+            Config.resource_group_load_success_quorum = originalResourceGroupSuccQuorum;
             table.getPartitionInfo().setReplicaAllocation(CatalogTestUtil.testPartitionId1, originalAllocation);
             backend1.setTagMap(backend1TagMap);
             backend2.setTagMap(backend2TagMap);

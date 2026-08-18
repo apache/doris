@@ -725,12 +725,12 @@ public class DatabaseTransactionMgr {
     }
 
     private static Map<String, Integer> getResourceGroupSuccQuorum() {
-        String[] config = Config.resource_group_succ_quorum;
+        String[] config = Config.resource_group_load_success_quorum;
         if (config == cachedResourceGroupSuccQuorumConfig) {
             return cachedResourceGroupSuccQuorum;
         }
         synchronized (DatabaseTransactionMgr.class) {
-            config = Config.resource_group_succ_quorum;
+            config = Config.resource_group_load_success_quorum;
             if (config == cachedResourceGroupSuccQuorumConfig) {
                 return cachedResourceGroupSuccQuorum;
             }
@@ -744,7 +744,7 @@ public class DatabaseTransactionMgr {
                     }
                     parsedConfig.put(parts[0].trim(), configuredMin);
                 } catch (NumberFormatException e) {
-                    LOG.warn("Invalid resource_group_succ_quorum item '{}', ignored. Expected format "
+                    LOG.warn("Invalid resource_group_load_success_quorum item '{}', ignored. Expected format "
                             + "resource_group:min_success_replicas with a non-negative integer.", item);
                 }
             }

@@ -542,7 +542,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = "Minimum number of successfully written replicas "
             + "required in each resource group for a load job.")
-    public static volatile String[] resource_group_succ_quorum = {};
+    public static volatile String[] resource_group_load_success_quorum = {};
 
     @ConfField(description = "The interval of the load job scheduler, in seconds.")
     public static int load_checker_interval_second = 5;
