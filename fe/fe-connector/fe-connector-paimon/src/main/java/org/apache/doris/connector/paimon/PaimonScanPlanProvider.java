@@ -674,10 +674,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (limit > 0 && limit <= Integer.MAX_VALUE
                 && filter.isEmpty()
                 && fileCreationTime.isEmpty()
+                && hasTrustworthyLimitAccounting(table)
                 && !usesFallbackRead(table, paimonHandle)) {
-            // Paimon 1.3.1 counts pre-filter rows and a truncated fallback main plan loses partition
-            // ownership. The file-creation SnapshotReader also ignores this TableScan entirely, so
-            // only ordinary unfiltered scans can safely prune splits by the Doris limit.
+            // Only append-only FileStore manifests count final output rows: format tables count
+            // files, while primary-key metadata may count deletes that its reader later removes.
             readBuilder.withLimit((int) limit);
         }
         TableScan scan = readBuilder.newScan();
@@ -836,6 +836,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return isFallbackFileStoreTable(scanTable)
                 || isFallbackFileStoreTable(handle.getSystemTableSource())
                 || isFallbackFileStoreTable(handle.getSysBaseTable());
+    }
+
+    private static boolean hasTrustworthyLimitAccounting(Table table) {
+        return table instanceof FileStoreTable && table.primaryKeys().isEmpty();
     }
 
     private static boolean isFallbackFileStoreTable(Table table) {

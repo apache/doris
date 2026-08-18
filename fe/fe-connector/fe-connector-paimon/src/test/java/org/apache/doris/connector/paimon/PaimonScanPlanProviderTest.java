@@ -62,6 +62,7 @@ import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.FormatTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchTableCommit;
 import org.apache.paimon.table.sink.BatchTableWrite;
@@ -83,6 +84,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -292,8 +294,8 @@ public class PaimonScanPlanProviderTest {
                     .column("id", DataTypes.INT())
                     .column("pt", DataTypes.INT())
                     .partitionKeys("pt")
-                    .primaryKey("id", "pt")
                     .option("bucket", "1")
+                    .option("bucket-key", "id")
                     .build(), false);
             Table table = catalog.getTable(id);
             BatchWriteBuilder wb = table.newBatchWriteBuilder();
@@ -330,6 +332,89 @@ public class PaimonScanPlanProviderTest {
             Assertions.assertEquals(unlimited.size(), oversized.size(),
                     "a Doris limit wider than Paimon's int must not be narrowed during split planning");
         }
+    }
+
+    @Test
+    public void primaryKeyLimitKeepsAllRowsForUnsafeSplitAccounting(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "primary_key_limit");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("pt", DataTypes.INT())
+                    .partitionKeys("pt")
+                    .primaryKey("id", "pt")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 1));
+                write.write(GenericRow.of(2, 2));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "primary_key_limit", Collections.emptyList(), Collections.emptyList());
+            List<ConnectorScanRange> ranges = provider.planScan(
+                    sessionWithProps(Collections.singletonMap("force_jni_scanner", "true")),
+                    ConnectorScanRequest.builder(handle, Collections.emptyList())
+                            .limit(1)
+                            .build());
+
+            RecordReader<InternalRow> reader = table.newReadBuilder()
+                    .newRead()
+                    .createReader(deserializeJniSplits(ranges));
+            List<Integer> ids = new ArrayList<>();
+            reader.forEachRemaining(row -> ids.add(row.getInt(0)));
+            ids.sort(Integer::compareTo);
+            Assertions.assertEquals(Arrays.asList(1, 2), ids,
+                    "primary-key metadata may count deleted rows, so Doris must retain every split");
+        }
+    }
+
+    @Test
+    public void formatTableLimitDoesNotTreatFilesAsRows(@TempDir Path warehouse)
+            throws Exception {
+        Path dataDir = Files.createDirectories(warehouse.resolve("format_data"));
+        Files.write(dataDir.resolve("000-empty.csv"), new byte[0]);
+        Files.write(dataDir.resolve("999-live.csv"), Collections.singletonList("7"),
+                StandardCharsets.UTF_8);
+        FormatTable table = FormatTable.builder()
+                .fileIO(LocalFileIO.create())
+                .identifier(Identifier.create("db", "format_limit"))
+                .rowType(rowType("id"))
+                .partitionKeys(Collections.emptyList())
+                .location(dataDir.toUri().toString())
+                .format(FormatTable.Format.CSV)
+                .options(Collections.singletonMap(CoreOptions.FILE_FORMAT.key(), "csv"))
+                .build();
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        ops.table = table;
+        PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                PaimonCatalogProperties.of(Collections.emptyMap()), ops);
+        PaimonTableHandle handle = new PaimonTableHandle(
+                "db", "format_limit", Collections.emptyList(), Collections.emptyList());
+        List<ConnectorScanRange> ranges = provider.planScan(
+                sessionWithProps(Collections.singletonMap("force_jni_scanner", "true")),
+                ConnectorScanRequest.builder(handle, Collections.emptyList()).limit(1).build());
+
+        RecordReader<InternalRow> reader = table.newReadBuilder()
+                .newRead()
+                .createReader(deserializeJniSplits(ranges));
+        List<Integer> ids = new ArrayList<>();
+        reader.forEachRemaining(row -> ids.add(row.getInt(0)));
+        Assertions.assertEquals(Collections.singletonList(7), ids,
+                "a LIMIT measured in rows must not stop after an empty format file");
     }
 
     private static List<Split> deserializeJniSplits(List<ConnectorScanRange> ranges)
