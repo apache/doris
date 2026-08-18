@@ -1753,11 +1753,19 @@ download_ranger_artifacts() {
         retry_all_errors=(--retry-all-errors)
     fi
 
+    # Downloaded on every start rather than cached like the other two. It is a few KB, and it is the one
+    # artifact that changes in place - a new access type, a corrected data mask transformer - under a name that
+    # never does. Cached, an updated definition would silently never reach a machine that has run this once,
+    # while everything looked fine: install_doris_service_def.sh registers whatever it is given, and the suites
+    # would keep testing the old one.
+    local always_fetch="ranger-servicedef-doris.json"
+
     mkdir -p "${dest}"
-    for name in ranger-servicedef-doris.json \
+    for name in "${always_fetch}" \
         mysql-connector-java-8.0.25.jar \
         ranger-doris-plugin-3.0.0-SNAPSHOT.jar; do
-        if [[ -s "${dest}/${name}" ]]; then
+        # The jars are cached: tens of megabytes each, and versioned in their names.
+        if [[ "${name}" != "${always_fetch}" && -s "${dest}/${name}" ]]; then
             echo "ranger artifact cached: ${name}"
             continue
         fi

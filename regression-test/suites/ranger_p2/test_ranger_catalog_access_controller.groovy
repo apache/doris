@@ -74,6 +74,7 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	String hivePolicyName = 'ranger_ctl_hive_policy'
 	String hiveRowFilterName = 'ranger_ctl_hive_row_filter'
 	String hiveMaskName = 'ranger_ctl_hive_mask'
+	String hivePartialMaskName = 'ranger_ctl_hive_partial_mask'
 	String dorisPolicyName = 'ranger_ctl_doris_policy'
 
 	RangerClient rangerClient = new RangerClient("http://${rangerEndpoint}", "simple", rangerUser, rangerPassword, null)
@@ -203,6 +204,7 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	dropPolicyQuietly(HIVE_SERVICE_NAME, hivePolicyName)
 	dropPolicyQuietly(HIVE_SERVICE_NAME, hiveRowFilterName)
 	dropPolicyQuietly(HIVE_SERVICE_NAME, hiveMaskName)
+	dropPolicyQuietly(HIVE_SERVICE_NAME, hivePartialMaskName)
 	dropPolicyQuietly(dorisServiceName, dorisPolicyName)
 
 	Map<String, RangerPolicy.RangerPolicyResource> hiveResources = [
@@ -308,9 +310,9 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	dropPolicyQuietly(HIVE_SERVICE_NAME, hiveRowFilterName)
 	awaitPolicyEffect("the row filter to be gone again", { visibleRows(boundCatalog) == 4 })
 
-	// case 7: and the same for a column mask. MASK_NULL is the one whose effect needs no
-	// agreement about string shapes: the column comes back null through the bound catalog and
-	// intact through the plain one.
+	// case 7: and the same for a column mask. MASK_NULL first, because its effect needs no agreement about
+	// string shapes: the column comes back null through the bound catalog and intact through the plain one.
+	// Case 8 covers the mask types whose payload the service definition supplies.
 	RangerPolicy mask = new RangerPolicy()
 	mask.setService(HIVE_SERVICE_NAME)
 	mask.setName(hiveMaskName)
@@ -333,5 +335,66 @@ suite("test_ranger_catalog_access_controller", "p2,ranger,external") {
 	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
 		order_qt_mask_through_the_bound_catalog """SELECT username FROM ${boundCatalog}.${dbName}.${tblName}"""
 		order_qt_mask_through_the_plain_catalog """SELECT username FROM ${plainCatalog}.${dbName}.${tblName}"""
+	}
+
+	// case 8: a mask type whose payload the stock Hive service definition writes as a Hive UDF.
+	//
+	// This is the branch nothing else covers. MASK_NULL above short circuits three branches before the one
+	// that consults the service definition, and the definition's own transformer for this mask type is
+	// mask_show_last_n(...), a Hive UDF Doris has no function for - so without the translation in
+	// RangerHiveAccessController this statement fails on an unknown function, with nothing in the error
+	// pointing at Ranger. Before the access type fix in this series it failed differently and worse: the
+	// lookup matched no policy at all and the column came back in the clear.
+	dropPolicyQuietly(HIVE_SERVICE_NAME, hiveMaskName)
+	awaitPolicyEffect("the nullifying mask to be gone again", { !usernamesMasked(boundCatalog) })
+
+	RangerPolicy partialMask = new RangerPolicy()
+	partialMask.setService(HIVE_SERVICE_NAME)
+	partialMask.setName(hivePartialMaskName)
+	partialMask.setPolicyType(RangerPolicy.POLICY_TYPE_DATAMASK)
+	partialMask.setResources([
+			'database': new RangerPolicy.RangerPolicyResource(dbName),
+			'table'   : new RangerPolicy.RangerPolicyResource(tblName),
+			'column'  : new RangerPolicy.RangerPolicyResource('username')
+	])
+	RangerPolicy.RangerDataMaskPolicyItem partialMaskItem = new RangerPolicy.RangerDataMaskPolicyItem()
+	partialMaskItem.setUsers([user])
+	partialMaskItem.setAccesses([new RangerPolicy.RangerPolicyItemAccess("select")])
+	partialMaskItem.setDataMaskInfo(new RangerPolicy.RangerPolicyItemDataMaskInfo("MASK_SHOW_LAST_4", "", ""))
+	partialMask.setDataMaskPolicyItems([partialMaskItem])
+	dropPolicyQuietly(HIVE_SERVICE_NAME, hivePartialMaskName)
+	logger.info("created partial data mask policy id ${rangerClient.createPolicy(partialMask).getId()}")
+
+	// LPAD(RIGHT(col, 4), CHAR_LENGTH(col), 'X') - what ranger-servicedef-doris.json declares for this mask
+	// type and therefore what the hive source translates it to. Computed here rather than recorded in an .out
+	// file, so that a wrong translation reads as a wrong value rather than as a baseline somebody refreshed.
+	def showLast4Of = { String value ->
+		String tail = value.length() <= 4 ? value : value.substring(value.length() - 4)
+		return 'X' * (value.length() - tail.length()) + tail
+	}
+	awaitPolicyEffect("the partial column mask to reach the bound catalog", {
+		connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+			try {
+				return sql("""SELECT username FROM ${boundCatalog}.${dbName}.${tblName} WHERE id = 1""")[0][0] !=
+						'alice'
+			} catch (Exception e) {
+				// A mask Doris cannot bind fails the statement, which is the very failure this case exists to
+				// catch - reported by the assertion below rather than waited out into a timeout here.
+				logger.info("the partial mask is not applied yet, or cannot be applied: ${e.getMessage()}")
+				return false
+			}
+		}
+	})
+
+	connect("${user}", "${pwd}", "${defaultJdbcUrl}") {
+		def masked = sql("""SELECT username FROM ${boundCatalog}.${dbName}.${tblName} ORDER BY id""")
+				.collect { it[0] }
+		assertEquals(['alice', 'bob', 'carol', 'dave'].collect { showLast4Of(it) }, masked,
+				"a MASK_SHOW_LAST_4 policy on a hive service did not reach the query as the Doris rendering"
+						+ " of that mask type")
+		// The negative control the other data policy cases have: read through the catalog with no source of
+		// its own, the column is untouched.
+		assertEquals(['alice', 'bob', 'carol', 'dave'],
+				sql("""SELECT username FROM ${plainCatalog}.${dbName}.${tblName} ORDER BY id""").collect { it[0] })
 	}
 }

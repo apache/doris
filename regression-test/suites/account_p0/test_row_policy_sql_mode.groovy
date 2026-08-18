@@ -25,21 +25,20 @@
 // predicate and enforced as another, or accepted and then fail on every query it governed.
 suite("test_row_policy_sql_mode") {
     def dbName = context.config.getDbNameByFile(context.file)
-    def tableName = "row_policy_sql_mode_tbl"
     def user = 'row_policy_sql_mode_user'
     def tokens = context.config.jdbcUrl.split('/')
     def url = tokens[0] + "//" + tokens[2] + "/" + dbName + "?"
 
-    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql "DROP TABLE IF EXISTS row_policy_sql_mode_tbl"
     sql """
-        CREATE TABLE ${tableName} (region varchar(8), path varchar(64))
+        CREATE TABLE row_policy_sql_mode_tbl (region varchar(8), path varchar(64))
         DISTRIBUTED BY HASH(region) BUCKETS 1 PROPERTIES("replication_num" = "1")
     """
-    sql """INSERT INTO ${tableName} VALUES ('cn', 'a'), ('us', 'b'), ('de', 'c')"""
+    sql """INSERT INTO row_policy_sql_mode_tbl VALUES ('cn', 'a'), ('us', 'b'), ('de', 'c')"""
 
     sql "DROP USER IF EXISTS ${user}"
     sql "CREATE USER ${user} IDENTIFIED BY '123abc!@#'"
-    sql "GRANT SELECT_PRIV ON ${dbName}.${tableName} TO ${user}"
+    sql "GRANT SELECT_PRIV ON ${dbName}.row_policy_sql_mode_tbl TO ${user}"
 
     def cloudMode = isCloudMode()
     if (cloudMode) {
@@ -49,7 +48,7 @@ suite("test_row_policy_sql_mode") {
     }
 
     def dropPolicy = { name ->
-        sql "DROP ROW POLICY IF EXISTS ${name} ON ${dbName}.${tableName} FOR ${user}"
+        sql "DROP ROW POLICY IF EXISTS ${name} ON ${dbName}.row_policy_sql_mode_tbl FOR ${user}"
     }
 
     dropPolicy "p_pipes"
@@ -60,7 +59,7 @@ suite("test_row_policy_sql_mode") {
     // something else entirely - and the query is planned with the OR either way.
     sql "SET sql_mode = 'PIPES_AS_CONCAT'"
     sql """
-        CREATE ROW POLICY p_pipes ON ${dbName}.${tableName}
+        CREATE ROW POLICY p_pipes ON ${dbName}.row_policy_sql_mode_tbl
         AS PERMISSIVE TO ${user} USING (region = 'cn' || region = 'us')
     """
     sql "SET sql_mode = DEFAULT"
@@ -72,7 +71,7 @@ suite("test_row_policy_sql_mode") {
             "SHOW ROW POLICY renders a predicate the query is not filtered by: ${predicate}")
 
     def filtered = connect(user, '123abc!@#', url) {
-        sql "SELECT * FROM ${tableName} ORDER BY region"
+        sql "SELECT * FROM row_policy_sql_mode_tbl ORDER BY region"
     }
     assertEquals(2, filtered.size())
 
@@ -85,7 +84,7 @@ suite("test_row_policy_sql_mode") {
     sql "SET sql_mode = 'NO_BACKSLASH_ESCAPES'"
     test {
         sql """
-            CREATE ROW POLICY p_escapes ON ${dbName}.${tableName}
+            CREATE ROW POLICY p_escapes ON ${dbName}.row_policy_sql_mode_tbl
             AS PERMISSIVE TO ${user} USING (path <> 'C:\\')
         """
         exception "sql_mode"
@@ -94,7 +93,4 @@ suite("test_row_policy_sql_mode") {
 
     assertTrue(sql("SHOW ROW POLICY FOR ${user}").every { it[0] != 'p_escapes' },
             "a policy that can be read on no query was stored anyway")
-
-    sql "DROP USER IF EXISTS ${user}"
-    sql "DROP TABLE IF EXISTS ${tableName}"
 }

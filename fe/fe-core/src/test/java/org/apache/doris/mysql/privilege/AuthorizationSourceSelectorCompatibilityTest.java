@@ -58,10 +58,15 @@ public class AuthorizationSourceSelectorCompatibilityTest {
     @Test
     public void sourceStillPublishedByItsOriginalClassNeedsNoAlias() {
         // What keeps the Hive source's class name working - it did not move, so the runtime table filled at
-        // registration answers for it. That plugin is not on this module's class path, so the source used
-        // here stands in for it; the literal that matters is pinned in the Hive plugin's own module.
+        // registration answers for it, with no entry in the alias table. Asserted on the Hive source itself
+        // because this module has it as a test dependency, and on a stub as well, so that the mechanism is
+        // still covered if that dependency ever goes away.
         AccessControllerManager manager = new AccessControllerManager(new Auth());
 
+        Assertions.assertEquals("ranger-hive", manager.getPluginIdentifierForAccessController(
+                        "org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveAccessControllerFactory"),
+                "the class name a Hive catalog persisted in access_controller.class no longer resolves, so"
+                        + " every such catalog is unusable");
         Assertions.assertEquals("stub-ranger-doris", manager.getPluginIdentifierForAccessController(
                         "org.apache.doris.mysql.privilege.StubRangerAccessControllerFactory"),
                 "a factory class that still exists must resolve without the alias table");
@@ -78,7 +83,12 @@ public class AuthorizationSourceSelectorCompatibilityTest {
                 manager.getPluginIdentifierForAccessController("ranger-doris"));
         Assertions.assertEquals("default", InternalAuthorizationPlugin.NAME,
                 "the value access_controller_type has meant 'the built-in privilege model' since before"
-                        + " any of this, and is what the setting still defaults to");
+                        + " any of this");
+        // Read from the setting, not asserted about it: an FE that has configured nothing selects the built-in
+        // model, and that is the value every deployment not naming a source is running under.
+        Assertions.assertEquals(InternalAuthorizationPlugin.NAME, Config.access_controller_type,
+                "access_controller_type no longer defaults to the built-in privilege model, so an FE that"
+                        + " configures nothing now selects something else");
     }
 
     @Test

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -43,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -264,6 +266,7 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             // The authorization source hands us the predicate as SQL text - the form both a Ranger policy and
             // a CREATE ROW POLICY statement natively have - and parsing it is the engine's job.
             Expression wherePredicate = parsePolicyExpression(nereidsParser, policy.getFilterSql());
+            refuseUnlessRestricting(policy, wherePredicate);
             switch (policy.getMergeType()) {
                 case PERMISSIVE:
                     orList.add(wherePredicate);
@@ -283,6 +286,34 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             return ExpressionUtils.and(andList);
         } else {
             return null;
+        }
+    }
+
+    /**
+     * Refuses a row filter payload that is not a predicate, naming the policy it came from.
+     *
+     * <p>Without this the payload reaches the ordinary filter path, where
+     * {@code TypeCoercionUtils.castIfNotSameType(conjunct, BooleanType)} coerces whatever it is: a payload of
+     * {@code 1} becomes {@code cast(1 as boolean)}, a filter that admits every row. A row filter that restricts
+     * nothing is the one way a data policy must not fail, and a source outside this repository - reached over
+     * the network, writing this text in a UI of its own - is where such a payload comes from.
+     *
+     * <p>Only checked where the type is known before binding, which is the case that matters: a comparison, a
+     * conjunction or a literal reports its type with its children still unbound, while a payload naming a
+     * column or a function does not report one until it is bound, and the coercion above is what it meets.
+     */
+    private static void refuseUnlessRestricting(RowFilterSpec policy, Expression parsed) {
+        DataType type;
+        try {
+            type = parsed.getDataType();
+        } catch (Exception e) {
+            // Not knowable yet - a payload naming columns or functions, resolved when the filter is bound.
+            return;
+        }
+        if (!type.isBooleanType()) {
+            throw new AnalysisException("row filter policy " + policy.getPolicyIdent() + " is not a predicate:"
+                    + " [" + policy.getFilterSql() + "] is of type " + type + ", and a row filter has to be a"
+                    + " boolean expression in Doris dialect over the table's columns");
         }
     }
 
