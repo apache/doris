@@ -46,7 +46,6 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -67,6 +66,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat.RepeatType;
@@ -379,9 +379,8 @@ class IvmNormalizeMTMVTest {
         LogicalProject<?> project = (LogicalProject<?>) result;
         Assertions.assertInstanceOf(Alias.class, project.getProjects().get(0));
         Alias rowIdAlias = (Alias) project.getProjects().get(0);
-        // The single INT key widens losslessly to largeint, so the row-id is a direct cast
-        Assertions.assertInstanceOf(Cast.class, rowIdAlias.child());
-        Assertions.assertEquals(LargeIntType.INSTANCE, rowIdAlias.child().getDataType());
+        // The single INT key is an eligible key type, so the row-id is the key itself
+        Assertions.assertSame(aggScan.getOutput().get(0), rowIdAlias.child());
         Assertions.assertEquals(
                 IvmUtil.buildRowIdHash(ImmutableList.of(aggScan.getOutput().get(0))).toSql(),
                 rowIdAlias.child().toSql());
@@ -601,12 +600,10 @@ class IvmNormalizeMTMVTest {
         Assertions.assertEquals(IvmUtil.ivmAggHiddenColumnName(0, "COUNT"), outputNames.get(4));
         Assertions.assertEquals(5, outputNames.size());
 
-        // The single INT group key widens losslessly to largeint, so the row-id is a direct cast
+        // The single INT group key is an eligible key type, so the row-id is the key itself
         // (no hash) and is NULL exactly when the key is NULL.
         Alias rowIdAlias = (Alias) topProject.getProjects().get(0);
-        Assertions.assertInstanceOf(Cast.class, rowIdAlias.child());
-        Assertions.assertEquals(LargeIntType.INSTANCE, rowIdAlias.child().getDataType());
-        Assertions.assertEquals(scan.getOutput().get(0), ((Cast) rowIdAlias.child()).child());
+        Assertions.assertSame(scan.getOutput().get(0), rowIdAlias.child());
 
         // IvmRewriteResult has aggMeta
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
@@ -670,10 +667,10 @@ class IvmNormalizeMTMVTest {
         Assertions.assertInstanceOf(LogicalProject.class, result);
         LogicalProject<?> topProject = (LogicalProject<?>) result;
 
-        // row-id is LargeIntLiteral(0) for scalar agg
+        // row-id is TinyIntLiteral(0) for scalar agg
         Alias rowIdAlias = (Alias) topProject.getProjects().get(0);
-        Assertions.assertInstanceOf(LargeIntLiteral.class, rowIdAlias.child());
-        Assertions.assertEquals(BigInteger.ZERO, ((LargeIntLiteral) rowIdAlias.child()).getValue());
+        Assertions.assertInstanceOf(TinyIntLiteral.class, rowIdAlias.child());
+        Assertions.assertEquals((byte) 0, ((TinyIntLiteral) rowIdAlias.child()).getValue());
 
         // IvmAggMeta: scalar, no group keys
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
