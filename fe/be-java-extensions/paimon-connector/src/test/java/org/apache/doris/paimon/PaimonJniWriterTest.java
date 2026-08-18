@@ -46,7 +46,7 @@ public class PaimonJniWriterTest {
             Assertions.assertThrows(Exception.class, () -> writer.open(
                     "not-a-serialized-table", Collections.emptyMap(), new String[0],
                     1L, "test-user", false, false, "UTC", System.getProperty("java.io.tmpdir"),
-                    64L * 1024 * 1024, 1L));
+                    64L * 1024 * 1024, 16L * 1024 * 1024, 1L));
             Assertions.assertSame(testClassLoader, thread.getContextClassLoader());
         } finally {
             try {

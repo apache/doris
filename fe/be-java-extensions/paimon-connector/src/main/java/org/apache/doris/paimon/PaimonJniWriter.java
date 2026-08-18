@@ -86,7 +86,6 @@ import java.util.Set;
  */
 public class PaimonJniWriter {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniWriter.class);
-    private static final long ARROW_MEMORY_LIMIT_BYTES = 16L * 1024 * 1024;
 
     private final ClassLoader classLoader;
     private final PaimonCommitCodec commitCodec = new PaimonCommitCodec();
@@ -111,9 +110,6 @@ public class PaimonJniWriter {
     private boolean sdkCloseFailed;
 
     public PaimonJniWriter() {
-        // Arrow decoding is the only direct-memory consumer in this writer. Keep it behind one
-        // fixed allocator boundary; Paimon write-buffer pages use the Doris native manager below.
-        this.allocator = new RootAllocator(ARROW_MEMORY_LIMIT_BYTES);
         this.classLoader = this.getClass().getClassLoader();
     }
 
@@ -142,12 +138,14 @@ public class PaimonJniWriter {
      * @param timeZone       normalized Doris session timezone used for Paimon LTZ values
      * @param spillDirectories Doris storage-root scoped directories for Paimon write-buffer spill
      * @param memoryPoolLimitBytes maximum Doris-managed Paimon write-buffer memory
+     * @param arrowMemoryLimitBytes maximum Arrow direct memory used to decode one IPC batch
      * @param nativeMemoryManager opaque BE manager used to allocate tracked native pages
      */
     public void open(String serializedTable, Map<String, String> hadoopConfig,
                      String[] columnNames, long transactionId, String commitUser,
                      boolean overwrite, boolean changelogWrite, String timeZone, String spillDirectories,
-                     long memoryPoolLimitBytes, long nativeMemoryManager) throws Exception {
+                     long memoryPoolLimitBytes, long arrowMemoryLimitBytes,
+                     long nativeMemoryManager) throws Exception {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             if (memoryPoolLimitBytes <= 0) {
                 throw new IllegalArgumentException(
@@ -157,10 +155,18 @@ public class PaimonJniWriter {
                 throw new IllegalArgumentException(
                         "PaimonJniWriter requires a native memory manager");
             }
+            if (arrowMemoryLimitBytes <= 0) {
+                throw new IllegalArgumentException(
+                        "PaimonJniWriter requires a positive Arrow memory limit");
+            }
+            if (allocator != null) {
+                throw new IllegalStateException("PaimonJniWriter is already open");
+            }
             this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopConfig);
             this.arrowConverter = new PaimonArrowConverter(ZoneId.of(timeZone));
             preExecutionAuthenticator.execute(() -> {
                 try {
+                    this.allocator = new RootAllocator(arrowMemoryLimitBytes);
                     FileStoreTable table = PaimonUtils.deserialize(serializedTable);
                     LOG.info("PaimonJniWriter opening: table={}, columns={}",
                             table.fullName(), columnNames != null ? columnNames.length : 0);
@@ -203,7 +209,7 @@ public class PaimonJniWriter {
      * Write a batch of rows from an Arrow IPC Stream buffer.
      *
      * <p>Called from C++ {@code JniPaimonWriter::_write_projected_block()}
-     * once per Block. The buffer is a zero-copy direct view of the native
+     * once per bounded row range. The buffer is a zero-copy direct view of the native
      * Arrow IPC Stream bytes. Rows are deserialized, normalized to table-schema
      * order, and handed to Paimon's writer and bucket assigner APIs. The SDK
      * owns partition/bucket semantics, buffering, spill, and file rolling.

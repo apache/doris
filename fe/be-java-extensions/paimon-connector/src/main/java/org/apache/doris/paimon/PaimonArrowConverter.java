@@ -91,16 +91,19 @@ final class PaimonArrowConverter {
         private final List<Field> fields;
         private final List<FieldVector> vectors;
         private final DataType[] targetTypes;
+        // PaimonWriteSchema.tableRow copies the references into a new GenericRow before this array
+        // is reused for the next Arrow row.
+        private final Object[] values;
 
         private RowReader(
                 List<Field> fields, List<FieldVector> vectors, DataType[] targetTypes) {
             this.fields = fields;
             this.vectors = vectors;
             this.targetTypes = targetTypes;
+            this.values = new Object[vectors.size()];
         }
 
         Object[] values(int rowIndex) {
-            Object[] values = new Object[vectors.size()];
             for (int column = 0; column < vectors.size(); column++) {
                 try {
                     values[column] = convertVectorValue(
