@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Re-estimate memo logical row counts and rebuild physical costs
@@ -185,10 +186,13 @@ public final class MemoStatsAndCostRecomputer {
         }
         Statistics originalStatistics = group.getStatistics();
         boolean originalStatsReliable = group.isStatsReliable();
+        boolean originalFromMvStats = group.isFromMvStats();
         Map<GroupExpression, Statistics> candidateStatisticsByExpression = new LinkedHashMap<>();
         Map<GroupExpression, Boolean> candidateStatsReliableByExpression = new LinkedHashMap<>();
+        Map<GroupExpression, Boolean> candidateFromMvStatsByExpression = new LinkedHashMap<>();
         for (GroupExpression logicalExpression : estimableExpressions) {
             group.setStatistics(null);
+            group.setFromMvStats(false);
             estimateStats(logicalExpression);
             Statistics estimatedStatistics = group.getStatistics();
             if (estimatedStatistics == null || !isValidCandidateStatistics(estimatedStatistics)) {
@@ -199,24 +203,36 @@ public final class MemoStatsAndCostRecomputer {
             // hold, and the next iteration will overwrite with a new object from estimateStats().
             candidateStatisticsByExpression.put(logicalExpression, estimatedStatistics);
             candidateStatsReliableByExpression.put(logicalExpression, group.isStatsReliable());
+            candidateFromMvStatsByExpression.put(logicalExpression, group.isFromMvStats());
         }
         if (candidateStatisticsByExpression.isEmpty()) {
             group.setStatistics(originalStatistics);
             group.setStatsReliable(originalStatsReliable);
+            group.setFromMvStats(originalFromMvStats);
             return;
         }
         LogicalRowCountAggregationPolicy aggregationPolicy = getLogicalRowCountAggregationPolicy();
         Map<GroupExpression, Statistics> selectedCandidateStatisticsByExpression = filterCandidateStatisticsByPolicy(
                 aggregationPolicy, candidateStatisticsByExpression);
-        List<Statistics> candidateStatistics = new ArrayList<>(selectedCandidateStatisticsByExpression.values());
+        // When any candidate is derived from the calibrated mv stats, aggregate only the mv
+        // candidates so that the accurate mv stats is not diluted by the base estimated stats
+        Map<GroupExpression, Statistics> mvCandidateStatisticsByExpression = selectedCandidateStatisticsByExpression
+                .entrySet().stream()
+                .filter(entry -> Boolean.TRUE.equals(candidateFromMvStatsByExpression.get(entry.getKey())))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (item1, item2) -> item1,
+                        LinkedHashMap::new));
+        boolean fromMvStats = !mvCandidateStatisticsByExpression.isEmpty();
+        Map<GroupExpression, Statistics> aggregationCandidates = fromMvStats
+                ? mvCandidateStatisticsByExpression : selectedCandidateStatisticsByExpression;
+        List<Statistics> candidateStatistics = new ArrayList<>(aggregationCandidates.values());
         double aggregatedRowCount = aggregationPolicy.aggregate(candidateStatistics);
-        Statistics updatedStatistics = resolveUpdatedGroupStatistics(group, selectedCandidateStatisticsByExpression,
+        Statistics updatedStatistics = resolveUpdatedGroupStatistics(group, aggregationCandidates,
                 candidateStatistics, aggregatedRowCount, originalStatistics);
         boolean resolvedStatsReliable = resolveUpdatedGroupStatsReliability(group,
-                selectedCandidateStatisticsByExpression, candidateStatsReliableByExpression,
-                aggregatedRowCount);
+                aggregationCandidates, candidateStatsReliableByExpression, aggregatedRowCount);
         group.setStatsReliable(resolvedStatsReliable);
         group.setStatistics(updatedStatistics);
+        group.setFromMvStats(fromMvStats);
         repairInvalidLogicalExpressionRowCounts(group, aggregatedRowCount);
         refreshPhysicalExpressionRowCount(group, updatedStatistics.getRowCount());
         recordProducerStats(group, updatedStatistics);

@@ -180,6 +180,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     public static double RECURSIVE_CTE_EXPAND_RATIO = 5.0;
 
     protected static final Logger LOG = LogManager.getLogger(StatsCalculator.class);
+
+    // The minimum and maximum ratio between the actual row count and the estimated row count,
+    // beyond which the estimated stats is considered unreliable and the calibration ratio is clamped.
+    private static final double MIN_CALIBRATION_RATIO = 0.5;
+    private static final double MAX_CALIBRATION_RATIO = 2.0;
+    // If the ndv of a column is close to the estimated row count, the column is considered
+    // structurally tied to the row count, such as the group by key or unique key column.
+    private static final double SATURATED_NDV_RATIO = 0.99;
+
     protected final GroupExpression groupExpression;
 
     protected boolean forbidUnknownColStats = false;
@@ -330,28 +339,38 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
         // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
         if (groupExpression.getOwnerGroup().getStatistics() == null) {
-            boolean isReliable = true;
-            for (Expression expression : groupExpression.getPlan().getExpressions()) {
-                if (newStats.isInputSlotsUnknown(expression.getInputSlots())) {
-                    isReliable = false;
-                    break;
-                }
-            }
+            boolean isReliable = isStatsReliable(newStats, groupExpression);
             groupExpression.getOwnerGroup().setStatsReliable(isReliable);
             groupExpression.getOwnerGroup().setStatistics(newStats);
+            // mark the group when its stats is derived from the calibrated mv stats, so that the
+            // stats of the operators above the group can prefer the calibrated stats
+            if (isMvStatsCalibrated(groupExpression, newStats)) {
+                groupExpression.getOwnerGroup().setFromMvStats(true);
+            }
         } else {
-            // the reason why we update col stats here.
-            // consider join between 3 tables: A/B/C with join condition: A.id=B.id=C.id and a filter: C.id=1
-            // in the final join result, the ndv of A.id/B.id/C.id should be 1
-            // suppose we have 2 candidate plans
-            // plan1: (A join B on A.id=B.id) join C on B.id=C.id
-            // plan2:(B join C)join A
-            // suppose plan1 is estimated before plan2
-            //
-            // after estimate the outer join of plan1 (join C), we update B.id.ndv=1, but A.id.ndv is not updated
-            // then we estimate plan2. the stats of plan2 is denoted by stats2. obviously, stats2.A.id.ndv is 1
-            // now we update OwnerGroup().getStatistics().A.id.ndv to 1
-            groupExpression.getOwnerGroup().getStatistics().updateNdv(newStats);
+            if (isMvStatsCalibrated(groupExpression, newStats) && !groupExpression.getOwnerGroup().isFromMvStats()) {
+                // the stats of the current expression is derived from the calibrated mv stats, which is
+                // more accurate than the stats derived from the base chain, so the group stats should
+                // be based on it (the first calibrated expression wins, the later expressions only
+                // refine the ndv by updateNdv)
+                boolean isReliable = isStatsReliable(newStats, groupExpression);
+                groupExpression.getOwnerGroup().setStatsReliable(isReliable);
+                groupExpression.getOwnerGroup().setStatistics(newStats);
+                groupExpression.getOwnerGroup().setFromMvStats(true);
+            } else {
+                // the reason why we update col stats here.
+                // consider join between 3 tables: A/B/C with join condition: A.id=B.id=C.id and a filter: C.id=1
+                // in the final join result, the ndv of A.id/B.id/C.id should be 1
+                // suppose we have 2 candidate plans
+                // plan1: (A join B on A.id=B.id) join C on B.id=C.id
+                // plan2:(B join C)join A
+                // suppose plan1 is estimated before plan2
+                //
+                // after estimate the outer join of plan1 (join C), we update B.id.ndv=1, but A.id.ndv is not updated
+                // then we estimate plan2. the stats of plan2 is denoted by stats2. obviously, stats2.A.id.ndv is 1
+                // now we update OwnerGroup().getStatistics().A.id.ndv to 1
+                groupExpression.getOwnerGroup().getStatistics().updateNdv(newStats);
+            }
         }
         groupExpression.setEstOutputRowCount(newStats.getRowCount());
         groupExpression.setStatDerived(true);
@@ -362,6 +381,32 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         StatsCalculator statsCalculator = new StatsCalculator(groupExpression, false,
                 new HashMap<>(), false, Collections.emptyMap(), context);
         statsCalculator.estimate();
+    }
+
+    private boolean isStatsReliable(Statistics newStats, GroupExpression groupExpression) {
+        for (Expression expression : groupExpression.getPlan().getExpressions()) {
+            if (newStats.isInputSlotsUnknown(expression.getInputSlots())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Whether the stats of the current expression is derived from the calibrated mv stats:
+     * the current stats object is calibrated by the actual row count of the mv, or any direct
+     * child group stats is derived from the calibrated mv stats (the mark propagates bottom-up).
+     */
+    private boolean isMvStatsCalibrated(GroupExpression groupExpression, Statistics newStats) {
+        if (newStats.isFromMvCalibrated()) {
+            return true;
+        }
+        for (Group childGroup : groupExpression.children()) {
+            if (childGroup.isFromMvStats()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -481,14 +526,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return tableMeta != null && tableMeta.userInjected;
     }
 
-    // The minimum and maximum ratio between the actual row count and the estimated row count,
-    // beyond which the estimated stats is considered unreliable and the calibration ratio is clamped.
-    private static final double MIN_CALIBRATION_RATIO = 0.5;
-    private static final double MAX_CALIBRATION_RATIO = 2.0;
-    // If the ndv of a column is close to the estimated row count, the column is considered
-    // structurally tied to the row count, such as the group by key or unique key column.
-    private static final double SATURATED_NDV_RATIO = 0.99;
-
     /**
      * Check whether the estimated stats of the materialized view can be calibrated by its accurate
      * actual row count. The calibration is enabled by session variable, and the actual row count
@@ -578,6 +615,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Statistics calibratedStats = new Statistics(actualRowCount, derivedStats.getWidthInJoinCluster(),
                 calibratedColumnStats, derivedStats.getDeltaRowCount(), derivedStats.isFromHbo());
         calibratedStats.normalizeColumnStatistics(actualRowCount);
+        // mark the calibrated stats, so that the stats of the operators above the mv scan group
+        // can prefer the calibrated stats when the group contains both base and mv candidates
+        calibratedStats.setFromMvCalibrated(true);
         return calibratedStats;
     }
 
