@@ -375,6 +375,12 @@ public class PaimonConnector implements Connector {
                 // on a capability instead of an engine string). Paimon emits no partition/sort show.* keys, so
                 // it renders no PARTITION BY / ORDER BY — byte-faithful with its prior SHOW CREATE output.
                 ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
+                // Paimon models column DDL as SchemaChanges committed through Catalog.alterTable, and its
+                // API carries a String[] field path for every op, so nested (dotted-path) ADD/DROP/RENAME/
+                // MODIFY and MODIFY COLUMN ... COMMENT are all expressible. PaimonConnectorMetadata
+                // implements the full ConnectorColumnEvolutionOps group (the flat six plus the nested five);
+                // declaring this is what admits the schema-change clause set in nereids AlterTableCommand.
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE,
                 // Paimon owns a relation-scoped scan-option vocabulary (CoreOptions scan.* keys), so it
                 // accepts @options(...). fe-core's BindRelation consults this to reject the clause up front
                 // for every other table type; the vocabulary itself is validated by PaimonScanParams while

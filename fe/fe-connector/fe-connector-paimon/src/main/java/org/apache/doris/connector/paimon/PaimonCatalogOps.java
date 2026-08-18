@@ -25,6 +25,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.rest.RESTCatalog;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
@@ -79,6 +80,29 @@ public interface PaimonCatalogOps {
 
     void dropTable(Identifier identifier, boolean ignoreIfNotExists)
             throws Catalog.TableNotExistException;
+
+    /**
+     * Applies {@code changes} to the table as ONE paimon schema commit, mirroring the real
+     * {@code Catalog.alterTable(Identifier, List, boolean)} exactly (signature and checked exception).
+     *
+     * <p>The seam takes the already-built {@link SchemaChange} list rather than a per-op method per
+     * column operation: translating a neutral SPI column op into paimon {@code SchemaChange}es is
+     * metadata-layer work (it needs the Doris type mapping), while the remote call is the only part
+     * that needs faking. One list-shaped call also keeps a multi-change op (a {@code MODIFY COLUMN}
+     * that changes type AND nullability AND position, or {@code ADD COLUMN}s / {@code REORDER}) a
+     * single atomic schema commit instead of N partially-applied ones.
+     *
+     * <p>Note a paimon {@code ALTER} bumps the schema id WITHOUT creating a snapshot, which is why
+     * {@link #latestSchema} reads {@code schemaManager().latest()} rather than {@code rowType()}.
+     *
+     * <p>All three checked exceptions of the real {@code Catalog.alterTable} are declared, not just
+     * the table-level one: {@code ColumnAlreadyExistException} / {@code ColumnNotExistException} are
+     * the two most common column-evolution failures (adding a duplicate name, altering a column that
+     * is not there), and the metadata layer turns each into a message naming the operation.
+     */
+    void alterTable(Identifier identifier, List<SchemaChange> changes, boolean ignoreIfNotExists)
+            throws Catalog.TableNotExistException, Catalog.ColumnAlreadyExistException,
+            Catalog.ColumnNotExistException;
 
     // ---- E5: MVCC snapshot lookups (T20) ----
     // These return plain {@code long}s (not paimon {@code Snapshot} objects) so the metadata
@@ -317,6 +341,13 @@ public interface PaimonCatalogOps {
         public void dropTable(Identifier identifier, boolean ignoreIfNotExists)
                 throws Catalog.TableNotExistException {
             catalog.dropTable(identifier, ignoreIfNotExists);
+        }
+
+        @Override
+        public void alterTable(Identifier identifier, List<SchemaChange> changes, boolean ignoreIfNotExists)
+                throws Catalog.TableNotExistException, Catalog.ColumnAlreadyExistException,
+                Catalog.ColumnNotExistException {
+            catalog.alterTable(identifier, changes, ignoreIfNotExists);
         }
 
         @Override

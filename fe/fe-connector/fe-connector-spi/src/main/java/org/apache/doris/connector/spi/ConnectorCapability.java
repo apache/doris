@@ -229,7 +229,7 @@ public enum ConnectorCapability {
      * table only when its connector declares this (replacing the legacy exact-class {@code instanceof
      * IcebergExternalTable} gate). The actual mutation is routed through {@code PluginDrivenExternalCatalog}'s
      * {@code ColumnPath} column-DDL overrides into the connector's {@link ConnectorColumnEvolutionOps} column-evolution
-     * ops. Connectors without column schema-change support (JDBC, ES, paimon/maxcompute today) must NOT
+     * ops. Connectors without column schema-change support (JDBC, ES, maxcompute today) must NOT
      * declare it so their tables reject nested paths at analysis and column DDL stays unsupported.</p>
      *
      * <p><b>Scope: catalog-wide OR per-table.</b> An iceberg-on-HMS table (whose catalog connector is hive)
