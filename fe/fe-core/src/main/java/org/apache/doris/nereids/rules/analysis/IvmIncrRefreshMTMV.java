@@ -23,8 +23,6 @@ import org.apache.doris.mtmv.ivm.IvmDeltaRewriter;
 import org.apache.doris.mtmv.ivm.IvmDryRunLimit;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
-import org.apache.doris.mtmv.ivm.IvmInfo;
-import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.nereids.StatementContext;
@@ -43,7 +41,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -65,7 +62,6 @@ public class IvmIncrRefreshMTMV implements CustomRewriter {
             return plan;
         }
         IvmRewriteContext context = rewriteContext.get();
-        validatePlanSignature(context.getMtmv(), rewriteResult);
         Plan rewritten = rewriteIncrementalPlan(plan, rewriteResult, context,
                 jobContext.getCascadesContext().getConnectContext());
         rewriteResult.setIncrRefreshRewritten(true);
@@ -111,24 +107,5 @@ public class IvmIncrRefreshMTMV implements CustomRewriter {
 
     protected IvmDeltaRewriter newDeltaRewriter() {
         return new IvmDeltaRewriter();
-    }
-
-    private void validatePlanSignature(MTMV mtmv, IvmRewriteResult rewriteResult) {
-        IvmPlanSignature currentSignature = rewriteResult.getPlanSignature();
-        IvmInfo ivmInfo = mtmv.getIvmInfo();
-        String storedSignature = ivmInfo.getPlanSignature();
-        boolean signatureMatched = currentSignature != null
-                && Objects.equals(storedSignature, currentSignature.getSha256());
-        if (signatureMatched) {
-            return;
-        }
-        String detail = "IVM layout signature mismatch for mv=" + mtmv.getName()
-                + ", storedSignature=" + storedSignature
-                + ", currentSignature=" + (currentSignature == null ? "null" : currentSignature.getSha256())
-                + ", currentCanonical=" + (currentSignature == null ? "null" : currentSignature.getCanonicalString())
-                + ", currentPlan=" + (rewriteResult.getNormalizedPlan() == null
-                        ? "null" : rewriteResult.getNormalizedPlan().treeString())
-                + ". Run a full refresh to rebuild IVM layout baseline.";
-        throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
     }
 }

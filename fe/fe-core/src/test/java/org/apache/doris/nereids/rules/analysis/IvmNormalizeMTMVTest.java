@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.TableProperty;
@@ -30,6 +31,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
+import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
@@ -96,6 +98,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.mockito.Mockito;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -132,6 +135,46 @@ class IvmNormalizeMTMVTest {
         Assertions.assertTrue(rewriteResult.isNormalizeRewritten());
         Assertions.assertSame(result, rewriteResult.getNormalizedPlan());
         Assertions.assertNotNull(rewriteResult.getPlanSignature());
+    }
+
+    @Test
+    void testIncrementalSignatureMismatchThrowsAtNormalize() {
+        MTMV mtmv = mockIvmMtmv("stored-signature");
+        JobContext jobContext = newJobContextForRoot(scan, true, Collections.emptySet(),
+                Optional.of(IvmRewriteContext.incremental(mtmv, false)));
+
+        IvmException exception = Assertions.assertThrows(IvmException.class,
+                () -> new IvmNormalizeMTMV().rewriteRoot(scan, jobContext));
+
+        Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, exception.getFailureReason());
+        Assertions.assertTrue(exception.getMessage().contains("storedSignature=stored-signature"));
+        Assertions.assertTrue(exception.getMessage().contains("currentSignature="));
+    }
+
+    @Test
+    void testIncrementalSignatureMatchPassesNormalize() {
+        // Normalize once (CREATE mode) to learn the computed signature for this plan.
+        JobContext probe = newJobContextForRoot(scan, true);
+        new IvmNormalizeMTMV().rewriteRoot(scan, probe);
+        String signature = probe.getCascadesContext().getIvmRewriteResult().orElseThrow()
+                .getPlanSignature().getSha256();
+
+        MTMV mtmv = mockIvmMtmv(signature);
+        JobContext jobContext = newJobContextForRoot(scan, true, Collections.emptySet(),
+                Optional.of(IvmRewriteContext.incremental(mtmv, false)));
+
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(scan, jobContext);
+
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+    }
+
+    private static MTMV mockIvmMtmv(String signature) {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        IvmInfo ivmInfo = new IvmInfo();
+        ivmInfo.setPlanSignature(signature);
+        Mockito.when(mtmv.getName()).thenReturn("mv_signature_test");
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+        return mtmv;
     }
 
     @Test
