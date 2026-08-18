@@ -35,6 +35,7 @@
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/arrow_validation.h"
 
 namespace doris::iceberg {
@@ -230,6 +231,22 @@ Status validate_nested_binding(const DataTypePtr& type,
     return Status::OK();
 }
 
+Status validate_fixed_binding(const DataTypePtr& type, const std::shared_ptr<arrow::Field>& field) {
+    if (type->get_primitive_type() != TYPE_VARBINARY) {
+        return Status::InvalidArgument(
+                "Iceberg fixed writer requires Doris VARBINARY, got {} for Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    const auto& fixed = assert_cast<const arrow::FixedSizeBinaryType&>(*field->type());
+    const auto& varbinary = assert_cast<const DataTypeVarbinary&>(*type);
+    if (varbinary.len() != fixed.byte_width()) {
+        return Status::InvalidArgument(
+                "Iceberg fixed width does not match Doris VARBINARY length: expected {}, got {}",
+                fixed.byte_width(), varbinary.len());
+    }
+    return Status::OK();
+}
+
 } // namespace
 
 Status IcebergArrowWriteConverter::write_column(const std::shared_ptr<const IDataType>& type,
@@ -254,6 +271,11 @@ Status IcebergArrowWriteConverter::write_column(const std::shared_ptr<const IDat
                     type->get_name(), field->ToString());
         }
         return write_uuid(column, null_map, array_builder, start, end);
+    }
+    if (storage_type_id(field) == arrow::Type::FIXED_SIZE_BINARY) {
+        RETURN_IF_ERROR(validate_fixed_binding(type, field));
+        return write_type_serde_column(type, serde, column, null_map, field, array_builder, start,
+                                       end, ctz);
     }
     if (primitive == TYPE_ARRAY || primitive == TYPE_MAP || primitive == TYPE_STRUCT) {
         RETURN_IF_ERROR(validate_nested_binding(type, field));
