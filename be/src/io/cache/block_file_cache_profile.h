@@ -26,6 +26,7 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "common/atomic_shared_ptr.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
 #include "io/io_common.h"
@@ -61,9 +62,13 @@ private:
     void register_entity();
     void update_metrics_callback();
 
+    // Guards lazy initialization and register_entity() pairing only.
     std::mutex _mtx;
-    // use shared_ptr for concurrent
-    std::shared_ptr<AtomicStatistics> _statistics;
+    // Accessed from every IO thread without holding _mtx; must be an atomic
+    // shared_ptr — a plain shared_ptr read racing with the initializing store
+    // is UB and can observe a torn/half-constructed object on weakly-ordered
+    // architectures (aarch64).
+    atomic_shared_ptr<AtomicStatistics> _statistics;
 };
 
 FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& current,
