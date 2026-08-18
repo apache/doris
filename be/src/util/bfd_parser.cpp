@@ -94,8 +94,18 @@ void BfdParser::init_bfd() {
     }
     std::lock_guard<std::mutex> lock(_bfd_mutex);
     bfd_init();
-    if (!bfd_set_default_target("elf64-x86-64")) {
-        LOG(ERROR) << "set default target to elf64-x86-64 failed.";
+    // The default target must match the host architecture: hardcoding
+    // "elf64-x86-64" fails on aarch64 (libbfd there does not bundle the x86
+    // backend) and logs a spurious error on every BE start.
+#if defined(__aarch64__)
+    static constexpr const char* kDefaultTarget = "elf64-littleaarch64";
+#elif defined(__x86_64__)
+    static constexpr const char* kDefaultTarget = "elf64-x86-64";
+#else
+    static constexpr const char* kDefaultTarget = nullptr;
+#endif
+    if (kDefaultTarget != nullptr && !bfd_set_default_target(kDefaultTarget)) {
+        LOG(ERROR) << "set default target to " << kDefaultTarget << " failed.";
     }
     _is_bfd_inited = true;
 }
