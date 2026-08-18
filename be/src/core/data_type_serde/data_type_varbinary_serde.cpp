@@ -21,6 +21,7 @@
 
 #include "common/config.h"
 #include "core/column/column_varbinary.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 
@@ -186,6 +187,26 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
                                        array_builder->type()->name());
     }
     return Status::OK();
+}
+
+Status DataTypeVarbinarySerDe::write_column_to_iceberg(const std::shared_ptr<const IDataType>& type,
+                                                       const IColumn& column,
+                                                       const NullMap* null_map,
+                                                       const std::shared_ptr<arrow::Field>& field,
+                                                       arrow::ArrayBuilder* array_builder,
+                                                       int64_t start, int64_t end,
+                                                       const cctz::time_zone& ctz) const {
+    if (array_builder->type()->id() != arrow::Type::FIXED_SIZE_BINARY) {
+        return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+    }
+    const auto& fixed = assert_cast<const arrow::FixedSizeBinaryType&>(*field->type());
+    const auto& varbinary = assert_cast<const DataTypeVarbinary&>(*type);
+    if (varbinary.len() != fixed.byte_width()) {
+        return Status::InvalidArgument(
+                "Iceberg fixed width does not match Doris VARBINARY length: expected {}, got {}",
+                fixed.byte_width(), varbinary.len());
+    }
+    return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
 }
 
 Status DataTypeVarbinarySerDe::read_column_from_arrow(IColumn& column,

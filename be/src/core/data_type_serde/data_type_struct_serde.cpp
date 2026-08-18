@@ -419,12 +419,12 @@ Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const N
     return Status::OK();
 }
 
-Status DataTypeStructSerDe::write_column_to_arrow(const std::shared_ptr<const IDataType>& type,
-                                                  const IColumn& column, const NullMap* null_map,
-                                                  const std::shared_ptr<arrow::Field>& field,
-                                                  arrow::ArrayBuilder* array_builder, int64_t start,
-                                                  int64_t end, const cctz::time_zone& ctz,
-                                                  const ArrowWriteContext& context) const {
+Status DataTypeStructSerDe::write_column_to_paimon(const std::shared_ptr<const IDataType>& type,
+                                                   const IColumn& column, const NullMap* null_map,
+                                                   const std::shared_ptr<arrow::Field>& field,
+                                                   arrow::ArrayBuilder* array_builder,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
     const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
     auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
     const auto& struct_column = assert_cast<const ColumnStruct&>(column);
@@ -435,9 +435,33 @@ Status DataTypeStructSerDe::write_column_to_arrow(const std::shared_ptr<const ID
         }
         RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column, builder));
         for (size_t element = 0; element < struct_column.tuple_size(); ++element) {
-            RETURN_IF_ERROR(context.write_column(
-                    struct_type.get_element(element), *elem_serdes_ptrs[element],
-                    struct_column.get_column(element), nullptr,
+            RETURN_IF_ERROR(elem_serdes_ptrs[element]->write_column_to_paimon(
+                    struct_type.get_element(element), struct_column.get_column(element), nullptr,
+                    field->type()->field(cast_set<int>(element)),
+                    builder.field_builder(cast_set<int>(element)), r, r + 1, ctz));
+        }
+    }
+    return Status::OK();
+}
+
+Status DataTypeStructSerDe::write_column_to_iceberg(const std::shared_ptr<const IDataType>& type,
+                                                    const IColumn& column, const NullMap* null_map,
+                                                    const std::shared_ptr<arrow::Field>& field,
+                                                    arrow::ArrayBuilder* array_builder,
+                                                    int64_t start, int64_t end,
+                                                    const cctz::time_zone& ctz) const {
+    const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
+    auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
+    const auto& struct_column = assert_cast<const ColumnStruct&>(column);
+    for (auto r = start; r < end; ++r) {
+        if (null_map != nullptr && (*null_map)[r]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), struct_column, builder));
+            continue;
+        }
+        RETURN_IF_ERROR(checkArrowStatus(builder.Append(), struct_column, builder));
+        for (size_t element = 0; element < struct_column.tuple_size(); ++element) {
+            RETURN_IF_ERROR(elem_serdes_ptrs[element]->write_column_to_iceberg(
+                    struct_type.get_element(element), struct_column.get_column(element), nullptr,
                     field->type()->field(cast_set<int>(element)),
                     builder.field_builder(cast_set<int>(element)), r, r + 1, ctz));
         }

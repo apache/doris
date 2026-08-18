@@ -41,18 +41,17 @@ class Schema;
 
 namespace doris {
 
-class ArrowWriteConverter : public ArrowWriteContext {
+class ArrowWriteConverter {
 public:
-    ~ArrowWriteConverter() override = default;
+    virtual ~ArrowWriteConverter() = default;
+
+    virtual Status write_column(const std::shared_ptr<const IDataType>& type,
+                                const DataTypeSerDe& serde, const IColumn& column,
+                                const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+                                arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                const cctz::time_zone& ctz) const = 0;
 
 protected:
-    Status write_type_serde_column(const std::shared_ptr<const IDataType>& type,
-                                   const DataTypeSerDe& serde, const IColumn& column,
-                                   const NullMap* null_map,
-                                   const std::shared_ptr<arrow::Field>& field,
-                                   arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
-                                   const cctz::time_zone& ctz) const;
-
     Status write_canonical_column(const std::shared_ptr<const IDataType>& type,
                                   const DataTypeSerDe& serde, const IColumn& column,
                                   const NullMap* null_map,

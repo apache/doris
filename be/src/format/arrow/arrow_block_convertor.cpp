@@ -177,18 +177,6 @@ Status wrap_extension_arrays(const std::shared_ptr<arrow::DataType>& target_type
 
 } // namespace
 
-Status ArrowWriteConverter::write_type_serde_column(const std::shared_ptr<const IDataType>& type,
-                                                    const DataTypeSerDe& serde,
-                                                    const IColumn& column, const NullMap* null_map,
-                                                    const std::shared_ptr<arrow::Field>& field,
-                                                    arrow::ArrayBuilder* array_builder,
-                                                    int64_t start, int64_t end,
-                                                    const cctz::time_zone& ctz) const {
-    const auto storage_field = field->WithType(extension_storage_type(field->type()));
-    return serde.write_column_to_arrow(type, column, null_map, storage_field, array_builder, start,
-                                       end, ctz, *this);
-}
-
 Status ArrowWriteConverter::write_canonical_column(const std::shared_ptr<const IDataType>& type,
                                                    const DataTypeSerDe& serde,
                                                    const IColumn& column, const NullMap* null_map,
@@ -206,8 +194,7 @@ Status ArrowWriteConverter::write_canonical_column(const std::shared_ptr<const I
                 "Canonical Arrow writer is not bound for Doris type {} and Arrow field {}",
                 type->get_name(), field->ToString());
     }
-    return write_type_serde_column(type, serde, column, null_map, field, array_builder, start, end,
-                                   ctz);
+    return serde.write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
 }
 
 namespace {
