@@ -20,6 +20,8 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
 
+#include <cstring>
+
 #include "absl/strings/substitute.h"
 #include "util/hash/city.h"
 
@@ -40,11 +42,12 @@ Status NGramBloomFilter::init(const char* buf, size_t size, HashStrategyPB strat
         return Status::InvalidArgument(absl::Substitute("invalid strategy:$0", strategy));
     }
     words = (_size + sizeof(UnderType) - 1) / sizeof(UnderType);
-    filter.reserve(words);
-    const auto* from = reinterpret_cast<const UnderType*>(buf);
-    for (size_t i = 0; i < words; ++i) {
-        filter[i] = from[i];
-    }
+    // resize (not reserve): reserve does not create elements, so indexing
+    // past size() below would be UB if the constructed size ever differs.
+    filter.resize(words);
+    // buf points into an arbitrarily-offset page buffer; a plain
+    // reinterpret_cast<const uint64_t*> read would be misaligned UB.
+    memcpy(filter.data(), buf, words * sizeof(UnderType));
 
     return Status::OK();
 }
