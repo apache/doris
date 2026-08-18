@@ -42,30 +42,39 @@ struct DecodedCp {
     uint32_t len;
 };
 
-// Decode one UTF-8 code point at text[pos]. Invalid/truncated -> single byte.
+// Decode one UTF-8 code point at text[pos].
 DecodedCp decode_utf8(std::string_view text, std::size_t pos) {
     auto b0 = static_cast<unsigned char>(text[pos]);
     const std::size_t avail = text.size() - pos;
     if (b0 < 0x80) {
         return {b0, 1};
     }
-    if ((b0 >> 5) == 0x6 && avail >= 2) {
+    auto cont = [&](std::size_t i) {
+        return (static_cast<unsigned char>(text[pos + i]) & 0xC0U) == 0x80U;
+    };
+    if ((b0 >> 5) == 0x6 && avail >= 2 && cont(1)) {
         auto b1 = static_cast<unsigned char>(text[pos + 1]);
-        return {static_cast<char32_t>(((b0 & 0x1FU) << 6) | (b1 & 0x3FU)), 2};
-    }
-    if ((b0 >> 4) == 0xE && avail >= 3) {
+        const auto cp = static_cast<char32_t>(((b0 & 0x1FU) << 6) | (b1 & 0x3FU));
+        if (cp >= 0x80) { // reject overlong
+            return {cp, 2};
+        }
+    } else if ((b0 >> 4) == 0xE && avail >= 3 && cont(1) && cont(2)) {
         auto b1 = static_cast<unsigned char>(text[pos + 1]);
         auto b2 = static_cast<unsigned char>(text[pos + 2]);
-        return {static_cast<char32_t>(((b0 & 0x0FU) << 12) | ((b1 & 0x3FU) << 6) | (b2 & 0x3FU)),
-                3};
-    }
-    if ((b0 >> 3) == 0x1E && avail >= 4) {
+        const auto cp =
+                static_cast<char32_t>(((b0 & 0x0FU) << 12) | ((b1 & 0x3FU) << 6) | (b2 & 0x3FU));
+        if (cp >= 0x800 && (cp < 0xD800 || cp > 0xDFFF)) { // reject overlong + surrogates
+            return {cp, 3};
+        }
+    } else if ((b0 >> 3) == 0x1E && avail >= 4 && cont(1) && cont(2) && cont(3)) {
         auto b1 = static_cast<unsigned char>(text[pos + 1]);
         auto b2 = static_cast<unsigned char>(text[pos + 2]);
         auto b3 = static_cast<unsigned char>(text[pos + 3]);
-        return {static_cast<char32_t>(((b0 & 0x07U) << 18) | ((b1 & 0x3FU) << 12) |
-                                      ((b2 & 0x3FU) << 6) | (b3 & 0x3FU)),
-                4};
+        const auto cp = static_cast<char32_t>(((b0 & 0x07U) << 18) | ((b1 & 0x3FU) << 12) |
+                                              ((b2 & 0x3FU) << 6) | (b3 & 0x3FU));
+        if (cp >= 0x10000 && cp <= 0x10FFFF) { // reject overlong + out of range
+            return {cp, 4};
+        }
     }
     return {b0, 1};
 }
