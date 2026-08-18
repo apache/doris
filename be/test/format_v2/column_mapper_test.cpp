@@ -49,6 +49,7 @@
 #include "format_v2/column_mapper_nested.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/schema_projection.h"
+#include "format_v2/table/iceberg_reader.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/descriptors.h"
@@ -315,6 +316,8 @@ TEST(ColumnMapperTest, MissingNestedChildRetainsBinaryInitialDefault) {
     auto table_struct = struct_col("s", 10, {field_id_col("a", 1, i32()), defaulted_child});
     auto file_struct = struct_col("s", 10, {field_id_col("a", 1, i32(), 0)}, 0);
 
+    // ColumnMapper consumes typed defaults prepared by the table-format reader in real scans.
+    ASSERT_TRUE(iceberg::prepare_iceberg_initial_default_exprs(&table_struct).ok());
     TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
     ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
     ASSERT_EQ(mapper.mappings()[0].child_mappings.size(), 2);
