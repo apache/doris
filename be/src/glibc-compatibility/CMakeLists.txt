@@ -65,9 +65,9 @@ if (GLIBC_COMPATIBILITY)
     # before ASAN shadow memory is initialized, causing SIGSEGV. Skip custom memcpy in
     # this case and fall back to glibc's memcpy.
     if (ARCH_ARM AND (CMAKE_BUILD_TYPE STREQUAL "ASAN_UT" OR CMAKE_BUILD_TYPE STREQUAL "ASAN"))
-        add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c)
+        add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c resolv_shim.c)
     else()
-        add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c ${MEMCPY_SOURCE})
+        add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c resolv_shim.c ${MEMCPY_SOURCE})
     endif()
     target_compile_options(glibc-compatibility-explicit PRIVATE -fPIC)
     add_library(glibc-compatibility STATIC ${glibc_compatibility_sources})
