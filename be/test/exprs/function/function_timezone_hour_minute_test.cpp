@@ -63,8 +63,10 @@ public:
         input_block.insert({nullptr, return_type, "result"});
         auto st = func->execute(&context, input_block, arguments, result, input_block.rows());
         ASSERT_TRUE(st.ok()) << st.to_string();
-        const auto& col =
-                assert_cast<const ColumnInt64&>(*input_block.get_by_position(result).column);
+        // Constant input may produce a const result column; materialize it
+        // before inspecting elements.
+        auto result_col = input_block.get_by_position(result).column->convert_to_full_column_if_const();
+        const auto& col = assert_cast<const ColumnInt64&>(*result_col);
         ASSERT_EQ(col.size(), expected.size());
         for (size_t i = 0; i < expected.size(); ++i) {
             EXPECT_EQ(col.get_element(i), expected[i]) << "at row " << i;
@@ -121,6 +123,38 @@ TEST_F(FunctionTimezoneHourMinuteTest, fractional_offsets) {
     set_session_timezone(cctz::fixed_time_zone(std::chrono::seconds(5 * 3600 + 45 * 60)));
     check_result("timezone_hour", block, {5});
     check_result("timezone_minute", block, {45});
+}
+
+TEST_F(FunctionTimezoneHourMinuteTest, const_input) {
+    // TIMESTAMPTZ stores a UTC instant without the input zone; even when the
+    // value was produced by CAST with an explicit zone (here '2024-01-15
+    // 12:00:00-04:30'), the extracted offset is the session zone's offset.
+    set_session_timezone(cctz::fixed_time_zone(std::chrono::hours(8)));
+
+    auto inner = ColumnTimeStampTz::create();
+    inner->insert_value(make_timestamptz(2024, 1, 15, 16, 30, 0, 0));
+    auto const_col = ColumnConst::create(std::move(inner), 3);
+    Block block;
+    block.insert({std::move(const_col), std::make_shared<DataTypeTimeStampTz>(), "arg"});
+
+    check_result("timezone_hour", block, {8, 8, 8});
+    check_result("timezone_minute", block, {0, 0, 0});
+}
+
+TEST_F(FunctionTimezoneHourMinuteTest, session_zone_wins_over_input_zone) {
+    // The input instant is noon in UTC-04:30, i.e. 16:30 UTC. Trino would
+    // return -4/-30 from the input zone; Doris stores only the UTC instant
+    // and therefore returns the session zone offset (America/New_York in
+    // winter: -5/0).
+    cctz::time_zone tz;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("America/New_York", tz));
+    set_session_timezone(tz);
+
+    auto block = ColumnHelper::create_block<DataTypeTimeStampTz>(
+            {make_timestamptz(2024, 1, 15, 16, 30, 0, 0)});
+
+    check_result("timezone_hour", block, {-5});
+    check_result("timezone_minute", block, {0});
 }
 
 TEST_F(FunctionTimezoneHourMinuteTest, nullable_input) {

@@ -33,6 +33,11 @@ import java.util.List;
 
 /**
  * ScalarFunction 'timezone_minute'.
+ *
+ * <p>Returns the minute part of the UTC offset of the session time zone at the
+ * given instant. Note: Doris TIMESTAMPTZ values are stored as UTC instants
+ * without the input zone, so unlike Trino's timezone_minute, this function
+ * extracts the session time zone offset.</p>
  */
 public class TimezoneMinute extends ScalarFunction
         implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
@@ -69,5 +74,13 @@ public class TimezoneMinute extends ScalarFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitTimezoneMinute(this, context);
+    }
+
+    @Override
+    public boolean isDeterministic() {
+        // The result depends on the session time_zone, which may change between
+        // executions, so this function must not be folded into prepared plans
+        // or used in materialized views.
+        return false;
     }
 }

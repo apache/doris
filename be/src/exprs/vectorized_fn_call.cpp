@@ -666,7 +666,9 @@ bool VectorizedFnCall::can_push_down_to_index() const {
 
 bool VectorizedFnCall::is_deterministic() const {
     static const std::set<std::string> NON_DETERMINISTIC_FUNCTIONS = {
-            "random", "rand", "random_bytes", "uuid", "uuid_numeric"};
+            "random", "rand", "random_bytes", "uuid", "uuid_numeric",
+            // timezone_hour/timezone_minute depend on the session time_zone.
+            "timezone_hour", "timezone_minute"};
     return !NON_DETERMINISTIC_FUNCTIONS.contains(_function_name) && VExpr::is_deterministic();
 }
 

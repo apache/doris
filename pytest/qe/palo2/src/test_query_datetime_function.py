@@ -1015,27 +1015,52 @@ def test_query_timezone_hour_minute():
     "tag": "function,p0"
     }
     """
+    # The SET and the SELECT must run on the same connection, so use
+    # do_set_properties_sql instead of runner.init (which opens a fresh
+    # session for every statement).
+
     # UTC+08:00 has no DST, the offset of the session timezone is the same
     # for every instant, so timezone_hour always returns 8 here.
-    runner.init("set time_zone = '+08:00'")
-    ret = runner.get_sql_result(
+    ret = runner.query_palo.do_set_properties_sql(
         "select timezone_hour(cast('2024-01-15 12:00:00' as TIMESTAMPTZ)), "
-        "timezone_minute(cast('2024-07-15 12:00:00' as TIMESTAMPTZ))")
+        "timezone_minute(cast('2024-07-15 12:00:00' as TIMESTAMPTZ))",
+        ["set time_zone = '+08:00'"])
     assert int(ret[0][0]) == 8 and int(ret[0][1]) == 0, ret
 
     # America/New_York switches between EST (UTC-05:00) in winter and
     # EDT (UTC-04:00) in summer.
-    runner.init("set time_zone = 'America/New_York'")
-    ret = runner.get_sql_result(
+    ret = runner.query_palo.do_set_properties_sql(
         "select timezone_hour(cast('2024-01-15 12:00:00' as TIMESTAMPTZ)), "
         "timezone_minute(cast('2024-01-15 12:00:00' as TIMESTAMPTZ)), "
         "timezone_hour(cast('2024-07-15 12:00:00' as TIMESTAMPTZ)), "
-        "timezone_minute(cast('2024-07-15 12:00:00' as TIMESTAMPTZ))")
+        "timezone_minute(cast('2024-07-15 12:00:00' as TIMESTAMPTZ))",
+        ["set time_zone = 'America/New_York'"])
     assert int(ret[0][0]) == -5 and int(ret[0][1]) == 0, ret
     assert int(ret[0][2]) == -4 and int(ret[0][3]) == 0, ret
 
-    # Restore the default timezone of the test cluster.
-    runner.init("set time_zone = '+08:00'")
+    # Fractional session offsets are truncated like Trino: Asia/Kolkata is
+    # UTC+05:30, so timezone_hour returns 5 and timezone_minute returns 30.
+    ret = runner.query_palo.do_set_properties_sql(
+        "select timezone_hour(cast('2024-01-15 12:00:00' as TIMESTAMPTZ)), "
+        "timezone_minute(cast('2024-01-15 12:00:00' as TIMESTAMPTZ))",
+        ["set time_zone = 'Asia/Kolkata'"])
+    assert int(ret[0][0]) == 5 and int(ret[0][1]) == 30, ret
+
+    # Doris TIMESTAMPTZ stores only the UTC instant, not the input zone, so
+    # even when the input carries '-04:30', the extracted offset is the
+    # session zone's offset (Trino would return -4/-30 here).
+    ret = runner.query_palo.do_set_properties_sql(
+        "select timezone_hour(cast('2024-01-15 12:00:00-04:30' as TIMESTAMPTZ)), "
+        "timezone_minute(cast('2024-01-15 12:00:00-04:30' as TIMESTAMPTZ))",
+        ["set time_zone = '+08:00'"])
+    assert int(ret[0][0]) == 8 and int(ret[0][1]) == 0, ret
+
+    # NULL input returns NULL.
+    ret = runner.query_palo.do_set_properties_sql(
+        "select timezone_hour(cast(null as TIMESTAMPTZ)), "
+        "timezone_minute(cast(null as TIMESTAMPTZ))",
+        ["set time_zone = '+08:00'"])
+    assert ret[0][0] is None and ret[0][1] is None, ret
 
 
 def test_query_timestampdiff():

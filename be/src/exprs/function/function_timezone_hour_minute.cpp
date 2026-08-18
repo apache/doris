@@ -47,6 +47,9 @@ namespace {
 constexpr int64_t SECONDS_PER_HOUR = 3600;
 constexpr int64_t SECONDS_PER_MINUTE = 60;
 
+// TIMESTAMPTZ values are stored as UTC instants without the input zone, so the
+// offset extracted here is the offset of the session time zone at the instant.
+// See TimestampTzValue for the storage design.
 Status execute_timezone_offset_part(FunctionContext* context, Block& block,
                                     const ColumnNumbers& arguments, uint32_t result,
                                     size_t input_rows_count, bool extract_hour) {
