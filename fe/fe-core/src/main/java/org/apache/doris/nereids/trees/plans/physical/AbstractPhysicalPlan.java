@@ -145,16 +145,18 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
                 clonedChildren.add(child);
             }
         }
-        // The whole subtree carries no memo reference, reuse the node directly.
-        if (plan.getGroupExpression().isEmpty() && !childChanged) {
+        // The whole subtree carries no memo reference, reuse the node directly. Nodes that still
+        // carry runtime filters must be copied as well: their filters reference other plan nodes,
+        // which would keep the memo reachable through the reused node.
+        if (plan.getGroupExpression().isEmpty() && !childChanged && !carriesRuntimeFilters(plan)) {
             return plan;
         }
         PhysicalProperties physicalProperties = plan.getPhysicalProperties();
         Statistics statistics = plan.getStats();
         Plan copied = plan.withChildren(clonedChildren);
-        if (copied.getGroupExpression().isPresent()) {
-            copied = copied.withGroupExpression(Optional.empty());
-        }
+        // Detach the group expression even if it is already empty, so that a leaf node (whose
+        // withChildren() returns the node itself) with runtime filters still gets a new node.
+        copied = copied.withGroupExpression(Optional.empty());
         PhysicalPlan detached;
         if (copied.getStats() == null && statistics != null) {
             detached = ((PhysicalPlan) copied).withPhysicalPropertiesAndStats(physicalProperties, statistics);
@@ -166,6 +168,12 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
                 .ifPresent(value -> detached.setMutableState(MutableState.KEY_PUSH_TOPN_TO_AGG, value));
         originalToClone.put(plan, detached);
         return detached;
+    }
+
+    private static boolean carriesRuntimeFilters(Plan plan) {
+        return plan instanceof AbstractPhysicalPlan
+                && (!((AbstractPhysicalPlan) plan).getRuntimeFilters().isEmpty()
+                        || !((AbstractPhysicalPlan) plan).getAppliedRuntimeFilters().isEmpty());
     }
 
     /**

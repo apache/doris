@@ -257,6 +257,45 @@ public class PhysicalPlanDetachTest {
     }
 
     @Test
+    public void testDetachRuntimeFiltersOnMemoFreeScan() {
+        // A scan without a group expression normally gets reused as is, but if it carries an
+        // applied runtime filter it must still be copied, otherwise the filter would reference
+        // the original (memo-carrying) builder node through the reused node.
+        PhysicalOlapScan scan = olapScan().withGroupExpression(Optional.empty())
+                .withPhysicalPropertiesAndStats(PhysicalProperties.GATHER, STATS);
+        Assertions.assertTrue(scan.getGroupExpression().isEmpty());
+        PhysicalOneRowRelation left = oneRow();
+        PhysicalHashJoin<Plan, Plan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(), ImmutableList.of(), new DistributeHint(DistributeType.NONE),
+                Optional.empty(), Optional.empty(), LOGICAL_PROPERTIES, left, scan);
+        join = attachToGroup(join).withPhysicalPropertiesAndStats(PhysicalProperties.GATHER, STATS);
+
+        SlotReference src = new SlotReference(new ExprId(0), "src", BigIntType.INSTANCE,
+                true, Lists.newArrayList());
+        SlotReference target = new SlotReference(new ExprId(1), "target", BigIntType.INSTANCE,
+                true, Lists.newArrayList());
+        RuntimeFilter rf = new RuntimeFilter(RuntimeFilterId.createGenerator().getNextId(), src,
+                target, target, TRuntimeFilterType.IN_OR_BLOOM, 0, join, -1L, true,
+                TMinMaxRuntimeFilterType.MIN_MAX, scan);
+        scan.addAppliedRuntimeFilter(rf);
+
+        PhysicalPlan detached = AbstractPhysicalPlan.copyPlanDetachedFromMemo(join);
+        PhysicalHashJoin<?, ?> joinCopy = (PhysicalHashJoin<?, ?>) detached;
+        PhysicalOlapScan scanCopy = (PhysicalOlapScan) detached.child(1);
+
+        // The memo-free scan must be copied, not reused, because of its runtime filter.
+        Assertions.assertNotSame(scan, scanCopy);
+        Assertions.assertTrue(scanCopy.getGroupExpression().isEmpty());
+        Assertions.assertEquals(1, scanCopy.getAppliedRuntimeFilters().size());
+        RuntimeFilter rfCopy = scanCopy.getAppliedRuntimeFilters().get(0);
+        Assertions.assertSame(joinCopy, rfCopy.getBuilderNode());
+        Assertions.assertSame(scanCopy, rfCopy.getTargetScan());
+        // The original scan and join are untouched.
+        Assertions.assertSame(rf, scan.getAppliedRuntimeFilters().get(0));
+        Assertions.assertSame(join, join.getRuntimeFilters().get(0).getBuilderNode());
+    }
+
+    @Test
     public void testDetachNullAndMemoFreePlan() {
         Assertions.assertNull(AbstractPhysicalPlan.copyPlanDetachedFromMemo(null));
         // A plan node without group expression and without memo-referencing children is reused as is.
