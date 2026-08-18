@@ -147,7 +147,8 @@ public:
     }
     bool to_format_string_conservative(const char* format, size_t len, char* to,
                                        size_t max_valid_length) const {
-        return to_datetime().to_format_string_conservative(format, len, to, max_valid_length);
+        return to_datetime().to_format_string_conservative(format, len, to, max_valid_length,
+                                                           nanosecond());
     }
 
     bool is_valid_date() const { return true; }

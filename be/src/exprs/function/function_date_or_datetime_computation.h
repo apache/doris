@@ -1060,14 +1060,13 @@ struct CurrentDateTimeImpl {
             const int32_t truncated_nanos = cast_set<int32_t>(nanos / factor * factor);
             DateV2Value<DateTimeV2ValueType> local_datetime;
             local_datetime.from_unixtime(context->state()->timestamp_ms() / 1000, nanos,
-                                         context->state()->timezone_obj(),
-                                         DATETIMEV2_MAX_SCALE);
+                                         context->state()->timezone_obj(), DATETIMEV2_MAX_SCALE);
             DCHECK(value->from_datetime(local_datetime,
                                         cast_set<uint16_t>(truncated_nanos % 1000)));
         } else {
             value->from_unixtime(context->state()->timestamp_ms() / 1000,
-                                 context->state()->nano_seconds(),
-                                 context->state()->timezone_obj(), scale);
+                                 context->state()->nano_seconds(), context->state()->timezone_obj(),
+                                 scale);
         }
     }
 

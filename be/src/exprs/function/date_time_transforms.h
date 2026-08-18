@@ -466,7 +466,7 @@ struct FromUnixTimeImpl {
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
             if (!dt.to_format_string_conservative(format.data, format.size, buf,
-                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+                                                  100 + SAFE_FORMAT_STRING_MARGIN, 0)) {
                 return true;
             }
 
@@ -486,13 +486,13 @@ struct FromUnixTimeImpl {
 // only new verison
 template <bool WithStringArg>
 struct FromUnixTimeDecimalImpl {
-    using ArgType = Int64;
-    static constexpr PrimitiveType FromPType = TYPE_DECIMAL64;
-    constexpr static short Scale = 6; // same with argument's scale in FE's signature
+    using ArgType = std::conditional_t<WithStringArg, Int128, Int64>;
+    static constexpr PrimitiveType FromPType = WithStringArg ? TYPE_DECIMAL128I : TYPE_DECIMAL64;
+    constexpr static short Scale = WithStringArg ? 9 : 6;
 
     static DataTypes get_variadic_argument_types() {
         if constexpr (WithStringArg) {
-            return {std::make_shared<DataTypeDecimal64>(), std::make_shared<DataTypeString>()};
+            return {std::make_shared<DataTypeDecimal128>(), std::make_shared<DataTypeString>()};
         } else {
             return {std::make_shared<DataTypeDecimal64>()};
         }
@@ -510,8 +510,9 @@ struct FromUnixTimeDecimalImpl {
                                                                const ArgType& fraction,
                                                                const cctz::time_zone& time_zone) {
         DateV2Value<DateTimeV2ValueType> dt;
-        // 9 is nanoseconds, our input's scale is 6
-        dt.from_unixtime(interger, (int32_t)fraction * common::exp10_i32(9 - Scale), time_zone, 6);
+        dt.from_unixtime(static_cast<int64_t>(interger),
+                         static_cast<int32_t>(fraction) * common::exp10_i32(9 - Scale), time_zone,
+                         6);
         return dt;
     }
 
@@ -529,8 +530,9 @@ struct FromUnixTimeDecimalImpl {
         }
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
-            if (!dt.to_format_string_conservative(format.data, format.size, buf,
-                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+            if (!dt.to_format_string_conservative(
+                        format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN,
+                        static_cast<int32_t>(fraction) * common::exp10_i32(9 - Scale))) {
                 return true;
             }
 
@@ -726,8 +728,17 @@ public:
             TimeValue::TimeType time = get_time_value(datetime_val);
 
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
-            if (!TimeValue::to_format_string_conservative(format.data, format.size, buf,
-                                                          100 + SAFE_FORMAT_STRING_MARGIN, time)) {
+            const bool formatted = [&]() {
+                if constexpr (ArgPType == PrimitiveType::TYPE_TIMESTAMP_NS) {
+                    return TimeValue::to_format_string_conservative(
+                            format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN, time,
+                            datetime_val.nanosecond());
+                } else {
+                    return TimeValue::to_format_string_conservative(
+                            format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN, time);
+                }
+            }();
+            if (!formatted) {
                 null_map_data[i] = 1;
                 res_offsets.push_back(res_chars.size());
                 continue;

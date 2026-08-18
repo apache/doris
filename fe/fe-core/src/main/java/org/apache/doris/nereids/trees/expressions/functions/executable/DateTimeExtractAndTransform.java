@@ -733,8 +733,6 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "from_unixtime")
     public static Expression fromUnixTime(BigIntLiteral second, StringLikeLiteral format) {
-        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-
         if (second.getValue() < 0) {
             throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
         }
@@ -749,7 +747,7 @@ public class DateTimeExtractAndTransform {
         if (datetime.checkRange()) {
             throw new AnalysisException("Operation from_unixtime of " + second.getValue() + " out of range");
         }
-        return dateFormat(datetime, format);
+        return formatFromUnixTime(datetime, format, 0);
     }
 
     /**
@@ -772,13 +770,11 @@ public class DateTimeExtractAndTransform {
         if (second.signum() < 0) {
             throw new AnalysisException("Operation from_unixtime of " + second + " out of range");
         }
-        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
-        BigDecimal microSeconds = second.movePointRight(second.scale()).setScale(0, RoundingMode.DOWN);
-        ZonedDateTime dateTime = LocalDateTime.of(1970, 1, 1, 0, 0, 0)
-                .plus(microSeconds.longValue(), ChronoUnit.MICROS)
-                .atZone(ZoneId.of("UTC+0"))
-                .toOffsetDateTime()
-                .atZoneSameInstant(DateUtils.getTimeZone());
+        long epochSecond = second.setScale(0, RoundingMode.DOWN).longValueExact();
+        int nanosecond = second.subtract(BigDecimal.valueOf(epochSecond)).movePointRight(9)
+                .setScale(0, RoundingMode.DOWN).intValueExact();
+        ZonedDateTime dateTime = Instant.ofEpochSecond(epochSecond, nanosecond)
+                .atZone(DateUtils.getTimeZone());
         DateTimeV2Literal datetime = new DateTimeV2Literal(DateTimeV2Type.of(6), dateTime.getYear(),
                 dateTime.getMonthValue(),
                 dateTime.getDayOfMonth(), dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond(),
@@ -786,7 +782,18 @@ public class DateTimeExtractAndTransform {
         if (datetime.checkRange()) {
             throw new AnalysisException("Operation from_unixtime of " + second + " out of range");
         }
-        return dateFormat(datetime, format);
+        return formatFromUnixTime(datetime, format, nanosecond);
+    }
+
+    private static Expression formatFromUnixTime(DateTimeV2Literal datetime,
+            StringLikeLiteral format, int nanosecond) {
+        if (StringUtils.trim(format.getValue()).length() > 128) {
+            throw new AnalysisException("The length of format string in date_format() function should not be greater"
+                    + " than 128.");
+        }
+        format = (StringLikeLiteral) SupportJavaDateFormatter.translateJavaFormatter(format);
+        return new VarcharLiteral(DateTimeFormatterUtils.toFormatStringConservative(
+                datetime, format, false, nanosecond));
     }
 
     /**

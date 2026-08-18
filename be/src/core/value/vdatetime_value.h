@@ -907,7 +907,7 @@ public:
     // so need a little big buffer and its length as max_valid_length to make sure store valid data.
     // to make sure of this. make the buffer size = <data_need_length> + SAFE_FORMAT_STRING_MARGIN. and pass this size as max_valid_length
     bool to_format_string_conservative(const char* format, size_t len, char* to,
-                                       size_t max_valid_length) const;
+                                       size_t max_valid_length, int nanosecond = -1) const;
 
     bool from_date_format_str(const char* format, size_t format_len, const char* value,
                               size_t value_len) {
@@ -1770,7 +1770,7 @@ public:
     static bool to_format_string_without_check(const char* format, size_t len, char* to,
                                                size_t max_valid_length, int16_t year, int8_t month,
                                                int8_t day, int hour, int minute, int second,
-                                               int ms);
+                                               int microsecond, int nanosecond = -1);
 
 private:
     static uint8_t week(int16_t year, int8_t month, int8_t day, uint8_t mode);

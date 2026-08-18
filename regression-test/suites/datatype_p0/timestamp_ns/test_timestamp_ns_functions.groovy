@@ -42,7 +42,12 @@ suite("test_timestamp_ns_functions") {
         select
             year(cast('2024-02-29 12:34:56.123456789' as timestamp_ns)),
             date_format(cast('2024-02-29 12:34:56.123456789' as timestamp_ns),
-                        '%Y-%m-%d %H:%i:%s.%f'),
+                        '%Y-%m-%d %H:%i:%s.%f|%n'),
+            time_format(cast('2024-02-29 12:34:56.123456789' as timestamp_ns),
+                        '%H:%i:%s.%f|%n'),
+            from_unixtime(0.123456789, '%Y-%m-%d %H:%i:%s.%f|%n'),
+            from_unixtime(0, '%n'),
+            from_unixtime(0.000000001, '%n'),
             time(cast('2024-02-29 12:34:56.123456789' as timestamp_ns)),
             seconds_add(cast('1969-12-31 23:59:59.999999999' as timestamp_ns), 1),
             timediff(cast('1970-01-01 00:00:01.123456789' as timestamp_ns),
@@ -62,6 +67,17 @@ suite("test_timestamp_ns_functions") {
     sql "set debug_skip_fold_constant = false"
     testFoldConst(scalarFunctionConstantsSql)
 
+    def legacyDatetimeTimeFormatSql = """
+        select
+            date_format(cast('2024-02-29 12:34:56.123456' as datetimev2(6)), '%f|%n'),
+            time_format(cast('2024-02-29 12:34:56.123456' as datetimev2(6)), '%f|%n'),
+            time_format(cast('12:34:56.123456' as time(6)), '%f|%n')
+    """
+    qt_legacy_datetime_time_format_fold legacyDatetimeTimeFormatSql
+    sql "set debug_skip_fold_constant = true"
+    qt_legacy_datetime_time_format_runtime legacyDatetimeTimeFormatSql
+    sql "set debug_skip_fold_constant = false"
+
     qt_timezone_inputs """
         select
             year(cast('2024-02-29 12:34:56.123456789+08:00' as timestamp_ns)),
@@ -77,7 +93,7 @@ suite("test_timestamp_ns_functions") {
             time(cast('1969-12-31 23:59:59.999999499' as timestamp_ns)),
             time(cast('1969-12-31 23:59:59.999999500' as timestamp_ns)),
             date_format(cast('1677-09-21 00:12:43.145224192' as timestamp_ns),
-                        '%Y-%m-%d %H:%i:%s.%f'),
+                        '%Y-%m-%d %H:%i:%s.%f|%n'),
             timediff(cast('1970-01-01 00:00:00.000000000' as timestamp_ns),
                      cast('1969-12-31 23:59:59.999999999' as timestamp_ns)),
             microseconds_diff(cast('1970-01-01 00:00:00.000000000' as timestamp_ns),
@@ -107,7 +123,9 @@ suite("test_timestamp_ns_functions") {
     order_qt_format_and_convert """
         select id,
                date_format(value, '%Y-%m-%d %H:%i:%s.%f'),
+               date_format(value, '%Y-%m-%d %H:%i:%s.%n'),
                time_format(value, '%H:%i:%s.%f'),
+               time_format(value, '%H:%i:%s.%n'),
                to_iso8601(value),
                cast(to_json(value) as string),
                date(value), datev2(value), to_date(value), to_datev2(value),
