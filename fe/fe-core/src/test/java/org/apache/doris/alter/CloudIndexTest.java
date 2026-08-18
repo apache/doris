@@ -649,4 +649,86 @@ public class CloudIndexTest {
         Assert.assertEquals("true", table.getIndexes().get(0).getProperties().get("support_phrase"));
         Assert.assertEquals("true", table.getIndexes().get(0).getProperties().get("lower_case"));
     }
+
+    @Test
+    public void testSchemaChangeWaitsWhenConflictTxnAbortFails() throws Exception {
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+
+        SystemInfoService cloudSystemInfo = Env.getCurrentSystemInfo();
+        if (fakeEnv != null) {
+            fakeEnv.close();
+        }
+        fakeEnv = new FakeEnv();
+        if (fakeEditLog != null) {
+            fakeEditLog.close();
+        }
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        FakeEnv.setSystemInfo(cloudSystemInfo);
+        schemaChangeHandler = (SchemaChangeHandler) new Alter().getSchemaChangeHandler();
+
+        Assert.assertTrue(Env.getCurrentInternalCatalog() instanceof CloudInternalCatalog);
+        Assert.assertTrue(Env.getCurrentSystemInfo() instanceof CloudSystemInfoService);
+        CatalogTestUtil.createDupTable(db);
+        OlapTable table = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
+        DataSortInfo dataSortInfo = new DataSortInfo();
+        dataSortInfo.setSortType(TSortType.LEXICAL);
+        table.setDataSortInfo(dataSortInfo);
+        table.setInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.V2);
+
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("parser", "english");
+        properties.put("support_phrase", "true");
+        properties.put("lower_case", "true");
+        IndexDefinition indexDefinition = new IndexDefinition("conflict_txn_abort_index", false,
+                Lists.newArrayList(table.getBaseSchema().get(2).getName()),
+                "INVERTED",
+                properties, "tokenized inverted index with conflict txn abort");
+        TableNameInfo tableNameInfo = new TableNameInfo(masterEnv.getInternalCatalog().getName(), db.getName(),
+                table.getName());
+        createIndexOp = new CreateIndexOp(tableNameInfo, indexDefinition, false);
+        createIndexOp.validate(new ConnectContext());
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(createIndexOp);
+        schemaChangeHandler.process(alterOps, db, table);
+        Map<Long, AlterJobV2> indexChangeJobMap = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(1, indexChangeJobMap.size());
+
+        SchemaChangeJobV2 jobV2 = (SchemaChangeJobV2) indexChangeJobMap.values().stream()
+                .findFirst()
+                .orElse(null);
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+
+        Mockito.doAnswer(invocation -> {
+            Cloud.TxnCoordinatorPB coordinator = Cloud.TxnCoordinatorPB.newBuilder()
+                    .setSourceType(Cloud.TxnSourceTypePB.TXN_SOURCE_TYPE_FE)
+                    .setIp("offline-fe")
+                    .setId(1L)
+                    .setStartTime(1L)
+                    .build();
+            Cloud.TxnInfoPB txnInfo = Cloud.TxnInfoPB.newBuilder()
+                    .setDbId(CatalogTestUtil.testDbId1)
+                    .addAllTableIds(Lists.newArrayList(CatalogTestUtil.testTableId2))
+                    .setTxnId(1002L)
+                    .setLabel("conflict_txn")
+                    .setListenerId(0L)
+                    .setStatus(Cloud.TxnStatusPB.TXN_STATUS_PREPARED)
+                    .setCoordinator(coordinator)
+                    .build();
+            return Cloud.CheckTxnConflictResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(MetaServiceCode.OK).setMsg("OK"))
+                    .addConflictTxns(txnInfo)
+                    .build();
+        }).when(mockProxy).checkTxnConflict(Mockito.any());
+        Mockito.doAnswer(invocation -> Cloud.GetTxnResponse.newBuilder()
+                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                        .setCode(MetaServiceCode.TXN_ID_NOT_FOUND).setMsg("txn not found"))
+                .build()).when(mockProxy).getTxn(Mockito.any());
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(AlterJobV2.JobState.WAITING_TXN, jobV2.getJobState());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, table.getState());
+    }
 }

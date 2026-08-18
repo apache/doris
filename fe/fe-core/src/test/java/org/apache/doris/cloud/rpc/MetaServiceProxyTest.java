@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.rpc.RpcException;
 
+import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.protobuf.DescriptorProtos;
 import com.google.protobuf.Descriptors;
@@ -474,11 +475,18 @@ public class MetaServiceProxyTest {
 
     @Test
     public void testGetVisibleVersionAsyncRateLimitedBeforeRpc() throws RpcException {
-        enableRateLimit(1, "", 1, 0);
+        // Consume limitForPeriod = qpsPerCore * CPU_CORES * burstSeconds in one weighted request.
+        // A long burst window also prevents a refresh before the assertion if the scheduler stalls.
+        int qpsPerCore = 1;
+        int rateLimitBurstSeconds = 60;
+        int limitForPeriod = qpsPerCore * CPU_CORES * rateLimitBurstSeconds;
+        enableRateLimit(qpsPerCore, "", rateLimitBurstSeconds, 0);
         MetaServiceProxy proxy = new MetaServiceProxy();
         MetaServiceClient client = mockNormalClient();
         putClient(proxy, client);
-        consumeRateLimitPermits(proxy, "getPartitionVersion");
+        Mockito.when(client.getVisibleVersionAsync(Mockito.any()))
+                .thenReturn(Futures.immediateFuture(okGetVersionResponse()));
+        proxy.getVisibleVersionAsync(buildBatchPartitionVersionRequest(limitForPeriod));
 
         try {
             proxy.getVisibleVersionAsync(Cloud.GetVersionRequest.newBuilder().build());
@@ -487,7 +495,7 @@ public class MetaServiceProxyTest {
             Assert.assertTrue(e.getMessage().contains("meta service rpc rate limited"));
         }
 
-        Mockito.verify(client, Mockito.never()).getVisibleVersionAsync(Mockito.any());
+        Mockito.verify(client, Mockito.times(1)).getVisibleVersionAsync(Mockito.any());
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
     }
 
@@ -497,8 +505,8 @@ public class MetaServiceProxyTest {
         MetaServiceProxy proxy = new MetaServiceProxy();
         MetaServiceClient client = mockNormalClient();
         putClient(proxy, client);
-        SettableFuture<Cloud.GetVersionResponse> future = SettableFuture.create();
-        Mockito.when(client.getVisibleVersionAsync(Mockito.any())).thenReturn(future);
+        Mockito.when(client.getVisibleVersionAsync(Mockito.any()))
+                .thenReturn(Futures.immediateFuture(okGetVersionResponse()));
 
         proxy.getVisibleVersionAsync(buildBatchTableVersionRequest(CPU_CORES));
 
