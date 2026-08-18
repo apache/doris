@@ -23,6 +23,9 @@
 #include <arrow/type.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstring>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -40,6 +43,59 @@ std::shared_ptr<arrow::Array> build_large_string(const std::vector<std::string>&
     EXPECT_TRUE(b.Finish(&out).ok());
     return out;
 }
+
+class AllocateBeforeFreeMemoryPool : public arrow::MemoryPool {
+public:
+    explicit AllocateBeforeFreeMemoryPool(arrow::MemoryPool* delegate) : _delegate(delegate) {}
+
+    arrow::Status Allocate(int64_t size, int64_t alignment, uint8_t** out) override {
+        auto status = _delegate->Allocate(size, alignment, out);
+        if (status.ok()) {
+            _record_allocation(size);
+        }
+        return status;
+    }
+
+    arrow::Status Reallocate(int64_t old_size, int64_t new_size, int64_t alignment,
+                             uint8_t** ptr) override {
+        uint8_t* replacement = nullptr;
+        auto status = _delegate->Allocate(new_size, alignment, &replacement);
+        if (!status.ok()) {
+            return status;
+        }
+        std::memcpy(replacement, *ptr, static_cast<size_t>(std::min(old_size, new_size)));
+        _record_allocation(new_size);
+        _delegate->Free(*ptr, old_size, alignment);
+        _bytes_allocated -= old_size;
+        *ptr = replacement;
+        return arrow::Status::OK();
+    }
+
+    void Free(uint8_t* buffer, int64_t size, int64_t alignment) override {
+        _delegate->Free(buffer, size, alignment);
+        _bytes_allocated -= size;
+    }
+
+    int64_t bytes_allocated() const override { return _bytes_allocated; }
+    int64_t max_memory() const override { return _max_memory; }
+    int64_t total_bytes_allocated() const override { return _total_bytes_allocated; }
+    int64_t num_allocations() const override { return _num_allocations; }
+    std::string backend_name() const override { return "allocate-before-free-test"; }
+
+private:
+    void _record_allocation(int64_t size) {
+        _bytes_allocated += size;
+        _max_memory = std::max(_max_memory, _bytes_allocated);
+        _total_bytes_allocated += size;
+        ++_num_allocations;
+    }
+
+    arrow::MemoryPool* _delegate;
+    int64_t _bytes_allocated = 0;
+    int64_t _max_memory = 0;
+    int64_t _total_bytes_allocated = 0;
+    int64_t _num_allocations = 0;
+};
 
 } // namespace
 
@@ -213,6 +269,62 @@ TEST(ArrowArrayNormalizerTest, ListViewCanonicalizationUsesCallerMemoryPool) {
     EXPECT_GT(pool.bytes_allocated(), 0);
     out.reset();
     EXPECT_EQ(pool.bytes_allocated(), 0);
+}
+
+TEST(ArrowArrayNormalizerTest, ListViewPreReservesExpandedChildAllocation) {
+    constexpr int32_t kRows = 1025;
+    constexpr int32_t kValuesPerRow = 1000;
+    arrow::Int32Builder offsets_builder;
+    ASSERT_TRUE(offsets_builder.AppendValues(std::vector<int32_t>(kRows, 0)).ok());
+    std::shared_ptr<arrow::Array> offsets;
+    ASSERT_TRUE(offsets_builder.Finish(&offsets).ok());
+
+    arrow::Int32Builder sizes_builder;
+    ASSERT_TRUE(sizes_builder.AppendValues(std::vector<int32_t>(kRows, kValuesPerRow)).ok());
+    std::shared_ptr<arrow::Array> sizes;
+    ASSERT_TRUE(sizes_builder.Finish(&sizes).ok());
+
+    arrow::Int32Builder values_builder;
+    ASSERT_TRUE(values_builder.AppendValues(std::vector<int32_t>(kValuesPerRow, 7)).ok());
+    std::shared_ptr<arrow::Array> values;
+    ASSERT_TRUE(values_builder.Finish(&values).ok());
+
+    auto in = arrow::ListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    AllocateBeforeFreeMemoryPool pool(arrow::default_memory_pool());
+    std::shared_ptr<arrow::Array> out;
+    ASSERT_TRUE(normalize_arrow_array(in, &pool, &out).ok());
+    EXPECT_LE(pool.max_memory(), pool.bytes_allocated() + 256 * 1024);
+}
+
+TEST(ArrowArrayNormalizerTest, NestedListViewOverflowIsRejectedBeforeAllocation) {
+    const int64_t range_length = std::numeric_limits<int64_t>::max() - 1;
+    arrow::Int64Builder inner_offsets_builder;
+    ASSERT_TRUE(inner_offsets_builder.AppendValues({0, 0}).ok());
+    std::shared_ptr<arrow::Array> inner_offsets;
+    ASSERT_TRUE(inner_offsets_builder.Finish(&inner_offsets).ok());
+    arrow::Int64Builder inner_sizes_builder;
+    ASSERT_TRUE(inner_sizes_builder.AppendValues({range_length, range_length}).ok());
+    std::shared_ptr<arrow::Array> inner_sizes;
+    ASSERT_TRUE(inner_sizes_builder.Finish(&inner_sizes).ok());
+    auto null_values = std::make_shared<arrow::NullArray>(std::numeric_limits<int64_t>::max());
+    auto inner = arrow::LargeListViewArray::FromArrays(*inner_offsets, *inner_sizes, *null_values)
+                         .ValueOrDie();
+
+    arrow::Int64Builder outer_offsets_builder;
+    ASSERT_TRUE(outer_offsets_builder.Append(0).ok());
+    std::shared_ptr<arrow::Array> outer_offsets;
+    ASSERT_TRUE(outer_offsets_builder.Finish(&outer_offsets).ok());
+    arrow::Int64Builder outer_sizes_builder;
+    ASSERT_TRUE(outer_sizes_builder.Append(2).ok());
+    std::shared_ptr<arrow::Array> outer_sizes;
+    ASSERT_TRUE(outer_sizes_builder.Finish(&outer_sizes).ok());
+    auto outer = arrow::LargeListViewArray::FromArrays(*outer_offsets, *outer_sizes, *inner)
+                         .ValueOrDie();
+
+    arrow::ProxyMemoryPool pool(arrow::default_memory_pool());
+    std::shared_ptr<arrow::Array> out;
+    EXPECT_FALSE(normalize_arrow_array(outer, &pool, &out).ok());
+    EXPECT_EQ(pool.max_memory(), 0);
 }
 
 TEST(ArrowArrayNormalizerTest, NullableListViewSlicePreservesValidity) {

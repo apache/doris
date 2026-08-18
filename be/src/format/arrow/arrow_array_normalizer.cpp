@@ -24,6 +24,7 @@
 #include <arrow/compute/cast.h>
 #include <arrow/type.h>
 
+#include <limits>
 #include <memory>
 
 #include "common/check.h"
@@ -51,7 +52,28 @@ std::shared_ptr<arrow::DataType> target_type_for(const arrow::DataType& type) {
     }
 }
 
-template <typename ViewArray, typename ListBuilder, typename ListArray>
+bool contains_list_view(const arrow::DataType& type) {
+    switch (type.id()) {
+    case arrow::Type::LIST_VIEW:
+    case arrow::Type::LARGE_LIST_VIEW:
+        return true;
+    case arrow::Type::DICTIONARY:
+        return contains_list_view(*static_cast<const arrow::DictionaryType&>(type).value_type());
+    case arrow::Type::RUN_END_ENCODED:
+        return contains_list_view(*static_cast<const arrow::RunEndEncodedType&>(type).value_type());
+    case arrow::Type::EXTENSION:
+        return contains_list_view(*static_cast<const arrow::ExtensionType&>(type).storage_type());
+    default:
+        for (const auto& field : type.fields()) {
+            if (contains_list_view(*field->type())) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+template <typename OffsetType, typename ViewArray, typename ListBuilder, typename ListArray>
 arrow::Result<std::shared_ptr<arrow::Array>> canonicalize_list_view(const ViewArray& source,
                                                                     arrow::MemoryPool* pool) {
     // Imported C stream arrays are not guaranteed to have validated ranges; copying an invalid
@@ -61,6 +83,24 @@ arrow::Result<std::shared_ptr<arrow::Array>> canonicalize_list_view(const ViewAr
         return validation;
     }
 
+    // Preflight the full expansion before any builder mutation. Nested view builders and Arrow's
+    // NullBuilder can otherwise overflow signed lengths before their parent reports capacity.
+    if (contains_list_view(*source.value_type())) {
+        return arrow::Status::Invalid("nested list view canonicalization is not supported");
+    }
+    int64_t logical_value_count = 0;
+    constexpr int64_t max_value_count = std::numeric_limits<OffsetType>::max();
+    for (int64_t i = 0; i < source.length(); ++i) {
+        if (source.IsNull(i)) {
+            continue;
+        }
+        const int64_t value_length = source.value_length(i);
+        if (value_length > max_value_count - logical_value_count) {
+            return arrow::Status::CapacityError("list view logical values exceed output capacity");
+        }
+        logical_value_count += value_length;
+    }
+
     auto child_builder_result = arrow::MakeBuilder(source.value_type(), pool);
     if (!child_builder_result.ok()) {
         return child_builder_result.status();
@@ -68,6 +108,10 @@ arrow::Result<std::shared_ptr<arrow::Array>> canonicalize_list_view(const ViewAr
     std::shared_ptr<arrow::ArrayBuilder> child_builder(child_builder_result.MoveValueUnsafe());
     ListBuilder builder(pool, child_builder);
     auto reserve_status = builder.Reserve(source.length());
+    if (!reserve_status.ok()) {
+        return reserve_status;
+    }
+    reserve_status = child_builder->Reserve(logical_value_count);
     if (!reserve_status.ok()) {
         return reserve_status;
     }
@@ -147,8 +191,8 @@ Status normalize_arrow_array(const std::shared_ptr<arrow::Array>& arr, arrow::Me
         // List views may share or reorder value ranges, so rebuild canonical offsets instead of
         // exposing their buffers to a serde that requires contiguous list values.
         if (type.id() == arrow::Type::LIST_VIEW) {
-            auto converted = canonicalize_list_view<arrow::ListViewArray, arrow::ListBuilder,
-                                                    arrow::ListArray>(
+            auto converted = canonicalize_list_view<int32_t, arrow::ListViewArray,
+                                                    arrow::ListBuilder, arrow::ListArray>(
                     static_cast<const arrow::ListViewArray&>(*current), pool);
             if (!converted.ok()) {
                 return Status::InternalError("ADBC: failed to normalize arrow type '{}': {}",
@@ -158,7 +202,7 @@ Status normalize_arrow_array(const std::shared_ptr<arrow::Array>& arr, arrow::Me
             continue;
         }
         if (type.id() == arrow::Type::LARGE_LIST_VIEW) {
-            auto converted = canonicalize_list_view<arrow::LargeListViewArray,
+            auto converted = canonicalize_list_view<int64_t, arrow::LargeListViewArray,
                                                     arrow::LargeListBuilder, arrow::LargeListArray>(
                     static_cast<const arrow::LargeListViewArray&>(*current), pool);
             if (!converted.ok()) {
