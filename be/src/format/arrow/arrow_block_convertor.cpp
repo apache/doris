@@ -113,14 +113,12 @@ bool is_declared_canonical_binding(const DataTypePtr& type,
         return target_type->id() == arrow::Type::STRING ||
                target_type->id() == arrow::Type::LARGE_STRING ||
                target_type->id() == arrow::Type::BINARY ||
-               target_type->id() == arrow::Type::LARGE_BINARY ||
-               target_type->id() == arrow::Type::FIXED_SIZE_BINARY;
+               target_type->id() == arrow::Type::LARGE_BINARY;
     }
     if (primitive == TYPE_VARBINARY) {
         return target_type->id() == arrow::Type::STRING ||
                target_type->id() == arrow::Type::BINARY ||
-               target_type->id() == arrow::Type::LARGE_BINARY ||
-               target_type->id() == arrow::Type::FIXED_SIZE_BINARY;
+               target_type->id() == arrow::Type::LARGE_BINARY;
     }
     if (primitive == TYPE_VARIANT) {
         return target_type->id() == arrow::Type::STRING ||

@@ -655,8 +655,10 @@ public class IcebergUtils {
                         : Type.STRING;
             case FIXED:
                 Types.FixedType fixed = (Types.FixedType) primitive;
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fixed.length())
-                        : ScalarType.createCharType(fixed.length());
+                // Iceberg fixed(N) is an arbitrary N-byte value, not text. Keep its binary
+                // semantics independent of the compatibility switch used by variable-length
+                // BINARY and UUID mappings.
+                return ScalarType.createVarbinaryType(fixed.length());
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
                 return ScalarType.createDecimalV3Type(decimal.precision(), decimal.scale());
