@@ -276,13 +276,16 @@ public class PhysicalLazyMaterialize<CHILD_TYPE extends Plan> extends PhysicalUn
      * slot lists, which carry no memo reference, are reused as is.
      *
      * @param newChild the already detached child plan
+     * @param originalToClone mapping from the original plan nodes to their detached copies
+     * @param rfCloneMap shared cache of cloned runtime filters
      */
-    public PhysicalLazyMaterialize<Plan> copyDetachedFromMemo(Plan newChild) {
+    PhysicalLazyMaterialize<Plan> copyDetachedFromMemo(Plan newChild,
+            Map<Plan, Plan> originalToClone, Map<RuntimeFilter, RuntimeFilter> rfCloneMap) {
         Map<Relation, List<Slot>> newRelationToLazySlotMap = new HashMap<>();
         Map<Relation, Relation> detachedRelationMap = new IdentityHashMap<>();
         for (Map.Entry<Relation, List<Slot>> entry : relationToLazySlotMap.entrySet()) {
             Relation detached = (Relation) AbstractPhysicalPlan.copyPlanDetachedFromMemo(
-                    (PhysicalPlan) entry.getKey());
+                    (PhysicalPlan) entry.getKey(), originalToClone, rfCloneMap);
             detachedRelationMap.put(entry.getKey(), detached);
             newRelationToLazySlotMap.put(detached, entry.getValue());
         }

@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
@@ -34,6 +35,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.DistributeType;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -43,7 +46,10 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggrega
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.statistics.Statistics;
+import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
@@ -63,7 +69,7 @@ import java.util.Optional;
 /**
  * Tests for {@link AbstractPhysicalPlan#copyPlanDetachedFromMemo(PhysicalPlan)}:
  * the copy must clear every node's group expression (breaking the reference to the memo)
- * while preserving node ids, statistics, physical properties and group ids.
+ * while preserving node ids, statistics, physical properties, group ids and runtime filters.
  */
 public class PhysicalPlanDetachTest {
 
@@ -204,6 +210,50 @@ public class PhysicalPlanDetachTest {
         Assertions.assertEquals(1, copy.getRelations().size());
         Assertions.assertNotSame(scan, copy.getRelations().get(0));
         Assertions.assertTrue(((Plan) copy.getRelations().get(0)).getGroupExpression().isEmpty());
+    }
+
+    @Test
+    public void testDetachRuntimeFilters() {
+        PhysicalOlapScan scan = olapScan();
+        PhysicalOneRowRelation left = oneRow();
+        PhysicalHashJoin<Plan, Plan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(), ImmutableList.of(), new DistributeHint(DistributeType.NONE),
+                Optional.empty(), Optional.empty(), LOGICAL_PROPERTIES, left, scan);
+        join = attachToGroup(join).withPhysicalPropertiesAndStats(PhysicalProperties.GATHER, STATS);
+
+        SlotReference src = new SlotReference(new ExprId(0), "src", BigIntType.INSTANCE,
+                true, Lists.newArrayList());
+        SlotReference target = new SlotReference(new ExprId(1), "target", BigIntType.INSTANCE,
+                true, Lists.newArrayList());
+        RuntimeFilter rf = new RuntimeFilter(RuntimeFilterId.createGenerator().getNextId(), src,
+                target, target, TRuntimeFilterType.IN_OR_BLOOM, 0, join, -1L, true,
+                TMinMaxRuntimeFilterType.MIN_MAX, scan);
+        scan.addAppliedRuntimeFilter(rf);
+        Assertions.assertEquals(1, join.getRuntimeFilters().size());
+        Assertions.assertEquals(1, scan.getAppliedRuntimeFilters().size());
+
+        PhysicalPlan detached = AbstractPhysicalPlan.copyPlanDetachedFromMemo(join);
+        PhysicalHashJoin<?, ?> joinCopy = (PhysicalHashJoin<?, ?>) detached;
+        PhysicalOlapScan scanCopy = (PhysicalOlapScan) detached.child(1);
+
+        // The cloned join keeps its runtime filter, re-pointed to the cloned nodes.
+        Assertions.assertEquals(1, joinCopy.getRuntimeFilters().size());
+        RuntimeFilter rfCopy = joinCopy.getRuntimeFilters().get(0);
+        Assertions.assertSame(joinCopy, rfCopy.getBuilderNode());
+        Assertions.assertNotSame(join, rfCopy.getBuilderNode());
+        Assertions.assertSame(scanCopy, rfCopy.getTargetScan());
+        Assertions.assertNotSame(scan, rfCopy.getTargetScan());
+        Assertions.assertTrue(rfCopy.getTargetScan().getGroupExpression().isEmpty());
+        // The cloned scan keeps the applied runtime filter (same object as on the join).
+        Assertions.assertEquals(1, scanCopy.getAppliedRuntimeFilters().size());
+        Assertions.assertSame(rfCopy, scanCopy.getAppliedRuntimeFilters().get(0));
+        // The printed plan keeps the RF information.
+        Assertions.assertTrue(joinCopy.toString().contains("RFs"));
+        // The original tree is untouched.
+        Assertions.assertEquals(1, join.getRuntimeFilters().size());
+        Assertions.assertSame(join, join.getRuntimeFilters().get(0).getBuilderNode());
+        Assertions.assertEquals(1, scan.getAppliedRuntimeFilters().size());
+        Assertions.assertSame(rf, scan.getAppliedRuntimeFilters().get(0));
     }
 
     @Test
