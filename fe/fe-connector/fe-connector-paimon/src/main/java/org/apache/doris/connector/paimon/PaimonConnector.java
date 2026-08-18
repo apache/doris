@@ -41,19 +41,29 @@ import org.apache.doris.kerberos.KerberosAuthenticationConfig;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.catalog.CachingCatalog;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.fs.FileIO;
+import org.apache.paimon.fs.Path;
+import org.apache.paimon.hive.HiveCatalog;
+import org.apache.paimon.hive.HiveCatalogOptions;
+import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.privilege.PrivilegedCatalog;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
@@ -454,7 +464,7 @@ public class PaimonConnector implements Connector {
                         options.get("client-pool-cache.keys")));
                 HadoopAuthenticator hmsAuth = buildHmsAuthenticator(catalogProps.getRaw(), storageHadoopConfig);
                 return createCatalogFromContext(CatalogContext.create(options, hc), flavor,
-                        hmsAuth,
+                        hmsAuth, storageHadoopConfig,
                         "Failed to create Paimon catalog with HMS metastore");
             }
             default:
@@ -486,11 +496,11 @@ public class PaimonConnector implements Connector {
     }
 
     private Catalog createCatalogFromContext(CatalogContext catalogContext, String flavor, String failureMessage) {
-        return createCatalogFromContext(catalogContext, flavor, null, failureMessage);
+        return createCatalogFromContext(catalogContext, flavor, null, Collections.emptyMap(), failureMessage);
     }
 
     private Catalog createCatalogFromContext(CatalogContext catalogContext, String flavor,
-            HadoopAuthenticator hmsAuth, String failureMessage) {
+            HadoopAuthenticator hmsAuth, Map<String, String> storageHadoopConfig, String failureMessage) {
         // Pin the thread-context classloader to the plugin loader for the duration of catalog
         // creation (FIX-PAIMON-HADOOP-CLASSLOADER). Hadoop's FileSystem ServiceLoader
         // (FileSystem.loadFileSystems -> ServiceLoader.load(FileSystem.class)) and SecurityUtil's
@@ -503,18 +513,46 @@ public class PaimonConnector implements Connector {
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
             return context.executeAuthenticated(() -> {
-                // Paimon's CachedClientPool eagerly opens a SIMPLE client in the HiveCatalog constructor, so
-                // construction must cross the HMS boundary too. FileIO only stores its configuration here and
-                // still creates filesystems lazily under the connector's separate storage authenticator.
-                Catalog catalog = hmsAuth == null
-                        ? CatalogFactory.createCatalog(catalogContext)
-                        : hmsAuth.doAs(() -> CatalogFactory.createCatalog(catalogContext));
-                return PaimonHmsClientPool.install(catalog, hmsAuth);
+                Catalog catalog = PaimonCatalogProperties.HMS.equals(flavor)
+                        ? createHmsCatalog(catalogContext, hmsAuth, catalogProps.getRaw(),
+                                storageHadoopConfig)
+                        : CatalogFactory.createCatalog(catalogContext);
+                return catalog;
             });
         } catch (Exception e) {
             throw new RuntimeException(failureMessage + " (flavor=" + flavor + "): " + e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    static Catalog createHmsCatalog(CatalogContext catalogContext, HadoopAuthenticator hmsAuth,
+            Map<String, String> properties, Map<String, String> storageHadoopConfig) {
+        HiveConf hiveConf = HiveCatalog.createHiveConf(catalogContext);
+        Options options = catalogContext.options();
+        String warehouse = options.get(CatalogOptions.WAREHOUSE);
+        if (warehouse == null) {
+            warehouse = hiveConf.get(HiveConf.ConfVars.METASTOREWAREHOUSE.varname,
+                    HiveConf.ConfVars.METASTOREWAREHOUSE.defaultStrVal);
+        }
+        Path warehousePath = new Path(warehouse);
+        Path fileIoPath = warehousePath.toUri().getScheme() == null
+                ? new Path(FileSystem.getDefaultUri(hiveConf)) : warehousePath;
+        try {
+            FileIO fileIO = FileIO.get(fileIoPath, catalogContext);
+            // Paimon checks or creates the warehouse eagerly; it must retain the outer storage identity.
+            fileIO.checkOrMkdirs(warehousePath);
+            String clientClass = options.get(HiveCatalogOptions.METASTORE_CLIENT_CLASS);
+            Catalog catalog = hmsAuth == null
+                    ? new HiveCatalog(fileIO, hiveConf, clientClass, options, warehousePath.toUri().toString())
+                    : hmsAuth.doAs(() -> new HiveCatalog(
+                            fileIO, hiveConf, clientClass, options, warehousePath.toUri().toString()));
+            catalog = PaimonHmsClientPool.install(catalog, hmsAuth);
+            catalog = PaimonHmsCatalog.install(catalog, properties, storageHadoopConfig);
+            catalog = CachingCatalog.tryToCreate(catalog, options);
+            return PrivilegedCatalog.tryToCreate(catalog, options);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 
@@ -529,11 +567,21 @@ public class PaimonConnector implements Connector {
             return required;
         }
         for (String element : existing.split(",")) {
-            if (required.equalsIgnoreCase(element.trim())) {
+            if (sameCacheKey(required, element.trim())) {
                 return existing;
             }
         }
         return existing + "," + required;
+    }
+
+    private static boolean sameCacheKey(String required, String existing) {
+        String prefix = "conf:";
+        if (required.regionMatches(true, 0, prefix, 0, prefix.length())
+                && existing.regionMatches(true, 0, prefix, 0, prefix.length())) {
+            // Paimon accepts a case-insensitive marker, but Configuration property names remain case-sensitive.
+            return required.substring(prefix.length()).equals(existing.substring(prefix.length()));
+        }
+        return required.equalsIgnoreCase(existing);
     }
 
     /**

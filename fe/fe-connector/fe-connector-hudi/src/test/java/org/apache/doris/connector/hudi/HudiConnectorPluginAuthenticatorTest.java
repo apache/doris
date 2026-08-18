@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.junit.jupiter.api.Assertions;
@@ -115,5 +116,28 @@ public class HudiConnectorPluginAuthenticatorTest {
                 props("hive.metastore.uris", "thrift://hms:9083",
                         "hive.metastore.authentication.type", "kerberos"));
         Assertions.assertNull(auth, "kerberos HMS without a client principal/keytab pair must not build one");
+    }
+
+    @Test
+    public void hmsClientUsesFeConfiguredSocketTimeout() {
+        ConnectorContext context = new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "test";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 1L;
+            }
+
+            @Override
+            public Map<String, String> getEnvironment() {
+                return Map.of("hive_metastore_client_timeout_second", "47");
+            }
+        };
+        HudiConnector connector = new HudiConnector(HudiTestProperties.minimalMap(), context);
+        Assertions.assertEquals("47", connector.buildHmsClientConfig().getProperties()
+                .get("hive.metastore.client.socket.timeout"));
     }
 }

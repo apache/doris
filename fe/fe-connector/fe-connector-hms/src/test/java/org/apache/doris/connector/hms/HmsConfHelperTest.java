@@ -17,10 +17,15 @@
 
 package org.apache.doris.connector.hms;
 
+import org.apache.doris.connector.spi.ConnectorContext;
+
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -38,6 +43,9 @@ import java.util.Map;
  * the injection is gated on kerberos, not just that it happens).</p>
  */
 public class HmsConfHelperTest {
+
+    @TempDir
+    Path tempDir;
 
     private static String saslOf(Map<String, String> props) {
         HiveConf conf = HmsConfHelper.createHiveConf(props);
@@ -86,6 +94,26 @@ public class HmsConfHelperTest {
     }
 
     @Test
+    public void explicitSimpleHmsOverridesSaslFromHiveConfResource() throws Exception {
+        Path resource = tempDir.resolve("hive-site.xml");
+        Files.writeString(resource, "<configuration><property>"
+                + "<name>hive.metastore.sasl.enabled</name><value>true</value>"
+                + "</property></configuration>");
+        String previous = System.setProperty("doris.hadoop.config.dir", tempDir + "/");
+        try {
+            HiveConf conf = HmsConfHelper.createHiveConfWithResources(resource.getFileName().toString(),
+                    Map.of("hive.metastore.authentication.type", "simple"));
+            Assertions.assertEquals("false", conf.get("hive.metastore.sasl.enabled"));
+        } finally {
+            if (previous == null) {
+                System.clearProperty("doris.hadoop.config.dir");
+            } else {
+                System.setProperty("doris.hadoop.config.dir", previous);
+            }
+        }
+    }
+
+    @Test
     public void noAuthPropertyDoesNotEnableSasl() {
         Map<String, String> props = new HashMap<>();
         props.put("hive.metastore.uris", "thrift://host:9083");
@@ -114,5 +142,26 @@ public class HmsConfHelperTest {
         Assertions.assertEquals("custom-value", merged.get("some.custom.key"));
         Assertions.assertEquals("thrift://host:9083", merged.get("hive.metastore.uris"));
         Assertions.assertFalse(merged.containsKey("hadoop.username"));
+    }
+
+    @Test
+    public void metastoreTimeoutFallsBackToFeEnvironment() {
+        ConnectorContext context = new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "test";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 1L;
+            }
+
+            @Override
+            public Map<String, String> getEnvironment() {
+                return Map.of("hive_metastore_client_timeout_second", "47");
+            }
+        };
+        Assertions.assertEquals("47", HmsConfHelper.metastoreClientTimeoutSecond(context));
     }
 }

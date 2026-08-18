@@ -588,16 +588,8 @@ public class HiveConnector implements Connector {
         // connector's constructor built. A catalog created before the type was removed, or one carrying no
         // metastore URI, fails when the connector is (re)built — including on the lazy build an FE does for a
         // catalog it loaded from the image — with the same messages this method used to produce.
-        int poolSize = props.getHmsClientPoolSize();
-
-        // getHmsClientProperties(), not the raw map: the metastore URI must reach HiveConf under its canonical
-        // key even when the catalog spells it with the "uri" short form.
-        AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
-                HmsClientConfig.METASTORE_TYPE_HMS, props.getHmsClientProperties(), Collections.emptyMap());
-        HmsClientConfig config = new HmsClientConfig(hms.getConfResources(),
-                HmsConfHelper.mergeCatalogProperties(
-                        props.getHmsClientProperties(), hms.toHiveConfOverrides("")),
-                poolSize);
+        HmsClientConfig config = buildHmsClientConfig();
+        int poolSize = config.getPoolSize();
         LOG.info("Creating Hive connector client for catalog='{}', uri={}, type={}, poolSize={}",
                 context.getCatalogName(), config.getMetastoreUri(),
                 config.getMetastoreType(), poolSize);
@@ -627,6 +619,16 @@ public class HiveConnector implements Connector {
         // into a dead metadata field; the fix is to build the options here where the client is constructed.
         return wrapWithCache(new ThriftHmsClient(config, authAction,
                 HiveConnectorMetadata.buildTypeMappingOptions(props)));
+    }
+
+    HmsClientConfig buildHmsClientConfig() {
+        // Use canonical properties so the URI short alias and deployment timeout both reach HiveConf.
+        AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
+                HmsClientConfig.METASTORE_TYPE_HMS, props.getHmsClientProperties(), Collections.emptyMap());
+        return new HmsClientConfig(hms.getConfResources(), HmsConfHelper.mergeCatalogProperties(
+                props.getHmsClientProperties(),
+                hms.toHiveConfOverrides(HmsConfHelper.metastoreClientTimeoutSecond(context))),
+                props.getHmsClientPoolSize());
     }
 
     /**

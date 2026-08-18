@@ -206,13 +206,8 @@ public class HudiConnector implements Connector {
         // The URI (either spelling) and the pool size were checked when this connector was constructed --
         // HudiCatalogProperties.of throws for a catalog without a metastore URI, so there is nothing left
         // to re-check here.
-        int poolSize = props.getHmsClientPoolSize();
-
-        AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
-                HmsClientConfig.METASTORE_TYPE_HMS, properties, Collections.emptyMap());
-        HmsClientConfig config = new HmsClientConfig(hms.getConfResources(),
-                HmsConfHelper.mergeCatalogProperties(properties, hms.toHiveConfOverrides("")),
-                poolSize);
+        HmsClientConfig config = buildHmsClientConfig();
+        int poolSize = config.getPoolSize();
         LOG.info("Creating Hudi connector HMS client for catalog='{}', uri={}, poolSize={}",
                 context.getCatalogName(), config.getMetastoreUri(), poolSize);
 
@@ -233,6 +228,15 @@ public class HudiConnector implements Connector {
             authAction = context::executeAuthenticated;
         }
         return wrapWithCache(new ThriftHmsClient(config, authAction));
+    }
+
+    HmsClientConfig buildHmsClientConfig() {
+        AbstractHmsMetaStoreProperties hms = (AbstractHmsMetaStoreProperties) MetaStoreProviders.bindForType(
+                HmsClientConfig.METASTORE_TYPE_HMS, properties, Collections.emptyMap());
+        // The FE fallback is deployment state, not a catalog property, but the live HiveConf still needs it.
+        return new HmsClientConfig(hms.getConfResources(), HmsConfHelper.mergeCatalogProperties(properties,
+                hms.toHiveConfOverrides(HmsConfHelper.metastoreClientTimeoutSecond(context))),
+                props.getHmsClientPoolSize());
     }
 
     /**

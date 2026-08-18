@@ -216,7 +216,10 @@ public abstract class AbstractHmsMetaStoreProperties extends AbstractMetaStorePr
         boolean hdfsFallbackKerberos = !"simple".equalsIgnoreCase(hmsAuthType)
                 && !hmsKerberos
                 && "kerberos".equalsIgnoreCase(hdfsAuthType);
-        if (hmsKerberos || hdfsFallbackKerberos) {
+        if ("simple".equalsIgnoreCase(hmsAuthType)) {
+            // Canonical HMS auth must override a SASL value inherited from raw properties or hive-site.xml.
+            conf.put("hive.metastore.sasl.enabled", "false");
+        } else if (hmsKerberos || hdfsFallbackKerberos) {
             conf.put("hadoop.security.authentication", "kerberos");
             conf.put("hive.metastore.sasl.enabled", "true");
         }

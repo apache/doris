@@ -19,6 +19,9 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.iceberg.hive.HiveCatalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -112,6 +115,38 @@ public class IcebergConnectorPluginAuthenticatorTest {
         Assertions.assertEquals(
                 "conf:hadoop.username,conf:hive.metastore.client.principal,conf:hadoop.kerberos.principal",
                 IcebergConnector.appendHmsCacheKeys("conf:hadoop.username"));
+    }
+
+    @Test
+    public void hmsCacheKeyPreservesCaseSensitiveConfigurationNames() {
+        Assertions.assertEquals(
+                "conf:HADOOP.USERNAME,conf:hadoop.username,conf:hive.metastore.client.principal,"
+                        + "conf:hadoop.kerberos.principal",
+                IcebergConnector.appendHmsCacheKeys("conf:HADOOP.USERNAME"));
+    }
+
+    @Test
+    public void defaultTableOwnerIsResolvedUnderHmsIdentityOnly() throws Exception {
+        HadoopAuthenticator hmsAuth = IcebergConnector.buildHmsAuthenticator(
+                props("iceberg.catalog.type", "hms",
+                        "hive.metastore.uris", "thrift://hms:9083",
+                        "hive.metastore.authentication.type", "simple",
+                        "hive.metastore.username", "iceberg-hms-user"),
+                new HashMap<>());
+        Configuration storageConf = new Configuration(false);
+        storageConf.set("hadoop.username", "iceberg-storage-user");
+        HadoopAuthenticator storageAuth = HadoopAuthenticator.getHadoopAuthenticator(
+                org.apache.doris.kerberos.AuthenticationConfig.getSimpleAuthenticationConfig(storageConf));
+        Map<String, String> options = new HashMap<>();
+
+        storageAuth.doAs(() -> {
+            IcebergConnector.applyHmsTableOwner(options, hmsAuth);
+            Assertions.assertEquals("iceberg-storage-user",
+                    UserGroupInformation.getCurrentUser().getUserName());
+            return null;
+        });
+
+        Assertions.assertEquals("iceberg-hms-user", options.get(HiveCatalog.HMS_TABLE_OWNER));
     }
 
     /** A non-HMS flavor with no storage Kerberos builds no authenticator. */

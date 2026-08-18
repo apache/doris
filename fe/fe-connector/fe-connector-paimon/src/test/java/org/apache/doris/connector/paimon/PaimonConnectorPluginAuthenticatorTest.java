@@ -115,6 +115,14 @@ public class PaimonConnectorPluginAuthenticatorTest {
                 PaimonConnector.appendHmsCacheKeys("conf:hadoop.username"));
     }
 
+    @Test
+    public void hmsCacheKeyPreservesCaseSensitiveConfigurationNames() {
+        Assertions.assertEquals(
+                "conf:HADOOP.USERNAME,conf:hadoop.username,conf:hive.metastore.client.principal,"
+                        + "conf:hadoop.kerberos.principal",
+                PaimonConnector.appendHmsCacheKeys("conf:HADOOP.USERNAME"));
+    }
+
     /** A non-HMS flavor with no storage Kerberos builds no authenticator. */
     @Test
     public void nonHmsFlavorWithoutStorageKerberosReturnsNull() {

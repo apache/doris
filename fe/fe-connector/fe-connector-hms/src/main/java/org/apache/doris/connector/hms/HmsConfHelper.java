@@ -17,6 +17,9 @@
 
 package org.apache.doris.connector.hms;
 
+import org.apache.doris.connector.spi.ConnectorConf;
+import org.apache.doris.connector.spi.ConnectorContext;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -35,7 +38,17 @@ import java.util.Map;
  */
 public final class HmsConfHelper {
 
+    private static final String CONF_METASTORE_CLIENT_TIMEOUT_SECOND = "metastore_client_timeout_second";
+    private static final String ENV_METASTORE_CLIENT_TIMEOUT_SECOND =
+            "hive_metastore_client_timeout_second";
+
     private HmsConfHelper() {
+    }
+
+    /** Resolves the shared HMS timeout from this plugin's config, then the legacy FE environment. */
+    public static String metastoreClientTimeoutSecond(ConnectorContext context) {
+        return ConnectorConf.get(context, CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
+                ENV_METASTORE_CLIENT_TIMEOUT_SECOND, "10");
     }
 
     /**
@@ -85,7 +98,10 @@ public final class HmsConfHelper {
         // TSocket that a kerberized metastore drops with TTransportException.
         String hmsAuthType = properties.get("hive.metastore.authentication.type");
         boolean explicitSimple = "simple".equalsIgnoreCase(hmsAuthType);
-        if ("kerberos".equalsIgnoreCase(hmsAuthType)
+        if (explicitSimple) {
+            // The explicit HMS mode is authoritative even when a base hive-site.xml enables SASL.
+            hiveConf.set("hive.metastore.sasl.enabled", "false");
+        } else if ("kerberos".equalsIgnoreCase(hmsAuthType)
                 || (!explicitSimple
                         && "kerberos".equalsIgnoreCase(properties.get("hadoop.security.authentication")))) {
             hiveConf.set("hive.metastore.sasl.enabled", "true");

@@ -56,6 +56,8 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.SessionCatalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.hive.HiveCatalog;
+import org.apache.iceberg.hive.HiveHadoopUtil;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.rest.RESTCatalog;
 import org.apache.iceberg.rest.RESTSessionCatalog;
@@ -979,6 +981,7 @@ public class IcebergConnector implements Connector {
                 return CatalogUtil.buildIcebergCatalog(catalogName, catalogOptions, conf);
             }
             HadoopAuthenticator hmsAuth = buildHmsAuthenticator(properties, storageHadoopConfig);
+            applyHmsTableOwner(catalogOptions, hmsAuth);
             Catalog catalog = CatalogUtil.buildIcebergCatalog(catalogName, catalogOptions, conf);
             return IcebergHmsClientPool.install(catalog, hmsAuth);
         });
@@ -995,11 +998,21 @@ public class IcebergConnector implements Connector {
             return required;
         }
         for (String element : existing.split(",")) {
-            if (required.equalsIgnoreCase(element.trim())) {
+            if (sameCacheKey(required, element.trim())) {
                 return existing;
             }
         }
         return existing + "," + required;
+    }
+
+    private static boolean sameCacheKey(String required, String existing) {
+        String prefix = "conf:";
+        if (required.regionMatches(true, 0, prefix, 0, prefix.length())
+                && existing.regionMatches(true, 0, prefix, 0, prefix.length())) {
+            // Iceberg accepts a case-insensitive marker, but Configuration property names remain case-sensitive.
+            return required.substring(prefix.length()).equals(existing.substring(prefix.length()));
+        }
+        return required.equalsIgnoreCase(existing);
     }
 
     /**
@@ -1311,6 +1324,18 @@ public class IcebergConnector implements Connector {
         Configuration conf = IcebergCatalogFactory.assembleHiveConf(
                 hms.getConfResources(), hms.toHiveConfOverrides(""));
         return HadoopAuthenticator.getHadoopAuthenticator(AuthenticationConfig.getSimpleAuthenticationConfig(conf));
+    }
+
+    static void applyHmsTableOwner(Map<String, String> catalogOptions,
+            HadoopAuthenticator hmsAuth) throws Exception {
+        if (hmsAuth == null || catalogOptions.containsKey(HiveCatalog.HMS_TABLE_OWNER)) {
+            return;
+        }
+        // Iceberg computes this default before entering its client pool, so capture it at the HMS boundary.
+        String owner = hmsAuth.doAs(HiveHadoopUtil::currentUser);
+        if (StringUtils.isNotBlank(owner)) {
+            catalogOptions.put(HiveCatalog.HMS_TABLE_OWNER, owner);
+        }
     }
 
     private Catalog buildCatalogAuthenticated(String flavor, Callable<Catalog> builder) {

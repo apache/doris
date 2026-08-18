@@ -176,4 +176,12 @@ public class HiveConnectorPluginAuthenticatorTest {
                         "hive.metastore.authentication.type", "kerberos"));
         Assertions.assertNull(auth, "kerberos HMS without a client principal/keytab pair must not build one");
     }
+
+    @Test
+    public void hmsClientUsesFeConfiguredSocketTimeout() {
+        HiveConnector connector = new HiveConnector(HiveTestProperties.minimalMap(),
+                new FakeConnectorContext(Map.of("hive_metastore_client_timeout_second", "47")));
+        Assertions.assertEquals("47", connector.buildHmsClientConfig().getProperties()
+                .get("hive.metastore.client.socket.timeout"));
+    }
 }
