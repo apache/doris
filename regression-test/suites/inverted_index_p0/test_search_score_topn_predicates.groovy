@@ -188,4 +188,17 @@ suite("test_search_score_topn_predicates", "p0") {
         ) t
         ORDER BY id
     """
+
+    // limit + offset overflows the long range. score() must report the standard TopN
+    // overflow error instead of skipping score pushdown and reporting a score() usage error.
+    test {
+        sql """
+            SELECT id, score() AS s
+            FROM test_search_score_topn_predicates
+            WHERE search('title:apple')
+            ORDER BY s DESC
+            LIMIT 9223372036854775807 OFFSET 9223372036854775807
+        """
+        exception "limit + offset overflows the long range"
+    }
 }

@@ -194,9 +194,10 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         }
 
         // When limit + offset overflows the long range, the pushed scan limit would wrap to a
-        // negative value; skip the push-down and let the TopN above the scan apply limit/offset.
+        // negative value. Fail with the same error as ordinary TopN instead of leaving score()
+        // unmaterialized and reporting an unrelated score() usage error.
         if (Utils.addOverflows(topN.getLimit(), topN.getOffset())) {
-            return null;
+            throw new AnalysisException("limit + offset overflows the long range");
         }
 
         long scoreLimit = topN.getLimit() + topN.getOffset();
