@@ -33,6 +33,15 @@ namespace doris {
 
 class RuntimeState;
 
+extern const char* const PAIMON_JNI_WRITER_OPEN_SIGNATURE;
+
+struct PaimonJniWriterOpenMode {
+    jboolean overwrite;
+    jboolean changelog;
+
+    static PaimonJniWriterOpenMode from_write_mode(TPaimonWriteMode::type write_mode);
+};
+
 /// JNI backend that owns the Java PaimonJniWriter object and its JNI method
 /// handles. Creates lightweight JniPaimonWriter adapters that share this
 /// backend's JVM connection.

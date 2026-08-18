@@ -24,6 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -54,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.IcebergMergeCommand;
+import org.apache.doris.nereids.trees.plans.commands.PaimonMergeCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -137,6 +139,11 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
                     source, onClause, matchedClauses, notMatchedClauses).run(ctx, executor);
             return;
         }
+        if (table instanceof PaimonExternalTable) {
+            new PaimonMergeCommand(targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses).run(ctx, executor);
+            return;
+        }
         new InsertIntoTableCommand(completeQueryPlan(ctx), Optional.empty(), Optional.empty(),
                 Optional.empty(), true, Optional.empty()).run(ctx, executor);
     }
@@ -151,6 +158,10 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
         TableIf table = getTargetTableIf(ctx);
         if (table instanceof IcebergExternalTable) {
             return new IcebergMergeCommand(targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses).getExplainPlan(ctx);
+        }
+        if (table instanceof PaimonExternalTable) {
+            return new PaimonMergeCommand(targetNameParts, targetAlias, cte,
                     source, onClause, matchedClauses, notMatchedClauses).getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx);

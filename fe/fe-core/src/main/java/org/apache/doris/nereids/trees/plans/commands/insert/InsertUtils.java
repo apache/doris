@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
@@ -631,6 +632,9 @@ public class InsertUtils {
      * get target table from names.
      */
     public static List<String> getTargetTableQualified(Plan plan, ConnectContext ctx) {
+        if (plan instanceof LogicalPaimonTableSink) {
+            return ((LogicalPaimonTableSink<?>) plan).getTargetTable().getFullQualifiers();
+        }
         UnboundLogicalSink<? extends Plan> unboundTableSink;
         if (plan instanceof UnboundTableSink) {
             unboundTableSink = (UnboundTableSink<? extends Plan>) plan;

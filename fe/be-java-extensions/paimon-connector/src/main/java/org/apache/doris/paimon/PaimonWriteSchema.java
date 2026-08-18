@@ -20,7 +20,9 @@ package org.apache.doris.paimon;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.RowKind;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.utils.DefaultValueUtils;
 
 import java.util.Arrays;
@@ -33,6 +35,11 @@ import java.util.Arrays;
  * table-schema layout expected by the Paimon writer.
  */
 final class PaimonWriteSchema {
+    static final String ROW_KIND_COLUMN = "__DORIS_PAIMON_ROW_KIND__";
+    static final byte INSERT_OPERATION = 0;
+    static final byte UPDATE_OPERATION = 1;
+    static final byte DELETE_OPERATION = 2;
+
     private final DataType[] targetTypes;
     /** Maps Doris input-column position → Paimon table-schema position. */
     private final int[] tableFieldIndexes;
@@ -60,6 +67,11 @@ final class PaimonWriteSchema {
      * @throws IllegalArgumentException if any column name is not found in the table schema
      */
     static PaimonWriteSchema create(RowType tableType, String[] columnNames) {
+        return create(tableType, columnNames, false);
+    }
+
+    static PaimonWriteSchema create(
+            RowType tableType, String[] columnNames, boolean changelogWrite) {
         if (columnNames == null || columnNames.length == 0) {
             throw new IllegalArgumentException(
                     "PaimonJniWriter requires explicit column names");
@@ -69,6 +81,15 @@ final class PaimonWriteSchema {
         int[] tableFieldIndexes = new int[columnNames.length];
         boolean[] specifiedFields = new boolean[tableType.getFieldCount()];
         for (int i = 0; i < columnNames.length; i++) {
+            if (changelogWrite && i == 0) {
+                if (!ROW_KIND_COLUMN.equals(columnNames[i])) {
+                    throw new IllegalArgumentException(
+                            "Paimon changelog write requires row kind as the first column");
+                }
+                targetTypes[i] = new TinyIntType(false);
+                tableFieldIndexes[i] = -1;
+                continue;
+            }
             int tableIndex = tableType.getFieldIndex(columnNames[i]);
             if (tableIndex < 0) {
                 throw new IllegalArgumentException(
@@ -122,10 +143,31 @@ final class PaimonWriteSchema {
             row.setField(omittedDefaultFieldIndexes[i], omittedDefaultValues[i]);
         }
         for (int i = 0; i < tableFieldIndexes.length; i++) {
+            if (tableFieldIndexes[i] < 0) {
+                row.setRowKind(toRowKind(columnValues[i]));
+                continue;
+            }
             // Actual Doris input is applied last so an explicit NULL remains distinct
             // from an omitted field and retains Paimon's writer-side semantics.
             row.setField(tableFieldIndexes[i], columnValues[i]);
         }
         return row;
+    }
+
+    private static RowKind toRowKind(Object operation) {
+        if (!(operation instanceof Byte)) {
+            throw new IllegalArgumentException("Paimon row change operation must be a TINYINT");
+        }
+        switch ((Byte) operation) {
+            case INSERT_OPERATION:
+                return RowKind.INSERT;
+            case UPDATE_OPERATION:
+                return RowKind.UPDATE_AFTER;
+            case DELETE_OPERATION:
+                return RowKind.DELETE;
+            default:
+                throw new IllegalArgumentException(
+                        "Unknown Paimon row change operation: " + operation);
+        }
     }
 }

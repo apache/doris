@@ -164,14 +164,20 @@ Status cast_values_to_string(FunctionContext* context, size_t rows, ForcedNulls 
 Status cast_typed_variant_to_string(FunctionContext* context, const ColumnVariantV2& source,
                                     size_t rows, ForcedNulls forced_nulls, ColumnPtr* output) {
     const auto& typed = assert_cast<const ColumnNullable&>(source.typed_column());
-    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    const PrimitiveType source_primitive = source.typed_type()->get_primitive_type();
     const NullMap& inner_nulls = typed.get_null_map_data();
-    // A string typed identity already holds exactly the characters this cast emits, because
-    // with_variant_typed_scalar() would only wrap those same bytes in a Variant string view. Read
-    // them straight from the typed column instead of encoding and reclassifying a scalar per row.
-    const PrimitiveType identity = source.typed_type()->get_primitive_type();
-    const bool string_identity =
-            identity == TYPE_STRING || identity == TYPE_CHAR || identity == TYPE_VARCHAR;
+    if (is_string_type(source_primitive) && !typed.has_null()) {
+        // The physical payload already has the requested representation. An inner null is a
+        // Variant null and must still stringify as literal "null".
+        return apply_forced_nulls(typed.get_ptr(), forced_nulls, output);
+    }
+
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    // Reaching here with a string identity means some row is a Variant null. The remaining rows
+    // still hold exactly the characters this cast emits, because with_variant_typed_scalar() would
+    // only wrap those same bytes in a Variant string view, so read them straight from the typed
+    // column instead of encoding and reclassifying a scalar per row.
+    const bool string_identity = is_string_type(source_primitive);
     size_t concrete_rows = 0;
     for (size_t row = 0; row < rows; ++row) {
         if (inner_nulls[row] == 0 && (forced_nulls.empty() || forced_nulls[row] == 0)) {
@@ -179,11 +185,6 @@ Status cast_typed_variant_to_string(FunctionContext* context, const ColumnVarian
         }
     }
     if (concrete_rows == rows) {
-        if (string_identity) {
-            *output = ColumnNullable::create(typed.get_nested_column_ptr(),
-                                             ColumnUInt8::create(rows, 0));
-            return Status::OK();
-        }
         return cast_variant_values_to_scalar(context, source, string_type, rows, {}, output);
     }
 

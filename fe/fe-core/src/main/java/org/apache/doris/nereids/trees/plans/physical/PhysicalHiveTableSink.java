@@ -123,11 +123,8 @@ public class PhysicalHiveTableSink<CHILD_TYPE extends Plan> extends PhysicalBase
             List<ExprId> exprIds = columnIdx.stream()
                     .map(idx -> child().getOutput().get(idx).getExprId())
                     .collect(Collectors.toList());
-            DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
-                    = new DistributionSpecHiveTableSinkHashPartitioned();
-            shuffleInfo.setOutputColExprIds(exprIds);
-            return new PhysicalProperties(shuffleInfo);
+            return new PhysicalProperties(new DistributionSpecHiveTableSinkHashPartitioned(exprIds));
         }
-        return PhysicalProperties.SINK_RANDOM_PARTITIONED;
+        return PhysicalProperties.EXTERNAL_TABLE_SINK_UNPARTITIONED;
     }
 }

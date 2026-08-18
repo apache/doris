@@ -123,15 +123,11 @@ ColumnVariantV2::MutablePtr typed_ints() {
 
 ColumnVariantV2::MutablePtr typed_strings() {
     auto values = ColumnString::create();
-    values->insert_data("alpha", 5);
-    values->insert_data("", 0);
-    values->insert_data("gamma", 5);
-    auto nulls = ColumnUInt8::create();
-    nulls->get_data().push_back(0);
-    nulls->get_data().push_back(1);
-    nulls->get_data().push_back(0);
+    values->insert_data("alice", 5);
+    values->insert_data("bob", 3);
+    values->insert_data("carol", 5);
     return ColumnVariantV2::create_typed(
-            ColumnNullable::create(std::move(values), std::move(nulls)),
+            ColumnNullable::create(std::move(values), ColumnUInt8::create(3, 0)),
             std::make_shared<DataTypeString>());
 }
 
@@ -304,10 +300,70 @@ TEST(CastVariantV2FromTest, TypedInnerNullStringifiesAsLiteralNull) {
     EXPECT_FALSE(nullable.has_null());
 }
 
-TEST(CastVariantV2FromTest, TypedStringIdentityMatchesTheEncodedCast) {
-    // A string typed identity already holds the exact characters this cast emits, so the whole
-    // column is reused. The result must stay byte for byte identical to the encoded path.
-    ColumnVariantV2::MutablePtr typed = typed_strings();
+TEST(CastVariantV2FromTest, TypedStringIdentityReusesPayload) {
+    ColumnPtr source = typed_strings();
+    const auto& typed = assert_cast<const ColumnVariantV2&>(*source);
+    const auto& source_nullable = assert_cast<const ColumnNullable&>(typed.typed_column());
+
+    CastResult identity = execute_from_variant(source, std::make_shared<DataTypeString>());
+    ASSERT_TRUE(identity.status.ok()) << identity.status;
+    EXPECT_EQ(identity.column.get(), &typed.typed_column());
+
+    constexpr std::array<NullMap::value_type, 3> FORCED_NULLS {0, 1, 0};
+    CastResult masked =
+            execute_from_variant(source, std::make_shared<DataTypeString>(), FORCED_NULLS.data());
+    ASSERT_TRUE(masked.status.ok()) << masked.status;
+    const auto& masked_nullable = nullable_result(masked.column);
+    EXPECT_EQ(masked_nullable.get_nested_column_ptr().get(),
+              source_nullable.get_nested_column_ptr().get());
+    EXPECT_EQ(masked_nullable.get_null_map_data(), (NullMap {0, 1, 0}));
+}
+
+TEST(CastVariantV2FromTest, TypedStringPreservesForcedInnerNullSemantics) {
+    auto values = ColumnString::create();
+    values->insert_data("alice", 5);
+    values->insert_default();
+    values->insert_data("carol", 5);
+    auto inner_nulls = ColumnUInt8::create();
+    inner_nulls->insert_value(0);
+    inner_nulls->insert_value(1);
+    inner_nulls->insert_value(0);
+    ColumnPtr source = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(values), std::move(inner_nulls)),
+            std::make_shared<DataTypeString>());
+
+    CastResult visible_null = execute_from_variant(source, std::make_shared<DataTypeString>());
+    ASSERT_TRUE(visible_null.status.ok()) << visible_null.status;
+    const auto& visible_nullable = nullable_result(visible_null.column);
+    const auto& visible_strings =
+            assert_cast<const ColumnString&>(visible_nullable.get_nested_column());
+    EXPECT_EQ(visible_strings.get_data_at(1), StringRef("null"));
+    EXPECT_FALSE(visible_nullable.has_null());
+
+    constexpr std::array<NullMap::value_type, 3> FORCED_NULLS {0, 1, 0};
+    CastResult masked =
+            execute_from_variant(source, std::make_shared<DataTypeString>(), FORCED_NULLS.data());
+    ASSERT_TRUE(masked.status.ok()) << masked.status;
+    const auto& masked_nullable = nullable_result(masked.column);
+    const auto& masked_strings =
+            assert_cast<const ColumnString&>(masked_nullable.get_nested_column());
+    EXPECT_EQ(masked_strings.get_data_at(0), StringRef("alice"));
+    EXPECT_EQ(masked_strings.get_data_at(2), StringRef("carol"));
+    EXPECT_EQ(masked_nullable.get_null_map_data(), (NullMap {0, 1, 0}));
+}
+
+TEST(CastVariantV2FromTest, TypedStringMatchesTheEncodedCastByteForByte) {
+    auto values = ColumnString::create();
+    values->insert_data("alpha", 5);
+    values->insert_default();
+    values->insert_data("gamma", 5);
+    auto inner_nulls = ColumnUInt8::create();
+    inner_nulls->insert_value(0);
+    inner_nulls->insert_value(1);
+    inner_nulls->insert_value(0);
+    ColumnVariantV2::MutablePtr typed = ColumnVariantV2::create_typed(
+            ColumnNullable::create(std::move(values), std::move(inner_nulls)),
+            std::make_shared<DataTypeString>());
     MutableColumnPtr encoded = typed->clone();
     assert_cast<ColumnVariantV2&>(*encoded).ensure_encoded();
 
@@ -317,43 +373,14 @@ TEST(CastVariantV2FromTest, TypedStringIdentityMatchesTheEncodedCast) {
             execute_from_variant(encoded->get_ptr(), std::make_shared<DataTypeString>());
     ASSERT_TRUE(typed_cast.status.ok()) << typed_cast.status;
     ASSERT_TRUE(encoded_cast.status.ok()) << encoded_cast.status;
-    const auto& typed_nullable = nullable_result(typed_cast.column);
-    const auto& typed_strings_out =
-            assert_cast<const ColumnString&>(typed_nullable.get_nested_column());
-    const auto& encoded_strings_out = assert_cast<const ColumnString&>(
+    const auto& typed_strings = assert_cast<const ColumnString&>(
+            nullable_result(typed_cast.column).get_nested_column());
+    const auto& encoded_strings = assert_cast<const ColumnString&>(
             nullable_result(encoded_cast.column).get_nested_column());
-    EXPECT_EQ(typed_strings_out.get_data_at(0), StringRef("alpha"));
-    // An inner null is a Variant null, which renders as the literal text rather than SQL NULL.
-    EXPECT_EQ(typed_strings_out.get_data_at(1), StringRef("null"));
-    EXPECT_EQ(typed_strings_out.get_data_at(2), StringRef("gamma"));
-    EXPECT_FALSE(typed_nullable.has_null());
     for (size_t row = 0; row < 3; ++row) {
-        EXPECT_EQ(typed_strings_out.get_data_at(row), encoded_strings_out.get_data_at(row)) << row;
+        EXPECT_EQ(typed_strings.get_data_at(row), encoded_strings.get_data_at(row)) << row;
     }
-}
-
-TEST(CastVariantV2FromTest, TypedStringIdentityHonoursOuterNulls) {
-    auto values = ColumnString::create();
-    values->insert_data("alpha", 5);
-    values->insert_data("beta", 4);
-    auto typed = ColumnVariantV2::create_typed(
-            ColumnNullable::create(std::move(values), ColumnUInt8::create(2, 0)),
-            std::make_shared<DataTypeString>());
-
-    CastResult unmasked =
-            execute_from_variant(typed->get_ptr(), std::make_shared<DataTypeString>());
-    ASSERT_TRUE(unmasked.status.ok()) << unmasked.status;
-    EXPECT_FALSE(nullable_result(unmasked.column).has_null());
-
-    constexpr std::array<NullMap::value_type, 2> NULLS {1, 0};
-    CastResult masked = execute_from_variant(typed->get_ptr(), std::make_shared<DataTypeString>(),
-                                             NULLS.data());
-    ASSERT_TRUE(masked.status.ok()) << masked.status;
-    const auto& nullable = nullable_result(masked.column);
-    EXPECT_EQ(nullable.get_null_map_data()[0], 1);
-    EXPECT_EQ(nullable.get_null_map_data()[1], 0);
-    EXPECT_EQ(assert_cast<const ColumnString&>(nullable.get_nested_column()).get_data_at(1),
-              StringRef("beta"));
+    EXPECT_EQ(typed_strings.get_data_at(1), StringRef("null"));
 }
 
 TEST(CastVariantV2FromTest, TypedStringUsesCanonicalTimestampScale) {
