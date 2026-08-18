@@ -32,11 +32,13 @@
 
 #include "core/arena.h"
 #include "core/assert_cast.h"
+#include "core/column/column_array.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -458,6 +460,44 @@ TEST(PaimonArrowWriteConverterTest, BinaryStructPreservesEncodedAndTypedBytesAnd
     ColumnPtr encoded = encoded_copy(*typed);
     expect_paimon_variant_bytes(*typed, assert_cast<const ColumnVariantV2&>(*encoded));
     EXPECT_TRUE(typed->is_typed());
+}
+
+TEST(PaimonArrowWriteConverterTest, NestedArrayUsesPaimonSerdeRecursively) {
+    auto variants = encoded_json({R"({"id":1})", R"([true,"x"])", "null"});
+    const auto expected = variants->read_view();
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().assign({2, 3});
+    auto array = ColumnArray::create(std::move(variants), std::move(offsets));
+
+    DataTypePtr variant_type = std::make_shared<DataTypeVariantV2>();
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(variant_type);
+    auto arrow_type = arrow::list(binary_variant_arrow_type());
+    auto field = arrow::field("payloads", arrow_type, false);
+    std::unique_ptr<arrow::ArrayBuilder> builder;
+    ASSERT_TRUE(arrow::MakeBuilder(arrow::default_memory_pool(), arrow_type, &builder).ok());
+
+    const auto serde = array_type->get_serde();
+    Status status = paimon_arrow_write_converter().write_column(
+            array_type, *serde, *array, nullptr, field, builder.get(), 0, array->size(),
+            cctz::utc_time_zone());
+    ASSERT_TRUE(status.ok()) << status;
+
+    std::shared_ptr<arrow::Array> output;
+    ASSERT_TRUE(builder->Finish(&output).ok());
+    const auto& lists = assert_cast<const arrow::ListArray&>(*output);
+    const auto& structs = assert_cast<const arrow::StructArray&>(*lists.values());
+    const auto& values = assert_cast<const arrow::BinaryArray&>(*structs.field(0));
+    const auto& metadata = assert_cast<const arrow::BinaryArray&>(*structs.field(1));
+    ASSERT_EQ(3, structs.length());
+    for (size_t row = 0; row < 3; ++row) {
+        const VariantRef value = expected.value_at(row);
+        const auto actual_value = values.GetView(row);
+        const auto actual_metadata = metadata.GetView(row);
+        EXPECT_EQ(std::string_view(actual_value.data(), actual_value.size()),
+                  std::string_view(value.value.data, value.value.size));
+        EXPECT_EQ(std::string_view(actual_metadata.data(), actual_metadata.size()),
+                  std::string_view(value.metadata.data, value.metadata.size));
+    }
 }
 
 TEST(PaimonArrowWriteConverterTest, BinaryStructRejectsUnsupportedPaimonPrimitive) {

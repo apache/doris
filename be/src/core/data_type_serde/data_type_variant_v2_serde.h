@@ -56,6 +56,16 @@ public:
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
+    Status write_column_to_paimon(const std::shared_ptr<const IDataType>& type,
+                                  const IColumn& column, const NullMap* null_map,
+                                  const std::shared_ptr<arrow::Field>& field,
+                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                  const cctz::time_zone& ctz) const override;
+    Status write_column_to_iceberg(const std::shared_ptr<const IDataType>& type,
+                                   const IColumn& column, const NullMap* null_map,
+                                   const std::shared_ptr<arrow::Field>& field,
+                                   arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                                   const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
