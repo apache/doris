@@ -479,7 +479,15 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                 boolean costFix = context.getSessionVariable().isEnableBroadcastCostFix();
                 double thresholdBytes = costFix ? 128 * 1024 : 1024 * 1024;
                 double penaltyExponent = costFix ? 1.1 : 0.5;
-                if (buildStats.computeSize(physicalHashJoin.right().getOutput()) < thresholdBytes) {
+                // L/R ratio protection: when the build side is far smaller than the probe side,
+                // broadcast is almost always cheaper than shuffling the large probe side, so the
+                // broadcast penalty must not be applied. TPC-DS experiment on query13 showed a 60%
+                // regression when a small dimension-table build (R/L ~ 0.0001) was penalized into a
+                // shuffle that had to redistribute hundreds of millions of probe rows.
+                double ratioLimit = context.getSessionVariable().getBroadcastBuildSideRatioLimit();
+                if (ratioLimit > 0 && rightRowCount < leftRowCount * ratioLimit) {
+                    buildSideFactor = 1.0;
+                } else if (buildStats.computeSize(physicalHashJoin.right().getOutput()) < thresholdBytes) {
                     // no penalty to broadcast if build side is small
                     buildSideFactor = 1.0;
                 } else {

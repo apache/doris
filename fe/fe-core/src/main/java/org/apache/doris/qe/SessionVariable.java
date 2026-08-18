@@ -449,6 +449,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FORBID_UNKNOWN_COLUMN_STATS = "forbid_unknown_col_stats";
     public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
     public static final String ENABLE_BROADCAST_COST_FIX = "enable_broadcast_cost_fix";
+    public static final String BROADCAST_BUILD_SIDE_RATIO_LIMIT = "broadcast_build_side_ratio_limit";
     public static final String LEFT_SEMI_OR_ANTI_PROBE_FACTOR = "left_semi_or_anti_probe_factor";
     public static final String BROADCAST_ROW_COUNT_LIMIT = "broadcast_row_count_limit";
 
@@ -2162,6 +2163,14 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VarAttrDef.VarAttr(name = ENABLE_BROADCAST_COST_FIX, needForward = true)
     private boolean enableBroadcastCostFix = true;
+
+    /**
+     * L/R ratio protection for the broadcast build penalty. When the build side row count is
+     * less than probe row count * this ratio, the broadcast build penalty is skipped (broadcast
+     * is almost always cheaper than shuffling a far larger probe side). 0 disables the protection.
+     */
+    @VarAttrDef.VarAttr(name = BROADCAST_BUILD_SIDE_RATIO_LIMIT, needForward = true)
+    private double broadcastBuildSideRatioLimit = 0.01;
 
     @VarAttrDef.VarAttr(name = LEFT_SEMI_OR_ANTI_PROBE_FACTOR)
     private double leftSemiOrAntiProbeFactor = 0.05;
@@ -4609,6 +4618,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableBroadcastCostFix(boolean enableBroadcastCostFix) {
         this.enableBroadcastCostFix = enableBroadcastCostFix;
+    }
+
+    public double getBroadcastBuildSideRatioLimit() {
+        return broadcastBuildSideRatioLimit;
+    }
+
+    public void setBroadcastBuildSideRatioLimit(double broadcastBuildSideRatioLimit) {
+        this.broadcastBuildSideRatioLimit = broadcastBuildSideRatioLimit;
     }
 
     public double getLeftSemiOrAntiProbeFactor() {
