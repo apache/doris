@@ -54,10 +54,14 @@ Status execute_timezone_offset_part(FunctionContext* context, Block& block,
                                     const ColumnNumbers& arguments, uint32_t result,
                                     size_t input_rows_count, bool extract_hour) {
     ColumnPtr col = block.get_by_position(arguments[0]).column;
+    // Unwrap nullable and const wrappers in any nesting order so that
+    // ColumnNullable(ColumnConst(...)) and ColumnConst(ColumnNullable(...))
+    // inputs both reach the plain ColumnTimeStampTz data below.
+    col = remove_nullable(col);
     if (is_column_const(*col)) {
         col = assert_cast<const ColumnConst&>(*col).convert_to_full_column();
+        col = remove_nullable(col);
     }
-    col = remove_nullable(col);
     const auto* tz_column = assert_cast<const ColumnTimeStampTz*>(col.get());
     const auto& tz_data = tz_column->get_data();
 
