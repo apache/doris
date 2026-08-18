@@ -24,6 +24,11 @@
 
 namespace doris {
 
+inline bool report_transfers_external_file_ownership(const TReportExecStatusParams& params) {
+    return params.__isset.hive_partition_updates || params.__isset.iceberg_commit_datas ||
+           params.__isset.mc_commit_datas || params.__isset.paimon_commit_messages;
+}
+
 inline Status validate_report_exec_status_size(const TReportExecStatusParams& params,
                                                size_t thrift_limit) {
     ThriftSerializer serializer(false, 256);

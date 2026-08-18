@@ -248,8 +248,12 @@ SorterReserveMemory FullSorter::get_reserve_mem_size_components(RuntimeState* st
         // Iceberg close forces every nonempty pending run to sort at EOS, even when the generic
         // append thresholds are not reached, so admission must cover that final allocation too.
         // The reservation must mirror every caller-side rollover that immediately invokes do_sort().
-        auto sort = (eos && new_rows > 0) || new_rows > _buffered_block_size ||
-                    new_block_bytes > _buffered_block_bytes ||
+        // After the retained-capacity threshold, append_block may sort before inserting when any
+        // individual column is full. Admission lacks the post-projection column distribution, so
+        // every nonempty append at that boundary must conservatively reserve the transient sort.
+        const bool may_rollover_before_append = incoming_rows > 0 && _reach_limit();
+        auto sort = may_rollover_before_append || (eos && new_rows > 0) ||
+                    new_rows > _buffered_block_size || new_block_bytes > _buffered_block_bytes ||
                     new_block_bytes >= sort_threshold_bytes;
         if (sort) {
             // sort_block keeps the source columns live while materializing a fully permuted destination.

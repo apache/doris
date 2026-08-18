@@ -236,7 +236,7 @@ public:
     Status do_sort();
 
 private:
-    bool _reach_limit() {
+    bool _reach_limit() const {
         return _state->unsorted_block()->allocated_bytes() >= _max_buffered_block_bytes;
     }
 

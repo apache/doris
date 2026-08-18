@@ -446,6 +446,15 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
             Long parentId = snapshot.parentId();
             snapshot = parentId == null ? null : table.snapshot(parentId);
+            if (parentId != null && snapshot == null) {
+                // Expiration may remove the parent metadata while descendants still inherit its
+                // files, so an incomplete lineage must gate against every surviving schema.
+                for (Schema historicalSchema : schemas.values()) {
+                    if (visitedSchemaIds.add(historicalSchema.schemaId())) {
+                        reachable.add(historicalSchema);
+                    }
+                }
+            }
         }
         // Only ancestors of the selected ref can have produced files visible to this scan.
         return reachable;

@@ -118,8 +118,9 @@ public class RewriteDataFileExecutor {
             int removedDeleteFilesCount = groups.stream()
                     .mapToInt(group -> group.getDeleteFileCount()).sum();
 
-            commitAndInvalidate(transactionManager, transactionId);
+            transactionManager.commit(transactionId);
             committed = true;
+            invalidateTableCacheAfterCommit();
             return new RewriteResult(rewrittenDataFilesCount, addedDataFilesCount,
                     rewrittenBytesCount, removedDeleteFilesCount);
         } finally {
@@ -131,11 +132,15 @@ public class RewriteDataFileExecutor {
         }
     }
 
-    void commitAndInvalidate(TransactionManager transactionManager, long transactionId)
-            throws UserException {
-        transactionManager.commit(transactionId);
-        // Rewrite commits bypass the external-table DDL path, so evict the pre-rewrite snapshot before reuse.
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
+    void invalidateTableCacheAfterCommit() {
+        try {
+            // Rewrite commits bypass the external-table DDL path, so evict the pre-rewrite snapshot before reuse.
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(dorisTable);
+        } catch (Exception e) {
+            // Cache refresh is outside the durable Iceberg commit boundary and cannot make it retryable.
+            LOG.warn("Post-commit cache invalidation failed for rewritten table {}",
+                    dorisTable.getName(), e);
+        }
     }
 
     private void cancelAndQuiesce(List<RewriteGroupTask> tasks) {
