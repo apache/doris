@@ -41,6 +41,7 @@
 #include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
