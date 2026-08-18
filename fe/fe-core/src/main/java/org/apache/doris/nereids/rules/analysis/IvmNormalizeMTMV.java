@@ -29,6 +29,7 @@ import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.ivm.IvmDeltaRewriteHelper;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
+import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
@@ -91,6 +92,7 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -236,6 +238,13 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         IvmPlanSignature planSignature = new IvmPlanSignatureGenerator().generate(result);
         rewriteResult.setPlanSignature(planSignature);
         IvmRewriteContext.Mode mode = statementContext.getIvmRewriteContext().get().getMode();
+        if (mode == IvmRewriteContext.Mode.INCREMENTAL) {
+            // Incremental refresh relies on the stored IVM layout: a drift in the normalized
+            // plan (row-id generation path) would produce an unmatchable delta. Check the
+            // signature as soon as normalization completes so every incremental path fails
+            // fast instead of attempting a delta rewrite against a stale layout baseline.
+            validatePlanSignature(statementContext.getIvmRewriteContext().get().getMtmv(), rewriteResult);
+        }
         if (mode == IvmRewriteContext.Mode.CREATE) {
             LOG.info("IVM normalized plan, mtmvName={}, mode={}, inputRoot={}, plan={}, canonicalString={}, "
                             + "signature={}",
@@ -244,6 +253,25 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
                     planSignature.getSha256());
         }
         return result;
+    }
+
+    private void validatePlanSignature(MTMV mtmv, IvmRewriteResult rewriteResult) {
+        IvmPlanSignature currentSignature = rewriteResult.getPlanSignature();
+        IvmInfo ivmInfo = mtmv.getIvmInfo();
+        String storedSignature = ivmInfo.getPlanSignature();
+        boolean signatureMatched = currentSignature != null
+                && Objects.equals(storedSignature, currentSignature.getSha256());
+        if (signatureMatched) {
+            return;
+        }
+        String detail = "IVM layout signature mismatch for mv=" + mtmv.getName()
+                + ", storedSignature=" + storedSignature
+                + ", currentSignature=" + (currentSignature == null ? "null" : currentSignature.getSha256())
+                + ", currentCanonical=" + (currentSignature == null ? "null" : currentSignature.getCanonicalString())
+                + ", currentPlan=" + (rewriteResult.getNormalizedPlan() == null
+                        ? "null" : rewriteResult.getNormalizedPlan().treeString())
+                + ". Run a full refresh to rebuild IVM layout baseline.";
+        throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
     }
 
     private boolean resolveUseFullKeys() {

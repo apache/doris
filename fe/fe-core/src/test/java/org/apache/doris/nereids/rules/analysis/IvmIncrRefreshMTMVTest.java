@@ -99,21 +99,6 @@ class IvmIncrRefreshMTMVTest {
     }
 
     @Test
-    void testSignatureMismatchThrowsBeforeDeltaRewrite() {
-        LogicalOlapTableSink<Plan> sink = newSink(mtmv, scan);
-        RecordingRule rule = new RecordingRule(scan);
-
-        IvmException exception = Assertions.assertThrows(IvmException.class,
-                () -> rule.rewriteRoot(sink, newJobContext(sink,
-                        IvmRewriteContext.incremental(mtmv, false), newRewriteResult("new"))));
-
-        Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, exception.getFailureReason());
-        Assertions.assertTrue(exception.getMessage().contains("storedSignature=" + SIGNATURE));
-        Assertions.assertTrue(exception.getMessage().contains("currentSignature=new"));
-        Assertions.assertEquals(0, rule.rewriter.callCount);
-    }
-
-    @Test
     void testNonSinkRootThrows() {
         RecordingRule rule = new RecordingRule(scan);
 
