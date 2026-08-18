@@ -141,7 +141,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                  * joinToMultiJoin treats such nested joins as boundaries, but the top join must
                  * be rejected here so the rule leaves it (and the whole cluster) untouched.
                  */
-                if (hasNoneMovableOrVolatileConjunct((LogicalJoin<?, ?>) filter.child())) {
+                if (JoinUtils.hasSensitiveConjunct((LogicalJoin<?, ?>) filter.child())) {
                     return null;
                 }
 
@@ -159,20 +159,6 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                     return null;
                 }
             }).toRule(RuleType.REORDER_JOIN);
-    }
-
-    private static boolean hasNoneMovableOrVolatileConjunct(LogicalJoin<?, ?> join) {
-        for (Expression conjunct : join.getHashJoinConjuncts()) {
-            if (conjunct.containsNoneMovableOrVolatile()) {
-                return true;
-            }
-        }
-        for (Expression conjunct : join.getOtherJoinConjuncts()) {
-            if (conjunct.containsNoneMovableOrVolatile()) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -222,7 +208,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             // assert_true) or a volatile expression must not be flattened into the MultiJoin:
             // multiJoinToJoin could reorder it so the conjunct moves onto a different edge and
             // is evaluated on a superset of rows. treat the join as a boundary.
-            if (hasNoneMovableOrVolatileConjunct(join)) {
+            if (JoinUtils.hasSensitiveConjunct(join)) {
                 return plan;
             }
             joinFilter.addAll(join.getHashJoinConjuncts());

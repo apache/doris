@@ -18,7 +18,14 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -28,6 +35,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 class LogicalJoinSemiJoinTransposeProjectTest implements MemoPatternMatchSupported {
@@ -125,6 +133,75 @@ class LogicalJoinSemiJoinTransposeProjectTest implements MemoPatternMatchSupport
                                                 logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
                                         )),
                                         logicalProject(logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2")))
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testRejectedWhenBottomSemiRhsSensitive() {
+        /*
+         * the transpose must be rejected when the bottom semi join's right subtree contains a
+         * NoneMovableFunction (assert_true): the transpose would move that subtree above the
+         * new bottom join (built from the inner top join, which prunes rows), so the assertion
+         * would be evaluated on fewer rows and its required error suppressed. the plan keeps
+         * the original order.
+         */
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(scan2.getOutput().get(0), new IntegerLiteral(0)), new StringLiteral("msg"));
+        LogicalPlan sensitiveRhs = new LogicalFilter<>(ImmutableSet.of(assertTrueExpr), scan2);
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(sensitiveRhs, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .project(ImmutableList.of(0, 1))
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t3.id
+                .projectAll()
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(LogicalJoinSemiJoinTransposeProject.INSTANCE.buildRules())
+                // the transposed shape semi(inner(t1, t3), t2) must not appear
+                .nonMatch(
+                        logicalProject(
+                                leftSemiLogicalJoin(
+                                        logicalProject(innerLogicalJoin(
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                        )),
+                                        logicalProject(group())
+                                )
+                        )
+                );
+    }
+
+    @Test
+    public void testRejectedWhenBottomSemiConjunctSensitive() {
+        /*
+         * the transpose must also be rejected when the bottom semi join's own conjunct contains
+         * a NoneMovableFunction (assert_true): the transpose moves the semi join (with its
+         * conjuncts) above the new bottom join, so the assertion would be evaluated after the
+         * inner join prunes rows and its required error suppressed. the plan keeps the original
+         * order.
+         */
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(scan2.getOutput().get(0), new IntegerLiteral(0)), new StringLiteral("msg"));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_SEMI_JOIN,
+                        ImmutableList.of(new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0))),
+                        ImmutableList.of(assertTrueExpr))
+                .project(ImmutableList.of(0, 1))
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t3.id
+                .projectAll()
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(LogicalJoinSemiJoinTransposeProject.INSTANCE.buildRules())
+                // the transposed shape semi(inner(t1, t3), t2) must not appear
+                .nonMatch(
+                        logicalProject(
+                                leftSemiLogicalJoin(
+                                        logicalProject(innerLogicalJoin(
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                        )),
+                                        logicalProject(group())
                                 )
                         )
                 );

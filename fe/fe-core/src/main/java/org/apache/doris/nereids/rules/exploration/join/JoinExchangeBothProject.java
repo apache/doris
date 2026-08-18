@@ -58,7 +58,15 @@ public class JoinExchangeBothProject extends OneExplorationRuleFactory {
                 .when(JoinExchangeBothProject::checkReorder)
                 .when(join -> join.left().isAllSlots() && join.right().isAllSlots())
                 .whenNot(join -> join.hasDistributeHint()
-                        || join.left().child().hasDistributeHint() || join.right().child().hasDistributeHint()))
+                        || join.left().child().hasDistributeHint() || join.right().child().hasDistributeHint())
+                // the reorder redistributes every conjunct of the three joins onto a different
+                // edge: a NoneMovableFunction (assert_true) or volatile conjunct moves from
+                // (A join B) x (C join D) evaluation to (A join C) join (B join D), where rows
+                // pruned by the new inner joins no longer reach it and its required error is
+                // suppressed. reject the reorder then.
+                .whenNot(topJoin -> JoinUtils.hasSensitiveConjunct(topJoin)
+                        || JoinUtils.hasSensitiveConjunct(topJoin.left().child())
+                        || JoinUtils.hasSensitiveConjunct(topJoin.right().child())))
                 .then(topProject -> {
                     LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>,
                             LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>> topJoin = topProject.child();
