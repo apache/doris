@@ -528,18 +528,7 @@ export function PlaygroundPage() {
     <main className="module-page playground-page">
       {messageContext}
       <header className="page-heading playground-heading">
-        <div><p className="ui-label">SQL workspace</p><h1>Playground</h1></div>
-        <p>Explore metadata and run one Doris SQL statement at a time on a persistent connection.</p>
-        <div className={`session-badge session-${session.status}`} aria-label="SQL session details">
-          <div>
-            <span>Connection status</span>
-            <strong>{session.status}</strong>
-          </div>
-          <div>
-            <span>Session ID</span>
-            <code>{session.sessionId ?? 'No session'}</code>
-          </div>
-        </div>
+        <h1>Playground</h1>
       </header>
 
       {session.status === 'error' && (

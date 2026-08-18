@@ -27,8 +27,7 @@ export function SessionsPage() {
   return (
     <main className="module-page operations-page">
       <header className="page-heading">
-        <div><p className="ui-label">Connection activity</p><h1>Sessions</h1></div>
-        <p>Inspect the current frontend's MySQL-compatible connections. This page is read-only.</p>
+        <h1>Sessions</h1>
       </header>
       <section className="operations-section" aria-labelledby="sessions-heading">
         <div className="section-heading">

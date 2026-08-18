@@ -48,8 +48,7 @@ function QueryProfileList() {
   return (
     <main className="module-page operations-page query-profiles-page">
       <header className="page-heading">
-        <div><p className="ui-label">Current frontend</p><h1>Query Profiles</h1></div>
-        <p>Inspect finished query profiles retained in this FE's in-memory ProfileManager.</p>
+        <h1>Query Profiles</h1>
       </header>
       <section className="operations-section" aria-labelledby="query-profiles-heading">
         <div className="section-heading">
@@ -106,8 +105,7 @@ function QueryProfileDetail({ profileId }: { profileId: string }) {
     <main className="module-page operations-page query-profile-detail-page">
       {messageContext}
       <header className="page-heading">
-        <div><p className="ui-label">Profile details</p><h1>Query Profile</h1></div>
-        <p className="profile-id" title={profileId}>{profileId}</p>
+        <h1>Query Profile</h1>
       </header>
       <section className="operations-section" aria-labelledby="profile-text-heading">
         <div className="section-heading profile-detail-heading">

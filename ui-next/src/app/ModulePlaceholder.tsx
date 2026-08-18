@@ -19,11 +19,7 @@ export function ModulePlaceholder({ name, milestone }: { name: string; milestone
   return (
     <main className="module-page" aria-labelledby="module-title">
       <div className="page-heading">
-        <div>
-          <p className="ui-label">Module</p>
-          <h1 id="module-title">{name}</h1>
-        </div>
-        <p>{milestone} will implement this module.</p>
+        <h1 id="module-title">{name}</h1>
       </div>
     </main>
   );

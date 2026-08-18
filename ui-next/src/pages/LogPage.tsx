@@ -51,8 +51,7 @@ export function LogPage() {
     <main className="module-page operations-page log-page">
       {messageContext}
       <header className="page-heading">
-        <div><p className="ui-label">Frontend diagnostics</p><h1>Log</h1></div>
-        <p>Inspect the current FE warning log and manage temporary verbose logger names.</p>
+        <h1>Log</h1>
       </header>
       <section className="operations-section" aria-labelledby="log-configuration-heading">
         <div className="section-heading">

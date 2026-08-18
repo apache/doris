@@ -172,8 +172,7 @@ export function HomePage() {
   return (
     <main className="module-page home-page">
       <header className="page-heading">
-        <div><p className="ui-label">Cluster overview</p><h1>Home</h1></div>
-        <p>Build identity and current node state reported directly by this Doris frontend.</p>
+        <h1>Cluster Overview</h1>
       </header>
       {emptyPassword && (
         <Alert
