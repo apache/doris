@@ -76,9 +76,40 @@ public class CheckScoreUsageTest {
                         index("idx_body", "body", "domain_analyzer")),
                 "body", null);
 
-        Assertions.assertDoesNotThrow(() -> CheckScoreUsage.checkScoringPolicyAdmission(
-                filter, filter.child(), manager));
+        assertScorePushDownSucceeds(filter, manager);
         Mockito.verify(manager).validateAnalyzerUsesCommonGrams("domain_analyzer");
+    }
+
+    @Test
+    public void testRejectsBuiltInAnalyzerForSelectedSniiIndexWithoutScoringTier()
+            throws Exception {
+        IndexPolicyMgr manager = Mockito.mock(IndexPolicyMgr.class);
+        LogicalFilter<LogicalOlapScan> filter = scoreFilter(
+                table(TInvertedIndexFileStorageFormat.SNII,
+                        builtInIndex("idx_body", "body")),
+                "body", null);
+
+        AnalysisException exception = assertScorePushDownFails(filter, manager);
+        Assertions.assertTrue(exception.getMessage().contains("does not persist scoring data"),
+                exception.getMessage());
+        Mockito.verify(manager, Mockito.never()).validateAnalyzerUsesCommonGrams(Mockito.anyString());
+    }
+
+    @Test
+    public void testRejectsPlainCustomAnalyzerForSelectedSniiIndexWithoutScoringTier()
+            throws Exception {
+        IndexPolicyMgr manager = Mockito.mock(IndexPolicyMgr.class);
+        Mockito.when(manager.validateAnalyzerUsesCommonGrams("plain_analyzer"))
+                .thenReturn(false);
+        LogicalFilter<LogicalOlapScan> filter = scoreFilter(
+                table(TInvertedIndexFileStorageFormat.SNII,
+                        index("idx_body", "body", "plain_analyzer")),
+                "body", null);
+
+        AnalysisException exception = assertScorePushDownFails(filter, manager);
+        Assertions.assertTrue(exception.getMessage().contains("does not persist scoring data"),
+                exception.getMessage());
+        Mockito.verify(manager).validateAnalyzerUsesCommonGrams("plain_analyzer");
     }
 
     @Test
@@ -108,11 +139,13 @@ public class CheckScoreUsageTest {
     @Test
     public void testSearchScorePushDownRuleInvokesPolicyAdmission() throws Exception {
         IndexPolicyMgr manager = Mockito.mock(IndexPolicyMgr.class);
+        Mockito.when(manager.validateAnalyzerUsesCommonGrams("domain_analyzer"))
+                .thenReturn(true);
         Mockito.doThrow(new DdlException("Analyzer 'missing_analyzer' does not exist"))
                 .when(manager).validateAnalyzerUsesCommonGrams("missing_analyzer");
         LogicalFilter<LogicalOlapScan> filter = searchScoreFilter(
                 table(TInvertedIndexFileStorageFormat.SNII,
-                        builtInIndex("idx_body", "body"),
+                        index("idx_body", "body", "domain_analyzer"),
                         index("idx_other", "other", "missing_analyzer")),
                 "body", "other");
         LogicalTopN<LogicalProject<LogicalFilter<LogicalOlapScan>>> topN = scoreTopN(filter);
@@ -127,6 +160,7 @@ public class CheckScoreUsageTest {
             Assertions.assertTrue(exception.getMessage().contains(
                     "Analyzer 'missing_analyzer' does not exist"), exception.getMessage());
         }
+        Mockito.verify(manager).validateAnalyzerUsesCommonGrams("domain_analyzer");
         Mockito.verify(manager).validateAnalyzerUsesCommonGrams("missing_analyzer");
     }
 
@@ -239,7 +273,7 @@ public class CheckScoreUsageTest {
     public void testAnalyzerlessMatchSelectsFirstAnalyzedSiblingIndex() throws Exception {
         IndexPolicyMgr manager = Mockito.mock(IndexPolicyMgr.class);
         Mockito.when(manager.validateAnalyzerUsesCommonGrams("first_analyzer"))
-                .thenReturn(false);
+                .thenReturn(true);
         LogicalFilter<LogicalOlapScan> filter = scoreFilter(
                 table(TInvertedIndexFileStorageFormat.SNII,
                         index("idx_body_first", "body", "first_analyzer"),
@@ -256,7 +290,7 @@ public class CheckScoreUsageTest {
     public void testSearchSelectsFirstAnalyzedSiblingIndex() throws Exception {
         IndexPolicyMgr manager = Mockito.mock(IndexPolicyMgr.class);
         Mockito.when(manager.validateAnalyzerUsesCommonGrams("first_analyzer"))
-                .thenReturn(false);
+                .thenReturn(true);
         LogicalFilter<LogicalOlapScan> filter = searchScoreFilter(
                 table(TInvertedIndexFileStorageFormat.SNII,
                         index("idx_body_first", "body", "first_analyzer"),
@@ -439,6 +473,20 @@ public class CheckScoreUsageTest {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Assertions.assertFalse(
                     rule.transform(topN, Mockito.mock(CascadesContext.class)).isEmpty());
+        }
+    }
+
+    private static AnalysisException assertScorePushDownFails(
+            LogicalFilter<LogicalOlapScan> filter, IndexPolicyMgr manager) {
+        LogicalTopN<LogicalProject<LogicalFilter<LogicalOlapScan>>> topN = scoreTopN(filter);
+        Rule rule = new PushDownScoreTopNIntoOlapScan().buildRules().get(0);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(manager);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            return Assertions.assertThrows(AnalysisException.class,
+                    () -> rule.transform(topN, Mockito.mock(CascadesContext.class)));
         }
     }
 
