@@ -28,31 +28,42 @@ namespace doris::io {
 
 std::shared_ptr<AtomicStatistics> FileCacheMetrics::report() {
     std::shared_ptr<AtomicStatistics> output_stats = std::make_shared<AtomicStatistics>();
-    std::lock_guard lock(_mtx);
-    output_stats->num_io_bytes_read_from_cache += _statistics->num_io_bytes_read_from_cache;
-    output_stats->num_io_bytes_read_from_remote += _statistics->num_io_bytes_read_from_remote;
-    output_stats->num_io_bytes_read_from_peer += _statistics->num_io_bytes_read_from_peer;
+    std::shared_ptr<AtomicStatistics> stats = _statistics.load();
+    if (stats == nullptr) {
+        // Not initialized yet: nothing accumulated so far.
+        return output_stats;
+    }
+    output_stats->num_io_bytes_read_from_cache += stats->num_io_bytes_read_from_cache;
+    output_stats->num_io_bytes_read_from_remote += stats->num_io_bytes_read_from_remote;
+    output_stats->num_io_bytes_read_from_peer += stats->num_io_bytes_read_from_peer;
     output_stats->inverted_index_bytes_read_from_remote +=
-            _statistics->inverted_index_bytes_read_from_remote;
+            stats->inverted_index_bytes_read_from_remote;
     output_stats->segment_footer_index_bytes_read_from_remote +=
-            _statistics->segment_footer_index_bytes_read_from_remote;
+            stats->segment_footer_index_bytes_read_from_remote;
     return output_stats;
 }
 
 void FileCacheMetrics::update(FileCacheStatistics* input_stats) {
-    if (_statistics == nullptr) {
+    // Fast path: atomic load, no lock.
+    std::shared_ptr<AtomicStatistics> stats = _statistics.load();
+    if (stats == nullptr) {
+        // Slow path: initialize exactly once under the lock, publishing with
+        // release semantics so fast-path readers never observe a
+        // half-constructed object (real risk on weakly-ordered aarch64).
         std::lock_guard<std::mutex> lock(_mtx);
-        if (_statistics == nullptr) {
-            _statistics = std::make_shared<AtomicStatistics>();
+        stats = _statistics.load();
+        if (stats == nullptr) {
+            stats = std::make_shared<AtomicStatistics>();
+            _statistics.store(stats);
             register_entity();
         }
     }
-    _statistics->num_io_bytes_read_from_cache += input_stats->bytes_read_from_local;
-    _statistics->num_io_bytes_read_from_remote += input_stats->bytes_read_from_remote;
-    _statistics->num_io_bytes_read_from_peer += input_stats->bytes_read_from_peer;
-    _statistics->inverted_index_bytes_read_from_remote +=
+    stats->num_io_bytes_read_from_cache += input_stats->bytes_read_from_local;
+    stats->num_io_bytes_read_from_remote += input_stats->bytes_read_from_remote;
+    stats->num_io_bytes_read_from_peer += input_stats->bytes_read_from_peer;
+    stats->inverted_index_bytes_read_from_remote +=
             input_stats->inverted_index_bytes_read_from_remote;
-    _statistics->segment_footer_index_bytes_read_from_remote +=
+    stats->segment_footer_index_bytes_read_from_remote +=
             input_stats->segment_footer_index_bytes_read_from_remote;
 }
 
