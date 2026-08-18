@@ -219,9 +219,9 @@ private:
     template <typename Function>
     auto with_resource_context(Function&& function)
             -> decltype(std::forward<Function>(function)()) {
-        // JNI normally re-enters on an attached async-writer thread.  Attach
-        // Java-created threads explicitly too, so every allocation/free is
-        // charged to the query rather than to an unrelated thread context.
+        // JNI normally re-enters on the attached blocking pipeline thread.
+        // Attach Java-created threads explicitly too, so every allocation/free
+        // is charged to the query rather than to an unrelated thread context.
         if (!pthread_context_ptr_init && bthread_self() == 0) {
             SCOPED_ATTACH_TASK(_resource_context);
             return std::forward<Function>(function)();

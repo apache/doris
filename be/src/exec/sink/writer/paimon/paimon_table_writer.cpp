@@ -20,16 +20,22 @@
 #include "common/check.h"
 #include "common/logging.h"
 #include "core/block/block.h"
+#include "core/block/materialize_block.h"
+#include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
 
-PaimonTableWriter::PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs,
-                                     std::shared_ptr<Dependency> dep,
-                                     std::shared_ptr<Dependency> fin_dep)
-        : AsyncResultWriter(output_exprs, std::move(dep), std::move(fin_dep)),
-          _t_sink(std::move(t_sink)) {
+PaimonTableWriter::PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs)
+        : _t_sink(std::move(t_sink)), _output_expr_ctxs(output_exprs) {
     DCHECK(_t_sink.__isset.paimon_table_sink);
+}
+
+Status PaimonTableWriter::_projection_block(Block& input_block, Block* output_block) {
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_expr_ctxs,
+                                                                       input_block, output_block));
+    materialize_block_inplace(*output_block);
+    return Status::OK();
 }
 
 Status PaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {

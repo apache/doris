@@ -24,8 +24,8 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
-#include "exec/sink/writer/async_result_writer.h"
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
+#include "exec/sink/writer/result_writer.h"
 #include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_profile.h"
 
@@ -46,7 +46,7 @@ class RuntimeState;
 ///
 /// Architecture:
 ///   PaimonTableSinkOperatorX
-///     │  sink_impl() → AsyncWriterSink::sink()  (no routing)
+///     │  sink_impl() → PaimonTableWriter::write()  (synchronous, no routing)
 ///     ▼
 ///   PaimonTableWriter (one per LocalState / pipeline instance)
 ///     │  owns IPaimonWriteBackend (JNI or FFI)
@@ -64,22 +64,27 @@ class RuntimeState;
 ///          → collect TPaimonCommitMessage[] (DPCM-framed serialized messages)
 ///          → RuntimeState::add_paimon_commit_messages()
 ///          → RPC to FE Coordinator → PaimonTransaction
-class PaimonTableWriter final : public AsyncResultWriter {
+class PaimonTableWriter final : public ResultWriter {
 public:
-    PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs,
-                      std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
+    PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs);
 
     ~PaimonTableWriter() override = default;
 
-    Status open(RuntimeState* state, RuntimeProfile* profile) override;
+    Status init(RuntimeState*) override { return Status::OK(); }
+
+    Status open(RuntimeState* state, RuntimeProfile* profile);
 
     Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status status) override;
 
 private:
+    Status _projection_block(Block& input_block, Block* output_block);
+
     TDataSink _t_sink;
+    const VExprContextSPtrs& _output_expr_ctxs;
     RuntimeState* _state = nullptr;
+    RuntimeProfile* _operator_profile = nullptr;
 
     // Backend owns the JNI/FFI connection and creates the writer adapter.
     // Both are scoped to this PaimonTableWriter (one per LocalState).

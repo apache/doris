@@ -30,38 +30,41 @@
 
 namespace doris {
 
-/// Paimon table sink operator — simple pass-through to AsyncWriterSink.
+/// Paimon table sink operator.
 ///
 /// Each pipeline instance (LocalState) owns one PaimonTableWriter, which in
 /// turn owns one IPaimonWriteBackend + IPaimonWriter. Pipeline parallelism
 /// determines the number of concurrent Paimon writer sessions per table.
+/// Paimon writes are synchronous: sink_impl() returns only after the SDK has
+/// consumed the input Block. The LocalState is therefore always blockable so
+/// that open, write, and close run on the pipeline blocking scheduler.
 ///
 /// The upstream sink Exchange may reproduce Paimon's stateless HASH_FIXED
 /// selector to establish unique writer ownership. The writer still passes
 /// complete Blocks to the SDK, which independently computes partition and
 /// bucket values for file writing; no routing column is appended to the row.
 ///
-/// This mirrors Iceberg's approach: IcebergTableSinkOperatorX delegates to
-/// AsyncWriterSink<VIcebergTableWriter>, with partition routing inside
-/// VIcebergTableWriter::write().
 class PaimonTableSinkOperatorX;
 
-class PaimonTableSinkLocalState final
-        : public AsyncWriterSink<PaimonTableWriter, PaimonTableSinkOperatorX> {
+class PaimonTableSinkLocalState final : public PipelineXSinkLocalState<FakeSharedState> {
 public:
-    using Base = AsyncWriterSink<PaimonTableWriter, PaimonTableSinkOperatorX>;
+    using Base = PipelineXSinkLocalState<FakeSharedState>;
     using Parent = PaimonTableSinkOperatorX;
     ENABLE_FACTORY_CREATOR(PaimonTableSinkLocalState);
     PaimonTableSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status open(RuntimeState* state) override {
-        SCOPED_TIMER(exec_time_counter());
-        SCOPED_TIMER(_open_timer);
-        return Base::open(state);
-    }
 
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
+    Status open(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
+
+    [[nodiscard]] bool is_blockable() const override { return true; }
+
+private:
     friend class PaimonTableSinkOperatorX;
+
+    VExprContextSPtrs _output_vexpr_ctxs;
+    std::unique_ptr<PaimonTableWriter> _writer;
 };
 
 class PaimonTableSinkOperatorX final : public DataSinkOperatorX<PaimonTableSinkLocalState> {
@@ -89,11 +92,12 @@ public:
 
     Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
+    // Paimon reserves memory at the actual JNI page-allocation boundary.
+    // Generic sink reservation would reserve the same allocation twice.
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState*, bool) override { return 0; }
+
 private:
     friend class PaimonTableSinkLocalState;
-    template <typename Writer, typename Parent>
-        requires(std::is_base_of_v<AsyncResultWriter, Writer>)
-    friend class AsyncWriterSink;
 
     const RowDescriptor& _row_desc;
     VExprContextSPtrs _output_vexpr_ctxs;

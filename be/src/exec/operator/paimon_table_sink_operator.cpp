@@ -22,18 +22,62 @@
 namespace doris {
 
 Status PaimonTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    return Base::init(state, info);
+    RETURN_IF_ERROR(Base::init(state, info));
+    _writer = std::make_unique<PaimonTableWriter>(info.tsink, _output_vexpr_ctxs);
+    return _writer->init(state);
 }
 
-Status PaimonTableSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool eos) {
+Status PaimonTableSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
+
+    auto& parent = _parent->cast<Parent>();
+    _output_vexpr_ctxs.resize(parent._output_vexpr_ctxs.size());
+    for (size_t i = 0; i < _output_vexpr_ctxs.size(); ++i) {
+        RETURN_IF_ERROR(parent._output_vexpr_ctxs[i]->clone(state, _output_vexpr_ctxs[i]));
+    }
+    return _writer->open(state, operator_profile());
+}
+
+Status PaimonTableSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
+
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_close_timer);
+
+    Status final_status = exec_status;
+    if (_writer) {
+        Status writer_status = _writer->close(exec_status);
+        if (final_status.ok() && !writer_status.ok()) {
+            final_status = writer_status;
+        }
+        _writer.reset();
+    }
+
+    Status base_status = Base::close(state, final_status);
+    if (final_status.ok() && !base_status.ok()) {
+        final_status = base_status;
+    }
+    return final_status;
+}
+
+Status PaimonTableSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block, bool /*eos*/) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), static_cast<int64_t>(in_block->rows()));
 
-    // Delegate to AsyncWriterSink → PaimonTableWriter for this pipeline instance.
-    // Each pipeline instance has its own writer session; partition and bucket
-    // routing is handled internally by the Paimon SDK inside IPaimonWriter::write().
-    return local_state.sink(state, in_block, eos);
+    if (in_block->rows() == 0) {
+        return Status::OK();
+    }
+
+    // This is a synchronous SDK call. The LocalState is marked blockable, so
+    // the whole pipeline task (including open and close) runs on the blocking
+    // scheduler instead of occupying a regular pipeline worker.
+    DCHECK(local_state._writer);
+    return local_state._writer->write(state, *in_block);
 }
 
 } // namespace doris
