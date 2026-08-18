@@ -39,6 +39,7 @@ function compare(left: string, right: string): number {
 
 export function ConfigurationPage() {
   const [scope, setScope] = useState<ConfigurationScope>('fe');
+  const [selectedNode, setSelectedNode] = useState('');
   const [nameFilter, setNameFilter] = useState('');
   const [nodeFilter, setNodeFilter] = useState('');
   const [valueFilter, setValueFilter] = useState('');
@@ -55,12 +56,19 @@ export function ConfigurationPage() {
   const [messageApi, messageContext] = message.useMessage();
   const query = useConfiguration(scope);
 
+  const nodes = useMemo(() => Array.from(new Set((query.data ?? [])
+    .map((row) => row.node)
+    .filter(Boolean)))
+    .sort(compare), [query.data]);
+  const activeNode = nodes.includes(selectedNode) ? selectedNode : (nodes[0] ?? '');
+
   const rows = useMemo(() => (query.data ?? []).filter((row) => (
-    includes(row.name, nameFilter)
+    row.node === activeNode
+    && includes(row.name, nameFilter)
     && includes(row.node, nodeFilter)
     && includes(row.currentValue, valueFilter)
     && (!mutableOnly || row.mutable)
-  )), [mutableOnly, nameFilter, nodeFilter, query.data, valueFilter]);
+  )), [activeNode, mutableOnly, nameFilter, nodeFilter, query.data, valueFilter]);
 
   const editableNodes = useMemo(() => editing === null ? [] : Array.from(new Set(
     (query.data ?? [])
@@ -164,13 +172,12 @@ export function ConfigurationPage() {
     <main className="module-page operations-page configuration-page">
       {messageContext}
       <header className="page-heading">
-        <div><p className="ui-label">Runtime settings</p><h1>Configuration</h1></div>
-        <p>Inspect and update mutable frontend and backend configuration values across nodes.</p>
+        <h1>Configuration</h1>
       </header>
       <section className="operations-section" aria-labelledby="configuration-heading">
         <div className="section-heading configuration-heading">
           <div><p className="ui-label">Cluster configuration</p><h2 id="configuration-heading">{scope.toUpperCase()} settings</h2></div>
-          <span>{rows.length} of {query.data?.length ?? 0} rows</span>
+          <span>{rows.length} of {query.data?.filter((row) => row.node === activeNode).length ?? 0} rows</span>
         </div>
         <Tabs
           className="configuration-tabs"
@@ -178,8 +185,21 @@ export function ConfigurationPage() {
           onChange={(key) => {
             setScope(key as ConfigurationScope);
             setSelected(null);
+            setSelectedNode('');
           }}
           items={[{ key: 'fe', label: 'Frontend' }, { key: 'be', label: 'Backend' }]}
+        />
+        <Tabs
+          className="configuration-node-tabs"
+          activeKey={activeNode}
+          onChange={(key) => {
+            setSelectedNode(key);
+            setSelected(null);
+          }}
+          items={nodes.map((node) => ({ key: node, label: node }))}
+          tabBarExtraContent={nodes.length > 0 ? (
+            <span className="configuration-node-count">{nodes.length} {scope.toUpperCase()} nodes</span>
+          ) : null}
         />
         <div className="configuration-filters" aria-label="Configuration filters">
           <Input allowClear aria-label="Filter by name" placeholder="Filter name" value={nameFilter} onChange={(event) => setNameFilter(event.target.value)} />

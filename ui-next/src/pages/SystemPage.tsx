@@ -33,8 +33,7 @@ export function SystemPage() {
   return (
     <main className="module-page operations-page">
       <header className="page-heading">
-        <div><p className="ui-label">Frontend internals</p><h1>System</h1></div>
-        <p>Browse the read-only Doris ProcService tree exposed by this frontend.</p>
+        <h1>Proc System</h1>
       </header>
       <section className="operations-section" aria-labelledby="system-data-heading">
         <div className="section-heading">
