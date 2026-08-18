@@ -21,8 +21,6 @@ import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnToProtobuf;
-import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -33,19 +31,16 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
-import org.apache.doris.proto.OlapFile;
-import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import doris.segment_v2.SegmentV2;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.mockito.Mockito;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
@@ -214,7 +209,7 @@ public class MaterializedViewHandlerTest {
     }
 
     @Test
-    public void testDirectProjectionPreservesColumnCompression() throws Exception {
+    public void testRejectDirectProjectionWithColumnCompression() throws Exception {
         CreateMaterializedViewCommand createMaterializedViewCommand = Mockito.mock(CreateMaterializedViewCommand.class);
         OlapTable olapTable = Mockito.mock(OlapTable.class);
         String mvName = "mv1";
@@ -240,24 +235,11 @@ public class MaterializedViewHandlerTest {
                 .thenReturn(Lists.newArrayList(mvColumnItem));
 
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
-        List<Column> mvColumns = Deencapsulation.invoke(materializedViewHandler,
-                "checkAndPrepareMaterializedView", createMaterializedViewCommand, olapTable,
-                new HashMap<String, String>());
-
-        Assert.assertEquals(1, mvColumns.size());
-        Column mvColumn = mvColumns.get(0);
-        Assert.assertEquals(mvColumnName, mvColumn.getName());
-        Assert.assertEquals(TCompressionType.ZSTD, mvColumn.getCompressionType());
-        Assert.assertEquals(9, mvColumn.getCompressionLevel());
-
-        TColumn thriftColumn = ColumnToThrift.toThrift(mvColumn);
-        Assert.assertEquals(TCompressionType.ZSTD.getValue(), thriftColumn.getCompressionType());
-        Assert.assertEquals(9, thriftColumn.getCompressionLevel());
-
-        OlapFile.ColumnPB columnPb = ColumnToProtobuf.toPb(
-                mvColumn, Collections.emptySet(), Collections.emptyList());
-        Assert.assertEquals(SegmentV2.CompressionTypePB.ZSTD, columnPb.getCompressionType());
-        Assert.assertEquals(9, columnPb.getCompressionLevel());
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> Deencapsulation.invoke(materializedViewHandler,
+                        "checkAndPrepareMaterializedView", createMaterializedViewCommand, olapTable,
+                        new HashMap<String, String>()));
+        Assert.assertTrue(exception.getMessage().contains("per-column compression"));
     }
 
     @Disabled

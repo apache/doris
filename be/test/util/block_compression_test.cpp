@@ -21,8 +21,10 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <stdlib.h>
+#include <zstd.h>
 
 #include <barrier>
+#include <cstdint>
 #include <string>
 #include <thread>
 #include <vector>
@@ -313,19 +315,80 @@ TEST_F(BlockCompressionTest, WideSchemaSharesLeveledInstanceAndTrackerIsBalanced
     }
 }
 
+TEST_F(BlockCompressionTest, ZstdPledgedSourceSizeBoundsContextMemoryAndIsCompatible) {
+    clear_leveled_compression_codec_pool_for_test();
+    Defer cleanup {[&]() { clear_leveled_compression_codec_pool_for_test(); }};
+
+    std::string input(64 * 1024, '\0');
+    uint32_t state = 1;
+    for (char& value : input) {
+        state = state * 1664525 + 1013904223;
+        value = static_cast<char>(state >> 24);
+    }
+    std::vector<Slice> inputs = {Slice(input.data(), input.size() / 2),
+                                 Slice(input.data() + input.size() / 2, input.size() / 2)};
+
+    BlockCompressionCodec* codec = nullptr;
+    ASSERT_TRUE(get_block_compression_codec(segment_v2::ZSTD, 22, &codec).ok());
+    auto tracker = ExecEnv::GetInstance()->block_compression_mem_tracker();
+    int64_t before = tracker->consumption();
+    faststring compressed;
+    ASSERT_TRUE(codec->compress(inputs, input.size(), &compressed).ok());
+    int64_t retained = tracker->consumption() - before;
+
+    EXPECT_EQ(ZSTD_getFrameContentSize(compressed.data(), compressed.size()), input.size());
+    EXPECT_LT(retained, 8 * 1024 * 1024)
+            << "64 KiB at ZSTD level 22 must not retain an unbounded streaming workspace";
+
+    BlockCompressionCodec* legacy_codec = nullptr;
+    ASSERT_TRUE(get_block_compression_codec(segment_v2::ZSTD, &legacy_codec).ok());
+    std::string output(input.size(), '\0');
+    Slice output_slice(output);
+    ASSERT_TRUE(legacy_codec->decompress(Slice(compressed.data(), compressed.size()), &output_slice)
+                        .ok());
+    EXPECT_EQ(std::string(output_slice.data, output_slice.size), input);
+
+    ZSTD_CCtx* legacy_context = ZSTD_createCCtx();
+    ASSERT_NE(legacy_context, nullptr);
+    Defer free_legacy_context {[&]() { ZSTD_freeCCtx(legacy_context); }};
+    size_t ret = ZSTD_CCtx_setParameter(legacy_context, ZSTD_c_compressionLevel, 3);
+    ASSERT_FALSE(ZSTD_isError(ret));
+    ret = ZSTD_CCtx_setParameter(legacy_context, ZSTD_c_checksumFlag, 1);
+    ASSERT_FALSE(ZSTD_isError(ret));
+
+    std::string legacy_compressed(ZSTD_compressBound(input.size()), '\0');
+    ZSTD_outBuffer legacy_output = {legacy_compressed.data(), legacy_compressed.size(), 0};
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        ZSTD_inBuffer legacy_input = {inputs[i].data, inputs[i].size, 0};
+        const bool last_input = i == inputs.size() - 1;
+        const ZSTD_EndDirective mode = last_input ? ZSTD_e_end : ZSTD_e_continue;
+        do {
+            ret = ZSTD_compressStream2(legacy_context, &legacy_output, &legacy_input, mode);
+            ASSERT_FALSE(ZSTD_isError(ret));
+        } while (last_input ? ret != 0 : legacy_input.pos != legacy_input.size);
+    }
+    legacy_compressed.resize(legacy_output.pos);
+    EXPECT_EQ(ZSTD_getFrameContentSize(legacy_compressed.data(), legacy_compressed.size()),
+              ZSTD_CONTENTSIZE_UNKNOWN);
+
+    output_slice = Slice(output);
+    ASSERT_TRUE(codec->decompress(Slice(legacy_compressed), &output_slice).ok());
+    EXPECT_EQ(std::string(output_slice.data, output_slice.size), input);
+}
+
 TEST_F(BlockCompressionTest, LeveledIdleContextsAreBoundedAcrossLevels) {
     clear_leveled_compression_codec_pool_for_test();
     ASSERT_EQ(leveled_compression_idle_context_count_for_test(), 0);
-    ASSERT_EQ(leveled_compression_retained_buffer_bytes_for_test(), 0);
 
-    constexpr int kThreadsPerLevel = 4;
-    constexpr int kLevelCount = 6;
-    constexpr int kThreadCount = kThreadsPerLevel * kLevelCount;
+    constexpr size_t kThreadsPerLevel = 4;
+    constexpr size_t kLevelCount = 6;
+    constexpr size_t kThreadCount = kThreadsPerLevel * kLevelCount;
     const std::vector<std::pair<segment_v2::CompressionTypePB, int>> levels = {
-            {segment_v2::ZSTD, 1},  {segment_v2::ZSTD, 3},  {segment_v2::ZSTD, 5},
+            {segment_v2::ZSTD, 1},  {segment_v2::ZSTD, 9},  {segment_v2::ZSTD, 22},
             {segment_v2::LZ4HC, 1}, {segment_v2::LZ4HC, 6}, {segment_v2::LZ4HC, 12}};
-    std::vector<BlockCompressionCodec*> codecs(kLevelCount);
-    for (int level_index = 0; level_index < kLevelCount; ++level_index) {
+    ASSERT_EQ(levels.size(), kLevelCount);
+    std::vector<BlockCompressionCodec*> codecs(levels.size());
+    for (size_t level_index = 0; level_index < levels.size(); ++level_index) {
         ASSERT_TRUE(get_block_compression_codec(levels[level_index].first,
                                                 levels[level_index].second, &codecs[level_index])
                             .ok());
@@ -339,18 +402,20 @@ TEST_F(BlockCompressionTest, LeveledIdleContextsAreBoundedAcrossLevels) {
         clear_leveled_compression_codec_pool_for_test();
     }};
 
-    std::barrier acquired_contexts(kThreadCount);
+    std::barrier acquired_contexts(static_cast<std::ptrdiff_t>(kThreadCount));
     DebugPoints::instance()->add_with_callback(
             "BlockCompressionCodec.compress.after_acquire_context",
             std::function<void()>([&]() { acquired_contexts.arrive_and_wait(); }));
 
-    std::string input(2 * 1024 * 1024, 'a');
+    auto tracker = ExecEnv::GetInstance()->block_compression_mem_tracker();
+    const int64_t before = tracker->consumption();
+    std::string input(64 * 1024, 'a');
     std::vector<Status> statuses(kThreadCount);
     std::vector<std::thread> threads;
     threads.reserve(kThreadCount);
-    for (int level_index = 0; level_index < kLevelCount; ++level_index) {
-        for (int thread_index = 0; thread_index < kThreadsPerLevel; ++thread_index) {
-            const int result_index = level_index * kThreadsPerLevel + thread_index;
+    for (size_t level_index = 0; level_index < levels.size(); ++level_index) {
+        for (size_t thread_index = 0; thread_index < kThreadsPerLevel; ++thread_index) {
+            const size_t result_index = level_index * kThreadsPerLevel + thread_index;
             threads.emplace_back([&, level_index, result_index]() {
                 faststring compressed;
                 statuses[result_index] = codecs[level_index]->compress(Slice(input), &compressed);
@@ -366,8 +431,12 @@ TEST_F(BlockCompressionTest, LeveledIdleContextsAreBoundedAcrossLevels) {
 
     const size_t idle_context_limit = leveled_compression_idle_context_limit_for_test();
     EXPECT_EQ(leveled_compression_idle_context_count_for_test(), idle_context_limit);
-    EXPECT_LE(leveled_compression_retained_buffer_bytes_for_test(),
-              idle_context_limit * faststring::kInitialCapacity);
+    EXPECT_LT(tracker->consumption() - before,
+              static_cast<int64_t>(idle_context_limit) * 8 * 1024 * 1024);
+
+    clear_leveled_compression_codec_pool_for_test();
+    EXPECT_EQ(leveled_compression_idle_context_count_for_test(), 0);
+    EXPECT_EQ(tracker->consumption(), before);
 }
 
 } // namespace doris

@@ -78,29 +78,26 @@ namespace {
 constexpr size_t MAX_LEVELED_COMPRESSION_IDLE_CONTEXTS = 16;
 constexpr size_t MAX_LEVELED_COMPRESSION_RETAINED_BUFFER_SIZE = 1024 * 1024;
 
-class LeveledCompressionContextPoolBudget {
+class LeveledCompressionIdleContextLimiter {
 public:
-    static LeveledCompressionContextPoolBudget& instance() {
-        static auto* budget = new LeveledCompressionContextPoolBudget;
-        return *budget;
+    static LeveledCompressionIdleContextLimiter& instance() {
+        static auto* limiter = new LeveledCompressionIdleContextLimiter;
+        return *limiter;
     }
 
-    bool try_reserve(size_t retained_buffer_bytes) {
+    bool try_reserve() {
         std::lock_guard<std::mutex> lock(_mutex);
         if (_idle_contexts == MAX_LEVELED_COMPRESSION_IDLE_CONTEXTS) {
             return false;
         }
         ++_idle_contexts;
-        _retained_buffer_bytes += retained_buffer_bytes;
         return true;
     }
 
-    void release(size_t context_count, size_t retained_buffer_bytes) {
+    void release(size_t context_count) {
         std::lock_guard<std::mutex> lock(_mutex);
         DCHECK_GE(_idle_contexts, context_count);
-        DCHECK_GE(_retained_buffer_bytes, retained_buffer_bytes);
         _idle_contexts -= context_count;
-        _retained_buffer_bytes -= retained_buffer_bytes;
     }
 
     size_t idle_contexts() const {
@@ -108,15 +105,9 @@ public:
         return _idle_contexts;
     }
 
-    size_t retained_buffer_bytes() const {
-        std::lock_guard<std::mutex> lock(_mutex);
-        return _retained_buffer_bytes;
-    }
-
 private:
     mutable std::mutex _mutex;
     size_t _idle_contexts = 0;
-    size_t _retained_buffer_bytes = 0;
 };
 
 void trim_leveled_compression_buffer(faststring* buffer) {
@@ -643,12 +634,7 @@ public:
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 ExecEnv::GetInstance()->block_compression_mem_tracker());
         if (_is_leveled) {
-            size_t retained_buffer_bytes = 0;
-            for (const auto& context : _ctx_pool) {
-                retained_buffer_bytes += context->buffer->capacity();
-            }
-            LeveledCompressionContextPoolBudget::instance().release(_ctx_pool.size(),
-                                                                    retained_buffer_bytes);
+            LeveledCompressionIdleContextLimiter::instance().release(_ctx_pool.size());
         }
         _ctx_pool.clear();
     }
@@ -731,7 +717,7 @@ private:
         }
         if (out) {
             if (_is_leveled) {
-                LeveledCompressionContextPoolBudget::instance().release(1, out->buffer->capacity());
+                LeveledCompressionIdleContextLimiter::instance().release(1);
             }
             return Status::OK();
         }
@@ -763,8 +749,7 @@ private:
         LZ4_resetStreamHC_fast(context->ctx, static_cast<int>(_compression_level));
         if (_is_leveled) {
             trim_leveled_compression_buffer(context->buffer.get());
-            if (!LeveledCompressionContextPoolBudget::instance().try_reserve(
-                        context->buffer->capacity())) {
+            if (!LeveledCompressionIdleContextLimiter::instance().try_reserve()) {
                 return;
             }
         }
@@ -1179,12 +1164,8 @@ public:
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
                 ExecEnv::GetInstance()->block_compression_mem_tracker());
         if (_is_leveled) {
-            size_t retained_buffer_bytes = 0;
-            for (const auto& context : _ctx_c_pool) {
-                retained_buffer_bytes += context->buffer->capacity();
-            }
-            LeveledCompressionContextPoolBudget::instance().release(
-                    _ctx_c_pool.size() + _ctx_d_pool.size(), retained_buffer_bytes);
+            LeveledCompressionIdleContextLimiter::instance().release(_ctx_c_pool.size() +
+                                                                     _ctx_d_pool.size());
         }
         _ctx_c_pool.clear();
         _ctx_d_pool.clear();
@@ -1246,6 +1227,11 @@ public:
                 ret = ZSTD_CCtx_setParameter(context->ctx, ZSTD_c_checksumFlag, 1);
                 if (ZSTD_isError(ret)) {
                     return Status::InvalidArgument("ZSTD_CCtx_setParameter checksumFlag error: {}",
+                                                   ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
+                }
+                ret = ZSTD_CCtx_setPledgedSrcSize(context->ctx, uncompressed_size);
+                if (ZSTD_isError(ret)) {
+                    return Status::InvalidArgument("ZSTD_CCtx_setPledgedSrcSize error: {}",
                                                    ZSTD_getErrorString(ZSTD_getErrorCode(ret)));
                 }
 
@@ -1329,7 +1315,7 @@ private:
         }
         if (out) {
             if (_is_leveled) {
-                LeveledCompressionContextPoolBudget::instance().release(1, out->buffer->capacity());
+                LeveledCompressionIdleContextLimiter::instance().release(1);
             }
             return Status::OK();
         }
@@ -1359,8 +1345,7 @@ private:
         DCHECK(!ZSTD_isError(ret));
         if (_is_leveled) {
             trim_leveled_compression_buffer(context->buffer.get());
-            if (!LeveledCompressionContextPoolBudget::instance().try_reserve(
-                        context->buffer->capacity())) {
+            if (!LeveledCompressionIdleContextLimiter::instance().try_reserve()) {
                 return;
             }
         }
@@ -1378,7 +1363,7 @@ private:
         }
         if (out) {
             if (_is_leveled) {
-                LeveledCompressionContextPoolBudget::instance().release(1, 0);
+                LeveledCompressionIdleContextLimiter::instance().release(1);
             }
             return Status::OK();
         }
@@ -1400,7 +1385,7 @@ private:
         // reset ctx to start a new decompress session
         auto ret = ZSTD_DCtx_reset(context->ctx, ZSTD_reset_session_only);
         DCHECK(!ZSTD_isError(ret));
-        if (_is_leveled && !LeveledCompressionContextPoolBudget::instance().try_reserve(0)) {
+        if (_is_leveled && !LeveledCompressionIdleContextLimiter::instance().try_reserve()) {
             return;
         }
         std::lock_guard<std::mutex> l(_ctx_d_mutex);
@@ -1842,11 +1827,7 @@ void clear_leveled_compression_codec_pool_for_test() {
 }
 
 size_t leveled_compression_idle_context_count_for_test() {
-    return LeveledCompressionContextPoolBudget::instance().idle_contexts();
-}
-
-size_t leveled_compression_retained_buffer_bytes_for_test() {
-    return LeveledCompressionContextPoolBudget::instance().retained_buffer_bytes();
+    return LeveledCompressionIdleContextLimiter::instance().idle_contexts();
 }
 
 size_t leveled_compression_idle_context_limit_for_test() {

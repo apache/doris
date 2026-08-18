@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -187,6 +188,26 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     public void testRejectModifyColumnWithCompression() {
         expectException("ALTER TABLE test.sc_dup MODIFY COLUMN error_msg VARCHAR(1024) COMPRESSION ZSTD(9)",
                 "Per-column compression is not supported for MODIFY COLUMN");
+    }
+
+    @Test
+    public void testModifyColumnPreservesCompression() throws Exception {
+        createTable("CREATE TABLE test.sc_compression_modify ("
+                + "k INT, v VARCHAR(64) COMPRESSION ZSTD(9)) "
+                + "DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1', 'light_schema_change' = 'true')");
+
+        alterTable("ALTER TABLE test.sc_compression_modify MODIFY COLUMN v VARCHAR(128)", connectContext);
+        jobSize++;
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(
+                "sc_compression_modify", Table.TableType.OLAP);
+        Column column = table.getColumn("v");
+        Assertions.assertEquals(128, column.getStrLen());
+        Assertions.assertEquals(TCompressionType.ZSTD, column.getCompressionType());
+        Assertions.assertEquals(9, column.getCompressionLevel());
     }
 
     @Test

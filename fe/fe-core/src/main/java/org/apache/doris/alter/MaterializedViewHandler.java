@@ -702,7 +702,8 @@ public class MaterializedViewHandler extends AlterHandler {
             Column baseColumn = Preconditions.checkNotNull(olapTable.getColumn(slotRef.getColumnName()),
                     "Base column does not exist: %s", slotRef.getColumnName());
             if (baseColumn.hasCompressionOverride()) {
-                mvColumn.setCompression(baseColumn.getCompressionType(), baseColumn.getCompressionLevel());
+                throw new DdlException("Materialized view does not support base column with "
+                        + "per-column compression: " + baseColumn.getName());
             }
         }
         return mvColumn;

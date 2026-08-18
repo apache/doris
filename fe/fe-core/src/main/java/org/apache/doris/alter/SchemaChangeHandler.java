@@ -1027,6 +1027,13 @@ public class SchemaChangeHandler extends AlterHandler {
             if (col.getName().equalsIgnoreCase(newColName)) {
                 modColIndex = i;
                 found = true;
+                if (modColumn.hasCompressionOverride()) {
+                    throw new DdlException(
+                            "Per-column compression is not supported for MODIFY COLUMN");
+                }
+                if (col.hasCompressionOverride()) {
+                    modColumn.setCompression(col.getCompressionType(), col.getCompressionLevel());
+                }
                 if (!col.equals(modColumn)) {
                     typeChanged = true;
                     // TODO:the case where columnPos is not empty has not been considered
@@ -1044,10 +1051,6 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARIANT
                             && modColumn.getDataType() == PrimitiveType.VARIANT) {
                         lightSchemaChange = olapTable.getEnableLightSchemaChange();
-                    }
-                    if (col.hasCompressionOverride() || modColumn.hasCompressionOverride()) {
-                        throw new DdlException(
-                                "Per-column compression is not supported for MODIFY COLUMN");
                     }
                     if (col.isClusterKey()) {
                         throw new DdlException("Can not modify cluster key column: " + col.getName());
