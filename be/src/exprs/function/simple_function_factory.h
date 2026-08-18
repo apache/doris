@@ -87,6 +87,7 @@ void register_function_uuid_transforms(SimpleFunctionFactory& factory);
 void register_function_grouping(SimpleFunctionFactory& factory);
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
 void register_function_convert_tz(SimpleFunctionFactory& factory);
+void register_function_timezone_hour_minute(SimpleFunctionFactory& factory);
 void register_function_least_greast(SimpleFunctionFactory& factory);
 void register_function_fake(SimpleFunctionFactory& factory);
 void register_function_array(SimpleFunctionFactory& factory);
@@ -332,6 +333,7 @@ public:
             register_function_grouping(instance);
             register_function_datetime_floor_ceil(instance);
             register_function_convert_tz(instance);
+            register_function_timezone_hour_minute(instance);
             register_function_least_greast(instance);
             register_function_fake(instance);
             register_function_encryption(instance);

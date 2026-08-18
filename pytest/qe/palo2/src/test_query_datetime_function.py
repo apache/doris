@@ -1007,6 +1007,37 @@ def test_query_time_convert_tz():
     runner.check2(line1, line2)
 
 
+def test_query_timezone_hour_minute():
+    """
+    {
+    "title": "test_query_datetime_function.test_query_timezone_hour_minute",
+    "describe": "test for timezone_hour and timezone_minute",
+    "tag": "function,p0"
+    }
+    """
+    # UTC+08:00 has no DST, the offset of the session timezone is the same
+    # for every instant, so timezone_hour always returns 8 here.
+    runner.init("set time_zone = '+08:00'")
+    ret = runner.get_sql_result(
+        "select timezone_hour(cast('2024-01-15 12:00:00' as TIMESTAMPTZ)), "
+        "timezone_minute(cast('2024-07-15 12:00:00' as TIMESTAMPTZ))")
+    assert int(ret[0][0]) == 8 and int(ret[0][1]) == 0, ret
+
+    # America/New_York switches between EST (UTC-05:00) in winter and
+    # EDT (UTC-04:00) in summer.
+    runner.init("set time_zone = 'America/New_York'")
+    ret = runner.get_sql_result(
+        "select timezone_hour(cast('2024-01-15 12:00:00' as TIMESTAMPTZ)), "
+        "timezone_minute(cast('2024-01-15 12:00:00' as TIMESTAMPTZ)), "
+        "timezone_hour(cast('2024-07-15 12:00:00' as TIMESTAMPTZ)), "
+        "timezone_minute(cast('2024-07-15 12:00:00' as TIMESTAMPTZ))")
+    assert int(ret[0][0]) == -5 and int(ret[0][1]) == 0, ret
+    assert int(ret[0][2]) == -4 and int(ret[0][3]) == 0, ret
+
+    # Restore the default timezone of the test cluster.
+    runner.init("set time_zone = '+08:00'")
+
+
 def test_query_timestampdiff():
     """
     {
