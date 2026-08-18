@@ -70,13 +70,59 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertEquals(numOfForwardVars, vars.size());
 
         vars.put(SessionVariable.ENABLE_PROFILE, "true");
+        vars.put(SessionVariable.ENABLE_PROFILE_COMPUTE_GROUPS, "compute_group_1,compute_group_2");
         vars.put(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE, "ERROR");
         sessionVariable.setForwardedSessionVariables(vars);
         Assertions.assertTrue(sessionVariable.enableProfile);
+        Assertions.assertEquals("compute_group_1,compute_group_2",
+                sessionVariable.getEnableProfileComputeGroups());
         Assertions.assertEquals(SessionVariable.INSERT_VISIBLE_TIMEOUT_RETURN_MODE_ERROR,
                 sessionVariable.getInsertVisibleTimeoutReturnMode());
         Assertions.assertEquals(SessionVariable.InsertVisibleTimeoutReturnMode.ERROR,
                 sessionVariable.getInsertVisibleTimeoutReturnModeEnum());
+    }
+
+    @Test
+    public void testEnableProfileComputeGroups() throws Exception {
+        String originalDeployMode = Config.deploy_mode;
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.deploy_mode = "cloud";
+            Config.cloud_unique_id = "";
+
+            SessionVariable variable = new SessionVariable();
+            variable.enableProfile = true;
+            variable.cloudCluster = "compute_group_1";
+            Assertions.assertTrue(variable.enableProfile());
+
+            VariableMgr.setVar(variable, new SetVar(SessionVariable.ENABLE_PROFILE_COMPUTE_GROUPS,
+                    new StringLiteral("compute_group_1, compute_group_2")));
+            Assertions.assertTrue(variable.enableProfile());
+            Assertions.assertTrue(variable.toThrift().isEnableProfile());
+
+            variable.cloudCluster = "compute_group_2";
+            Assertions.assertTrue(variable.enableProfile());
+
+            variable.cloudCluster = "compute_group_3";
+            Assertions.assertFalse(variable.enableProfile());
+            Assertions.assertFalse(variable.toThrift().isEnableProfile());
+            Assertions.assertFalse(variable.toThrift().isIsReportSuccess());
+
+            variable.enableProfile = false;
+            variable.cloudCluster = "compute_group_1";
+            Assertions.assertFalse(variable.enableProfile());
+
+            variable.enableProfile = true;
+            variable.enableProfileComputeGroups = " ";
+            Assertions.assertTrue(variable.enableProfile());
+
+            Config.deploy_mode = "";
+            variable.enableProfileComputeGroups = "compute_group_2";
+            Assertions.assertTrue(variable.enableProfile());
+        } finally {
+            Config.deploy_mode = originalDeployMode;
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
     }
 
     @Test

@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InternalSchemaInitializer;
@@ -24,9 +25,13 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.mysql.MysqlChannel;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -76,6 +81,82 @@ public class StmtExecutorTest extends TestWithFeService {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "");
         stmtExecutor.execute();
         Assert.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
+    }
+
+    @Test
+    public void testPreparedStatementRefreshesProfileDecisionAfterSetVar() throws Exception {
+        String originalDeployMode = Config.deploy_mode;
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        SessionVariable variable = connectContext.getSessionVariable();
+        boolean originalEnableProfile = variable.enableProfile;
+        String originalEnableProfileComputeGroups = variable.enableProfileComputeGroups;
+        String originalCloudCluster = variable.cloudCluster;
+        try {
+            Config.deploy_mode = "cloud";
+            Config.cloud_unique_id = "";
+            variable.enableProfile = true;
+            variable.enableProfileComputeGroups = "cg_b";
+            variable.cloudCluster = "cg_a";
+
+            String sql = "select /*+ SET_VAR(compute_group='cg_b') */ 1";
+            StmtExecutor executor = prepareAndExecute(sql);
+            Field effectiveEnableProfile = StmtExecutor.class.getDeclaredField("effectiveEnableProfile");
+            effectiveEnableProfile.setAccessible(true);
+            Assertions.assertTrue(effectiveEnableProfile.getBoolean(executor));
+            Assertions.assertEquals(SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING,
+                    executor.getProfile().getProfileCompletionState());
+            Assertions.assertEquals("cg_a", variable.cloudCluster);
+            Assertions.assertFalse(variable.enableProfile(connectContext));
+
+            variable.enableProfileComputeGroups = "cg_a";
+            StmtExecutor disabledExecutor = prepareAndExecute(sql);
+            Assertions.assertFalse(effectiveEnableProfile.getBoolean(disabledExecutor));
+            Assertions.assertEquals("cg_a", variable.cloudCluster);
+            Assertions.assertTrue(variable.enableProfile(connectContext));
+        } finally {
+            variable.enableProfile = originalEnableProfile;
+            variable.enableProfileComputeGroups = originalEnableProfileComputeGroups;
+            variable.cloudCluster = originalCloudCluster;
+            variable.setIsSingleSetVar(false);
+            variable.clearSessionOriginValue();
+            Config.deploy_mode = originalDeployMode;
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    private StmtExecutor prepareAndExecute(String sql) throws Exception {
+        connectContext.getState().reset();
+        connectContext.setCommand(MysqlCommand.COM_STMT_PREPARE);
+        StatementBase parsedStmt = new NereidsParser().parseSQL(sql, connectContext.getSessionVariable()).get(0);
+        parsedStmt.setOrigStmt(new OriginStatement(sql, 0));
+        StmtExecutor prepareExecutor = new StmtExecutor(connectContext, parsedStmt);
+        prepareExecutor.execute();
+
+        String stmtName = prepareExecutor.getPrepareStmtName();
+        PreparedStatementContext preparedStatementContext = connectContext.getPreparedStementContext(stmtName);
+        Assertions.assertNotNull(preparedStatementContext);
+        Assertions.assertFalse(connectContext.getSessionVariable().getIsSingleSetVar());
+
+        connectContext.getState().reset();
+        connectContext.setCommand(MysqlCommand.COM_STMT_EXECUTE);
+        TestMysqlConnectProcessor processor = new TestMysqlConnectProcessor(connectContext);
+        // The mocked FE has a non-cloud SystemInfoService, so cloud execution stops after
+        // preprocessing. That is late enough to exercise SET_VAR reapplication and refresh the
+        // executor state under test; MysqlConnectProcessor owns and records the later error.
+        processor.executePreparedStatement(preparedStatementContext.command, Long.parseLong(stmtName),
+                preparedStatementContext);
+        return connectContext.getExecutor();
+    }
+
+    private static class TestMysqlConnectProcessor extends MysqlConnectProcessor {
+        TestMysqlConnectProcessor(ConnectContext context) {
+            super(context);
+        }
+
+        void executePreparedStatement(PrepareCommand prepareCommand, long stmtId,
+                PreparedStatementContext preparedStatementContext) {
+            handleExecute(prepareCommand, stmtId, preparedStatementContext, ByteBuffer.allocate(0), null);
+        }
     }
 
     // Arrow Flight SQL keeps a query's coordinator alive across GetFlightInfo -> DoGet (see #62259);

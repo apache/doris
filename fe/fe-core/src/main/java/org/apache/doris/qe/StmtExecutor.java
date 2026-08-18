@@ -217,6 +217,12 @@ public class StmtExecutor {
     private String mysqlLoadId;
     // Handle selects that fe can do without be
     private boolean isHandleQueryInFe = false;
+
+    // Prevent session_variable rollback after SET_VAR query
+    // e.g. set compute_group = cg_a
+    // SELECT /*+ SET_VAR(compute_group='cg_b') */ 1;
+    // After the query, it may rollback to `cg_a`, causing the profile to cancel reporting
+    private boolean effectiveEnableProfile;
     // The profile of this execution
     private final Profile profile;
     private Boolean isForwardedToMaster = null;
@@ -243,8 +249,9 @@ public class StmtExecutor {
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
+        this.effectiveEnableProfile = this.context.getSessionVariable().enableProfile(this.context);
         this.profile = new Profile(
-                this.context.getSessionVariable().enableProfile(),
+                effectiveEnableProfile,
                 this.context.getSessionVariable().getProfileLevel(),
                 this.context.getSessionVariable().getAutoProfileThresholdMs());
     }
@@ -281,8 +288,9 @@ public class StmtExecutor {
             this.statementContext.setParsedStatement(parsedStmt);
         }
         this.context.setStatementContext(statementContext);
+        this.effectiveEnableProfile = context.getSessionVariable().enableProfile(context);
         this.profile = new Profile(
-                context.getSessionVariable().enableProfile(),
+                effectiveEnableProfile,
                 context.getSessionVariable().getProfileLevel(),
                 context.getSessionVariable().getAutoProfileThresholdMs());
     }
@@ -586,6 +594,18 @@ public class StmtExecutor {
         this.context.setStatementContext(statementContext);
     }
 
+    /** Refresh the profile decision after a prepared statement reapplies its SET_VAR hint. */
+    public void refreshEffectiveEnableProfileAfterSetVar(StatementContext hintStatementContext) {
+        if (!isComStmtExecute || statementContext != hintStatementContext) {
+            return;
+        }
+        boolean enableProfile = context.getSessionVariable().enableProfile(context);
+        if (enableProfile && !effectiveEnableProfile) {
+            profile.enable();
+        }
+        effectiveEnableProfile = enableProfile;
+    }
+
     public boolean isHandleQueryInFe() {
         return isHandleQueryInFe;
     }
@@ -780,7 +800,7 @@ public class StmtExecutor {
 
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
         // short circuit query should not dump changed session var since it will impact the performance.
-        if (context.getSessionVariable().enableProfile && !statementContext.isShortCircuitQuery()) {
+        if (effectiveEnableProfile && !statementContext.isShortCircuitQuery()) {
             List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
             profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
         }
@@ -1267,7 +1287,7 @@ public class StmtExecutor {
     }
 
     public void updateProfile(boolean isFinished) {
-        if (!context.getSessionVariable().enableProfile() || !isProfileSafeStmt()) {
+        if (!effectiveEnableProfile || !isProfileSafeStmt()) {
             return;
         }
         // If any error happened in update profile, we should ignore this error
@@ -1423,7 +1443,7 @@ public class StmtExecutor {
             if (resultSet.isPresent()) {
                 sendResultSet(resultSet.get(), ((Queriable) parsedStmt).getFieldInfos());
                 isHandleQueryInFe = true;
-                if (context.getSessionVariable().enableProfile()) {
+                if (effectiveEnableProfile) {
                     if (profile != null) {
                         this.profile.getSummaryProfile().setExecutedByFrontend(true);
                     }

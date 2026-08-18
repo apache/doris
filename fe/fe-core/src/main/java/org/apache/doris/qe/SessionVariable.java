@@ -110,6 +110,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
+    public static final String ENABLE_PROFILE_COMPUTE_GROUPS = "enable_profile_compute_groups";
     public static final String RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT = "rpc_verbose_profile_max_instance_count";
     public static final String AUTO_PROFILE_THRESHOLD_MS = "auto_profile_threshold_ms";
     public static final String SQL_MODE = "sql_mode";
@@ -1226,6 +1227,11 @@ public class SessionVariable implements Serializable, Writable {
     // if true, need report to coordinator when plan fragment execute successfully.
     @VarAttrDef.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PROFILE_COMPUTE_GROUPS, needForward = true,
+            description = "Compute groups for which Profile is enabled, separated by commas; "
+                    + "empty means no restriction")
+    public String enableProfileComputeGroups = "";
 
     @VarAttrDef.VarAttr(name = RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT, needForward = true)
     public int rpcVerboseProfileMaxInstanceCount = 5;
@@ -3955,7 +3961,22 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean enableProfile() {
-        return enableProfile;
+        return enableProfile(ConnectContext.get());
+    }
+
+    public boolean enableProfile(ConnectContext connectContext) {
+        if (!enableProfile || !Config.isCloudMode() || Strings.isNullOrEmpty(enableProfileComputeGroups)
+                || enableProfileComputeGroups.trim().isEmpty()) {
+            return enableProfile;
+        }
+        String computeGroup = resolveCloudClusterName(connectContext);
+        return Arrays.stream(enableProfileComputeGroups.split(","))
+                .map(String::trim)
+                .anyMatch(computeGroup::equals);
+    }
+
+    public String getEnableProfileComputeGroups() {
+        return enableProfileComputeGroups;
     }
 
     public int getAutoProfileThresholdMs() {
@@ -5493,9 +5514,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setMinFileScannersConcurrency(minFileScannersConcurrency);
 
         tResult.setQueryTimeout(queryTimeoutS);
-        tResult.setEnableProfile(enableProfile);
+        boolean effectiveEnableProfile = enableProfile();
+        tResult.setEnableProfile(effectiveEnableProfile);
         tResult.setRpcVerboseProfileMaxInstanceCount(rpcVerboseProfileMaxInstanceCount);
-        if (enableProfile) {
+        if (effectiveEnableProfile) {
             // If enable profile == true, then also set report success to true
             // be need report success to start report thread. But it is very tricky
             // we should modify BE in the future.

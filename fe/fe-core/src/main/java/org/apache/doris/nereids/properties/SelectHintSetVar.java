@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 
 import java.util.Map;
@@ -65,6 +66,10 @@ public class SelectHintSetVar extends SelectHint {
                         + key + "' = '" + value.get() + "'", t);
                 }
             }
+        }
+        StmtExecutor executor = context.getConnectContext().getExecutor();
+        if (executor != null) {
+            executor.refreshEffectiveEnableProfileAfterSetVar(context);
         }
     }
 

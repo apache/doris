@@ -152,6 +152,15 @@ public class Profile {
         this.autoProfileDurationMs = autoProfileDurationMs;
     }
 
+    /** Enable a profile that was disabled when its query executor was created. */
+    public synchronized void enable() {
+        if (!isQueryFinished) {
+            return;
+        }
+        summaryProfile.enable();
+        isQueryFinished = false;
+    }
+
     // check if the profile file is valid and create a file input stream
     // user need to close the file stream.
     static FileInputStream createPorfileFileInputStream(String path) {

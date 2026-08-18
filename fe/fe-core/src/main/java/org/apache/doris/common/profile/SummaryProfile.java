@@ -524,6 +524,10 @@ public class SummaryProfile {
         }
     }
 
+    void enable() {
+        init();
+    }
+
     // For UT usage
     public void fuzzyInit() {
         for (String key : SUMMARY_KEYS) {

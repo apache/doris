@@ -244,7 +244,7 @@ public final class QeProcessorImpl implements QeProcessor {
                     .fragmentInstanceInfos(info.getCoord().getFragmentInstanceInfos())
                     .profile(info.getCoord().getExecutionProfile().getRoot())
                     .queryStatistics(queryStatistics)
-                    .isReportSucc(context.getSessionVariable().enableProfile()).build();
+                    .isReportSucc(info.getCoord().getQueryOptions().enable_profile).build();
             querySet.put(queryIdStr, item);
         }
         return querySet;
