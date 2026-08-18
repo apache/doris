@@ -18,6 +18,7 @@
 #include "exec/sink/writer/maxcompute/vmc_table_writer.h"
 
 #include "core/block/materialize_block.h"
+#include "exec/sink/writer/external_file_report_compatibility.h"
 #include "exec/sink/writer/maxcompute/vmc_partition_writer.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -42,6 +43,7 @@ Status VMCTableWriter::init_properties(ObjectPool* pool) {
 }
 
 Status VMCTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
+    RETURN_IF_ERROR(validate_external_file_report_ack(state->query_options(), "MaxCompute"));
     _state = state;
 
     LOG(INFO) << "VMCTableWriter::open"

@@ -17,12 +17,23 @@
 
 #pragma once
 
-#include "exec/sink/writer/external_file_report_compatibility.h"
+#include <string_view>
+
+#include "common/status.h"
+#include "gen_cpp/PaloInternalService_types.h"
 
 namespace doris {
 
-inline Status validate_iceberg_external_file_report_ack(const TQueryOptions& query_options) {
-    return validate_external_file_report_ack(query_options, "Iceberg");
+inline Status validate_external_file_report_ack(const TQueryOptions& query_options,
+                                                std::string_view sink_name) {
+    if (!query_options.__isset.supports_external_file_report_ack ||
+        !query_options.supports_external_file_report_ack) {
+        // Reject before creating files because a pre-ACK coordinator cannot safely own them.
+        return Status::NotSupported(
+                "{} writes require a coordinator that acknowledges external-file reports",
+                sink_name);
+    }
+    return Status::OK();
 }
 
 } // namespace doris

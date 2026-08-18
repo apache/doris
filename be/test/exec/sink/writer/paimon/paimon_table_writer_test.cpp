@@ -119,4 +119,19 @@ TEST(PaimonPreparedCommitOwnerTest, FailedSdkShutdownRejectsCommitBeforeAcknowle
     EXPECT_EQ(1, close_count);
 }
 
+TEST(PaimonTableWriterTest, RejectsCoordinatorWithoutExternalFileReportAck) {
+    TPaimonTableSink paimon_sink;
+    TDataSink sink;
+    sink.__set_type(TDataSinkType::PAIMON_TABLE_SINK);
+    sink.__set_paimon_table_sink(paimon_sink);
+    PaimonTableWriter writer(std::move(sink), {});
+    RuntimeState state;
+    RuntimeProfile profile("test");
+
+    Status status = writer.open(&state, &profile);
+
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    EXPECT_NE(std::string::npos, status.to_string().find("acknowledges external-file reports"));
+}
+
 } // namespace doris

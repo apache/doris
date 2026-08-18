@@ -33,15 +33,27 @@ public class IcebergRemoveOrphanFilesActionTest {
         Assertions.assertFalse(IcebergRemoveOrphanFilesAction.sameFileIdentity(
                 "s3://bucket-a/table/data.parquet", "s3://bucket-b/table/data.parquet"));
         Assertions.assertThrows(UserException.class,
-                () -> IcebergRemoveOrphanFilesAction.verifyReachableIndexLimit(
+                () -> IcebergRemoveOrphanFilesAction.verifyReachableIndexBudget(
                         new HashSet<>(Arrays.asList("s3://bucket-a/table/data.parquet",
-                                "s3://bucket-b/table/data.parquet")), 2));
+                                "s3://bucket-b/table/data.parquet")), 2048));
     }
 
     @Test
     public void testReachableIndexIsBounded() {
         Assertions.assertThrows(UserException.class,
-                () -> IcebergRemoveOrphanFilesAction.verifyReachableIndexLimit(
+                () -> IcebergRemoveOrphanFilesAction.verifyReachableIndexBudget(
                         new HashSet<>(Arrays.asList("s3://bucket/table/a", "s3://bucket/table/b")), 1));
+    }
+
+    @Test
+    public void testReachableIndexRejectsOversizedPathBeforeEntryLimit() {
+        String oversizedLocation = "s3://bucket/table/"
+                + new String(new char[512]).replace('\0', 'a');
+        Assertions.assertDoesNotThrow(
+                () -> IcebergRemoveOrphanFilesAction.verifyReachableIndexBudget(
+                        new HashSet<>(Arrays.asList("s3://bucket/table/data.parquet")), 512));
+        Assertions.assertThrows(UserException.class,
+                () -> IcebergRemoveOrphanFilesAction.verifyReachableIndexBudget(
+                        new HashSet<>(Arrays.asList(oversizedLocation)), 512));
     }
 }

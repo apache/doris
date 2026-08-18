@@ -21,6 +21,7 @@
 
 #include "core/block/materialize_block.h"
 #include "core/column/column_map.h"
+#include "exec/sink/writer/external_file_report_compatibility.h"
 #include "exec/sink/writer/hive_multipart_compatibility.h"
 #include "format/transformer/vcsv_transformer.h"
 #include "format/transformer/vorc_transformer.h"
@@ -58,6 +59,7 @@ VHivePartitionWriter::VHivePartitionWriter(const TDataSink& t_sink, std::string 
                   t_sink.hive_table_sink.supports_deferred_azure_multipart) {}
 
 Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_profile) {
+    RETURN_IF_ERROR(validate_external_file_report_ack(state->query_options(), "Hive"));
     _state = state;
 
     io::FSPropertiesRef fs_properties(_write_info.file_type);

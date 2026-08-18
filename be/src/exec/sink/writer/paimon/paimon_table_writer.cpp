@@ -21,6 +21,7 @@
 #include "common/logging.h"
 #include "core/block/block.h"
 #include "core/block/materialize_block.h"
+#include "exec/sink/writer/external_file_report_compatibility.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
 
@@ -69,6 +70,7 @@ PaimonTableWriter::PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& 
 }
 
 Status PaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
+    RETURN_IF_ERROR(validate_external_file_report_ack(state->query_options(), "Paimon"));
     _state = state;
 
     // Register profile counters
