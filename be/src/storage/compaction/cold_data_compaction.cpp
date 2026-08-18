@@ -20,9 +20,11 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -38,6 +40,7 @@
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/debug_points.h"
 #include "util/thread.h"
 #include "util/trace.h"
 #include "util/uid_util.h"
@@ -93,6 +96,19 @@ Status ColdDataCompaction::pick_rowsets_to_compact() {
 }
 
 Status ColdDataCompaction::modify_rowsets() {
+    DBUG_EXECUTE_IF("ColdDataCompaction::modify_rowsets.block", {
+        const auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        if (target_tablet_id == _tablet->tablet_id()) {
+            LOG(INFO) << "start debug block ColdDataCompaction::modify_rowsets.block"
+                      << ", tablet_id=" << target_tablet_id;
+            while (DebugPoints::instance()->is_enable("ColdDataCompaction::modify_rowsets.block")) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            }
+            LOG(INFO) << "end debug block ColdDataCompaction::modify_rowsets.block"
+                      << ", tablet_id=" << target_tablet_id;
+        }
+    })
+
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
     {
         std::lock_guard wlock(_tablet->get_header_lock());
