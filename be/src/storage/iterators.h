@@ -90,6 +90,9 @@ public:
     // reader's key ranges, empty if not existed.
     // used by short key index to filter row blocks
     std::vector<KeyRange> key_ranges;
+    // Sorted exact keys produced by sequence-mapping candidate pruning. Shared by all rowsets and
+    // segments so the key payload and schema are retained only once per tablet scanner.
+    PointKeySetSPtr point_keys;
 
     // For unique-key merge-on-write, the effect is similar to delete_conditions
     // that filters out rows that are deleted in realtime.

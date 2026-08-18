@@ -284,6 +284,48 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     EXPECT_EQ(row.field_count(), 2);
 }
 
+TEST_F(TestRowCursor, SharedSchemaInitAndCloneRetainFields) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->append_column(*create_int_key(0, false));
+    tablet_schema->append_column(*create_int_key(1, false));
+    auto shared_schema = RowCursor::create_shared_schema(tablet_schema, 2);
+
+    std::vector<Field> first_fields;
+    first_fields.emplace_back(Field::create_field<TYPE_INT>(10));
+    first_fields.emplace_back(Field::create_field<TYPE_INT>(20));
+    RowCursor first;
+    ASSERT_TRUE(first.init(shared_schema, std::move(first_fields)).ok());
+
+    OlapTuple second_tuple;
+    second_tuple.add_field(Field::create_field<TYPE_INT>(30));
+    second_tuple.add_field(Field::create_field<TYPE_INT>(40));
+    RowCursor second;
+    ASSERT_TRUE(second.init(shared_schema, second_tuple).ok());
+
+    auto clone = first.clone();
+    EXPECT_EQ(shared_schema.get(), first.schema());
+    EXPECT_EQ(first.schema(), second.schema());
+    EXPECT_EQ(first.schema(), clone.schema());
+    EXPECT_EQ(10, first.field(0).get<TYPE_INT>());
+    EXPECT_EQ(20, first.field(1).get<TYPE_INT>());
+    EXPECT_EQ(10, clone.field(0).get<TYPE_INT>());
+    EXPECT_EQ(20, clone.field(1).get<TYPE_INT>());
+}
+
+TEST_F(TestRowCursor, SharedSchemaRejectsMismatchedFields) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->append_column(*create_int_key(0, false));
+    tablet_schema->append_column(*create_int_key(1, false));
+    auto shared_schema = RowCursor::create_shared_schema(tablet_schema, 2);
+
+    std::vector<Field> fields;
+    fields.emplace_back(Field::create_field<TYPE_INT>(10));
+    RowCursor row;
+    auto status = row.init(shared_schema, std::move(fields));
+
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+}
+
 TEST_F(TestRowCursor, encode_key) {
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->_cols.push_back(create_int_key(0));

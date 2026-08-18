@@ -529,6 +529,7 @@ Status SegmentIterator::_lazy_init(Block* block) {
     if (_segment->_tablet_schema->sort_type() != SortType::ZORDER &&
         _segment->_tablet_schema->cluster_key_uids().empty()) {
         RETURN_IF_ERROR(_get_row_ranges_by_keys());
+        RETURN_IF_ERROR(_get_row_ranges_by_point_keys());
     }
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     RETURN_IF_ERROR(_vec_init_lazy_materialization());
@@ -760,6 +761,43 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     return Status::OK();
 }
 
+Status SegmentIterator::_get_row_ranges_by_point_keys() {
+    if (_row_bitmap.isEmpty() || !_opts.point_keys || _opts.point_keys->keys.empty()) {
+        return Status::OK();
+    }
+    SCOPED_RAW_TIMER(&_opts.stats->seq_map_point_range_build_ns);
+
+    const auto& point_keys = _opts.point_keys->keys;
+    StorageReadOptions::KeyRange seek_range(&point_keys.front(), true, &point_keys.front(), true);
+    RETURN_IF_ERROR(_prepare_seek(seek_range));
+
+    RowRanges result_ranges;
+    for (size_t i = 0; i < point_keys.size(); ++i) {
+        if ((i & 255) == 0 && _opts.runtime_state != nullptr) {
+            RETURN_IF_CANCELLED(_opts.runtime_state);
+        }
+
+        rowid_t upper_rowid = num_rows();
+        RETURN_IF_ERROR(_lookup_ordinal(point_keys[i], false, num_rows(), &upper_rowid));
+
+        rowid_t lower_rowid = 0;
+        if (upper_rowid > 0) {
+            RETURN_IF_ERROR(_lookup_ordinal(point_keys[i], true, upper_rowid, &lower_rowid));
+        }
+        if (lower_rowid < upper_rowid) {
+            // PointKeySet is sorted by full key, so the resulting row-id ranges are monotonic.
+            // RowRanges::add() only needs to inspect/merge the tail instead of rebuilding the
+            // accumulated union for every point.
+            result_ranges.add(RowRange(lower_rowid, upper_rowid));
+        }
+    }
+
+    const size_t pre_size = _row_bitmap.cardinality();
+    _row_bitmap &= RowRanges::ranges_to_roaring(result_ranges);
+    _opts.stats->rows_key_range_filtered += (pre_size - _row_bitmap.cardinality());
+    return Status::OK();
+}
+
 // Set up environment for the following seek.
 Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_range) {
     std::vector<const TabletColumn*> key_columns;
@@ -778,7 +816,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             }
         }
     }
-    if (!_seek_schema) {
+    if (!_seek_schema || _seek_schema->num_column_ids() != key_columns.size()) {
         std::vector<TabletColumnPtr> cols;
         cols.reserve(key_columns.size());
         for (const TabletColumn* col : key_columns) {
@@ -787,6 +825,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
         std::vector<uint32_t> column_ids(cols.size());
         std::iota(column_ids.begin(), column_ids.end(), 0);
         _seek_schema = std::make_unique<Schema>(cols, column_ids);
+        _seek_block.clear();
     }
     // todo(wb) need refactor here, when using pk to search, _seek_block is useless
     if (_seek_block.size() == 0) {

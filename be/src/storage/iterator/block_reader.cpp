@@ -68,6 +68,10 @@ BlockReader::~BlockReader() {
 }
 
 Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
+    if (_seq_map_candidate_pruned) {
+        *eof = true;
+        return Status::OK();
+    }
     auto res = (this->*_next_block_func)(block, eof);
     if (!config::is_cloud_mode()) {
         if (!res.ok()) [[unlikely]] {
@@ -538,6 +542,10 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
 Status BlockReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
     RETURN_IF_ERROR(TabletReader::init(read_params));
+    _seq_map_candidate_pruned = read_params.seq_map_candidate_pruned;
+    if (_seq_map_candidate_pruned) {
+        return Status::OK();
+    }
 
     auto return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size(), -1);

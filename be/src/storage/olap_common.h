@@ -288,6 +288,24 @@ struct OlapReaderStatistics {
     int64_t in_zonemap_point_check_count = 0;
     int64_t in_zonemap_range_only_count = 0;
     int64_t rows_bf_filtered = 0;
+    // Sequence-mapping two-phase candidate-key pruning.
+    int64_t seq_map_candidate_driver_groups = 0;
+    int64_t seq_map_candidate_driver_predicates = 0;
+    int64_t seq_map_candidate_rows = 0;
+    int64_t seq_map_candidate_scan_rows = 0;
+    int64_t seq_map_candidate_scan_bytes = 0;
+    int64_t seq_map_candidate_index_filtered_rows = 0;
+    int64_t seq_map_candidate_index_downgrades = 0;
+    int64_t seq_map_candidate_index_lookup_ns = 0;
+    int64_t seq_map_candidate_cache_local_bytes = 0;
+    int64_t seq_map_candidate_cache_remote_bytes = 0;
+    int64_t seq_map_candidate_keys_before_intersect = 0;
+    int64_t seq_map_candidate_keys_after_intersect = 0;
+    int64_t seq_map_candidate_key_bytes = 0;
+    int64_t seq_map_candidate_build_ns = 0;
+    int64_t seq_map_point_range_build_ns = 0;
+    int64_t seq_map_candidate_fallbacks = 0;
+    int64_t seq_map_candidate_pruned_tablets = 0;
     int64_t segment_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
     // and the number of rows filtered for marked deleted rows under the unique key model.
