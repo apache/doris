@@ -766,6 +766,13 @@ public class PaimonScanNode extends FileQueryScanNode {
                     scanParams != null && scanParams.incrementalRead()
                             ? getIncrReadParams() : Collections.emptyMap(),
                     projected);
+            if (!canReuseExternalScanTasks()
+                    && !(source.getExternalTable() instanceof PaimonSysExternalTable)) {
+                // Reuse is off (or no statement cache): consume the native splits directly, so an
+                // opt-out never pays the serialization cost of the cache path. System tables keep
+                // the serialized path: their splits must be isolated copies for the JNI reader.
+                return planPaimonSplits(paimonTable, resolvedOptions, projected);
+            }
             List<PaimonSerializedScanTask> serializedSplits;
             try {
                 serializedSplits = getOrLoadExternalScanTasks(cacheKey,

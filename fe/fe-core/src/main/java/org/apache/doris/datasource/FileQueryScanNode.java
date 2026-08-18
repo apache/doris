@@ -86,7 +86,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.ToLongFunction;
 import java.util.stream.Collectors;
@@ -148,23 +147,17 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 ? null : statementContext.getExternalScanTaskCache();
     }
 
-    protected <T> List<T> getOrLoadExternalScanTasks(
-            ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader) throws Exception {
-        if (!sessionVariable.enableExternalScanTaskReuse || externalScanTaskCache == null) {
-            return loader.call();
-        }
-        return externalScanTaskCache.getOrLoad(key, loader);
+    /** Whether statement-scoped scan-task reuse is active for this node. */
+    protected boolean canReuseExternalScanTasks() {
+        return sessionVariable.enableExternalScanTaskReuse && externalScanTaskCache != null;
     }
 
-    protected <T> List<T> getOrLoadExternalScanTasks(
-            ExternalScanTaskCacheKey<T> key, Callable<List<T>> loader,
-            ToLongFunction<List<T>> weigher, long maxRetainedWeight) throws Exception {
-        if (!sessionVariable.enableExternalScanTaskReuse || externalScanTaskCache == null) {
-            return loader.call();
-        }
-        return externalScanTaskCache.getOrLoad(key, loader, weigher, maxRetainedWeight);
-    }
-
+    /**
+     * Run a weighted scan-task loader through the statement cache. When reuse is disabled or no
+     * statement cache exists the loader still runs (callers that serialize tasks should check
+     * {@link #canReuseExternalScanTasks()} first and consume native tasks directly, so an
+     * opt-out never pays the feature's encode/decode cost).
+     */
     protected <T> List<T> getOrLoadExternalScanTasks(
             ExternalScanTaskCacheKey<T> key,
             StatementContext.ExternalScanTaskCache.WeightedLoader<T> loader,
@@ -172,7 +165,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             StatementContext.ExternalScanTaskCache.WeightBudget weightBudget,
             long maxEntryWeight, long maxRetainedWeight,
             boolean reserveBeforeLoad) throws Exception {
-        if (!sessionVariable.enableExternalScanTaskReuse || externalScanTaskCache == null) {
+        if (!canReuseExternalScanTasks()) {
             return loader.load(maxEntryWeight);
         }
         return externalScanTaskCache.getOrLoad(

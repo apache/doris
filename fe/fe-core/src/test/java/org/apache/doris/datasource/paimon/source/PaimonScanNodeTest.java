@@ -33,6 +33,7 @@ import org.apache.doris.catalog.VariantType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
@@ -1110,6 +1111,25 @@ public class PaimonScanNodeTest {
 
     @Test
     public void testBoundEmptyDataSnapshotStillPlansMetadataSystemTable() throws Exception {
+        // A live statement scope is required: the metadata-system-table path plans through the
+        // serialized scan-task cache (the split is a deserialized copy, not the planned instance).
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        StatementContext statementContext = new StatementContext(context, null);
+        context.setStatementContext(statementContext);
+        context.setThreadLocalInfo();
+        try {
+            assertBoundEmptyDataSnapshotStillPlansMetadataSystemTable();
+        } finally {
+            statementContext.close();
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    private void assertBoundEmptyDataSnapshotStillPlansMetadataSystemTable() throws Exception {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         PaimonSource source = Mockito.mock(PaimonSource.class);
         PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
@@ -1856,6 +1876,9 @@ public class PaimonScanNodeTest {
         PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
         Table paimonTable = mockPaimonTableWithPartitionKeys(Collections.emptyList());
         Mockito.when(externalTable.getPaimonTable(ArgumentMatchers.any(Optional.class))).thenReturn(paimonTable);
+        DatabaseIf<?> database = Mockito.mock(DatabaseIf.class);
+        Mockito.when(externalTable.getDatabase()).thenReturn(database);
+        Mockito.when(database.getCatalog()).thenReturn(Mockito.mock(CatalogIf.class));
         desc.setTable(externalTable);
         return new PaimonScanNode(planNodeId, desc, false, sessionVariable, ScanContext.EMPTY);
     }

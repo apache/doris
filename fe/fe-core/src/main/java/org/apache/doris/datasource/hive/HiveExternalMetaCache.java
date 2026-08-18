@@ -121,6 +121,14 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     public static final String ERR_CACHE_INCONSISTENCY = "ERR_CACHE_INCONSISTENCY: ";
 
     private final ExecutorService fileListingExecutor;
+    // Per-catalog counters that let statement-scoped Hive scan reuse observe global file-cache
+    // version changes. ADVANCE when the global file cache is invalidated (invalidateCatalog /
+    // invalidateDb / invalidateTable / invalidatePartitions) or replaced (loadFileCacheValue),
+    // so a later alias in the same statement builds a different statement key and re-lists instead
+    // of reusing a stale FileCacheValue. Do NOT advance in paths that only read or refresh
+    // metadata without replacing file entries (e.g. schema-only reloads), or the statement cache
+    // would be invalidated for no data change. Both maps are pruned on terminal catalog removal
+    // (invalidateCatalog), because catalog ids are never reused.
     private final Map<Long, AtomicLong> fileCacheInvalidationGenerations = new ConcurrentHashMap<>();
     private final Map<Long, AtomicLong> fileCacheValueGenerations = new ConcurrentHashMap<>();
 
@@ -1023,6 +1031,10 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
     @Data
     public static class FileCacheValue {
         private final List<HiveFileStatus> files = Lists.newArrayList();
+        // Monotonic per-catalog load counter stamped by loadFileCacheValue. Statement scan-reuse
+        // keys include this value so an automatic refresh, TTL expiry reload, or capacity-eviction
+        // reload of the global entry produces a different key and cannot be reused by an earlier
+        // alias in the same statement.
         private long cacheGeneration;
         private boolean isSplittable;
         protected List<String> partitionValues;

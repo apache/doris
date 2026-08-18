@@ -951,6 +951,11 @@ public class IcebergScanNode extends FileQueryScanNode {
     private <T> List<T> getOrPlanSerializedIcebergTasks(
             IcebergScanTaskCacheKey<IcebergSerializedScanTask<T>> cacheKey,
             Callable<List<T>> planner) throws Exception {
+        if (!canReuseExternalScanTasks()) {
+            // Reuse is off (or no statement cache): consume the native tasks directly, so an
+            // opt-out never pays the serialization cost of the cache path.
+            return planner.call();
+        }
         try {
             List<IcebergSerializedScanTask<T>> serializedTasks = getOrLoadExternalScanTasks(
                     cacheKey,
