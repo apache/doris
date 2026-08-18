@@ -32,8 +32,10 @@ import java.util.Set;
  * Builds the Lance object-store options for one dataset.
  *
  * <p>Both the FE, which opens the dataset through the Lance Java SDK, and the BE, which opens it
- * through lance-c, consume the map produced here, so the two cannot disagree about how a dataset
- * is accessed.
+ * through lance-c, consume the map produced here, so neither can reach a dataset by a
+ * configuration the other never saw. They still interpret it with their own pinned Lance: the two
+ * agree on object_store, but the Java SDK carries a newer OpenDAL than lance-c, so an option only
+ * the newer one knows takes effect on the FE and is ignored on the BE.
  *
  * <p>Options vended by a namespace are merged in as they arrive. The Lance Namespace specification
  * describes {@code storage_options} as configuration "passed directly to Lance", so the protocol
@@ -44,22 +46,42 @@ import java.util.Set;
 public final class LanceStorageOptions {
     private static final Logger LOG = LogManager.getLogger(LanceStorageOptions.class);
 
+    private static final String ENDPOINT = "aws_endpoint";
+    private static final String VIRTUAL_HOSTED_STYLE = "aws_virtual_hosted_style_request";
+    /** Not prefixed: object_store reports this shared client option as canonical under this name. */
+    private static final String ALLOW_HTTP = "allow_http";
+
     /**
      * Doris backend property to Lance object-store option.
      *
-     * <p>Lance reaches S3 through object_store, which accepts both {@code access_key_id} and
-     * {@code aws_access_key_id}. The unprefixed spelling is chosen because it is also the field
-     * name used by the OpenDAL backend, which performs no alias normalization at all, so these
-     * options stay correct if that backend is ever selected.
+     * <p>The spelling emitted for each option is the one object_store reports as canonical, because
+     * that is what {@code StorageOptions::with_env_s3} looks for before pulling the same option out
+     * of the process environment:
+     *
+     * <pre>
+     * // lance-io/src/object_store/providers/aws.rs
+     * if let Ok(config_key) = AmazonS3ConfigKey::from_str(&amp;key.to_ascii_lowercase())
+     *     &amp;&amp; !self.0.contains_key(config_key.as_ref())   // "aws_access_key_id"
+     * </pre>
+     *
+     * <p>Any other accepted alias leaves that check unsatisfied, so a stray {@code AWS_ACCESS_KEY_ID}
+     * in the FE or BE environment is inserted next to the catalog's value and the two race in
+     * {@code as_s3_options()}'s HashMap - the collision this class exists to prevent, resolved
+     * independently per option and per process.
+     *
+     * <p>Lance's OpenDAL backend accepts these spellings too, as serde aliases of its own field
+     * names ({@code #[serde(alias = "aws_access_key_id")]}). Emitting the unprefixed name is what
+     * breaks there: an environment-injected canonical alias lands beside it and serde rejects the
+     * duplicate field.
      */
     private static final Map<String, String> S3_KEYS = new HashMap<>();
 
     static {
-        S3_KEYS.put("AWS_ACCESS_KEY", "access_key_id");
-        S3_KEYS.put("AWS_SECRET_KEY", "secret_access_key");
-        S3_KEYS.put("AWS_TOKEN", "session_token");
-        S3_KEYS.put("AWS_ENDPOINT", "endpoint");
-        S3_KEYS.put("AWS_REGION", "region");
+        S3_KEYS.put("AWS_ACCESS_KEY", "aws_access_key_id");
+        S3_KEYS.put("AWS_SECRET_KEY", "aws_secret_access_key");
+        S3_KEYS.put("AWS_TOKEN", "aws_session_token");
+        S3_KEYS.put("AWS_ENDPOINT", ENDPOINT);
+        S3_KEYS.put("AWS_REGION", "aws_region");
     }
 
     /**
@@ -72,24 +94,31 @@ public final class LanceStorageOptions {
      * to be recognized here, or that race simply moves to the spellings this table misses.
      */
     private static final Map<String, String> CANONICAL_BY_ALIAS = ImmutableMap.<String, String>builder()
-            .put("access_key_id", "access_key_id")
-            .put("aws_access_key_id", "access_key_id")
-            .put("secret_access_key", "secret_access_key")
-            .put("aws_secret_access_key", "secret_access_key")
-            .put("session_token", "session_token")
-            .put("aws_session_token", "session_token")
-            .put("aws_token", "session_token")
-            .put("token", "session_token")
-            .put("endpoint", "endpoint")
-            .put("endpoint_url", "endpoint")
-            .put("aws_endpoint", "endpoint")
-            .put("aws_endpoint_url", "endpoint")
-            .put("region", "region")
-            .put("aws_region", "region")
-            .put("virtual_hosted_style_request", "virtual_hosted_style_request")
-            .put("aws_virtual_hosted_style_request", "virtual_hosted_style_request")
-            .put("allow_http", "allow_http")
-            .put("aws_allow_http", "allow_http")
+            .put("access_key_id", "aws_access_key_id")
+            .put("aws_access_key_id", "aws_access_key_id")
+            .put("secret_access_key", "aws_secret_access_key")
+            .put("aws_secret_access_key", "aws_secret_access_key")
+            .put("session_token", "aws_session_token")
+            .put("aws_session_token", "aws_session_token")
+            .put("aws_token", "aws_session_token")
+            .put("token", "aws_session_token")
+            .put("endpoint", ENDPOINT)
+            .put("endpoint_url", ENDPOINT)
+            .put("aws_endpoint", ENDPOINT)
+            .put("aws_endpoint_url", ENDPOINT)
+            // object_store parses this one into a config key of its own that wins over the generic
+            // endpoint: `let endpoint = self.s3_endpoint.or(self.endpoint)`. Left alone it would not
+            // displace the catalog's endpoint, and allow_http would be derived from the losing one.
+            .put("aws_endpoint_url_s3", ENDPOINT)
+            .put("region", "aws_region")
+            .put("aws_region", "aws_region")
+            .put("virtual_hosted_style_request", VIRTUAL_HOSTED_STYLE)
+            .put("aws_virtual_hosted_style_request", VIRTUAL_HOSTED_STYLE)
+            // OpenDAL's own field name, of which the two spellings above are serde aliases. Leaving
+            // it beside one of them makes a duplicate field, and the S3 operator fails to build.
+            .put("enable_virtual_host_style", VIRTUAL_HOSTED_STYLE)
+            .put("allow_http", ALLOW_HTTP)
+            .put("aws_allow_http", ALLOW_HTTP)
             .build();
 
     /**
@@ -119,8 +148,7 @@ public final class LanceStorageOptions {
 
         String usePathStyle = backendProperties.get("use_path_style");
         if (usePathStyle != null && !usePathStyle.isEmpty()) {
-            result.put("virtual_hosted_style_request",
-                    String.valueOf(!Boolean.parseBoolean(usePathStyle)));
+            result.put(VIRTUAL_HOSTED_STYLE, String.valueOf(!Boolean.parseBoolean(usePathStyle)));
         }
         return withDerivedAllowHttp(result);
     }
@@ -144,6 +172,13 @@ public final class LanceStorageOptions {
             if (key == null || value == null || value.isEmpty()) {
                 return;
             }
+            if (key.indexOf('\0') >= 0 || value.indexOf('\0') >= 0) {
+                // lance-c reads these as C strings, so a NUL would truncate the option there while
+                // leaving it unrecognized here - the two halves would disagree about the key.
+                LOG.warn("Ignoring Lance storage option vended by the namespace because its key or "
+                        + "value contains a NUL character");
+                return;
+            }
             String lowerCased = key.toLowerCase(Locale.ROOT);
             if (PROTECTED_KEYS.contains(lowerCased)) {
                 LOG.warn("Ignoring Lance storage option '{}' vended by the namespace because it "
@@ -163,8 +198,8 @@ public final class LanceStorageOptions {
         result.keySet().removeAll(superseded);
         // allow_http describes the endpoint, so a vended endpoint invalidates a value derived from
         // the catalog's. An explicitly vended allow_http is in `superseded` and survives.
-        if (superseded.contains("endpoint") && !superseded.contains("allow_http")) {
-            result.remove("allow_http");
+        if (superseded.contains(ENDPOINT) && !superseded.contains(ALLOW_HTTP)) {
+            result.remove(ALLOW_HTTP);
         }
         result.putAll(accepted);
         return withDerivedAllowHttp(result);
@@ -177,9 +212,9 @@ public final class LanceStorageOptions {
      * configured with - or supply the only one there is.
      */
     private static Map<String, String> withDerivedAllowHttp(Map<String, String> options) {
-        String endpoint = options.get("endpoint");
+        String endpoint = options.get(ENDPOINT);
         if (endpoint != null && endpoint.startsWith("http://")) {
-            options.putIfAbsent("allow_http", "true");
+            options.putIfAbsent(ALLOW_HTTP, "true");
         }
         return options;
     }

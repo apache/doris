@@ -20,9 +20,12 @@ package org.apache.doris.datasource.lance;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.TreeSet;
 
 public class LanceStorageOptionsTest {
 
@@ -42,27 +45,35 @@ public class LanceStorageOptionsTest {
         backendProperties.put("AWS_TOKEN", "token");
 
         Map<String, String> options = LanceStorageOptions.toLanceOptions(backendProperties);
-        Assertions.assertEquals("ak", options.get("access_key_id"));
-        Assertions.assertEquals("sk", options.get("secret_access_key"));
-        Assertions.assertEquals("token", options.get("session_token"));
-        Assertions.assertEquals("http://minio:9000", options.get("endpoint"));
-        Assertions.assertEquals("us-east-1", options.get("region"));
+        Assertions.assertEquals("ak", options.get("aws_access_key_id"));
+        Assertions.assertEquals("sk", options.get("aws_secret_access_key"));
+        Assertions.assertEquals("token", options.get("aws_session_token"));
+        Assertions.assertEquals("http://minio:9000", options.get("aws_endpoint"));
+        Assertions.assertEquals("us-east-1", options.get("aws_region"));
         Assertions.assertEquals("true", options.get("allow_http"));
-        Assertions.assertEquals("false", options.get("virtual_hosted_style_request"));
+        Assertions.assertEquals("false", options.get("aws_virtual_hosted_style_request"));
     }
 
     /**
-     * Lance reaches object storage through two backends. Only the unprefixed spellings are accepted
-     * by both, so emitting the prefixed ones would drop every credential on the backend that does
-     * not normalize aliases.
+     * Lance folds the process environment into the options before it builds a store, and skips an
+     * environment value only when the map already holds the spelling object_store reports as
+     * canonical. Emitting any other accepted alias lets AWS_* variables in alongside the catalog's
+     * own values, where object_store resolves both to one config key and keeps whichever its
+     * HashMap happens to yield last.
      */
     @Test
-    public void testEmittedOptionsUseTheSpellingBothLanceBackendsAccept() {
-        Map<String, String> options = LanceStorageOptions.toLanceOptions(minioCatalogProperties());
-        Assertions.assertNull(options.get("aws_access_key_id"));
-        Assertions.assertNull(options.get("aws_secret_access_key"));
-        Assertions.assertNull(options.get("aws_endpoint"));
-        Assertions.assertNull(options.get("aws_region"));
+    public void testEmittedOptionsUseTheSpellingThatSuppressesTheEnvironment() {
+        Map<String, String> backendProperties = minioCatalogProperties();
+        backendProperties.put("AWS_TOKEN", "token");
+
+        Map<String, String> options = LanceStorageOptions.toLanceOptions(backendProperties);
+        // Exactly the keys AmazonS3ConfigKey::as_ref() reports; allow_http is canonical unprefixed
+        // because object_store carries it as a shared client option rather than an S3 one.
+        Assertions.assertEquals(
+                new TreeSet<>(Arrays.asList("aws_access_key_id", "aws_secret_access_key",
+                        "aws_session_token", "aws_endpoint", "aws_region",
+                        "aws_virtual_hosted_style_request", "allow_http")),
+                new TreeSet<>(options.keySet()));
     }
 
     @Test
@@ -73,12 +84,12 @@ public class LanceStorageOptionsTest {
         backendProperties.put("AWS_ENDPOINT", "https://s3.amazonaws.com");
 
         Map<String, String> options = LanceStorageOptions.toLanceOptions(backendProperties);
-        Assertions.assertEquals("ak", options.get("access_key_id"));
-        Assertions.assertNull(options.get("secret_access_key"));
-        Assertions.assertNull(options.get("session_token"));
+        Assertions.assertEquals("ak", options.get("aws_access_key_id"));
+        Assertions.assertNull(options.get("aws_secret_access_key"));
+        Assertions.assertNull(options.get("aws_session_token"));
         // allow_http only makes sense for a plain-HTTP endpoint.
         Assertions.assertNull(options.get("allow_http"));
-        Assertions.assertNull(options.get("virtual_hosted_style_request"));
+        Assertions.assertNull(options.get("aws_virtual_hosted_style_request"));
     }
 
     /**
@@ -88,42 +99,57 @@ public class LanceStorageOptionsTest {
      * catalog's entry rather than sit beside it.
      */
     @Test
-    public void testVendedPrefixedAliasReplacesTheCatalogEntry() {
+    public void testVendedUnprefixedAliasReplacesTheCatalogEntry() {
         Map<String, String> vended = new HashMap<>();
-        vended.put("aws_access_key_id", "vended-ak");
-        vended.put("aws_secret_access_key", "vended-sk");
-        vended.put("aws_endpoint", "http://127.0.0.1:9000");
-        vended.put("aws_region", "eu-west-1");
-        vended.put("aws_virtual_hosted_style_request", "true");
-        vended.put("aws_session_token", "vended-token");
+        vended.put("access_key_id", "vended-ak");
+        vended.put("secret_access_key", "vended-sk");
+        vended.put("endpoint", "http://127.0.0.1:9000");
+        vended.put("region", "eu-west-1");
+        vended.put("virtual_hosted_style_request", "true");
+        vended.put("session_token", "vended-token");
 
         Map<String, String> merged = LanceStorageOptions.mergeVended(
                 LanceStorageOptions.toLanceOptions(minioCatalogProperties()), vended);
 
-        Assertions.assertEquals("vended-ak", merged.get("access_key_id"));
-        Assertions.assertEquals("vended-sk", merged.get("secret_access_key"));
-        Assertions.assertEquals("http://127.0.0.1:9000", merged.get("endpoint"));
-        Assertions.assertEquals("eu-west-1", merged.get("region"));
-        Assertions.assertEquals("true", merged.get("virtual_hosted_style_request"));
-        Assertions.assertEquals("vended-token", merged.get("session_token"));
+        Assertions.assertEquals("vended-ak", merged.get("aws_access_key_id"));
+        Assertions.assertEquals("vended-sk", merged.get("aws_secret_access_key"));
+        Assertions.assertEquals("http://127.0.0.1:9000", merged.get("aws_endpoint"));
+        Assertions.assertEquals("eu-west-1", merged.get("aws_region"));
+        Assertions.assertEquals("true", merged.get("aws_virtual_hosted_style_request"));
+        Assertions.assertEquals("vended-token", merged.get("aws_session_token"));
 
-        // No prefixed duplicate may survive alongside the value it replaced.
-        for (String alias : new String[] {"aws_access_key_id", "aws_secret_access_key",
-                "aws_endpoint", "aws_region", "aws_virtual_hosted_style_request",
-                "aws_session_token"}) {
+        // No unprefixed duplicate may survive alongside the value it replaced.
+        for (String alias : new String[] {"access_key_id", "secret_access_key", "endpoint",
+                "region", "virtual_hosted_style_request", "session_token"}) {
             Assertions.assertNull(merged.get(alias), alias + " must not survive the merge");
         }
     }
 
+    @Test
+    public void testVendedPrefixedOptionsReplaceTheCatalogEntry() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("aws_access_key_id", "vended-ak");
+        vended.put("aws_endpoint", "http://127.0.0.1:9000");
+
+        Map<String, String> merged = LanceStorageOptions.mergeVended(
+                LanceStorageOptions.toLanceOptions(minioCatalogProperties()), vended);
+        Assertions.assertEquals("vended-ak", merged.get("aws_access_key_id"));
+        Assertions.assertEquals("http://127.0.0.1:9000", merged.get("aws_endpoint"));
+        Assertions.assertEquals("sk", merged.get("aws_secret_access_key"));
+    }
+
     /**
-     * object_store accepts four spellings of the endpoint and four of the session token. Any one
+     * object_store accepts five spellings of the endpoint and four of the session token. Any one
      * this class fails to recognize reintroduces the race, so the whole equivalence class has to
      * collapse onto a single entry.
      */
     @Test
     public void testEveryAcceptedAliasCollapsesOntoOneEntry() {
+        // aws_endpoint_url_s3 parses into a config key of its own that object_store prefers over
+        // the generic endpoint, so leaving it beside one would not even be a coin toss - the vended
+        // value would win while allow_http was derived from the catalog's.
         for (String alias : new String[] {"endpoint", "endpoint_url", "aws_endpoint",
-                "aws_endpoint_url", "ENDPOINT", "AWS_Endpoint_Url"}) {
+                "aws_endpoint_url", "aws_endpoint_url_s3", "ENDPOINT", "AWS_Endpoint_Url"}) {
             Map<String, String> vended = new HashMap<>();
             vended.put(alias, "http://127.0.0.1:9000");
 
@@ -131,10 +157,34 @@ public class LanceStorageOptionsTest {
                     LanceStorageOptions.toLanceOptions(minioCatalogProperties()), vended);
 
             long endpoints = merged.entrySet().stream()
-                    .filter(e -> e.getKey().toLowerCase(java.util.Locale.ROOT).contains("endpoint"))
+                    .filter(e -> e.getKey().toLowerCase(Locale.ROOT).contains("endpoint"))
                     .count();
             Assertions.assertEquals(1, endpoints, "alias " + alias + " left a competing entry");
-            Assertions.assertEquals("http://127.0.0.1:9000", merged.get("endpoint"),
+            Assertions.assertEquals("http://127.0.0.1:9000", merged.get("aws_endpoint"),
+                    "alias " + alias + " did not win");
+        }
+    }
+
+    /**
+     * Lance's OpenDAL backend names this option {@code enable_virtual_host_style} and takes the two
+     * object_store spellings as serde aliases of it, so two of the three in one map is a duplicate
+     * field and the S3 operator fails to build rather than picking a winner.
+     */
+    @Test
+    public void testOpendalVirtualHostStyleSpellingCollapsesToo() {
+        for (String alias : new String[] {"virtual_hosted_style_request",
+                "aws_virtual_hosted_style_request", "enable_virtual_host_style"}) {
+            Map<String, String> vended = new HashMap<>();
+            vended.put(alias, "true");
+
+            Map<String, String> merged = LanceStorageOptions.mergeVended(
+                    LanceStorageOptions.toLanceOptions(minioCatalogProperties()), vended);
+
+            long entries = merged.keySet().stream()
+                    .filter(key -> key.contains("virtual_host"))
+                    .count();
+            Assertions.assertEquals(1, entries, "alias " + alias + " left a competing entry");
+            Assertions.assertEquals("true", merged.get("aws_virtual_hosted_style_request"),
                     "alias " + alias + " did not win");
         }
     }
@@ -154,20 +204,7 @@ public class LanceStorageOptionsTest {
         Map<String, String> merged = LanceStorageOptions.mergeVended(
                 LanceStorageOptions.toLanceOptions(catalogProperties), vended);
         Assertions.assertEquals("vended-token", merged.get("token"));
-        Assertions.assertNull(merged.get("session_token"));
-    }
-
-    @Test
-    public void testVendedUnprefixedOptionsReplaceTheCatalogEntry() {
-        Map<String, String> vended = new HashMap<>();
-        vended.put("access_key_id", "vended-ak");
-        vended.put("endpoint", "http://127.0.0.1:9000");
-
-        Map<String, String> merged = LanceStorageOptions.mergeVended(
-                LanceStorageOptions.toLanceOptions(minioCatalogProperties()), vended);
-        Assertions.assertEquals("vended-ak", merged.get("access_key_id"));
-        Assertions.assertEquals("http://127.0.0.1:9000", merged.get("endpoint"));
-        Assertions.assertEquals("sk", merged.get("secret_access_key"));
+        Assertions.assertNull(merged.get("aws_session_token"));
     }
 
     /**
@@ -209,8 +246,26 @@ public class LanceStorageOptionsTest {
         vended.put("endpoint", "https://s3.amazonaws.com");
 
         Map<String, String> merged = LanceStorageOptions.mergeVended(catalogOptions, vended);
-        Assertions.assertEquals("https://s3.amazonaws.com", merged.get("endpoint"));
+        Assertions.assertEquals("https://s3.amazonaws.com", merged.get("aws_endpoint"));
         Assertions.assertNull(merged.get("allow_http"));
+    }
+
+    /**
+     * The S3-specific endpoint is the one object_store would actually use, so allow_http has to be
+     * derived from it rather than from the generic entry it displaces.
+     */
+    @Test
+    public void testAllowHttpFollowsTheS3SpecificEndpoint() {
+        Map<String, String> catalogProperties = minioCatalogProperties();
+        catalogProperties.put("AWS_ENDPOINT", "https://s3.amazonaws.com");
+
+        Map<String, String> vended = new HashMap<>();
+        vended.put("aws_endpoint_url_s3", "http://minio:9000");
+
+        Map<String, String> merged = LanceStorageOptions.mergeVended(
+                LanceStorageOptions.toLanceOptions(catalogProperties), vended);
+        Assertions.assertEquals("http://minio:9000", merged.get("aws_endpoint"));
+        Assertions.assertEquals("true", merged.get("allow_http"));
     }
 
     /**
@@ -251,10 +306,34 @@ public class LanceStorageOptionsTest {
         vended.put("ROOT", "/elsewhere");
 
         Map<String, String> merged = LanceStorageOptions.mergeVended(Collections.emptyMap(), vended);
-        Assertions.assertEquals("vended-ak", merged.get("access_key_id"));
+        Assertions.assertEquals("vended-ak", merged.get("aws_access_key_id"));
         Assertions.assertNull(merged.get("bucket"));
         Assertions.assertNull(merged.get("aws_bucket_name"));
         Assertions.assertNull(merged.get("ROOT"));
+    }
+
+    /**
+     * lance-c reads these options as C strings, so an embedded NUL truncates the key there while
+     * this class still sees the full one - the protected-key check and the alias table would both
+     * be looking at a key the BE never receives.
+     */
+    @Test
+    public void testVendedOptionsWithEmbeddedNulAreDropped() {
+        Map<String, String> vended = new HashMap<>();
+        vended.put("access_key_id", "vended-ak");
+        vended.put("bucket\0ignored", "attacker-bucket");
+        vended.put("endpoint\0ignored", "http://attacker:9000");
+        vended.put("region", "eu-west-1\0ignored");
+
+        Map<String, String> merged = LanceStorageOptions.mergeVended(
+                LanceStorageOptions.toLanceOptions(minioCatalogProperties()), vended);
+        Assertions.assertEquals("vended-ak", merged.get("aws_access_key_id"));
+        Assertions.assertEquals("http://minio:9000", merged.get("aws_endpoint"));
+        Assertions.assertEquals("us-east-1", merged.get("aws_region"));
+        for (String key : merged.keySet()) {
+            Assertions.assertFalse(key.indexOf('\0') >= 0, "key " + key + " kept a NUL");
+            Assertions.assertFalse(merged.get(key).indexOf('\0') >= 0, key + " kept a NUL value");
+        }
     }
 
     @Test

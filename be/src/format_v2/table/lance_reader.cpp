@@ -28,6 +28,7 @@
 #include <limits>
 #include <memory>
 
+#include "common/logging.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_map.h"
@@ -906,6 +907,13 @@ std::vector<std::string> LanceTableReader::_storage_options(
     options.reserve(scan_params->lance_storage_options.size() * 2);
     for (const auto& [key, value] : scan_params->lance_storage_options) {
         if (value.empty()) {
+            continue;
+        }
+        // These become C strings below, so an embedded NUL would silently truncate the option and
+        // leave lance-c reading a different key than the FE resolved. The FE drops those already;
+        // this guards against one that predates the check.
+        if (key.find('\0') != std::string::npos || value.find('\0') != std::string::npos) {
+            LOG(WARNING) << "Ignoring Lance storage option whose key or value contains a NUL";
             continue;
         }
         options.emplace_back(key);
