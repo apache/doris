@@ -192,10 +192,11 @@ struct FunctionMultiMatchAnyImpl {
      * regular expression matching library.
      *
      */
-    static Status prepare_regexps_and_scratch(const std::vector<StringRef>& needles,
-                                              multiregexps::Regexps*& regexps,
-                                              multiregexps::ScratchPtr& smart_scratch) {
-        multiregexps::DeferredConstructedRegexpsPtr deferred_constructed_regexps =
+    static Status prepare_regexps_and_scratch(
+            const std::vector<StringRef>& needles,
+            multiregexps::DeferredConstructedRegexpsPtr& deferred_constructed_regexps,
+            multiregexps::Regexps*& regexps, multiregexps::ScratchPtr& smart_scratch) {
+        deferred_constructed_regexps =
                 multiregexps::getOrSet</*SaveIndices*/
                                        FindAnyIndex, WithEditDistance>(needles, std::nullopt);
         regexps = deferred_constructed_regexps->get();
@@ -254,9 +255,11 @@ struct FunctionMultiMatchAnyImpl {
             return Status::OK();
         }
 
+        multiregexps::DeferredConstructedRegexpsPtr deferred_constructed_regexps;
         multiregexps::Regexps* regexps = nullptr;
         multiregexps::ScratchPtr smart_scratch;
-        RETURN_IF_ERROR(prepare_regexps_and_scratch(needles, regexps, smart_scratch));
+        RETURN_IF_ERROR(prepare_regexps_and_scratch(needles, deferred_constructed_regexps, regexps,
+                                                    smart_scratch));
 
         const size_t haystack_offsets_size = haystack_offsets.size();
         UInt64 offset = 0;
@@ -318,9 +321,11 @@ struct FunctionMultiMatchAnyImpl {
                 continue;
             }
 
+            multiregexps::DeferredConstructedRegexpsPtr deferred_constructed_regexps;
             multiregexps::Regexps* regexps = nullptr;
             multiregexps::ScratchPtr smart_scratch;
-            RETURN_IF_ERROR(prepare_regexps_and_scratch(needles, regexps, smart_scratch));
+            RETURN_IF_ERROR(prepare_regexps_and_scratch(needles, deferred_constructed_regexps,
+                                                        regexps, smart_scratch));
 
             const size_t cur_haystack_length = haystack_offsets[i] - prev_haystack_offset;
 
