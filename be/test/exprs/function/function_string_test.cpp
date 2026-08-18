@@ -19,8 +19,10 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
@@ -73,6 +75,77 @@ DataSet make_md5_varbinary_dataset(const std::vector<std::string>& inputs) {
         data_set.push_back({{VARBINARY(input)}, {md5_hex_for_test(input)}});
     }
     return data_set;
+}
+
+void check_split_by_string(const InputTypeSet& input_types, const DataSet& data_set) {
+    ut_type::UTDataTypeDescs descs;
+    ASSERT_TRUE(parse_ut_data_type(input_types, descs));
+    ASSERT_EQ(2, descs.size());
+
+    auto row_size = data_set.size();
+    Block block;
+    for (size_t i = 0; i < descs.size(); ++i) {
+        auto& desc = descs[i];
+        auto column = desc.data_type->create_column();
+        column->reserve(row_size);
+
+        for (int j = 0; j < (desc.is_const ? 1 : row_size); ++j) {
+            ASSERT_TRUE(insert_cell(column, desc.data_type, data_set[j].first[i]));
+        }
+
+        if (desc.is_const) {
+            column = ColumnConst::create(std::move(column), row_size);
+        }
+        block.insert({std::move(column), desc.data_type, desc.col_name});
+    }
+
+    ColumnNumbers arguments = {0, 1};
+    std::vector<DataTypePtr> arg_types;
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_col_ptrs;
+    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
+    for (size_t i = 0; i < descs.size(); ++i) {
+        arg_types.push_back(descs[i].data_type);
+        if (descs[i].is_const) {
+            constant_col_ptrs.push_back(
+                    std::make_shared<ColumnPtrWrapper>(block.get_by_position(i).column));
+            constant_cols.push_back(constant_col_ptrs.back());
+        } else {
+            constant_cols.push_back(nullptr);
+        }
+    }
+
+    auto return_type =
+            make_nullable(std::make_shared<DataTypeArray>(make_nullable(descs[0].data_type)));
+    FunctionBasePtr func = SimpleFunctionFactory::instance().get_function(
+            "split_by_string", block.get_columns_with_type_and_name(), return_type);
+    ASSERT_NE(nullptr, func.get());
+
+    FunctionUtils fn_utils(return_type, arg_types, false);
+    auto* fn_ctx = fn_utils.get_fn_ctx();
+    fn_ctx->set_constant_cols(constant_cols);
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+
+    block.insert({nullptr, return_type, "result"});
+    auto result = block.columns() - 1;
+    ASSERT_TRUE(func->execute(fn_ctx, block, arguments, result, row_size).ok());
+    ASSERT_TRUE(func->close(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+
+    auto expected_col = return_type->create_column();
+    for (int i = 0; i < row_size; ++i) {
+        ASSERT_TRUE(insert_cell(expected_col, return_type, data_set[i].second));
+    }
+
+    ColumnPtr column = block.get_columns()[result];
+    ASSERT_TRUE(column);
+    for (int i = 0; i < row_size; ++i) {
+        EXPECT_EQ(0, column->compare_at(i, i, *expected_col, 1))
+                << ", function split_by_string. input row:\n"
+                << block.dump_data(i, 1)
+                << "result: " << block.get_data_types()[result]->to_string(*column, i)
+                << ", expected result: " << return_type->to_string(*expected_col, i);
+    }
 }
 
 } // namespace
@@ -1546,6 +1619,52 @@ TEST(function_string_test, function_concat_ws_test) {
 
         check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
     };
+}
+
+TEST(function_string_test, function_split_by_string_empty_source_test) {
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR, PrimitiveType::TYPE_VARCHAR};
+        DataSet data_set = {
+                {{std::string(""), std::string(",")}, TestArray {std::string("")}},
+                {{std::string(""), std::string("a")}, TestArray {std::string("")}},
+                {{std::string(""), std::string("")}, TestArray {}},
+                {{std::string("a,b"), std::string(",")},
+                 TestArray {std::string("a"), std::string("b")}},
+                {{Null(), std::string(",")}, Null()},
+                {{std::string(""), Null()}, Null()},
+        };
+        check_split_by_string(input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR,
+                                    Consted {PrimitiveType::TYPE_VARCHAR}};
+        DataSet data_set = {
+                {{std::string(""), std::string(",")}, TestArray {std::string("")}},
+                {{std::string("a,b"), std::string(",")},
+                 TestArray {std::string("a"), std::string("b")}},
+                {{Null(), std::string(",")}, Null()},
+        };
+        check_split_by_string(input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
+                                    PrimitiveType::TYPE_VARCHAR};
+        DataSet data_set = {
+                {{std::string(""), std::string("")}, TestArray {}},
+                {{std::string(""), std::string(",")}, TestArray {std::string("")}},
+                {{std::string(""), std::string("abc")}, TestArray {std::string("")}},
+        };
+        check_split_by_string(input_types, data_set);
+    }
+
+    {
+        InputTypeSet input_types = {Consted {PrimitiveType::TYPE_VARCHAR},
+                                    Consted {PrimitiveType::TYPE_VARCHAR}};
+        DataSet data_set = {{{std::string(""), std::string(",")}, TestArray {std::string("")}}};
+        check_split_by_string(input_types, data_set);
+    }
 }
 
 TEST(function_string_test, function_null_or_empty_test) {
