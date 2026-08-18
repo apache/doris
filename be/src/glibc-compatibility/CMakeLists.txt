@@ -57,6 +57,8 @@ if (GLIBC_COMPATIBILITY)
     # libcalls. Workaround: Use object file so that linker will always take a
     # look at its symbol table.
     list(REMOVE_ITEM glibc_compatibility_sources musl/getrandom.c)
+    # NOTE: the OBJECT lib must always provide the resolv_shim symbol; keep it out of the archive.
+    list(REMOVE_ITEM glibc_compatibility_sources resolv_shim.c)
     # NOTE(amos): sanitizers might generate memcpy references that are too late to
     # refer. Let's also extract memcpy definitions explicitly to avoid UNDEF GLIBC 2.14.
     #

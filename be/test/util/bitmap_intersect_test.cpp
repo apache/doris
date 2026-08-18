@@ -67,9 +67,10 @@ TEST(BitmapIntersectTest, RoundtripWithOddLengthKeys) {
     EXPECT_EQ(expect.cardinality(), reader.intersect_count());
 }
 
-// VecDateTimeValue keys: read_from does two sequential word reads; with the
-// count prefix the first key starts at offset 4 (only 4-aligned). Guards
-// Helper::read_from<VecDateTimeValue> hardening.
+// int32 keys: with the 4-byte count prefix the first key starts at offset 4
+// (only 4-aligned), and keys are read back through fixed-width
+// unaligned_load<int32_t>. Guards the count-prefix + fixed-width key reads at
+// only-4-aligned offsets.
 TEST(BitmapIntersectTest, RoundtripIntKeysMisaligned) {
     BitmapIntersect<int32_t> writer;
     BitmapValue bv;
@@ -89,6 +90,57 @@ TEST(BitmapIntersectTest, RoundtripIntKeysMisaligned) {
 
     BitmapIntersect<int32_t> reader(dest);
     EXPECT_EQ(bv.cardinality(), reader.intersect_count());
+}
+
+// VecDateTimeValue keys: write_to stores packed int64 + 4-byte type tag and
+// read_from does two sequential word reads; with the 4-byte count prefix the
+// first key's packed int64 lands at offset 4 (4-aligned but not 8-aligned).
+// Guards Helper::write_to/read_from<VecDateTimeValue> hardening.
+TEST(BitmapIntersectTest, RoundtripDateTimeKeysMisaligned) {
+    BitmapIntersect<VecDateTimeValue> writer;
+    auto make_datetime = [](int64_t v) {
+        VecDateTimeValue d;
+        d.from_date_int64(v);
+        return d;
+    };
+    // Include a TIME_DATE key to cover the cast_to_date branch of read_from.
+    VecDateTimeValue date_key = make_datetime(20240404);
+    date_key.cast_to_date();
+    std::vector<VecDateTimeValue> keys = {make_datetime(20240101123000),
+                                          make_datetime(20240202123000),
+                                          make_datetime(20240303123000), date_key};
+    BitmapValue bv1;
+    for (uint32_t i = 0; i < 100; i += 2) {
+        bv1.add(i);
+    }
+    BitmapValue bv2;
+    for (uint32_t i = 0; i < 100; i += 3) {
+        bv2.add(i);
+    }
+    for (size_t i = 0; i < keys.size(); ++i) {
+        writer.add_key(keys[i]);
+        writer.update(keys[i], i % 2 == 0 ? bv1 : bv2);
+    }
+
+    const size_t ser_size = writer.size();
+    std::vector<char> raw(ser_size + 16, 0);
+    char* aligned_base =
+            reinterpret_cast<char*>((reinterpret_cast<uintptr_t>(raw.data()) + 7) & ~7ULL);
+    char* dest = aligned_base + 3; // 8k+3 offset: every packed int64 read misaligned
+    writer.serialize(dest);
+
+    BitmapIntersect<VecDateTimeValue> reader(dest);
+
+    // Expected intersection: even-index keys hold bv1, odd-index keys hold bv2.
+    BitmapValue expect = bv1;
+    expect &= bv2;
+    BitmapValue got = reader.intersect();
+    EXPECT_EQ(expect.cardinality(), got.cardinality());
+    for (uint32_t i = 0; i < 100; ++i) {
+        if (i % 6 == 0) { // present in both bv1 and bv2
+            EXPECT_TRUE(got.contains(i));
+        }
+    }
 }
 
 } // namespace doris

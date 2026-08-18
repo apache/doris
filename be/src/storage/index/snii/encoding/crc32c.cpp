@@ -38,6 +38,10 @@
 #define SNII_CRC32C_X86 1
 #include <cpuid.h>     // __get_cpuid, bit_SSE4_2
 #include <nmmintrin.h> // _mm_crc32_u8/u32/u64 (SSE4.2)
+#else
+// Keep the #if SNII_CRC32C_X86 uses below -Wundef-clean on non-x86 (aarch64
+// UT builds compile this BE_TEST-only TU with -Werror).
+#define SNII_CRC32C_X86 0
 #endif
 
 namespace doris::snii {
