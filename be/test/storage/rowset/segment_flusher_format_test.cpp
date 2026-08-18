@@ -108,8 +108,8 @@ constexpr std::string_view kGoldenOutputDirEnv = "DORIS_SEGMENT_FLUSHER_GOLDEN_O
 // regenerating all golden files.
 constexpr int32_t kGoldenBeExecVersion = 10;
 constexpr int32_t kRowBinlogSystemColumnCount = 3;
-constexpr size_t kExpectedGoldenCaseCount = 76;
-constexpr size_t kExpectedGoldenSegmentCount = 154;
+constexpr size_t kExpectedGoldenCaseCount = 78;
+constexpr size_t kExpectedGoldenSegmentCount = 158;
 constexpr size_t kExternalIndexRows = 180;
 constexpr size_t kAnnDimensions = 4;
 constexpr std::array<std::string_view, 6> kGoldenProducerTests {
@@ -3654,8 +3654,11 @@ TEST_F(SegmentFlusherFormatTest, RowStoreAndSegmentCreatorPathsKeepTheirSegmentB
 }
 
 TEST_F(SegmentFlusherTransformFormatTest, PartialUpdateAndRowBinlogPathsKeepTheirSegmentBytes) {
-    // Flexible partial update is a VerticalSegmentWriter-only generation path on the baseline.
-    constexpr std::array kFlexiblePartialWriterModes {true};
+    // Both writers replay flexible partial update. The vertical baselines were
+    // recorded from the legacy in-writer fill; the horizontal ones pin the path
+    // the transform chain newly opened (the legacy horizontal writer rejected
+    // flexible, so no legacy baseline can exist for it).
+    constexpr std::array kFlexiblePartialWriterModes {false, true};
     auto record = [](Result<std::vector<SegmentFingerprint>> result) {
         if (!result.has_value()) {
             return testing::AssertionFailure() << result.error();

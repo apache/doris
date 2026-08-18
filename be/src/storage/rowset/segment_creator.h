@@ -135,7 +135,9 @@ public:
         ~Writer();
 
         Status add_rows(const Block* block, size_t row_offset, size_t input_row_num) {
-            return _flusher->_add_rows(_writer, block, row_offset, input_row_num);
+            RETURN_IF_ERROR(_flusher->_add_rows(_writer, block, row_offset, input_row_num));
+            _flusher->_num_rows_written += input_row_num;
+            return Status::OK();
         }
 
         Status flush();

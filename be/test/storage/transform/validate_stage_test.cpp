@@ -137,10 +137,10 @@ TEST_F(ValidateStageTest, CompositionFixedPartialUpdate) {
               (V {"Validate", "FixedPartialUpdateFill", "VariantParse", "RowStoreFill"}));
 }
 
-// Flexible partial update only gets validated by the chain for now: the vertical
-// writer still owns its fill, parse and row-store work. The flexible fill stage
-// takes this slot when it moves into the chain.
-TEST_F(ValidateStageTest, CompositionFlexiblePartialUpdateValidateOnly) {
+// TYPE_DIRECT + flexible PU -> the flexible fill stage sits after Validate; the
+// legacy flexible path rebuilt RowStore before parsing the filled variants, the
+// reverse of the fixed order.
+TEST_F(ValidateStageTest, CompositionFlexiblePartialUpdate) {
     using V = std::vector<std::string_view>;
     auto fschema = create_flexible_mow_schema();
     auto flexible = std::make_shared<PartialUpdateInfo>();
@@ -150,7 +150,8 @@ TEST_F(ValidateStageTest, CompositionFlexiblePartialUpdateValidateOnly) {
                         .ok());
     RowsetWriterContext fc = direct_rwc(fschema);
     fc.partial_update_info = flexible;
-    EXPECT_EQ(build_transform_chain(fc).stage_names(), (V {"Validate"}));
+    EXPECT_EQ(build_transform_chain(fc).stage_names(),
+              (V {"Validate", "FlexiblePartialUpdateFill", "RowStoreFill", "VariantParse"}));
 }
 
 // Binlog sub-writers keep deriving inside RowBinlogSegmentWriter for now, so
@@ -169,10 +170,9 @@ TEST_F(ValidateStageTest, CompositionBinlogEmpty) {
 }
 
 // =============================================================================
-// ValidateStage branches (V1-V9, without V5's fill which is not in the chain
-// yet). ValidateStage is the chain's first stage on every non-compaction,
-// non-binlog path, so we build the real chain and drive it with a block that
-// already fails / passes validate.
+// ValidateStage branches (V1-V9). ValidateStage is the chain's first stage on
+// every non-compaction, non-binlog path, so we build the real chain and drive
+// it with a block that already fails / passes validate.
 // =============================================================================
 
 // V1: non-PU direct, full width (columns == num_columns) -> accepted.

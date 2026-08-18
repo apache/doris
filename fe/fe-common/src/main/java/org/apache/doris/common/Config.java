@@ -224,6 +224,10 @@ public class Config extends ConfigBase {
             + "entries exceeds this value, the log will be rolled")
     public static int edit_log_roll_num = 50000;
 
+    @ConfField(mutable = true, masterOnly = true, description = "The maximum interval in seconds between edit log "
+            + "rolls in cloud mode. A non-positive value disables time-based edit log rolling")
+    public static int cloud_edit_log_roll_interval_second = 3600;
+
     @ConfField(mutable = true, masterOnly = true, description = "The max number of log entries for batching BDBJE")
     public static int batch_edit_log_max_item_num = 100;
 
@@ -588,13 +592,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = "Randomly use V3 storage_format (ext_meta) for some "
             + "tables in fuzzy tests to increase coverage")
     public static boolean random_use_v3_storage_format = true;
-
-    @ConfField(mutable = true, masterOnly = true, description = "The stale threshold of checkpoint image file in "
-            + "cloud mode (in seconds). If the image file is older " + "than this threshold, a new checkpoint will be "
-            + "triggered even if there are no new journals. This " + "helps keep table version, partition version, and "
-            + "tablet stats in the image up-to-date. If the value "
-            + "is less than or equal to 0, this feature is disabled.")
-    public static long cloud_checkpoint_image_stale_threshold_seconds = 3600;
 
     @ConfField(mutable = true, masterOnly = true, description = "Wait for the internal batch to be written before "
             + "returning; insert into and stream load use group " + "commit by default.")
@@ -1991,7 +1988,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 12;
+    public static int max_be_exec_version = 13;
 
     /**
      * Min data version of backends serialize block.
