@@ -356,9 +356,9 @@ T sync_val_compare_and_swap(T* ptr, T oldval, T newval) {
 // Dumps signal and stack frame information, and invokes the default
 // signal handler once our job is done.
 void FailureSignalHandler(int signal_number, siginfo_t* signal_info, void* ucontext) {
-    // First check if we've already entered the function.  We use an atomic
-    // compare and swap operation for platforms that support it.  For other
-    // platforms, we use a naive method that could lead to a subtle race.
+    // First check if we've already entered the function.  The election uses
+    // the compiler's atomic compare-and-swap builtin, which is available on
+    // every supported platform (x86_64 and aarch64 alike).
 
     // We assume pthread_self() is async signal safe, though it's not
     // officially guaranteed.
