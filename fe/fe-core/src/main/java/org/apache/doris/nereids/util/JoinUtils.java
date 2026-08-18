@@ -51,6 +51,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.HashMap;
@@ -373,12 +374,12 @@ public class JoinUtils {
         if (!areAllSlotEqualPredicates(conjuncts)) {
             return false;
         }
-        Set<EqualExprIdPair> equalExprIds = new HashSet<>();
+        List<Pair<ExprId, ExprId>> equalExprIds = Lists.newArrayList();
         Set<Integer> coveredIndices = new HashSet<>();
         for (Expression expr : conjuncts) {
             ExprId first = ((SlotReference) ((EqualPredicate) expr).left()).getExprId();
             ExprId second = ((SlotReference) ((EqualPredicate) expr).right()).getExprId();
-            equalExprIds.add(new EqualExprIdPair(first, second));
+            equalExprIds.add(Pair.of(first, second));
 
             Integer leftIndex = leftDistributionExprToIndex.get(first);
             Integer rightIndex = rightDistributionExprToIndex.get(second);
@@ -402,9 +403,8 @@ public class JoinUtils {
                 }
                 boolean determinantsEqual = true;
                 for (int i = 0; i < leftMapping.getDeterminantExprIds().size(); i++) {
-                    if (!equalExprIds.contains(new EqualExprIdPair(
-                            leftMapping.getDeterminantExprIds().get(i),
-                            rightMapping.getDeterminantExprIds().get(i)))) {
+                    if (!containsEqualPair(equalExprIds, leftMapping.getDeterminantExprIds().get(i),
+                            rightMapping.getDeterminantExprIds().get(i))) {
                         determinantsEqual = false;
                         break;
                     }
@@ -430,33 +430,11 @@ public class JoinUtils {
                         && ((EqualPredicate) expr).right() instanceof SlotReference);
     }
 
-    private static final class EqualExprIdPair {
-        private final ExprId first;
-        private final ExprId second;
-
-        private EqualExprIdPair(ExprId first, ExprId second) {
-            if (first.asInt() <= second.asInt()) {
-                this.first = first;
-                this.second = second;
-            } else {
-                this.first = second;
-                this.second = first;
-            }
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (!(obj instanceof EqualExprIdPair)) {
-                return false;
-            }
-            EqualExprIdPair other = (EqualExprIdPair) obj;
-            return first.equals(other.first) && second.equals(other.second);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(first, second);
-        }
+    private static boolean containsEqualPair(
+            List<Pair<ExprId, ExprId>> equalExprIds, ExprId left, ExprId right) {
+        return equalExprIds.stream().anyMatch(pair ->
+                (pair.first.equals(left) && pair.second.equals(right))
+                        || (pair.first.equals(right) && pair.second.equals(left)));
     }
 
     public static Set<ExprId> getJoinOutputExprIdSet(Plan left, Plan right) {
