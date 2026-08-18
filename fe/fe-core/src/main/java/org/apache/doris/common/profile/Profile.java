@@ -161,6 +161,12 @@ public class Profile {
         isQueryFinished = false;
     }
 
+    /** Update query-scoped profile settings after statement-level SET_VAR hints take effect. */
+    public synchronized void updateProfileSettings(int profileLevel, long autoProfileDurationMs) {
+        this.profileLevel = profileLevel;
+        this.autoProfileDurationMs = autoProfileDurationMs;
+    }
+
     // check if the profile file is valid and create a file input stream
     // user need to close the file stream.
     static FileInputStream createPorfileFileInputStream(String path) {

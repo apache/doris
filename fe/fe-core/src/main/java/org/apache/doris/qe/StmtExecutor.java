@@ -594,16 +594,33 @@ public class StmtExecutor {
         this.context.setStatementContext(statementContext);
     }
 
-    /** Refresh the profile decision after a prepared statement reapplies its SET_VAR hint. */
+    /**
+     * Refresh the profile decision after the current statement reapplies its SET_VAR hint.
+     * Multi-statement parsing can apply hints from later statements before this executor is created,
+     * so only the hint owned by this executor's statement context may refresh its decision.
+     */
     public void refreshEffectiveEnableProfileAfterSetVar(StatementContext hintStatementContext) {
-        if (!isComStmtExecute || statementContext != hintStatementContext) {
+        if (statementContext != hintStatementContext) {
             return;
         }
-        boolean enableProfile = context.getSessionVariable().enableProfile(context);
+        SessionVariable sessionVariable = context.getSessionVariable();
+        boolean enableProfile = sessionVariable.enableProfile(context);
+        profile.updateProfileSettings(
+                sessionVariable.getProfileLevel(), sessionVariable.getAutoProfileThresholdMs());
         if (enableProfile && !effectiveEnableProfile) {
             profile.enable();
         }
         effectiveEnableProfile = enableProfile;
+        snapshotChangedSessionVarsForProfile();
+    }
+
+    private void snapshotChangedSessionVarsForProfile() {
+        // Short circuit query should not dump changed session vars since it will impact performance.
+        if (!effectiveEnableProfile || statementContext.isShortCircuitQuery()) {
+            return;
+        }
+        List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
+        profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
     }
 
     public boolean isHandleQueryInFe() {
@@ -799,11 +816,7 @@ public class StmtExecutor {
         context.setStartTime();
 
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
-        // short circuit query should not dump changed session var since it will impact the performance.
-        if (effectiveEnableProfile && !statementContext.isShortCircuitQuery()) {
-            List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
-            profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
-        }
+        snapshotChangedSessionVarsForProfile();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
         parseByNereids();

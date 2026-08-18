@@ -25,13 +25,19 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.SelectHint;
+import org.apache.doris.nereids.properties.SelectHintSetVar;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
@@ -91,28 +97,109 @@ public class StmtExecutorTest extends TestWithFeService {
         boolean originalEnableProfile = variable.enableProfile;
         String originalEnableProfileComputeGroups = variable.enableProfileComputeGroups;
         String originalCloudCluster = variable.cloudCluster;
+        int originalProfileLevel = variable.profileLevel;
+        int originalAutoProfileThresholdMs = variable.autoProfileThresholdMs;
         try {
             Config.deploy_mode = "cloud";
             Config.cloud_unique_id = "";
             variable.enableProfile = true;
             variable.enableProfileComputeGroups = "cg_b";
             variable.cloudCluster = "cg_a";
+            variable.profileLevel = 2;
+            variable.autoProfileThresholdMs = -1;
 
-            String sql = "select /*+ SET_VAR(compute_group='cg_b') */ 1";
+            String sql = "select /*+ SET_VAR(compute_group='cg_b', profile_level='3',"
+                    + " auto_profile_threshold_ms='10000') */ 1";
             StmtExecutor executor = prepareAndExecute(sql);
             Field effectiveEnableProfile = StmtExecutor.class.getDeclaredField("effectiveEnableProfile");
             effectiveEnableProfile.setAccessible(true);
+            Field profileLevel = Profile.class.getDeclaredField("profileLevel");
+            profileLevel.setAccessible(true);
+            Field autoProfileDurationMs = Profile.class.getDeclaredField("autoProfileDurationMs");
+            autoProfileDurationMs.setAccessible(true);
             Assertions.assertTrue(effectiveEnableProfile.getBoolean(executor));
+            Assertions.assertEquals(3, profileLevel.getInt(executor.getProfile()));
+            Assertions.assertEquals(10000L, autoProfileDurationMs.getLong(executor.getProfile()));
             Assertions.assertEquals(SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING,
                     executor.getProfile().getProfileCompletionState());
+            String renderedProfile = executor.getProfile().getProfileByLevel();
+            Assertions.assertTrue(renderedProfile.contains("\"VarName\": \"compute_group\""));
+            Assertions.assertTrue(renderedProfile.contains("\"CurrentValue\": \"cg_b\""));
+            Assertions.assertTrue(renderedProfile.contains("\"VarName\": \"profile_level\""));
+            Assertions.assertTrue(renderedProfile.contains("\"CurrentValue\": \"3\""));
+            Assertions.assertTrue(renderedProfile.contains("\"VarName\": \"auto_profile_threshold_ms\""));
+            Assertions.assertTrue(renderedProfile.contains("\"CurrentValue\": \"10000\""));
             Assertions.assertEquals("cg_a", variable.cloudCluster);
             Assertions.assertFalse(variable.enableProfile(connectContext));
+            Assertions.assertEquals(2, variable.profileLevel);
+            Assertions.assertEquals(-1, variable.autoProfileThresholdMs);
 
             variable.enableProfileComputeGroups = "cg_a";
             StmtExecutor disabledExecutor = prepareAndExecute(sql);
             Assertions.assertFalse(effectiveEnableProfile.getBoolean(disabledExecutor));
+            Assertions.assertEquals(3, profileLevel.getInt(disabledExecutor.getProfile()));
+            Assertions.assertEquals(10000L, autoProfileDurationMs.getLong(disabledExecutor.getProfile()));
             Assertions.assertEquals("cg_a", variable.cloudCluster);
             Assertions.assertTrue(variable.enableProfile(connectContext));
+        } finally {
+            variable.enableProfile = originalEnableProfile;
+            variable.enableProfileComputeGroups = originalEnableProfileComputeGroups;
+            variable.cloudCluster = originalCloudCluster;
+            variable.profileLevel = originalProfileLevel;
+            variable.autoProfileThresholdMs = originalAutoProfileThresholdMs;
+            variable.setIsSingleSetVar(false);
+            variable.clearSessionOriginValue();
+            Config.deploy_mode = originalDeployMode;
+            Config.cloud_unique_id = originalCloudUniqueId;
+        }
+    }
+
+    @Test
+    public void testMultiStatementsRefreshProfileDecisionAfterSetVar() throws Exception {
+        String originalDeployMode = Config.deploy_mode;
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        SessionVariable variable = connectContext.getSessionVariable();
+        boolean originalEnableProfile = variable.enableProfile;
+        String originalEnableProfileComputeGroups = variable.enableProfileComputeGroups;
+        String originalCloudCluster = variable.cloudCluster;
+        try {
+            Config.deploy_mode = "cloud";
+            Config.cloud_unique_id = "";
+            variable.enableProfile = true;
+            variable.enableProfileComputeGroups = "cg_a,cg_b";
+            variable.cloudCluster = "cg_a";
+            connectContext.setCommand(MysqlCommand.COM_QUERY);
+
+            String sql = "select /*+ SET_VAR(compute_group='cg_b') */ 1;"
+                    + "select /*+ SET_VAR(compute_group='cg_c') */ 2";
+            List<StatementBase> statements = new NereidsParser().parseSQL(sql, variable);
+            Assertions.assertEquals(2, statements.size());
+            Assertions.assertEquals("cg_c", variable.cloudCluster);
+
+            Field effectiveEnableProfile = StmtExecutor.class.getDeclaredField("effectiveEnableProfile");
+            effectiveEnableProfile.setAccessible(true);
+
+            StmtExecutor firstExecutor = new StmtExecutor(connectContext, statements.get(0));
+            connectContext.setExecutor(firstExecutor);
+            Assertions.assertFalse(effectiveEnableProfile.getBoolean(firstExecutor));
+            reapplySetVarHint((LogicalPlanAdapter) statements.get(0));
+            Assertions.assertTrue(effectiveEnableProfile.getBoolean(firstExecutor));
+            Assertions.assertTrue(variable.toThrift().isEnableProfile());
+            String renderedProfile = firstExecutor.getProfile().getProfileByLevel();
+            Assertions.assertTrue(renderedProfile.contains("\"VarName\": \"compute_group\""));
+            Assertions.assertTrue(renderedProfile.contains("\"CurrentValue\": \"cg_b\""));
+            Assertions.assertFalse(renderedProfile.contains("\"CurrentValue\": \"cg_c\""));
+
+            VariableMgr.revertSessionValue(variable);
+            variable.setIsSingleSetVar(false);
+            variable.clearSessionOriginValue();
+
+            StmtExecutor secondExecutor = new StmtExecutor(connectContext, statements.get(1));
+            connectContext.setExecutor(secondExecutor);
+            Assertions.assertTrue(effectiveEnableProfile.getBoolean(secondExecutor));
+            reapplySetVarHint((LogicalPlanAdapter) statements.get(1));
+            Assertions.assertFalse(effectiveEnableProfile.getBoolean(secondExecutor));
+            Assertions.assertFalse(variable.toThrift().isEnableProfile());
         } finally {
             variable.enableProfile = originalEnableProfile;
             variable.enableProfileComputeGroups = originalEnableProfileComputeGroups;
@@ -122,6 +209,18 @@ public class StmtExecutorTest extends TestWithFeService {
             Config.deploy_mode = originalDeployMode;
             Config.cloud_unique_id = originalCloudUniqueId;
         }
+    }
+
+    private void reapplySetVarHint(LogicalPlanAdapter statement) {
+        List<Plan> selectHints = statement.getLogicalPlan()
+                .collectToList(plan -> plan instanceof LogicalSelectHint);
+        Assertions.assertEquals(1, selectHints.size());
+        LogicalSelectHint<?> selectHint = (LogicalSelectHint<?>) selectHints.get(0);
+        SelectHint setVarHint = selectHint.getHints().stream()
+                .filter(hint -> hint instanceof SelectHintSetVar)
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        ((SelectHintSetVar) setVarHint).setVarOnceInSql(statement.getStatementContext());
     }
 
     private StmtExecutor prepareAndExecute(String sql) throws Exception {
