@@ -41,10 +41,19 @@ Status S3ConnectivityTester::test(const std::map<std::string, std::string>& prop
 
     auto obj_client = DORIS_TRY(S3ClientFactory::instance().create(s3_conf.client_conf));
 
-    auto resp = obj_client->head_object({.bucket = bucket, .key = ""});
-    if (resp.resp.status.code != ErrorCode::OK && resp.resp.status.code != ErrorCode::NOT_FOUND) {
-        return Status::IOError("S3 connectivity test failed for bucket '{}': {}", bucket,
-                               resp.resp.status.msg);
+    if (s3_conf.client_conf.provider == ObjStorageProvider::S3EXPRESS) {
+        auto resp = obj_client->head_bucket(bucket);
+        if (!resp.ok()) {
+            return Status::IOError("S3 connectivity test failed for bucket '{}': {}", bucket,
+                                   resp.status.msg);
+        }
+    } else {
+        auto resp = obj_client->head_object({.bucket = bucket, .key = ""});
+        if (resp.resp.status.code != ErrorCode::OK &&
+            resp.resp.status.code != ErrorCode::NOT_FOUND) {
+            return Status::IOError("S3 connectivity test failed for bucket '{}': {}", bucket,
+                                   resp.resp.status.msg);
+        }
     }
 
     return Status::OK();

@@ -201,6 +201,29 @@ void test_s3_accessor(S3Accessor& accessor) {
 
 } // namespace
 
+TEST(S3ConfTest, s3_express_validation) {
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_provider(ObjectStoreInfoPB_Provider_S3EXPRESS);
+    obj_info.set_ak("ak");
+    obj_info.set_sk("sk");
+    obj_info.set_endpoint("s3express-control.us-west-2.amazonaws.com");
+    obj_info.set_region("us-west-2");
+    obj_info.set_bucket("bucket--usw2-az1--x-s3");
+    obj_info.set_prefix("prefix");
+
+    auto conf = S3Conf::from_obj_store_info(obj_info);
+    ASSERT_TRUE(conf.has_value());
+    EXPECT_EQ(conf->provider, S3Conf::S3EXPRESS);
+    EXPECT_TRUE(conf->use_virtual_addressing);
+
+    obj_info.set_use_path_style(true);
+    EXPECT_FALSE(S3Conf::from_obj_store_info(obj_info).has_value());
+
+    obj_info.set_use_path_style(false);
+    obj_info.set_cred_provider_type(CredProviderTypePB::ANONYMOUS);
+    EXPECT_FALSE(S3Conf::from_obj_store_info(obj_info).has_value());
+}
+
 TEST_F(S3AccessorTest, s3) {
     std::shared_ptr<S3Accessor> accessor;
     int ret = S3Accessor::create(

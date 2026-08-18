@@ -65,6 +65,10 @@ public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProp
 
     @Override
     public boolean supports(Map<String, String> properties) {
+        // Yield before the generic AWS heuristics can claim an S3 Express configuration.
+        if (S3CompatSignals.isS3Express(properties)) {
+            return false;
+        }
         // Yield to the dedicated dialect providers of this module (GCS/MinIO/Ozone) when the map
         // either names one of them or is guessed to be one, unless the user explicitly asked for
         // plain S3. Routing must not depend on META-INF/services order, because these dialects are
@@ -110,11 +114,15 @@ public class S3FileSystemProvider implements FileSystemProvider<S3FileSystemProp
 
     @Override
     public boolean supportsExplicit(Map<String, String> properties) {
-        return Boolean.parseBoolean(properties.getOrDefault(FS_S3_SUPPORT, "false"));
+        return !S3CompatSignals.isS3Express(properties)
+                && Boolean.parseBoolean(properties.getOrDefault(FS_S3_SUPPORT, "false"));
     }
 
     @Override
     public boolean supportsGuess(Map<String, String> properties) {
+        if (S3CompatSignals.isS3Express(properties)) {
+            return false;
+        }
         // Port of fe-core S3Properties.guessIsMe on raw props.
         String endpoint = null;
         for (String name : GUESS_ENDPOINT_NAMES) {

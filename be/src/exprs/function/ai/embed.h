@@ -416,6 +416,11 @@ private:
         get_optional_string_field("sk", s3_client_conf.sk);
         get_optional_string_field("role_arn", s3_client_conf.role_arn);
         get_optional_string_field("external_id", s3_client_conf.external_id);
+        std::string provider;
+        get_optional_string_field("provider", provider);
+        if (provider.size() == 9 && _starts_with_ignore_case(provider, "S3EXPRESS")) {
+            s3_client_conf.provider = io::ObjStorageProvider::S3EXPRESS;
+        }
         s3_client_conf.endpoint = endpoint;
         s3_client_conf.region = region;
 

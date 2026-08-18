@@ -59,6 +59,7 @@ public:
             const ObjStoragePath& opts, const std::string& upload_id,
             const std::vector<ObjStorageCompletedPart>& completed_parts) override;
     ObjStorageHeadResult head_object(const ObjStoragePath& opts) override;
+    ObjStorageResponse head_bucket(const std::string& bucket) override;
     ObjStorageResponse get_object(const ObjStoragePath& opts, void* buffer, size_t offset,
                                   size_t bytes_read, size_t* size_return) override;
     ObjStorageResponse delete_objects(const ObjStoragePath& opts,

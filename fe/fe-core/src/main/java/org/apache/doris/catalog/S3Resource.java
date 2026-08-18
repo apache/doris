@@ -23,6 +23,7 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.storage.S3ResourceCompat;
+import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.ObjStorage;
@@ -167,7 +168,7 @@ public class S3Resource extends Resource {
 
             try {
                 org.apache.doris.filesystem.spi.RemoteObjects remoteObjects =
-                        objStorage.listObjects(testObj, null);
+                        objStorage.listObjects(getPingListPrefix(testObj, newProperties), null);
                 LOG.info("remoteObjects: {}", remoteObjects);
             } catch (IOException e) {
                 throw new DdlException("pingS3 failed(list),"
@@ -231,6 +232,7 @@ public class S3Resource extends Resource {
                 throw new DdlException("current not support modify property : " + any.get());
             }
         }
+
         // compatible with old version, Need convert if modified properties map uses old properties.
         S3ResourceCompat.convertToStdProperties(properties);
         if (!Strings.isNullOrEmpty(properties.get(S3ResourceCompat.ENDPOINT))) {
@@ -286,6 +288,13 @@ public class S3Resource extends Resource {
         super.modifyProperties(properties);
     }
 
+    static String getPingListPrefix(String testObj, Map<String, String> properties) {
+        if (!StorageAdapter.matchesProviderGuess("S3EXPRESS", properties)) {
+            return testObj;
+        }
+        return testObj.substring(0, testObj.lastIndexOf('/') + 1);
+    }
+
     private CloudCredentialWithEndpoint getS3PingCredentials(Map<String, String> properties) {
         String ak = properties.getOrDefault(S3ResourceCompat.ACCESS_KEY,
                 this.properties.get(S3ResourceCompat.ACCESS_KEY));
@@ -338,4 +347,3 @@ public class S3Resource extends Resource {
         readUnlock();
     }
 }
-

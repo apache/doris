@@ -30,7 +30,7 @@
 #include <vector>
 
 namespace doris {
-// Names are in lexico order.
+// Explicit values are stable; provider conversions must map by name.
 enum class ObjStorageProvider : uint8_t {
     UNKNOWN = 0,
     AWS = 1,
@@ -41,6 +41,7 @@ enum class ObjStorageProvider : uint8_t {
     OBS = 6,
     GCP = 7,
     TOS = 8,
+    S3EXPRESS = 9,
 };
 
 /// eg:
@@ -71,6 +72,7 @@ struct ObjectMeta {
 struct ObjStorageCompletedPart {
     int part_num = 0;
     std::string etag {};
+    std::optional<std::string> checksum_crc32c = std::nullopt;
 };
 
 struct ObjStorageStatus {
@@ -126,6 +128,7 @@ struct ObjStorageUploadResult {
     ObjStorageResponse resp = ObjStorageResponse::OK();
     std::optional<std::string> upload_id = std::nullopt;
     std::optional<std::string> etag = std::nullopt;
+    std::optional<std::string> checksum_crc32c = std::nullopt;
 };
 
 struct ObjStorageHeadResult {
@@ -201,6 +204,11 @@ public:
     // According to the passed bucket and key, it will access whether the corresponding file exists in the object storage.
     // If it exists, it will return the corresponding file size
     virtual ObjStorageHeadResult head_object(const ObjStoragePath& opts) = 0;
+    virtual ObjStorageResponse head_bucket(const std::string& /*bucket*/) {
+        return {.status = {TStatusCode::NOT_IMPLEMENTED_ERROR,
+                           "checking object storage buckets is not supported"},
+                .http_code = 0};
+    }
     // According to the bucket and key, it finds the corresponding file in the object storage
     // and starting from the offset, it reads bytes_read bytes into the buffer, with size_return recording the actual number of bytes read
     virtual ObjStorageResponse get_object(const ObjStoragePath& opts, void* buffer, size_t offset,

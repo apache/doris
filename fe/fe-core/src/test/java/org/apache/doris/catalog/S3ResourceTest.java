@@ -292,6 +292,21 @@ public class S3ResourceTest {
     }
 
     @Test
+    public void testPingListPrefix() {
+        String testObj = "s3://bucket/root/doris-test-object-valid-1.txt";
+        Assert.assertEquals(testObj, S3Resource.getPingListPrefix(testObj, ImmutableMap.of(
+                "provider", "S3",
+                "s3.endpoint", "s3.us-west-2.amazonaws.com")));
+        Assert.assertEquals("s3://bucket/root/", S3Resource.getPingListPrefix(testObj, ImmutableMap.of(
+                "provider", "S3EXPRESS",
+                "s3.endpoint", "s3express-control.us-west-2.amazonaws.com")));
+        Assert.assertEquals("s3://bucket/root/", S3Resource.getPingListPrefix(testObj, ImmutableMap.of(
+                "provider", "S3",
+                "s3.endpoint",
+                "bucket--usw2-az1--x-s3.s3express-usw2-az1.us-west-2.amazonaws.com")));
+    }
+
+    @Test
     public void testPingS3WithRoleArn() {
         try {
             String endpoint = System.getenv("ENDPOINT");

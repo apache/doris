@@ -23,6 +23,7 @@
 
 #include "cpp/obj-client/obj_storage_client.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
+#include "cpp/obj-client/s3_express_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "gmock/gmock.h"
 #include "io/fs/file_system.h"
@@ -42,6 +43,10 @@ public:
                 (const Aws::S3::Model::DeleteObjectRequest& request), (const, override));
     MOCK_METHOD(Aws::S3::Model::DeleteObjectsOutcome, DeleteObjects,
                 (const Aws::S3::Model::DeleteObjectsRequest& request), (const, override));
+    MOCK_METHOD(Aws::S3::Model::UploadPartOutcome, UploadPart,
+                (const Aws::S3::Model::UploadPartRequest& request), (const, override));
+    MOCK_METHOD(Aws::S3::Model::CompleteMultipartUploadOutcome, CompleteMultipartUpload,
+                (const Aws::S3::Model::CompleteMultipartUploadRequest& request), (const, override));
 };
 
 class CountingGetRateLimitPolicy final : public ObjStorageRateLimitPolicy {
@@ -99,6 +104,77 @@ ListObjectsV2Result CreatePageResult(const std::string& nextToken,
         result.AddContents(std::move(obj));
     }
     return result;
+}
+
+UploadPartOutcome CreateExpressUploadPartResult(const UploadPartRequest& request) {
+    EXPECT_EQ(request.GetUploadId(), "upload-id");
+    EXPECT_EQ(request.GetPartNumber(), 1);
+    EXPECT_TRUE(request.ChecksumCRC32CHasBeenSet());
+    UploadPartResult result;
+    result.SetETag("etag-1");
+    result.SetChecksumCRC32C(request.GetChecksumCRC32C());
+    return {std::move(result)};
+}
+
+CompleteMultipartUploadOutcome VerifyExpressCompleteRequest(
+        const CompleteMultipartUploadRequest& request) {
+    EXPECT_EQ(request.GetUploadId(), "upload-id");
+    const auto& parts = request.GetMultipartUpload().GetParts();
+    EXPECT_EQ(parts.size(), 1);
+    EXPECT_EQ(parts.front().GetPartNumber(), 1);
+    EXPECT_EQ(parts.front().GetETag(), "etag-1");
+    EXPECT_FALSE(parts.front().GetChecksumCRC32C().empty());
+    return {CompleteMultipartUploadResult {}};
+}
+
+TEST_F(S3ObjStorageClientMockTest, s3_express_lists_directory_prefix_and_filters_pages) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto client = std::make_shared<S3ExpressObjStorageClient>(mock_s3_client, mock_s3_client);
+
+    EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
+            .WillOnce([](const ListObjectsV2Request& request) {
+                EXPECT_EQ(request.GetPrefix(), "dir/");
+                EXPECT_FALSE(request.ContinuationTokenHasBeenSet());
+                return ListObjectsV2Outcome(
+                        CreatePageResult("next", {"dir/other", "dir/unrelated"}, true));
+            })
+            .WillOnce([](const ListObjectsV2Request& request) {
+                EXPECT_EQ(request.GetPrefix(), "dir/");
+                EXPECT_EQ(request.GetContinuationToken(), "next");
+                return ListObjectsV2Outcome(
+                        CreatePageResult("", {"dir/needle-1", "dir/other"}, false));
+            });
+
+    std::vector<ObjectMeta> objects;
+    auto response = client->list_objects({.bucket = "dummy-bucket", .key = "dir/needle"}, &objects);
+
+    ASSERT_TRUE(response.ok()) << response.status.msg;
+    ASSERT_EQ(objects.size(), 1);
+    EXPECT_EQ(objects.front().key, "dir/needle-1");
+}
+
+TEST_F(S3ObjStorageClientMockTest, s3_express_propagates_crc32c_to_multipart_completion) {
+    auto mock_s3_client = std::make_shared<MockS3Client>();
+    auto client = std::make_shared<S3ExpressObjStorageClient>(mock_s3_client, mock_s3_client);
+    ObjStoragePath path {.bucket = "dummy-bucket", .key = "object"};
+
+    EXPECT_CALL(*mock_s3_client, UploadPart(testing::_))
+            .WillOnce(testing::Invoke(CreateExpressUploadPartResult));
+
+    auto upload = client->upload_part(path, "upload-id", "part body", 1);
+    ASSERT_TRUE(upload.resp.ok()) << upload.resp.status.msg;
+    ASSERT_TRUE(upload.etag.has_value());
+    ASSERT_TRUE(upload.checksum_crc32c.has_value());
+
+    EXPECT_CALL(*mock_s3_client, CompleteMultipartUpload(testing::_))
+            .WillOnce(testing::Invoke(VerifyExpressCompleteRequest));
+
+    auto response = client->complete_multipart_upload(
+            path, "upload-id",
+            {{.part_num = 1,
+              .etag = std::move(*upload.etag),
+              .checksum_crc32c = std::move(upload.checksum_crc32c)}});
+    EXPECT_TRUE(response.ok()) << response.status.msg;
 }
 
 TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {

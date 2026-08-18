@@ -25,6 +25,8 @@
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/S3ClientConfiguration.h>
+#include <aws/s3/S3EndpointProvider.h>
 
 #include "util/string_util.h"
 
@@ -52,6 +54,7 @@
 #include "cloud/config.h"
 #include "cpp/aws_logger.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
+#include "cpp/obj-client/s3_express_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
@@ -70,6 +73,15 @@ doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
     }
     if (conf.region.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
+    }
+    if (conf.provider == io::ObjStorageProvider::S3EXPRESS && !conf.use_virtual_addressing) {
+        return Status::InvalidArgument<false>(
+                "Invalid s3 conf, S3 Express requires virtual-hosted-style access");
+    }
+    if (conf.provider == io::ObjStorageProvider::S3EXPRESS &&
+        conf.cred_provider_type == CredProviderType::Anonymous) {
+        return Status::InvalidArgument<false>(
+                "Invalid s3 conf, S3 Express does not support anonymous access");
     }
 
     if (conf.role_arn.empty()) {
@@ -151,6 +163,7 @@ std::string build_azure_tls_debug_context(const std::string& selected_ca_file) {
 constexpr char USE_PATH_STYLE[] = "use_path_style";
 
 constexpr char AZURE_PROVIDER_STRING[] = "AZURE";
+constexpr char S3_EXPRESS_PROVIDER_STRING[] = "S3EXPRESS";
 constexpr char S3_PROVIDER[] = "provider";
 constexpr char S3_AK[] = "AWS_ACCESS_KEY";
 constexpr char S3_SK[] = "AWS_SECRET_KEY";
@@ -234,9 +247,16 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3Cl
         }
     }
 
-    auto client_result = (s3_conf.provider == io::ObjStorageProvider::AZURE)
-                                 ? _create_azure_client(s3_conf)
-                                 : _create_s3_client(s3_conf);
+    auto client_result = [&]() -> Result<std::shared_ptr<io::ObjStorageClient>> {
+        switch (s3_conf.provider) {
+        case io::ObjStorageProvider::AZURE:
+            return _create_azure_client(s3_conf);
+        case io::ObjStorageProvider::S3EXPRESS:
+            return _create_s3express_client(s3_conf);
+        default:
+            return _create_s3_client(s3_conf);
+        }
+    }();
     if (!client_result.has_value()) {
         return ResultError(std::move(client_result).error());
     }
@@ -342,7 +362,9 @@ AwsCredentialResult S3ClientFactory::create_aws_credentials_provider(const S3Cli
             .provider_type = s3_conf.cred_provider_type,
             .role_arn = s3_conf.role_arn,
             .external_id = s3_conf.external_id,
-            .empty_credentials = EmptyCredentialsBehavior::ANONYMOUS,
+            .empty_credentials = s3_conf.provider == io::ObjStorageProvider::S3EXPRESS
+                                         ? EmptyCredentialsBehavior::DEFAULT_CHAIN
+                                         : EmptyCredentialsBehavior::ANONYMOUS,
             .sts_client_config = std::move(sts_config),
     });
 }
@@ -404,6 +426,75 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client
     return provider_client;
 }
 
+Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3express_client(
+        const S3ClientConf& s3_conf) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE(
+            "s3_client_factory::create",
+            std::make_shared<io::S3ExpressObjStorageClient>(std::make_shared<Aws::S3::S3Client>(),
+                                                            std::make_shared<Aws::S3::S3Client>(),
+                                                            ObjStorageEndpointInfo {}));
+    Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
+    aws_config.region = s3_conf.region;
+
+    auto ca_cert_file_path = _get_ca_cert_file_path();
+    if (!ca_cert_file_path.empty()) {
+        aws_config.caFile = ca_cert_file_path;
+    }
+
+    if (s3_conf.max_connections > 0) {
+        aws_config.maxConnections = s3_conf.max_connections;
+    } else {
+        aws_config.maxConnections = 102400;
+    }
+
+    aws_config.requestTimeoutMs = 30000;
+    if (s3_conf.request_timeout_ms > 0) {
+        aws_config.requestTimeoutMs = s3_conf.request_timeout_ms;
+    }
+
+    if (s3_conf.connect_timeout_ms > 0) {
+        aws_config.connectTimeoutMs = s3_conf.connect_timeout_ms;
+    }
+
+    aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
+            config::max_s3_client_retry /*scaleFactor = 25*/, /*retry_slow_down=*/true);
+
+    auto credentials = create_aws_credentials_provider(s3_conf);
+    if (!credentials) {
+        return ResultError(Status::InvalidArgument("failed to create AWS credential provider: {}",
+                                                   credentials.error));
+    }
+
+    // Directory bucket zonal APIs require virtual-hosted HTTPS endpoints and CreateSession
+    // credentials. Do not apply the user-facing endpoint as endpointOverride; let the SDK's S3
+    // endpoint rules resolve the bucket-specific zonal endpoint.
+    aws_config.endpointOverride.clear();
+    aws_config.scheme = Aws::Http::Scheme::HTTPS;
+    Aws::S3::S3ClientConfiguration express_config(
+            aws_config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::RequestDependent,
+            /*useVirtualAddressing=*/true);
+    express_config.disableS3ExpressAuth = false;
+    Aws::S3::S3ClientConfiguration standard_auth_config = express_config;
+    standard_auth_config.disableS3ExpressAuth = true;
+
+    auto credentials_provider = std::move(credentials.provider);
+    auto s3_client = std::make_shared<Aws::S3::S3Client>(
+            credentials_provider, Aws::MakeShared<Aws::S3::S3EndpointProvider>("S3ClientFactory"),
+            express_config);
+    auto standard_auth_client = std::make_shared<Aws::S3::S3Client>(
+            std::move(credentials_provider),
+            Aws::MakeShared<Aws::S3::S3EndpointProvider>("S3ClientFactory"),
+            std::move(standard_auth_config));
+    LOG_INFO("create one s3 express client with {}", s3_conf.to_string());
+    return std::make_shared<io::S3ExpressObjStorageClient>(std::move(s3_client),
+                                                           std::move(standard_auth_client),
+                                                           ObjStorageEndpointInfo {
+                                                                   .endpoint = s3_conf.endpoint,
+                                                                   .ak = s3_conf.ak,
+                                                                   .sk = s3_conf.sk,
+                                                           });
+}
+
 Status S3ClientFactory::convert_properties_to_s3_conf(
         const std::map<std::string, std::string>& prop, const S3URI& s3_uri, S3Conf* s3_conf) {
     StringCaseMap<std::string> properties(prop.begin(), prop.end());
@@ -446,6 +537,8 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         // S3 Provider properties should be case insensitive.
         if (0 == strcasecmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
             s3_conf->client_conf.provider = io::ObjStorageProvider::AZURE;
+        } else if (0 == strcasecmp(it->second.c_str(), S3_EXPRESS_PROVIDER_STRING)) {
+            s3_conf->client_conf.provider = io::ObjStorageProvider::S3EXPRESS;
         }
     }
 
@@ -546,6 +639,9 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     case cloud::ObjectStoreInfoPB_Provider_S3:
         type = io::ObjStorageProvider::AWS;
         break;
+    case cloud::ObjectStoreInfoPB_Provider_S3EXPRESS:
+        type = io::ObjStorageProvider::S3EXPRESS;
+        break;
     case cloud::ObjectStoreInfoPB_Provider_COS:
         type = io::ObjStorageProvider::COS;
         break;
@@ -608,6 +704,9 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
         break;
     case TObjStorageType::AWS:
         type = io::ObjStorageProvider::AWS;
+        break;
+    case TObjStorageType::S3EXPRESS:
+        type = io::ObjStorageProvider::S3EXPRESS;
         break;
     case TObjStorageType::AZURE:
         type = io::ObjStorageProvider::AZURE;

@@ -90,6 +90,7 @@ struct S3Conf {
 
     enum Provider : uint8_t {
         S3,
+        S3EXPRESS,
         GCS,
         AZURE,
     };

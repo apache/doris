@@ -20,6 +20,7 @@ package org.apache.doris.datasource.storage;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.thrift.TCredProviderType;
+import org.apache.doris.thrift.TObjStorageType;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import org.apache.commons.lang3.StringUtils;
@@ -53,6 +54,7 @@ public final class S3ThriftAdapter {
     private static final String REQUEST_TIMEOUT_MS = S3CompatibleFileSystemProperties.PROP_REQUEST_TIMEOUT_MS;
     private static final String CONNECTION_TIMEOUT_MS = S3CompatibleFileSystemProperties.PROP_CONNECTION_TIMEOUT_MS;
     private static final String USE_PATH_STYLE = S3CompatibleFileSystemProperties.PROP_USE_PATH_STYLE;
+    private static final String PROVIDER = S3CompatibleFileSystemProperties.PROP_PROVIDER;
 
     private static final String DEFAULT_MAX_CONNECTIONS =
             S3CompatibleFileSystemProperties.DEFAULT_MAX_CONNECTIONS_VALUE;
@@ -66,6 +68,21 @@ public final class S3ThriftAdapter {
 
     /** Direct move of legacy {@code S3Properties.getS3TStorageParam}. */
     public static TS3StorageParam getS3TStorageParam(Map<String, String> properties) {
+        return getS3TStorageParam(properties, properties.get(PROVIDER));
+    }
+
+    /**
+     * Builds the wire value from raw user properties while taking the provider from the
+     * already-bound adapter. This preserves S3 Express configurations whose raw
+     * provider remains S3 but whose effective provider is S3EXPRESS.
+     */
+    public static TS3StorageParam getS3TStorageParam(StorageAdapter adapter) {
+        return getS3TStorageParam(adapter.getOrigProps(),
+                adapter.getSpiProperties().providerName());
+    }
+
+    private static TS3StorageParam getS3TStorageParam(Map<String, String> properties,
+            String effectiveProvider) {
         TS3StorageParam s3Info = new TS3StorageParam();
 
         if (properties.containsKey(ROLE_ARN)) {
@@ -95,6 +112,9 @@ public final class S3ThriftAdapter {
                 ? DEFAULT_CONNECTION_TIMEOUT_MS : connTimeoutMs));
         String usePathStyle = properties.getOrDefault(USE_PATH_STYLE, "false");
         s3Info.setUsePathStyle(Boolean.parseBoolean(usePathStyle));
+        if ("S3EXPRESS".equalsIgnoreCase(effectiveProvider)) {
+            s3Info.setProvider(TObjStorageType.S3EXPRESS);
+        }
         return s3Info;
     }
 

@@ -87,7 +87,7 @@ namespace doris {
 
 ObjStorageStatus s3fs_error(const Aws::S3::S3Error& err, std::string_view msg);
 
-class S3ObjStorageClient final : public ObjStorageClient {
+class S3ObjStorageClient : public ObjStorageClient {
 public:
     S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
                        ObjStorageEndpointInfo config = {})
@@ -121,6 +121,15 @@ public:
 protected:
     ObjStorageListPageResult list_objects_page(const ObjStoragePath& opts,
                                                std::string_view continuation_token) override;
+    virtual void set_create_multipart_upload_checksum(
+            Aws::S3::Model::CreateMultipartUploadRequest& request) const;
+    virtual void set_put_object_checksum(Aws::S3::Model::PutObjectRequest& request,
+                                         Aws::IOStream& stream) const;
+    virtual void set_upload_part_checksum(Aws::S3::Model::UploadPartRequest& request,
+                                          Aws::IOStream& stream) const;
+    ObjStorageResponse complete_multipart_upload_impl(
+            const ObjStoragePath& opts, const std::string& upload_id,
+            Aws::S3::Model::CompleteMultipartUploadRequest request);
 
 private:
     ObjStorageEndpointInfo _config;

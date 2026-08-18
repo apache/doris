@@ -101,7 +101,7 @@ public final class StorageAdapter {
     /** Explicit broker name for adapters built via {@link #ofBroker}; mirrors the legacy
      *  {@code BrokerProperties.of(name, props)} where the name is NOT part of the raw props. */
     private final String brokerNameOverride;
-    /** fe-core S3Properties credentials-provider mode; only resolved for the S3 provider. */
+    /** fe-core S3Properties credentials-provider mode; resolved for AWS S3-family providers. */
     private final AwsCredentialsProviderMode s3CredentialsMode;
     /** Resolved once at construction (legacy bound it at init); read per file in listing loops. */
     private final String forceParsingByStandardUriValue;
@@ -134,7 +134,7 @@ public final class StorageAdapter {
                         ? StorageTypeId.S3 : StorageTypeId.UNKNOWN);
         // Align fe-core S3Properties.initNormalizeAndCheckProps: the mode string is parsed with
         // the fe-core enum (which rejects spellings the SPI tolerates) at construction time.
-        this.s3CredentialsMode = "S3".equals(providerKey)
+        this.s3CredentialsMode = isAwsS3Provider()
                 ? AwsCredentialsProviderMode.fromString(feCoreS3CredentialsProviderType())
                 : null;
         this.forceParsingByStandardUriValue = resolveForceParsingByStandardUri();
@@ -326,8 +326,8 @@ public final class StorageAdapter {
 
     /**
      * fe-core S3Properties credentials-provider mode ({@code s3.credentials_provider_type}
-     * alias family, default DEFAULT). Non-null only for the S3 provider, mirroring the legacy
-     * class layout where only the generic S3 typed class carried the mode.
+     * alias family, default DEFAULT). Non-null only for AWS S3-family providers; S3 Express uses
+     * the same credentials model as generic S3.
      */
     public AwsCredentialsProviderMode getAwsCredentialsProviderMode() {
         return s3CredentialsMode;
@@ -480,7 +480,8 @@ public final class StorageAdapter {
     }
 
     /**
-     * Backend-map reconciliation for every S3-compatible provider (S3/OSS/OBS/COS/GCS/MinIO/Ozone).
+     * Backend-map reconciliation for every S3-compatible provider
+     * (S3/S3Express/OSS/OBS/COS/GCS/MinIO/Ozone).
      */
     private Map<String, String> alignS3FamilyBackendMap(S3CompatibleFileSystemProperties s3,
             Map<String, String> base) {
@@ -494,7 +495,7 @@ public final class StorageAdapter {
         aligned.put("AWS_REGION", s3.getRegion());
         aligned.put("AWS_ACCESS_KEY", s3.getAccessKey());
         aligned.put("AWS_SECRET_KEY", s3.getSecretKey());
-        if ("S3".equals(providerKey)) {
+        if (isAwsS3Provider()) {
             // Align fe-core, ledger 2.4-3/5: S3Properties always emits the mode name (default
             // DEFAULT, even with static AK/SK), parsed by the fe-core enum. AWS_ROLE_ARN /
             // AWS_EXTERNAL_ID pass through unconditionally when set (the SPI already emits them).
@@ -511,6 +512,10 @@ public final class StorageAdapter {
             }
         }
         return aligned;
+    }
+
+    private boolean isAwsS3Provider() {
+        return "S3".equals(providerKey) || "S3EXPRESS".equals(providerKey);
     }
 
     /**
