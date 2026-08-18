@@ -60,6 +60,7 @@ import java.util.Set;
 public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
     private static final long MIN_RETENTION_MS = Duration.ofHours(24).toMillis();
     private static final int MAX_REACHABLE_FILES = 5_000_000;
+    private static final long MAX_REACHABLE_INDEX_BYTES = 256L * 1024 * 1024;
     public static final String OLDER_THAN = "older_than";
     public static final String LOCATION = "location";
     public static final String DRY_RUN = "dry_run";
@@ -221,7 +222,7 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
     }
 
     private ReachableIndex collectReachableFiles(Table table) throws IOException, UserException {
-        ReachableIndex reachable = new ReachableIndex(MAX_REACHABLE_FILES);
+        ReachableIndex reachable = new ReachableIndex(MAX_REACHABLE_FILES, MAX_REACHABLE_INDEX_BYTES);
         reachable.addAll(ReachableFileUtil.metadataFileLocations(table, true));
         // Hadoop tables consult this live pointer even though it is not part of the metadata log.
         reachable.add(ReachableFileUtil.versionHintLocation(table));
@@ -273,17 +274,21 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
         return FileIdentity.of(first).equals(FileIdentity.of(second));
     }
 
-    static void verifyReachableIndexLimit(Set<String> locations, int maxEntries) throws UserException {
-        ReachableIndex index = new ReachableIndex(maxEntries);
+    static void verifyReachableIndexBudget(Set<String> locations, long maxBytes) throws UserException {
+        ReachableIndex index = new ReachableIndex(Integer.MAX_VALUE, maxBytes);
         index.addAll(locations);
     }
 
     private static final class ReachableIndex {
+        private static final long RETAINED_ENTRY_OVERHEAD_BYTES = 256;
         private final Map<String, FileIdentity> byPath = new LinkedHashMap<>();
         private final int maxEntries;
+        private final long maxBytes;
+        private long estimatedBytes;
 
-        private ReachableIndex(int maxEntries) {
+        private ReachableIndex(int maxEntries, long maxBytes) {
             this.maxEntries = maxEntries;
+            this.maxBytes = maxBytes;
         }
 
         private void addAll(Iterable<String> locations) throws UserException {
@@ -294,14 +299,24 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
 
         private void add(String location) throws UserException {
             FileIdentity identity = FileIdentity.of(location);
-            FileIdentity existing = byPath.putIfAbsent(identity.path, identity);
+            FileIdentity existing = byPath.get(identity.path);
             if (existing != null && !existing.equals(identity)) {
                 throw new UserException("Cannot determine whether reachable file locations are equivalent");
             }
-            if (existing == null && byPath.size() > maxEntries) {
+            if (existing != null) {
+                return;
+            }
+            if (byPath.size() >= maxEntries) {
                 throw new UserException(
                         "Reachable file index exceeds the safe in-memory limit of " + maxEntries);
             }
+            long entryBytes = identity.estimatedRetainedBytes();
+            if (entryBytes > maxBytes - estimatedBytes) {
+                throw new UserException(
+                        "Reachable file index exceeds the safe in-memory budget of " + maxBytes + " bytes");
+            }
+            byPath.put(identity.path, identity);
+            estimatedBytes += entryBytes;
         }
     }
 
@@ -314,6 +329,12 @@ public class IcebergRemoveOrphanFilesAction extends BaseIcebergAction {
             this.scheme = scheme;
             this.authority = authority;
             this.path = path;
+        }
+
+        private long estimatedRetainedBytes() {
+            // Charge UTF-16 payloads plus conservative object, map-node, and auxiliary-index overhead.
+            return ReachableIndex.RETAINED_ENTRY_OVERHEAD_BYTES
+                    + 2L * scheme.length() + 2L * authority.length() + 2L * path.length();
         }
 
         private static FileIdentity of(String location) {
