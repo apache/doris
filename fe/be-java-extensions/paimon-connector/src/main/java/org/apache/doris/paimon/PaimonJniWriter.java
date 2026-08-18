@@ -60,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 
 /**
  * JNI entry point for Paimon write operations.
@@ -89,12 +90,15 @@ public class PaimonJniWriter {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniWriter.class);
     private static final long ARROW_MIN_HEADROOM_BYTES = 16L * 1024 * 1024;
     private static final int ARROW_HEADROOM_DIVISOR = 4;
+    private static final int APPEND_ONLY_MIN_PAGES = 1;
+    private static final int MERGE_TREE_MIN_PAGES = 3;
     // Keep these values in sync with C++ PaimonMemoryErrorType.
     static final int MEMORY_ERROR_NONE = 0;
     static final int MEMORY_ERROR_ARROW = 1;
     static final int MEMORY_ERROR_PAIMON_PAGE = 2;
     static final int MEMORY_ERROR_JVM_HEAP = 3;
     static final int MEMORY_ERROR_COMMIT_PAYLOAD = 4;
+    static final int MEMORY_ERROR_CANCELLED = 5;
     private static final String NATIVE_PAGE_ALLOCATION_ERROR_PREFIX =
             "Paimon JNI native page allocation failed:";
 
@@ -374,7 +378,8 @@ public class PaimonJniWriter {
             writer.withIgnorePreviousFiles(true);
         }
         openMemoryResources(
-                coreOptions, spillDirectories, memoryPoolLimitBytes, nativeMemoryManager);
+                coreOptions, spillDirectories, memoryPoolLimitBytes, nativeMemoryManager,
+                table.primaryKeys().isEmpty() ? APPEND_ONLY_MIN_PAGES : MERGE_TREE_MIN_PAGES);
         openDynamicBucketAssigner(table, commitUser, overwrite, coreOptions);
     }
 
@@ -396,14 +401,17 @@ public class PaimonJniWriter {
             CoreOptions coreOptions,
             String spillDirectories,
             long memoryPoolLimitBytes,
-            long nativeMemoryManager) throws Exception {
+            long nativeMemoryManager,
+            int minimumPaimonPages) throws Exception {
         int pageSize = coreOptions.pageSize();
         WriterMemoryBudget budget = splitWriterMemoryBudget(
-                memoryPoolLimitBytes, coreOptions.writeBufferSize(), pageSize);
+                memoryPoolLimitBytes, coreOptions.writeBufferSize(), pageSize,
+                minimumPaimonPages);
         allocator = new RootAllocator(budget.arrowHeadroomBytes);
         arrowMemoryLimitBytes = budget.arrowHeadroomBytes;
         memorySegmentPool = new DorisMemorySegmentPool(
                 budget.paimonPageBudgetBytes, pageSize, nativeMemoryManager);
+        memorySegmentPool.preallocate(minimumPaimonPages);
         MemoryPoolFactory memoryPoolFactory = new MemoryPoolFactory(memorySegmentPool);
         writer.withMemoryPoolFactory(memoryPoolFactory);
         paimonPageMemoryLimitBytes = memoryPoolFactory.totalBufferSize();
@@ -678,7 +686,8 @@ public class PaimonJniWriter {
     // ────────────────────────────────────────────────────────────
 
     static WriterMemoryBudget splitWriterMemoryBudget(
-            long writerBudgetBytes, long configuredWriteBufferBytes, int pageSize) {
+            long writerBudgetBytes, long configuredWriteBufferBytes, int pageSize,
+            int minimumPaimonPages) {
         if (writerBudgetBytes <= 0) {
             throw new IllegalArgumentException(
                     "Paimon JNI writer memory budget must be positive: " + writerBudgetBytes);
@@ -690,20 +699,28 @@ public class PaimonJniWriter {
         if (pageSize <= 0) {
             throw new IllegalArgumentException("Paimon page size must be positive: " + pageSize);
         }
+        if (minimumPaimonPages <= 0) {
+            throw new IllegalArgumentException(
+                    "Paimon minimum page count must be positive: " + minimumPaimonPages);
+        }
 
+        long minimumPaimonBytes = (long) pageSize * minimumPaimonPages;
         long arrowHeadroomBytes = Math.max(
                 writerBudgetBytes / ARROW_HEADROOM_DIVISOR, ARROW_MIN_HEADROOM_BYTES);
-        if (arrowHeadroomBytes > writerBudgetBytes - pageSize) {
+        if (minimumPaimonBytes > writerBudgetBytes
+                || arrowHeadroomBytes > writerBudgetBytes - minimumPaimonBytes) {
             throw new IllegalArgumentException(
-                    "Paimon JNI writer memory budget cannot provide Arrow headroom and one page: "
+                    "Paimon JNI writer memory budget cannot provide Arrow headroom and "
+                            + minimumPaimonPages + " required Paimon page(s): "
                             + "budget=" + writerBudgetBytes + ", arrowHeadroom="
                             + arrowHeadroomBytes + ", pageSize=" + pageSize);
         }
         long paimonPageBudgetBytes = Math.min(
                 configuredWriteBufferBytes, writerBudgetBytes - arrowHeadroomBytes);
-        if (paimonPageBudgetBytes < pageSize) {
+        if (paimonPageBudgetBytes < minimumPaimonBytes) {
             throw new IllegalArgumentException(
-                    "Paimon write buffer cannot contain one page after reserving Arrow memory: "
+                    "Paimon write buffer cannot contain " + minimumPaimonPages
+                            + " pages after reserving Arrow memory: "
                             + "writeBuffer=" + configuredWriteBufferBytes + ", pageBudget="
                             + paimonPageBudgetBytes + ", pageSize=" + pageSize);
         }
@@ -736,6 +753,9 @@ public class PaimonJniWriter {
     }
 
     static int classifyMemoryError(Throwable throwable) {
+        if (hasCause(throwable, CancellationException.class)) {
+            return MEMORY_ERROR_CANCELLED;
+        }
         if (hasCause(throwable, OutOfMemoryException.class)) {
             return MEMORY_ERROR_ARROW;
         }
@@ -765,6 +785,12 @@ public class PaimonJniWriter {
         while (rootCause.getCause() != null) {
             rootCause = rootCause.getCause();
         }
+        if (lastMemoryErrorType == MEMORY_ERROR_CANCELLED) {
+            return new RuntimeException(
+                    "PaimonJniWriter " + operation + " was cancelled: "
+                            + rootCause.getMessage(),
+                    throwable);
+        }
         return new RuntimeException(
                 "PaimonJniWriter " + operation + " memory failure: type="
                         + memoryErrorName(lastMemoryErrorType) + ", detail="
@@ -782,6 +808,8 @@ public class PaimonJniWriter {
                 return "JVM_HEAP";
             case MEMORY_ERROR_COMMIT_PAYLOAD:
                 return "COMMIT_PAYLOAD";
+            case MEMORY_ERROR_CANCELLED:
+                return "CANCELLED";
             default:
                 return "UNKNOWN";
         }

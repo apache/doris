@@ -27,11 +27,13 @@
 #include <atomic>
 #include <map>
 #include <mutex>
+#include <new>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 #include "common/check.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_array.h"
@@ -43,6 +45,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/block_budget.h"
+#include "util/defer_op.h"
 #include "util/jni-util.h"
 #include "util/pretty_printer.h"
 #include "util/string_util.h"
@@ -165,6 +168,7 @@ enum class PaimonMemoryErrorType : jint {
     PAIMON_PAGE = 2,
     JVM_HEAP = 3,
     COMMIT_PAYLOAD = 4,
+    CANCELLED = 5,
 };
 
 Status translate_paimon_memory_error(JNIEnv* env, jobject writer, jmethodID consume_memory_error_id,
@@ -204,6 +208,8 @@ Status translate_paimon_memory_error(JNIEnv* env, jobject writer, jmethodID cons
         source = "commit payload";
         counter = commit_payload_memory_exceeded;
         break;
+    case PaimonMemoryErrorType::CANCELLED:
+        return Status::Cancelled("Paimon JNI operation was cancelled: {}", status.to_string());
     case PaimonMemoryErrorType::NONE:
         return status;
     default:
@@ -229,6 +235,17 @@ Status convert_cpp_arrow_status(const arrow::Status& arrow_status, std::string_v
     }
     return Status::InternalError("Paimon C++ Arrow {} failed: {}", operation,
                                  arrow_status.ToString());
+}
+
+Status convert_cpp_arrow_doris_status(const Status& status, std::string_view operation,
+                                      RuntimeProfile::Counter* memory_error_counter) {
+    if (status.is<ErrorCode::MEM_ALLOC_FAILED>() || status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() ||
+        status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
+        COUNTER_UPDATE(memory_error_counter, 1);
+        return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
+                "Paimon C++ Arrow {} ran out of query memory: {}", operation, status.to_string());
+    }
+    return status;
 }
 
 JniPaimonWriteBackend::~JniPaimonWriteBackend() {
@@ -574,9 +591,38 @@ Status JniPaimonWriter::_write_row_range(RuntimeState* state, const Block& block
                                          const std::shared_ptr<arrow::Schema>& arrow_schema,
                                          size_t start_row, size_t end_row,
                                          size_t estimated_ipc_bytes) {
+    try {
+        enable_thread_catch_bad_alloc++;
+        Defer restore_bad_alloc_catch {[&]() { enable_thread_catch_bad_alloc--; }};
+        return _write_row_range_impl(state, block, arrow_schema, start_row, end_row,
+                                     estimated_ipc_bytes);
+    } catch (const Exception& e) {
+        if (e.code() == ErrorCode::MEM_ALLOC_FAILED || e.code() == ErrorCode::MEM_LIMIT_EXCEEDED ||
+            e.code() == ErrorCode::QUERY_MEMORY_EXCEEDED) {
+            COUNTER_UPDATE(_cpp_arrow_memory_error, 1);
+            return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
+                    "Paimon C++ Arrow row-range pipeline ran out of query memory: {}", e.what());
+        }
+        return e.to_status();
+    } catch (const std::bad_alloc& e) {
+        COUNTER_UPDATE(_cpp_arrow_memory_error, 1);
+        return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
+                "Paimon C++ Arrow row-range pipeline failed to allocate memory: {}", e.what());
+    }
+}
+
+Status JniPaimonWriter::_write_row_range_impl(RuntimeState* state, const Block& block,
+                                              const std::shared_ptr<arrow::Schema>& arrow_schema,
+                                              size_t start_row, size_t end_row,
+                                              size_t estimated_ipc_bytes) {
     std::shared_ptr<arrow::RecordBatch> record_batch;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, arrow_schema, _arrow_pool.get(), &record_batch,
-                                           state->timezone_obj(), start_row, end_row));
+    auto conversion_status =
+            convert_to_arrow_batch(block, arrow_schema, _arrow_pool.get(), &record_batch,
+                                   state->timezone_obj(), start_row, end_row);
+    if (!conversion_status.ok()) {
+        return convert_cpp_arrow_doris_status(conversion_status, "record batch conversion",
+                                              _cpp_arrow_memory_error);
+    }
 
     // Preallocate from the row-range estimate instead of repeatedly growing from 4KB. Arrow can
     // still expand the stream when variable-length or nested encodings exceed the estimate.

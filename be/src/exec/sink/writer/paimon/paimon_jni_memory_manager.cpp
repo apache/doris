@@ -310,6 +310,20 @@ jobject allocate_paimon_memory_page(JNIEnv* env, jclass, jlong manager_handle, j
     }
     try {
         return manager->allocate_page(env, bytes, wait_for_memory == JNI_TRUE);
+    } catch (const Exception& e) {
+        const bool cancelled = e.code() == ErrorCode::CANCELLED;
+        jclass exception_class =
+                env->FindClass(cancelled ? "java/util/concurrent/CancellationException"
+                                         : "java/lang/OutOfMemoryError");
+        // Avoid heap allocation while reporting an allocation failure.
+        char message[1024];
+        std::snprintf(message, sizeof(message),
+                      cancelled ? "Paimon JNI native page allocation cancelled: %.900s"
+                                : "Paimon JNI native page allocation failed: %.900s",
+                      e.what());
+        env->ThrowNew(exception_class, message);
+        env->DeleteLocalRef(exception_class);
+        return nullptr;
     } catch (const std::exception& e) {
         jclass exception_class = env->FindClass("java/lang/OutOfMemoryError");
         // Avoid heap allocation while reporting an allocation failure.

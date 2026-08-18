@@ -31,6 +31,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 
 public class PaimonJniWriterTest {
 
@@ -51,13 +52,17 @@ public class PaimonJniWriterTest {
         Assertions.assertEquals(
                 PaimonJniWriter.MEMORY_ERROR_NONE,
                 PaimonJniWriter.classifyMemoryError(new IllegalArgumentException("not memory")));
+        Assertions.assertEquals(
+                PaimonJniWriter.MEMORY_ERROR_CANCELLED,
+                PaimonJniWriter.classifyMemoryError(
+                        new RuntimeException(new CancellationException("query cancelled"))));
     }
 
     @Test
     public void testWriterMemoryBudgetIncludesArrowAndPaimonPages() {
         int pageSize = 64 * 1024;
         PaimonJniWriter.WriterMemoryBudget budget = PaimonJniWriter.splitWriterMemoryBudget(
-                512L * 1024 * 1024, 512L * 1024 * 1024, pageSize);
+                512L * 1024 * 1024, 512L * 1024 * 1024, pageSize, 3);
 
         Assertions.assertEquals(128L * 1024 * 1024, budget.arrowHeadroomBytes);
         Assertions.assertEquals(384L * 1024 * 1024, budget.paimonPageBudgetBytes);
@@ -70,7 +75,7 @@ public class PaimonJniWriterTest {
     public void testWriterMemoryBudgetKeepsConfiguredWriteBufferCap() {
         int pageSize = 64 * 1024;
         PaimonJniWriter.WriterMemoryBudget budget = PaimonJniWriter.splitWriterMemoryBudget(
-                512L * 1024 * 1024, 64L * 1024 * 1024, pageSize);
+                512L * 1024 * 1024, 64L * 1024 * 1024, pageSize, 3);
 
         Assertions.assertEquals(128L * 1024 * 1024, budget.arrowHeadroomBytes);
         Assertions.assertEquals(64L * 1024 * 1024, budget.paimonPageBudgetBytes);
@@ -82,9 +87,26 @@ public class PaimonJniWriterTest {
         IllegalArgumentException exception = Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> PaimonJniWriter.splitWriterMemoryBudget(
-                        16L * 1024 * 1024, 16L * 1024 * 1024, pageSize));
+                        16L * 1024 * 1024, 16L * 1024 * 1024, pageSize, 1));
 
-        Assertions.assertTrue(exception.getMessage().contains("Arrow headroom and one page"));
+        Assertions.assertTrue(
+                exception.getMessage().contains("Arrow headroom and 1 required Paimon page(s)"));
+    }
+
+    @Test
+    public void testWriterMemoryBudgetPreservesMergeTreeMinimumPages() {
+        int pageSize = 8 * 1024 * 1024;
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> PaimonJniWriter.splitWriterMemoryBudget(
+                        32L * 1024 * 1024, 32L * 1024 * 1024, pageSize, 3));
+
+        Assertions.assertTrue(exception.getMessage().contains("3 required Paimon page(s)"));
+
+        PaimonJniWriter.WriterMemoryBudget budget = PaimonJniWriter.splitWriterMemoryBudget(
+                40L * 1024 * 1024, 40L * 1024 * 1024, pageSize, 3);
+        Assertions.assertEquals(16L * 1024 * 1024, budget.arrowHeadroomBytes);
+        Assertions.assertEquals(24L * 1024 * 1024, budget.paimonPageBudgetBytes);
     }
 
     @Test
@@ -154,6 +176,25 @@ public class PaimonJniWriterTest {
         Assertions.assertEquals(2, requestor.memoryPool.freePages());
         Assertions.assertSame(segment, requestor.memoryPool.nextSegment());
         Assertions.assertEquals(List.of(false, false, true), waitModes);
+    }
+
+    @Test
+    public void testManagedMemoryPoolPreallocatesRequiredOwnerPagesInBlockingMode() {
+        int pageSize = 64 * 1024;
+        List<Boolean> waitModes = new ArrayList<>();
+        DorisMemorySegmentPool pool = new DorisMemorySegmentPool(
+                3L * pageSize, pageSize, 1L,
+                (manager, bytes, waitForMemory) -> {
+                    waitModes.add(waitForMemory);
+                    return ByteBuffer.allocateDirect(bytes);
+                });
+
+        pool.preallocate(3);
+
+        Assertions.assertEquals(List.of(true, true, true), waitModes);
+        Assertions.assertEquals(3, pool.freePages());
+        Assertions.assertNotNull(pool.nextSegment());
+        Assertions.assertEquals(List.of(true, true, true), waitModes);
     }
 
     @Test

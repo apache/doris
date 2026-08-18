@@ -127,6 +127,9 @@ private:
     Status _write_row_range(RuntimeState* state, const Block& block,
                             const std::shared_ptr<arrow::Schema>& arrow_schema, size_t start_row,
                             size_t end_row, size_t estimated_ipc_bytes);
+    Status _write_row_range_impl(RuntimeState* state, const Block& block,
+                                 const std::shared_ptr<arrow::Schema>& arrow_schema,
+                                 size_t start_row, size_t end_row, size_t estimated_ipc_bytes);
     Status _get_jni_call_status(JNIEnv* env, Status status);
 
     // Shared JNI state (owned by JniPaimonWriteBackend, not this adapter).

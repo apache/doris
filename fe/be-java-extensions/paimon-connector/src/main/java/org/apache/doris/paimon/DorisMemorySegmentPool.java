@@ -106,6 +106,46 @@ final class DorisMemorySegmentPool implements MemorySegmentPool {
     }
 
     /**
+     * Provision pages required by Paimon owner constructors before any owner starts writing.
+     *
+     * <p>Some Paimon buffers require their first pages in the constructor and cannot propagate a
+     * nullable allocation to a later safe write boundary. Provisioning happens while opening the
+     * asynchronous writer, before owners exist, so there is no Paimon preemption or spill path to
+     * bypass.
+     */
+    void preallocate(int requiredPages) {
+        if (requiredPages <= 0 || requiredPages > maxPages) {
+            throw new IllegalArgumentException(
+                    "Invalid Doris-managed Paimon preallocation: requiredPages="
+                            + requiredPages + ", maxPages=" + maxPages);
+        }
+
+        while (true) {
+            synchronized (this) {
+                if (allocatedPages >= requiredPages) {
+                    return;
+                }
+                ++allocatedPages;
+            }
+
+            final ByteBuffer buffer;
+            try {
+                buffer = pageAllocator.allocate(nativeMemoryManager, pageSize, true);
+            } catch (Throwable t) {
+                rollbackAllocation();
+                throw t;
+            }
+            if (buffer == null) {
+                rollbackAllocation();
+                throw allocationFailure("while provisioning Paimon owner memory");
+            }
+            synchronized (this) {
+                availableSegments.addLast(MemorySegment.wrapOffHeapMemory(buffer));
+            }
+        }
+    }
+
+    /**
      * Wait for one native page only after a Paimon write operation has reached a safe boundary.
      *
      * <p>{@link #nextSegment()} deliberately returns {@code null} on Doris memory pressure so the
@@ -136,9 +176,7 @@ final class DorisMemorySegmentPool implements MemorySegmentPool {
 
         if (buffer == null) {
             rollbackAllocation();
-            throw new OutOfMemoryError(
-                    "Doris failed to allocate a native Paimon memory page of "
-                            + pageSize + " bytes while waiting at a safe write boundary");
+            throw allocationFailure("while waiting at a safe write boundary");
         }
 
         synchronized (this) {
@@ -172,5 +210,11 @@ final class DorisMemorySegmentPool implements MemorySegmentPool {
 
     private synchronized void rollbackAllocation() {
         --allocatedPages;
+    }
+
+    private OutOfMemoryError allocationFailure(String operation) {
+        return new OutOfMemoryError(
+                "Doris failed to allocate a native Paimon memory page of "
+                        + pageSize + " bytes " + operation);
     }
 }
