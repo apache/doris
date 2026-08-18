@@ -30,8 +30,6 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "core/allocator.h"
-#include "runtime/exec_env.h"
-#include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -40,6 +38,7 @@
 #include "util/defer_op.h"
 #include "util/jni-util.h"
 #include "util/pretty_printer.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -148,19 +147,13 @@ private:
         constexpr auto RETRY_INTERVAL = std::chrono::milliseconds(100);
         bool waiting = false;
         std::chrono::steady_clock::time_point wait_start;
+        auto* task_controller = _resource_context->task_controller();
 
         while (true) {
-            auto* task_controller = _resource_context->task_controller();
             if (task_controller->is_cancelled()) {
                 return Status::Cancelled(
                         "Paimon JNI native page allocation stopped because the query was "
                         "cancelled");
-            }
-            auto* fragment_mgr = ExecEnv::GetInstance()->fragment_mgr();
-            if (fragment_mgr != nullptr && fragment_mgr->shutting_down()) {
-                return Status::Cancelled(
-                        "Paimon JNI native page allocation stopped because FragmentMgr is "
-                        "shutting down");
             }
 
             auto status = thread_context()->thread_mem_tracker_mgr->try_reserve(bytes);
@@ -169,7 +162,8 @@ private:
                     const auto waited_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                                    std::chrono::steady_clock::now() - wait_start)
                                                    .count();
-                    LOG(INFO) << "Paimon JNI native page allocation resumed after waiting "
+                    LOG(INFO) << "Query " << print_id(task_controller->task_id())
+                              << " Paimon JNI native page allocation resumed after waiting "
                               << waited_ms << " ms for " << bytes << " bytes";
                 }
                 return Status::OK();
@@ -191,7 +185,8 @@ private:
             if (!waiting) {
                 waiting = true;
                 wait_start = std::chrono::steady_clock::now();
-                LOG(INFO) << "Paimon JNI native page allocation is waiting for " << bytes
+                LOG(INFO) << "Query " << print_id(task_controller->task_id())
+                          << " Paimon JNI native page allocation is waiting for " << bytes
                           << " bytes: " << status.to_string();
             }
             std::this_thread::sleep_for(RETRY_INTERVAL);
