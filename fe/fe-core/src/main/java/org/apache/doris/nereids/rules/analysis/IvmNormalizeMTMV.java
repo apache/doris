@@ -1065,9 +1065,10 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
      * - Other key types: throws IvmException
      *
      * <p>When the base table's only key column is the IVM row-id itself (an IVM MV created
-     * without ivm_use_full_keys), the stored row-id is passed through directly instead of
-     * hashing it again. The remaining identity keys exclude the row-id column, so cascading
-     * MVs never accumulate ancestor row-id columns in their unique keys.
+     * without ivm_use_full_keys), {@link IvmUtil#buildRowIdHash} passes the stored largeint row-id
+     * through directly (a single largeint key is not hashed). The remaining identity keys exclude
+     * the row-id column, so cascading MVs never accumulate ancestor row-id columns in their
+     * unique keys.
      */
     private ScanRowId computeScanRowIdAndKeys(OlapTable table, LogicalOlapScan scan) {
         KeysType keysType = table.getKeysType();
@@ -1121,10 +1122,7 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
         Optional<Slot> baseTableRowId = keySlots.stream()
                 .filter(slot -> Column.IVM_ROW_ID_COL.equalsIgnoreCase(slot.getName()))
                 .findFirst();
-        Expression rowIdExpr = (keySlots.size() == 1
-                && Column.IVM_ROW_ID_COL.equalsIgnoreCase(keySlots.get(0).getName()))
-                ? keySlots.get(0)
-                : IvmUtil.buildRowIdHash(keySlots);
+        Expression rowIdExpr = IvmUtil.buildRowIdHash(keySlots);
         return new ScanRowId(rowIdExpr, remainKeys, true, baseTableRowId);
     }
 
