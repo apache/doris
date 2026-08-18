@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/operator/operator.h"
+#include "exec/sink/writer/paimon/paimon_sink_memory_allocator.h"
 #include "exec/sink/writer/paimon/paimon_table_writer.h"
 #include "runtime/runtime_state.h"
 
@@ -59,11 +60,14 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
 
     [[nodiscard]] bool is_blockable() const override { return true; }
+    std::vector<Dependency*> dependencies() const override { return {_memory_dependency.get()}; }
 
 private:
     friend class PaimonTableSinkOperatorX;
 
     VExprContextSPtrs _output_vexpr_ctxs;
+    DependencySPtr _memory_dependency;
+    std::shared_ptr<PaimonWriterMemoryLease> _memory_lease;
     std::unique_ptr<PaimonTableWriter> _writer;
 };
 
@@ -84,7 +88,8 @@ public:
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::prepare(state));
         RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
-        return VExpr::open(_output_vexpr_ctxs, state);
+        RETURN_IF_ERROR(VExpr::open(_output_vexpr_ctxs, state));
+        return PaimonSinkMemoryAllocator::create(state, &_memory_allocator);
     }
 
     Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
@@ -99,6 +104,7 @@ private:
     const RowDescriptor& _row_desc;
     VExprContextSPtrs _output_vexpr_ctxs;
     const std::vector<TExpr>& _t_output_expr;
+    std::shared_ptr<PaimonSinkMemoryAllocator> _memory_allocator;
 };
 
 } // namespace doris

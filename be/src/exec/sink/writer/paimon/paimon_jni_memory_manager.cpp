@@ -18,19 +18,16 @@
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cstdio>
 #include <mutex>
-#include <thread>
 #include <utility>
 #include <vector>
 
 #include "common/check.h"
-#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "core/allocator.h"
-#include "runtime/memory/mem_tracker_limiter.h"
+#include "exec/sink/writer/paimon/paimon_sink_memory_allocator.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -38,28 +35,40 @@
 #include "util/defer_op.h"
 #include "util/jni-util.h"
 #include "util/pretty_printer.h"
-#include "util/uid_util.h"
 
 namespace doris {
 
 class PaimonJniMemoryManager::Impl {
 public:
-    Impl(std::shared_ptr<ResourceContext> resource_context, int64_t memory_limit)
-            : _resource_context(std::move(resource_context)), _memory_limit(memory_limit) {
+    Impl(std::shared_ptr<ResourceContext> resource_context,
+         std::shared_ptr<PaimonWriterMemoryLease> memory_lease)
+            : _resource_context(std::move(resource_context)),
+              _memory_lease(std::move(memory_lease)),
+              _memory_limit(_memory_lease->memory_limit()) {
         DORIS_CHECK(_resource_context != nullptr);
+        DORIS_CHECK(_memory_lease != nullptr);
         DORIS_CHECK(_memory_limit > 0);
     }
 
     ~Impl() {
         // Java may retain direct buffers until its writer is closed.  Release
         // every outstanding page here as the final native ownership boundary.
+        Status release_status;
         try {
             release_all_pages();
         } catch (const std::exception& e) {
             LOG(WARNING) << "Failed to release Paimon JNI native memory: " << e.what();
+            release_status = Status::InternalError("Failed to release Paimon JNI native memory: {}",
+                                                   e.what());
         } catch (...) {
             LOG(WARNING) << "Failed to release Paimon JNI native memory: unknown exception";
+            release_status = Status::InternalError(
+                    "Failed to release Paimon JNI native memory: unknown exception");
         }
+        if (!release_status.ok()) {
+            _memory_lease->poison(release_status);
+        }
+        _memory_lease->release();
     }
 
     jobject allocate_page(JNIEnv* env, jint bytes) {
@@ -72,14 +81,20 @@ public:
         // prevents concurrent JNI callbacks from transiently allocating past
         // the configured cap and only discovering it after query accounting
         // or the system allocator has already rejected the request.
+        Status limit_status;
         {
             std::lock_guard<std::mutex> lock(_mutex);
             if (bytes > _memory_limit - _native_allocated_bytes - _native_reserved_bytes) {
-                throw Exception(Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
+                limit_status = Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
                         "Paimon JNI write buffer exceeded its {} native memory limit",
-                        PrettyPrinter::print_bytes(_memory_limit)));
+                        PrettyPrinter::print_bytes(_memory_limit));
+            } else {
+                _native_reserved_bytes += bytes;
             }
-            _native_reserved_bytes += bytes;
+        }
+        if (!limit_status.ok()) {
+            _memory_lease->poison(limit_status);
+            throw Exception(limit_status);
         }
         bool reservation_committed = false;
         Defer rollback_reservation {[&]() {
@@ -94,7 +109,7 @@ public:
         // relying on the calling BE thread's context would bypass query
         // memory accounting.
         void* address = with_resource_context([&]() {
-            auto reserve_status = _reserve_memory_or_wait(bytes);
+            auto reserve_status = _reserve_memory(bytes);
             if (!reserve_status.ok()) {
                 throw Exception(reserve_status);
             }
@@ -142,55 +157,25 @@ public:
         return _native_peak_allocated_bytes;
     }
 
+    void poison(const Status& status) { _memory_lease->poison(status); }
+
 private:
-    Status _reserve_memory_or_wait(int64_t bytes) const {
-        constexpr auto RETRY_INTERVAL = std::chrono::milliseconds(100);
-        bool waiting = false;
-        std::chrono::steady_clock::time_point wait_start;
+    Status _reserve_memory(int64_t bytes) const {
         auto* task_controller = _resource_context->task_controller();
-
-        while (true) {
-            if (task_controller->is_cancelled()) {
-                return Status::Cancelled(
-                        "Paimon JNI native page allocation stopped because the query was "
-                        "cancelled");
-            }
-
-            auto status = thread_context()->thread_mem_tracker_mgr->try_reserve(bytes);
-            if (status.ok()) {
-                if (waiting) {
-                    const auto waited_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                   std::chrono::steady_clock::now() - wait_start)
-                                                   .count();
-                    LOG(INFO) << "Query " << print_id(task_controller->task_id())
-                              << " Paimon JNI native page allocation resumed after waiting "
-                              << waited_ms << " ms for " << bytes << " bytes";
-                }
-                return Status::OK();
-            }
-
-            // A query-local hard limit is not temporary: the synchronous JNI call still owns its
-            // input Block and Arrow buffers, and this writer retains allocated pages until close.
-            // Waiting for the same call to release memory would deadlock. Workload-group and
-            // process pressure can be relieved by other tasks, so this blockable pipeline task
-            // waits here and retries.
-            if (status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
-                return status;
-            }
-            if (!status.is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>() &&
-                !status.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
-                return status;
-            }
-
-            if (!waiting) {
-                waiting = true;
-                wait_start = std::chrono::steady_clock::now();
-                LOG(INFO) << "Query " << print_id(task_controller->task_id())
-                          << " Paimon JNI native page allocation is waiting for " << bytes
-                          << " bytes: " << status.to_string();
-            }
-            std::this_thread::sleep_for(RETRY_INTERVAL);
+        if (task_controller->is_cancelled()) {
+            auto status = Status::Cancelled(
+                    "Paimon JNI native page allocation stopped because the query was cancelled");
+            _memory_lease->poison(status);
+            return status;
         }
+        auto status = thread_context()->thread_mem_tracker_mgr->try_reserve(bytes);
+        if (!status.ok()) {
+            // This writer already owns the complete operator lease. A tracker rejection therefore
+            // cannot be resolved by handing the lease to another LocalState; fail this sink and
+            // wake its waiters instead of serially retrying the same impossible allocation.
+            _memory_lease->poison(status);
+        }
+        return status;
     }
 
     template <typename Function>
@@ -253,7 +238,9 @@ private:
 
     // Query resource context used for all native allocator operations.
     std::shared_ptr<ResourceContext> _resource_context;
-    // Immutable per-writer cap, calculated by PaimonJniMemoryManager::create.
+    // Keeps the operator admission lease until every Java-backed page has been released.
+    std::shared_ptr<PaimonWriterMemoryLease> _memory_lease;
+    // Immutable per-writer cap granted by the operator-scoped allocator.
     const int64_t _memory_limit;
     // Doris allocator used instead of JVM/Arrow allocation so native pages are
     // visible to Doris' memory accounting and allocator hooks.
@@ -317,38 +304,22 @@ PaimonJniMemoryManager::PaimonJniMemoryManager(std::unique_ptr<Impl> impl)
 PaimonJniMemoryManager::~PaimonJniMemoryManager() = default;
 
 Status PaimonJniMemoryManager::create(RuntimeState* state,
+                                      std::shared_ptr<PaimonWriterMemoryLease> memory_lease,
                                       std::unique_ptr<PaimonJniMemoryManager>* manager) {
     DORIS_CHECK(state != nullptr);
     DORIS_CHECK(manager != nullptr);
-    if (state->query_mem_tracker() == nullptr) {
-        return Status::InternalError(
-                "Paimon JNI writer cannot size its write buffer without a query tracker");
-    }
     if (state->get_query_ctx() == nullptr) {
         return Status::InternalError(
                 "Paimon JNI writer cannot allocate native memory without QueryContext");
     }
 
-    // A query can create multiple local sink instances.  Divide its budget
-    // before applying the configured cap so one writer cannot consume the
-    // entire query allowance.
-    const int64_t writer_count = std::max<int64_t>(1, state->num_local_sink());
-    const int64_t query_limit = state->query_mem_tracker()->limit();
-    const int64_t query_share = query_limit > 0 ? query_limit / writer_count : query_limit;
-    const int64_t configured_memory_limit = config::paimon_jni_writer_memory_pool_limit_bytes;
-    const int64_t memory_limit = query_share > 0 ? std::min(query_share, configured_memory_limit)
-                                                 : configured_memory_limit;
-    if (memory_limit <= 0) {
-        return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
-                "Paimon JNI writer has insufficient memory budget: query_limit={}, "
-                "local_sink_count={}, write_buffer_limit={}",
-                PrettyPrinter::print_bytes(query_limit), writer_count,
-                PrettyPrinter::print_bytes(memory_limit));
-    }
+    DORIS_CHECK(memory_lease != nullptr);
+    RETURN_IF_ERROR(memory_lease->check_ready());
 
     // ResourceContext is retained by Impl for the manager's whole lifetime so JNI callbacks stay
     // associated with the query even if Paimon invokes one from a Java-created thread.
-    auto impl = std::make_unique<Impl>(state->get_query_ctx()->resource_ctx(), memory_limit);
+    auto impl =
+            std::make_unique<Impl>(state->get_query_ctx()->resource_ctx(), std::move(memory_lease));
     *manager = std::unique_ptr<PaimonJniMemoryManager>(new PaimonJniMemoryManager(std::move(impl)));
     return Status::OK();
 }
@@ -381,6 +352,10 @@ int64_t PaimonJniMemoryManager::memory_limit() const {
 
 int64_t PaimonJniMemoryManager::native_peak_allocated_bytes() const {
     return _impl->native_peak_allocated_bytes();
+}
+
+void PaimonJniMemoryManager::poison(const Status& status) {
+    _impl->poison(status);
 }
 
 } // namespace doris

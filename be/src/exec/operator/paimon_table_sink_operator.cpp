@@ -23,7 +23,12 @@ namespace doris {
 
 Status PaimonTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    _writer = std::make_unique<PaimonTableWriter>(info.tsink, _output_vexpr_ctxs);
+    auto& parent = _parent->cast<Parent>();
+    DCHECK(parent._memory_allocator != nullptr);
+    _memory_dependency = Dependency::create_shared(parent.operator_id(), parent.node_id(),
+                                                   "PaimonWriterMemoryDependency", true);
+    RETURN_IF_ERROR(parent._memory_allocator->register_writer(_memory_dependency, &_memory_lease));
+    _writer = std::make_unique<PaimonTableWriter>(info.tsink, _output_vexpr_ctxs, _memory_lease);
     return _writer->init(state);
 }
 
@@ -31,6 +36,7 @@ Status PaimonTableSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
+    RETURN_IF_ERROR(_memory_lease->check_ready());
 
     auto& parent = _parent->cast<Parent>();
     _output_vexpr_ctxs.resize(parent._output_vexpr_ctxs.size());
@@ -55,6 +61,10 @@ Status PaimonTableSinkLocalState::close(RuntimeState* state, Status exec_status)
             final_status = writer_status;
         }
         _writer.reset();
+    }
+    _memory_lease.reset();
+    if (_memory_dependency) {
+        _memory_dependency->set_always_ready();
     }
 
     Status base_status = Base::close(state, final_status);

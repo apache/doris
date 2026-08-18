@@ -27,6 +27,7 @@
 namespace doris {
 
 class RuntimeState;
+class PaimonWriterMemoryLease;
 
 /// Owns the Doris-side native memory used by one Java Paimon writer.
 ///
@@ -38,31 +39,30 @@ class RuntimeState;
 /// manager alive for at least as long as the Java writer can access its
 /// callback handle.
 ///
-/// The limit is a per-writer budget.  It is derived from the query memory
-/// limit and the number of local sink instances, then capped by the global
-/// Paimon JNI configuration.  The manager accounts only for pages allocated
-/// by this callback; Java heap and other Paimon-managed memory remain under
-/// their respective runtimes.
+/// The limit comes from an operator-scoped writer lease. A LocalState must own
+/// the complete lease before entering the synchronous Java writer, so JNI page
+/// allocation never waits while holding only part of its Paimon memory pool.
+/// The manager accounts only for pages allocated by this callback; Java heap
+/// and other Paimon-managed memory remain under their respective runtimes.
 class PaimonJniMemoryManager {
 public:
     ~PaimonJniMemoryManager();
 
-    /// Construct a manager whose budget is sized from the query context.
+    /// Construct a manager backed by an already granted writer lease.
     ///
     /// The query must provide both a memory tracker and QueryContext.  The
     /// latter supplies the ResourceContext used whenever allocation/freeing
     /// crosses into a JNI-created thread.
-    static Status create(RuntimeState* state, std::unique_ptr<PaimonJniMemoryManager>* manager);
+    static Status create(RuntimeState* state, std::shared_ptr<PaimonWriterMemoryLease> memory_lease,
+                         std::unique_ptr<PaimonJniMemoryManager>* manager);
     /// Register the static JNI callback used by PaimonJniWriter.
     static Status register_natives(JNIEnv* env, jclass writer_class);
 
     /// Allocate one native page and return it as a direct ByteBuffer.
     ///
-    /// Workload-group and process pressure block the calling pipeline task until memory becomes
-    /// available or the query is cancelled. Query-local hard-limit failures return immediately
-    /// because waiting inside the same synchronous write could deadlock. On failure this method
-    /// leaves no accounting entry behind and reports the error through the JNI environment. The
-    /// returned buffer remains
+    /// Admission and waiting happen before the synchronous Java writer is opened. If Doris rejects
+    /// an actual allocation after admission, this method leaves no accounting entry behind and
+    /// reports the error through the JNI environment. The returned buffer remains
     /// valid until the manager is destroyed (or allocation of that page is
     /// rolled back because NewDirectByteBuffer failed).
     jobject allocate_page(JNIEnv* env, jint bytes);
@@ -72,6 +72,9 @@ public:
 
     /// Return the high-water mark of native pages allocated by this manager.
     int64_t native_peak_allocated_bytes() const;
+
+    /// Stop other LocalStates waiting on the same operator after an unsafe Java close.
+    void poison(const Status& status);
 
 private:
     class Impl;

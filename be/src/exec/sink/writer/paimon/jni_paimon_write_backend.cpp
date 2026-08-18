@@ -181,6 +181,7 @@ Status JniPaimonWriteBackend::close() {
         _jni_writer_obj = nullptr;
         _jni_writer_cls = nullptr;
         if (java_users_may_exist) {
+            _memory_manager->poison(env_status);
             retain_memory_after_failed_close(std::move(_memory_manager));
         } else {
             _memory_manager.reset();
@@ -210,6 +211,7 @@ Status JniPaimonWriteBackend::close() {
         _memory_manager.reset();
     } else {
         if (_memory_manager != nullptr) {
+            _memory_manager->poison(close_status);
             LOG(WARNING)
                     << "Retaining Paimon JNI native memory after an unconfirmed Java close: limit="
                     << PrettyPrinter::print_bytes(_memory_manager->memory_limit()) << ", peak="
@@ -294,7 +296,8 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
     DORIS_CHECK(profile != nullptr);
 
     _arrow_memory_limit_bytes = config::paimon_jni_writer_arrow_memory_limit_bytes;
-    RETURN_IF_ERROR(PaimonJniMemoryManager::create(state, &_memory_manager));
+    DORIS_CHECK(_memory_lease != nullptr);
+    RETURN_IF_ERROR(PaimonJniMemoryManager::create(state, _memory_lease, &_memory_manager));
     RuntimeProfile* jni_profile = profile->create_child("JniPaimonWriteBackend", true, true);
     _native_page_memory_limit = ADD_COUNTER(jni_profile, "NativePageMemoryLimit", TUnit::BYTES);
     _native_page_memory_peak = ADD_COUNTER(jni_profile, "NativePageMemoryPeak", TUnit::BYTES);

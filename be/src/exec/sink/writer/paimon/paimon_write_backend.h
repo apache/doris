@@ -29,6 +29,7 @@ namespace doris {
 
 class RuntimeState;
 class RuntimeProfile;
+class PaimonWriterMemoryLease;
 
 enum class PaimonBackendType {
     JNI, // Java via JNI (PaimonJniWriter)
@@ -99,6 +100,7 @@ class PaimonWriteBackendFactory {
 public:
     /// Create a backend instance based on the sink configuration.
     static Status create(const TPaimonTableSink& sink,
+                         std::shared_ptr<PaimonWriterMemoryLease> memory_lease,
                          std::unique_ptr<IPaimonWriteBackend>* backend);
 
     /// Determine which backend type to use for the given sink.

@@ -22,10 +22,11 @@
 namespace doris {
 
 Status PaimonWriteBackendFactory::create(const TPaimonTableSink& sink,
+                                         std::shared_ptr<PaimonWriterMemoryLease> memory_lease,
                                          std::unique_ptr<IPaimonWriteBackend>* backend) {
     switch (select_backend_type(sink)) {
     case PaimonBackendType::JNI:
-        *backend = std::make_unique<JniPaimonWriteBackend>();
+        *backend = std::make_unique<JniPaimonWriteBackend>(std::move(memory_lease));
         return Status::OK();
     case PaimonBackendType::FFI:
         *backend = std::make_unique<FfiPaimonWriteBackend>();
