@@ -841,7 +841,8 @@ message PRequestBlockDesc {
     repeated PSlotDescriptor slots = 2;
     repeated ColumnPB column_descs = 3;
     repeated uint32 file_id = 4;
-    // FILE_LOCAL_ROW_ID values are uint32; LANCE_DATASET_ROW_ID preserves all 64 bits.
+    // The wire field is uint64 for every version. FILE_LOCAL_ROW_ID values are zero-extended
+    // from uint32, while LANCE_DATASET_ROW_ID uses the full uint64 range.
     repeated uint64 row_id = 5;
     optional PTupleDescriptor desc = 6;
     repeated uint32 column_idxs = 7;
