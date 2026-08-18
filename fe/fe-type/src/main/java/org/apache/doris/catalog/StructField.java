@@ -38,7 +38,7 @@ public class StructField {
     protected int position;  // in struct
 
     @SerializedName(value = "containsNull")
-    private final boolean containsNull; // Now always true (nullable field)
+    private final boolean containsNull; // Always true; struct fields are nullable.
 
     // Runtime-only schema change intent; do not persist it as part of the table schema.
     private transient boolean commentSpecified;
@@ -54,7 +54,7 @@ public class StructField {
         this.name = name.toLowerCase();
         this.type = type;
         this.comment = comment;
-        this.containsNull = containsNull;
+        this.containsNull = true;
         this.commentSpecified = commentSpecified;
     }
 
@@ -95,13 +95,13 @@ public class StructField {
     }
 
     public boolean getContainsNull() {
-        return containsNull;
+        return true;
     }
 
     public String toSql(int depth) {
         String typeSql;
         if (depth < Type.MAX_NESTING_DEPTH) {
-            typeSql = type.toSql(depth + 1) + (!containsNull ? " not null" : "");
+            typeSql = type.toSql(depth + 1) + (!getContainsNull() ? " not null" : "");
         } else {
             typeSql = "...";
         }
@@ -139,13 +139,13 @@ public class StructField {
         if (equals(f)) {
             return true;
         }
-        return type.matchesType(f.getType()) && containsNull == f.getContainsNull();
+        return type.matchesType(f.getType()) && getContainsNull() == f.getContainsNull();
     }
 
     public void toThrift(TTypeDesc container, TTypeNode node) {
         TStructField field = new TStructField();
         field.setName(name);
-        field.setContainsNull(containsNull);
+        field.setContainsNull(getContainsNull());
         node.struct_fields.add(field);
         type.toThrift(container);
     }
@@ -157,7 +157,7 @@ public class StructField {
         }
         StructField otherStructField = (StructField) other;
         return otherStructField.name.equals(name) && otherStructField.type.equals(type)
-                && otherStructField.containsNull == containsNull;
+                && otherStructField.getContainsNull() == getContainsNull();
     }
 
     @Override

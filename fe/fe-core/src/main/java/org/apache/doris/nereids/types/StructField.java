@@ -51,7 +51,7 @@ public class StructField {
             boolean commentSpecified) {
         this.name = Objects.requireNonNull(name, "name should not be null").toLowerCase();
         this.dataType = Objects.requireNonNull(dataType, "dataType should not be null");
-        this.nullable = nullable;
+        this.nullable = true;
         this.comment = Objects.requireNonNull(comment, "comment should not be null");
         this.commentSpecified = commentSpecified;
     }
