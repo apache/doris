@@ -20,7 +20,6 @@
 #include <map>
 #include <vector>
 
-#include "common/cast_set.h"
 #include "runtime/thread_context.h"
 #include "storage/olap_common.h"
 #include "storage/utils.h"
@@ -34,11 +33,17 @@ namespace doris {
 // destination rowset.
 class RowIdConversion {
 public:
+    struct DestinationRowId {
+        uint32_t segment_pos;
+        uint32_t row_id;
+    };
+
     RowIdConversion() = default;
     ~RowIdConversion() { RELEASE_THREAD_MEM_TRACKER(_seg_rowid_map_mem_used); }
 
-    // resize segment rowid map to its rows num
-    Status init_segment_map(const RowsetId& src_rowset_id, const std::vector<uint32_t>& num_rows) {
+    Status init_segment_map(const RowsetId& src_rowset_id, const std::vector<uint32_t>& segment_ids,
+                            const std::vector<uint32_t>& num_rows) {
+        DCHECK_EQ(segment_ids.size(), num_rows.size());
         for (size_t i = 0; i < num_rows.size(); i++) {
             constexpr size_t RESERVED_MEMORY = 10 * 1024 * 1024; // 10M
             if (doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(RESERVED_MEMORY)) {
@@ -60,8 +65,10 @@ public:
             }
 
             uint32_t id = static_cast<uint32_t>(_segments_rowid_map.size());
-            _segment_to_id_map.emplace(std::pair<RowsetId, uint32_t> {src_rowset_id, i}, id);
-            _id_to_segment_map.emplace_back(src_rowset_id, i);
+            auto segment_id = segment_ids[i];
+            _segment_to_id_map.emplace(std::pair<RowsetId, uint32_t> {src_rowset_id, segment_id},
+                                       id);
+            _id_to_segment_map.emplace_back(src_rowset_id, segment_id);
             std::vector<std::pair<uint32_t, uint32_t>> vec(
                     num_rows[i], std::pair<uint32_t, uint32_t>(UINT32_MAX, UINT32_MAX));
 
@@ -76,7 +83,7 @@ public:
 
     // set dst rowset id
     void set_dst_rowset_id(const RowsetId& dst_rowset_id) { _dst_rowst_id = dst_rowset_id; }
-    const RowsetId get_dst_rowset_id() { return _dst_rowst_id; }
+    const RowsetId& get_dst_rowset_id() const { return _dst_rowst_id; }
 
     // add row id to the map
     void add(const std::vector<RowLocation>& rss_row_ids,
@@ -87,19 +94,20 @@ public:
             }
             uint32_t id = _segment_to_id_map.at(
                     std::pair<RowsetId, uint32_t> {item.rowset_id, item.segment_id});
-            if (_cur_dst_segment_id < dst_segments_num_row.size() &&
-                _cur_dst_segment_rowid >= dst_segments_num_row[_cur_dst_segment_id]) {
-                _cur_dst_segment_id++;
+            if (_cur_dst_segment_pos < dst_segments_num_row.size() &&
+                _cur_dst_segment_rowid >= dst_segments_num_row[_cur_dst_segment_pos]) {
+                _cur_dst_segment_pos++;
                 _cur_dst_segment_rowid = 0;
             }
             _segments_rowid_map[id][item.row_id] =
-                    std::pair<uint32_t, uint32_t> {_cur_dst_segment_id, _cur_dst_segment_rowid++};
+                    std::pair<uint32_t, uint32_t> {_cur_dst_segment_pos, _cur_dst_segment_rowid++};
         }
     }
 
-    // get destination RowLocation
+    // Get the destination segment position and row id. The physical destination segment id is
+    // resolved only after the output rowset is built.
     // return non-zero if the src RowLocation does not exist
-    int get(const RowLocation& src, RowLocation* dst) const {
+    int get(const RowLocation& src, DestinationRowId* dst) const {
         auto iter = _segment_to_id_map.find({src.rowset_id, src.segment_id});
         if (iter == _segment_to_id_map.end()) {
             return -1;
@@ -108,13 +116,12 @@ public:
         if (src.row_id >= rowid_map.size()) {
             return -1;
         }
-        auto& [dst_segment_id, dst_rowid] = rowid_map[src.row_id];
-        if (dst_segment_id == UINT32_MAX && dst_rowid == UINT32_MAX) {
+        auto& [dst_segment_pos, dst_rowid] = rowid_map[src.row_id];
+        if (dst_segment_pos == UINT32_MAX && dst_rowid == UINT32_MAX) {
             return -1;
         }
 
-        dst->rowset_id = _dst_rowst_id;
-        dst->segment_id = dst_segment_id;
+        dst->segment_pos = dst_segment_pos;
         dst->row_id = dst_rowid;
         return 0;
     }
@@ -151,7 +158,7 @@ private:
 private:
     // the first level vector: index indicates src segment.
     // the second level vector: index indicates row id of source segment,
-    // value indicates row id of destination segment.
+    // value indicates destination segment position and row id.
     // <UINT32_MAX, UINT32_MAX> indicates current row not exist.
     std::vector<std::vector<std::pair<uint32_t, uint32_t>>> _segments_rowid_map;
     size_t _seg_rowid_map_mem_used {0};
@@ -166,8 +173,8 @@ private:
     // dst rowset id
     RowsetId _dst_rowst_id;
 
-    // current dst segment id
-    std::uint32_t _cur_dst_segment_id = 0;
+    // current dst segment position
+    std::uint32_t _cur_dst_segment_pos = 0;
 
     // current rowid of dst segment
     std::uint32_t _cur_dst_segment_rowid = 0;

@@ -168,7 +168,6 @@ Status IndexBuilder::update_inverted_index_info() {
                 return size_st;
             }
         }
-        auto num_segments = input_rowset->num_segments();
         size_t drop_index_size = 0;
 
         if (_is_drop_op) {
@@ -202,10 +201,10 @@ Status IndexBuilder::update_inverted_index_info() {
                         InvertedIndexStorageFormatPB::V1) {
                         const auto& fs = io::global_local_filesystem();
 
-                        for (int seg_id = 0; seg_id < num_segments; seg_id++) {
+                        for (auto seg : input_rowset->segments()) {
                             auto seg_path = local_segment_path(
                                     _tablet->tablet_path(), input_rowset->rowset_id().to_string(),
-                                    seg_id);
+                                    seg.id());
                             auto index_path = InvertedIndexDescriptor::get_index_file_path_v1(
                                     InvertedIndexDescriptor::get_index_file_path_prefix(seg_path),
                                     index_meta->index_id(), index_meta->get_index_suffix());
@@ -374,8 +373,8 @@ Status IndexBuilder::update_inverted_index_info() {
             rowset_meta->set_index_disk_size(
                     preserve_snii_container ? input_rowset_meta->index_disk_size() : 0);
         } else {
-            for (int seg_id = 0; seg_id < num_segments; seg_id++) {
-                auto seg_path = DORIS_TRY(input_rowset->segment_path(seg_id));
+            for (auto seg : input_rowset->segments()) {
+                auto seg_path = DORIS_TRY(seg.path());
                 auto idx_file_reader = std::make_unique<IndexFileReader>(
                         context.fs(),
                         std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
@@ -391,7 +390,7 @@ Status IndexBuilder::update_inverted_index_info() {
                     return st;
                 }
                 _index_file_readers.emplace(
-                        std::make_pair(output_rs_writer->rowset_id().to_string(), seg_id),
+                        std::make_pair(output_rs_writer->rowset_id().to_string(), seg.id()),
                         std::move(idx_file_reader));
             }
             rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size() -
