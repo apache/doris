@@ -197,6 +197,11 @@ public class PaimonColumnValue implements ColumnValue {
         if (directBinary) {
             return directBytes == null;
         }
+        if (dataType == null) {
+            // Synthetic-null sentinel (see PaimonJniScanner.initReader): the slot exists only on
+            // the Doris side (row locator on a merged read), so there is no record index to probe.
+            return true;
+        }
         boolean isNull = record.isNullAt(idx);
         if (isNull) {
             // A null complex value has no live descendants; release wrappers retained by its prior row.

@@ -29,13 +29,14 @@ import java.util.Optional;
  * target table type, so the reverse {@code instanceof} dispatch is consolidated here.
  *
  * <p>Explicit static registration (no {@code ServiceLoader}) — avoids the thread-context-classloader pitfalls
- * seen with SPI loaders. Today the single entry is {@link IcebergRowLevelDmlTransform}, whose {@code handles}
- * is a connector-capability probe (supportsDelete/supportsMerge), not a source-type check.</p>
+ * seen with SPI loaders. Every entry's {@code handles} is a connector-capability probe (which
+ * {@code WriteOperation}s the connector declares), not a source-type check, so order only matters if two
+ * transforms could claim the same table — they cannot, since a table belongs to exactly one connector.</p>
  */
 public final class RowLevelDmlRegistry {
 
     private static final List<RowLevelDmlTransform> TRANSFORMS =
-            ImmutableList.of(new IcebergRowLevelDmlTransform());
+            ImmutableList.of(new IcebergRowLevelDmlTransform(), new PaimonRowLevelDmlTransform());
 
     private RowLevelDmlRegistry() {
     }

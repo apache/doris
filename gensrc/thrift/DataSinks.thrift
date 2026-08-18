@@ -633,6 +633,15 @@ struct TMaxComputeTableSink {
 enum TPaimonWriteMode {
     APPEND = 0,
     OVERWRITE = 1,
+    // Row-level DELETE on a primary-key table: every row is written as a RowKind.DELETE record
+    // carrying the key, which Paimon's merge engine cancels against the existing row. Append-only
+    // deletes do NOT use this mode - they record deleted positions in a deletion vector instead.
+    DELETE = 2,
+    // Row-level UPDATE / MERGE INTO on a primary-key table. The row stream is operation-TAGGED:
+    // the first column is the merge operation number (1=INSERT, 2=DELETE, 3=UPDATE,
+    // 4=UPDATE_INSERT, 5=UPDATE_DELETE) and the second is the row locator; the writer maps
+    // 2/5 to RowKind.DELETE and the rest to keyed upserts.
+    MERGE = 3,
 }
 
 struct TPaimonCommitMessage {

@@ -159,6 +159,18 @@ public class ExternalRowLevelMergePlanBuilder {
                 BRANCH_LABEL);
     }
 
+    /**
+     * The expression whose non-NULL-ness marks a MATCHED target row after the outer join.
+     * Iceberg anchors on the row locator, which is physically present on every scanned row. A
+     * connector whose locator is synthetic-NULL on keyed tables (paimon's merge-on-read scan has
+     * no single backing file) overrides this with a column whose VALUE is guaranteed non-null on
+     * every existing row — a primary-key column.
+     */
+    protected Expression buildMatchedAnchor(ExternalTable targetTable, Expression rowIdExpr,
+            List<String> targetNameInPlan) {
+        return rowIdExpr;
+    }
+
     private List<Expression> buildDeleteProjection(Expression rowIdExpr, List<Column> columns) {
         List<Expression> projection = new ArrayList<>();
         projection.add(new TinyIntLiteral(MergeOperation.DELETE_OPERATION_NUMBER));
@@ -322,7 +334,7 @@ public class ExternalRowLevelMergePlanBuilder {
         LogicalPlan plan = generateBasePlan();
         plan = injectRowIdColumn(plan, icebergTable);
 
-        Expression rowIdExpr = getTargetRowIdSlot();
+        Expression rowIdExpr = getTargetRowIdSlot(icebergTable);
         if (!RowLevelDmlRowIdUtils.hasUnboundPlan(plan)) {
             Optional<Slot> rowIdSlot = RowLevelDmlRowIdUtils.findRowIdSlot(plan.getOutput());
             if (rowIdSlot.isPresent()) {
@@ -342,7 +354,8 @@ public class ExternalRowLevelMergePlanBuilder {
                 }
             }
         }
-        outputProjections.add(generateBranchLabel(rowIdExpr));
+        outputProjections.add(generateBranchLabel(
+                buildMatchedAnchor(icebergTable, rowIdExpr, targetNameInPlan)));
         plan = new LogicalProject<>(outputProjections, plan);
 
         plan = new LogicalFilter<>(ImmutableSet.of(new Not(new IsNull(new UnboundSlot(BRANCH_LABEL)))), plan);
@@ -366,7 +379,8 @@ public class ExternalRowLevelMergePlanBuilder {
 
         List<String> colNames = new ArrayList<>();
         colNames.add(MergeOperation.OPERATION_COLUMN);
-        colNames.add(Column.ICEBERG_ROWID_COL);
+        // The locator column is the TARGET connector's own (iceberg and paimon declare different names).
+        colNames.add(RowLevelDmlRowIdUtils.getRowIdColumn(icebergTable).getName());
         List<DataType> outputTypes = new ArrayList<>();
         outputTypes.add(TinyIntType.INSTANCE);
         outputTypes.add(rowIdType);
@@ -424,8 +438,8 @@ public class ExternalRowLevelMergePlanBuilder {
         return RowLevelDmlRowIdUtils.injectRowIdColumn(plan, targetTable);
     }
 
-    private Expression getTargetRowIdSlot() {
-        return new UnboundSlot(Column.ICEBERG_ROWID_COL);
+    private Expression getTargetRowIdSlot(ExternalTable targetTable) {
+        return new UnboundSlot(RowLevelDmlRowIdUtils.rowIdColumnName(targetTable));
     }
 
     private NamedExpression getTargetRowLineageSlot(String columnName) {

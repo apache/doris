@@ -43,6 +43,7 @@ import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypeRoot;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -55,8 +56,35 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 
-/** Plans Paimon INSERT and INSERT OVERWRITE writes for the plugin-driven sink. */
+/** Plans Paimon INSERT, INSERT OVERWRITE and row-level DELETE writes for the plugin-driven sink. */
 public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
+
+    /**
+     * Synthetic row-id column name. Must equal the fe-core constant
+     * {@code PaimonRowLevelDmlColumns.ROWID_COL} — the two halves of the same contract, kept as separate
+     * literals because a connector must not be a compile-time dependency of fe-core.
+     */
+    private static final String DORIS_PAIMON_ROWID_COL = "__DORIS_PAIMON_ROWID_COL__";
+
+    /**
+     * The row-id STRUCT a row-level DML scan projects: which data file a row lives in, and its ordinal
+     * within that file — exactly the pair a Paimon deletion vector indexes. Declared for every table (see
+     * {@link #getSyntheticWriteColumns}), so it is a shared immutable instance.
+     */
+    private static final List<ConnectorColumn> SYNTHETIC_WRITE_COLUMNS =
+            Collections.singletonList(buildRowIdColumn());
+
+    private static ConnectorColumn buildRowIdColumn() {
+        ConnectorType rowIdStruct = ConnectorType.structOf(
+                Arrays.asList("file_path", "row_position"),
+                Arrays.asList(ConnectorType.of("STRING"), ConnectorType.of("BIGINT")));
+        // Nullable: only unaware-bucket append scans read raw single-file tasks and materialize a
+        // real (file, ordinal) locator. A primary-key table's merge-on-read task merges several
+        // files, so its scan materializes NULL here — and its row-level DML never consumes the
+        // locator anyway (deletes and upserts address rows BY KEY).
+        return new ConnectorColumn(DORIS_PAIMON_ROWID_COL, rowIdStruct,
+                "Paimon row position metadata", true, null, false).invisible();
+    }
 
     private final PaimonCatalogProperties catalogProperties;
     private final PaimonCatalogOps catalogOps;
@@ -77,7 +105,13 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     public ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle) {
         WriteOperation operation = handle.isOverwrite()
                 ? WriteOperation.OVERWRITE : handle.getWriteOperation();
-        if (operation != WriteOperation.INSERT && operation != WriteOperation.OVERWRITE) {
+        // DELETE and MERGE are plannable end to end: a keyed RowKind.DELETE record / deletion-vector
+        // marks for DELETE, and RowKind dispatch on the operation-tagged stream for MERGE (UPDATE
+        // arrives as MERGE — the translator threads WriteOperation.MERGE for both). Anything else
+        // row-level (e.g. REWRITE) stays rejected; validateRowLevelDmlMode gates per table shape at
+        // analysis time and this is the execution-time backstop.
+        if (operation != WriteOperation.INSERT && operation != WriteOperation.OVERWRITE
+                && operation != WriteOperation.DELETE && operation != WriteOperation.MERGE) {
             throw new DorisConnectorException("Unsupported Paimon write operation: " + operation);
         }
 
@@ -103,19 +137,64 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         TPaimonTableSink sink = new TPaimonTableSink();
         sink.setSerializedTable(binding.getSerializedTable());
         sink.setHadoopConfig(binding.getHadoopConfig());
-        List<String> columnNames = new ArrayList<>(handle.getColumns().size());
-        for (ConnectorColumn column : handle.getColumns()) {
-            columnNames.add(column.getName());
+        // BE overwrites the projected block's column names BY POSITION from this list, so its order
+        // must equal the sink's output-expr order. For INSERT/OVERWRITE/DELETE that is the handle's
+        // column order. A MERGE stream is [operation, row locator, data columns...] — the shape the
+        // merge plan builders synthesize — so the two synthetic leaders are placed first and the
+        // locator is removed from wherever the handle carried it.
+        List<String> columnNames = new ArrayList<>(handle.getColumns().size() + 1);
+        if (operation == WriteOperation.MERGE) {
+            columnNames.add("operation");
+            columnNames.add(DORIS_PAIMON_ROWID_COL);
+            for (ConnectorColumn column : handle.getColumns()) {
+                if (!DORIS_PAIMON_ROWID_COL.equalsIgnoreCase(column.getName())) {
+                    columnNames.add(column.getName());
+                }
+            }
+        } else if (operation == WriteOperation.DELETE) {
+            // A DELETE plan carries [data columns..., locator] (PaimonRowLevelDeletePlanBuilder):
+            // the keyed writer re-tags the data row RowKind.DELETE and skips the locator, while the
+            // deletion-vector writer reads the locator and ignores the data columns. Same trailing
+            // position here so BE's by-position rename matches the plan's output order.
+            for (ConnectorColumn column : handle.getColumns()) {
+                if (!DORIS_PAIMON_ROWID_COL.equalsIgnoreCase(column.getName())) {
+                    columnNames.add(column.getName());
+                }
+            }
+            columnNames.add(DORIS_PAIMON_ROWID_COL);
+        } else {
+            for (ConnectorColumn column : handle.getColumns()) {
+                columnNames.add(column.getName());
+            }
         }
         sink.setColumnNames(columnNames);
-        sink.setWriteMode(handle.isOverwrite()
-                ? TPaimonWriteMode.OVERWRITE : TPaimonWriteMode.APPEND);
+        sink.setWriteMode(resolveWriteMode(handle));
         sink.setTransactionId(transaction.getTransactionId());
         sink.setCommitUser(transaction.getCommitUser());
 
         TDataSink dataSink = new TDataSink(TDataSinkType.PAIMON_TABLE_SINK);
         dataSink.setPaimonTableSink(sink);
         return new ConnectorSinkPlan(dataSink);
+    }
+
+    /**
+     * Maps the statement's write operation onto the sink's write mode.
+     *
+     * <p>DELETE is checked BEFORE the overwrite flag: the two are mutually exclusive, and reading the flag
+     * first would silently downgrade a delete to an append on any handle that leaves it false.
+     *
+     * <p>MERGE (which also carries SQL UPDATE — the translator threads MERGE for both) maps to its own
+     * mode: the stream is operation-tagged and the writer dispatches RowKind per row. Stamping every row
+     * as a delete (the DELETE mode) would drop the new values.
+     */
+    private static TPaimonWriteMode resolveWriteMode(ConnectorWriteHandle handle) {
+        if (handle.getWriteOperation() == WriteOperation.DELETE) {
+            return TPaimonWriteMode.DELETE;
+        }
+        if (handle.getWriteOperation() == WriteOperation.MERGE) {
+            return TPaimonWriteMode.MERGE;
+        }
+        return handle.isOverwrite() ? TPaimonWriteMode.OVERWRITE : TPaimonWriteMode.APPEND;
     }
 
     @Override
@@ -141,9 +220,37 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
                 .append("\n");
     }
 
+    /**
+     * Declares the row-level trio on top of the append/overwrite pair. The declaration is what admits the
+     * table into {@code RowLevelDmlRegistry} (the registry probes this set, not the table type), which is
+     * what routes the statement to the connector's OWN error messages instead of the native "olapTable"
+     * rejection.
+     *
+     * <p>Declared does not mean admitted: {@link PaimonConnectorMetadata#validateRowLevelDmlMode} rejects
+     * UPDATE/MERGE for every table shape today (their operation-tagged merge stream is not consumed by
+     * the writer), and gates DELETE per table shape. {@link #planWrite}'s operation check is the
+     * execution-time backstop for the same contract.</p>
+     */
     @Override
     public Set<WriteOperation> supportedOperations() {
-        return EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE);
+        return EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE,
+                WriteOperation.DELETE, WriteOperation.UPDATE, WriteOperation.MERGE);
+    }
+
+    /**
+     * Declares the row-id locator column for EVERY paimon table.
+     *
+     * <p>Only the append-only delete actually consumes it (the deletion vector needs the physical
+     * address: data file + ordinal). A primary-key delete addresses rows BY KEY and the writer ignores
+     * the locator — but the fe-core row-level plan builders inject the locator unconditionally (the
+     * plan shape is shared with iceberg, where every table has one), so a table that declares none
+     * fails at bind time with an unresolved slot. Declaring it uniformly costs the PK scan one extra
+     * projected STRUCT and buys a single plan shape.</p>
+     */
+    @Override
+    public List<ConnectorColumn> getSyntheticWriteColumns(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        return SYNTHETIC_WRITE_COLUMNS;
     }
 
     @Override

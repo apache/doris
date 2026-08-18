@@ -29,6 +29,7 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.crosspartition.GlobalIndexAssigner;
 import org.apache.paimon.crosspartition.IndexBootstrap;
 import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
@@ -46,6 +47,7 @@ import org.apache.paimon.table.sink.PartitionKeyExtractor;
 import org.apache.paimon.table.sink.RowPartitionKeyExtractor;
 import org.apache.paimon.table.sink.SinkRecord;
 import org.apache.paimon.table.sink.TableWriteImpl;
+import org.apache.paimon.types.RowKind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -109,6 +111,16 @@ public class PaimonJniWriter {
     private PartitionKeyExtractor<InternalRow> dynamicBucketExtractor;
     private GlobalIndexAssigner globalIndexAssigner;
     private boolean fullCompactionChangelog;
+    /** Whether every row of this write is a delete (row-level DELETE, either shape). */
+    private boolean rowKindDelete;
+    /** True when this delete targets an append-only table, i.e. it is recorded as deleted POSITIONS. */
+    private boolean deletionVectorDelete;
+    /** Accumulates deleted positions; non-null only for {@link #deletionVectorDelete}. */
+    private PaimonDeletionVectorCollector deletionVectorCollector;
+    /** Re-derives a deleted row's partition from its own partition columns; ditto. */
+    private RowPartitionKeyExtractor deletionPartitionExtractor;
+    /** True for an operation-tagged UPDATE/MERGE stream (primary-key tables only). */
+    private boolean operationTaggedMerge;
     private final Set<PartitionBucket> fullCompactionBuckets = new HashSet<>();
     private List<CommitMessage> preparedCommitMessages = Collections.emptyList();
     private boolean sdkCloseFailed;
@@ -138,6 +150,12 @@ public class PaimonJniWriter {
      * @param transactionId  Doris external transaction identifier
      * @param commitUser     Paimon commit user shared with the FE committer
      * @param overwrite      whether this is an overwrite write
+     * @param rowKindDelete  whether every row of this write is a DELETE (row-level DELETE on a
+     *                       primary-key table): each row is stamped {@link RowKind#DELETE} so the
+     *                       merge engine cancels it against the key instead of appending it
+     * @param operationTaggedMerge whether the rows form an operation-tagged UPDATE/MERGE stream: each
+     *                       row's leading tag column selects its {@link RowKind} (2/5 = DELETE, the
+     *                       rest = keyed upsert). Primary-key tables only.
      * @param timeZone       normalized Doris session timezone used for Paimon LTZ values
      * @param spillDirectories Doris storage-root scoped directories for Paimon write-buffer spill
      * @param memoryPoolLimitBytes maximum Doris-managed Paimon write-buffer memory
@@ -145,7 +163,8 @@ public class PaimonJniWriter {
      */
     public void open(String serializedTable, Map<String, String> hadoopConfig,
                      String[] columnNames, long transactionId, String commitUser,
-                     boolean overwrite, String timeZone, String spillDirectories,
+                     boolean overwrite, boolean rowKindDelete, boolean operationTaggedMerge,
+                     String timeZone, String spillDirectories,
                      long memoryPoolLimitBytes, long nativeMemoryManager) throws Exception {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
             if (memoryPoolLimitBytes <= 0) {
@@ -166,6 +185,40 @@ public class PaimonJniWriter {
                     this.commitIdentifier = transactionId;
                     this.table = table;
                     this.commitUser = commitUser;
+                    this.rowKindDelete = rowKindDelete;
+                    // A delete takes one of two shapes, decided by the TABLE, not by the statement:
+                    //   - primary-key table : a keyed RowKind.DELETE record the merge engine cancels;
+                    //   - append-only table : the row's POSITION recorded in a deletion vector.
+                    // FE's validateRowLevelDmlMode already rejected the third shape (append-only with no
+                    // deletion vectors), so reaching here with one means plan and writer disagree — fail
+                    // loudly rather than append rows that were meant to be removed.
+                    this.deletionVectorDelete = rowKindDelete && table.primaryKeys().isEmpty();
+                    if (this.deletionVectorDelete) {
+                        if (!new CoreOptions(table.options()).deletionVectorsEnabled()) {
+                            throw new IllegalArgumentException(
+                                    "PaimonJniWriter got a DELETE for the append-only table "
+                                            + table.fullName() + ", which has no deletion vectors enabled; "
+                                            + "there is nowhere to record the deletion");
+                        }
+                        if (table.bucketMode() != BucketMode.BUCKET_UNAWARE) {
+                            // A bucketed-append delete must group positions by the file's REAL bucket,
+                            // which the locator does not carry yet. Reject rather than mis-file the
+                            // deletion vector under bucket 0 and corrupt reads of the other buckets.
+                            throw new IllegalArgumentException(
+                                    "PaimonJniWriter supports append-only DELETE only for unaware-bucket "
+                                            + "tables; " + table.fullName() + " pins a fixed bucket count");
+                        }
+                        this.deletionVectorCollector = new PaimonDeletionVectorCollector(table);
+                        this.deletionPartitionExtractor = new RowPartitionKeyExtractor(table.schema());
+                    }
+                    this.operationTaggedMerge = operationTaggedMerge;
+                    if (operationTaggedMerge && table.primaryKeys().isEmpty()) {
+                        // An append-only UPDATE/MERGE needs deletion-vector marks PLUS appended
+                        // replacement rows in one write; only the keyed-upsert shape is implemented.
+                        throw new IllegalArgumentException(
+                                "PaimonJniWriter supports operation-tagged UPDATE/MERGE only for "
+                                        + "primary-key tables; " + table.fullName() + " has no primary key");
+                    }
                     this.bucketMode = table.bucketMode();
 
                     CoreOptions coreOptions = CoreOptions.fromMap(table.options());
@@ -181,7 +234,14 @@ public class PaimonJniWriter {
                             memoryBudget.globalIndexLookupMemoryBytes,
                             memoryBudget.globalIndexWriteBufferBytes);
                     this.writeSchema = PaimonWriteSchema.create(table.rowType(), columnNames);
-                    validateWriteColumnsForMergeEngine(columnNames.length, coreOptions);
+                    // The partial-column check compares TABLE columns only: the synthetic leaders a
+                    // row-level DML plan appends (operation tag, row locator) are consumed by this
+                    // writer and never reach the paimon row, so they must not count as a "partial"
+                    // write against a deduplicate merge engine.
+                    int tableColumnCount = columnNames.length
+                            - (writeSchema.hasRowId() ? 1 : 0)
+                            - (writeSchema.hasOperation() ? 1 : 0);
+                    validateWriteColumnsForMergeEngine(tableColumnCount, coreOptions);
                     this.fullCompactionChangelog =
                             !coreOptions.writeOnly()
                                     && coreOptions.changelogProducer()
@@ -521,7 +581,31 @@ public class PaimonJniWriter {
         PaimonArrowConverter.RowReader rows =
                 arrowConverter.rows(root, writeSchema.targetTypes());
         for (int r = 0; r < rowCount; r++) {
-            InternalRow row = writeSchema.tableRow(rows.values(r));
+            Object[] values = rows.values(r);
+            if (deletionVectorDelete) {
+                // An append-only delete never reaches the SDK writer: there is no key to cancel, so the
+                // row's POSITION is recorded in a deletion vector instead. The position rides in the
+                // synthetic row-id column the connector declared for this table.
+                collectDeletedPosition(values);
+                continue;
+            }
+            GenericRow row = writeSchema.tableRow(values);
+            if (rowKindDelete) {
+                // A primary-key delete is a DELETE-kind record carrying the key: the merge engine cancels
+                // it against the existing row. Stamped here, after the row is built and BEFORE bucket
+                // assignment, because the bucket is derived from the key, which a DELETE row still carries.
+                row.setRowKind(RowKind.DELETE);
+            } else if (operationTaggedMerge) {
+                // An UPDATE/MERGE stream tags every row with its merge operation. The delete-shaped tags
+                // (DELETE=2, UPDATE_DELETE=5) become keyed DELETE records; everything else (INSERT=1,
+                // UPDATE=3, UPDATE_INSERT=4) is a keyed upsert, which on a primary-key table IS the
+                // update. Same-key delete+insert pairs in one batch keep their arrival order, which the
+                // LSM sequence number preserves.
+                byte op = writeSchema.operationValue(values);
+                if (op == 2 || op == 5) {
+                    row.setRowKind(RowKind.DELETE);
+                }
+            }
             switch (bucketMode) {
                 case HASH_DYNAMIC:
                     writeHashDynamicRow(row);
@@ -534,6 +618,33 @@ public class PaimonJniWriter {
                     break;
             }
         }
+    }
+
+    /**
+     * Records one append-only deletion from the synthetic row-id column.
+     *
+     * <p>The BE Paimon reader materializes {@code __DORIS_PAIMON_ROWID_COL__} as a
+     * {@code STRUCT<file_path STRING, row_position BIGINT>} per scanned row; the deletion vector keys
+     * on the data file's NAME plus that ordinal. The partition is re-derived from the row's own
+     * partition columns — the same extractor the write path uses — so a partitioned delete lands in
+     * the right deletion-vector index.
+     */
+    private void collectDeletedPosition(Object[] values) throws Exception {
+        GenericRow rowId = writeSchema.rowIdValue(values);
+        if (rowId == null || rowId.isNullAt(0) || rowId.isNullAt(1)) {
+            // The plan promised a locator for every scanned row; a missing one means the scan and this
+            // writer disagree about the projection. Failing beats silently not deleting the row.
+            throw new IllegalStateException(
+                    "PaimonJniWriter got an append-only DELETE row without a row locator; the scan did "
+                            + "not materialize " + PaimonWriteSchema.ROWID_COL);
+        }
+        String filePath = rowId.getString(0).toString();
+        long rowPosition = rowId.getLong(1);
+        // The deletion vector keys on the file NAME; the reader emits the full path.
+        String fileName = filePath.substring(filePath.lastIndexOf('/') + 1);
+        GenericRow dataRow = writeSchema.tableRow(values);
+        BinaryRow partition = deletionPartitionExtractor.partition(dataRow);
+        deletionVectorCollector.add(partition, 0, fileName, rowPosition);
     }
 
     private void writeHashDynamicRow(InternalRow row) throws Exception {
@@ -613,6 +724,12 @@ public class PaimonJniWriter {
         List<CommitMessage> messages = commitIdentifier > 0
                 ? writer.prepareCommit(true, commitIdentifier)
                 : writer.prepareCommit();
+        if (deletionVectorCollector != null && !deletionVectorCollector.isEmpty()) {
+            // An append-only delete writes no data rows; its whole output is the deletion-vector index
+            // files the collector persists here, merged with existing vectors as of the latest snapshot.
+            messages = new ArrayList<>(messages);
+            messages.addAll(deletionVectorCollector.persist());
+        }
         preparedCommitMessages = new ArrayList<>(messages);
         return messages;
     }

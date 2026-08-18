@@ -334,6 +334,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 // markers and nulls out the absent members of paimon's inherited read-state family, so a
                 // scan.mode / tag persisted on the base table cannot leak into this relation's read.
                 finalTable = PaimonScanParams.applyOptions(table, scanOptions);
+            } else if (table instanceof FileStoreTable
+                    && PaimonScanParams.preservesBoundSchema(scanOptions)) {
+                // MVCC statement-fence pin: the fenced snapshot fixes the DATA version, but the schema
+                // stays the generation this query was bound with. Paimon's plain copy() would otherwise
+                // time-travel the schema to the pinned snapshot's generation — wrong for reads issued
+                // between an ALTER and the next snapshot, where the latest snapshot still carries the
+                // pre-alter schema id (old data files map onto the bound schema via schema evolution).
+                finalTable = PaimonScanParams.applyOptionsWithoutTimeTravel(
+                        (FileStoreTable) table, scanOptions);
             } else {
                 // FIX-INCR-SCAN-RESET: for an @incr read, reapply legacy's null reset of
                 // scan.snapshot-id/scan.mode here (the single Table.copy chokepoint shared by both the
@@ -965,7 +974,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 // A system wrapper can hide its physical option map. Ship the exact catalog-less
                 // source so a smaller BE can cap it and rebuild without reopening catalog state.
                 backendOptions.put(DORIS_SERIALIZED_SYSTEM_SOURCE,
-                        encodeObjectToString(dropCatalogLoader((FileStoreTable) effectiveSource)));
+                        encodeObjectToString(dropCatalogLoader((FileStoreTable) effectiveSource,
+                                PaimonScanParams.preservesBoundSchema(paimonHandle.getScanOptions()))));
                 backendOptions.put(DORIS_SYSTEM_TABLE_TYPE, paimonHandle.getSysTableName());
             }
         }
@@ -1096,7 +1106,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (scanTable instanceof FileStoreTable) {
             // resolveScanTable's copy(...) merged the relation's dynamic options into the schema,
             // and the rebuild below goes through that schema, so this branch needs no re-application.
-            return dropCatalogLoader((FileStoreTable) scanTable);
+            return dropCatalogLoader((FileStoreTable) scanTable,
+                    PaimonScanParams.preservesBoundSchema(handle.getScanOptions()));
         }
         if (!handle.isSystemTable()) {
             return scanTable;
@@ -1124,7 +1135,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             preparedDataTable = (FileStoreTable) PaimonScanParams.applyOptions(
                     preparedDataTable, scanOptions);
         }
-        FileStoreTable baseForBackend = dropCatalogLoader(preparedDataTable);
+        FileStoreTable baseForBackend = dropCatalogLoader(preparedDataTable,
+                PaimonScanParams.preservesBoundSchema(handle.getScanOptions()));
         Table catalogLessSysTable = SystemTableLoader.load(sysTableType, baseForBackend);
         if (catalogLessSysTable == null) {
             return scanTable;
@@ -1296,6 +1308,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      */
     // Package-private for direct unit testing (PaimonBackendBoundTableTest).
     static FileStoreTable dropCatalogLoader(FileStoreTable dataTable) {
+        return dropCatalogLoader(dataTable, false);
+    }
+
+    // Package-private for direct unit testing (PaimonBackendBoundTableTest).
+    static FileStoreTable dropCatalogLoader(FileStoreTable dataTable, boolean preserveBoundSchema) {
         if (dataTable.catalogEnvironment().catalogLoader() == null) {
             return dataTable;
         }
@@ -1303,17 +1320,43 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         if (undecorated instanceof FallbackReadFileStoreTable) {
             FallbackReadFileStoreTable fallbackReadTable = (FallbackReadFileStoreTable) undecorated;
             return new FallbackReadFileStoreTable(
-                    rebuildWithoutCatalogLoader(fallbackReadTable.wrapped()),
-                    rebuildWithoutCatalogLoader(fallbackReadTable.other()),
+                    rebuildWithoutCatalogLoader(fallbackReadTable.wrapped(), preserveBoundSchema),
+                    rebuildWithoutCatalogLoader(fallbackReadTable.other(), preserveBoundSchema),
                     PaimonReaderOptions.isWrappedFirst(fallbackReadTable));
         }
-        return rebuildWithoutCatalogLoader(undecorated);
+        return rebuildWithoutCatalogLoader(undecorated, preserveBoundSchema);
     }
 
-    private static FileStoreTable rebuildWithoutCatalogLoader(FileStoreTable branch) {
-        return FileStoreTableFactory.createWithoutFallbackBranch(
-                branch.fileIO(), branch.location(), branch.schema(), new Options(),
+    private static FileStoreTable rebuildWithoutCatalogLoader(
+            FileStoreTable branch, boolean preserveBoundSchema) {
+        TableSchema schema = branch.schema();
+        // The whole inherited read-state family travels together: the pin itself (scan.snapshot-id)
+        // plus the derived members paimon writes alongside it (e.g. scan.mode=from-snapshot), which
+        // its option validation refuses to see split apart.
+        Map<String, String> pinnedReadState = new HashMap<>();
+        for (String key : PaimonScanParams.inheritedReadStateKeys()) {
+            String value = schema.options().get(key);
+            if (value != null) {
+                pinnedReadState.put(key, value);
+            }
+        }
+        if (!preserveBoundSchema || pinnedReadState.isEmpty()) {
+            return FileStoreTableFactory.createWithoutFallbackBranch(
+                    branch.fileIO(), branch.location(), schema, new Options(),
+                    CatalogEnvironment.empty());
+        }
+        // A statement-fence pin fixes the DATA version only, but the factory's copy() re-reads the
+        // schema's own options and would time-travel the SCHEMA back to the pinned snapshot's
+        // generation — wrong for reads issued between an ALTER and the next snapshot, where the
+        // latest snapshot still carries the pre-alter schema id. Rebuild from a schema with the
+        // read-state family stripped, then put it back without the travel, mirroring
+        // applyOptionsWithoutTimeTravel.
+        Map<String, String> stripped = new HashMap<>(schema.options());
+        pinnedReadState.keySet().forEach(stripped::remove);
+        FileStoreTable rebuilt = FileStoreTableFactory.createWithoutFallbackBranch(
+                branch.fileIO(), branch.location(), schema.copy(stripped), new Options(),
                 CatalogEnvironment.empty());
+        return rebuilt.copyWithoutTimeTravel(pinnedReadState);
     }
 
     /**

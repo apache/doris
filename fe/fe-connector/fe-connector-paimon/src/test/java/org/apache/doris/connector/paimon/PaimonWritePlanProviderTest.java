@@ -127,6 +127,9 @@ public class PaimonWritePlanProviderTest {
 
     @Test
     public void rejectsUnsupportedWriteOperation() throws Exception {
+        // DELETE and MERGE are plannable now (UPDATE arrives as MERGE from the translator), so the
+        // unsupported sample is the raw UPDATE enum: no real plan ever sends it, and the backstop must
+        // hold even if the analysis-time gate were bypassed.
         Fixture fixture = fixture();
         List<ConnectorColumn> columns = fixture.provider.getWriteColumns(
                 fixture.session, fixture.tableHandle, Optional.empty()).get();
@@ -135,7 +138,8 @@ public class PaimonWritePlanProviderTest {
                 DorisConnectorException.class,
                 () -> fixture.provider.planWrite(
                         fixture.session, new WriteHandle(fixture.tableHandle, columns)
-                                .operation(WriteOperation.DELETE)));
+                                .operation(WriteOperation.UPDATE)),
+                "the raw UPDATE enum must be rejected by the planWrite backstop");
     }
 
     @Test

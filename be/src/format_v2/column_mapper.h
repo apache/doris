@@ -63,6 +63,11 @@ enum TableVirtualColumnType {
     // Doris internal Iceberg row locator column `__DORIS_ICEBERG_ROWID_COL__`.
     // It is a struct used by delete/update/merge, not the Iceberg `_row_id`.
     ICEBERG_ROWID = 3,
+    // Doris internal Paimon row locator column `__DORIS_PAIMON_ROWID_COL__`:
+    // STRUCT<file_path STRING, row_position BIGINT>, built from the split's data file
+    // and the scanned row ordinal. Used by append-only row-level DML, whose deletion
+    // vectors key on exactly that pair. Never a physical Paimon data column.
+    PAIMON_ROWID = 4,
 };
 
 enum class FilterConversionType {
