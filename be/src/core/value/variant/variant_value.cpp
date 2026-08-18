@@ -21,6 +21,8 @@
 #include <bit>
 #include <cstdint>
 #include <limits>
+#include <type_traits>
+#include <utility>
 
 #include "common/exception.h"
 #include "core/custom_allocator.h"
@@ -42,6 +44,40 @@ uint64_t read_unsigned(const char* data, uint8_t width) {
         result |= static_cast<uint64_t>(static_cast<uint8_t>(data[i])) << (i * 8);
     }
     return result;
+}
+
+// read_unsigned() takes its width at run time, so its byte loop cannot be unrolled. A container's
+// id and offset tables use one width for every entry, so a validation pass can resolve that width
+// once and let each read collapse to a single load instead of repeating that loop per entry.
+template <uint8_t Width>
+uint32_t read_unsigned_fixed(const char* data) {
+    uint32_t result = 0;
+    for (uint8_t byte = 0; byte < Width; ++byte) {
+        result |= static_cast<uint32_t>(static_cast<uint8_t>(data[byte])) << (byte * 8);
+    }
+    return result;
+}
+
+// Container table widths are one of 1, 2, 3, or 4 bytes. Turn one into a compile-time constant.
+template <typename Callback>
+void dispatch_container_width(uint8_t width, Callback&& callback) {
+    switch (width) {
+    case 1:
+        callback(std::integral_constant<uint8_t, 1> {});
+        return;
+    case 2:
+        callback(std::integral_constant<uint8_t, 2> {});
+        return;
+    case 3:
+        callback(std::integral_constant<uint8_t, 3> {});
+        return;
+    case 4:
+        callback(std::integral_constant<uint8_t, 4> {});
+        return;
+    default:
+        throw Exception(ErrorCode::CORRUPTION, "Variant container table width {} is not 1 to 4",
+                        width);
+    }
 }
 
 int64_t read_signed(const char* data, uint8_t width) {
@@ -491,17 +527,21 @@ VariantContainerLookup::VariantContainerLookup(VariantRef value)
     const VariantRef::ContainerLayout layout = _value._container_layout(_basic_type);
     _container_count = layout.count;
     if (_basic_type == VariantBasicType::ARRAY) {
-        uint32_t previous_offset = 0;
-        for (uint64_t position = 1; position <= layout.count; ++position) {
-            const uint32_t offset =
-                    _value._container_offset(layout, static_cast<uint32_t>(position));
-            if (offset <= previous_offset || offset > layout.values_size) {
-                throw Exception(ErrorCode::CORRUPTION,
-                                "Invalid Variant array offsets {} then {} at element {}",
-                                previous_offset, offset, position - 1);
+        const char* const offsets = _value.value.data + layout.offsets_offset;
+        dispatch_container_width(layout.offset_width, [&](auto offset_width) {
+            constexpr uint8_t OFFSET_WIDTH = decltype(offset_width)::value;
+            uint32_t previous_offset = 0;
+            for (uint64_t position = 1; position <= layout.count; ++position) {
+                const uint32_t offset = read_unsigned_fixed<OFFSET_WIDTH>(
+                        offsets + static_cast<size_t>(position) * OFFSET_WIDTH);
+                if (offset <= previous_offset || offset > layout.values_size) {
+                    throw Exception(ErrorCode::CORRUPTION,
+                                    "Invalid Variant array offsets {} then {} at element {}",
+                                    previous_offset, offset, position - 1);
+                }
+                previous_offset = offset;
             }
-            previous_offset = offset;
-        }
+        });
         return;
     }
 
@@ -513,37 +553,55 @@ VariantContainerLookup::VariantContainerLookup(VariantRef value)
     // key offset it depends on, once per distinct dictionary.
     const uint32_t dictionary_size = _value.metadata.dict_size();
     const bool ordered_by_field_id = _value.metadata.sorted_strings();
-    StringRef previous_key;
-    uint32_t previous_field_id = 0;
-    uint32_t previous_offset = 0;
-    for (uint32_t index = 0; index < layout.count; ++index) {
-        const uint32_t current_id = _value._object_field_id(layout, index, &dictionary_size);
-        if (ordered_by_field_id) {
-            if (index != 0 && current_id <= previous_field_id) {
-                throw Exception(ErrorCode::CORRUPTION,
-                                "Variant object keys are not strictly ordered at field {}", index);
-            }
-            previous_field_id = current_id;
-        } else {
-            const StringRef current_key = _value.metadata.key_at(current_id);
-            if (index != 0 && previous_key.compare(current_key) >= 0) {
-                throw Exception(ErrorCode::CORRUPTION,
-                                "Variant object keys are not strictly ordered at field {}", index);
-            }
-            previous_key = current_key;
-        }
+    const char* const ids = _value.value.data + layout.ids_offset;
+    const char* const offsets = _value.value.data + layout.offsets_offset;
+    dispatch_container_width(layout.id_width, [&](auto id_width) {
+        dispatch_container_width(layout.offset_width, [&](auto offset_width) {
+            constexpr uint8_t ID_WIDTH = decltype(id_width)::value;
+            constexpr uint8_t OFFSET_WIDTH = decltype(offset_width)::value;
+            StringRef previous_key;
+            uint32_t previous_field_id = 0;
+            uint32_t previous_offset = 0;
+            for (uint32_t index = 0; index < layout.count; ++index) {
+                const uint32_t current_id =
+                        read_unsigned_fixed<ID_WIDTH>(ids + static_cast<size_t>(index) * ID_WIDTH);
+                if (current_id >= dictionary_size) {
+                    throw Exception(
+                            ErrorCode::CORRUPTION,
+                            "Variant object field id {} is outside metadata dictionary of size {}",
+                            current_id, dictionary_size);
+                }
+                if (ordered_by_field_id) {
+                    if (index != 0 && current_id <= previous_field_id) {
+                        throw Exception(ErrorCode::CORRUPTION,
+                                        "Variant object keys are not strictly ordered at field {}",
+                                        index);
+                    }
+                    previous_field_id = current_id;
+                } else {
+                    const StringRef current_key = _value.metadata.key_at(current_id);
+                    if (index != 0 && previous_key.compare(current_key) >= 0) {
+                        throw Exception(ErrorCode::CORRUPTION,
+                                        "Variant object keys are not strictly ordered at field {}",
+                                        index);
+                    }
+                    previous_key = current_key;
+                }
 
-        const uint32_t offset = _value._container_offset(layout, index);
-        if (offset >= layout.values_size) {
-            throw Exception(ErrorCode::CORRUPTION,
-                            "Variant object child offset {} is outside values of size {}", offset,
-                            layout.values_size);
-        }
-        if ((index == 0 && offset != 0) || (index != 0 && offset <= previous_offset)) {
-            _object_offsets_in_field_order = false;
-        }
-        previous_offset = offset;
-    }
+                const uint32_t offset = read_unsigned_fixed<OFFSET_WIDTH>(
+                        offsets + static_cast<size_t>(index) * OFFSET_WIDTH);
+                if (offset >= layout.values_size) {
+                    throw Exception(ErrorCode::CORRUPTION,
+                                    "Variant object child offset {} is outside values of size {}",
+                                    offset, layout.values_size);
+                }
+                if ((index == 0 && offset != 0) || (index != 0 && offset <= previous_offset)) {
+                    _object_offsets_in_field_order = false;
+                }
+                previous_offset = offset;
+            }
+        });
+    });
 
     if (!_object_offsets_in_field_order) {
         // Noncanonical objects may store values in a different order from their sorted keys.
