@@ -621,7 +621,7 @@ public class PipelineCoordinator {
                         String dorisTable = targetTableMappings.getOrDefault(table, table);
                         for (String record : result.getRecords()) {
                             scannedRows++;
-                            batchStreamLoad.writeRecord(targetDb, dorisTable, record.getBytes());
+                            batchStreamLoad.writeRecord(targetDb, dorisTable, encodeRecord(record));
                         }
                         // Mark last message as data (not heartbeat)
                         lastMessageIsHeartbeat = false;
@@ -690,6 +690,10 @@ public class PipelineCoordinator {
                 batchStreamLoad.getLoadStatistic(),
                 tableSchemas);
         taskProgressMap.remove(writeRecordRequest.getTaskId());
+    }
+
+    static byte[] encodeRecord(String record) {
+        return record.getBytes(StandardCharsets.UTF_8);
     }
 
     public static boolean isHeartbeatEvent(SourceRecord record) {
