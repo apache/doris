@@ -288,11 +288,14 @@ public class HudiConnector implements Connector {
      * The {@link UserGroupInformation} this catalog's metadata reads run under, so that Hadoop's
      * {@code FileSystem} cache can stay ON without letting two catalogs share one filesystem.
      *
-     * <p>The FE gives every S3-compatible catalog {@code fs.s3a.impl.disable.cache=true}
-     * ({@code S3FileSystemProperties.toHadoopConfigurationMap}), because that cache is keyed on
-     * (scheme, authority, ugi) and ignores credentials - and every non-Kerberos catalog arrives under the
-     * SAME ugi, {@code HadoopSimpleAuthenticator}'s {@code createRemoteUser(hadoop.username)}. Two
-     * catalogs on one bucket would otherwise read through whichever S3AFileSystem was built first.
+     * <p>The problem this exists for: Hadoop's cache is keyed on (scheme, authority, ugi) and ignores
+     * credentials, and every non-Kerberos catalog arrives under the SAME ugi,
+     * {@code HadoopSimpleAuthenticator}'s {@code createRemoteUser(hadoop.username)}. Two catalogs on one
+     * bucket would otherwise read through whichever S3AFileSystem was built first. Turning the cache off
+     * per scheme is the FE's historical answer and is still what the HDFS family gets
+     * ({@code fs.hdfs.impl.disable.cache=true} and its siblings; asserted by
+     * {@code HdfsConfigBuilderTest}) - the S3 side has since moved to the credential fingerprint below
+     * ({@code FsCacheKeys}) and no longer emits it.
      *
      * <p>Disabling the cache does stop that, and leaks instead. Every {@code FileSystem.get()} behind a
      * {@code HoodieTableMetaClient} then builds a new S3AFileSystem and a new AWS SDK client that nobody

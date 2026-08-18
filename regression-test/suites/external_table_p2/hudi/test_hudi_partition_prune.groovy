@@ -260,6 +260,26 @@ suite("test_hudi_partition_prune", "p2,external") {
         }
 
 
+        // What EXPLAIN reports for a PINNED scan is not the same in both halves of this loop, so the
+        // assertions below cannot be.
+        //
+        // use_hive_sync_partition=false lists partitions from hudi's metadata table, which can
+        // enumerate the ones that held data AT the instant. The connector says so
+        // (HudiConnectorMetadata.listsPartitionsAtSnapshot), fe-core lists the pinned universe, and
+        // both the pruning and the partition=N/M it prints are truthful.
+        //
+        // use_hive_sync_partition=true lists from HMS, which knows nothing about instants: it holds
+        // what is synced NOW and collectPartitions can only subtract from that, so its answer is a
+        // SUBSET of the pinned universe. Pruning against a subset would silently drop rows a
+        // FOR TIME AS OF query has to read - a partition that held data at the pin and was dropped
+        // and unsynced afterwards is simply not in it. So the connector answers false, fe-core keeps
+        // the pinned partition map empty (PluginDrivenMvccExternalTable), and the scan node reports
+        // partition=0/0 while reading every partition. Coarse, never short - which is why the ROWS
+        // are asserted unconditionally by the qt_ tags and only these counts are mode-aware.
+        def pinnedPartitions = { String snapshotExact ->
+            use_hive_sync_partition == 'false' ? snapshotExact : "partition=0/0"
+        }
+
         //time travel - use dynamic commit timestamps
         // Note: two_partition_tb has 10 INSERT statements, creating 10 commits
         // Final partitions: (US,1), (US,2), (EU,1), (EU,2) = 4 partitions total
@@ -274,25 +294,25 @@ suite("test_hudi_partition_prune", "p2,external") {
             qt_time_travel_two_partition_1_4 time_travel_two_partition_1_4
             explain {
                 sql("${time_travel_two_partition_1_4}")
-                contains "partition=4/4"
+                contains(pinnedPartitions("partition=4/4"))
             }
 
             qt_time_travel_two_partition_2_2 time_travel_two_partition_2_2
             explain {
                 sql("${time_travel_two_partition_2_2}")
-                contains "partition=2/4"
+                contains(pinnedPartitions("partition=2/4"))
             }
 
             qt_time_travel_two_partition_3_2 time_travel_two_partition_3_2
             explain {
                 sql("${time_travel_two_partition_3_2}")
-                contains "partition=2/4"
+                contains(pinnedPartitions("partition=2/4"))
             }
 
             qt_time_travel_two_partition_4_0 time_travel_two_partition_4_0
             explain {
                 sql("${time_travel_two_partition_4_0}")
-                contains "partition=0/4"
+                contains(pinnedPartitions("partition=0/4"))
             }
 
             // Use the first commit (after first INSERT: 1 record in partition US,1)
@@ -302,7 +322,7 @@ suite("test_hudi_partition_prune", "p2,external") {
             explain {
                 sql("${time_travel_two_partition_5_1}")
                 // First commit should have 1 record in partition (US, part2=1)
-                contains "partition=1/1"
+                contains(pinnedPartitions("partition=1/1"))
             }
 
             // Use a middle commit (after 3 inserts: 3 records in partition US,1)
@@ -312,7 +332,7 @@ suite("test_hudi_partition_prune", "p2,external") {
             explain {
                 sql("${time_travel_two_partition_6_1}")
                 // After 3 inserts, should have 1 partition (US, part2=1) with 3 records
-                contains "partition=1/1"
+                contains(pinnedPartitions("partition=1/1"))
             }
         }
 
@@ -374,13 +394,17 @@ suite("test_hudi_partition_prune", "p2,external") {
         def dropped_partition_latest = "SELECT id,name,part1 FROM dropped_partition_tb ORDER BY id;"
         qt_dropped_partition_latest dropped_partition_latest
 
+        // Asserted rather than guarded: the whole point of this case is the read AT the insert
+        // commit, so a table whose timeline came back empty has to fail here instead of quietly
+        // skipping the one query that proves the pruning is snapshot-exact.
         def timestamps_dropped_partition = getCommitTimestamps("dropped_partition_tb")
-        if (timestamps_dropped_partition.size() >= 1) {
-            def insert_commit = timestamps_dropped_partition[0]
-            def dropped_partition_at_insert = "SELECT id,name,part1 FROM dropped_partition_tb " +
-                    "FOR TIME AS OF '${insert_commit}' ORDER BY id;"
-            qt_dropped_partition_at_insert dropped_partition_at_insert
-        }
+        assertTrue(timestamps_dropped_partition.size() >= 1,
+                "dropped_partition_tb has no commit timestamps, so the FOR TIME AS OF read below "
+                + "cannot run - the docker fixture did not create the table this case needs")
+        def insert_commit = timestamps_dropped_partition[0]
+        def dropped_partition_at_insert = "SELECT id,name,part1 FROM dropped_partition_tb " +
+                "FOR TIME AS OF '${insert_commit}' ORDER BY id;"
+        qt_dropped_partition_at_insert dropped_partition_at_insert
 
         sql """drop catalog if exists ${catalog_name};"""
 

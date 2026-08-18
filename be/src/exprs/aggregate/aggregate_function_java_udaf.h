@@ -61,13 +61,16 @@ public:
     ~AggregateJavaUdafData() = default;
 
     Status close_and_delete_object() {
-        if (!can_call(executor_close_id)) {
+        if (!can_call(executor_close_id) || executor_closed) {
             return Status::OK();
         }
         JNIEnv* env = nullptr;
 
         RETURN_IF_ERROR(Jni::Env::Get(&env));
 
+        // Raised before the call, not after: UdafExecutor.close() drops its state map, so a
+        // close that threw halfway is still a close as far as everything below is concerned.
+        executor_closed = true;
         auto st = executor_obj.call_nonvirtual_void_method(env, executor_cl, executor_close_id)
                           .call();
         if (!st.ok()) {
@@ -183,7 +186,12 @@ public:
     void read(BufferReadable& buf) { buf.read_binary(serialize_data); }
 
     Status destroy() {
-        if (!can_call(executor_destroy_id)) {
+        // Also once the executor has been closed: UdafExecutor.close() sets its state map to
+        // null and destroy() walks that map. AggregateJavaUdaf::create() calls this right after
+        // a failed init_udaf(), which closes - so without this the tail of the id resolution
+        // (a failure on the last id, with close and destroy both bound already) would run
+        // destroy() on a closed executor and swallow the NPE that comes back.
+        if (!can_call(executor_destroy_id) || executor_closed) {
             return Status::OK();
         }
         JNIEnv* env = nullptr;
@@ -237,11 +245,20 @@ private:
                !method_id.uninitialized();
     }
 
+    // Whether close() has already been called on the Java executor. Nothing that touches its
+    // state may run afterwards.
+    bool executor_closed = false;
+
     Status register_func_id(JNIEnv* env) {
-        RETURN_IF_ERROR(executor_cl.get_method(env, "reset", UDAF_EXECUTOR_RESET_SIGNATURE,
-                                               &executor_reset_id));
+        // close first, and deliberately: the executor object already exists by the time this
+        // runs, so every resolution below is a failure that has to close it - and
+        // close_and_delete_object() is itself gated on can_call(executor_close_id). Resolving
+        // any other id before this one leaves a window where the executor is alive and there
+        // is no way left to close it.
         RETURN_IF_ERROR(executor_cl.get_method(env, "close", UDAF_EXECUTOR_CLOSE_SIGNATURE,
                                                &executor_close_id));
+        RETURN_IF_ERROR(executor_cl.get_method(env, "reset", UDAF_EXECUTOR_RESET_SIGNATURE,
+                                               &executor_reset_id));
         RETURN_IF_ERROR(executor_cl.get_method(env, "merge", UDAF_EXECUTOR_MERGE_SIGNATURE,
                                                &executor_merge_id));
         RETURN_IF_ERROR(executor_cl.get_method(env, "serialize", UDAF_EXECUTOR_SERIALIZE_SIGNATURE,

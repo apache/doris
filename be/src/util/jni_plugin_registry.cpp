@@ -77,8 +77,6 @@ Status PluginRegistry::_init_scanner_api() {
     RETURN_IF_ERROR(cls.get_method(env, "open", "()V", &_scanner_api.open));
     RETURN_IF_ERROR(
             cls.get_method(env, "getNextBatchMeta", "()J", &_scanner_api.get_next_batch_meta));
-    RETURN_IF_ERROR(cls.get_method(env, "getTableSchema", "()Ljava/lang/String;",
-                                   &_scanner_api.get_table_schema));
     RETURN_IF_ERROR(cls.get_method(env, "getStatistics", "()Ljava/util/Map;",
                                    &_scanner_api.get_statistics));
     RETURN_IF_ERROR(
@@ -230,9 +228,20 @@ bool PluginRegistry::any_plugin_deployed() {
         // not an error to report.
         return false;
     }
-    for (const auto& entry : entries) {
+    // Advanced through the error_code overload rather than with range-for: range-for uses
+    // operator++, which throws, and one of the two callers is the /api/jni_plugin_status
+    // handler - a libevent C callback with no catch anywhere above it, so a plugin directory
+    // removed or made unreadable while that endpoint is being polled would reach
+    // std::terminate. An entry we cannot read is simply not counted.
+    const std::filesystem::directory_iterator end;
+    for (; entries != end; entries.increment(ec)) {
+        if (ec) {
+            LOG(WARNING) << "failed to walk the Java plugin directory " << config::jni_plugin_dir
+                         << ": " << ec.message();
+            return false;
+        }
         // A plugin is a directory; a stray file next to them is not one.
-        if (entry.is_directory(ec) && !ec) {
+        if (entries->is_directory(ec) && !ec) {
             return true;
         }
     }

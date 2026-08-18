@@ -41,10 +41,13 @@ namespace doris::Jni {
 // pays for no JVM at all.
 class JvmLauncher {
 public:
-    // Makes sure this process has a JVM, creating one if needed. Thread-safe; the JVM is
-    // created at most once and the outcome of that single attempt is what every later
-    // call returns. Fails with a clear message when Java support is turned off, which is
-    // what every Java entry point of the BE reports to the user.
+    // Makes sure this process has a JVM, creating one if needed, and that the JNI base -
+    // Doris' native methods, its cached classes and the jvm_* metrics - is resolved against
+    // it. The two are one step on purpose: everything that describes the JVM has to appear
+    // as soon as the JVM does, whoever brought it up, including a caller that only wanted
+    // libhdfs. Thread-safe; the JVM is created at most once and the outcome of that single
+    // attempt is what every later call returns. Fails with a clear message when Java support
+    // is turned off, which is what every Java entry point of the BE reports to the user.
     //
     // Safe to call from a bthread: creating the JVM is JNI code, which cannot run on one, so
     // this switches to a pthread itself when it has to. Callers need no switch of their own.
@@ -60,6 +63,9 @@ public:
 private:
     static Status _bootstrap_on_pthread();
     static Status _bootstrap();
+    // attach_current_thread() without the ensure_jvm(), for the bootstrap itself: it runs
+    // inside that call_once and would deadlock on it.
+    static Status _attach_current_thread(JNIEnv** env);
     static Status _create_jvm();
     static std::vector<std::string> _build_options();
     static std::string _class_path_option();

@@ -24,6 +24,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
@@ -819,10 +820,13 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      * <p>{@code getLatestFileSlicesBeforeOrOn} rather than the base-file view because it covers both table
      * types — a COW slice is its base file, and a MOR partition whose only data at the pin is log files still
      * holds rows.
+     *
+     * <p>{@code allPaths} is supplied by the caller rather than listed here: the only caller has just listed
+     * them off the same metaClient, and listing them twice is a second full metadata-table read per
+     * {@code FOR TIME AS OF} query.
      */
-    static List<String> listPartitionPathsAsOf(HoodieTableMetaClient metaClient, String queryInstant)
-            throws Exception {
-        List<String> allPaths = listAllPartitionPaths(metaClient);
+    static List<String> listPartitionPathsAsOf(HoodieTableMetaClient metaClient, List<String> allPaths,
+            String queryInstant) throws Exception {
         HoodieMetadataConfig metadataConfig = HoodieMetadataConfig.newBuilder()
                 .enable(HoodieTableMetadataUtil.isFilesPartitionAvailable(metaClient))
                 .build();
@@ -831,8 +835,19 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
                 engineCtx, metaClient, metadataConfig)) {
             List<String> asOf = new ArrayList<>(allPaths.size());
             for (String partitionPath : allPaths) {
-                if (fsView.getLatestFileSlicesBeforeOrOn(partitionPath, queryInstant, true)
-                        .findAny().isPresent()) {
+                // Per partition, and non-fatal per partition: this walks EVERY partition of the table,
+                // including ones the query's predicates would have pruned away, so one unreadable partition
+                // must not fail a query that would never have touched it. Keeping it is the safe direction -
+                // the pin only ever removes partitions, so an unresolved one stays in and is scanned.
+                try {
+                    if (fsView.getLatestFileSlicesBeforeOrOn(partitionPath, queryInstant, true)
+                            .findAny().isPresent()) {
+                        asOf.add(partitionPath);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Cannot tell whether hudi partition '{}' of {} held data at instant {}; "
+                            + "keeping it in the listing", partitionPath,
+                            metaClient.getBasePath(), queryInstant, e);
                     asOf.add(partitionPath);
                 }
             }
@@ -911,6 +926,35 @@ public class HudiScanPlanProvider implements ConnectorScanPlanProvider {
      * the re-parse recovers EXACTLY the values {@link #parsePartitionValues} produced. Static + package-private
      * for direct unit testing.
      */
+    /**
+     * How hudi spells a NULL partition value in a directory name. Byte-frozen: it is what this connector has
+     * always SENT in columns_from_path, and it is also accepted as an INPUT spelling.
+     */
+    static final String HUDI_NULL_PARTITION_VALUE = "\\N";
+
+    /**
+     * Whether a hudi partition value means a genuine SQL NULL. Three spellings do: the hive-canonical
+     * {@code __HIVE_DEFAULT_PARTITION__} sentinel, the older text-table {@code \N}, and - defensively - a Java
+     * null.
+     *
+     * <p>Shared by the scan path ({@link HudiScanRange#applyPartitionValues}) and the listing path
+     * ({@code HudiConnectorMetadata.buildPartitionInfos}) because the two must not disagree: the listing decides
+     * whether the engine prunes a partition with {@code col IS NULL} or with {@code col = '<literal>'}, and the
+     * scan decides which files that partition contributes. A partition written as {@code \N} used to be listed
+     * as the literal string and scanned as NULL, so {@code col IS NULL} pruned it away and the query came back
+     * with zero rows from a partition the scan would have matched.
+     *
+     * <p>The 3-way rule holds only for directory-name partitioning: hive narrows it (a hive column may hold
+     * {@code \N} as DATA) and paimon rejects it outright (its partition values are typed). Hudi's other
+     * default-partition constant, the literal string {@code "default"}, is deliberately NOT included - a table
+     * with a real partition value of "default" is far more likely than one relying on that deprecated encoding.
+     */
+    static boolean isNullPartitionValue(String value) {
+        return value == null
+                || ConnectorPartitionValues.NULL_PARTITION_NAME.equals(value)
+                || HUDI_NULL_PARTITION_VALUE.equals(value);
+    }
+
     static String renderHiveStylePartitionName(List<String> partKeyNames, Map<String, String> values) {
         StringBuilder sb = new StringBuilder();
         for (String col : partKeyNames) {

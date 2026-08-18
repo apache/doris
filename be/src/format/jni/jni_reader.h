@@ -103,11 +103,6 @@ public:
     Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
     /**
-     * Get table schema from Java scanner (used by Avro schema discovery).
-     */
-    Status get_table_schema(std::string& table_schema_str);
-
-    /**
      * Close the scanner and release JNI resources.
      */
     Status close() override;

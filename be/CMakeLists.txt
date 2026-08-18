@@ -672,7 +672,9 @@ set(COMMON_THIRDPARTY
     hadoop_hdfs
 )
 # USE_DORIS_HADOOP_HDFS means use hadoop deps from doris-thirdparty.
-# the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface
+# the hadoop deps from doris-thirdparty contains some modification diff from the standard hadoop, such as log interface.
+# Unconditional since the libhdfs3 alternative was removed: there is only one libhdfs left. Kept as
+# a definition because io/fs/hdfs.h and the hadoop headers still test it.
 add_definitions(-DUSE_DORIS_HADOOP_HDFS)
 
 if (absl_FOUND)

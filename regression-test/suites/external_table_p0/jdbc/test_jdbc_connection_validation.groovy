@@ -196,6 +196,40 @@ suite("test_jdbc_connection_validation", "p0,external") {
         );
     """
     qt_rows_after_explicit_test """ select count(*) from jdbc_conn_ok.doris_test.ex_tb0 """
+
+    // 8. Proof that 6 and 7 were not vacuous.
+    //
+    //    A successful CREATE CATALOG is only evidence that the BE test ran if the BE test ran at
+    //    all: executePendingBeTests() returns silently when the payload it was handed is empty, so
+    //    a regression that stops queueing the BE test leaves every create above passing and every
+    //    "this covers the BE factory" claim in this file untrue. Loading the jdbc plugin is a side
+    //    effect only the BE side has, and /api/jni_plugin_status reports it without starting
+    //    anything - so it is what separates "the BE ran the tester" from "nobody asked it to".
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+    assertTrue(backendId_to_backendIP.size() > 0, "no backend to ask about its plugin state")
+    def anyBackendLoadedJdbc = false
+    backendId_to_backendIP.each { id, ip ->
+        httpTest {
+            // The endpoint requires ADMIN, which is what the regression user has.
+            endpoint "${ip}:${backendId_to_backendHttpPort.get(id)}"
+            uri "/api/jni_plugin_status"
+            op "get"
+            basicAuthorization "${context.config.feHttpUser}", "${context.config.feHttpPassword}"
+            check { respCode, body ->
+                logger.info("BE ${id} jni plugin status: ${respCode} ${body}")
+                assertEquals(200, respCode)
+                if ("${body}".contains("\"jdbc\"")) {
+                    anyBackendLoadedJdbc = true
+                }
+            }
+        }
+    }
+    assertTrue(anyBackendLoadedJdbc,
+            "no backend has the jdbc plugin loaded, so the BE-side connection test never ran and "
+            + "the successful creates above prove nothing about the (jdbc, connection-tester) factory")
+
     // No drops here on purpose: every catalog this suite uses is dropped at the top instead, so a
     // failing run leaves its catalogs behind to be inspected.
 }

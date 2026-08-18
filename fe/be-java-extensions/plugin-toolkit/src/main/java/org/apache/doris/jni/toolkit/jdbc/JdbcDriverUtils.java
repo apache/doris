@@ -17,9 +17,14 @@
 
 package org.apache.doris.jni.toolkit.jdbc;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.net.URLConnection;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -44,10 +49,13 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>The cache is keyed by jar <em>and</em> parent, because "the same jar under two plugins" is two
  * different driver worlds. Note that a driver jar replaced in place at the same URL is not picked
- * up until BE restarts; verifying the jar (see {@link DriverJarVerifier}) is what turns that from a
- * silent stale read into an error.
+ * up until BE restarts; {@link #checksumVerifier}, which the JDBC scanner, writer and connection
+ * tester all pass, is what turns that from a silent stale read into an error.
  */
 public final class JdbcDriverUtils {
+
+    /** Same 10s the executor this replaced used, for both connect and read. */
+    private static final int CHECKSUM_TIMEOUT_MS = 10000;
 
     private static final ConcurrentHashMap<DriverKey, ClassLoader> DRIVER_CLASS_LOADERS =
             new ConcurrentHashMap<>();
@@ -66,6 +74,58 @@ public final class JdbcDriverUtils {
     public interface DriverJarVerifier {
         /** Throws to reject the jar; the classloader is then not created or cached. */
         void verify(URL driverJar);
+    }
+
+    /**
+     * The verifier Doris ships with: the MD5 the catalog definition carries, compared against the
+     * jar actually behind the driver URL.
+     *
+     * <p>Returns {@code null} - "do not verify" - when the expected checksum is blank, which is
+     * what a catalog defined without one produces. Only what Doris was told to expect is checked;
+     * this never invents an expectation of its own.
+     *
+     * <p>The read is what makes it worth caching: {@code driverClassLoader} runs the verifier
+     * exactly once per jar and parent, when the classloader for it is created, so a remote driver
+     * jar is downloaded for checksumming once per process and not once per query.
+     */
+    public static DriverJarVerifier checksumVerifier(String expectedChecksum) {
+        if (expectedChecksum == null || expectedChecksum.trim().isEmpty()) {
+            return null;
+        }
+        String expected = expectedChecksum.trim();
+        return driverJar -> {
+            String actual = md5Of(driverJar);
+            if (!expected.equalsIgnoreCase(actual)) {
+                throw new IllegalStateException("Checksum mismatch for JDBC driver " + driverJar
+                        + ": the catalog expects " + expected + " but the jar is " + actual
+                        + ". The driver jar behind this URL is not the one the catalog was defined"
+                        + " with; replace the jar or redefine the catalog with the new checksum");
+            }
+        };
+    }
+
+    private static String md5Of(URL driverJar) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("MD5");
+            URLConnection connection = driverJar.openConnection();
+            connection.setConnectTimeout(CHECKSUM_TIMEOUT_MS);
+            connection.setReadTimeout(CHECKSUM_TIMEOUT_MS);
+            try (InputStream in = connection.getInputStream()) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    digest.update(buffer, 0, read);
+                }
+            }
+            StringBuilder hex = new StringBuilder(32);
+            for (byte b : digest.digest()) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (IOException | NoSuchAlgorithmException e) {
+            throw new IllegalStateException("Cannot checksum the JDBC driver at " + driverJar
+                    + ": " + e.getMessage(), e);
+        }
     }
 
     /** The classloader for one driver jar, creating it on first use. */

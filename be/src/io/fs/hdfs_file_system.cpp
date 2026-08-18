@@ -29,7 +29,6 @@
 #include <unordered_map>
 #include <utility>
 
-#include "common/config.h"
 #include "common/status.h"
 #include "core/pod_array.h"
 #include "io/fs/err_utils.h"

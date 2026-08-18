@@ -34,7 +34,10 @@
 
 namespace doris {
 
-#ifdef USE_DORIS_HADOOP_HDFS
+// The logger below is doris-thirdparty's libhdfs extension (hdfsSetLogger), which the standard
+// hadoop libhdfs does not have. It used to sit behind USE_DORIS_HADOOP_HDFS; that macro is now
+// defined unconditionally in be/CMakeLists.txt, because the libhdfs3 alternative is gone and
+// hadoop_hdfs_3_4 from doris-thirdparty is the only libhdfs the BE links against.
 void err_log_message(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
@@ -88,13 +91,10 @@ void va_err_log_message(const char* fmt, va_list ap) {
 
 struct hdfsLogger logger = {.errLogMessage = err_log_message,
                             .vaErrLogMessage = va_err_log_message};
-#endif // #ifdef USE_DORIS_HADOOP_HDFS
 
 Status HDFSCommonBuilder::init_hdfs_builder() {
-#ifdef USE_DORIS_HADOOP_HDFS
     static std::once_flag flag;
     std::call_once(flag, []() { hdfsSetLogger(&logger); });
-#endif // #ifdef USE_DORIS_HADOOP_HDFS
 
     hdfs_builder = hdfsNewBuilder();
     if (hdfs_builder == nullptr) {

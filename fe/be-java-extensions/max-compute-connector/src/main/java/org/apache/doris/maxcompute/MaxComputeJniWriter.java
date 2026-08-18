@@ -78,7 +78,9 @@ import java.util.Objects;
 
 /**
  * MaxComputeJniWriter writes C++ Block data to MaxCompute tables via Storage API (Arrow).
- * Loaded by C++ as: org/apache/doris/maxcompute/MaxComputeJniWriter
+ *
+ * <p>BE never names this class. It asks for the {@code (max-compute, writer)} pair and gets back
+ * whatever {@link MaxComputeWriterFactory} builds; the class name is this plugin's business alone.
  */
 public class MaxComputeJniWriter extends JniWriter {
     private static final Logger LOG = LoggerFactory.getLogger(MaxComputeJniWriter.class);

@@ -23,7 +23,6 @@
 #include <chrono>
 #include <thread>
 
-#include "common/config.h"
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
 #include "core/string_ref.h"
@@ -186,7 +185,9 @@ Status HdfsMgr::_create_hdfs_fs_impl(const THdfsParams& hdfs_params, const std::
                                      std::shared_ptr<HdfsHandler>* fs_handler) {
     HDFSCommonBuilder builder;
     RETURN_IF_ERROR(create_hdfs_builder(hdfs_params, fs_name, &builder));
-    hdfsFS hdfs_fs = hdfsBuilderConnect(builder.get());
+    // release(), not get(): hdfsBuilderConnect() frees the builder it is handed, so this is
+    // where ownership leaves HDFSCommonBuilder - whose destructor frees whatever it still owns.
+    hdfsFS hdfs_fs = hdfsBuilderConnect(builder.release());
     if (hdfs_fs == nullptr) {
         return Status::InternalError("failed to connect to hdfs {}: {}", fs_name, hdfs_error());
     }

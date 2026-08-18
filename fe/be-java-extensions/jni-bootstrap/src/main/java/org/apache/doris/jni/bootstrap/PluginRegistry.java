@@ -18,6 +18,7 @@
 package org.apache.doris.jni.bootstrap;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
@@ -123,8 +124,42 @@ public final class PluginRegistry {
         return directory(PLUGIN_DIR_PROPERTY, DEFAULT_PLUGIN_SUBDIR);
     }
 
+    /**
+     * Where plugins read hadoop configuration files from.
+     *
+     * <p>Falls back to {@code HADOOP_CONF_DIR} when the plugin conf directory does not exist. That
+     * environment variable is how a deployment points at the cluster's real {@code /etc/hadoop/conf}
+     * - it is what resolves an HDFS HA nameservice - and {@code bin/start_be.sh} puts it on the
+     * <em>system</em> class path, which a plugin classloader cannot reach. Without this fallback an
+     * upgrade turns every Java scanner on such a cluster into "unknown host: <nameservice>" while
+     * the native reader keeps working, and nothing in the migration notes says to copy the files.
+     *
+     * <p>Deliberately a fallback and not a merge: two directories both answering
+     * {@code core-site.xml} would make which one wins depend on classloader order, and
+     * {@code Configuration.loadResource} takes only the first. An operator who populates
+     * {@code plugins/hadoop_conf} means it to be the answer.
+     */
     static Path hadoopConfDir() {
-        return directory(HADOOP_CONF_DIR_PROPERTY, DEFAULT_HADOOP_CONF_SUBDIR);
+        return hadoopConfDir(System.getenv("HADOOP_CONF_DIR"));
+    }
+
+    /** The environment is a parameter so the fallback is testable; nothing else may pass it. */
+    static Path hadoopConfDir(String hadoopConfDirEnv) {
+        Path configured = directory(HADOOP_CONF_DIR_PROPERTY, DEFAULT_HADOOP_CONF_SUBDIR);
+        // Only when nothing was configured and the default is not there. A directory an operator
+        // named explicitly is the answer whether or not it exists yet - silently reading somewhere
+        // else would be worse than reading nothing.
+        if (System.getProperty(HADOOP_CONF_DIR_PROPERTY) != null || Files.isDirectory(configured)) {
+            return configured;
+        }
+        if (hadoopConfDirEnv != null && !hadoopConfDirEnv.trim().isEmpty()) {
+            Path fallback = Paths.get(hadoopConfDirEnv.trim());
+            if (Files.isDirectory(fallback)) {
+                return fallback;
+            }
+        }
+        // Returned rather than null so the caller logs the directory an operator was meant to fill.
+        return configured;
     }
 
     private static Path directory(String property, String defaultSubdir) {

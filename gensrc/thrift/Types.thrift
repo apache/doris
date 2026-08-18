@@ -525,11 +525,6 @@ struct TJavaUdfExecutorCtorParams {
   15: optional i64 output_array_string_offsets_ptr
 }
 
-struct TGetJMXJsonResponse {
-  // JMX of the JVM serialized to a json string.
-  1: required string jmx_json
-}
-
 enum TLoadJobState {
     PENDING = 0,
     ETL = 1,

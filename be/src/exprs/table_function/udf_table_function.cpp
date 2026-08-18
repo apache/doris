@@ -68,11 +68,14 @@ Status UDFTableFunction::open() {
                                                              ctor_params_bytes, &_jni_ctx->executor,
                                                              &_jni_ctx->executor_cl));
 
-    RETURN_IF_ERROR(_jni_ctx->executor_cl.get_method(env, "evaluate", EXECUTOR_EVALUATE_SIGNATURE,
-                                                     &_jni_ctx->executor_evaluate_id));
-
+    // close before evaluate: the executor object exists from create_udf_executor() on, so a
+    // failure here has to be able to close it, and JniContext::close() can only do that once
+    // this id is bound.
     RETURN_IF_ERROR(_jni_ctx->executor_cl.get_method(env, "close", EXECUTOR_CLOSE_SIGNATURE,
                                                      &_jni_ctx->executor_close_id));
+
+    RETURN_IF_ERROR(_jni_ctx->executor_cl.get_method(env, "evaluate", EXECUTOR_EVALUATE_SIGNATURE,
+                                                     &_jni_ctx->executor_evaluate_id));
 
     _jni_ctx->open_successes = true;
     return Status::OK();

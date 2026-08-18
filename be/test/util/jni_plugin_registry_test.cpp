@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "util/jvm_launcher.h"
 
 namespace doris::Jni {
 
@@ -166,8 +167,16 @@ TEST_F(WarmupTest, ADirectoryIsAPlugin) {
 // The check has to happen before anything reaches Java, not inside it: asking the registry
 // whether it has plugins is already enough to create the JVM. There is no JVM in this test
 // binary, so a warmup that tried would not merely fail here - it would take the process down.
+//
+// The second assertion is the one that carries the property this whole PR rests on. Returning OK
+// is not evidence: warmup() returns OK both when it decided there was nothing to do and when it
+// reached Java and Java had nothing to report. Only "no JVM exists afterwards" separates the two,
+// and it is what "a BE that touches no Java feature pays for no JVM" means.
 TEST_F(WarmupTest, WarmupTouchesNoJavaWithNothingDeployed) {
+    ASSERT_EQ(nullptr, JvmLauncher::vm()) << "some earlier test in this binary already started a "
+                                             "JVM, so this one cannot tell whether warmup starts one";
     EXPECT_TRUE(PluginRegistry::warmup().ok());
+    EXPECT_EQ(nullptr, JvmLauncher::vm()) << "warmup created a JVM with no plugin deployed";
 }
 
 } // namespace doris::Jni

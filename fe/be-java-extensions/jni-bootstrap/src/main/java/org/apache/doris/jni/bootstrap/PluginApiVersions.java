@@ -17,14 +17,17 @@
 
 package org.apache.doris.jni.bootstrap;
 
+import org.apache.doris.jni.spi.DorisPlugin;
 import org.apache.doris.jni.spi.SpiVersion;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.CodeSource;
+import java.util.List;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 
@@ -45,7 +48,77 @@ import java.util.jar.Manifest;
  */
 final class PluginApiVersions {
 
+    private static final String SERVICE_ENTRY = "META-INF/services/" + DorisPlugin.class.getName();
+
     private PluginApiVersions() {
+    }
+
+    /**
+     * What the jars of a plugin directory declare, read before any of their classes is loaded.
+     * A plain class rather than a record: this module compiles at source level 11, so that a
+     * plugin author on an older JDK can still build against the loader.
+     */
+    static final class Declared {
+        /**
+         * Whether any jar declares the {@link DorisPlugin} service at all. When false there is
+         * nothing to gate, and the caller lets the far better "nothing declares what this plugin
+         * provides" message win.
+         */
+        private final boolean providerJarFound;
+        /** The declaring jar's manifest attribute, or null when it carries none. */
+        private final String apiVersion;
+
+        private Declared(boolean providerJarFound, String apiVersion) {
+            this.providerJarFound = providerJarFound;
+            this.apiVersion = apiVersion;
+        }
+
+        boolean providerJarFound() {
+            return providerJarFound;
+        }
+
+        String apiVersion() {
+            return apiVersion;
+        }
+    }
+
+    /**
+     * The declared version of the jar that declares the {@link DorisPlugin} service, read straight
+     * out of its manifest.
+     *
+     * <p>This exists so the version gate can run <em>before</em> the plugin is instantiated. Going
+     * through the loaded plugin class instead means ServiceLoader has already constructed it and
+     * its factory getters have already returned SPI types - which is exactly what a mismatched SPI
+     * major breaks, as a LinkageError with none of the wording the gate produces. Reading a zip
+     * entry costs nothing and loads no class.
+     *
+     * <p>When several jars declare the service the first in the directory's fixed order wins here;
+     * that case is rejected properly a moment later, by the sole-provider check.
+     */
+    static Declared declaredByProviderJar(List<URL> jars) throws IOException {
+        for (URL jar : jars) {
+            Path path = pathOf(jar);
+            if (path == null) {
+                continue;
+            }
+            try (JarFile jarFile = new JarFile(path.toFile())) {
+                if (jarFile.getEntry(SERVICE_ENTRY) == null) {
+                    continue;
+                }
+                Manifest manifest = jarFile.getManifest();
+                return new Declared(true, manifest == null
+                        ? null : manifest.getMainAttributes().getValue(SpiVersion.MANIFEST_ATTRIBUTE));
+            }
+        }
+        return new Declared(false, null);
+    }
+
+    private static Path pathOf(URL jar) {
+        try {
+            return Paths.get(jar.toURI());
+        } catch (URISyntaxException | RuntimeException e) {
+            return null;
+        }
     }
 
     /**

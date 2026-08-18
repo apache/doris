@@ -135,6 +135,17 @@ under the License.
                                     <version>${hive-apache.version}</version>
                                     <overWrite>true</overWrite>
                                     <outputDirectory>${merged.classes}</outputDirectory>
+                                    <!--
+                                      Everything BUT the source artifacts' maven coordinates. Unpacking
+                                      two jars over each other merges their META-INF/ as well, and
+                                      META-INF/maven/<g>/<a>/pom.properties is what an SBOM or CVE scanner
+                                      reads a jar's identity from - so this 34MB jar, which carries the
+                                      whole of hive 3.1.2-22, would be reported as whichever of the two
+                                      unpacked last. META-INF/services is deliberately kept: the
+                                      FileSystem service file is what redirects file:// to hive's
+                                      ProxyLocalFileSystem, which the hudi reader depends on.
+                                    -->
+                                    <excludes>META-INF/maven/**</excludes>
                                 </artifactItem>
                             </artifactItems>
                         </configuration>
@@ -176,6 +187,8 @@ under the License.
                                     <version>${hive-storage-api.version}</version>
                                     <overWrite>true</overWrite>
                                     <outputDirectory>${merged.classes}</outputDirectory>
+                                    <!-- See the note on the first unpack. -->
+                                    <excludes>META-INF/maven/**</excludes>
                                 </artifactItem>
                             </artifactItems>
                         </configuration>

@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <cstdlib>
 #include <string>
 
 #include "common/status.h"
@@ -73,6 +74,13 @@ public:
 
 private:
     static Status GetJNIEnvSlowPath(JNIEnv** env);
+    // What the JVM of this process was created from, for the one error message that has to
+    // report a deployment problem rather than a programming one. Says so explicitly when the
+    // variable is unset, which is what a BE not started by bin/start_be.sh looks like.
+    static std::string class_path_of_this_process() {
+        const char* class_path = getenv("CLASSPATH");
+        return class_path == nullptr ? std::string("<CLASSPATH unset>") : std::string(class_path);
+    }
     static Status init_throw_exception() {
         JNIEnv* env = nullptr;
         RETURN_IF_ERROR(Jni::Env::Get(&env));
@@ -83,7 +91,17 @@ private:
             if (env->ExceptionOccurred()) {
                 env->ExceptionDescribe();
             }
-            return Status::JniError("Failed to find JniUtil class.");
+            // Named rather than left as a bare FindClass failure: this is the first class BE
+            // resolves out of the shared layer, so a deployment whose lib/jni/spi is missing or
+            // was not put on the class path fails exactly here, and the answer is a directory
+            // name and a jar name. The failure is then cached for the life of the process, so
+            // this is also the only chance to say it.
+            return Status::JniError(
+                    "Failed to find the JniUtil class of the Java plugin SPI. It ships in "
+                    "doris-jni-spi.jar under DORIS_HOME/lib/jni/spi, which bin/start_be.sh puts "
+                    "on the class path; check that the directory exists and holds "
+                    "doris-jni-spi.jar and doris-jni-bootstrap.jar. Class path: {}",
+                    class_path_of_this_process());
         }
         jni_util_cl_ = reinterpret_cast<jclass>(env->NewGlobalRef(local_jni_util_cl));
         env->DeleteLocalRef(local_jni_util_cl);
@@ -119,10 +137,14 @@ private:
         return Status::OK();
     }
 
-    // Drops the cached JNIEnv of the calling thread. Only the thread exit hook may call
-    // this: the env it caches is gone the moment the thread is detached, and anything
-    // reading it afterwards - another thread exit hook, say - would read freed memory.
+    // Drops the cached JNIEnv of the calling thread. Only the thread exit hook and the JVM
+    // bootstrap may call this: the env it caches is gone the moment the thread is detached,
+    // and anything reading it afterwards - another thread exit hook, say - would read freed
+    // memory.
     static void reset_tls_env() { tls_env_ = nullptr; }
+    // Caches an env the bootstrap attached by itself, so that resolving the JNI base right
+    // after the JVM comes up stays on Get()'s fast path instead of re-entering ensure_jvm().
+    static void set_tls_env(JNIEnv* env) { tls_env_ = env; }
     friend class JvmLauncher;
 
 private:
@@ -1198,11 +1220,12 @@ private:
     // collection classes cached below. Runs once, right after the JVM appears; every
     // caller that follows gets the outcome of that one attempt.
     //
-    // Only Env may call this, and only with this thread already attached: the resolution
-    // asks Env::Get() for its JNIEnv, and reaching this from an unattached thread would
-    // re-enter the call_once below and deadlock.
+    // Only JvmLauncher may call this, and only from inside its bootstrap with the calling
+    // thread already attached and its env cached: the resolution asks Env::Get() for a
+    // JNIEnv, and reaching this from an unattached thread would go back through
+    // ensure_jvm() and deadlock on the once flag the bootstrap is already holding.
     static Status ensure_jni_base();
-    friend class Env;
+    friend class JvmLauncher;
 
     static void _parse_max_heap_memory_size_from_jvm();
 

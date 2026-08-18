@@ -59,19 +59,18 @@ if [[ -d "${DORIS_HOME}/lib/jni/spi" ]]; then
     done
 fi
 
+# The hadoop drop C++ libhdfs reads, globbed exactly the way start_be.sh globs it and the way
+# build.sh deploys it: jars directly in lib/hadoop_hdfs plus its lib/ subdirectory. The
+# common/ and hdfs/ subdirectories this used to look in have never been produced by any build,
+# which cost nothing while the removed preload-extensions fat jar carried hadoop-common - and
+# leaves the hdfs benchmark suite without a single hadoop class now that it is gone.
 if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     # add hadoop libs
-    for f in "${DORIS_HOME}/lib/hadoop_hdfs/common"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
-    for f in "${DORIS_HOME}/lib/hadoop_hdfs/common/lib"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
-    done
-    for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
-    done
-    for f in "${DORIS_HOME}/lib/hadoop_hdfs/hdfs/lib"/*.jar; do
-        DORIS_CLASSPATH="${f}:${DORIS_CLASSPATH}"
+    for f in "${DORIS_HOME}/lib/hadoop_hdfs/lib"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
     done
 fi
 
@@ -230,7 +229,6 @@ set_tcmalloc_heap_limit() {
 }
 
 # set_tcmalloc_heap_limit || exit 1
-
 
 # check java version and choose correct JAVA_OPTS
 java_version="$(
