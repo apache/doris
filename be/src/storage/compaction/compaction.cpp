@@ -2089,6 +2089,26 @@ CloudCompactionMixin::CloudCompactionMixin(CloudStorageEngine& engine, CloudTabl
     _uuid = ss.str();
 }
 
+bool CloudCompactionMixin::should_apply_cumulative_compaction_result(
+        int64_t response_cumulative_compaction_cnt) {
+    int64_t local_cumulative_compaction_cnt = cloud_tablet()->cumulative_compaction_cnt();
+    if (local_cumulative_compaction_cnt >= response_cumulative_compaction_cnt) {
+        // sync_rowsets or another compaction has already installed this result.
+        return false;
+    }
+    if (response_cumulative_compaction_cnt != local_cumulative_compaction_cnt + 1) {
+        // Only the current task's output is available locally. Sync all missing outputs instead.
+        cloud_tablet()->last_sync_time_s = 0;
+        LOG_INFO("defer applying cumulative compaction result until tablet sync")
+                .tag("tablet_id", _tablet->tablet_id())
+                .tag("job_id", _uuid)
+                .tag("local_cumulative_compaction_cnt", local_cumulative_compaction_cnt)
+                .tag("response_cumulative_compaction_cnt", response_cumulative_compaction_cnt);
+        return false;
+    }
+    return true;
+}
+
 Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     OlapStopWatch watch;
 
