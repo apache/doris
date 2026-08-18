@@ -22,9 +22,6 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/io")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/io")
 
 file(GLOB_RECURSE IO_FILES CONFIGURE_DEPENDS *.cpp)
-if(BUILD_AZURE STREQUAL "OFF")
-    list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/azure_obj_storage_client.cpp")
-endif()
 
 if(ENABLE_TDE)
     list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/encrypted_fs_factory.cpp")
@@ -34,10 +31,37 @@ if(ENABLE_TDE)
 endif()
 
 list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/fs/benchmark/fs_benchmark_tool.cpp")
+# Standalone tool with its own main(); must not be an archive member of libIO.a,
+# or unity builds merge it into an object that the doris_be link actually pulls in.
+list(REMOVE_ITEM IO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/cache/file_cache_lru_tool.cpp")
 
 add_library(IO STATIC ${IO_FILES})
 
 pch_reuse(IO)
+
+# Unity build for the io glue (small fs/cache TUs, parse-cost dominated).
+# Opt-outs:
+# - three filesystem TUs whose CHECK_*_CLIENT file-scope macros must not
+#   leak into unity siblings
+# - http_file_system.cpp: sibling TUs' file-scope `using namespace ErrorCode`
+#   makes the unscoped HttpStatus enum constants shadow ErrorCode variables
+#   under -Wshadow -Werror (same pattern as the cloud http actions)
+# - benchmark sources and ENABLE_TDE module swaps stay individual
+set(IO_UNITY_SKIP
+    ${CMAKE_CURRENT_SOURCE_DIR}/fs/broker_file_system.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/fs/hdfs_file_system.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/fs/s3_file_system.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/fs/http_file_system.cpp)
+file(GLOB_RECURSE IO_UNITY_BENCH_SRCS CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/fs/benchmark/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/*.cpp)
+list(APPEND IO_UNITY_SKIP ${IO_UNITY_BENCH_SRCS})
+if (ENABLE_TDE)
+    list(APPEND IO_UNITY_SKIP ${EXTRA_SOURCES})
+endif()
+doris_skip_unity_inclusion(${IO_UNITY_SKIP})
+set_target_properties(IO PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}
+                                    UNITY_BUILD_BATCH_SIZE 16)
 
 if (${BUILD_FS_BENCHMARK} STREQUAL "ON")
     add_executable(fs_benchmark_tool

@@ -1986,7 +1986,7 @@ void MetaServiceImpl::commit_restore_job(::google::protobuf::RpcController* cont
 
             if (txn0->approximate_bytes() + key.size() * 3 + val.size() >
                 config::max_txn_commit_byte) {
-                cloud::blob_put(txn0.get(), key, val, 0);
+                err = txn0->commit();
                 if (err != TxnErrorCode::TXN_OK) {
                     code = cast_as<ErrCategory::COMMIT>(err);
                     msg = fmt::format(

@@ -80,6 +80,24 @@ jobs:
       - name: Test focused thirdparty lifecycle
         run: thirdparty/test/arrow-paimon-lifecycle-test.sh
 
+  download_script_test:
+    name: Download Script Test
+    needs: changes
+    if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout ${{ github.ref }}
+        uses: actions/checkout@v4
+
+      # These drive download-thirdparty.sh against stubbed downloads, so they
+      # need none of the toolchain the build jobs spend an hour preparing and
+      # finish in seconds. They were sitting in the tree unreferenced until now.
+      - name: Test download-thirdparty.sh
+        run: |
+          thirdparty/test/download-thirdparty-fallback-test.sh
+          thirdparty/test/juicefs-default-mirror-test.sh
+          thirdparty/test/download-thirdparty-md5-test.sh
+
   build_linux:
     name: Build Third Party Libraries (Linux)
     needs: changes
@@ -209,7 +227,7 @@ jobs:
             'gettext'
             'wget'
             'pcre'
-            'openjdk@11'
+            'openjdk@17'
             'maven'
             'node'
             'llvm@20'
@@ -274,7 +292,7 @@ jobs:
             'gettext'
             'wget'
             'pcre'
-            'openjdk@11'
+            'openjdk@17'
             'maven'
             'node'
             'llvm@20'

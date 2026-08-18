@@ -76,6 +76,21 @@ class RuntimeFilterConsumer;
 class RuntimeFilterProducer;
 class TaskExecutionContext;
 
+// Keep RuntimeState self-contained without importing the full frontend Thrift service header.
+class TReportExecStatusParams;
+
+class ExternalFileReportState {
+    friend class RuntimeState;
+
+private:
+    std::mutex mutex;
+    size_t iceberg_serialized_bytes = 0;
+    bool ownership_may_have_transferred = false;
+    std::vector<std::function<void()>> rejected_report_cleanups;
+};
+
+enum class ExternalFileReportOutcome { ACKNOWLEDGED, REJECTED, AMBIGUOUS };
+
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
 class RuntimeState {
@@ -325,7 +340,7 @@ public:
 
     std::string get_error_log_file_path();
 
-    std::string get_first_error_msg() const { return _first_error_msg; }
+    std::string get_first_error_msg() const;
 
     // append error msg and error line to file when loading data.
     // is_summary is true, means we are going to write the summary line
@@ -525,14 +540,27 @@ public:
         _hive_partition_updates.emplace_back(hive_partition_update);
     }
 
-    std::vector<TIcebergCommitData> iceberg_commit_datas() const {
+    void append_iceberg_commit_datas(std::vector<TIcebergCommitData>* output) const {
         std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
-        return _iceberg_commit_datas;
+        output->insert(output->end(), _iceberg_commit_datas.begin(), _iceberg_commit_datas.end());
     }
 
-    void add_iceberg_commit_datas(const TIcebergCommitData& iceberg_commit_data) {
-        std::lock_guard<std::mutex> lock(_iceberg_commit_datas_mutex);
-        _iceberg_commit_datas.emplace_back(iceberg_commit_data);
+    Status add_iceberg_commit_datas(TIcebergCommitData iceberg_commit_data);
+
+    size_t coordinator_thrift_message_limit() const;
+
+    void append_external_file_commit_data(TReportExecStatusParams* params, bool final_report) const;
+
+    void add_rejected_external_file_report_cleanup(std::function<void()> cleanup);
+
+    void finalize_external_file_report_cleanup(ExternalFileReportOutcome outcome);
+
+    void set_external_file_report_state(std::shared_ptr<ExternalFileReportState> report_state) {
+        _external_file_report_state = std::move(report_state);
+    }
+
+    const std::shared_ptr<ExternalFileReportState>& external_file_report_state() const {
+        return _external_file_report_state;
     }
 
     std::vector<TMCCommitData> mc_commit_datas() const {
@@ -978,6 +1006,8 @@ private:
 
     mutable std::mutex _iceberg_commit_datas_mutex;
     std::vector<TIcebergCommitData> _iceberg_commit_datas;
+    std::shared_ptr<ExternalFileReportState> _external_file_report_state =
+            std::make_shared<ExternalFileReportState>();
 
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;
@@ -999,6 +1029,9 @@ private:
     std::shared_ptr<io::S3FileSystem> _s3_error_fs;
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
+    // Protects the load error log stream, paths, and first error message.
+    mutable std::mutex _load_error_log_lock;
+    // Serializes S3 upload and presigned URL publication.
     std::mutex _s3_error_log_file_lock;
 
     // used for encoding the global lazy materialize

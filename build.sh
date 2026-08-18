@@ -67,6 +67,11 @@ Usage: $0 <options>
      --be-extension-ignore      build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
      --enable-dynamic-arch      enable dynamic CPU detection in OpenBLAS. Default ON.
      --disable-dynamic-arch     disable dynamic CPU detection in OpenBLAS.
+     --exclude-obs-dependencies exclude all Huawei Cloud OBS (com.huaweicloud) dependencies and the
+                                fe-filesystem-obs module; nothing from Huawei is resolved, compiled,
+                                or bundled. Use when repo.huaweicloud.com is unreachable or forbidden.
+     --exclude-cos-dependencies exclude all Tencent Cloud COS dependencies and the fe-filesystem-cos
+                                module; nothing from Tencent COS is resolved, compiled, or bundled.
      --clean                    clean and build target
      --compile-bench            BE compile-speed benchmark: cold, cache-free BE-only build
                                 (fresh dedicated build dir, ccache disabled) with a per-phase
@@ -269,6 +274,8 @@ if ! OPTS="$(getopt \
     -l 'be-extension-ignore:' \
     -l 'enable-dynamic-arch' \
     -l 'disable-dynamic-arch' \
+    -l 'exclude-obs-dependencies' \
+    -l 'exclude-cos-dependencies' \
     -l 'clean' \
     -l 'compile-bench' \
     -l 'coverage' \
@@ -349,6 +356,7 @@ else
             ;;
         --index-tool)
             BUILD_INDEX_TOOL='ON'
+            BUILD_BE=1
             shift
             ;;
         --benchmark)
@@ -775,6 +783,7 @@ echo "Get params:
     DENABLE_CLANG_COVERAGE              -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                          -- ${ENABLE_PCH}
+    ENABLE_UNITY_BUILD                  -- ${ENABLE_UNITY_BUILD:-ON}
     EXTRA_FE_MODULES                    -- ${EXTRA_FE_MODULES}
     EXTRA_BE_MODULES                    -- ${EXTRA_BE_MODULES}
     EXTRA_CLOUD_MODULES                 -- ${EXTRA_CLOUD_MODULES}
@@ -816,6 +825,14 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-filesystem/fe-filesystem-api")
     modules+=("fe-filesystem/fe-filesystem-spi")
     for _fs_mod in s3-base s3 gcs minio ozone oss cos obs azure hdfs-base hdfs oss-hdfs jfs local broker http; do
+        # Skip the modules whose Maven profile is deactivated so the -pl list stays consistent with
+        # the reactor: obs is absent under -Ddisable.obs=true, cos under -Ddisable.cos=true.
+        if [[ "${_fs_mod}" == "obs" && "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
+        if [[ "${_fs_mod}" == "cos" && "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
         if [[ -d "${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${_fs_mod}" ]]; then
             modules+=("fe-filesystem/fe-filesystem-${_fs_mod}")
         fi
@@ -943,6 +960,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
+        -DENABLE_UNITY_BUILD="${ENABLE_UNITY_BUILD:-ON}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DARM_MARCH="${ARM_MARCH}" \
@@ -1074,10 +1092,14 @@ function build_fe_modules() {
         extra_mvn_opts=(${MVN_OPT})
     fi
     if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
-        dependency_mvn_opts+=("-Dobs.dependency.scope=provided")
+        # Deactivates the `obs` Maven profile in fe-core, hadoop-deps and fe-filesystem, so no
+        # com.huaweicloud artifact is resolved and the Huawei OBS module is not built or bundled.
+        dependency_mvn_opts+=("-Ddisable.obs=true")
     fi
     if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
-        dependency_mvn_opts+=("-Dcos.dependency.scope=provided")
+        # Deactivates the `cos` Maven profile in fe-core and fe-filesystem, so no Tencent COS
+        # artifact is resolved and the fe-filesystem-cos module is not built or bundled.
+        dependency_mvn_opts+=("-Ddisable.cos=true")
     fi
     if [[ -n "${USER_SETTINGS_MVN_REPO}" && -f "${USER_SETTINGS_MVN_REPO}" ]]; then
         user_settings_opts=(-gs "${USER_SETTINGS_MVN_REPO}")
@@ -1195,6 +1217,14 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         if [ ! -d "${fs_module_dir}" ]; then
             continue
         fi
+        # These modules are not built when their Maven profile is deactivated, so their plugin zip
+        # does not exist; skip the unpack to keep packaging consistent with the reactor.
+        if [[ "${fs_module}" == "obs" && "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
+        if [[ "${fs_module}" == "cos" && "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
+            continue
+        fi
         mkdir -p "${fs_plugin_target}"
         # Unpack the self-contained plugin zip produced by maven-assembly-plugin.
         # Layout inside the zip: <plugin>.jar at root + lib/*.jar for runtime deps.
@@ -1234,10 +1264,13 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # RC-4: self-contain the paimon connector plugin for OSS. The connector sets
     # fs.oss.impl=com.aliyun.jindodata.oss.JindoOssFileSystem; that impl lives in the jindofs jars,
     # which are packaged from thirdparty by post-build.sh into fe/lib/jindofs (NOT a maven artifact).
-    # The plugin runs child-first, so without its OWN copy JindoOssFileSystem resolves from the parent
-    # 'app' classloader and cannot be cast to the plugin's child-loaded org.apache.hadoop.fs.FileSystem.
-    # Copy the jindofs jars into the paimon plugin lib so JindoOssFileSystem loads child-first alongside
-    # the plugin's own hadoop FileSystem (same self-contained intent as the bundled hadoop-aws/S3A).
+    # com.aliyun.jindodata is child-first (only org.apache.doris.connector./.filesystem. and
+    # org.apache.hadoop. are parent-first, see ConnectorPluginManager.CONNECTOR_PARENT_FIRST_PREFIXES),
+    # so without its OWN copy JindoOssFileSystem resolves from the parent 'app' classloader.
+    # Historically that could not be cast to the plugin's child-loaded org.apache.hadoop.fs.FileSystem;
+    # since org.apache.hadoop. became parent-first the cast itself would now succeed, but the copy stays:
+    # it keeps the jindo classes in the plugin's own loader (same self-contained intent as the bundled
+    # hadoop-aws/S3A) and is what the plugin falls back to once the FE kernel stops shipping hadoop.
     # Naturally gated: a no-op unless jindofs was packaged (--jindofs / DISABLE_BUILD_JINDOFS=OFF).
     # CAVEAT (docker-gated, enablePaimonTest=true): jindo-core ships a native lib that can bind to only one
     # classloader per JVM, so this is safe only while no concurrent non-paimon path loads jindo from
@@ -1475,6 +1508,14 @@ if [[ ${BUILD_CLOUD} -eq 1 ]]; then
     if [[ -d "${HADOOP_DEPS_JAR_DIR}/lib" ]]; then
         mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
         cp -r "${HADOOP_DEPS_JAR_DIR}/lib/"* "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs/"
+    fi
+    # copy-dependencies writes only the transitive deps to target/lib; the patched
+    # org.apache.hadoop.fs.FileSystem lives in the module's own jar at target/. Without this the
+    # meta-service would run on the vanilla class and silently ignore doris.fs.cache.key.<scheme>.
+    # cloud/script/start.sh loads it ahead of the vanilla hadoop jars beside it.
+    if [[ -f "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" ]]; then
+        mkdir -p "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs"
+        cp "${HADOOP_DEPS_JAR_DIR}/${HADOOP_DEPS_NAME}.jar" "${DORIS_HOME}/cloud/output/lib/hadoop_hdfs/"
     fi
     cp -r -p "${DORIS_HOME}/cloud/output" "${DORIS_HOME}/output/ms"
 fi

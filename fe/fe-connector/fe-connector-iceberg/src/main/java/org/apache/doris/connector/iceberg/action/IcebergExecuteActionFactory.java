@@ -36,7 +36,7 @@ import java.util.Map;
  * {@code Optional<PartitionNamesInfo>} / nereids {@code Expression}.
  *
  * <p><b>T03 scaffolding.</b> The {@code createAction} switch carries only the faithful default rejection;
- * the 9 procedure cases (their bodies) are ported in T04 ({@code rewrite_data_files} in T05/T06). The
+ * the procedure cases (their bodies) are ported in T04 ({@code rewrite_data_files} in T05/T06). The
  * {@link #getSupportedActions()} registry — exported to {@code getSupportedProcedures()} and embedded in
  * the rejection message — is complete and final.
  */
@@ -52,6 +52,7 @@ public class IcebergExecuteActionFactory {
     public static final String REWRITE_DATA_FILES = "rewrite_data_files";
     public static final String PUBLISH_CHANGES = "publish_changes";
     public static final String REWRITE_MANIFESTS = "rewrite_manifests";
+    public static final String REMOVE_ORPHAN_FILES = "remove_orphan_files";
 
     /**
      * Create an iceberg procedure body for {@code actionType}.
@@ -83,6 +84,8 @@ public class IcebergExecuteActionFactory {
                 return new IcebergPublishChangesAction(properties, partitionNames, whereCondition);
             case REWRITE_MANIFESTS:
                 return new IcebergRewriteManifestsAction(properties, partitionNames, whereCondition);
+            case REMOVE_ORPHAN_FILES:
+                return new IcebergRemoveOrphanFilesAction(properties, partitionNames, whereCondition);
             // REWRITE_DATA_FILES is the distributed INSERT-SELECT procedure, built directly by
             // IcebergProcedureOps.planRewrite (not this SINGLE_CALL factory); it falls through to the rejection.
             default:
@@ -106,7 +109,8 @@ public class IcebergExecuteActionFactory {
                 EXPIRE_SNAPSHOTS,
                 REWRITE_DATA_FILES,
                 PUBLISH_CHANGES,
-                REWRITE_MANIFESTS
+                REWRITE_MANIFESTS,
+                REMOVE_ORPHAN_FILES
         };
     }
 }

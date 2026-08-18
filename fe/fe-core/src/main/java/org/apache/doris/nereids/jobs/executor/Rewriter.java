@@ -687,7 +687,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalUnion.class),
-                        topDown(new EliminateGroupByKey()),
                         topDown(new PushDownAggThroughJoinOnPkFk()),
                         topDown(new PullUpJoinFromUnionAll())
                 ),
@@ -972,6 +971,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             )));
                     rewriteJobs.addAll(jobs(topic("convert outer join to anti",
                             custom(RuleType.CONVERT_OUTER_JOIN_TO_ANTI, ConvertOuterJoinToAntiJoin::new))));
+                    rewriteJobs.addAll(jobs(topic("eliminate Aggregate according to fd items",
+                            cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
+                                    || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
+                                    || cascadesContext.rewritePlanContainsTypes(LogicalUnion.class),
+                            custom(RuleType.ELIMINATE_GROUP_BY_KEY, EliminateGroupByKey::new))));
                     rewriteJobs.addAll(jobs(topic("eliminate group by key by uniform",
                             custom(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, EliminateGroupByKeyByUniform::new))));
                     if (needOrExpansion) {

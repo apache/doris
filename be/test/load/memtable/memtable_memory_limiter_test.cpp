@@ -177,7 +177,7 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     EXPECT_EQ(Status::OK(), res);
     res = delta_writer->build_rowset();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->commit_txn(PSlaveTabletNodes());
+    res = delta_writer->commit_txn();
     EXPECT_EQ(Status::OK(), res);
     res = _engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);

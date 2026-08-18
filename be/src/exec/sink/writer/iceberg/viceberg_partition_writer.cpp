@@ -69,6 +69,7 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
     RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
 
+    Status open_status;
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
         TParquetCompressionType::type parquet_compression_type;
@@ -92,9 +93,13 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
             break;
         }
         default: {
-            return Status::InternalError("Unsupported compress type {} with parquet",
-                                         to_string(_compress_type));
+            open_status = Status::InternalError("Unsupported compress type {} with parquet",
+                                                to_string(_compress_type));
+            break;
         }
+        }
+        if (!open_status.ok()) {
+            break;
         }
         ParquetFileOptions parquet_options = {.compression_type = parquet_compression_type,
                                               .parquet_version = TParquetVersion::PARQUET_1_0,
@@ -103,19 +108,27 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
         _file_format_transformer = std::make_unique<VParquetTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
                 parquet_options, _iceberg_schema_json, &_schema);
-        return _file_format_transformer->open();
+        open_status = _file_format_transformer->open();
+        break;
     }
     case TFileFormatType::FORMAT_ORC: {
         _file_format_transformer = std::make_unique<VOrcTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, "", _write_column_names, false,
                 _compress_type, &_schema, _fs);
-        return _file_format_transformer->open();
+        open_status = _file_format_transformer->open();
+        break;
     }
     default: {
-        return Status::InternalError("Unsupported file format type {}",
-                                     to_string(_file_format_type));
+        open_status = Status::InternalError("Unsupported file format type {}",
+                                            to_string(_file_format_type));
+        break;
     }
     }
+    if (!open_status.ok()) {
+        // A transformer failure happens after object creation, so remove any published file.
+        WARN_IF_ERROR(_fs->delete_file(_path), "failed to delete Iceberg file after open error");
+    }
+    return open_status;
 }
 
 Status VIcebergPartitionWriter::close(const Status& status) {
@@ -147,7 +160,12 @@ Status VIcebergPartitionWriter::close(const Status& status) {
             }
             return commit_status;
         }
-        _state->add_iceberg_commit_datas(commit_data);
+        Status report_status = _state->add_iceberg_commit_datas(std::move(commit_data));
+        if (!report_status.ok()) {
+            // A closed object that cannot be reported can never be committed, so remove it immediately.
+            WARN_IF_ERROR(_fs->delete_file(_path), "failed to delete unreportable Iceberg file");
+            return report_status;
+        }
         if (_closed_file_callback) {
             _closed_file_callback(_fs, _path);
         }

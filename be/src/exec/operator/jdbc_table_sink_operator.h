@@ -58,4 +58,7 @@ private:
     VExprContextSPtrs _output_vexpr_ctxs;
 };
 
+/// Instantiated once in operator.cpp; suppresses per-TU implicit instantiation.
+extern template class AsyncWriterSink<VJdbcTableWriter, JdbcTableSinkOperatorX>;
+
 } // namespace doris

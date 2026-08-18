@@ -58,6 +58,9 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
     public static final String PROP_TOKENIZER = "tokenizer";
     public static final String PROP_TOKEN_FILTER = "token_filter";
     public static final String PROP_CHAR_FILTER = "char_filter";
+    // Marks the token filter whose grams only SNII can read. The word list itself is a BE-local
+    // config, so no policy property names it -- this constant is only used to recognise the type.
+    public static final String COMMON_GRAMS_TYPE = "common_grams";
 
     public static final Set<String> BUILTIN_TOKENIZERS = ImmutableSet.of(
             "empty", "ngram", "edge_ngram", "keyword", "standard", "char_group", "basic", "icu", "pinyin");
@@ -126,5 +129,11 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
 
     public boolean isInvalid() {
         return false;
+    }
+
+    public boolean isCommonGramsPolicy() {
+        return type == IndexPolicyTypeEnum.TOKEN_FILTER
+                && properties != null
+                && COMMON_GRAMS_TYPE.equals(properties.get(PROP_TYPE));
     }
 }

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "exec/common/join_utils.h"
 #include "exec/operator/operator.h"
 
 namespace doris {

@@ -168,18 +168,8 @@ under the License.
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
         </dependency>
-        <!-- For BE CosN Access -->
-        <dependency>
-            <groupId>com.qcloud.cos</groupId>
-            <artifactId>hadoop-cos</artifactId>
-            <version>${tencentcos.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.json</groupId>
-                    <artifactId>json</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
+        <!-- For BE CosN Access: hadoop-cos lives in the `cos` profile below;
+             disabled via -Ddisable.cos=true (build.sh exclude-cos-dependencies flag). -->
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
@@ -235,6 +225,34 @@ under the License.
             <artifactId>fastutil-core</artifactId>
         </dependency>
     </dependencies>
+
+    <!-- Tencent COS support. Active by default; disabled by -Ddisable.cos=true
+         (build.sh exclude-cos-dependencies flag), which drops hadoop-cos so nothing from
+         com.qcloud.cos is resolved or bundled into preload-extensions. -->
+    <profiles>
+        <profile>
+            <id>cos</id>
+            <activation>
+                <property>
+                    <name>!disable.cos</name>
+                </property>
+            </activation>
+            <dependencies>
+                <!-- For BE CosN Access -->
+                <dependency>
+                    <groupId>com.qcloud.cos</groupId>
+                    <artifactId>hadoop-cos</artifactId>
+                    <version>${tencentcos.version}</version>
+                    <exclusions>
+                        <exclusion>
+                            <groupId>org.json</groupId>
+                            <artifactId>json</artifactId>
+                        </exclusion>
+                    </exclusions>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 
     <build>
         <finalName>preload-extensions</finalName>

@@ -24,6 +24,7 @@
 #include <string_view>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "storage/mow/mow_transform_test_base.h"
 #include "storage/partial_update_info.h"
@@ -121,10 +122,9 @@ TEST_F(ValidateStageTest, CompositionTransientPartialUpdateDegradesToNoFill) {
               (V {"Validate", "RowStoreFill", "VariantParse"}));
 }
 
-// Partial update loads only get validated by the chain for now: the segment
-// writers still own the fill, parse and row-store work. The fill stages take
-// this slot when they move into the chain.
-TEST_F(ValidateStageTest, CompositionPartialUpdateValidateOnly) {
+// TYPE_DIRECT + fixed PU -> the fixed fill stage sits between Validate and Parse;
+// the legacy fixed path parsed variants before rebuilding RowStore.
+TEST_F(ValidateStageTest, CompositionFixedPartialUpdate) {
     using V = std::vector<std::string_view>;
     auto schema = create_mow_schema(/*has_seq=*/false);
     auto fixed = std::make_shared<PartialUpdateInfo>();
@@ -133,8 +133,15 @@ TEST_F(ValidateStageTest, CompositionPartialUpdateValidateOnly) {
                         .ok());
     RowsetWriterContext c = direct_rwc(schema);
     c.partial_update_info = fixed;
-    EXPECT_EQ(build_transform_chain(c).stage_names(), (V {"Validate"}));
+    EXPECT_EQ(build_transform_chain(c).stage_names(),
+              (V {"Validate", "FixedPartialUpdateFill", "VariantParse", "RowStoreFill"}));
+}
 
+// TYPE_DIRECT + flexible PU -> the flexible fill stage sits after Validate; the
+// legacy flexible path rebuilt RowStore before parsing the filled variants, the
+// reverse of the fixed order.
+TEST_F(ValidateStageTest, CompositionFlexiblePartialUpdate) {
+    using V = std::vector<std::string_view>;
     auto fschema = create_flexible_mow_schema();
     auto flexible = std::make_shared<PartialUpdateInfo>();
     ASSERT_TRUE(flexible->init(kTabletId, 1, *fschema,
@@ -143,7 +150,8 @@ TEST_F(ValidateStageTest, CompositionPartialUpdateValidateOnly) {
                         .ok());
     RowsetWriterContext fc = direct_rwc(fschema);
     fc.partial_update_info = flexible;
-    EXPECT_EQ(build_transform_chain(fc).stage_names(), (V {"Validate"}));
+    EXPECT_EQ(build_transform_chain(fc).stage_names(),
+              (V {"Validate", "FlexiblePartialUpdateFill", "RowStoreFill", "VariantParse"}));
 }
 
 // Binlog sub-writers keep deriving inside RowBinlogSegmentWriter for now, so
@@ -162,10 +170,9 @@ TEST_F(ValidateStageTest, CompositionBinlogEmpty) {
 }
 
 // =============================================================================
-// ValidateStage branches (V1-V9, without V5's fill which is not in the chain
-// yet). ValidateStage is the chain's first stage on every non-compaction,
-// non-binlog path, so we build the real chain and drive it with a block that
-// already fails / passes validate.
+// ValidateStage branches (V1-V9). ValidateStage is the chain's first stage on
+// every non-compaction, non-binlog path, so we build the real chain and drive
+// it with a block that already fails / passes validate.
 // =============================================================================
 
 // V1: non-PU direct, full width (columns == num_columns) -> accepted.
@@ -255,6 +262,60 @@ TEST_F(ValidateStageTest, V4_PartialUpdateRejectsWithoutSegmentId) {
     EXPECT_FALSE(st.ok());
     EXPECT_EQ(st.code(), ErrorCode::INTERNAL_ERROR) << st;
     EXPECT_NE(st.to_string().find("flush_single_block"), std::string::npos) << st;
+}
+
+// V5: fixed PU, legal narrow width (num_key <= columns < num_columns) -> accepted
+// and the fill runs end-to-end (the old value is read back from history).
+TEST_F(ValidateStageTest, V5_FixedPartialUpdateAcceptsNarrowWidth) {
+    auto schema = create_mow_schema(/*has_seq=*/false); // k(0) v(1) delete_sign(2)
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 8301, 2, {{1, 11}, {2, 22}, {3, 33}}, &tablet);
+    auto mow = make_mow_context(100, {rowset});
+
+    auto pui = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(pui->init(kTabletId, 1, *schema, UniqueKeyUpdateModePB::UPDATE_FIXED_COLUMNS,
+                          PartialUpdateNewRowPolicyPB::APPEND, {"k"}, false, 0, 0, "UTC", "")
+                        .ok());
+    RowsetId new_rsid;
+    new_rsid.init(8302);
+
+    RowsetWriterContext rwc = direct_rwc(schema);
+    rwc.tablet_id = kTabletId;
+    rwc.tablet = tablet;
+    rwc.partial_update_info = pui;
+    rwc.rowset_id = new_rsid;
+
+    auto chain = build_transform_chain(rwc);
+    ASSERT_FALSE(chain.empty());
+
+    TransformExecContext ctx;
+    ctx.tablet_schema = schema;
+    ctx.write_type = DataWriteType::TYPE_DIRECT;
+    ctx.tablet = tablet;
+    ctx.mow_context = mow;
+    ctx.partial_update_info = pui;
+    ctx.rowset_ctx = &rwc;
+    ctx.rowset_id = new_rsid;
+    ctx.segment_id = 0;
+
+    Block block = schema->create_block_by_cids({0}); // narrow: key only, in [1, 3)
+    IColumn* kc = block.get_by_position(0).column->assert_mutable().get();
+    for (int32_t k : {1, 3}) {
+        kc->insert_data(reinterpret_cast<const char*>(&k), sizeof(int32_t));
+    }
+
+    auto saved = config::enable_merge_on_write_correctness_check;
+    config::enable_merge_on_write_correctness_check = false;
+    auto st = chain.apply(ctx, &block);
+    config::enable_merge_on_write_correctness_check = saved;
+    ASSERT_TRUE(st.ok()) << st;
+
+    ASSERT_EQ(block.columns(), schema->num_columns());
+    ASSERT_EQ(block.rows(), 2);
+    EXPECT_EQ(read_int(block, 1, 0), 11); // old v for key 1
+    EXPECT_EQ(read_int(block, 1, 1), 33); // old v for key 3
+    // the probe counted one update per existing key
+    EXPECT_EQ(ctx.partial_update_stats.num_rows_updated, 2);
 }
 
 // V6 + V7: fixed PU rejects both a too-wide block (columns >= num_columns) and a

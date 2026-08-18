@@ -166,6 +166,24 @@ Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
     return Status::OK();
 }
 
+bool search_status_allows_row_fallback(const Status& status) {
+    DORIS_CHECK(!status.ok());
+    return status.is<ErrorCode::INVERTED_INDEX_BYPASS>() ||
+           status.is<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>() ||
+           status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>() ||
+           status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>() ||
+           status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+}
+
+Status prevent_search_row_fallback(Status status) {
+    DORIS_CHECK(!status.ok());
+    if (!search_status_allows_row_fallback(status)) {
+        return status;
+    }
+    return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+            "SEARCH cannot fall back to row execution: {}", status.to_string());
+}
+
 } // namespace
 
 VSearchExpr::VSearchExpr(const TExprNode& node) : VExpr(node) {
@@ -202,7 +220,7 @@ Status VSearchExpr::execute_column_impl(VExprContext* context, const Block* bloc
 
 Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     if (_search_param.original_dsl.empty()) {
-        return Status::InvalidArgument("search DSL is empty");
+        return prevent_search_row_fallback(Status::InvalidArgument("search DSL is empty"));
     }
 
     auto index_context = context->get_index_context();
@@ -212,7 +230,9 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
     }
 
     SearchInputBundle bundle;
-    RETURN_IF_ERROR(collect_search_inputs(*this, context, &bundle));
+    if (auto status = collect_search_inputs(*this, context, &bundle); !status.ok()) {
+        return prevent_search_row_fallback(std::move(status));
+    }
 
     VLOG_DEBUG << "VSearchExpr: bundle.iterators.size()=" << bundle.iterators.size();
 
@@ -242,7 +262,7 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
 
     if (!status.ok()) {
         LOG(WARNING) << "VSearchExpr: Function evaluation failed: " << status.to_string();
-        return status;
+        return prevent_search_row_fallback(std::move(status));
     }
 
     index_context->set_index_result_for_expr(this, result_bitmap);

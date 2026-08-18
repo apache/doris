@@ -19,9 +19,12 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
+#include "storage/index/inverted/analyzer/analyzer_provider.h"
+#include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
 #include "util/debug_points.h"
 
 namespace lucene {
@@ -105,31 +108,60 @@ const std::string INVERTED_INDEX_ANALYZER_NAME_KEY = "analyzer";
 const std::string INVERTED_INDEX_NORMALIZER_NAME_KEY = "normalizer";
 const std::string INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY = "field_pattern";
 
-// Normalize an analyzer name to a standardized key format (lowercase).
-// Empty string stays empty (means "user did not specify").
-// Non-empty string is lowercased (means "user specified this analyzer").
+// Normalize a physical analyzer selection key to lowercase. Empty stays empty.
 std::string normalize_analyzer_key(std::string_view analyzer);
 
 // Runtime context for analyzer
 // Contains only the fields needed at runtime
 struct InvertedIndexAnalyzerCtx {
-    // analyzer_name: what user specified in USING ANALYZER clause
-    // Empty means user did not specify (BE auto-selects index)
-    // Non-empty means user explicitly specified (BE exact matches)
+    // Physical reader selection key from Thrift. Empty allows fallback selection;
+    // non-empty requires an exact match.
+    std::string analyzer_key;
+
+    // Named custom analyzer or normalizer used to execute the predicate.
     std::string analyzer_name;
 
-    // parser_type: determined from index properties, used for slow path tokenization
+    // Builtin parser used to execute the predicate.
     InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
 
     // Used for creating reader and tokenization
     CharFilterMap char_filter_map;
     std::shared_ptr<lucene::analysis::Analyzer> analyzer;
+    segment_v2::inverted_index::AnalyzerProviderPtr analyzer_provider;
+    std::optional<segment_v2::inverted_index::CommonGramsQueryIdentity> common_grams_identity;
 
-    // Returns true if tokenization should be performed.
-    // Decision is based on parser_type (from index properties):
-    // - PARSER_NONE: no tokenization (keyword/exact match)
-    // - Other parsers: tokenize using that parser
-    bool should_tokenize() const { return parser_type != InvertedIndexParserType::PARSER_NONE; }
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
+            segment_v2::inverted_index::AnalysisPurpose purpose) const {
+        if (analyzer_provider != nullptr) {
+            return analyzer_provider->get_analyzer(purpose);
+        }
+        return analyzer;
+    }
+
+    const segment_v2::inverted_index::CommonGramsQueryIdentity* get_common_grams_identity() const {
+        if (common_grams_identity.has_value()) {
+            return &*common_grams_identity;
+        }
+        return analyzer_provider == nullptr ? nullptr : analyzer_provider->common_grams_identity();
+    }
+
+    bool has_complete_common_grams_identity() const {
+        const auto* identity = get_common_grams_identity();
+        return identity != nullptr && !identity->common_grams_dictionary_identity.empty() &&
+               !identity->base_analyzer_fingerprint.empty() &&
+               !identity->common_grams_fingerprint.empty();
+    }
+
+    // Raw-query cache and single-flight keys intentionally exclude analyzer output. A tokenizing
+    // provider therefore needs a complete immutable identity before those results may be shared.
+    bool can_share_raw_query_semantics() const {
+        return !requires_analysis() || has_complete_common_grams_identity();
+    }
+
+    // This controls analyzer execution, not the number of emitted terms.
+    bool requires_analysis() const {
+        return !analyzer_name.empty() || parser_type != InvertedIndexParserType::PARSER_NONE;
+    }
 };
 using InvertedIndexAnalyzerCtxSPtr = std::shared_ptr<InvertedIndexAnalyzerCtx>;
 
@@ -175,24 +207,20 @@ std::string get_parser_dict_compression_from_properties(
 std::string get_analyzer_name_from_properties(const std::map<std::string, std::string>& properties);
 
 // Build a normalized analyzer key from index properties.
-// Checks custom_analyzer first, then falls back to parser type.
+// Precedence is analyzer, normalizer, then parser type. A raw index uses "none".
 std::string build_analyzer_key_from_properties(
         const std::map<std::string, std::string>& properties);
 
 // Result structure for analyzer config parsing
 struct AnalyzerConfig {
-    std::string custom_analyzer;
+    std::string provider_name;
     InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_NONE;
-    // analyzer_key: what user specified in USING ANALYZER clause
-    // Empty means "user did not specify" (BE auto-selects)
-    // Non-empty means "user specified this analyzer" (BE exact matches)
+    // Physical reader selection key from the Thrift analyzer name.
+    // Empty allows fallback selection; non-empty requires an exact match.
     std::string analyzer_key;
 
-    // Check if this is a custom analyzer (not builtin)
-    bool is_custom() const { return !custom_analyzer.empty(); }
-
-    // Check if user explicitly specified an analyzer
-    bool is_user_specified() const { return !analyzer_key.empty(); }
+    // Check if execution uses a named analyzer or normalizer provider.
+    bool uses_provider() const { return !provider_name.empty(); }
 };
 
 // Parser for analyzer configuration from Thrift TMatchPredicate.
@@ -201,7 +229,7 @@ struct AnalyzerConfig {
 class AnalyzerConfigParser {
 public:
     // Parse from raw analyzer name and parser type string (extracted from Thrift).
-    // @param analyzer_name: User-specified analyzer name (may be custom or builtin, or empty).
+    // @param analyzer_name: Analyzer selection name from Thrift (custom, builtin, or empty).
     // @param parser_type_str: Parser type string like "chinese", "standard", etc.
     [[nodiscard]] static AnalyzerConfig parse(const std::string& analyzer_name,
                                               const std::string& parser_type_str);
@@ -211,9 +239,6 @@ public:
 
 private:
     static std::string normalize_to_lower(const std::string& value);
-
-    // Compute normalized analyzer_key from raw value.
-    static std::string compute_analyzer_key(const std::string& value);
 };
 
 } // namespace doris

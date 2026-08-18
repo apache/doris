@@ -66,10 +66,6 @@ namespace {
 constexpr std::array<FileCacheType, 4> LRU_LOG_REPLAY_TYPES = {
         FileCacheType::TTL, FileCacheType::INDEX, FileCacheType::NORMAL, FileCacheType::DISPOSABLE};
 
-size_t file_cache_type_index(FileCacheType type) {
-    return static_cast<size_t>(type);
-}
-
 } // namespace
 
 // Insert a block pointer into one shard while swallowing allocation failures.

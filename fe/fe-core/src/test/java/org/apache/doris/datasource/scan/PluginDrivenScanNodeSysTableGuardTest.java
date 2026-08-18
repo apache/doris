@@ -52,6 +52,13 @@ import org.mockito.Mockito;
  */
 public class PluginDrivenScanNodeSysTableGuardTest {
 
+    private static PluginDrivenSysExternalTable sysTableWithEngine(String engine) {
+        PluginDrivenSysExternalTable table = Mockito.mock(PluginDrivenSysExternalTable.class);
+        Mockito.doReturn(engine).when(table).getEngine();
+        Mockito.doReturn("files").when(table).getSysTableName();
+        return table;
+    }
+
     private static PluginDrivenScanNode guardOnlyNode() throws Exception {
         PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
         // Default: no scan-params, no snapshot, and a connector whose sys tables do NOT time-travel
@@ -91,6 +98,80 @@ public class PluginDrivenScanNodeSysTableGuardTest {
                 node::checkSysTableScanConstraints);
         Assertions.assertTrue(ex.getMessage().contains("time travel"),
                 "time-travel rejection must carry the expected message, got: " + ex.getMessage());
+    }
+
+    @Test
+    public void sysTableTimeTravelErrorNamesConnector() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        PluginDrivenSysExternalTable sysTable = Mockito.mock(PluginDrivenSysExternalTable.class);
+        Mockito.doReturn("paimon").when(sysTable).getEngine();
+        Mockito.doReturn(sysTable).when(node).getTargetTable();
+        Mockito.doReturn(Mockito.mock(TableSnapshot.class)).when(node).getQueryTableSnapshot();
+
+        UserException ex = Assertions.assertThrows(UserException.class,
+                node::checkSysTableScanConstraints);
+        Assertions.assertTrue(ex.getMessage().contains("paimon system tables do not support time travel."),
+                ex.getMessage());
+    }
+
+    @Test
+    public void sysTableScanParamsErrorNamesConnector() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        PluginDrivenSysExternalTable sysTable = Mockito.mock(PluginDrivenSysExternalTable.class);
+        Mockito.doReturn("paimon").when(sysTable).getEngine();
+        Mockito.doReturn(sysTable).when(node).getTargetTable();
+        Mockito.doReturn(Mockito.mock(TableScanParams.class)).when(node).getScanParams();
+
+        UserException ex = Assertions.assertThrows(UserException.class,
+                node::checkSysTableScanConstraints);
+        Assertions.assertTrue(ex.getMessage().contains("paimon system tables do not support scan params."),
+                ex.getMessage());
+    }
+
+    @Test
+    public void mixedCaseConnectorNameIsPreservedForIncrementalReadError() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        Mockito.doReturn(sysTableWithEngine("iRODS")).when(node).getTargetTable();
+        TableScanParams incr = Mockito.mock(TableScanParams.class);
+        Mockito.doReturn(true).when(incr).incrementalRead();
+        Mockito.doReturn(incr).when(node).getScanParams();
+
+        UserException ex = Assertions.assertThrows(UserException.class, node::checkSysTableScanConstraints);
+        Assertions.assertEquals(
+                "iRODS system table 'files' does not support INCR scan params.", ex.getDetailMessage());
+    }
+
+    @Test
+    public void mixedCaseConnectorNameIsPreservedForOptionsError() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        Mockito.doReturn(sysTableWithEngine("iRODS")).when(node).getTargetTable();
+        TableScanParams options = Mockito.mock(TableScanParams.class);
+        Mockito.doReturn(true).when(options).isOptions();
+        Mockito.doReturn(options).when(node).getScanParams();
+
+        UserException ex = Assertions.assertThrows(UserException.class, node::checkSysTableScanConstraints);
+        Assertions.assertEquals(
+                "iRODS system table 'files' does not support OPTIONS scan params.", ex.getDetailMessage());
+    }
+
+    @Test
+    public void mixedCaseConnectorNameIsPreservedForGenericScanParamsError() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        Mockito.doReturn(sysTableWithEngine("iRODS")).when(node).getTargetTable();
+        Mockito.doReturn(Mockito.mock(TableScanParams.class)).when(node).getScanParams();
+
+        UserException ex = Assertions.assertThrows(UserException.class, node::checkSysTableScanConstraints);
+        Assertions.assertEquals("iRODS system tables do not support scan params.", ex.getDetailMessage());
+    }
+
+    @Test
+    public void mixedCaseConnectorNameIsPreservedForTimeTravelError() throws Exception {
+        PluginDrivenScanNode node = guardOnlyNode();
+        Mockito.doReturn(sysTableWithEngine("iRODS")).when(node).getTargetTable();
+        Mockito.doReturn(Mockito.mock(TableSnapshot.class)).when(node).getQueryTableSnapshot();
+
+        UserException ex = Assertions.assertThrows(UserException.class, node::checkSysTableScanConstraints);
+        Assertions.assertEquals("iRODS system tables do not support time travel.", ex.getDetailMessage());
     }
 
     @Test

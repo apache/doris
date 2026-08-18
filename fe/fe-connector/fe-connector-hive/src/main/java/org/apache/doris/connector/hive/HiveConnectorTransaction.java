@@ -288,13 +288,23 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
     }
 
     private void commitWhileTableLocked() {
-        validateWriteMetadataBeforePublication();
-        // The classification (finishInsertTable) ran from the executor in the legacy class; the unified SPI
-        // exposes only commit(), so it runs here (before the committer) to populate the action maps. If it
-        // throws, the committer was never created and the engine's subsequent rollback() cleans up.
-        finishInsertTable(nameMapping);
-        // Classification can perform metastore reads, so close that interval before any file or HMS mutation.
-        validateWriteMetadataBeforePublication();
+        try {
+            // Object-store files remain unpublished until FE consumes one completion record per file.
+            validateObjectStoreCommitRecords();
+            validateWriteMetadataBeforePublication();
+            // Classification can perform metastore reads, so validate once more before any publication.
+            finishInsertTable(nameMapping);
+            validateWriteMetadataBeforePublication();
+        } catch (Throwable t) {
+            // The transaction manager removes this connector before commit(), so this is the last owner
+            // capable of aborting deferred uploads when pre-commit validation or classification fails.
+            try {
+                rollback();
+            } catch (Throwable cleanupFailure) {
+                t.addSuppressed(new Exception("Failed to clean up after pre-commit failure", cleanupFailure));
+            }
+            throw t;
+        }
         hmsCommitter = new HmsCommitter();
         try {
             for (Map.Entry<NameMapping, Action<TableAndMore>> entry : tableActions.entrySet()) {
@@ -434,6 +444,25 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
     private boolean isTargetTable(String dbName, String tableName) {
         return nameMapping.getRemoteDbName().equalsIgnoreCase(dbName)
                 && nameMapping.getRemoteTblName().equalsIgnoreCase(tableName);
+    }
+
+    private void validateObjectStoreCommitRecords() {
+        if (fileType != TFileType.FILE_S3) {
+            return;
+        }
+        for (THivePartitionUpdate update : hivePartitionUpdates) {
+            int fileCount = update.getFileNames() == null ? 0 : update.getFileNames().size();
+            List<TS3MPUPendingUpload> uploads = update.getS3MpuPendingUploads();
+            int uploadCount = uploads == null ? 0 : uploads.size();
+            boolean completeRecords = uploads != null && uploads.stream()
+                    .allMatch(HiveConnectorTransaction::isCompleteObjectStoreUpload);
+            if (fileCount != uploadCount || (fileCount > 0 && !completeRecords)) {
+                throw new DorisConnectorException(String.format(
+                        "Object-store write reported %d file(s) but %d valid multipart completion record(s); "
+                                + "all backends must support deferred multipart completion before metadata commit",
+                        fileCount, completeRecords ? uploadCount : 0));
+            }
+        }
     }
 
     @Override
@@ -608,13 +637,30 @@ public class HiveConnectorTransaction implements ConnectorTransaction {
 
     private void collectUncompletedMpuPendingUploads(List<THivePartitionUpdate> hivePartitionUpdates) {
         for (THivePartitionUpdate pu : hivePartitionUpdates) {
-            if (pu.getS3MpuPendingUploads() != null) {
-                for (TS3MPUPendingUpload s3MpuPendingUpload : pu.getS3MpuPendingUploads()) {
-                    uncompletedMpuPendingUploads.add(
-                            new UncompletedMpuPendingUpload(s3MpuPendingUpload, pu.getLocation().getWritePath()));
+            List<TS3MPUPendingUpload> uploads = pu.getS3MpuPendingUploads();
+            if (uploads == null) {
+                continue;
+            }
+            String writePath = pu.getLocation() == null ? null : pu.getLocation().getWritePath();
+            if (writePath == null || writePath.isEmpty()) {
+                // A malformed record must not prevent other valid uploads from being aborted.
+                LOG.warn("Skipping MPU cleanup record without a write path");
+                continue;
+            }
+            for (TS3MPUPendingUpload upload : uploads) {
+                if (!isCompleteObjectStoreUpload(upload)) {
+                    LOG.warn("Skipping incomplete MPU cleanup record for write path {}", writePath);
+                    continue;
                 }
+                uncompletedMpuPendingUploads.add(new UncompletedMpuPendingUpload(upload, writePath));
             }
         }
+    }
+
+    private static boolean isCompleteObjectStoreUpload(TS3MPUPendingUpload upload) {
+        return upload != null && upload.getUploadId() != null && !upload.getUploadId().isEmpty()
+                && upload.getBucket() != null && !upload.getBucket().isEmpty()
+                && upload.getKey() != null && !upload.getKey().isEmpty();
     }
 
     private void convertToInsertExistingPartitionAction(

@@ -45,10 +45,13 @@ endif ()
 
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     set (OS_LINUX 1)
-    add_definitions(-D OS_LINUX)
+    # No space after -D: "-D OS_LINUX" becomes two argv entries in some
+    # generators, and the dangling "-D" then swallows the next flag
+    # (doris_be_test lost its -fno-access-control this way).
+    add_definitions(-DOS_LINUX)
 elseif (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     set (OS_MACOSX 1)
-    add_definitions(-D OS_MACOSX)
+    add_definitions(-DOS_MACOSX)
 endif ()
 
 if (OS_MACOSX)
@@ -77,6 +80,20 @@ add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 option(USE_LIBCPP "Use libc++" OFF)
 option(USE_JEMALLOC "Use jemalloc" ON)
+# Merge groups of .cpp files into jumbo translation units for much faster full
+# builds. Turn OFF for precise per-file diagnostics, per-file tooling
+# (clang-tidy/coverage), or the finest-grained incremental rebuilds.
+option(ENABLE_UNITY_BUILD "Enable CMake unity builds for BE targets" ON)
+# Normalize to a strict ON/OFF. Every pilot target sets its UNITY_BUILD property
+# unconditionally from this value: OFF must be an explicit OFF, otherwise a
+# cache that also carries CMake's own CMAKE_UNITY_BUILD=ON leaves the property
+# ON (it initializes UNITY_BUILD at add_library time) and the escape hatch does
+# nothing.
+if (ENABLE_UNITY_BUILD)
+    set(DORIS_UNITY_BUILD ON)
+else()
+    set(DORIS_UNITY_BUILD OFF)
+endif()
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
@@ -100,6 +117,7 @@ message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
 message(STATUS "USE_UNWIND is ${USE_UNWIND}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
+message(STATUS "ENABLE_UNITY_BUILD is ${ENABLE_UNITY_BUILD}")
 message(STATUS "USE_AVX2 is ${USE_AVX2}")
 
 # set CMAKE_BUILD_TYPE
@@ -411,7 +429,14 @@ if (COMPILER_CLANG)
                         -Wthread-safety)
     add_compile_options(-Wno-gnu-statement-expression
                         -Wno-implicit-float-conversion
-                        -Wno-sign-conversion)
+                        -Wno-sign-conversion
+                        # libstdc++-15 puts `#pragma GCC unroll` on loops in its own
+                        # headers (bits/stl_algobase.h); when a sanitizer/coverage
+                        # build compiles at low optimization the unroller punts and
+                        # clang's -Wpass-failed turns that missed *hint* into an
+                        # -Werror failure. The diagnostic carries no correctness
+                        # signal, so drop it.
+                        -Wno-pass-failed)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
@@ -793,7 +818,18 @@ endif ()
 
 # Add sanitize static link flags
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
+    if (OS_MACOSX AND ARCH_ARM AND (MAKE_TEST OR BUILD_BENCHMARK))
+        # doris_be_test's and benchmark_test's .text exceeds arm64's +/-128MB
+        # BL reach (BE_TEST/BE_BENCHMARK macros inflate it further) and Apple's
+        # linker emits no branch islands for tcmalloc's prebuilt archive
+        # ("fixup error ... B/BL out of range"). Tests and benchmarks don't
+        # need a custom allocator; fall back to system malloc here. ASAN
+        # builds never linked ${MALLOCLIB} anyway, which is why they never
+        # hit this. gperftools_stubs.cpp supplies the few symbols still
+        # referenced unconditionally.
+    else()
+        set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
+    endif()
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN" OR "${CMAKE_BUILD_TYPE}" STREQUAL "ASAN_UT")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${ASAN_LIBS})
     if (OS_LINUX)
@@ -972,6 +1008,24 @@ function(pch_reuse target)
     endif()
 endfunction(pch_reuse target)
 
+# Every unity opt-out goes through this helper. set_source_files_properties()
+# silently ignores paths that do not exist, so a skip entry going stale after
+# a rename or move would quietly re-join its unity batch -- slower builds, or
+# new file-scope clashes, with no diagnostic anywhere. Fail the configure
+# instead. Entries under GENSRC_DIR are exempt: they are emitted by
+# add_custom_command at build time (wkt_lex.l.cpp, the generated
+# thrift/protobuf sources) and legitimately do not exist on a fresh configure.
+function(doris_skip_unity_inclusion)
+    foreach(entry IN LISTS ARGN)
+        string(FIND "${entry}" "${GENSRC_DIR}" gensrc_prefix_pos)
+        if(NOT gensrc_prefix_pos EQUAL 0 AND NOT EXISTS "${entry}")
+            message(FATAL_ERROR
+                "unity skip entry does not exist (renamed or moved?): ${entry}")
+        endif()
+    endforeach()
+    set_source_files_properties(${ARGN} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+endfunction()
+
 
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/common)
@@ -1094,7 +1148,10 @@ if (BUILD_BENCHMARK)
     if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "RELEASE")
         message(FATAL_ERROR "Benchmark should be built with RELEASE build type, current build type is ${CMAKE_BUILD_TYPE}")
     endif()
-    add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp)
+    add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp
+        # No-ops everywhere except macOS/arm64, where benchmark_test links
+        # without tcmalloc (see the MALLOCLIB branch above).
+        ${BASE_DIR}/test/testutil/gperftools_stubs.cpp)
     set_target_properties(benchmark_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
     target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
     message(STATUS "Add benchmark to build")

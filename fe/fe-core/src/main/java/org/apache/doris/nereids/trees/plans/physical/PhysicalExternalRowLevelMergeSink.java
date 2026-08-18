@@ -62,6 +62,7 @@ import java.util.stream.Collectors;
 public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
         extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
     private final String boundWriteMetadataIdentity;
+    private final boolean writesDataFiles;
     // True for SQL MERGE INTO, false for UPDATE; see LogicalExternalRowLevelMergeSink.
     private final boolean requireMergeCardinalityCheck;
 
@@ -76,7 +77,7 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
-        this(database, targetTable, null, cols, outputExprs, requireMergeCardinalityCheck,
+        this(database, targetTable, null, cols, outputExprs, true, requireMergeCardinalityCheck,
                 groupExpression, logicalProperties, PhysicalProperties.GATHER, null, child);
     }
 
@@ -91,6 +92,39 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                                     LogicalProperties logicalProperties,
                                     CHILD_TYPE child) {
         this(database, targetTable, boundWriteMetadataIdentity, cols, outputExprs,
+                true, requireMergeCardinalityCheck, groupExpression, logicalProperties,
+                PhysicalProperties.GATHER, null, child);
+    }
+
+    /**
+     * Constructor that records whether the merge writes replacement data files.
+     */
+    public PhysicalExternalRowLevelMergeSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    boolean writesDataFiles,
+                                    boolean requireMergeCardinalityCheck,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    CHILD_TYPE child) {
+        this(database, targetTable, null, cols, outputExprs, writesDataFiles,
+                requireMergeCardinalityCheck, groupExpression, logicalProperties,
+                PhysicalProperties.GATHER, null, child);
+    }
+
+    /** Builds a row-level sink with explicit metadata generation and data-file settings. */
+    public PhysicalExternalRowLevelMergeSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
+                                    String boundWriteMetadataIdentity,
+                                    List<Column> cols,
+                                    List<NamedExpression> outputExprs,
+                                    boolean writesDataFiles,
+                                    boolean requireMergeCardinalityCheck,
+                                    Optional<GroupExpression> groupExpression,
+                                    LogicalProperties logicalProperties,
+                                    CHILD_TYPE child) {
+        this(database, targetTable, boundWriteMetadataIdentity, cols, outputExprs, writesDataFiles,
                 requireMergeCardinalityCheck, groupExpression, logicalProperties,
                 PhysicalProperties.GATHER, null, child);
     }
@@ -108,16 +142,17 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                                     PhysicalProperties physicalProperties,
                                     Statistics statistics,
                                     CHILD_TYPE child) {
-        this(database, targetTable, null, cols, outputExprs, requireMergeCardinalityCheck,
+        this(database, targetTable, null, cols, outputExprs, true, requireMergeCardinalityCheck,
                 groupExpression, logicalProperties, physicalProperties, statistics, child);
     }
 
-    /** Builds a row-level sink with the write generation captured during logical planning. */
+    /** Builds a row-level sink with explicit metadata generation and data-file settings. */
     public PhysicalExternalRowLevelMergeSink(ExternalDatabase database,
                                     ExternalTable targetTable,
                                     String boundWriteMetadataIdentity,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
+                                    boolean writesDataFiles,
                                     boolean requireMergeCardinalityCheck,
                                     Optional<GroupExpression> groupExpression,
                                     LogicalProperties logicalProperties,
@@ -127,11 +162,16 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
         super(PlanType.PHYSICAL_EXTERNAL_ROW_LEVEL_MERGE_SINK, database, targetTable, cols, outputExprs,
                 groupExpression, logicalProperties, physicalProperties, statistics, child);
         this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
+        this.writesDataFiles = writesDataFiles;
         this.requireMergeCardinalityCheck = requireMergeCardinalityCheck;
     }
 
     public String getBoundWriteMetadataIdentity() {
         return boundWriteMetadataIdentity;
+    }
+
+    public boolean isWritesDataFiles() {
+        return writesDataFiles;
     }
 
     public boolean isRequireMergeCardinalityCheck() {
@@ -142,7 +182,8 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
     public Plan withChildren(List<Plan> children) {
         return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable,
-                boundWriteMetadataIdentity, cols, outputExprs, requireMergeCardinalityCheck, groupExpression,
+                boundWriteMetadataIdentity, cols, outputExprs, writesDataFiles,
+                requireMergeCardinalityCheck, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
 
@@ -155,7 +196,8 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable, boundWriteMetadataIdentity, cols, outputExprs,
-                requireMergeCardinalityCheck, groupExpression, getLogicalProperties(), child());
+                writesDataFiles, requireMergeCardinalityCheck,
+                groupExpression, getLogicalProperties(), child());
     }
 
     @Override
@@ -163,13 +205,15 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalExternalRowLevelMergeSink<>(
                 database, targetTable, boundWriteMetadataIdentity, cols, outputExprs,
-                requireMergeCardinalityCheck, groupExpression, logicalProperties.get(), children.get(0));
+                writesDataFiles, requireMergeCardinalityCheck,
+                groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalExternalRowLevelMergeSink<>(
-                database, targetTable, boundWriteMetadataIdentity, cols, outputExprs, requireMergeCardinalityCheck,
+                database, targetTable, boundWriteMetadataIdentity, cols, outputExprs,
+                writesDataFiles, requireMergeCardinalityCheck,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
 
@@ -185,13 +229,15 @@ public class PhysicalExternalRowLevelMergeSink<CHILD_TYPE extends Plan>
             return false;
         }
         PhysicalExternalRowLevelMergeSink<?> that = (PhysicalExternalRowLevelMergeSink<?>) o;
-        return requireMergeCardinalityCheck == that.requireMergeCardinalityCheck
+        return writesDataFiles == that.writesDataFiles
+                && requireMergeCardinalityCheck == that.requireMergeCardinalityCheck
                 && Objects.equals(boundWriteMetadataIdentity, that.boundWriteMetadataIdentity);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), boundWriteMetadataIdentity, requireMergeCardinalityCheck);
+        return Objects.hash(super.hashCode(), boundWriteMetadataIdentity,
+                writesDataFiles, requireMergeCardinalityCheck);
     }
 
     /**
