@@ -20,6 +20,7 @@
 #include <algorithm>
 
 #include "arrow/array/builder_nested.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "core/column/column.h"
@@ -436,8 +437,9 @@ Status DataTypeStructSerDe::write_column_to_arrow(const std::shared_ptr<const ID
         for (size_t element = 0; element < struct_column.tuple_size(); ++element) {
             RETURN_IF_ERROR(context.write_column(
                     struct_type.get_element(element), *elem_serdes_ptrs[element],
-                    struct_column.get_column(element), nullptr, field->type()->field(element),
-                    builder.field_builder(element), r, r + 1, ctz));
+                    struct_column.get_column(element), nullptr,
+                    field->type()->field(cast_set<int>(element)),
+                    builder.field_builder(cast_set<int>(element)), r, r + 1, ctz));
         }
     }
     return Status::OK();
