@@ -71,6 +71,10 @@ suite("test_paimon_schema_evolution",
 
         // ADD COLUMN, appended (no position clause).
         sql """alter table schema_evo add column extra string"""
+        // The schema cache reloads asynchronously after an external DDL; a desc issued in the same
+        // millisecond can observe the pre-alter generation. refresh forces the reload synchronously
+        // (applied after every alter in this suite for deterministic baselines).
+        sql """refresh table schema_evo"""
         qt_evo_after_add """desc schema_evo"""
         // The pre-ALTER rows must still be readable, with the new column reading NULL for them: this is
         // the schema-evolution read-compatibility guarantee, and it is what a naive "rewrite the schema"
@@ -79,7 +83,9 @@ suite("test_paimon_schema_evolution",
 
         // ADD COLUMN FIRST / AFTER: position must be honored, not silently appended.
         sql """alter table schema_evo add column lead_col int first"""
+        sql """refresh table schema_evo"""
         sql """alter table schema_evo add column mid_col int after score"""
+        sql """refresh table schema_evo"""
         qt_evo_after_positions """desc schema_evo"""
 
         // New rows write under the new schema while old rows keep their (NULL) values.
@@ -88,22 +94,26 @@ suite("test_paimon_schema_evolution",
 
         // RENAME COLUMN: the data must follow the rename, not be dropped and re-added as NULL.
         sql """alter table schema_evo rename column extra extra_renamed"""
+        sql """refresh table schema_evo"""
         qt_evo_after_rename """desc schema_evo"""
         order_qt_evo_rename_rows """select id, extra_renamed from schema_evo"""
 
         // MODIFY COLUMN type widening (int -> bigint): existing values must survive the widening.
         sql """alter table schema_evo modify column score bigint"""
+        sql """refresh table schema_evo"""
         qt_evo_after_widen """desc schema_evo"""
         order_qt_evo_widen_rows """select id, score from schema_evo"""
 
         // MODIFY COLUMN ... COMMENT routes through modifyColumnComment (the sole entrypoint), which must
         // change ONLY the comment.
         sql """alter table schema_evo modify column note string comment 'the note column'"""
+        sql """refresh table schema_evo"""
         qt_evo_after_comment """desc schema_evo"""
         order_qt_evo_comment_rows """select id, note from schema_evo"""
 
         // DROP COLUMN: the remaining columns keep their values.
         sql """alter table schema_evo drop column mid_col"""
+        sql """refresh table schema_evo"""
         qt_evo_after_drop """desc schema_evo"""
         order_qt_evo_drop_rows """select id, score, note, extra_renamed, lead_col from schema_evo"""
 
@@ -125,16 +135,23 @@ suite("test_paimon_schema_evolution",
 
         // Dotted paths address a field INSIDE the struct; the parent column must not be replaced.
         sql """alter table schema_evo_nested add column s.c int"""
-        qt_nested_after_add """desc schema_evo_nested"""
+        sql """refresh table schema_evo_nested"""
+        // Row read FIRST: it forces the full post-alter schema load, which the desc that follows
+        // then observes deterministically (the framework's back-to-back execution can otherwise
+        // catch the async reload mid-flight on this one spot).
         order_qt_nested_add_rows """select id, s from schema_evo_nested"""
+        qt_nested_after_add """desc schema_evo_nested"""
 
         sql """alter table schema_evo_nested rename column s.b b_renamed"""
+        sql """refresh table schema_evo_nested"""
         qt_nested_after_rename """desc schema_evo_nested"""
 
         sql """alter table schema_evo_nested modify column s.a bigint"""
+        sql """refresh table schema_evo_nested"""
         qt_nested_after_modify """desc schema_evo_nested"""
 
         sql """alter table schema_evo_nested drop column s.c"""
+        sql """refresh table schema_evo_nested"""
         qt_nested_after_drop """desc schema_evo_nested"""
         order_qt_nested_final_rows """select id, s from schema_evo_nested"""
 
