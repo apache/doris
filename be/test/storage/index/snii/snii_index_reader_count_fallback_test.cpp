@@ -47,6 +47,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "storage/index/index_file_reader.h"
+#include "storage/index/index_iterator.h" // for IndexIterator
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/common_grams/common_grams_key_codec.h"
 #include "storage/index/inverted/common_grams/common_grams_segment_metadata.h"
