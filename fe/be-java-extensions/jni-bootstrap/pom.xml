@@ -56,6 +56,18 @@ under the License.
         </dependency>
 
         <!--
+          Test scope, and it stays test scope: statusJson() writes JSON by hand precisely so that
+          this module ships no parser, and PluginRuntimeTest needs a real one to assert that what it
+          writes IS JSON. Substring assertions were what it had, and they stayed green with the
+          whole escaping deleted - while the one consumer of /api/jni_plugin_status is a parser.
+        -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
           Narrowed to test scope for the same reason as in jni-spi: the fe parent pom declares
           these for every module, and a child cannot drop an inherited dependency. See that pom
           for the full explanation. Do not "fix" these to compile scope.

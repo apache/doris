@@ -18,6 +18,8 @@
 package org.apache.doris.jni.bootstrap;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -127,7 +129,7 @@ public final class PluginRegistry {
     /**
      * Where plugins read hadoop configuration files from.
      *
-     * <p>Falls back to {@code HADOOP_CONF_DIR} when the plugin conf directory does not exist. That
+     * <p>Falls back to {@code HADOOP_CONF_DIR} when the plugin conf directory holds nothing. That
      * environment variable is how a deployment points at the cluster's real {@code /etc/hadoop/conf}
      * - it is what resolves an HDFS HA nameservice - and {@code bin/start_be.sh} puts it on the
      * <em>system</em> class path, which a plugin classloader cannot reach. Without this fallback an
@@ -136,8 +138,9 @@ public final class PluginRegistry {
      *
      * <p>Deliberately a fallback and not a merge: two directories both answering
      * {@code core-site.xml} would make which one wins depend on classloader order, and
-     * {@code Configuration.loadResource} takes only the first. An operator who populates
-     * {@code plugins/hadoop_conf} means it to be the answer.
+     * {@code Configuration.getResource} takes only the first. An operator who populates
+     * {@code plugins/hadoop_conf} means it to be the answer - which is why the test is what that
+     * directory HOLDS and not whether it exists: build.sh creates it empty in every output tree.
      */
     static Path hadoopConfDir() {
         return hadoopConfDir(System.getenv("HADOOP_CONF_DIR"));
@@ -146,10 +149,20 @@ public final class PluginRegistry {
     /** The environment is a parameter so the fallback is testable; nothing else may pass it. */
     static Path hadoopConfDir(String hadoopConfDirEnv) {
         Path configured = directory(HADOOP_CONF_DIR_PROPERTY, DEFAULT_HADOOP_CONF_SUBDIR);
-        // Only when nothing was configured and the default is not there. A directory an operator
+        // Only when nothing was configured and the default holds nothing. A directory an operator
         // named explicitly is the answer whether or not it exists yet - silently reading somewhere
         // else would be worse than reading nothing.
-        if (System.getProperty(HADOOP_CONF_DIR_PROPERTY) != null || Files.isDirectory(configured)) {
+        //
+        // Both halves of that test are narrower than they look, and both had to be: on a real BE
+        // this fallback was unreachable. JvmLauncher::_build_options() pushes
+        // -Ddoris.jni.hadoop.conf.dir unconditionally, from a config whose default is
+        // <DORIS_HOME>/plugins/hadoop_conf, so "was a property set" is always true - hence
+        // namedExplicitly(). And build.sh CREATES that directory in every output tree, so
+        // "does it exist" is always true too - hence holdsFiles(). Getting either wrong turns an
+        // upgrade on a cluster that resolves its HDFS HA nameservice through $HADOOP_CONF_DIR into
+        // "unknown host: <nameservice>" on every Java scanner, while the native reader keeps
+        // working.
+        if (namedExplicitly() || holdsFiles(configured)) {
             return configured;
         }
         if (hadoopConfDirEnv != null && !hadoopConfDirEnv.trim().isEmpty()) {
@@ -160,6 +173,33 @@ public final class PluginRegistry {
         }
         // Returned rather than null so the caller logs the directory an operator was meant to fill.
         return configured;
+    }
+
+    /**
+     * Whether the hadoop conf directory was named by somebody rather than defaulted into. The
+     * property carrying the BE config's own default is indistinguishable from an operator setting
+     * that same path by hand, and treating both as "defaulted" is the safe way round: the two name
+     * the same directory, so the only thing at stake is whether an empty one suppresses the
+     * environment fallback.
+     */
+    private static boolean namedExplicitly() {
+        String property = System.getProperty(HADOOP_CONF_DIR_PROPERTY);
+        return property != null && !property.trim().isEmpty()
+                && !Paths.get(property.trim()).endsWith(DEFAULT_HADOOP_CONF_SUBDIR);
+    }
+
+    /** Whether the directory holds anything at all; an empty drop point is not an answer. */
+    private static boolean holdsFiles(Path dir) {
+        if (!Files.isDirectory(dir)) {
+            return false;
+        }
+        try (DirectoryStream<Path> entries = Files.newDirectoryStream(dir)) {
+            return entries.iterator().hasNext();
+        } catch (IOException | RuntimeException e) {
+            // Unreadable is not empty. An operator who filled this directory and got the
+            // permissions wrong must not silently be served the environment's one instead.
+            return true;
+        }
     }
 
     private static Path directory(String property, String defaultSubdir) {

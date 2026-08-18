@@ -22,13 +22,13 @@
 #include <jni_md.h>
 
 #include <cstdlib>
+#include <limits>
 #include <mutex>
 #include <sstream>
 #include <string>
 
 #include "absl/strings/substitute.h"
 #include "common/config.h"
-#include "common/metrics/doris_metrics.h"
 #include "util/jni_native_method.h"
 #include "util/jvm_launcher.h"
 
@@ -45,12 +45,21 @@ Status Env::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
     // Attaching implies ensure_jvm(), which is where the JNI base is resolved - once per
-    // process, on the thread that brought the JVM up. So by the time this returns the
-    // natives are registered and the cached classes exist, and there is nothing left to do
-    // here but remember the env for this thread. On failure tls_env_ is left untouched, so
+    // process, on the thread that brought the JVM up. On failure tls_env_ is left untouched, so
     // the thread still looks unattached and the next call retries and reports the same
     // error rather than running without the base.
     RETURN_IF_ERROR(JvmLauncher::attach_current_thread(&tls_env_));
+
+    // The base is asked for again rather than assumed, because the bootstrap no longer fails when
+    // it cannot resolve it: a JVM whose plugin SPI is missing still serves libhdfs, and taking
+    // HDFS down with a Java deployment problem is not this file's call to make. This is where that
+    // gate lives instead - every caller that is about to run Java code comes through here, and
+    // nothing on the libhdfs path does. The call itself is the cached outcome of the one attempt
+    // the bootstrap made; it never re-runs the resolution.
+    if (Status base = Util::ensure_jni_base(); !base.ok()) {
+        tls_env_ = nullptr;
+        return base;
+    }
     *env = tls_env_;
     return Status::OK();
 }
@@ -153,8 +162,17 @@ jlong Util::_parse_xmx(const std::string& options) {
             continue;
         }
         try {
+            jlong digits = std::stoll(value);
+            // The multiply, too: "-Xmx99999999999g" survives stoll and overflows a signed 64-bit
+            // here, which is UB and which an ASAN build (-fsanitize=undefined) reports. Treated
+            // like the malformed case three lines up - the JVM would have rejected such an -Xmx,
+            // so this can only be a value nothing is running with.
+            if (digits > std::numeric_limits<jlong>::max() / multiplier) {
+                LOG(WARNING) << "Ignoring the JVM option '" << opt << "': heap size out of range";
+                continue;
+            }
             // The last one wins, as it does for the JVM itself.
-            parsed = std::stoll(value) * multiplier;
+            parsed = digits * multiplier;
         } catch (const std::exception& e) {
             LOG(WARNING) << "Ignoring the JVM option '" << opt << "': " << e.what();
         }
@@ -228,10 +246,10 @@ Status Util::_init_collect_class() {
     return Status::OK();
 }
 
-// Driven by JvmLauncher::_bootstrap(), right after the JVM it describes exists, and by
-// nothing else: everything below needs a JVM, and everything the JVM has to publish - the
-// jvm_* metrics above all - has to appear as soon as one exists, whether it was a JNI
-// scanner or an HDFS read through libhdfs that brought it up.
+// Driven by JvmLauncher::_bootstrap(), right after the JVM it describes exists, and re-asked by
+// Env::GetJNIEnvSlowPath() on every thread that is about to run Java code: the bootstrap does not
+// fail when this fails, so somebody has to keep Java callers out afterwards. Only the first call
+// resolves anything; the rest get its outcome.
 Status Util::ensure_jni_base() {
     static std::once_flag jni_base_once;
     static Status jni_base_status;
@@ -245,9 +263,6 @@ Status Util::_init_jni_base() {
     // unregistered one would surface as an UnsatisfiedLinkError deep inside a scanner.
     RETURN_IF_ERROR(_init_register_natives());
     RETURN_IF_ERROR(_init_collect_class());
-    // The JVM this runs against already exists - the bootstrap that created it is the only
-    // caller - so its metrics have something to report.
-    DorisMetrics::instance()->init_jvm_metrics();
     return Status::OK();
 }
 

@@ -165,6 +165,47 @@ class JdbcDriverUtilsTest {
     }
 
     /**
+     * A cached classloader is not a verdict on the jar. The connection tester runs first, on the
+     * same parent as the scanner, so once it had built the loader the scanner's early return
+     * skipped its own verifier - and a driver jar that did not match the catalog's checksum was
+     * accepted, for the life of the process, on every BE that had ever validated that catalog.
+     */
+    @Test
+    void cachedClassLoaderDoesNotStandInForAChecksum(@TempDir Path dir) throws IOException {
+        String jar = driverJar(dir, "cached-then-checked.jar");
+        ClassLoader parent = getClass().getClassLoader();
+
+        // Somebody with nothing to check builds the loader first.
+        JdbcDriverUtils.driverClassLoader(jar, parent);
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> JdbcDriverUtils.driverClassLoader(jar, parent,
+                        JdbcDriverUtils.checksumVerifier("00000000000000000000000000000000")),
+                "the checksum must still be compared against a jar whose classloader already exists");
+    }
+
+    /**
+     * ...but only once. The check reads the whole jar, which for a remote driver URL is a download,
+     * so asking the same question twice would put it on every scanner.
+     */
+    @Test
+    void thePassingChecksumIsComparedOncePerJar(@TempDir Path dir) throws IOException {
+        String jar = driverJar(dir, "checked-once.jar");
+        String actual = md5Of(jar);
+        ClassLoader parent = getClass().getClassLoader();
+        ClassLoader other = new URLClassLoader(new URL[0], null);
+
+        JdbcDriverUtils.driverClassLoader(jar, parent, JdbcDriverUtils.checksumVerifier(actual));
+        Files.write(Path.of(URI.create(jar)), "replaced".getBytes(StandardCharsets.UTF_8));
+
+        // Same jar, same expectation, and now a different parent - so a second classloader is built
+        // and the answer still comes from the first comparison rather than from the new bytes.
+        Assertions.assertDoesNotThrow(
+                () -> JdbcDriverUtils.driverClassLoader(jar, other,
+                        JdbcDriverUtils.checksumVerifier(actual.toUpperCase(Locale.ROOT))));
+    }
+
+    /**
      * A catalog defined without a checksum has nothing to verify against. Inventing an expectation
      * there would reject every such catalog, so "no checksum" has to mean "no verifier".
      */

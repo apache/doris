@@ -29,8 +29,8 @@
 // That makes the *successful* create the assertion that covers the BE factory:
 // it only returns once executePendingBeTests() resolved (jdbc, connection-tester)
 // and ran it.  If the factory name and the BE-side registry ever drift apart,
-// every create below fails with "unknown factory" instead - which is exactly what
-// the assertNoPluginWiringError() checks below are guarding.
+// every create below fails with "has no factory named" instead - which is exactly
+// what the assertNoPluginWiringError() checks below are guarding.
 suite("test_jdbc_connection_validation", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
@@ -52,7 +52,7 @@ suite("test_jdbc_connection_validation", "p0,external") {
     def assertNoPluginWiringError = { String label, Exception ex ->
         assertNotNull(ex, "${label}: expected the create to fail, but it succeeded")
         String msg = ex.toString()
-        ["unknown factory", "is not deployed", "failed to load",
+        ["has no factory named", "is not deployed", "failed to load",
          "packages the SPI itself", "built against plugin API"].each { marker ->
             assertFalse(msg.contains(marker),
                     "${label}: BE plugin wiring error '${marker}' in: ${msg}")
@@ -220,7 +220,12 @@ suite("test_jdbc_connection_validation", "p0,external") {
             check { respCode, body ->
                 logger.info("BE ${id} jni plugin status: ${respCode} ${body}")
                 assertEquals(200, respCode)
-                if ("${body}".contains("\"jdbc\"")) {
+                // Parsed, and read off "plugins" rather than "deployed": the latter is a directory
+                // listing, present on every BE whether or not anything was ever loaded, so a
+                // substring check for "jdbc" could not fail and proved nothing. "plugins" holds only
+                // what this process has actually touched.
+                def status = parseJson("${body}")
+                if (status.plugins.any { it.name == "jdbc" && it.state == "READY" }) {
                     anyBackendLoadedJdbc = true
                 }
             }

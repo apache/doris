@@ -64,8 +64,9 @@ reason described on `JniScanner`.
 | `getStatistics` | `()Ljava/util/Map;` |
 | `close` | `()V` |
 
-`JniScannerContractTest` fails if any of these is renamed, re-signed, moved off the base class, or
-made overridable.
+`JniScannerContractTest` and `JniWriterContractTest` fail if any of these is renamed, re-signed,
+moved off the base class, or made overridable — one test per table, because the two are resolved by
+different BE call sites and lost the writer half once already.
 
 ### UDF executors
 

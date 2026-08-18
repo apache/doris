@@ -180,12 +180,17 @@ bool handles(int signo, void (*handler)(int)) {
 
 } // namespace
 
-// A JVM started without -Xrs installs its own SIGINT and SIGTERM handlers, and its handler
-// answers a shutdown signal with a Java Shutdown.exit() - an ::exit() from a JVM thread, which
-// runs the C++ global destructors while the BE's threads are still working and skips the
-// orderly shutdown main() does. Both signals have to still be the BE's afterwards, whether
-// that is because -Xrs kept the JVM away from them or because BeOwnedSignalGuard put them
-// back for a VM somebody else created.
+// A JVM started without -Xrs installs its own SIGINT, SIGTERM and SIGQUIT handlers. For the two
+// shutdown signals its handler answers with a Java Shutdown.exit() - an ::exit() from a JVM thread,
+// which runs the C++ global destructors while the BE's threads are still working and skips the
+// orderly shutdown main() does. For SIGQUIT it prints a thread dump, which is harmless but is not
+// the disposition doris_main.cpp installed. All three have to still be the BE's afterwards, whether
+// that is because -Xrs kept the JVM away from them or because BeOwnedSignalGuard put them back for
+// a VM somebody else created.
+//
+// All three, because that is what BE_OWNED_SIGNALS holds: this case asserted two of them while the
+// third was added in the same change that made SIGQUIT the BE's, which is exactly the drift a
+// signal test exists to catch.
 //
 // DISABLED, and by the same precedent as jni_util_test.cpp, which disables its own JVM test
 // permanently: creating a JVM inside doris_be_test makes ASAN report the JVM's own allocations as
@@ -210,11 +215,14 @@ TEST(JvmLauncherSignalTest, DISABLED_TheJvmDoesNotKeepTheShutdownSignals) {
 
     struct sigaction saved_int = {};
     struct sigaction saved_term = {};
+    struct sigaction saved_quit = {};
     ASSERT_EQ(0, sigaction(SIGINT, &ours, &saved_int));
     ASSERT_EQ(0, sigaction(SIGTERM, &ours, &saved_term));
+    ASSERT_EQ(0, sigaction(SIGQUIT, &ours, &saved_quit));
     Defer restore {[&]() {
         sigaction(SIGINT, &saved_int, nullptr);
         sigaction(SIGTERM, &saved_term, nullptr);
+        sigaction(SIGQUIT, &saved_quit, nullptr);
     }};
 
     if (Status status = JvmLauncher::ensure_jvm(); !status.ok()) {
@@ -223,6 +231,7 @@ TEST(JvmLauncherSignalTest, DISABLED_TheJvmDoesNotKeepTheShutdownSignals) {
 
     EXPECT_TRUE(handles(SIGINT, &mark_shutdown_requested)) << "the JVM took SIGINT over";
     EXPECT_TRUE(handles(SIGTERM, &mark_shutdown_requested)) << "the JVM took SIGTERM over";
+    EXPECT_TRUE(handles(SIGQUIT, &mark_shutdown_requested)) << "the JVM took SIGQUIT over";
 }
 
 } // namespace doris::Jni

@@ -59,6 +59,7 @@ header:
     - "fe/fe-filesystem/fe-filesystem-spi/src/test/resources/filesystem-plugin-surface.txt"
     - "fe/fe-authentication/fe-authentication-spi/src/test/resources/authentication-plugin-surface.txt"
     - "fe/fe-core/src/test/resources/lineage-plugin-surface.txt"
+    - "fe/be-java-extensions/jni-spi/src/test/resources/jni-plugin-surface.txt"
     # Connector plugin settings templates. build.sh seeds each connector's live
     # <name>.conf from its template verbatim (cp -n), so the template's content IS
     # the file an administrator edits in plugins/connector/<dir>/. Matched by name

@@ -1050,6 +1050,10 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         params["jdbc_password"] = jdbc_table.jdbc_password;
         params["jdbc_driver_class"] = jdbc_table.jdbc_driver_class;
         params["jdbc_driver_url"] = driver_url;
+        // The catalog's expected MD5. Without it JdbcConnectionTester reads "" and
+        // JdbcDriverUtils.checksumVerifier("") is a no-op, so the one request whose entire job is
+        // to validate a catalog definition accepted any jar at all behind the driver URL.
+        params["jdbc_driver_checksum"] = jdbc_table.jdbc_driver_checksum;
         params["query_sql"] = request->query_str();
         params["catalog_id"] = std::to_string(jdbc_table.catalog_id);
         params["connection_pool_min_size"] = std::to_string(jdbc_table.connection_pool_min_size);

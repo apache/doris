@@ -173,8 +173,9 @@ TEST_F(WarmupTest, ADirectoryIsAPlugin) {
 // reached Java and Java had nothing to report. Only "no JVM exists afterwards" separates the two,
 // and it is what "a BE that touches no Java feature pays for no JVM" means.
 TEST_F(WarmupTest, WarmupTouchesNoJavaWithNothingDeployed) {
-    ASSERT_EQ(nullptr, JvmLauncher::vm()) << "some earlier test in this binary already started a "
-                                             "JVM, so this one cannot tell whether warmup starts one";
+    ASSERT_EQ(nullptr, JvmLauncher::vm())
+            << "some earlier test in this binary already started a "
+               "JVM, so this one cannot tell whether warmup starts one";
     EXPECT_TRUE(PluginRegistry::warmup().ok());
     EXPECT_EQ(nullptr, JvmLauncher::vm()) << "warmup created a JVM with no plugin deployed";
 }

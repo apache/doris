@@ -50,6 +50,13 @@ final class PaimonJdbcDriverUtils {
     /** One registration per driver: DriverManager keeps every driver ever registered, forever. */
     private static final Set<String> REGISTERED = ConcurrentHashMap.newKeySet();
 
+    /**
+     * One lock per driver, so that registering two different drivers does not serialize. Same shape
+     * as {@code JdbcDriverUtils.driverClassLoader}, and for the same reason: loading the driver
+     * class reads a jar, which must not happen inside a {@code ConcurrentHashMap} bin lock.
+     */
+    private static final ConcurrentHashMap<String, Object> REGISTRATION_LOCKS = new ConcurrentHashMap<>();
+
     private PaimonJdbcDriverUtils() {
     }
 
@@ -68,19 +75,29 @@ final class PaimonJdbcDriverUtils {
 
     static void registerDriver(String driverUrl, String driverClassName, ClassLoader parentClassLoader) {
         String key = driverUrl + "#" + driverClassName;
-        if (!REGISTERED.add(key)) {
+        if (REGISTERED.contains(key)) {
             return;
         }
-        try {
-            ClassLoader driverClassLoader = JdbcDriverUtils.driverClassLoader(driverUrl, parentClassLoader);
-            Class<?> driverClass = Class.forName(driverClassName, true, driverClassLoader);
-            Driver driver = (Driver) driverClass.getDeclaredConstructor().newInstance();
-            DriverManager.registerDriver(new DriverShim(driver));
-        } catch (Exception e) {
-            // A failed registration must not be remembered as done: the catalog can be fixed and
-            // retried without restarting BE.
-            REGISTERED.remove(key);
-            throw new RuntimeException("Failed to register JDBC driver: " + driverClassName, e);
+        // Published only once the driver really is registered. The set used to be claimed up front,
+        // which made "somebody is registering this" and "this is registered" the same state:
+        // PaimonJniScanner calls per scanner, the scanners of one query's splits run concurrently,
+        // and the second thread returned here immediately and asked DriverManager for a connection
+        // while the first was still loading the driver class - "No suitable driver".
+        synchronized (REGISTRATION_LOCKS.computeIfAbsent(key, entry -> new Object())) {
+            if (REGISTERED.contains(key)) {
+                return;
+            }
+            try {
+                ClassLoader driverClassLoader = JdbcDriverUtils.driverClassLoader(driverUrl, parentClassLoader);
+                Class<?> driverClass = Class.forName(driverClassName, true, driverClassLoader);
+                Driver driver = (Driver) driverClass.getDeclaredConstructor().newInstance();
+                DriverManager.registerDriver(new DriverShim(driver));
+            } catch (Exception e) {
+                // Nothing to undo: a failed registration was never published, so the catalog can be
+                // fixed and retried without restarting BE.
+                throw new RuntimeException("Failed to register JDBC driver: " + driverClassName, e);
+            }
+            REGISTERED.add(key);
         }
     }
 
