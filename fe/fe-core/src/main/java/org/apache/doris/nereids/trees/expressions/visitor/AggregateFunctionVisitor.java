@@ -97,6 +97,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
+import org.apache.doris.nereids.trees.expressions.functions.agg.UniqTheta;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
@@ -298,6 +299,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitNdv(Ndv ndv, C context) {
         return visitAggregateFunction(ndv, context);
+    }
+
+    default R visitUniqTheta(UniqTheta uniqTheta, C context) {
+        return visitAggregateFunction(uniqTheta, context);
     }
 
     default R visitOrthogonalBitmapIntersect(OrthogonalBitmapIntersect function, C context) {
