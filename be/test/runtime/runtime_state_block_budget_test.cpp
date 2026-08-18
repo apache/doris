@@ -82,6 +82,26 @@ TEST(RuntimeStateIcebergCommitDataTest, ValidatesTheCompleteReportEnvelope) {
     EXPECT_TRUE(validate_report_exec_status_size(params, 3 * 1024 * 1024).ok());
 }
 
+TEST(RuntimeStateIcebergCommitDataTest, EveryOwnershipBearingVectorRequiresExplicitAck) {
+    TReportExecStatusParams params;
+    EXPECT_FALSE(report_transfers_external_file_ownership(params));
+
+    params.__set_hive_partition_updates({THivePartitionUpdate()});
+    EXPECT_TRUE(report_transfers_external_file_ownership(params));
+    params.__isset.hive_partition_updates = false;
+
+    params.__set_paimon_commit_messages({TPaimonCommitMessage()});
+    EXPECT_TRUE(report_transfers_external_file_ownership(params));
+    params.__isset.paimon_commit_messages = false;
+
+    params.__set_mc_commit_datas({TMCCommitData()});
+    EXPECT_TRUE(report_transfers_external_file_ownership(params));
+    params.__isset.mc_commit_datas = false;
+
+    params.__set_iceberg_commit_datas({TIcebergCommitData()});
+    EXPECT_TRUE(report_transfers_external_file_ownership(params));
+}
+
 TEST(RuntimeStateIcebergCommitDataTest, PeriodicReportOmitsExternalCommitData) {
     RuntimeState state;
     THivePartitionUpdate hive_update;

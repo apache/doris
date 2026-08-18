@@ -47,12 +47,35 @@ class RewriteDataFileExecutorTest {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
 
-            new RewriteDataFileExecutor(table, null).commitAndInvalidate(transactionManager, 7L);
+            transactionManager.commit(7L);
+            new RewriteDataFileExecutor(table, null).invalidateTableCacheAfterCommit();
 
             InOrder inOrder = Mockito.inOrder(transactionManager, cacheMgr);
             inOrder.verify(transactionManager).commit(7L);
             inOrder.verify(cacheMgr).invalidateTableCache(table);
             Mockito.verify(transaction, Mockito.never()).commit();
+        }
+    }
+
+    @Test
+    void testCacheInvalidationFailureDoesNotTurnDurableCommitIntoFailure() throws Exception {
+        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        TransactionManager transactionManager = Mockito.mock(TransactionManager.class);
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+            Mockito.doThrow(new IllegalStateException("injected cache failure"))
+                    .when(cacheMgr).invalidateTableCache(table);
+
+            transactionManager.commit(7L);
+            Assertions.assertDoesNotThrow(() -> new RewriteDataFileExecutor(table, null)
+                    .invalidateTableCacheAfterCommit());
+
+            Mockito.verify(transactionManager).commit(7L);
+            Mockito.verify(transactionManager, Mockito.never()).rollback(7L);
         }
     }
 

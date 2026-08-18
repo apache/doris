@@ -2229,9 +2229,9 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
                                            PrintThriftNetworkAddress(req.coord_addr), e.what());
     }
 
-    // Iceberg requires the explicit new-protocol ACK. Legacy Hive/Paimon coordinators transfer
-    // ownership through RPC success, which remains valid during a rolling FE upgrade.
-    const bool requires_external_file_ack = params.__isset.iceberg_commit_datas;
+    // Transport success is not ownership acceptance: a legacy FE can return OK after dropping
+    // every external commit vector, so all ownership-bearing reports require the explicit ACK.
+    const bool requires_external_file_ack = report_transfers_external_file_ownership(params);
     if (rpc_status.ok() && requires_external_file_ack &&
         (!res.__isset.external_file_commit_data_accepted ||
          !res.external_file_commit_data_accepted)) {

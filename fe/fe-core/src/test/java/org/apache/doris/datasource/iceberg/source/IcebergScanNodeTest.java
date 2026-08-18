@@ -1988,6 +1988,29 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testReachableSchemasConservativelyIncludeHistoryAfterExpiredParent() {
+        Schema selectedSchema = new Schema(2, ImmutableList.of(
+                Types.NestedField.required(1, "id", Types.LongType.get())));
+        Schema expiredParentSchema = new Schema(1, ImmutableList.of(
+                Types.NestedField.optional(1, "id", Types.LongType.get())));
+        Snapshot selectedSnapshot = Mockito.mock(Snapshot.class);
+        Mockito.when(selectedSnapshot.snapshotId()).thenReturn(20L);
+        Mockito.when(selectedSnapshot.schemaId()).thenReturn(2);
+        Mockito.when(selectedSnapshot.parentId()).thenReturn(10L);
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.schemas()).thenReturn(ImmutableMap.of(
+                1, expiredParentSchema, 2, selectedSchema));
+        Mockito.when(table.snapshot(10L)).thenReturn(null);
+
+        List<Schema> reachable = new ArrayList<>();
+        IcebergScanNode.reachableSchemas(table, selectedSnapshot).forEach(reachable::add);
+
+        Assert.assertTrue(reachable.contains(expiredParentSchema));
+        Assert.assertTrue(IcebergScanNode.schemaHistoryRequiresMissingRequiredFieldRejection(
+                selectedSchema, reachable));
+    }
+
+    @Test
     public void testProjectedFieldIdsExcludePrunedSibling() {
         Schema schema = new Schema(ImmutableList.of(Types.NestedField.required(
                 1, "payload", Types.StructType.of(
