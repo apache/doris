@@ -153,6 +153,9 @@ bool uses_plain_term_frequency_scoring(InvertedIndexQueryType query_type,
 
 bool uses_phrase_frequency_scoring(InvertedIndexQueryType query_type,
                                    const InvertedIndexQueryInfo& query_info) {
+    // A single-token phrase-prefix is a plain prefix query, not a phrase-frequency query. Like V3,
+    // direct MATCH therefore publishes no BM25 score, while FunctionSearch carries the bitmap as
+    // a constant-score BitSetQuery.
     return query_info.term_infos.size() > 1 &&
            (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
@@ -661,7 +664,7 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     // access below only for a segment that cannot contain gram terms.
     const bool initial_force_plain = common_grams_query_eligible && safety_requires_plain;
     const bool initial_allow_result_cache = !actual_similarity && !initial_force_plain;
-    const bool defer_result_cache_lookup = !actual_similarity && !initial_allow_result_cache;
+    const bool defer_result_cache_lookup = !initial_allow_result_cache;
     const InvertedIndexRawQuerySemantic raw_semantic {
             .raw_query_bytes = search_str,
             .query_type = query_type,
@@ -712,12 +715,6 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     const bool force_plain =
             common_grams_query_eligible && safety_requires_plain &&
             (effective_common_grams_configured || segment_may_contain_common_grams);
-    allow_result_cache = !actual_similarity && !force_plain;
-    if (defer_result_cache_lookup && allow_result_cache &&
-        handle_query_cache(context, cache, cache_key, &cache_handler, bit_map,
-                           allow_result_cache)) {
-        return finish_query(logical_reader);
-    }
     InvertedIndexQueryInfo execution_query_info = query_info;
     const auto plain_purpose = common_grams_query_eligible
                                        ? std::optional(inverted_index::AnalysisPurpose::kPlainQuery)
@@ -740,10 +737,17 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
         return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
                 "CommonGrams term escaped the plain query analyzer");
     }
-    if (actual_similarity && query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY &&
-        execution_query_info.term_infos.size() == 1) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "SNII scoring does not support a single-token phrase-prefix query");
+    const bool phrase_frequency_scoring =
+            actual_similarity && uses_phrase_frequency_scoring(query_type, execution_query_info);
+    const bool plain_term_frequency_scoring =
+            actual_similarity &&
+            uses_plain_term_frequency_scoring(query_type, execution_query_info);
+    const bool frequency_scoring = phrase_frequency_scoring || plain_term_frequency_scoring;
+    allow_result_cache = !frequency_scoring && !force_plain;
+    if (defer_result_cache_lookup && allow_result_cache &&
+        handle_query_cache(context, cache, cache_key, &cache_handler, bit_map,
+                           allow_result_cache)) {
+        return finish_query(logical_reader);
     }
     std::vector<std::string> terms = to_terms(execution_query_info);
 
@@ -781,10 +785,7 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
             query_single_flight;
     std::shared_ptr<roaring::Roaring> result_bitmap;
     std::vector<::doris::snii::query::PhraseMatch> phrase_matches;
-    auto* phrase_matches_out =
-            actual_similarity && uses_phrase_frequency_scoring(query_type, execution_query_info)
-                    ? &phrase_matches
-                    : nullptr;
+    auto* phrase_matches_out = phrase_frequency_scoring ? &phrase_matches : nullptr;
     Status single_flight_status;
     if (!allow_result_cache) {
         single_flight_status =
@@ -832,7 +833,7 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     }
     RETURN_IF_ERROR(single_flight_status);
     DORIS_CHECK(result_bitmap != nullptr);
-    if (actual_similarity && !result_bitmap->isEmpty()) {
+    if (frequency_scoring && !result_bitmap->isEmpty()) {
         ::doris::snii::stats::SniiStatsProvider segment_stats;
         RETURN_IF_ERROR(
                 ::doris::snii::stats::SniiStatsProvider::open(logical_reader, &segment_stats));
@@ -840,7 +841,7 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
             RETURN_IF_ERROR(score_phrase_matches(context, column_name, query_type,
                                                  execution_query_info, *logical_reader,
                                                  segment_stats, *result_bitmap, phrase_matches));
-        } else if (uses_plain_term_frequency_scoring(query_type, execution_query_info)) {
+        } else if (plain_term_frequency_scoring) {
             RETURN_IF_ERROR(score_plain_term_candidates(context, column_name, execution_query_info,
                                                         *logical_reader, segment_stats,
                                                         *result_bitmap));

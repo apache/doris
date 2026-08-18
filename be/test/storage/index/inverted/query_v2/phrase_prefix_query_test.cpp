@@ -171,12 +171,12 @@ TEST_F(PhrasePrefixQueryV2Test, single_term_fallback_to_prefix) {
     auto terms = make_term_infos({"bro"});
 
     PhrasePrefixQuery q(ctx, field, terms);
-    auto w = q.weight(false);
+    auto w = q.weight(true);
     ASSERT_NE(w, nullptr);
 
     // Should be a PrefixWeight, not PhrasePrefixWeight
     auto prefix_w = std::dynamic_pointer_cast<PrefixWeight>(w);
-    EXPECT_NE(prefix_w, nullptr);
+    ASSERT_NE(prefix_w, nullptr);
 
     // Execute it
     QueryExecutionContext exec_ctx;
@@ -185,6 +185,8 @@ TEST_F(PhrasePrefixQueryV2Test, single_term_fallback_to_prefix) {
     exec_ctx.field_reader_bindings.emplace(field, reader);
 
     auto scorer = w->scorer(exec_ctx, "");
+    ASSERT_NE(scorer, nullptr);
+    EXPECT_FLOAT_EQ(scorer->score(), 1.0F);
     auto docs = collect_docs(scorer);
     // "bro*" should match: brown (many docs), brother (doc 10)
     EXPECT_GT(docs.size(), 0);
