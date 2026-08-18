@@ -388,8 +388,17 @@ struct DateFormatImpl {
         if constexpr (std::is_same_v<Impl, time_format_type::UserDefinedImpl>) {
             // Handle non-special formats.
             char buf[100 + SAFE_FORMAT_STRING_MARGIN];
-            if (!dt.to_format_string_conservative(format.data, format.size, buf,
-                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+            const bool formatted = [&]() {
+                if constexpr (PType == PrimitiveType::TYPE_DATETIMEV2) {
+                    return dt.to_format_string_conservative(
+                            format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN,
+                            static_cast<int>(dt.microsecond()) * 1000);
+                } else {
+                    return dt.to_format_string_conservative(format.data, format.size, buf,
+                                                            100 + SAFE_FORMAT_STRING_MARGIN);
+                }
+            }();
+            if (!formatted) {
                 return true;
             }
 
@@ -484,15 +493,19 @@ struct FromUnixTimeImpl {
 };
 
 // only new verison
-template <bool WithStringArg>
+template <bool WithStringArg, bool WithNanosecond = false>
 struct FromUnixTimeDecimalImpl {
-    using ArgType = std::conditional_t<WithStringArg, Int128, Int64>;
-    static constexpr PrimitiveType FromPType = WithStringArg ? TYPE_DECIMAL128I : TYPE_DECIMAL64;
-    constexpr static short Scale = WithStringArg ? 9 : 6;
+    static_assert(!WithNanosecond || WithStringArg);
+    using ArgType = std::conditional_t<WithNanosecond, Int128, Int64>;
+    static constexpr PrimitiveType FromPType = WithNanosecond ? TYPE_DECIMAL128I : TYPE_DECIMAL64;
+    constexpr static short Scale = WithNanosecond ? 9 : 6;
 
     static DataTypes get_variadic_argument_types() {
         if constexpr (WithStringArg) {
-            return {std::make_shared<DataTypeDecimal128>(), std::make_shared<DataTypeString>()};
+            if constexpr (WithNanosecond) {
+                return {std::make_shared<DataTypeDecimal128>(), std::make_shared<DataTypeString>()};
+            }
+            return {std::make_shared<DataTypeDecimal64>(), std::make_shared<DataTypeString>()};
         } else {
             return {std::make_shared<DataTypeDecimal64>()};
         }
@@ -733,6 +746,11 @@ public:
                     return TimeValue::to_format_string_conservative(
                             format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN, time,
                             datetime_val.nanosecond());
+                } else if constexpr (ArgPType == PrimitiveType::TYPE_DATETIMEV2 ||
+                                     ArgPType == PrimitiveType::TYPE_TIMEV2) {
+                    return TimeValue::to_format_string_conservative(
+                            format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN, time,
+                            TimeValue::microsecond(time) * 1000);
                 } else {
                     return TimeValue::to_format_string_conservative(
                             format.data, format.size, buf, 100 + SAFE_FORMAT_STRING_MARGIN, time);

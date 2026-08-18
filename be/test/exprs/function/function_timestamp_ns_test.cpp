@@ -68,12 +68,12 @@ TEST(TimestampNsFunctionTest, calendar_extract_and_format) {
     EXPECT_TRUE((check_function<DataTypeString, true>(
                          "date_format", datetimev2_format_arguments,
                          {{{std::string("2024-02-29 12:34:56.123456"), std::string("%f|%n")},
-                           std::string("123456|n")}})
+                           std::string("123456|123456000")}})
                          .ok()));
     EXPECT_TRUE((check_function<DataTypeString, true>(
                          "time_format", datetimev2_format_arguments,
                          {{{std::string("2024-02-29 12:34:56.123456"), std::string("%f|%n")},
-                           std::string("123456|n")}})
+                           std::string("123456|123456000")}})
                          .ok()));
 
     const InputTypeSet timev2_format_arguments = {{PrimitiveType::TYPE_TIMEV2, 6},
@@ -81,7 +81,7 @@ TEST(TimestampNsFunctionTest, calendar_extract_and_format) {
     EXPECT_TRUE((check_function<DataTypeString, true>(
                          "time_format", timev2_format_arguments,
                          {{{std::string("12:34:56.123456"), std::string("%f|%n")},
-                           std::string("123456|n")}})
+                           std::string("123456|123456000")}})
                          .ok()));
 
     EXPECT_TRUE((check_function<DataTypeString, true>(
@@ -96,6 +96,39 @@ TEST(TimestampNsFunctionTest, calendar_extract_and_format) {
     EXPECT_TRUE((check_function<DataTypeInt64, true>(
                          "second_timestamp", one_argument,
                          {{{std::string("1970-01-01 00:00:00.999999999")}, int64_t(-28800)}})
+                         .ok()));
+}
+
+TEST(TimestampNsFunctionTest, datetimev2_and_timev2_format_nanosecond_scales) {
+    const InputTypeSet datetimev2_scale3_format_arguments = {{PrimitiveType::TYPE_DATETIMEV2, 3},
+                                                             Consted {PrimitiveType::TYPE_VARCHAR}};
+    EXPECT_TRUE((check_function<DataTypeString, true>(
+                         "date_format", datetimev2_scale3_format_arguments,
+                         {{{std::string("2024-02-29 12:34:56.123"), std::string("%n")},
+                           std::string("123000000")}})
+                         .ok()));
+
+    const InputTypeSet datetimev2_scale0_format_arguments = {{PrimitiveType::TYPE_DATETIMEV2, 0},
+                                                             Consted {PrimitiveType::TYPE_VARCHAR}};
+    EXPECT_TRUE((check_function<DataTypeString, true>(
+                         "date_format", datetimev2_scale0_format_arguments,
+                         {{{std::string("2024-02-29 12:34:56"), std::string("%n")},
+                           std::string("000000000")}})
+                         .ok()));
+
+    const InputTypeSet timev2_scale3_format_arguments = {{PrimitiveType::TYPE_TIMEV2, 3},
+                                                         Consted {PrimitiveType::TYPE_VARCHAR}};
+    EXPECT_TRUE(
+            (check_function<DataTypeString, true>(
+                     "time_format", timev2_scale3_format_arguments,
+                     {{{std::string("12:34:56.123"), std::string("%n")}, std::string("123000000")}})
+                     .ok()));
+
+    const InputTypeSet timev2_scale0_format_arguments = {{PrimitiveType::TYPE_TIMEV2, 0},
+                                                         Consted {PrimitiveType::TYPE_VARCHAR}};
+    EXPECT_TRUE((check_function<DataTypeString, true>(
+                         "time_format", timev2_scale0_format_arguments,
+                         {{{std::string("12:34:56"), std::string("%n")}, std::string("000000000")}})
                          .ok()));
 }
 
@@ -116,11 +149,35 @@ TEST(TimestampNsFunctionTest, from_unixtime_formats_nanoseconds) {
                                                     std::string("000000|000000001")}})
                      .ok()));
 
+    const InputTypeSet legacy_decimal_arguments = {{PrimitiveType::TYPE_DECIMAL64, 6, 18},
+                                                   Consted {PrimitiveType::TYPE_VARCHAR}};
+    EXPECT_TRUE((check_function<DataTypeString, true>(
+                         "from_unixtime_new", legacy_decimal_arguments,
+                         {{{DECIMAL64(1565080737, 123456, 6), std::string("%f|%n")},
+                           std::string("123456|123456000")}})
+                         .ok()));
+
     const InputTypeSet integer_arguments = {PrimitiveType::TYPE_BIGINT,
                                             Consted {PrimitiveType::TYPE_VARCHAR}};
     EXPECT_TRUE((check_function<DataTypeString, true>(
                          "from_unixtime_new", integer_arguments,
                          {{{int64_t(0), std::string("%f|%n")}, std::string("000000|000000000")}})
+                         .ok()));
+}
+
+TEST(TimestampNsFunctionTest, datetime_to_timestamp_keeps_datetimev2_overload) {
+    TimezoneUtils::load_timezones_to_cache();
+
+    const InputTypeSet datetimev2_arguments = {{PrimitiveType::TYPE_DATETIMEV2, 6}};
+    EXPECT_TRUE((check_function<DataTypeInt64, true>(
+                         "second_timestamp", datetimev2_arguments,
+                         {{{std::string("1970-01-01 08:00:00.999999")}, int64_t(0)}})
+                         .ok()));
+
+    const InputTypeSet timestamp_ns_arguments = {{PrimitiveType::TYPE_TIMESTAMP_NS}};
+    EXPECT_TRUE((check_function<DataTypeInt64, true>(
+                         "second_timestamp", timestamp_ns_arguments,
+                         {{{std::string("1970-01-01 08:00:00.999999999")}, int64_t(0)}})
                          .ok()));
 }
 

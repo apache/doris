@@ -81,18 +81,20 @@ public:
     size_t get_number_of_arguments() const override { return 3; }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
-                std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+        if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            return {std::make_shared<DataTypeTimeStampNs>(), std::make_shared<DataTypeString>(),
+                    std::make_shared<DataTypeString>()};
+        }
+        return {};
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DataTypePtr result_type;
         if constexpr (PType == TYPE_TIMESTAMP_NS) {
-            result_type = std::make_shared<DataTypeTimeStampNs>();
-        } else {
-            result_type = create_datetimev2(arguments[0]->get_scale());
+            return have_nullable(arguments) ? make_nullable(std::make_shared<DataTypeTimeStampNs>())
+                                            : std::make_shared<DataTypeTimeStampNs>();
         }
-        return have_nullable(arguments) ? make_nullable(result_type) : result_type;
+        return have_nullable(arguments) ? make_nullable(std::make_shared<DataTypeDateTimeV2>())
+                                        : std::make_shared<DataTypeDateTimeV2>();
     }
 
     // default value of timezone is invalid, should skip to avoid wrong exception

@@ -990,10 +990,11 @@ public:
 
     size_t get_number_of_arguments() const override { return 1; }
 
-    bool is_variadic() const override { return true; }
-
     DataTypes get_variadic_argument_types_impl() const override {
-        return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>()};
+        if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            return {std::make_shared<DataTypeTimeStampNs>()};
+        }
+        return {};
     }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
@@ -1006,22 +1007,35 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
-        const auto& column_data = assert_cast<const ColumnVector<PType>&>(*arg_col);
+        if constexpr (PType == TYPE_TIMESTAMP_NS) {
+            const auto& column_data = assert_cast<const ColumnTimeStampNs&>(*arg_col);
+            auto res_col = ColumnInt64::create();
+            auto& res_data = res_col->get_data();
+            res_data.resize_fill(input_rows_count, 0);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                const auto& source = column_data.get_data()[i];
+                auto dt = source.to_datetime();
+                int64_t timestamp {0};
+                dt.unix_timestamp(&timestamp, context->state()->timezone_obj());
+                timestamp = timestamp * Impl::ratio + source.microsecond() / ratio_to_micro;
+                res_data[i] = timestamp;
+            }
+            block.replace_by_position(result, std::move(res_col));
+            return Status::OK();
+        }
+
+        const auto& column_data = assert_cast<const ColumnDateTimeV2&>(*arg_col);
         auto res_col = ColumnInt64::create();
         auto& res_data = res_col->get_data();
         res_col->get_data().resize_fill(input_rows_count, 0);
         for (int i = 0; i < input_rows_count; i++) {
-            const auto& source = column_data.get_data()[i];
-            DateV2Value<DateTimeV2ValueType> dt;
-            if constexpr (PType == TYPE_TIMESTAMP_NS) {
-                dt = source.to_datetime();
-            } else {
-                dt = source;
-            }
+            StringRef source = column_data.get_data_at(i);
+            const auto& dt =
+                    reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(*source.data);
             const cctz::time_zone& time_zone = context->state()->timezone_obj();
             int64_t timestamp {0};
             dt.unix_timestamp(&timestamp, time_zone);
-            auto microsecond = source.microsecond();
+            auto microsecond = dt.microsecond();
             timestamp = timestamp * Impl::ratio + microsecond / ratio_to_micro;
             res_data[i] = timestamp;
         }

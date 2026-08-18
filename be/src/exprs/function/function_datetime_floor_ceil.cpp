@@ -137,8 +137,8 @@ public:
     String get_name() const override { return name; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        auto return_type = remove_nullable(arguments[0]);
-        return have_nullable(arguments) ? make_nullable(return_type) : return_type;
+        return have_nullable(arguments) ? make_nullable(std::make_shared<DateType>())
+                                        : std::make_shared<DateType>();
     }
 
     DataTypes get_variadic_argument_types_impl() const override {
@@ -359,7 +359,7 @@ struct DateTimeFloorCeilCore {
                                    DateValueType origin_date, PaddedPODArray<DateValueType>& res,
                                    const NullMap& result_null_map, FunctionContext* context) {
         if constexpr (!std::is_same_v<DateValueType, TimeStampNsValue>) {
-            if (origin_date == DateValueType::FIRST_DAY) {
+            if (auto cast_date = origin_date; cast_date == DateValueType::FIRST_DAY) {
                 vector_const_period(dates, period, res, result_null_map, context);
                 return;
             }

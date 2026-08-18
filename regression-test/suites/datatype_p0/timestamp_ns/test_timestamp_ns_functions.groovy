@@ -67,15 +67,19 @@ suite("test_timestamp_ns_functions") {
     sql "set debug_skip_fold_constant = false"
     testFoldConst(scalarFunctionConstantsSql)
 
-    def legacyDatetimeTimeFormatSql = """
+    def datetimeTimeNanosecondFormatSql = """
         select
             date_format(cast('2024-02-29 12:34:56.123456' as datetimev2(6)), '%f|%n'),
             time_format(cast('2024-02-29 12:34:56.123456' as datetimev2(6)), '%f|%n'),
-            time_format(cast('12:34:56.123456' as time(6)), '%f|%n')
+            time_format(cast('12:34:56.123456' as time(6)), '%f|%n'),
+            date_format(cast('2024-02-29 12:34:56.123' as datetimev2(3)), '%n'),
+            time_format(cast('12:34:56.123' as time(3)), '%n'),
+            date_format(cast('2024-02-29 12:34:56' as datetimev2(0)), '%n'),
+            time_format(cast('12:34:56' as time(0)), '%n')
     """
-    qt_legacy_datetime_time_format_fold legacyDatetimeTimeFormatSql
+    qt_datetime_time_nanosecond_format_fold datetimeTimeNanosecondFormatSql
     sql "set debug_skip_fold_constant = true"
-    qt_legacy_datetime_time_format_runtime legacyDatetimeTimeFormatSql
+    qt_datetime_time_nanosecond_format_runtime datetimeTimeNanosecondFormatSql
     sql "set debug_skip_fold_constant = false"
 
     qt_timezone_inputs """

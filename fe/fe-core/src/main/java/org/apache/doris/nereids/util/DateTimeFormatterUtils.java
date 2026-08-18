@@ -19,6 +19,7 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
@@ -155,7 +156,8 @@ public class DateTimeFormatterUtils {
     public static String toFormatStringConservative(DateLiteral datetime, StringLikeLiteral format,
             boolean isTimeFormat) {
         LocalDateTime dateTime = datetime.toJavaDateType();
-        int nanosecond = datetime instanceof TimeStampNsLiteral ? dateTime.getNano() : -1;
+        int nanosecond = datetime instanceof TimeStampNsLiteral || datetime instanceof DateTimeV2Literal
+                ? dateTime.getNano() : -1;
         return toFormatStringConservative(datetime, format, isTimeFormat, nanosecond);
     }
 
@@ -183,7 +185,7 @@ public class DateTimeFormatterUtils {
     public static String toFormatStringConservative(TimeV2Literal time, StringLikeLiteral format) {
         String pattern = trimFormat(format.getValue());
         String res = formatTemporalLiteral(0, 0, 0, time.getHour(), time.getMinute(),
-                time.getSecond(), time.getMicroSecond(), -1, pattern);
+                time.getSecond(), time.getMicroSecond(), time.getMicroSecond() * 1000, pattern);
         if (time.isNegative()) {
             res = "-" + res;
         }

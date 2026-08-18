@@ -537,15 +537,24 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         DateTimeV2Literal dateTimeV2 = new DateTimeV2Literal("2024-02-29 12:34:56.123456");
         d = new DateFormat(dateTimeV2, StringLiteral.of("%f|%n"));
         rewritten = executor.rewrite(d, context);
-        Assertions.assertEquals(new VarcharLiteral("123456|n"), rewritten);
+        Assertions.assertEquals(new VarcharLiteral("123456|123456000"), rewritten);
 
         timeFormat = new TimeFormat(dateTimeV2, StringLiteral.of("%f|%n"));
         rewritten = executor.rewrite(timeFormat, context);
-        Assertions.assertEquals(new VarcharLiteral("123456|n"), rewritten);
+        Assertions.assertEquals(new VarcharLiteral("123456|123456000"), rewritten);
 
         timeFormat = new TimeFormat(new TimeV2Literal("12:34:56.123456"), StringLiteral.of("%f|%n"));
         rewritten = executor.rewrite(timeFormat, context);
-        Assertions.assertEquals(new VarcharLiteral("123456|n"), rewritten);
+        Assertions.assertEquals(new VarcharLiteral("123456|123456000"), rewritten);
+
+        d = new DateFormat(new DateTimeV2Literal(DateTimeV2Type.of(3), "2024-02-29 12:34:56.123"),
+                StringLiteral.of("%n"));
+        rewritten = executor.rewrite(d, context);
+        Assertions.assertEquals(new VarcharLiteral("123000000"), rewritten);
+
+        timeFormat = new TimeFormat(new TimeV2Literal("12:34:56"), StringLiteral.of("%n"));
+        rewritten = executor.rewrite(timeFormat, context);
+        Assertions.assertEquals(new VarcharLiteral("000000000"), rewritten);
 
         d = new DateFormat(DateTimeV2Literal.fromJavaDateType(LocalDateTime.of(1, 1, 1, 1, 1, 1)),
                         StringLiteral.of(StringUtils.repeat("s", 128) + " "));

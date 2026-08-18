@@ -39,6 +39,8 @@ using FunctionFromUnixTimeNewDecimalOneArg =
         FunctionDateTimeStringToString<FromUnixTimeDecimalImpl<false>>;
 using FunctionFromUnixTimeNewDecimalTwoArg =
         FunctionDateTimeStringToString<FromUnixTimeDecimalImpl<true>>;
+using FunctionFromUnixTimeNewDecimalNanoTwoArg =
+        FunctionDateTimeStringToString<FromUnixTimeDecimalImpl<true, true>>;
 using FunctionTimeFormatDate = FunctionTimeFormat<TYPE_DATEV2>;
 using FunctionTimeFormatDateTime = FunctionTimeFormat<TYPE_DATETIMEV2>;
 using FunctionTimeFormatTimeStampNs = FunctionTimeFormat<TYPE_TIMESTAMP_NS>;
@@ -52,6 +54,7 @@ void register_function_date_time_string_to_string(SimpleFunctionFactory& factory
     factory.register_function<FunctionFromUnixTimeNewTwoArg>();
     factory.register_function<FunctionFromUnixTimeNewDecimalOneArg>();
     factory.register_function<FunctionFromUnixTimeNewDecimalTwoArg>();
+    factory.register_function<FunctionFromUnixTimeNewDecimalNanoTwoArg>();
     factory.register_function<FunctionDateTimeV2DateFormat>();
     factory.register_function<FunctionTimestampNsDateFormat>();
     factory.register_function<FunctionTimeFormatDate>();
