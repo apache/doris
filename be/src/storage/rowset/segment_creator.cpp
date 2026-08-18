@@ -451,7 +451,8 @@ Status SegmentCreator::add_block(const Block* block) {
     };
 
     if (_flush_writer == nullptr) {
-        RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, allocate_segment_id()));
+        auto segment_id = DORIS_TRY(allocate_segment_id());
+        RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, segment_id));
     }
 
     do {
@@ -459,7 +460,8 @@ Status SegmentCreator::add_block(const Block* block) {
         if (UNLIKELY(max_row_add < 1)) {
             // no space for another single row, need flush now
             RETURN_IF_ERROR(flush());
-            RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, allocate_segment_id()));
+            auto segment_id = DORIS_TRY(allocate_segment_id());
+            RETURN_IF_ERROR(_segment_flusher.create_writer(_flush_writer, segment_id));
             max_row_add = _flush_writer->max_row_to_add(row_avg_size_in_bytes);
             DCHECK(max_row_add > 0);
         }

@@ -37,6 +37,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -222,6 +223,19 @@ protected:
         return rowset_writer_context;
     }
 
+    Block create_column_block(const TabletSchemaSPtr& tablet_schema,
+                              const std::vector<uint32_t>& column_ids, int32_t row_count,
+                              int32_t start_value) {
+        auto block = tablet_schema->create_block(column_ids);
+        auto columns = std::move(block).mutate_columns();
+        for (int32_t i = 0; i < row_count; ++i) {
+            int32_t value = start_value + i;
+            columns[0]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+        }
+        block.set_columns(std::move(columns));
+        return block;
+    }
+
     void create_and_init_rowset_reader(Rowset* rowset, RowsetReaderContext& context,
                                        RowsetReaderSharedPtr* result) {
         auto s = rowset->create_reader(result);
@@ -397,6 +411,44 @@ private:
     std::string absolute_dir;
     DataDir* _data_dir = nullptr;
 };
+
+TEST_F(VerticalCompactionTest, TestNonZeroSegmentIdAllocation) {
+    auto tablet_schema = create_schema();
+    auto writer_context =
+            create_rowset_writer_context(tablet_schema, NONOVERLAPPING, UINT32_MAX, {0, 0});
+    auto writer_result = RowsetFactory::create_rowset_writer(*engine_ref, writer_context, true);
+    ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
+    auto rowset_writer = std::move(writer_result).value();
+
+    EXPECT_EQ(rowset_writer->get_allocated_segment_id(), 0);
+    rowset_writer->set_segment_start_id(10);
+    EXPECT_EQ(rowset_writer->get_allocated_segment_id(), 10);
+
+    std::vector<uint32_t> key_column_ids = {0};
+    auto first_key_block = create_column_block(tablet_schema, key_column_ids, 8, 1);
+    ASSERT_TRUE(rowset_writer->add_columns(&first_key_block, key_column_ids, true, 4, false).ok());
+    EXPECT_EQ(rowset_writer->get_allocated_segment_id(), 11);
+
+    auto second_key_block = create_column_block(tablet_schema, key_column_ids, 8, 100);
+    ASSERT_TRUE(rowset_writer->add_columns(&second_key_block, key_column_ids, true, 4, false).ok());
+    EXPECT_EQ(rowset_writer->get_allocated_segment_id(), 12);
+    ASSERT_TRUE(rowset_writer->flush_columns(true).ok());
+
+    std::vector<uint32_t> value_column_ids = {1};
+    auto value_block = create_column_block(tablet_schema, value_column_ids, 16, 1);
+    ASSERT_TRUE(rowset_writer->add_columns(&value_block, value_column_ids, false, UINT32_MAX, false)
+                        .ok());
+    ASSERT_TRUE(rowset_writer->flush_columns(false).ok());
+    ASSERT_TRUE(rowset_writer->final_flush().ok());
+
+    RowsetSharedPtr rowset;
+    ASSERT_TRUE(rowset_writer->build(rowset).ok());
+    ASSERT_NE(rowset, nullptr);
+    const auto& segment_ids = rowset->rowset_meta()->segment_ids();
+    ASSERT_EQ(segment_ids.size(), 2);
+    EXPECT_EQ(segment_ids[0], 10);
+    EXPECT_EQ(segment_ids[1], 11);
+}
 
 TEST_F(VerticalCompactionTest, TestRowSourcesBuffer) {
     RowSourcesBuffer buffer(100, absolute_dir, ReaderType::READER_CUMULATIVE_COMPACTION);

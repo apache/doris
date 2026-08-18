@@ -20,6 +20,8 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <iterator>
 #include <memory>
 #include <random>
 
@@ -268,7 +270,40 @@ void RowsetMeta::_init() {
     } else {
         _rowset_id.init(_rowset_meta_pb.rowset_id_v2());
     }
+    _validate_segment_ids();
     update_metadata_size();
+}
+
+void RowsetMeta::_validate_segment_ids() const {
+    if (!has_segment_ids()) {
+        return;
+    }
+    DORIS_CHECK_EQ(_rowset_meta_pb.segment_ids_size(), _rowset_meta_pb.num_segments());
+    int64_t prev_segment_id = -1;
+    for (const auto segment_id : _rowset_meta_pb.segment_ids()) {
+        DORIS_CHECK_GE(segment_id, 0);
+        DORIS_CHECK_GT(segment_id, prev_segment_id);
+        prev_segment_id = segment_id;
+    }
+}
+
+void RowsetMeta::set_segment_ids(const std::vector<int64_t>& segment_ids) {
+    _rowset_meta_pb.mutable_segment_ids()->Assign(segment_ids.begin(), segment_ids.end());
+    set_num_segments(cast_set<int64_t>(segment_ids.size()));
+    _validate_segment_ids();
+}
+
+size_t RowsetMeta::position_of(int64_t seg_id) const {
+    DORIS_CHECK_GE(seg_id, 0);
+    if (!has_segment_ids()) {
+        DORIS_CHECK_LT(seg_id, num_segments());
+        return cast_set<size_t>(seg_id);
+    }
+    const auto& segment_ids = _rowset_meta_pb.segment_ids();
+    auto it = std::lower_bound(segment_ids.begin(), segment_ids.end(), seg_id);
+    DORIS_CHECK(it != segment_ids.end());
+    DORIS_CHECK_EQ(*it, seg_id);
+    return cast_set<size_t>(std::distance(segment_ids.begin(), it));
 }
 
 void RowsetMeta::add_segments_file_size(const std::vector<size_t>& seg_file_size) {
@@ -278,13 +313,13 @@ void RowsetMeta::add_segments_file_size(const std::vector<size_t>& seg_file_size
     }
 }
 
-int64_t RowsetMeta::segment_file_size(int seg_id) const {
+int64_t RowsetMeta::segment_file_size_by_pos(size_t pos) const {
     DCHECK(_rowset_meta_pb.segments_file_size().empty() ||
-           _rowset_meta_pb.segments_file_size_size() > seg_id)
-            << _rowset_meta_pb.segments_file_size_size() << ' ' << seg_id;
+           _rowset_meta_pb.segments_file_size_size() > cast_set<int>(pos))
+            << _rowset_meta_pb.segments_file_size_size() << ' ' << pos;
     return _rowset_meta_pb.enable_segments_file_size()
-                   ? (_rowset_meta_pb.segments_file_size_size() > seg_id
-                              ? _rowset_meta_pb.segments_file_size(seg_id)
+                   ? (_rowset_meta_pb.segments_file_size_size() > cast_set<int>(pos)
+                              ? _rowset_meta_pb.segments_file_size(cast_set<int>(pos))
                               : -1)
                    : -1;
 }
@@ -404,10 +439,10 @@ int64_t RowsetMeta::get_metadata_size() const {
     return sizeof(RowsetMeta) + _rowset_meta_pb.ByteSizeLong();
 }
 
-InvertedIndexFileInfo RowsetMeta::inverted_index_file_info(int seg_id) {
+InvertedIndexFileInfo RowsetMeta::inverted_index_file_info_by_pos(size_t pos) const {
     return _rowset_meta_pb.enable_inverted_index_file_info()
-                   ? (_rowset_meta_pb.inverted_index_file_info_size() > seg_id
-                              ? _rowset_meta_pb.inverted_index_file_info(seg_id)
+                   ? (_rowset_meta_pb.inverted_index_file_info_size() > cast_set<int>(pos)
+                              ? _rowset_meta_pb.inverted_index_file_info(cast_set<int>(pos))
                               : InvertedIndexFileInfo())
                    : InvertedIndexFileInfo();
 }

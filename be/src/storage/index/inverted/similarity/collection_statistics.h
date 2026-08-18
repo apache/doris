@@ -46,6 +46,7 @@ struct IOContext;
 struct RowSetSplits;
 
 class Rowset;
+class RowsetSegmentView;
 using RowsetSharedPtr = std::shared_ptr<Rowset>;
 
 class TabletIndex;
@@ -81,7 +82,7 @@ private:
                                 const VExprContextSPtrs& common_expr_ctxs_push_down,
                                 const TabletSchemaSPtr& tablet_schema,
                                 CollectInfoMap* collect_infos);
-    Status process_segment(const RowsetSharedPtr& rowset, int64_t seg_id,
+    Status process_segment(const RowsetSharedPtr& rowset, const RowsetSegmentView& seg,
                            const TabletSchema* tablet_schema, const CollectInfoMap& collect_infos,
                            io::IOContext* io_ctx);
     Status admit_snii_scoring_segment(

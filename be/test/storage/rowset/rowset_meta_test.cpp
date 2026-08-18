@@ -455,4 +455,76 @@ TEST_F(RowsetMetaTest, TestSegmentsKeyBoundsAggregationTruncation) {
     EXPECT_TRUE(rs_meta.is_segments_key_bounds_truncated());
 }
 
+TEST_F(RowsetMetaTest, TestSegmentIdsAccessors) {
+    RowsetMeta rowset_meta;
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+
+    // Legacy rowset (no segment_ids) falls back to contiguous ids [0, num_segments).
+    rowset_meta.set_num_segments(3);
+    EXPECT_FALSE(rowset_meta.has_segment_ids());
+    EXPECT_EQ(rowset_meta.num_segments(), 3);
+    EXPECT_EQ(rowset_meta.segment_id(0), 0);
+    EXPECT_EQ(rowset_meta.segment_id(2), 2);
+    EXPECT_EQ(rowset_meta.position_of(2), 2);
+
+    // Non-contiguous segment_ids: position <-> real id mapping.
+    rowset_meta.set_segment_ids({0, 2, 5});
+    EXPECT_TRUE(rowset_meta.has_segment_ids());
+    EXPECT_EQ(rowset_meta.num_segments(), 3);
+    EXPECT_EQ(rowset_meta.segment_id(0), 0);
+    EXPECT_EQ(rowset_meta.segment_id(1), 2);
+    EXPECT_EQ(rowset_meta.segment_id(2), 5);
+    EXPECT_EQ(rowset_meta.position_of(0), 0);
+    EXPECT_EQ(rowset_meta.position_of(2), 1);
+    EXPECT_EQ(rowset_meta.position_of(5), 2);
+}
+
+TEST_F(RowsetMetaTest, TestSegmentIdsMustBeStrictlyIncreasing) {
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+
+    RowsetMeta rowset_meta;
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+
+    EXPECT_DEATH(rowset_meta.set_segment_ids({0, 2, 2}),
+                 "Check failed: segment_id > prev_segment_id");
+    EXPECT_DEATH(rowset_meta.set_segment_ids({0, 2, 1}),
+                 "Check failed: segment_id > prev_segment_id");
+    EXPECT_DEATH(rowset_meta.set_segment_ids({0, -1, 2}), "Check failed: segment_id >= 0");
+}
+
+TEST_F(RowsetMetaTest, TestSegmentMetaView) {
+    RowsetMeta rowset_meta;
+    EXPECT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+    rowset_meta.set_segment_ids({0, 2, 5});
+    rowset_meta.add_segments_file_size({10, 20, 30});
+    rowset_meta.set_num_segment_rows({100, 200, 300});
+
+    std::vector<KeyBoundsPB> key_bounds(3);
+    key_bounds[0].set_min_key("a");
+    key_bounds[0].set_max_key("b");
+    key_bounds[1].set_min_key("c");
+    key_bounds[1].set_max_key("d");
+    key_bounds[2].set_min_key("e");
+    key_bounds[2].set_max_key("f");
+    rowset_meta.set_segments_key_bounds(key_bounds);
+
+    auto seg = rowset_meta.segment(1);
+    EXPECT_EQ(seg.pos(), 1);
+    EXPECT_EQ(seg.id(), 2);
+    EXPECT_EQ(seg.ref().pos, 1);
+    EXPECT_EQ(seg.ref().id, 2);
+    EXPECT_EQ(seg.file_size(), 20);
+    ASSERT_TRUE(seg.has_num_rows());
+    EXPECT_EQ(seg.num_rows(), 200);
+    ASSERT_TRUE(seg.has_position_key_bounds());
+    EXPECT_EQ(seg.key_bounds().min_key(), "c");
+    EXPECT_EQ(seg.key_bounds().max_key(), "d");
+
+    std::vector<int64_t> segment_ids;
+    for (auto segment : rowset_meta.segments()) {
+        segment_ids.push_back(segment.id());
+    }
+    EXPECT_EQ(segment_ids, std::vector<int64_t>({0, 2, 5}));
+}
+
 } // namespace doris

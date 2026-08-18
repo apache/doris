@@ -106,7 +106,7 @@ public:
     int64_t num_rows_filtered() const override { return 0; }
     RowsetId rowset_id() override { return _context.rowset_id; }
     RowsetTypePB type() const override { return BETA_ROWSET; }
-    int32_t allocate_segment_id() override { return _next_segment_id++; }
+    Result<int32_t> allocate_segment_id() override { return _next_segment_id++; }
     int32_t get_allocated_segment_id() override { return _next_segment_id; }
     std::shared_ptr<PartialUpdateInfo> get_partial_update_info() override { return nullptr; }
     bool is_partial_update() override { return false; }
