@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -32,7 +31,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Convert an inner join to a semi join when the inner join is only used as an
@@ -47,10 +45,16 @@ import java.util.stream.Collectors;
  * 2. All join conditions are equal conjuncts: hashJoinConjuncts is not empty and
  *    otherJoinConjuncts is empty, so the join is a pure equi-join.
  * 3. There is a deduplication guarantee above the join: the aggregate that consumes the
- *    join output is a DISTINCT-like aggregate, i.e. its group-by keys cover exactly its
- *    output columns. Otherwise, in bag semantics, the row multiplication of an inner
- *    join (a left row matching N right rows produces N copies) would change the result
- *    after the conversion, because a semi join never multiplies rows.
+ *    join output has no aggregate functions, i.e. every group-by expression and output
+ *    expression is a slot (the DISTINCT-like aggregate check reused from
+ *    Aggregate#isDistinct, also used by PushDownLimitDistinctThroughJoin and
+ *    PushDownTopNDistinctThroughJoin). Otherwise, in bag semantics, the row
+ *    multiplication of an inner join (a probe row matching N other-side rows produces N
+ *    copies) would change the result of an aggregate function after the conversion,
+ *    because a semi join never multiplies rows. Combined with condition 1, every
+ *    group-by key of the aggregate is an output-side column, so the N copies of a probe
+ *    row share identical group-by values and collapse to a single group exactly like
+ *    the single copy a semi join keeps.
  *
  * All three conditions are enforced in the rule's match predicates, so the rule only
  * fires when the conversion actually applies.
@@ -86,7 +90,7 @@ public class ConvertInnerJoinToSemiJoin implements RewriteRuleFactory {
             // Aggregate -> InnerJoin
             rules.add(logicalAggregate(innerLogicalJoin()
                     .when(this::canConvertToSemiJoin))
-                    .when(this::isDistinctLikeAggregate)
+                    .when(LogicalAggregate::isDistinct)
                     .when(agg -> columnsDoNotLeak(agg.child(), outputSideIsLeft, agg.getInputSlots()))
                     .thenApply(ctx -> convert(ctx.root, ctx.root.child(), semiJoinType))
                     .toRule(RuleType.CONVERT_INNER_JOIN_TO_SEMI_JOIN));
@@ -94,7 +98,7 @@ public class ConvertInnerJoinToSemiJoin implements RewriteRuleFactory {
             rules.add(logicalAggregate(logicalProject(innerLogicalJoin()
                     .when(this::canConvertToSemiJoin))
                     .when(Project::isAllSlots))
-                    .when(this::isDistinctLikeAggregate)
+                    .when(LogicalAggregate::isDistinct)
                     .when(agg -> columnsDoNotLeak(agg.child().child(), outputSideIsLeft,
                             agg.child().getInputSlots()))
                     .thenApply(ctx -> convert(ctx.root, ctx.root.child(), ctx.root.child().child(), semiJoinType))
@@ -105,28 +109,15 @@ public class ConvertInnerJoinToSemiJoin implements RewriteRuleFactory {
 
     /**
      * Condition 2: the join is a pure equi-join (hash conjuncts exist and no other
-     * conjuncts), and it is not a mark join.
+     * conjuncts), and it is not a mark join. ASOF joins never reach this rule: the
+     * pattern only matches JoinType.INNER_JOIN (ASOF joins carry ASOF_* join types),
+     * and their MATCH_CONDITION (e.g. a.ts >= b.ts) is kept in otherJoinConjuncts, so
+     * the empty-check fails anyway.
      */
     private boolean canConvertToSemiJoin(LogicalJoin<?, ?> join) {
         return !join.isMarkJoin()
                 && !join.getHashJoinConjuncts().isEmpty()
                 && join.getOtherJoinConjuncts().isEmpty();
-    }
-
-    /**
-     * Condition 3: the aggregate is a DISTINCT-like aggregate, i.e. its group-by keys
-     * cover exactly its output columns, so it collapses duplicate rows and the row
-     * multiplicity change of inner-join -> semi-join does not affect the final result.
-     */
-    private boolean isDistinctLikeAggregate(LogicalAggregate<?> agg) {
-        Set<ExprId> groupBySlotIds = agg.getGroupByExpressions().stream()
-                .filter(Slot.class::isInstance)
-                .map(expr -> ((Slot) expr).getExprId())
-                .collect(Collectors.toSet());
-        Set<ExprId> outputSlotIds = agg.getOutput().stream()
-                .map(Slot::getExprId)
-                .collect(Collectors.toSet());
-        return groupBySlotIds.equals(outputSlotIds);
     }
 
     /**

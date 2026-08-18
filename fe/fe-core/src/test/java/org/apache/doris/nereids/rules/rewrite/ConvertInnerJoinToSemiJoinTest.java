@@ -34,14 +34,16 @@ class ConvertInnerJoinToSemiJoinTest extends TestWithFeService implements MemoPa
         createTables(
                 "CREATE TABLE IF NOT EXISTS t1 (\n"
                         + "    id1 int not null,\n"
-                        + "    v1 int not null\n"
+                        + "    v1 int not null,\n"
+                        + "    d1 datetime not null\n"
                         + ")\n"
                         + "DUPLICATE KEY(id1)\n"
                         + "DISTRIBUTED BY HASH(id1) BUCKETS 10\n"
                         + "PROPERTIES (\"replication_num\" = \"1\")\n",
                 "CREATE TABLE IF NOT EXISTS t2 (\n"
                         + "    id2 int not null,\n"
-                        + "    v2 int not null\n"
+                        + "    v2 int not null,\n"
+                        + "    d2 datetime not null\n"
                         + ")\n"
                         + "DUPLICATE KEY(id2)\n"
                         + "DISTRIBUTED BY HASH(id2) BUCKETS 10\n"
@@ -115,6 +117,34 @@ class ConvertInnerJoinToSemiJoinTest extends TestWithFeService implements MemoPa
                 .analyze("select t1.id1, count(*) from t1 join t2 on t1.id1 = t2.id2 group by t1.id1")
                 .rewrite()
                 .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN));
+    }
+
+    // ASOF join is never converted: its MATCH_CONDITION (t1.d1 >= t2.d2) is kept in
+    // otherJoinConjuncts and the join type is ASOF_LEFT_INNER_JOIN, which the rule's
+    // innerLogicalJoin() pattern never matches
+    @Test
+    void testNotConvertAsofJoin() throws Exception {
+        PlanChecker.from(connectContext)
+                .analyze("select distinct t1.id1 from t1 asof inner join t2 "
+                        + "match_condition(t1.d1 >= t2.d2) on t1.id1 = t2.id2")
+                .rewrite()
+                .anyMatches(logicalJoin().when(j -> j.getJoinType() == JoinType.ASOF_LEFT_INNER_JOIN))
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN))
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.RIGHT_SEMI_JOIN));
+    }
+
+    // the group-by keys cover more than the output columns (all slots): the reused
+    // Aggregate#isDistinct check still allows the conversion, because every group-by
+    // key comes from the output side of the join (condition 1), so the row
+    // multiplication of the inner join never creates new groups
+    @Test
+    void testConvertWhenGroupByCoversOutput() throws Exception {
+        PlanChecker.from(connectContext)
+                .analyze("select t1.id1 from t1 join t2 on t1.id1 = t2.id2 "
+                        + "group by t1.id1, t1.v1")
+                .rewrite()
+                .anyMatches(logicalJoin().when(j -> j.getJoinType() == JoinType.LEFT_SEMI_JOIN))
+                .nonMatch(logicalJoin().when(j -> j.getJoinType() == JoinType.INNER_JOIN));
     }
 
     // <=> (NullSafeEqual) is an EqualPredicate: FindHashConditionForJoin extracts it into
