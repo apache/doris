@@ -245,6 +245,111 @@ suite("test_routine_load_fill_missing_columns", "p0") {
     }
 
     // ---------------------------------------------------------------------------------
+    // Headline use case: fill_missing_columns = true where COLUMNS lists only some of the
+    // real table columns as plain file fields (COLUMNS(id, name)); the remaining base
+    // columns (score, update_time) are auto-filled from the base schema and read from json.
+    // This is the primary use case the option targets: enumerate the columns you care about
+    // and let the rest be completed automatically.
+    // ---------------------------------------------------------------------------------
+    def plainTable = "test_routine_load_fill_missing_columns_plain"
+    def plainJob = "test_routine_load_fill_missing_columns_plain_job"
+    try {
+        sql "DROP TABLE IF EXISTS ${plainTable}"
+        sql """
+            CREATE TABLE ${plainTable} (
+                id INT NOT NULL,
+                name VARCHAR(50) NULL,
+                score INT NULL,
+                update_time BIGINT NULL
+            )
+            DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES (
+                "replication_num" = "1"
+            );
+        """
+        sql "sync"
+
+        sql """
+            CREATE ROUTINE LOAD ${plainJob} ON ${plainTable}
+            COLUMNS(id, name)
+            PROPERTIES
+            (
+                "format" = "json",
+                "fill_missing_columns" = "true",
+                "max_batch_interval" = "5",
+                "max_batch_rows" = "300000",
+                "max_batch_size" = "209715200",
+                "strict_mode" = "false"
+            )
+            FROM KAFKA
+            (
+                "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
+                "kafka_topic" = "${topic}",
+                "property.kafka_default_offsets" = "OFFSET_BEGINNING"
+            );
+        """
+        sql "sync"
+
+        // the job must reach RUNNING and must not pause with a planning error
+        def count = 0
+        while (true) {
+            sleep(1000)
+            def res = sql "show routine load for ${plainJob}"
+            def state = res[0][8].toString()
+            def reason = res[0][17].toString()
+            log.info("plain file field job state: ${state}, reason: ${reason}".toString())
+            if (state == "RUNNING") {
+                break
+            }
+            count++
+            if (count >= 60) {
+                assertEquals("RUNNING", state)
+                break
+            }
+        }
+
+        count = 0
+        while (true) {
+            def res = sql "select count(*) from ${plainTable}"
+            if (res[0][0] >= 3) {
+                break
+            }
+            if (count >= 60) {
+                log.error("plain file field routine load can not load data for long time")
+                assertEquals(3, res[0][0])
+                break
+            }
+            sleep(5000)
+            count++
+        }
+        sql "sync"
+
+        // id/name are listed explicitly; score/update_time are auto-filled from the base schema
+        // and must be populated from the json values rather than left NULL.
+        def rows = sql "select id, name, score, update_time from ${plainTable} order by id"
+        assertEquals(3, rows.size())
+        assertEquals(1, rows[0][0])
+        assertEquals("alice", rows[0][1].toString())
+        assertEquals(10, rows[0][2])
+        assertEquals(100L, rows[0][3])
+        assertEquals(2, rows[1][0])
+        assertEquals("bob", rows[1][1].toString())
+        assertEquals(20, rows[1][2])
+        assertEquals(200L, rows[1][3])
+        assertEquals(3, rows[2][0])
+        assertEquals("carol", rows[2][1].toString())
+        assertEquals(30, rows[2][2])
+        assertEquals(300L, rows[2][3])
+    } finally {
+        try {
+            sql "stop routine load for ${plainJob}"
+        } catch (Exception e) {
+            log.info("stop plain file field routine load failed: ${e.getMessage()}".toString())
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
     // Same-name mapping case: fill_missing_columns = true with COLUMNS(score = score + 1).
     // The mapping target `score` references the same-named source column, so the file slot
     // for `score` must stay available; the other base columns (id/name/update_time) are

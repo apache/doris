@@ -342,6 +342,31 @@ public class NereidsLoadScanProviderTest {
     }
 
     @Test
+    public void testCreateLoadContextFillMissingWithPlainFileFieldsAddsRemainingColumns() throws Exception {
+        // Headline use case: the user lists a real table column as a plain file field
+        // (COLUMNS(k1), expr == null) and enables fill_missing_columns=true. The listed
+        // column k1 must be scanned exactly once (the base-schema fill must not duplicate it),
+        // and the remaining table columns k2/k3 must be auto-filled from the base schema.
+        OlapTable table = mockKvTable();
+        JsonFileFormatProperties props = new JsonFileFormatProperties();
+        Deencapsulation.setField(props, "fillMissingColumns", true);
+
+        List<NereidsImportColumnDesc> columnDescList = ImmutableList.of(
+                new NereidsImportColumnDesc("k1"));
+        NereidsParamCreateContext context = createLoadContext(table, columnDescList, props);
+
+        // k1 is an explicitly listed file field; it must be scanned exactly once, not duplicated.
+        Assertions.assertEquals(1, context.scanSlots.stream()
+                        .filter(slot -> slot.getName().equalsIgnoreCase("k1")).count(),
+                "plain file field k1 must not be duplicated by the base-schema fill");
+        // k2 and k3 were not listed, so they must be auto-filled from the base schema.
+        Assertions.assertTrue(context.scanSlots.stream()
+                .anyMatch(slot -> slot.getName().equalsIgnoreCase("k2")));
+        Assertions.assertTrue(context.scanSlots.stream()
+                .anyMatch(slot -> slot.getName().equalsIgnoreCase("k3")));
+    }
+
+    @Test
     public void testSelfReferenceSourceReturnsMappingSourceCase() {
         NereidsLoadScanProvider provider = buildProvider();
         // COLUMNS(Score = score + 1): table column is "Score" but the mapping reads "score".
