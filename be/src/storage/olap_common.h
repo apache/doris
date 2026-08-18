@@ -472,16 +472,21 @@ struct MowContext {
 // used for controll compaction
 struct VersionWithTime {
     std::atomic<int64_t> version;
-    int64_t update_ts;
+    // Written by the heartbeat thread right after a successful version CAS
+    // and read lock-free by compaction selection; must be atomic — on
+    // weakly-ordered aarch64 a plain store could be observed reordered with
+    // the version update ("new version + stale/torn timestamp").
+    std::atomic<int64_t> update_ts;
 
     VersionWithTime() : version(0), update_ts(MonotonicMillis()) {}
 
     void update_version_monoto(int64_t new_version) {
         int64_t cur_version = version.load(std::memory_order_relaxed);
         while (cur_version < new_version) {
-            if (version.compare_exchange_strong(cur_version, new_version, std::memory_order_relaxed,
+            if (version.compare_exchange_strong(cur_version, new_version,
+                                                std::memory_order_release,
                                                 std::memory_order_relaxed)) {
-                update_ts = MonotonicMillis();
+                update_ts.store(MonotonicMillis(), std::memory_order_release);
                 break;
             }
         }

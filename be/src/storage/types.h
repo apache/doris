@@ -36,6 +36,7 @@
 #include "core/decimal12.h"
 #include "core/extended_types.h"
 #include "core/packed_int128.h"
+#include "util/unaligned.h"
 #include "core/type_limit.h"
 #include "core/uint24.h"
 #include "core/value/ipv4_value.h"
@@ -238,7 +239,11 @@ struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
         if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT) {
             return get_int128_from_unalign(address);
         }
-        return *reinterpret_cast<const CppType*>(address);
+        // Row-buffer fields are packed without padding, so 'address' is only
+        // byte-aligned for many (type, offset) combinations. Load through
+        // memcpy instead of a casted dereference (misaligned UB, e.g. an
+        // int64 field right after a tinyint in old row storage).
+        return unaligned_load<CppType>(address);
     }
 
     static inline void set_cpp_type_value(void* address, const CppType& value) {
