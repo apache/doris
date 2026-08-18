@@ -47,6 +47,7 @@ import org.apache.doris.connector.spi.ddl.DropRefChange;
 import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
 import org.apache.doris.connector.spi.ddl.TagChange;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.log.ExternalObjectLog;
@@ -1139,14 +1140,25 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
     }
 
     @Test
-    public void testColumnOpWrapsConnectorException() {
+    public void testColumnOpWrapsConnectorException() throws Exception {
         ExternalTable table = mockAlterTable();
         ConnectorTableHandle handle = stubAlterHandle();
+        long constraintMetadataBaseline = catalog.snapshotConstraintMetadata();
         Mockito.doThrow(new DorisConnectorException("boom"))
                 .when(metadata).dropColumn(session, handle, "age");
 
         DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.dropColumn(table, "age"));
         Assertions.assertTrue(ex.getMessage().contains("boom"));
+        Assertions.assertThrows(DdlException.class, () -> {
+            try (ExternalCatalog.ConstraintMetadataReadGuard ignored =
+                    catalog.lockConstraintMetadata(constraintMetadataBaseline)) {
+                Assertions.fail("stale constraint metadata snapshot must be rejected");
+            }
+        });
+        try (ExternalCatalog.ConstraintMetadataReadGuard ignored =
+                catalog.lockConstraintMetadata(catalog.snapshotConstraintMetadata())) {
+            Assertions.assertNotNull(ignored);
+        }
     }
 
     // Branch/tag ALTERs resolve the handle by REMOTE names (like the column ops), neutralize the nereids info

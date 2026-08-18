@@ -193,6 +193,8 @@ public class JoinUtilsTest {
             ctx.getSessionVariable().enableColocateMappingConstraint = true;
             Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, directAndMapping));
             Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, ImmutableList.of(
+                    new EqualTo(rightD1, leftD1), new EqualTo(leftK2, rightK2))));
+            Assertions.assertTrue(JoinUtils.couldColocateJoin(left, right, ImmutableList.of(
                     new EqualTo(leftD1, rightD1), new EqualTo(leftK2, rightK2),
                     new EqualTo(leftExtra, rightExtra))));
             DistributionMapping rightMappingWithDifferentId = new DistributionMapping(

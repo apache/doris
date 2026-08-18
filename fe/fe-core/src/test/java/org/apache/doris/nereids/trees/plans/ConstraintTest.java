@@ -309,7 +309,7 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
     }
 
     @Test
-    void invalidDistributionMappingConstraintTest() {
+    void invalidDistributionMappingConstraintTest() throws Exception {
         Exception duplicateDeterminant = Assertions.assertThrows(Exception.class, () ->
                 ((AddConstraintCommand) new NereidsParser().parseSingle(
                         "alter table t1 add constraint duplicate_determinant "
@@ -327,6 +327,36 @@ class ConstraintTest extends TestWithFeService implements PlanPatternMatchSuppor
                         .run(connectContext, null));
         Assertions.assertTrue(invalidDistributionColumn.getMessage().contains(
                 "must be an ordered subset of table distribution columns"));
+
+        Exception duplicateDistribution = Assertions.assertThrows(Exception.class, () ->
+                ((AddConstraintCommand) new NereidsParser().parseSingle(
+                        "alter table t1 add constraint duplicate_distribution "
+                                + "colocate mapping mapping_1 (k2) "
+                                + "determines distribution key (k1, K1) not enforced"))
+                        .run(connectContext, null));
+        Assertions.assertTrue(duplicateDistribution.getMessage().contains(
+                "Distribution columns in distribution mapping constraint must be unique"));
+
+        createTable("create table random_distribution_mapping (\n"
+                + "    k1 int,\n"
+                + "    k2 int\n"
+                + ")\n"
+                + "duplicate key(k1)\n"
+                + "distributed by random buckets 4\n"
+                + "properties(\"replication_num\"=\"1\")");
+        try {
+            Exception randomDistribution = Assertions.assertThrows(Exception.class, () ->
+                    ((AddConstraintCommand) new NereidsParser().parseSingle(
+                            "alter table random_distribution_mapping "
+                                    + "add constraint random_distribution "
+                                    + "colocate mapping mapping_1 (k2) "
+                                    + "determines distribution key (k1) not enforced"))
+                            .run(connectContext, null));
+            Assertions.assertTrue(randomDistribution.getMessage().contains(
+                    "Distribution mapping constraint requires hash distribution"));
+        } finally {
+            executeSql("drop table random_distribution_mapping force");
+        }
     }
 
     @Test

@@ -37,6 +37,7 @@ import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.constraint.ConstraintManager;
+import org.apache.doris.catalog.constraint.DistributionMappingConstraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -562,6 +563,69 @@ public class RestoreJobTest {
         Assert.assertTrue(constraintManager.getConstraints(cleanPrimaryInfo).isEmpty());
         Assert.assertTrue(constraintManager.getConstraints(cleanForeignInfo).isEmpty());
         Mockito.verify(database).unregisterTable(aliasName);
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    public void testAtomicRestoreReplacesDistributionMappingsOnLeaderAndReplay() throws Exception {
+        String originName = "restore_target";
+        String aliasName = RestoreJob.tableAliasWithAtomicRestore(originName);
+        TableNameInfo originTableInfo = new TableNameInfo(
+                InternalCatalog.INTERNAL_CATALOG_NAME,
+                CatalogMocker.TEST_DB_NAME, originName);
+        DistributionMappingConstraint oldMapping = new DistributionMappingConstraint(
+                "old_mapping", "old_mapping", ImmutableList.of("old_determinant"),
+                ImmutableList.of("old_distribution"));
+        DistributionMappingConstraint restoredMapping = new DistributionMappingConstraint(
+                "restored_mapping", "restored_mapping", ImmutableList.of("new_determinant"),
+                ImmutableList.of("new_distribution"));
+
+        for (boolean isReplay : ImmutableList.of(false, true)) {
+            ConstraintManager constraintManager = new ConstraintManager();
+            NereidsSqlCacheManager sqlCacheManager = Mockito.mock(NereidsSqlCacheManager.class);
+            Database database = Mockito.mock(Database.class);
+            OlapTable restoredTable = Mockito.mock(OlapTable.class);
+            OlapTable originTable = Mockito.mock(OlapTable.class);
+            TableAttributes restoredAttributes = new TableAttributes();
+            restoredAttributes.getConstraintsMap().put(restoredMapping.getName(), restoredMapping);
+            constraintManager.addConstraint(
+                    originTableInfo, oldMapping.getName(), oldMapping, true);
+
+            jobInfo.backupOlapTableObjects.clear();
+            jobInfo.backupOlapTableObjects.put(originName, new BackupOlapTableInfo());
+            Mockito.when(env.getConstraintManager()).thenReturn(constraintManager);
+            Mockito.when(env.getSqlCacheManager()).thenReturn(sqlCacheManager);
+            mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(database.isWriteLockHeldByCurrentThread()).thenReturn(true);
+            Mockito.when(database.getFullName()).thenReturn(CatalogMocker.TEST_DB_NAME);
+            Mockito.when(database.getTableNullable(aliasName)).thenReturn(restoredTable);
+            Mockito.when(database.getTableNullable(originName)).thenReturn(originTable);
+            Mockito.when(restoredTable.getType()).thenReturn(Table.TableType.OLAP);
+            Mockito.when(restoredTable.getTableAttributes()).thenReturn(restoredAttributes);
+            Mockito.when(originTable.getType()).thenReturn(Table.TableType.OLAP);
+            Deencapsulation.setField(job, "isAtomicRestore", true);
+
+            Status status = Deencapsulation.invoke(
+                    job, "atomicReplaceOlapTables", database, isReplay);
+
+            Assert.assertTrue(status.ok());
+            Assert.assertNull(constraintManager.getConstraint(
+                    originTableInfo, oldMapping.getName()));
+            Assert.assertEquals(restoredMapping, constraintManager.getConstraint(
+                    originTableInfo, restoredMapping.getName()));
+            Assert.assertEquals(
+                    ImmutableList.of(restoredMapping),
+                    constraintManager.getDistributionMappingConstraints(restoredTable));
+            InOrder replacement = Mockito.inOrder(database, restoredTable);
+            replacement.verify(database).unregisterTable(aliasName);
+            replacement.verify(restoredTable).setName(originName);
+            replacement.verify(database).unregisterTable(originName);
+            replacement.verify(database).registerTable(restoredTable);
+            Mockito.verify(sqlCacheManager)
+                    .invalidateAboutTableAndFencePublication(originTableInfo);
+            Mockito.verify(env).onEraseOlapTable(
+                    database.getId(), originTable, isReplay);
+        }
     }
 
     @Test
