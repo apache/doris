@@ -27,14 +27,14 @@ import java.util.Map;
 
 /**
  * Unit tests for {@link HiveConnector#buildPluginAuthenticator(Map)} — the connector-owned plugin-side
- * Kerberos authenticator resolution.
+ * authenticator resolution.
  *
  * <p>The load-bearing case is <b>HMS-metastore Kerberos with simple (non-Kerberos) storage</b>
  * (e.g. a Kerberized Hive Metastore over S3). After the catalog flip the FE-injected
  * {@code ConnectorContext.executeAuthenticated} resolves to NOOP (SIMPLE) auth, so a Kerberos HMS would be
  * silently downgraded unless the connector owns the login itself. These tests pin that the connector builds a
- * plugin authenticator from the HMS client principal/keytab facts, and does NOT build one when the metastore
- * is simple-auth (which would force needless SIMPLE-vs-Kerberos churn).
+ * plugin authenticator from the HMS client principal/keytab facts. Simple-auth cases also pin the HMS UGI to
+ * the configured Hadoop user, including the metastore alias and legacy default.
  *
  * <p>The actual keytab login is lazy (on first {@code doAs}), so these assertions never touch a KDC.
  */
@@ -75,21 +75,43 @@ public class HiveConnectorPluginAuthenticatorTest {
                 "HMS-metastore kerberos with simple storage must yield a plugin authenticator");
     }
 
-    /** A simple-auth HMS builds no authenticator (a spurious one would force needless SIMPLE-vs-Kerberos churn). */
     @Test
-    public void hmsSimpleAuthReturnsNull() {
+    public void hmsSimpleAuthUsesConfiguredHadoopUser() throws Exception {
+        HadoopAuthenticator auth = HiveConnector.buildPluginAuthenticator(
+                props("hive.metastore.uris", "thrift://hms:9083",
+                        "hive.metastore.authentication.type", "simple",
+                        "hadoop.username", "hive"));
+
+        Assertions.assertNotNull(auth, "simple-auth HMS must yield a plugin authenticator");
+        Assertions.assertEquals("hive", auth.getUGI().getUserName());
+    }
+
+    @Test
+    public void hmsSimpleAuthUsesMetastoreUsernameAlias() throws Exception {
+        HadoopAuthenticator auth = HiveConnector.buildPluginAuthenticator(
+                props("hive.metastore.uris", "thrift://hms:9083",
+                        "hive.metastore.authentication.type", "simple",
+                        "hive.metastore.username", "hive"));
+
+        Assertions.assertNotNull(auth, "simple-auth HMS must support the metastore username alias");
+        Assertions.assertEquals("hive", auth.getUGI().getUserName());
+    }
+
+    @Test
+    public void hmsSimpleAuthUsesLegacyDefaultUser() throws Exception {
         HadoopAuthenticator auth = HiveConnector.buildPluginAuthenticator(
                 props("hive.metastore.uris", "thrift://hms:9083",
                         "hive.metastore.authentication.type", "simple"));
-        Assertions.assertNull(auth, "simple-auth HMS must not build a plugin authenticator");
+        Assertions.assertNotNull(auth, "simple-auth HMS must yield a plugin authenticator");
+        Assertions.assertEquals("hadoop", auth.getUGI().getUserName());
     }
 
-    /** A plain HMS with no auth configured builds no authenticator. */
     @Test
-    public void plainHmsWithoutKerberosReturnsNull() {
+    public void plainHmsUsesLegacyDefaultUser() throws Exception {
         HadoopAuthenticator auth = HiveConnector.buildPluginAuthenticator(
                 props("hive.metastore.uris", "thrift://hms:9083"));
-        Assertions.assertNull(auth, "plain HMS without kerberos must not build an authenticator");
+        Assertions.assertNotNull(auth, "plain HMS must yield a plugin authenticator");
+        Assertions.assertEquals("hadoop", auth.getUGI().getUserName());
     }
 
     /**

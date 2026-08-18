@@ -38,6 +38,8 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.kerberos.AuthType;
+import org.apache.doris.kerberos.AuthenticationConfig;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
@@ -596,9 +598,9 @@ public class HiveConnector implements Connector {
                 context.getCatalogName(), config.getMetastoreUri(),
                 config.getMetastoreType(), poolSize);
 
-        // For a Kerberos catalog run the metastore RPC under the PLUGIN's UGI doAs (buildPluginAuthenticator),
-        // NOT the FE-injected context: after the catalog flip that context resolves to NOOP (SIMPLE) auth, which
-        // would silently downgrade a Kerberos HMS. AuthAction.execute is a generic method (<T> T execute(...)),
+        // Run the metastore RPC under the PLUGIN's UGI doAs (buildPluginAuthenticator), NOT the FE-injected
+        // context: after the catalog flip that context resolves to NOOP auth and loses both the configured simple
+        // user and Kerberos login. AuthAction.execute is a generic method (<T> T execute(...)),
         // so it cannot be a lambda — use an anonymous class. ThriftHmsClient.doAs pins the RPC's TCCL to the
         // plugin (child-first) classloader (so SecurityUtil.<clinit> resolves hadoop from the plugin copy, not a
         // split-brain against fe-core's copy); the plugin's HadoopAuthenticator only wraps it in a UGI doAs.
@@ -649,11 +651,10 @@ public class HiveConnector implements Connector {
     }
 
     /**
-     * Lazily builds and memoizes the plugin-side Kerberos authenticator that {@link #createClient()} wraps the
+     * Lazily builds and memoizes the plugin-side authenticator that {@link #createClient()} wraps the
      * metastore RPC under, so the RPC uses the PLUGIN's own {@code UserGroupInformation} copy (hadoop +
-     * fe-kerberos are bundled child-first in the hive plugin). Returns {@code null} for a non-Kerberos catalog
-     * so the FE-injected auth path is preserved unchanged. Construction is cheap — the keytab login is lazy in
-     * {@code getUGI()} on the first {@code doAs}.
+     * fe-kerberos are bundled child-first in the hive plugin). Construction is cheap — the keytab login is lazy
+     * in {@code getUGI()} on the first {@code doAs}.
      */
     private HadoopAuthenticator pluginAuthenticator() {
         if (!pluginAuthComputed) {
@@ -668,9 +669,8 @@ public class HiveConnector implements Connector {
     }
 
     /**
-     * Resolves the plugin-side Kerberos authenticator for the catalog, or {@code null} for a non-Kerberos
-     * catalog. Two Kerberos sources are covered, in precedence order (mirroring the legacy
-     * {@code HMSBaseProperties.initHadoopAuthenticator}):
+     * Resolves the plugin-side authenticator for the catalog. Authentication modes are covered in precedence
+     * order, mirroring the legacy {@code HMSBaseProperties.initHadoopAuthenticator}:
      * <ol>
      *   <li><b>Storage</b> Kerberos — the raw {@code hadoop.security.authentication=kerberos} passthrough
      *       (HDFS login), built from the catalog Hadoop configuration. When storage is Kerberos this single
@@ -681,6 +681,8 @@ public class HiveConnector implements Connector {
      *       {@link KerberosAuthenticationConfig}, so the {@code doAs} logs in the same client identity fe-core
      *       used. The HMS <em>service</em> principal / SASL settings ride the catalog's own HiveConf, not the
      *       login.</li>
+     *   <li><b>Simple HMS</b> — the configured {@code hive.metastore.username}/{@code hadoop.username}, or the
+     *       legacy {@code hadoop} default, becomes the current UGI for HMS {@code set_ugi} calls.</li>
      * </ol>
      * Package-visible + static for KDC-free unit testing.
      */
@@ -710,7 +712,17 @@ public class HiveConnector implements Connector {
                 return HadoopAuthenticator.getHadoopAuthenticator(
                         new KerberosAuthenticationConfig(spec.get().getPrincipal(), spec.get().getKeytab(), conf));
             }
-            return null;
+            if (hms.getAuthType() == AuthType.KERBEROS) {
+                return null;
+            }
+            String hadoopUser = hms.toHiveConfOverrides("").get(AuthenticationConfig.HADOOP_USER_NAME);
+            Configuration conf = buildHadoopConf(properties);
+            if (hadoopUser != null) {
+                conf.set(AuthenticationConfig.HADOOP_USER_NAME, hadoopUser);
+            }
+            // HMS set_ugi reads the current UGI, so its simple-auth identity must match the DFS writer.
+            return HadoopAuthenticator.getHadoopAuthenticator(
+                    AuthenticationConfig.getSimpleAuthenticationConfig(conf));
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
