@@ -30,11 +30,14 @@ import org.apache.doris.common.AuthorizationException;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -161,8 +164,13 @@ public class LegacyAccessControllerPluginTest {
 
         Assert.assertEquals("no privilege on [col2]", denied.getMessage());
         Assert.assertEquals("legacy", denied.getDeniedBy().orElse(null));
-        Assert.assertEquals(fromTheController.getMessage(),
-                new AuthorizationException(denied.getMessage()).getMessage());
+        // Carried as the bare wording, not as rendered: the engine wraps this in an AuthorizationException
+        // again on the way out, and that class puts its own error code in front of whatever it is given. The
+        // count is the claim - carrying the rendered form renders the code twice and the user reads both.
+        Assert.assertEquals("the error code is rendered more than once in what the user reads: "
+                        + new AuthorizationException(denied.getMessage()).getMessage(),
+                1, StringUtils.countMatches(
+                        new AuthorizationException(denied.getMessage()).getMessage(), "detailMessage"));
     }
 
     /**
@@ -267,6 +275,62 @@ public class LegacyAccessControllerPluginTest {
 
         Assert.assertSame("the question was asked about circumstances nobody stated",
                 given, seenByTheAuthority.get());
+    }
+
+    /**
+     * A controller built against the data policy types this release deleted is refused where its answer
+     * crosses back, with a message naming the source and what has to be done about it.
+     *
+     * <p>Both signatures erase, so such a controller loads, answers every privilege check, and runs its data
+     * policy method to completion; what it hands back is a {@code RowPolicy} or a {@code DataMaskPolicy}. The
+     * row filter one used to be found several frames later, by a Nereids rule, as a bare
+     * {@code ClassCastException} with nothing in it about which source produced the object or why - and the
+     * one thing an operator has to be told there is "recompile your access controller".
+     */
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public void testAnAnswerOfTheOldPayloadTypeIsRefusedWithTheRecompileMessage() {
+        List whateverTheOldTypeWas = ImmutableList.of(new Object());
+        Mockito.when(controller.evalRowFilterPolicies(USER, "ctl", "db", "tbl"))
+                .thenReturn(whateverTheOldTypeWas);
+        Mockito.when(controller.evalDataMaskPolicy(USER, "ctl", "db", "tbl", "col1"))
+                .thenReturn((Optional) Optional.of(new Object()));
+
+        AuthorizedResource.Table table = AuthorizedResource.table("ctl", "db", "tbl");
+        IllegalStateException refusedFilter = Assert.assertThrows(IllegalStateException.class,
+                () -> plugin.getRowFilters(SUBJECT, table, AccessContext.NONE));
+        Assert.assertTrue(refusedFilter.getMessage(), refusedFilter.getMessage().contains("legacy"));
+        Assert.assertTrue(refusedFilter.getMessage(), refusedFilter.getMessage().contains("recompiled"));
+
+        IllegalStateException refusedMask = Assert.assertThrows(IllegalStateException.class,
+                () -> plugin.getDataMasks(SUBJECT, table, ImmutableSet.of("col1"), AccessContext.NONE));
+        Assert.assertTrue(refusedMask.getMessage(), refusedMask.getMessage().contains("recompiled"));
+    }
+
+    /**
+     * The predicate a controller is handed is the one the caller named.
+     *
+     * <p>{@code SHOW_RESOURCES} and {@code SHOW_WORKLOAD_GROUP} name the same privileges with the same
+     * operator, so they are one value and the requirement they translate to cannot tell them apart by
+     * equality. Comparing a predicate against a constant with {@code ==} is established practice for
+     * implementations of this interface - the reference implementations in this repository did it - so being
+     * handed the other half of the pair silently takes a branch away from a controller that upgrades.
+     */
+    @Test
+    public void testTheControllerIsHandedThePredicateTheCallerNamed() {
+        ArgumentCaptor<PrivPredicate> asked = ArgumentCaptor.forClass(PrivPredicate.class);
+        Mockito.when(controller.checkWorkloadGroupPriv(Mockito.any(), Mockito.anyString(), asked.capture()))
+                .thenReturn(true);
+
+        try {
+            plugin.checkPrivilege(SUBJECT, AuthorizedResource.workloadGroup("wg"),
+                    AccessTranslation.requirementOf(PrivPredicate.SHOW_WORKLOAD_GROUP), AccessContext.NONE);
+        } catch (AccessDeniedException e) {
+            throw new AssertionError(e);
+        }
+
+        Assert.assertSame("the adapter handed the controller the other constant of the colliding pair",
+                PrivPredicate.SHOW_WORKLOAD_GROUP, asked.getValue());
     }
 
     @Test

@@ -41,19 +41,18 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * ATTN: the {@code org.apache.hadoop.conf.Configuration} import below is a SANCTIONED EXCEPTION to the
- * fe-core hadoop-decoupling effort — do not "clean" it away.
+ * ATTN: the {@code org.apache.hadoop.conf.Configuration} import below is imposed by the Ranger library, not
+ * chosen by Doris — do not "clean" it away.
  *
- * <p>The type is imposed by the Ranger library, not chosen by Doris: {@link RangerDefaultAuditHandler}
- * declares the constructor as {@code RangerDefaultAuditHandler(org.apache.hadoop.conf.Configuration)}, and
- * the only argument ever passed is {@code RangerBasePlugin.getConfig()}, whose type chain is
+ * <p>{@link RangerDefaultAuditHandler} declares its constructor as
+ * {@code RangerDefaultAuditHandler(org.apache.hadoop.conf.Configuration)}, and the only argument ever passed
+ * is {@code RangerBasePlugin.getConfig()}, whose type chain is
  * {@code RangerPluginConfig -> RangerConfiguration -> org.apache.hadoop.conf.Configuration}. Narrowing the
  * parameter to {@code RangerPluginConfig} would make a grep look clean while removing no dependency at all:
- * ranger-plugins-common itself pulls hadoop-client-api/hadoop-client-runtime onto the fe-core classpath.
+ * ranger-plugins-common itself pulls hadoop-client-api/hadoop-client-runtime in behind it.
  *
- * <p>Removing hadoop from here therefore requires moving the whole Ranger authorizer out of fe-core, which
- * contradicts the standing decision that this package is a generic external-catalog authorizer kept in
- * fe-core unchanged.
+ * <p>What it no longer costs is a hadoop dependency in fe-core. This class ships in its own plugin directory,
+ * loaded child-first, so hadoop is on that directory's class path and not on the engine's.
  */
 public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
 
@@ -178,6 +177,11 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
     }
 
     List<AuthzAuditEvent> createAuditEvents(Collection<RangerAccessResult> results) {
+        // Ranger answers null when its policy engine cannot answer, and the caller refuses on that; there is
+        // nothing to audit either. RangerDefaultAuditHandler.getAuthzEvents guards the same way.
+        if (results == null) {
+            return Collections.emptyList();
+        }
 
         Map<Long, AuthzAuditEvent> auditEventsMap = new HashMap<>();
         Iterator<RangerAccessResult> iterator = results.iterator();

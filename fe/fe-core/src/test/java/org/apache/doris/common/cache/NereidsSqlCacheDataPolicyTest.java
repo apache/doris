@@ -225,4 +225,33 @@ public class NereidsSqlCacheDataPolicyTest {
         Assertions.assertFalse(dataMaskPoliciesChanged(env, context),
                 "an unmasked column must not read as a policy change");
     }
+
+    /**
+     * The direction that matters most: a policy that did not exist when the entry was cached and does now.
+     *
+     * <p>Every other case here starts from a policy and changes it. This one starts from none, which is the
+     * only direction where a stale hit hands back <em>more</em> than the current policy allows - unmasked
+     * values, unfiltered rows - and it is also the one that depends on the planner having recorded the
+     * negative answer at all. Nothing else pins that: drop the unconditional record of "no mask on this
+     * column" and every case above still passes, while a query cached before the mask was written keeps
+     * serving the raw column until something else evicts it.
+     */
+    @Test
+    public void testAMaskWrittenAfterTheEntryWasCachedInvalidatesIt() {
+        SqlCacheContext context = contextWithDataMask(Optional.empty());
+        Env env = mockEnvEvaluating(() -> null, () -> Optional.of(dataMask(1L, "NULL")));
+
+        Assertions.assertTrue(dataMaskPoliciesChanged(env, context),
+                "a column masked since the entry was cached still serves the raw values");
+    }
+
+    /** And the same direction for row filters. */
+    @Test
+    public void testARowFilterWrittenAfterTheEntryWasCachedInvalidatesIt() {
+        SqlCacheContext context = contextWithRowFilter(null);
+        Env env = mockEnvEvaluating(() -> rowFilter(1L, "region = 'cn'"), Optional::empty);
+
+        Assertions.assertTrue(rowPoliciesChanged(env, context),
+                "a table filtered since the entry was cached still serves every row");
+    }
 }

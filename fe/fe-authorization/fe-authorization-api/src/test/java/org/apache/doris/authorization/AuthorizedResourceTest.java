@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -104,5 +105,19 @@ public class AuthorizedResourceTest {
         Assertions.assertThrows(NullPointerException.class,
                 () -> AuthorizedResource.columns("c", "d", "t", null));
         Assertions.assertThrows(NullPointerException.class, () -> AuthorizedResource.resource(null));
+    }
+
+    /**
+     * A column set naming no column is refused rather than carried.
+     *
+     * <p>Every source decides a column question by walking the columns, so an empty set is a loop with
+     * nothing in it - which each of them would answer "allowed", each for a reason of its own. Refusing it
+     * here is what makes that impossible to reach, and it is part of a frozen plugin API surface, so it needs
+     * a case of its own rather than being covered by whoever happens to call it today.
+     */
+    @Test
+    public void testAColumnSetNamingNoColumnIsRefused() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> AuthorizedResource.columns("c", "d", "t", Collections.emptySet()));
     }
 }
