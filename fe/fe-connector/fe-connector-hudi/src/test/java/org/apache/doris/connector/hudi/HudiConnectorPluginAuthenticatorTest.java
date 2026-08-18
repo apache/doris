@@ -22,7 +22,10 @@ import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -39,6 +42,9 @@ import java.util.Map;
  * <p>The actual keytab login is lazy (on first {@code doAs}), so these assertions never touch a KDC.
  */
 public class HudiConnectorPluginAuthenticatorTest {
+
+    @TempDir
+    Path tempDir;
 
     private static Map<String, String> props(String... kv) {
         Map<String, String> m = new HashMap<>();
@@ -139,5 +145,45 @@ public class HudiConnectorPluginAuthenticatorTest {
         HudiConnector connector = new HudiConnector(HudiTestProperties.minimalMap(), context);
         Assertions.assertEquals("47", connector.buildHmsClientConfig().getProperties()
                 .get("hive.metastore.client.socket.timeout"));
+    }
+
+    @Test
+    public void firstConnectorInitializesConfiguredHadoopResourceDirectory() throws Exception {
+        Path resource = tempDir.resolve("hive-site.xml");
+        Files.writeString(resource, "<configuration><property><name>hadoop.username</name>"
+                + "<value>first-hudi-user</value></property></configuration>");
+        Map<String, String> properties = props(
+                "hive.metastore.uris", "thrift://hms:9083",
+                "hive.metastore.authentication.type", "simple",
+                "hive.conf.resources", resource.getFileName().toString());
+        ConnectorContext context = new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "test";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 1L;
+            }
+
+            @Override
+            public Map<String, String> getEnvironment() {
+                return Map.of("hadoop_config_dir", tempDir.toString());
+            }
+        };
+        String previous = System.getProperty("doris.hadoop.config.dir");
+        System.clearProperty("doris.hadoop.config.dir");
+        try {
+            new HudiConnector(properties, context);
+            Assertions.assertEquals("first-hudi-user",
+                    HudiConnector.buildHmsAuthenticator(properties).getUGI().getUserName());
+        } finally {
+            if (previous == null) {
+                System.clearProperty("doris.hadoop.config.dir");
+            } else {
+                System.setProperty("doris.hadoop.config.dir", previous);
+            }
+        }
     }
 }

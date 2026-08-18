@@ -41,6 +41,8 @@ public final class HmsConfHelper {
     private static final String CONF_METASTORE_CLIENT_TIMEOUT_SECOND = "metastore_client_timeout_second";
     private static final String ENV_METASTORE_CLIENT_TIMEOUT_SECOND =
             "hive_metastore_client_timeout_second";
+    private static final String ENV_HADOOP_CONFIG_DIR = "hadoop_config_dir";
+    private static final String HADOOP_CONFIG_DIR_PROPERTY = "doris.hadoop.config.dir";
 
     private HmsConfHelper() {
     }
@@ -49,6 +51,15 @@ public final class HmsConfHelper {
     public static String metastoreClientTimeoutSecond(ConnectorContext context) {
         return ConnectorConf.get(context, CONF_METASTORE_CLIENT_TIMEOUT_SECOND,
                 ENV_METASTORE_CLIENT_TIMEOUT_SECOND, "10");
+    }
+
+    /** Publishes the FE-global Hadoop resource directory before a connector performs its first HMS lookup. */
+    public static void initializeHadoopConfigDir(ConnectorContext context) {
+        String configured = context.getEnvironment().get(ENV_HADOOP_CONFIG_DIR);
+        if (!isBlank(configured)) {
+            // HMS resource lookup can precede storage binding, so it cannot rely on that lazy path to publish this.
+            System.setProperty(HADOOP_CONFIG_DIR_PROPERTY, configured);
+        }
     }
 
     /**
@@ -156,7 +167,7 @@ public final class HmsConfHelper {
     }
 
     private static String resolveHadoopConfigDir() {
-        String configured = System.getProperty("doris.hadoop.config.dir");
+        String configured = System.getProperty(HADOOP_CONFIG_DIR_PROPERTY);
         if (!isBlank(configured)) {
             return configured;
         }

@@ -559,7 +559,10 @@ public class PaimonConnector implements Connector {
     static String appendHmsCacheKeys(String existing) {
         String keys = appendCacheKey(existing, "conf:hadoop.username");
         keys = appendCacheKey(keys, "conf:hive.metastore.client.principal");
-        return appendCacheKey(keys, "conf:hadoop.kerberos.principal");
+        keys = appendCacheKey(keys, "conf:hive.metastore.kerberos.principal");
+        keys = appendCacheKey(keys, "conf:hadoop.kerberos.principal");
+        // Both settings are captured by the JVM-static SDK pool and must distinguish ALTER CATALOG generations.
+        return appendCacheKey(keys, "conf:hive.metastore.sasl.enabled");
     }
 
     static String appendCacheKey(String existing, String required) {

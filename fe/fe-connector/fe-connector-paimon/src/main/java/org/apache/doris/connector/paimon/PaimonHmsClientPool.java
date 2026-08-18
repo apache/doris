@@ -20,6 +20,8 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.DelegateCatalog;
 import org.apache.paimon.client.ClientPool;
@@ -29,6 +31,8 @@ import org.apache.thrift.TException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.security.PrivilegedAction;
 
 /** Applies the HMS identity at Paimon's metastore client acquisition and RPC boundary. */
@@ -88,12 +92,30 @@ final class PaimonHmsClientPool implements ClientPool<IMetaStoreClient, TExcepti
 
     private <R> R runUnchecked(Action<R, IMetaStoreClient, TException> action) {
         try {
-            return delegate.run(action);
+            return delegate.run(client -> action.run(withAuthenticatedOwner(client)));
         } catch (TException e) {
             throw new ClientPoolException(e);
         } catch (InterruptedException e) {
             throw new ClientPoolInterruptedException(e);
         }
+    }
+
+    private static IMetaStoreClient withAuthenticatedOwner(IMetaStoreClient client) {
+        return (IMetaStoreClient) Proxy.newProxyInstance(
+                IMetaStoreClient.class.getClassLoader(),
+                new Class<?>[] {IMetaStoreClient.class},
+                (proxy, method, args) -> {
+                    if ("createTable".equals(method.getName()) && args != null && args.length > 0
+                            && args[0] instanceof Table) {
+                        // Paimon builds format tables before entering the pool; persist the identity used by HMS RPC.
+                        ((Table) args[0]).setOwner(UserGroupInformation.getCurrentUser().getShortUserName());
+                    }
+                    try {
+                        return method.invoke(client, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
     }
 
     @Override

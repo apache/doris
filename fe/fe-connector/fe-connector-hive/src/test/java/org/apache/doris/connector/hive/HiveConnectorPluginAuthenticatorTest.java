@@ -184,4 +184,29 @@ public class HiveConnectorPluginAuthenticatorTest {
         Assertions.assertEquals("47", connector.buildHmsClientConfig().getProperties()
                 .get("hive.metastore.client.socket.timeout"));
     }
+
+    @Test
+    public void firstConnectorInitializesConfiguredHadoopResourceDirectory() throws Exception {
+        Path resource = tempDir.resolve("hive-site.xml");
+        Files.writeString(resource, "<configuration><property><name>hadoop.username</name>"
+                + "<value>first-hive-user</value></property></configuration>");
+        Map<String, String> properties = props(
+                "hive.metastore.uris", "thrift://hms:9083",
+                "hive.metastore.authentication.type", "simple",
+                "hive.conf.resources", resource.getFileName().toString());
+        String previous = System.getProperty("doris.hadoop.config.dir");
+        System.clearProperty("doris.hadoop.config.dir");
+        try {
+            new HiveConnector(properties,
+                    new FakeConnectorContext(Map.of("hadoop_config_dir", tempDir.toString())));
+            Assertions.assertEquals("first-hive-user",
+                    HiveConnector.buildPluginAuthenticator(properties).getUGI().getUserName());
+        } finally {
+            if (previous == null) {
+                System.clearProperty("doris.hadoop.config.dir");
+            } else {
+                System.setProperty("doris.hadoop.config.dir", previous);
+            }
+        }
+    }
 }

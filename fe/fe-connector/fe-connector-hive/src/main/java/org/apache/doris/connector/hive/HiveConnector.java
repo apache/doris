@@ -131,6 +131,7 @@ public class HiveConnector implements Connector {
     private volatile Connector hudiSibling;
 
     public HiveConnector(Map<String, String> properties, ConnectorContext context) {
+        HmsConfHelper.initializeHadoopConfigDir(context);
         this.props = HiveCatalogProperties.of(properties);
         this.properties = props.getRaw();
         this.context = context;

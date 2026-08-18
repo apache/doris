@@ -19,9 +19,12 @@ package org.apache.doris.connector.paimon;
 
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.paimon.hive.pool.CachedClientPool;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -108,10 +111,14 @@ public class PaimonConnectorPluginAuthenticatorTest {
     @Test
     public void hmsIdentitiesAreIncludedInClientPoolCacheKey() {
         Assertions.assertEquals(
-                "ugi,conf:hadoop.username,conf:hive.metastore.client.principal,conf:hadoop.kerberos.principal",
+                "ugi,conf:hadoop.username,conf:hive.metastore.client.principal,"
+                        + "conf:hive.metastore.kerberos.principal,conf:hadoop.kerberos.principal,"
+                        + "conf:hive.metastore.sasl.enabled",
                 PaimonConnector.appendHmsCacheKeys("ugi"));
         Assertions.assertEquals(
-                "conf:hadoop.username,conf:hive.metastore.client.principal,conf:hadoop.kerberos.principal",
+                "conf:hadoop.username,conf:hive.metastore.client.principal,"
+                        + "conf:hive.metastore.kerberos.principal,conf:hadoop.kerberos.principal,"
+                        + "conf:hive.metastore.sasl.enabled",
                 PaimonConnector.appendHmsCacheKeys("conf:hadoop.username"));
     }
 
@@ -119,8 +126,33 @@ public class PaimonConnectorPluginAuthenticatorTest {
     public void hmsCacheKeyPreservesCaseSensitiveConfigurationNames() {
         Assertions.assertEquals(
                 "conf:HADOOP.USERNAME,conf:hadoop.username,conf:hive.metastore.client.principal,"
-                        + "conf:hadoop.kerberos.principal",
+                        + "conf:hive.metastore.kerberos.principal,conf:hadoop.kerberos.principal,"
+                        + "conf:hive.metastore.sasl.enabled",
                 PaimonConnector.appendHmsCacheKeys("conf:HADOOP.USERNAME"));
+    }
+
+    @Test
+    public void transportChangesProduceDifferentSdkPoolKeys() throws Exception {
+        Configuration first = poolConf("service-a/_HOST@REALM", false);
+        Assertions.assertNotEquals(paimonPoolKey(first),
+                paimonPoolKey(poolConf("service-b/_HOST@REALM", false)));
+        Assertions.assertNotEquals(paimonPoolKey(first),
+                paimonPoolKey(poolConf("service-a/_HOST@REALM", true)));
+    }
+
+    private static Configuration poolConf(String servicePrincipal, boolean sasl) {
+        Configuration conf = new Configuration(false);
+        conf.set("hive.metastore.uris", "thrift://hms:9083");
+        conf.set("hive.metastore.kerberos.principal", servicePrincipal);
+        conf.setBoolean("hive.metastore.sasl.enabled", sasl);
+        return conf;
+    }
+
+    private static Object paimonPoolKey(Configuration conf) throws Exception {
+        Method extractKey = CachedClientPool.class.getDeclaredMethod(
+                "extractKey", String.class, String.class, Configuration.class);
+        extractKey.setAccessible(true);
+        return extractKey.invoke(null, "test-client", PaimonConnector.appendHmsCacheKeys(null), conf);
     }
 
     /** A non-HMS flavor with no storage Kerberos builds no authenticator. */

@@ -21,10 +21,12 @@ import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.iceberg.hive.CachedClientPool;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -110,10 +112,14 @@ public class IcebergConnectorPluginAuthenticatorTest {
     @Test
     public void hmsIdentitiesAreIncludedInClientPoolCacheKey() {
         Assertions.assertEquals(
-                "ugi,conf:hadoop.username,conf:hive.metastore.client.principal,conf:hadoop.kerberos.principal",
+                "ugi,conf:hadoop.username,conf:hive.metastore.client.principal,"
+                        + "conf:hive.metastore.kerberos.principal,conf:hadoop.kerberos.principal,"
+                        + "conf:hive.metastore.sasl.enabled",
                 IcebergConnector.appendHmsCacheKeys("ugi"));
         Assertions.assertEquals(
-                "conf:hadoop.username,conf:hive.metastore.client.principal,conf:hadoop.kerberos.principal",
+                "conf:hadoop.username,conf:hive.metastore.client.principal,"
+                        + "conf:hive.metastore.kerberos.principal,conf:hadoop.kerberos.principal,"
+                        + "conf:hive.metastore.sasl.enabled",
                 IcebergConnector.appendHmsCacheKeys("conf:hadoop.username"));
     }
 
@@ -121,8 +127,33 @@ public class IcebergConnectorPluginAuthenticatorTest {
     public void hmsCacheKeyPreservesCaseSensitiveConfigurationNames() {
         Assertions.assertEquals(
                 "conf:HADOOP.USERNAME,conf:hadoop.username,conf:hive.metastore.client.principal,"
-                        + "conf:hadoop.kerberos.principal",
+                        + "conf:hive.metastore.kerberos.principal,conf:hadoop.kerberos.principal,"
+                        + "conf:hive.metastore.sasl.enabled",
                 IcebergConnector.appendHmsCacheKeys("conf:HADOOP.USERNAME"));
+    }
+
+    @Test
+    public void transportChangesProduceDifferentSdkPoolKeys() throws Exception {
+        Configuration first = poolConf("service-a/_HOST@REALM", false);
+        Assertions.assertNotEquals(icebergPoolKey(first),
+                icebergPoolKey(poolConf("service-b/_HOST@REALM", false)));
+        Assertions.assertNotEquals(icebergPoolKey(first),
+                icebergPoolKey(poolConf("service-a/_HOST@REALM", true)));
+    }
+
+    private static Configuration poolConf(String servicePrincipal, boolean sasl) {
+        Configuration conf = new Configuration(false);
+        conf.set("hive.metastore.uris", "thrift://hms:9083");
+        conf.set("hive.metastore.kerberos.principal", servicePrincipal);
+        conf.setBoolean("hive.metastore.sasl.enabled", sasl);
+        return conf;
+    }
+
+    private static Object icebergPoolKey(Configuration conf) throws Exception {
+        Method extractKey = CachedClientPool.class.getDeclaredMethod(
+                "extractKey", String.class, Configuration.class);
+        extractKey.setAccessible(true);
+        return extractKey.invoke(null, IcebergConnector.appendHmsCacheKeys(null), conf);
     }
 
     @Test

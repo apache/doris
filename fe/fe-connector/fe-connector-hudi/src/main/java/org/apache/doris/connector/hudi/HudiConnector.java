@@ -77,6 +77,7 @@ public class HudiConnector implements Connector {
     private volatile boolean storageAuthComputed;
 
     public HudiConnector(Map<String, String> properties, ConnectorContext context) {
+        HmsConfHelper.initializeHadoopConfigDir(context);
         this.props = HudiCatalogProperties.of(properties);
         this.properties = props.getRaw();
         this.context = context;
