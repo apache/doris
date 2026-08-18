@@ -82,6 +82,15 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
     private Optional<Expression> policyPredicate = Optional.empty();
 
     /**
+     * What the creator wrote that this statement is not storing, when the two readings differ.
+     *
+     * <p>Reported to the client rather than only to {@code fe.log}: the statement succeeds, and the one thing
+     * it drops is the creator's own reading of their own text. Learning that from a query behaving in a way
+     * {@code SHOW ROW POLICY} does not explain is the failure this exists to prevent.
+     */
+    private String droppedReading = null;
+
+    /**
      * ctor of this command.
      */
     public CreatePolicyCommand(PolicyTypeEnum policyType, String policyName, boolean ifNotExists,
@@ -122,6 +131,15 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
         validate(ctx);
         Policy policy = createPolicy(ctx, executor);
         Env.getCurrentEnv().getPolicyMgr().createPolicy(policy, ifNotExists);
+        if (droppedReading != null) {
+            // Set here rather than left to the executor's plain setOk: this is the only chance to tell the
+            // client that the policy it just created does not say what its session read the text as. Counted as
+            // a warning so a client that only looks at the counters still sees that something was reported.
+            ctx.getState().setOk(0, 1, "this policy's predicate is stored as ["
+                    + policyPredicate.get().toSql() + "], which is how it is read on every query it restricts."
+                    + " Your session's sql_mode reads the same text as [" + droppedReading + "]; policy text is"
+                    + " read under the default sql_mode, not the session's");
+        }
     }
 
     @Override
@@ -212,7 +230,8 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
                 // Both modes read the text, and they read it differently. This statement is the only place
                 // that holds both readings, so it is the only place that can say so; the creator's is the one
                 // being dropped, and the operator would otherwise learn that only from a query behaving in a
-                // way SHOW ROW POLICY does not explain.
+                // way SHOW ROW POLICY does not explain. Also handed back to the client, in run().
+                droppedReading = wherePredicate.get().toSql();
                 LOG.warn("row policy {} on {} was written under a sql_mode that reads it as [{}], and is"
                                 + " stored as [{}], which is how it is read on every query it restricts:"
                                 + " predicate text [{}]", policyName, tableNameInfo,

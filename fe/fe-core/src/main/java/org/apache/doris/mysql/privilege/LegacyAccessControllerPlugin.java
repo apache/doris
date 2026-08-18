@@ -199,7 +199,13 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
         for (Object filter : answered) {
             checkedCrossing(filter, RowFilterSpec.class, "evalRowFilterPolicies", table);
         }
-        return filters;
+        // The wildcard, not the field: a source outside this repository may answer null, and the SPI says
+        // "nothing to apply" is an empty list. Returning the field instead moves that null one frame on, into
+        // Utils.fastToImmutableList or - with the SQL cache off - into a CollectionUtils.isEmpty that reads it
+        // as "no row filter" and hands the table back whole. Sibling getDataMasks never returns null either.
+        @SuppressWarnings("unchecked")
+        List<RowFilterSpec> checked = (List<RowFilterSpec>) answered;
+        return checked;
     }
 
     @Override

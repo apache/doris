@@ -23,11 +23,20 @@ import java.util.Objects;
  * One row-level security filter an authorization source applies to a table for one subject.
  *
  * <p>The payload is a <b>SQL boolean expression in Doris dialect</b> ({@code region = 'cn' AND dept IN
- * ('a','b')}), not a parsed expression tree. The engine parses it, checks that it is boolean, and injects it
- * as a filter above the scan. This is deliberate and mirrors Trino's {@code ViewExpression}: a row filter
- * originates as SQL text authored by a human in an external system (a Ranger policy, a {@code CREATE ROW
- * POLICY} statement), so text is its lossless native form. A structured tree would force every source to
- * embed a SQL parser, and cannot express what real policies contain - function calls above all.</p>
+ * ('a','b')}), not a parsed expression tree. The engine parses it and injects it as a filter above the scan.
+ * This is deliberate and mirrors Trino's {@code ViewExpression}: a row filter originates as SQL text authored
+ * by a human in an external system (a Ranger policy, a {@code CREATE ROW POLICY} statement), so text is its
+ * lossless native form. A structured tree would force every source to embed a SQL parser, and cannot express
+ * what real policies contain - function calls above all.</p>
+ *
+ * <p><b>Doris dialect is the source's obligation, not something the engine can repair.</b> The engine refuses
+ * a payload it can tell is not a predicate before binding it - a literal, or anything else whose type is known
+ * that early - naming this policy. Past that, what it can enforce runs out: text that parses is planned, and
+ * text that parses to a different predicate than its author meant is indistinguishable from text that means
+ * what it says. {@code sql_mode} does not travel with the payload either; it is read under
+ * {@code SqlModeHelper#MODE_FOR_POLICY_TEXT}, which is the default mode, so {@code ||} is {@code OR} and not
+ * string concatenation. A source translating from another engine's dialect - see
+ * {@code RangerHiveAccessController} - has to do that translation itself, or refuse.</p>
  *
  * <p>Value semantics are load bearing, not cosmetic: the SQL result cache decides "did the policies change?"
  * by comparing the specs recorded at plan time against the specs evaluated now. Identity equality there means

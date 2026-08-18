@@ -37,6 +37,7 @@ import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashSet;
@@ -215,7 +216,8 @@ public class AuthorizationPluginSurfaceTest {
                 // them - that the constant exists - rather than restating their type.
                 continue;
             }
-            rendered.add(type.getName() + "$" + field.getName() + ":" + field.getGenericType().getTypeName());
+            rendered.add(type.getName() + "$" + field.getName() + ":" + field.getGenericType().getTypeName()
+                    + modifiersOf(field.getModifiers(), false));
             expand(field.getGenericType(), pending);
         }
         for (Constructor<?> constructor : type.getConstructors()) {
@@ -232,7 +234,8 @@ public class AuthorizationPluginSurfaceTest {
                 continue;
             }
             rendered.add(signature(type, method.getName(), method.getGenericParameterTypes(),
-                    method.getGenericReturnType()));
+                    method.getGenericReturnType())
+                    + modifiersOf(method.getModifiers(), method.getDeclaringClass().isInterface()));
             expandAll(method.getGenericParameterTypes(), pending);
             expand(method.getGenericReturnType(), pending);
             expandAll(method.getGenericExceptionTypes(), pending);
@@ -296,6 +299,35 @@ public class AuthorizationPluginSurfaceTest {
             return "abstract class";
         }
         return Modifier.isFinal(type.getModifiers()) ? "final class" : "class";
+    }
+
+    /**
+     * The modifiers of one member that a plugin's compiled code depends on, as {@code " [a, b]"} or nothing.
+     *
+     * <p>Recorded because the signature alone does not say whether a plugin has to implement a method. Every
+     * "silence means refusal" default in this contract - {@code getRowFilters}, {@code getDataMasks},
+     * {@code checkPrivilege} - is a {@code default} method, and turning one into {@code abstract} renders a
+     * byte-identical line: the case stays green, the mandatory major bump is not triggered, and every deployed
+     * plugin relying on that default throws {@code AbstractMethodError} on the first governed {@code SELECT}.
+     * {@code static} and {@code final} are here for the same reason from the other direction - a plugin cannot
+     * override what is final, and cannot inherit what is static.
+     */
+    private static String modifiersOf(int modifiers, boolean declaredInInterface) {
+        List<String> interesting = new ArrayList<>();
+        if (Modifier.isStatic(modifiers)) {
+            interesting.add("static");
+        }
+        if (Modifier.isAbstract(modifiers)) {
+            interesting.add("abstract");
+        } else if (declaredInInterface && !Modifier.isStatic(modifiers)) {
+            // The distinction this exists for: an interface method that is not abstract carries a body every
+            // plugin may inherit instead of writing one.
+            interesting.add("default");
+        }
+        if (Modifier.isFinal(modifiers)) {
+            interesting.add("final");
+        }
+        return interesting.isEmpty() ? "" : " [" + String.join(", ", interesting) + "]";
     }
 
     private static String signature(Class<?> owner, String name, Type[] params, Type returnType) {

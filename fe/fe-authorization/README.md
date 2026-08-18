@@ -36,10 +36,13 @@ Four design rules shape everything in this directory:
    grants without asking any source, and each is the engine's own, not something
    a plugin can influence:
 
-   - `ConnectContext.isSkipAuth()` — a statement the engine runs on behalf of one
-     the caller was already authorized for. Honoured by `checkTblPriv` and
-     `checkColumnsPriv`, and only by their `ConnectContext` overloads. Set in
-     five places, all of them inside an already-authorized statement.
+   - `ConnectContext.isSkipAuth()` — honoured by `checkTblPriv` and
+     `checkColumnsPriv`, and only by their `ConnectContext` overloads. Set in five
+     places, which are not all the same case: four are a statement the engine runs
+     on behalf of one the caller was already authorized for, and the fifth,
+     `FrontendServiceImpl.fetchLoadJob`, builds a context carrying no user identity
+     at all — a system-table read on behalf of a backend, which has no account to
+     check — and clears it in a `finally`.
    - `Config.skip_catalog_priv_check` on a catalog bound to a source of its own,
      in `checkCtlPriv`: such a catalog keeps no catalog-level grant anywhere, so
      with the check switched off there is nobody left to ask.

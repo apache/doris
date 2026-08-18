@@ -89,8 +89,21 @@ public class RowPolicySqlModeTest extends TestWithFeService {
         long callerMode = connectContext.getSessionVariable().getSqlMode();
         connectContext.getSessionVariable().setSqlMode(callerMode | SqlModeHelper.MODE_PIPES_AS_CONCAT);
         try {
+            // This ConnectContext is shared with every other case here, and running a command directly does
+            // not reset its state the way ConnectProcessor does per statement.
+            connectContext.getState().reset();
             createPolicy("CREATE ROW POLICY p_pipes ON " + TBL + " AS PERMISSIVE TO " + USER
                     + " USING (region = 'cn' || region = 'us')");
+
+            // The statement succeeds and stores a predicate the creator did not write, so it has to say so to
+            // the creator and not only to fe.log: this session is the only place holding both readings, and
+            // SHOW ROW POLICY renders the stored one with nothing to compare it against.
+            String reported = connectContext.getState().getInfoMessage();
+            Assertions.assertNotNull(reported,
+                    "the statement dropped the creator's reading of their own text without telling them");
+            Assertions.assertTrue(reported.contains("sql_mode"),
+                    "the message does not say that policy text is read under a fixed sql_mode, which is the"
+                            + " one thing the creator needs to know here: " + reported);
 
             RowPolicy stored = onlyPolicyOfTheUser();
             Assertions.assertTrue(stored.getWherePredicate() instanceof Or,
@@ -135,10 +148,16 @@ public class RowPolicySqlModeTest extends TestWithFeService {
     /** An ordinary policy is unaffected: the fixed mode is the one a fresh session already has. */
     @Test
     public void testAnOrdinaryPolicyIsUnaffected() throws Exception {
+        connectContext.getState().reset();
         createPolicy("CREATE ROW POLICY p_plain ON " + TBL + " AS PERMISSIVE TO " + USER
                 + " USING (region = 'cn' or region = 'us')");
         try {
             Assertions.assertTrue(onlyFilterConjunctPlannedFor(USER) instanceof Or);
+            // The negative control for the message the case above expects: both modes read this text the same
+            // way, so there is nothing to report, and a statement that reports anyway trains operators to
+            // ignore it.
+            Assertions.assertNull(connectContext.getState().getInfoMessage(),
+                    "a policy whose text means the same under both modes reported a difference anyway");
         } finally {
             dropPolicy("DROP ROW POLICY p_plain ON " + TBL);
         }
@@ -157,6 +176,10 @@ public class RowPolicySqlModeTest extends TestWithFeService {
     public void testAHintInThePolicyTextDoesNotOutliveTheParse() throws Exception {
         createPolicy("CREATE ROW POLICY p_hint ON " + TBL + " AS PERMISSIVE TO " + USER
                 + " USING (region = 'cn' or region = 'us')");
+        // Restored in the finally below like every sibling case here: what this one asserts is that the session
+        // ends up under PIPES_AS_CONCAT, and this ConnectContext is shared with every other case in this class.
+        // JUnit does not order methods, so leaving it set is a case that passes or fails by where it ran.
+        long enteringMode = connectContext.getSessionVariable().getSqlMode();
         try {
             useUser(USER);
             long callerMode = connectContext.getSessionVariable().getSqlMode()
@@ -178,6 +201,7 @@ public class RowPolicySqlModeTest extends TestWithFeService {
                             + " decides this connection's sql_mode from here on");
         } finally {
             useUser("root");
+            connectContext.getSessionVariable().setSqlMode(enteringMode);
             dropPolicy("DROP ROW POLICY p_hint ON " + TBL);
         }
     }

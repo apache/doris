@@ -46,6 +46,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * An authorization source shipped as a jar, installed the way a third party installs one, really decides
@@ -133,7 +134,11 @@ public class AuthorizationPluginFromDirectoryTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         createDatabase(DB);
         useDatabase(DB);
-        createTable("create table " + TBL + " (id int, region varchar(8))"
+        // Region, not region: the source writes its policies against "region" and keys its answer by the
+        // lower-cased name, while the slot names a query carries come from this schema. Declared in one
+        // case throughout, both Locale.ROOT foldings could be deleted and every case here would still
+        // pass - which is the whole of what they are for.
+        createTable("create table " + TBL + " (id int, Region varchar(8))"
                 + " distributed by hash(id) buckets 1 properties(\"replication_num\" = \"1\");");
 
         createRole(ExampleAuthorizationPlugin.DEFAULT_READER_ROLE);
@@ -292,7 +297,9 @@ public class AuthorizationPluginFromDirectoryTest extends TestWithFeService {
             return false;
         }
         EqualTo equalTo = (EqualTo) conjunct;
-        return equalTo.left().toSql().contains("region")
+        // Case-insensitively: the policy text names the column in lower case and the schema declares it
+        // in mixed case, and a bound slot renders as the schema spells it.
+        return equalTo.left().toSql().toLowerCase(Locale.ROOT).contains("region")
                 && equalTo.right() instanceof Literal
                 && "EU".equals(((Literal) equalTo.right()).getStringValue());
     }

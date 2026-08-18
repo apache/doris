@@ -68,7 +68,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
@@ -89,9 +88,13 @@ import java.util.function.Supplier;
  * <p><b>The exemptions to that.</b> Three places grant access without asking any source, and they are the
  * whole of the list:
  * <ul>
- *   <li>{@link ConnectContext#isSkipAuth()} - a statement the engine is running on its own behalf inside
- *       another statement the caller was already authorized for. Honoured by {@link #checkTblPriv} and
- *       {@link #checkColumnsPriv}, and only by the overloads that take a {@code ConnectContext};</li>
+ *   <li>{@link ConnectContext#isSkipAuth()} - honoured by {@link #checkTblPriv} and
+ *       {@link #checkColumnsPriv}, and only by the overloads that take a {@code ConnectContext}. It is set in
+ *       five places, and not all five mean the same thing: four are a statement the engine is running on its
+ *       own behalf inside another statement the caller was already authorized for, while the fifth,
+ *       {@code FrontendServiceImpl#fetchLoadJob}, builds a context with no user identity at all - a system
+ *       table read on behalf of a backend, which has no account to check, and whose context is cleared in a
+ *       {@code finally};</li>
  *   <li>{@link Config#skip_catalog_priv_check} on a catalog bound to a source of its own, in
  *       {@link #checkCtlPriv}: such a catalog stores no catalog level grant anywhere, so with the check
  *       switched off there is nobody left to ask;</li>
@@ -378,12 +381,13 @@ public class AccessControllerManager {
                 descriptor = providers.next();
             } catch (ServiceConfigurationError e) {
                 // A service declaration naming a class this FE cannot load - the same stale jar as above,
-                // one release further out of date. The iterator gives no way to skip just that entry, so the
-                // sweep stops here instead of looping on it; whatever it had already found stays registered.
-                LOG.warn("Stopped sweeping the class path for authorization plugin factories: a service"
-                        + " declaration there cannot be read", e);
+                // one release further out of date. Only that entry is lost: ServiceLoader clears the pending
+                // error as it throws it (LazyClassPathLookupIterator.nextService), so the next hasNext()
+                // resumes at the following declaration rather than repeating this one.
+                LOG.warn("Skip an authorization plugin factory from class path: a service declaration there"
+                        + " cannot be read", e);
                 pluginLoadRejections.add("class path (service declaration): " + e.getMessage());
-                break;
+                continue;
             }
             Class<? extends AuthorizationPluginFactory> factoryClass = descriptor.type();
             String rejection = API_VERSION_GATE.rejectionReasonForClass(factoryClass);
@@ -415,7 +419,7 @@ public class AccessControllerManager {
                 // Snapshot the metadata it reports before admitting it, so one throwing implementation is
                 // rejected cleanly instead of ending up selectable with no inventory row.
                 PluginRegistry.getInstance().registerBuiltin(PLUGIN_FAMILY, factory);
-            } catch (RuntimeException e) {
+            } catch (RuntimeException | LinkageError e) {
                 LOG.warn("Skip authorization plugin factory {} from class path: self-reported metadata failed",
                         factoryClass.getName(), e);
                 pluginLoadRejections.add(factoryClass.getName()
@@ -424,21 +428,75 @@ public class AccessControllerManager {
             }
             registerPluginFactory(name, factory);
         }
-        ServiceLoader<AccessControllerFactory> loaderFromClasspath = ServiceLoader.load(AccessControllerFactory.class);
-        for (AccessControllerFactory factory : loaderFromClasspath) {
-            LOG.info("Found Access Controller Plugin Factory: {} from class path.", factory.factoryIdentifier());
-            registerLegacyFactory(factory, false);
-        }
+        sweepClassPathForLegacyFactories();
         loadAuthorizationPluginsFromDirectory();
         List<AccessControllerFactory> loader = null;
         try {
             loader = ClassLoaderUtils.loadServicesFromDirectory(AccessControllerFactory.class);
         } catch (IOException e) {
-            throw new RuntimeException("Failed to load Authentication Plugin Factories", e);
+            throw new RuntimeException("Failed to load Authorization Plugin Factories", e);
         }
         for (AccessControllerFactory factory : loader) {
-            LOG.info("Found Access Controller Plugin Factory: {} from directory.", factory.factoryIdentifier());
-            registerLegacyFactory(factory, true);
+            String name;
+            try {
+                // Asked once, as on the class path channel; a LinkageError is what a factory compiled against
+                // another release throws here.
+                name = factory.factoryIdentifier();
+            } catch (RuntimeException | LinkageError e) {
+                LOG.warn("Skip access controller factory {} from directory: it cannot report its name",
+                        factory.getClass().getName(), e);
+                pluginLoadRejections.add(factory.getClass().getName()
+                        + " (directory): it cannot report its name");
+                continue;
+            }
+            LOG.info("Found Access Controller Plugin Factory: {} from directory.", name);
+            registerLegacyFactory(name, factory, true);
+        }
+    }
+
+    /**
+     * Sweeps the FE's class path for the deprecated {@link AccessControllerFactory} contract.
+     *
+     * <p>Held to the same standard as the channel above rather than run bare, and for the same reason: the
+     * only thing this can find in a release package is a jar someone added to {@code fe/lib}, built against
+     * some other Doris release. Bare, a stale {@code META-INF/services} entry there throws a
+     * {@link ServiceConfigurationError} out of this method, out of the constructor, and the FE does not start,
+     * with the top of the stack pointing at {@code ServiceLoader} rather than at the jar. One bad entry costs
+     * that entry.
+     */
+    private void sweepClassPathForLegacyFactories() {
+        Iterator<ServiceLoader.Provider<AccessControllerFactory>> providers =
+                ServiceLoader.load(AccessControllerFactory.class).stream().iterator();
+        while (true) {
+            ServiceLoader.Provider<AccessControllerFactory> descriptor;
+            try {
+                if (!providers.hasNext()) {
+                    break;
+                }
+                descriptor = providers.next();
+            } catch (ServiceConfigurationError e) {
+                LOG.warn("Skip an access controller factory from class path: a service declaration there"
+                        + " cannot be read", e);
+                pluginLoadRejections.add("class path (service declaration): " + e.getMessage());
+                continue;
+            }
+            AccessControllerFactory factory;
+            String name;
+            try {
+                // Both of these run the plugin's own code - a constructor and a self-reported name. A
+                // LinkageError is what a factory compiled against another release actually throws, so it is
+                // caught here too; asked once, because asking again is a second answer and a second throw.
+                factory = descriptor.get();
+                name = factory.factoryIdentifier();
+            } catch (ServiceConfigurationError | RuntimeException | LinkageError e) {
+                LOG.warn("Skip access controller factory {} from class path: construction failed",
+                        descriptor.type().getName(), e);
+                pluginLoadRejections.add(descriptor.type().getName()
+                        + " (class path): construction failed");
+                continue;
+            }
+            LOG.info("Found Access Controller Plugin Factory: {} from class path.", name);
+            registerLegacyFactory(name, factory, false);
         }
     }
 
@@ -487,9 +545,15 @@ public class AccessControllerManager {
             String name = handle.getPluginName();
             if (isKnownAuthorizationSource(name)) {
                 // Whatever is already installed under this name keeps it, so that dropping a jar into the
-                // plugin directory can never displace a source shipped with the FE. Both contracts publish
-                // into the same namespace, so both tables have to be consulted - and so does the name the
-                // built-in model is selected by.
+                // plugin directory can never displace a source on the class path or the built-in model. Both
+                // contracts publish into the same namespace, so both tables have to be consulted - and so does
+                // the name the built-in model is selected by.
+                //
+                // It says nothing about two plugin directories: the Ranger sources this release ships are
+                // themselves directory plugins, and between directories the one the loader reaches first keeps
+                // the name, so a directory sorting ahead of ranger-doris and reporting that name would take it
+                // and the shipped one would be the one refused here. Whoever can write into the plugin
+                // directory can do worse than that, which is why this is documented rather than ordered.
                 LOG.warn("Skip authorization plugin '{}' from {}: that name is already taken by a source on"
                         + " the class path", name, handle.getPluginDir());
                 pluginLoadRejections.add(handle.getPluginDir() + " (name): '" + name
@@ -528,14 +592,17 @@ public class AccessControllerManager {
     }
 
     /**
+     * @param name the identifier this factory reported, asked of it once by the channel that found it. Passed
+     *         in rather than read again here for the reason the directory channel above gives: re-entering
+     *         plugin code for a name it has already reported is both a second answer and a second chance to
+     *         throw, and the tables keyed by it have to agree.
      * @param fromDirectory whether this came out of the plugin directory rather than off the class path. A
      *         directory one gives up a name that is taken, which is what makes "a jar dropped into the plugin
-     *         directory can never displace a source shipped with the FE" true of this contract too: the
+     *         directory can never displace a source on the class path" true of this contract too: the
      *         registry keeps the first row it was given, so overwriting the factory here would leave
      *         information_schema.extensions describing a source that no longer answers anything.
      */
-    private void registerLegacyFactory(AccessControllerFactory factory, boolean fromDirectory) {
-        String name = factory.factoryIdentifier();
+    private void registerLegacyFactory(String name, AccessControllerFactory factory, boolean fromDirectory) {
         if (isReservedSourceName(name)) {
             LOG.warn("Skip access controller factory {}: '{}' is the name the built-in privilege model is"
                     + " selected by and cannot be published by a plugin.", factory.getClass().getName(), name);
@@ -1177,15 +1244,6 @@ public class AccessControllerManager {
             }
         }
         return true;
-    }
-
-    public Optional<DataMaskSpec> evalDataMaskPolicy(UserIdentity currentUser, String
-            ctl, String db, String tbl, String col) {
-        Objects.requireNonNull(col, "require col object");
-        // Locale.ROOT because that is the locale the batch method keys its answer with; the default locale
-        // would fold a Turkish "I" to a character that key does not have.
-        return Optional.ofNullable(evalDataMaskPolicies(currentUser, ctl, db, tbl,
-                Collections.singleton(col)).get(col.toLowerCase(Locale.ROOT)));
     }
 
     /**

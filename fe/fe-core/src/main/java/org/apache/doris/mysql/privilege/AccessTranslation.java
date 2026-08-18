@@ -109,7 +109,8 @@ public final class AccessTranslation {
         ACTION_OF_PRIVILEGE.put(Privilege.STAGE_USAGE_PRIV, AccessAction.STAGE_USAGE);
         ACTION_OF_PRIVILEGE.put(Privilege.SHOW_VIEW_PRIV, AccessAction.SHOW_VIEW);
         // The retired bit indices carry the same meaning as the ones that replaced them, so they translate
-        // to the same action - the same normalization Role.upgradeToNewPrivilege() applies to stored grants.
+        // to the same action - the same normalization Role.compatibilityAuthIndexChange() applies to stored
+        // grants.
         ACTION_OF_PRIVILEGE.put(Privilege.SHOW_VIEW_PRIV_DEPRECATED, AccessAction.SHOW_VIEW);
         ACTION_OF_PRIVILEGE.put(Privilege.SHOW_VIEW_PRIV_CLOUD_DEPRECATED, AccessAction.SHOW_VIEW);
         ACTION_OF_PRIVILEGE.put(Privilege.CLUSTER_USAGE_PRIV_DEPRECATED, AccessAction.CLUSTER_USAGE);

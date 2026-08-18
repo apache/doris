@@ -12,151 +12,151 @@ org.apache.doris.authorization.AccessAction@SHOW_VIEW
 org.apache.doris.authorization.AccessAction@STAGE_USAGE
 org.apache.doris.authorization.AccessAction@USAGE
 org.apache.doris.authorization.AccessContext!interface
-org.apache.doris.authorization.AccessContext#getClientIp():java.util.Optional<java.lang.String>
-org.apache.doris.authorization.AccessContext#getQueryId():java.util.Optional<java.lang.String>
-org.apache.doris.authorization.AccessContext$NONE:org.apache.doris.authorization.AccessContext
+org.apache.doris.authorization.AccessContext#getClientIp():java.util.Optional<java.lang.String> [default]
+org.apache.doris.authorization.AccessContext#getQueryId():java.util.Optional<java.lang.String> [default]
+org.apache.doris.authorization.AccessContext$NONE:org.apache.doris.authorization.AccessContext [static, final]
 org.apache.doris.authorization.AccessDeniedException!class
 org.apache.doris.authorization.AccessDeniedException#getDeniedBy():java.util.Optional<java.lang.String>
 org.apache.doris.authorization.AccessDeniedException#getMessage():java.lang.String
 org.apache.doris.authorization.AccessDeniedException#getRequirement():java.util.Optional<org.apache.doris.authorization.AccessRequirement>
 org.apache.doris.authorization.AccessDeniedException#getResource():org.apache.doris.authorization.AuthorizedResource
-org.apache.doris.authorization.AccessDeniedException#of(org.apache.doris.authorization.AuthorizedSubject,org.apache.doris.authorization.AuthorizedResource,org.apache.doris.authorization.AccessRequirement,java.lang.String):org.apache.doris.authorization.AccessDeniedException
-org.apache.doris.authorization.AccessDeniedException#withMessage(java.lang.String,org.apache.doris.authorization.AuthorizedResource,java.lang.String):org.apache.doris.authorization.AccessDeniedException
+org.apache.doris.authorization.AccessDeniedException#of(org.apache.doris.authorization.AuthorizedSubject,org.apache.doris.authorization.AuthorizedResource,org.apache.doris.authorization.AccessRequirement,java.lang.String):org.apache.doris.authorization.AccessDeniedException [static]
+org.apache.doris.authorization.AccessDeniedException#withMessage(java.lang.String,org.apache.doris.authorization.AuthorizedResource,java.lang.String):org.apache.doris.authorization.AccessDeniedException [static]
 org.apache.doris.authorization.AccessRequirement!final class
-org.apache.doris.authorization.AccessRequirement#allOf(org.apache.doris.authorization.AccessAction[]):org.apache.doris.authorization.AccessRequirement
-org.apache.doris.authorization.AccessRequirement#anyOf(org.apache.doris.authorization.AccessAction[]):org.apache.doris.authorization.AccessRequirement
+org.apache.doris.authorization.AccessRequirement#allOf(org.apache.doris.authorization.AccessAction[]):org.apache.doris.authorization.AccessRequirement [static]
+org.apache.doris.authorization.AccessRequirement#anyOf(org.apache.doris.authorization.AccessAction[]):org.apache.doris.authorization.AccessRequirement [static]
 org.apache.doris.authorization.AccessRequirement#equals(java.lang.Object):boolean
 org.apache.doris.authorization.AccessRequirement#getActions():java.util.Set<org.apache.doris.authorization.AccessAction>
 org.apache.doris.authorization.AccessRequirement#getMatch():org.apache.doris.authorization.ActionMatch
 org.apache.doris.authorization.AccessRequirement#hashCode():int
 org.apache.doris.authorization.AccessRequirement#isSatisfiedBy(java.util.Set<org.apache.doris.authorization.AccessAction>):boolean
-org.apache.doris.authorization.AccessRequirement#of(java.util.Collection<org.apache.doris.authorization.AccessAction>,org.apache.doris.authorization.ActionMatch):org.apache.doris.authorization.AccessRequirement
-org.apache.doris.authorization.AccessRequirement#of(org.apache.doris.authorization.AccessAction):org.apache.doris.authorization.AccessRequirement
+org.apache.doris.authorization.AccessRequirement#of(java.util.Collection<org.apache.doris.authorization.AccessAction>,org.apache.doris.authorization.ActionMatch):org.apache.doris.authorization.AccessRequirement [static]
+org.apache.doris.authorization.AccessRequirement#of(org.apache.doris.authorization.AccessAction):org.apache.doris.authorization.AccessRequirement [static]
 org.apache.doris.authorization.AccessRequirement#toString():java.lang.String
 org.apache.doris.authorization.AccessRequirements!final class
-org.apache.doris.authorization.AccessRequirements$ADMINISTRATION:org.apache.doris.authorization.AccessRequirement
-org.apache.doris.authorization.AccessRequirements$ALTER:org.apache.doris.authorization.AccessRequirement
-org.apache.doris.authorization.AccessRequirements$ANY_PRIVILEGE:org.apache.doris.authorization.AccessRequirement
-org.apache.doris.authorization.AccessRequirements$CREATE:org.apache.doris.authorization.AccessRequirement
-org.apache.doris.authorization.AccessRequirements$DROP:org.apache.doris.authorization.AccessRequirement
-org.apache.doris.authorization.AccessRequirements$LOAD:org.apache.doris.authorization.AccessRequirement
-org.apache.doris.authorization.AccessRequirements$SELECT:org.apache.doris.authorization.AccessRequirement
-org.apache.doris.authorization.AccessRequirements$VISIBILITY:org.apache.doris.authorization.AccessRequirement
+org.apache.doris.authorization.AccessRequirements$ADMINISTRATION:org.apache.doris.authorization.AccessRequirement [static, final]
+org.apache.doris.authorization.AccessRequirements$ALTER:org.apache.doris.authorization.AccessRequirement [static, final]
+org.apache.doris.authorization.AccessRequirements$ANY_PRIVILEGE:org.apache.doris.authorization.AccessRequirement [static, final]
+org.apache.doris.authorization.AccessRequirements$CREATE:org.apache.doris.authorization.AccessRequirement [static, final]
+org.apache.doris.authorization.AccessRequirements$DROP:org.apache.doris.authorization.AccessRequirement [static, final]
+org.apache.doris.authorization.AccessRequirements$LOAD:org.apache.doris.authorization.AccessRequirement [static, final]
+org.apache.doris.authorization.AccessRequirements$SELECT:org.apache.doris.authorization.AccessRequirement [static, final]
+org.apache.doris.authorization.AccessRequirements$VISIBILITY:org.apache.doris.authorization.AccessRequirement [static, final]
 org.apache.doris.authorization.ActionMatch!enum
 org.apache.doris.authorization.ActionMatch@ALL
 org.apache.doris.authorization.ActionMatch@ANY
 org.apache.doris.authorization.AuthorizedResource!abstract class
-org.apache.doris.authorization.AuthorizedResource#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog
-org.apache.doris.authorization.AuthorizedResource#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns
-org.apache.doris.authorization.AuthorizedResource#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database
-org.apache.doris.authorization.AuthorizedResource#getKind():org.apache.doris.authorization.ResourceKind
-org.apache.doris.authorization.AuthorizedResource#global():org.apache.doris.authorization.AuthorizedResource$Global
-org.apache.doris.authorization.AuthorizedResource#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table
-org.apache.doris.authorization.AuthorizedResource#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
+org.apache.doris.authorization.AuthorizedResource#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog [static]
+org.apache.doris.authorization.AuthorizedResource#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns [static]
+org.apache.doris.authorization.AuthorizedResource#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database [static]
+org.apache.doris.authorization.AuthorizedResource#getKind():org.apache.doris.authorization.ResourceKind [final]
+org.apache.doris.authorization.AuthorizedResource#global():org.apache.doris.authorization.AuthorizedResource$Global [static]
+org.apache.doris.authorization.AuthorizedResource#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table [static]
+org.apache.doris.authorization.AuthorizedResource#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
 org.apache.doris.authorization.AuthorizedResource$Catalog!final class
-org.apache.doris.authorization.AuthorizedResource$Catalog#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog
-org.apache.doris.authorization.AuthorizedResource$Catalog#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Catalog#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns
-org.apache.doris.authorization.AuthorizedResource$Catalog#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database
+org.apache.doris.authorization.AuthorizedResource$Catalog#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog [static]
+org.apache.doris.authorization.AuthorizedResource$Catalog#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Catalog#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns [static]
+org.apache.doris.authorization.AuthorizedResource$Catalog#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database [static]
 org.apache.doris.authorization.AuthorizedResource$Catalog#equals(java.lang.Object):boolean
 org.apache.doris.authorization.AuthorizedResource$Catalog#getCatalog():java.lang.String
-org.apache.doris.authorization.AuthorizedResource$Catalog#getKind():org.apache.doris.authorization.ResourceKind
-org.apache.doris.authorization.AuthorizedResource$Catalog#global():org.apache.doris.authorization.AuthorizedResource$Global
+org.apache.doris.authorization.AuthorizedResource$Catalog#getKind():org.apache.doris.authorization.ResourceKind [final]
+org.apache.doris.authorization.AuthorizedResource$Catalog#global():org.apache.doris.authorization.AuthorizedResource$Global [static]
 org.apache.doris.authorization.AuthorizedResource$Catalog#hashCode():int
-org.apache.doris.authorization.AuthorizedResource$Catalog#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Catalog#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Catalog#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table
+org.apache.doris.authorization.AuthorizedResource$Catalog#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Catalog#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Catalog#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table [static]
 org.apache.doris.authorization.AuthorizedResource$Catalog#toString():java.lang.String
-org.apache.doris.authorization.AuthorizedResource$Catalog#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
+org.apache.doris.authorization.AuthorizedResource$Catalog#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
 org.apache.doris.authorization.AuthorizedResource$Columns!final class
-org.apache.doris.authorization.AuthorizedResource$Columns#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog
-org.apache.doris.authorization.AuthorizedResource$Columns#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Columns#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns
-org.apache.doris.authorization.AuthorizedResource$Columns#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database
+org.apache.doris.authorization.AuthorizedResource$Columns#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog [static]
+org.apache.doris.authorization.AuthorizedResource$Columns#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Columns#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns [static]
+org.apache.doris.authorization.AuthorizedResource$Columns#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database [static]
 org.apache.doris.authorization.AuthorizedResource$Columns#equals(java.lang.Object):boolean
 org.apache.doris.authorization.AuthorizedResource$Columns#getCatalog():java.lang.String
 org.apache.doris.authorization.AuthorizedResource$Columns#getColumns():java.util.Set<java.lang.String>
 org.apache.doris.authorization.AuthorizedResource$Columns#getDatabase():java.lang.String
-org.apache.doris.authorization.AuthorizedResource$Columns#getKind():org.apache.doris.authorization.ResourceKind
+org.apache.doris.authorization.AuthorizedResource$Columns#getKind():org.apache.doris.authorization.ResourceKind [final]
 org.apache.doris.authorization.AuthorizedResource$Columns#getTable():java.lang.String
-org.apache.doris.authorization.AuthorizedResource$Columns#global():org.apache.doris.authorization.AuthorizedResource$Global
+org.apache.doris.authorization.AuthorizedResource$Columns#global():org.apache.doris.authorization.AuthorizedResource$Global [static]
 org.apache.doris.authorization.AuthorizedResource$Columns#hashCode():int
-org.apache.doris.authorization.AuthorizedResource$Columns#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Columns#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Columns#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table
+org.apache.doris.authorization.AuthorizedResource$Columns#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Columns#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Columns#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table [static]
 org.apache.doris.authorization.AuthorizedResource$Columns#toString():java.lang.String
-org.apache.doris.authorization.AuthorizedResource$Columns#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
+org.apache.doris.authorization.AuthorizedResource$Columns#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
 org.apache.doris.authorization.AuthorizedResource$Database!final class
-org.apache.doris.authorization.AuthorizedResource$Database#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog
-org.apache.doris.authorization.AuthorizedResource$Database#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Database#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns
-org.apache.doris.authorization.AuthorizedResource$Database#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database
+org.apache.doris.authorization.AuthorizedResource$Database#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog [static]
+org.apache.doris.authorization.AuthorizedResource$Database#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Database#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns [static]
+org.apache.doris.authorization.AuthorizedResource$Database#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database [static]
 org.apache.doris.authorization.AuthorizedResource$Database#equals(java.lang.Object):boolean
 org.apache.doris.authorization.AuthorizedResource$Database#getCatalog():java.lang.String
 org.apache.doris.authorization.AuthorizedResource$Database#getDatabase():java.lang.String
-org.apache.doris.authorization.AuthorizedResource$Database#getKind():org.apache.doris.authorization.ResourceKind
-org.apache.doris.authorization.AuthorizedResource$Database#global():org.apache.doris.authorization.AuthorizedResource$Global
+org.apache.doris.authorization.AuthorizedResource$Database#getKind():org.apache.doris.authorization.ResourceKind [final]
+org.apache.doris.authorization.AuthorizedResource$Database#global():org.apache.doris.authorization.AuthorizedResource$Global [static]
 org.apache.doris.authorization.AuthorizedResource$Database#hashCode():int
-org.apache.doris.authorization.AuthorizedResource$Database#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Database#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Database#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table
+org.apache.doris.authorization.AuthorizedResource$Database#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Database#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Database#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table [static]
 org.apache.doris.authorization.AuthorizedResource$Database#toString():java.lang.String
-org.apache.doris.authorization.AuthorizedResource$Database#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
+org.apache.doris.authorization.AuthorizedResource$Database#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
 org.apache.doris.authorization.AuthorizedResource$Global!final class
-org.apache.doris.authorization.AuthorizedResource$Global#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog
-org.apache.doris.authorization.AuthorizedResource$Global#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Global#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns
-org.apache.doris.authorization.AuthorizedResource$Global#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database
-org.apache.doris.authorization.AuthorizedResource$Global#getKind():org.apache.doris.authorization.ResourceKind
-org.apache.doris.authorization.AuthorizedResource$Global#global():org.apache.doris.authorization.AuthorizedResource$Global
-org.apache.doris.authorization.AuthorizedResource$Global#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Global#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Global#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table
+org.apache.doris.authorization.AuthorizedResource$Global#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog [static]
+org.apache.doris.authorization.AuthorizedResource$Global#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Global#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns [static]
+org.apache.doris.authorization.AuthorizedResource$Global#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database [static]
+org.apache.doris.authorization.AuthorizedResource$Global#getKind():org.apache.doris.authorization.ResourceKind [final]
+org.apache.doris.authorization.AuthorizedResource$Global#global():org.apache.doris.authorization.AuthorizedResource$Global [static]
+org.apache.doris.authorization.AuthorizedResource$Global#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Global#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Global#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table [static]
 org.apache.doris.authorization.AuthorizedResource$Global#toString():java.lang.String
-org.apache.doris.authorization.AuthorizedResource$Global#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
+org.apache.doris.authorization.AuthorizedResource$Global#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
 org.apache.doris.authorization.AuthorizedResource$Named!final class
-org.apache.doris.authorization.AuthorizedResource$Named#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog
-org.apache.doris.authorization.AuthorizedResource$Named#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Named#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns
-org.apache.doris.authorization.AuthorizedResource$Named#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database
+org.apache.doris.authorization.AuthorizedResource$Named#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog [static]
+org.apache.doris.authorization.AuthorizedResource$Named#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Named#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns [static]
+org.apache.doris.authorization.AuthorizedResource$Named#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database [static]
 org.apache.doris.authorization.AuthorizedResource$Named#equals(java.lang.Object):boolean
-org.apache.doris.authorization.AuthorizedResource$Named#getKind():org.apache.doris.authorization.ResourceKind
+org.apache.doris.authorization.AuthorizedResource$Named#getKind():org.apache.doris.authorization.ResourceKind [final]
 org.apache.doris.authorization.AuthorizedResource$Named#getName():java.lang.String
-org.apache.doris.authorization.AuthorizedResource$Named#global():org.apache.doris.authorization.AuthorizedResource$Global
+org.apache.doris.authorization.AuthorizedResource$Named#global():org.apache.doris.authorization.AuthorizedResource$Global [static]
 org.apache.doris.authorization.AuthorizedResource$Named#hashCode():int
-org.apache.doris.authorization.AuthorizedResource$Named#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Named#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Named#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table
+org.apache.doris.authorization.AuthorizedResource$Named#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Named#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Named#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table [static]
 org.apache.doris.authorization.AuthorizedResource$Named#toString():java.lang.String
-org.apache.doris.authorization.AuthorizedResource$Named#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
+org.apache.doris.authorization.AuthorizedResource$Named#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
 org.apache.doris.authorization.AuthorizedResource$Table!final class
-org.apache.doris.authorization.AuthorizedResource$Table#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog
-org.apache.doris.authorization.AuthorizedResource$Table#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Table#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns
-org.apache.doris.authorization.AuthorizedResource$Table#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database
+org.apache.doris.authorization.AuthorizedResource$Table#catalog(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Catalog [static]
+org.apache.doris.authorization.AuthorizedResource$Table#cloud(org.apache.doris.authorization.ResourceKind,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Table#columns(java.lang.String,java.lang.String,java.lang.String,java.util.Set<java.lang.String>):org.apache.doris.authorization.AuthorizedResource$Columns [static]
+org.apache.doris.authorization.AuthorizedResource$Table#database(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Database [static]
 org.apache.doris.authorization.AuthorizedResource$Table#equals(java.lang.Object):boolean
 org.apache.doris.authorization.AuthorizedResource$Table#getCatalog():java.lang.String
 org.apache.doris.authorization.AuthorizedResource$Table#getDatabase():java.lang.String
-org.apache.doris.authorization.AuthorizedResource$Table#getKind():org.apache.doris.authorization.ResourceKind
+org.apache.doris.authorization.AuthorizedResource$Table#getKind():org.apache.doris.authorization.ResourceKind [final]
 org.apache.doris.authorization.AuthorizedResource$Table#getTable():java.lang.String
-org.apache.doris.authorization.AuthorizedResource$Table#global():org.apache.doris.authorization.AuthorizedResource$Global
+org.apache.doris.authorization.AuthorizedResource$Table#global():org.apache.doris.authorization.AuthorizedResource$Global [static]
 org.apache.doris.authorization.AuthorizedResource$Table#hashCode():int
-org.apache.doris.authorization.AuthorizedResource$Table#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Table#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
-org.apache.doris.authorization.AuthorizedResource$Table#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table
+org.apache.doris.authorization.AuthorizedResource$Table#resource(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Table#storageVault(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
+org.apache.doris.authorization.AuthorizedResource$Table#table(java.lang.String,java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedResource$Table [static]
 org.apache.doris.authorization.AuthorizedResource$Table#toString():java.lang.String
-org.apache.doris.authorization.AuthorizedResource$Table#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named
+org.apache.doris.authorization.AuthorizedResource$Table#workloadGroup(java.lang.String):org.apache.doris.authorization.AuthorizedResource$Named [static]
 org.apache.doris.authorization.AuthorizedSubject!final class
 org.apache.doris.authorization.AuthorizedSubject#equals(java.lang.Object):boolean
 org.apache.doris.authorization.AuthorizedSubject#getHost():java.lang.String
 org.apache.doris.authorization.AuthorizedSubject#getUser():java.lang.String
 org.apache.doris.authorization.AuthorizedSubject#hashCode():int
 org.apache.doris.authorization.AuthorizedSubject#isDomain():boolean
-org.apache.doris.authorization.AuthorizedSubject#of(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedSubject
-org.apache.doris.authorization.AuthorizedSubject#of(java.lang.String,java.lang.String,boolean):org.apache.doris.authorization.AuthorizedSubject
+org.apache.doris.authorization.AuthorizedSubject#of(java.lang.String,java.lang.String):org.apache.doris.authorization.AuthorizedSubject [static]
+org.apache.doris.authorization.AuthorizedSubject#of(java.lang.String,java.lang.String,boolean):org.apache.doris.authorization.AuthorizedSubject [static]
 org.apache.doris.authorization.AuthorizedSubject#toString():java.lang.String
 org.apache.doris.authorization.DataMaskSpec!final class
 org.apache.doris.authorization.DataMaskSpec#<init>(java.lang.String,java.lang.String):void
@@ -188,34 +188,34 @@ org.apache.doris.authorization.RowFilterSpec#getFilterSql():java.lang.String
 org.apache.doris.authorization.RowFilterSpec#getMergeType():org.apache.doris.authorization.RowFilterMergeType
 org.apache.doris.authorization.RowFilterSpec#getPolicyIdent():java.lang.String
 org.apache.doris.authorization.RowFilterSpec#hashCode():int
-org.apache.doris.authorization.RowFilterSpec#restrictive(java.lang.String,java.lang.String):org.apache.doris.authorization.RowFilterSpec
+org.apache.doris.authorization.RowFilterSpec#restrictive(java.lang.String,java.lang.String):org.apache.doris.authorization.RowFilterSpec [static]
 org.apache.doris.authorization.RowFilterSpec#toString():java.lang.String
 org.apache.doris.authorization.spi.AuthorizationContext!interface
-org.apache.doris.authorization.spi.AuthorizationContext#grantedByGlobalScopeAuthority(org.apache.doris.authorization.AuthorizedSubject,org.apache.doris.authorization.AccessRequirement):boolean
-org.apache.doris.authorization.spi.AuthorizationContext#ownerOf(org.apache.doris.authorization.AuthorizedResource):java.util.Optional<java.lang.String>
-org.apache.doris.authorization.spi.AuthorizationContext#rolesOf(org.apache.doris.authorization.AuthorizedSubject):java.util.Set<java.lang.String>
+org.apache.doris.authorization.spi.AuthorizationContext#grantedByGlobalScopeAuthority(org.apache.doris.authorization.AuthorizedSubject,org.apache.doris.authorization.AccessRequirement):boolean [abstract]
+org.apache.doris.authorization.spi.AuthorizationContext#ownerOf(org.apache.doris.authorization.AuthorizedResource):java.util.Optional<java.lang.String> [default]
+org.apache.doris.authorization.spi.AuthorizationContext#rolesOf(org.apache.doris.authorization.AuthorizedSubject):java.util.Set<java.lang.String> [abstract]
 org.apache.doris.authorization.spi.AuthorizationPlugin!interface
-org.apache.doris.authorization.spi.AuthorizationPlugin#checkAction(org.apache.doris.authorization.AuthorizedSubject,org.apache.doris.authorization.AuthorizedResource,org.apache.doris.authorization.AccessAction,org.apache.doris.authorization.AccessContext):void
-org.apache.doris.authorization.spi.AuthorizationPlugin#checkPrivilege(org.apache.doris.authorization.AuthorizedSubject,org.apache.doris.authorization.AuthorizedResource,org.apache.doris.authorization.AccessRequirement,org.apache.doris.authorization.AccessContext):void
-org.apache.doris.authorization.spi.AuthorizationPlugin#close():void
-org.apache.doris.authorization.spi.AuthorizationPlugin#getDataMasks(org.apache.doris.authorization.AuthorizedSubject,org.apache.doris.authorization.AuthorizedResource$Table,java.util.Set<java.lang.String>,org.apache.doris.authorization.AccessContext):java.util.Map<java.lang.String, org.apache.doris.authorization.DataMaskSpec>
-org.apache.doris.authorization.spi.AuthorizationPlugin#getRowFilters(org.apache.doris.authorization.AuthorizedSubject,org.apache.doris.authorization.AuthorizedResource$Table,org.apache.doris.authorization.AccessContext):java.util.List<org.apache.doris.authorization.RowFilterSpec>
-org.apache.doris.authorization.spi.AuthorizationPlugin#initialize(org.apache.doris.extension.spi.PluginContext):void
-org.apache.doris.authorization.spi.AuthorizationPlugin#name():java.lang.String
+org.apache.doris.authorization.spi.AuthorizationPlugin#checkAction(org.apache.doris.authorization.AuthorizedSubject,org.apache.doris.authorization.AuthorizedResource,org.apache.doris.authorization.AccessAction,org.apache.doris.authorization.AccessContext):void [default]
+org.apache.doris.authorization.spi.AuthorizationPlugin#checkPrivilege(org.apache.doris.authorization.AuthorizedSubject,org.apache.doris.authorization.AuthorizedResource,org.apache.doris.authorization.AccessRequirement,org.apache.doris.authorization.AccessContext):void [default]
+org.apache.doris.authorization.spi.AuthorizationPlugin#close():void [default]
+org.apache.doris.authorization.spi.AuthorizationPlugin#getDataMasks(org.apache.doris.authorization.AuthorizedSubject,org.apache.doris.authorization.AuthorizedResource$Table,java.util.Set<java.lang.String>,org.apache.doris.authorization.AccessContext):java.util.Map<java.lang.String, org.apache.doris.authorization.DataMaskSpec> [default]
+org.apache.doris.authorization.spi.AuthorizationPlugin#getRowFilters(org.apache.doris.authorization.AuthorizedSubject,org.apache.doris.authorization.AuthorizedResource$Table,org.apache.doris.authorization.AccessContext):java.util.List<org.apache.doris.authorization.RowFilterSpec> [default]
+org.apache.doris.authorization.spi.AuthorizationPlugin#initialize(org.apache.doris.extension.spi.PluginContext):void [default]
+org.apache.doris.authorization.spi.AuthorizationPlugin#name():java.lang.String [abstract]
 org.apache.doris.authorization.spi.AuthorizationPluginFactory!interface
-org.apache.doris.authorization.spi.AuthorizationPluginFactory#create():org.apache.doris.extension.spi.Plugin
-org.apache.doris.authorization.spi.AuthorizationPluginFactory#create(java.util.Map<java.lang.String, java.lang.String>,org.apache.doris.authorization.spi.AuthorizationContext):org.apache.doris.authorization.spi.AuthorizationPlugin
-org.apache.doris.authorization.spi.AuthorizationPluginFactory#create(org.apache.doris.extension.spi.PluginContext):org.apache.doris.extension.spi.Plugin
-org.apache.doris.authorization.spi.AuthorizationPluginFactory#description():java.lang.String
-org.apache.doris.authorization.spi.AuthorizationPluginFactory#name():java.lang.String
+org.apache.doris.authorization.spi.AuthorizationPluginFactory#create():org.apache.doris.extension.spi.Plugin [default]
+org.apache.doris.authorization.spi.AuthorizationPluginFactory#create(java.util.Map<java.lang.String, java.lang.String>,org.apache.doris.authorization.spi.AuthorizationContext):org.apache.doris.authorization.spi.AuthorizationPlugin [abstract]
+org.apache.doris.authorization.spi.AuthorizationPluginFactory#create(org.apache.doris.extension.spi.PluginContext):org.apache.doris.extension.spi.Plugin [default]
+org.apache.doris.authorization.spi.AuthorizationPluginFactory#description():java.lang.String [default]
+org.apache.doris.authorization.spi.AuthorizationPluginFactory#name():java.lang.String [abstract]
 org.apache.doris.extension.spi.Plugin!interface
-org.apache.doris.extension.spi.Plugin#close():void
-org.apache.doris.extension.spi.Plugin#initialize(org.apache.doris.extension.spi.PluginContext):void
+org.apache.doris.extension.spi.Plugin#close():void [default]
+org.apache.doris.extension.spi.Plugin#initialize(org.apache.doris.extension.spi.PluginContext):void [default]
 org.apache.doris.extension.spi.PluginContext!final class
 org.apache.doris.extension.spi.PluginContext#<init>(java.util.Map<java.lang.String, java.lang.String>):void
 org.apache.doris.extension.spi.PluginContext#getProperties():java.util.Map<java.lang.String, java.lang.String>
 org.apache.doris.extension.spi.PluginFactory!interface
-org.apache.doris.extension.spi.PluginFactory#create():org.apache.doris.extension.spi.Plugin
-org.apache.doris.extension.spi.PluginFactory#create(org.apache.doris.extension.spi.PluginContext):org.apache.doris.extension.spi.Plugin
-org.apache.doris.extension.spi.PluginFactory#description():java.lang.String
-org.apache.doris.extension.spi.PluginFactory#name():java.lang.String
+org.apache.doris.extension.spi.PluginFactory#create():org.apache.doris.extension.spi.Plugin [abstract]
+org.apache.doris.extension.spi.PluginFactory#create(org.apache.doris.extension.spi.PluginContext):org.apache.doris.extension.spi.Plugin [default]
+org.apache.doris.extension.spi.PluginFactory#description():java.lang.String [default]
+org.apache.doris.extension.spi.PluginFactory#name():java.lang.String [abstract]
