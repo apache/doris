@@ -448,6 +448,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORBID_UNKNOWN_COLUMN_STATS = "forbid_unknown_col_stats";
     public static final String BROADCAST_RIGHT_TABLE_SCALE_FACTOR = "broadcast_right_table_scale_factor";
+    public static final String ENABLE_BROADCAST_COST_FIX = "enable_broadcast_cost_fix";
     public static final String LEFT_SEMI_OR_ANTI_PROBE_FACTOR = "left_semi_or_anti_probe_factor";
     public static final String BROADCAST_ROW_COUNT_LIMIT = "broadcast_row_count_limit";
 
@@ -2152,6 +2153,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
     private double broadcastRightTableScaleFactor = 0.0;
+
+    /**
+     * Switch between the original broadcast cost model and the enhanced one.
+     * true (default): enhanced - broadcast distribute cost is scaled by backend count,
+     *                  build-side penalty exponent is 1.1 with 128KB threshold.
+     * false: original - broadcast cost without backend scaling, penalty sqrt(instances), 1MB threshold.
+     */
+    @VarAttrDef.VarAttr(name = ENABLE_BROADCAST_COST_FIX, needForward = true)
+    private boolean enableBroadcastCostFix = true;
 
     @VarAttrDef.VarAttr(name = LEFT_SEMI_OR_ANTI_PROBE_FACTOR)
     private double leftSemiOrAntiProbeFactor = 0.05;
@@ -4591,6 +4601,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setBroadcastRightTableScaleFactor(double broadcastRightTableScaleFactor) {
         this.broadcastRightTableScaleFactor = broadcastRightTableScaleFactor;
+    }
+
+    public boolean isEnableBroadcastCostFix() {
+        return enableBroadcastCostFix;
+    }
+
+    public void setEnableBroadcastCostFix(boolean enableBroadcastCostFix) {
+        this.enableBroadcastCostFix = enableBroadcastCostFix;
     }
 
     public double getLeftSemiOrAntiProbeFactor() {
