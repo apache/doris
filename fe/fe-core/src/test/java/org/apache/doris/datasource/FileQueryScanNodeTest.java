@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
 
@@ -135,6 +136,17 @@ public class FileQueryScanNodeTest {
         TestFileQueryScanNode node = new TestFileQueryScanNode(sv);
         long target = node.applyMaxFileSplitNumLimit(32 * MB, 10_000L * MB);
         Assert.assertEquals(32 * MB, target);
+    }
+
+    @Test
+    public void testFileRangeCarriesItsFeTargetSplitSize() {
+        FileSplit split = Mockito.mock(FileSplit.class);
+        split.targetSplitSize = 64 * MB;
+
+        TFileRangeDesc range = new TFileRangeDesc();
+        FileQueryScanNode.setTargetSplitSize(range, split);
+        Assert.assertTrue(range.isSetTargetSplitSize());
+        Assert.assertEquals(64 * MB, range.getTargetSplitSize());
     }
 
     @Test

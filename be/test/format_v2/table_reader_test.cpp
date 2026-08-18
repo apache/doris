@@ -1243,6 +1243,8 @@ struct FakeFileReaderState {
     bool not_found_during_init = false;
     bool physical_split_error = false;
     int physical_split_count = -1;
+    std::vector<int64_t> physical_split_sizes;
+    std::vector<int64_t> physical_split_ids;
     bool physical_split_saw_open_request = false;
     std::optional<LocalColumnId> unsupported_projection;
     int build_physical_splits_count = 0;
@@ -1435,11 +1437,23 @@ public:
             return Status::InternalError("injected physical split planning failure");
         }
         splits->clear();
+        DORIS_CHECK(_state->physical_split_sizes.empty() ||
+                    _state->physical_split_sizes.size() ==
+                            cast_set<size_t>(_state->physical_split_count));
+        DORIS_CHECK(_state->physical_split_ids.empty() ||
+                    _state->physical_split_ids.size() ==
+                            cast_set<size_t>(_state->physical_split_count));
+        int64_t next_start_offset = 0;
         for (int index = 0; index < _state->physical_split_count; ++index) {
             PhysicalFileSplit child;
-            child.start_offset = index * 100;
-            child.size = 100;
-            child.format_split_id = index;
+            child.start_offset = next_start_offset;
+            child.size = _state->physical_split_sizes.empty()
+                                 ? 100
+                                 : _state->physical_split_sizes[cast_set<size_t>(index)];
+            child.format_split_id = _state->physical_split_ids.empty()
+                                            ? index
+                                            : _state->physical_split_ids[cast_set<size_t>(index)];
+            next_start_offset += child.size;
             splits->push_back(std::move(child));
         }
         *was_split = true;
@@ -2001,6 +2015,80 @@ TEST(TableReaderTest, PhysicalSplitPlanningProfilesZeroAndManyChildren) {
             EXPECT_GT(counter->value(), 0) << counter_name;
         }
     }
+}
+
+TEST(TableReaderTest, PhysicalSplitsUseFeTargetAndMergeSmallTail) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    set_name_identifiers(&projected_columns);
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->physical_split_count = 5;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path("fake-table-reader-input");
+    split_options.current_range.__set_start_offset(0);
+    split_options.current_range.__set_size(500);
+    split_options.current_range.__set_file_size(500);
+    split_options.current_range.__set_target_split_size(250);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    FileScanSplit source_split;
+    source_split.range = split_options.current_range;
+    source_split.is_source_split = true;
+    std::vector<FileScanSplit> children;
+    bool was_split = false;
+    ASSERT_TRUE(reader.build_physical_splits(source_split, &children, &was_split).ok());
+    ASSERT_TRUE(was_split);
+    ASSERT_EQ(children.size(), 2);
+    EXPECT_EQ(children[0].start_offset, 0);
+    EXPECT_EQ(children[0].size, 200);
+    EXPECT_EQ(children[0].format_split_id, 0);
+    EXPECT_EQ(children[0].format_split_id_end, 1);
+    EXPECT_EQ(children[1].start_offset, 200);
+    EXPECT_EQ(children[1].size, 300);
+    EXPECT_EQ(children[1].format_split_id, 2);
+    EXPECT_EQ(children[1].format_split_id_end, 4);
+
+    fake_state->physical_split_count = 2;
+    fake_state->physical_split_sizes = {300, 50};
+    split_options.current_range.__set_size(350);
+    split_options.current_range.__set_file_size(350);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    source_split.range = split_options.current_range;
+    children.clear();
+    ASSERT_TRUE(reader.build_physical_splits(source_split, &children, &was_split).ok());
+    // A row group is indivisible; exceeding the target must not pull the following group into it.
+    ASSERT_EQ(children.size(), 2);
+    EXPECT_EQ(children[0].size, 300);
+    EXPECT_EQ(children[1].size, 50);
+
+    fake_state->physical_split_sizes = {100, 100};
+    fake_state->physical_split_ids = {0, 2};
+    split_options.current_range.__set_size(200);
+    split_options.current_range.__set_file_size(200);
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    source_split.range = split_options.current_range;
+    children.clear();
+    ASSERT_TRUE(reader.build_physical_splits(source_split, &children, &was_split).ok());
+    // Non-consecutive ids represent a pruned row-group gap and must remain separate ownership.
+    ASSERT_EQ(children.size(), 2);
+    EXPECT_EQ(children[0].format_split_id, 0);
+    EXPECT_EQ(children[1].format_split_id, 2);
 }
 
 TEST(TableReaderTest, PhysicalSplitPlanningProfilesAndClosesFailedReaders) {

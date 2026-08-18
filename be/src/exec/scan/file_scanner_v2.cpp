@@ -827,6 +827,7 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
             .condition_cache_source_range = std::pair(source_start, source_size),
             .condition_cache_split_context = _current_split.condition_cache_split_context,
             .format_split_id = _current_split.format_split_id,
+            .format_split_id_end = _current_split.format_split_id_end,
             .global_rowid_context =
                     _create_global_rowid_context(_current_split.source_identity_range()),
     }));

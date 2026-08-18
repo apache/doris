@@ -110,7 +110,7 @@ private:
 
 // BE-local scheduling envelope. It deliberately carries no Thrift fields: FE ranges remain the
 // source of table-format semantics, while generated physical children add only opaque metadata and
-// a format-local subrange id.
+// format-local subrange ids.
 struct FileScanSplit {
     TFileRangeDesc range;
     std::shared_ptr<const TFileRangeDesc> source_range;
@@ -120,6 +120,7 @@ struct FileScanSplit {
     std::shared_ptr<const FileContext> file_context;
     std::shared_ptr<ConditionCacheSplitContext> condition_cache_split_context;
     int64_t format_split_id = -1;
+    int64_t format_split_id_end = -1;
     bool is_source_split = false;
     uint64_t source_split_id = 0;
     std::shared_ptr<SourceSplitProgress> source_progress;

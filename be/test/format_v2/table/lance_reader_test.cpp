@@ -170,15 +170,14 @@ Status init_reader(LanceTableReader* reader, const Columns& projected_columns,
 
 Status prepare_range(LanceTableReader* reader, TFileRangeDesc range,
                      std::optional<GlobalRowIdContext> global_rowid_context = std::nullopt) {
-    return reader->prepare_split({.partition_values = {},
-                                  .conjuncts = std::nullopt,
-                                  .partition_prune_conjuncts = {},
-                                  .all_runtime_filters_applied = true,
-                                  .condition_cache_digest = std::nullopt,
-                                  .cache = nullptr,
-                                  .current_range = std::move(range),
-                                  .current_split_format = FileFormat::LANCE,
-                                  .global_rowid_context = global_rowid_context});
+    // Assign after value initialization so adding optional split state cannot break this fixture's
+    // designated initializer under -Wmissing-designated-field-initializers.
+    SplitReadOptions options;
+    options.all_runtime_filters_applied = true;
+    options.current_range = std::move(range);
+    options.current_split_format = FileFormat::LANCE;
+    options.global_rowid_context = global_rowid_context;
+    return reader->prepare_split(options);
 }
 
 Status prepare_fixture(LanceTableReader* reader, const std::filesystem::path& dataset_uri,

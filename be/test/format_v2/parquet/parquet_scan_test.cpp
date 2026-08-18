@@ -205,6 +205,35 @@ TEST(ParquetScanMetadataSafetyTest, ExactRowGroupUsesPrecomputedFirstRows) {
     EXPECT_EQ(selected, std::vector<int>({1}));
 }
 
+TEST(ParquetScanMetadataSafetyTest, CoalescedSplitSelectsExactRowGroups) {
+    tparquet::FileMetaData metadata;
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(1);
+    metadata.__set_row_groups({row_group, row_group, row_group, row_group});
+
+    const std::vector<int64_t> first_rows {0, 1, 2, 3};
+    const format::parquet::ParquetScanRange coalesced {.start_offset = 0,
+                                                       .size = -1,
+                                                       .file_size = 1,
+                                                       .row_group_id = 1,
+                                                       .row_group_id_end = 3};
+    std::vector<int> selected;
+    ASSERT_TRUE(format::parquet::detail::select_native_row_groups_by_scan_range(
+                        metadata, coalesced, first_rows, &selected)
+                        .ok());
+    EXPECT_EQ(selected, std::vector<int>({1, 2, 3}));
+
+    auto invalid = coalesced;
+    invalid.row_group_id_end = 0;
+    EXPECT_FALSE(format::parquet::detail::select_native_row_groups_by_scan_range(
+                         metadata, invalid, first_rows, &selected)
+                         .ok());
+    invalid.row_group_id_end = 4;
+    EXPECT_FALSE(format::parquet::detail::select_native_row_groups_by_scan_range(
+                         metadata, invalid, first_rows, &selected)
+                         .ok());
+}
+
 class Int32ZoneMapExpr final : public VExpr {
 public:
     enum class Op { GE, GT, LT };

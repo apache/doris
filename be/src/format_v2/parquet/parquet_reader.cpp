@@ -483,14 +483,15 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
                              FileContextRegistry* file_context_registry,
                              std::shared_ptr<const FileContext> file_context,
-                             int64_t format_split_id)
+                             int64_t format_split_id, int64_t format_split_id_end)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(global_rowid_context),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
           _enable_mapping_varbinary(enable_mapping_varbinary),
           _file_context_registry(file_context_registry),
           _file_context(std::move(file_context)),
-          _format_split_id(format_split_id) {}
+          _format_split_id(format_split_id),
+          _format_split_id_end(format_split_id_end) {}
 
 ParquetReader::~ParquetReader() = default;
 
@@ -783,6 +784,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     scan_range.size = _file_description->range_size;
     scan_range.file_size = _file_description->file_size;
     scan_range.row_group_id = _format_split_id;
+    scan_range.row_group_id_end = _format_split_id_end;
     // Get selected ranges in row groups according to metadata (Row-Group level index and Page Index including Zonemap, Dictionary, Bloom Filter).
     RETURN_IF_ERROR(plan_parquet_row_groups(
             *_state->file_context.native_metadata, _state->file_schema, *request_snapshot,

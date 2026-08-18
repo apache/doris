@@ -92,6 +92,7 @@ struct ScanTask {
     std::unique_ptr<io::FileDescription> data_file;
     std::shared_ptr<const FileContext> file_context;
     int64_t format_split_id = -1;
+    int64_t format_split_id_end = -1;
 };
 
 struct ProjectedColumnBuildContext {
@@ -192,6 +193,7 @@ struct SplitReadOptions {
     std::optional<std::pair<int64_t, int64_t>> condition_cache_source_range;
     std::shared_ptr<ConditionCacheSplitContext> condition_cache_split_context;
     int64_t format_split_id = -1;
+    int64_t format_split_id_end = -1;
     std::optional<GlobalRowIdContext> global_rowid_context;
 };
 

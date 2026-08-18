@@ -878,8 +878,8 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private CloseableIterable<FileScanTask> splitFiles(TableScan scan) {
         if (sessionVariable.getFileSplitSize() > 0) {
-            return TableScanUtil.splitFiles(scan.planFiles(),
-                    sessionVariable.getFileSplitSize());
+            targetSplitSize = sessionVariable.getFileSplitSize();
+            return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
         }
         if (isBatchMode() || tableLevelPushDownCount) {
             // Currently iceberg batch split mode will use max split size.
@@ -887,7 +887,8 @@ public class IcebergScanNode extends FileQueryScanNode {
             // A metadata COUNT(*) also consumes only a bounded number of representative splits.
             // Keep planFiles lazy for that path instead of materializing and retaining the whole
             // table in the statement cache.
-            return TableScanUtil.splitFiles(scan.planFiles(), sessionVariable.getMaxSplitSize());
+            targetSplitSize = sessionVariable.getMaxSplitSize();
+            return TableScanUtil.splitFiles(scan.planFiles(), targetSplitSize);
         }
 
         // Non Batch Mode

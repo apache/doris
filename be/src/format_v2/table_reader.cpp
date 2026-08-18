@@ -22,6 +22,7 @@
 #include <gen_cpp/Types_types.h>
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <ranges>
 #include <set>
@@ -69,6 +70,90 @@ std::optional<uint64_t> build_predicate_snapshot_digest(const VExprContextSPtrs&
         }
     }
     return digest;
+}
+
+void extend_format_split_id_range(PhysicalFileSplit* destination, const PhysicalFileSplit& source) {
+    DORIS_CHECK(destination != nullptr);
+    DORIS_CHECK(destination->format_split_id >= 0 && source.format_split_id >= 0);
+    const int64_t destination_end = destination->format_split_id_end >= 0
+                                            ? destination->format_split_id_end
+                                            : destination->format_split_id;
+    const int64_t source_end =
+            source.format_split_id_end >= 0 ? source.format_split_id_end : source.format_split_id;
+    DORIS_CHECK(destination_end < std::numeric_limits<int64_t>::max());
+    DORIS_CHECK(source.format_split_id == destination_end + 1);
+    destination->format_split_id_end = source_end;
+}
+
+std::vector<PhysicalFileSplit> coalesce_physical_splits(std::vector<PhysicalFileSplit> splits,
+                                                        int64_t target_split_size) {
+    if (target_split_size <= 0 || splits.size() < 2) {
+        return splits;
+    }
+
+    const uint64_t target_size = static_cast<uint64_t>(target_split_size);
+    std::vector<PhysicalFileSplit> merged;
+    merged.reserve(splits.size());
+    auto current = std::move(splits.front());
+    for (size_t index = 1; index < splits.size(); ++index) {
+        auto& next = splits[index];
+        const bool valid_ranges = current.start_offset >= 0 && current.size >= 0 &&
+                                  next.start_offset >= 0 && next.size >= 0;
+        const uint64_t current_start =
+                valid_ranges ? static_cast<uint64_t>(current.start_offset) : 0;
+        const uint64_t current_end = valid_ranges ? current_start + current.size : 0;
+        const uint64_t next_start = valid_ranges ? static_cast<uint64_t>(next.start_offset) : 0;
+        const uint64_t next_end = valid_ranges ? next_start + next.size : 0;
+        const int64_t current_id_end = current.format_split_id_end >= 0
+                                               ? current.format_split_id_end
+                                               : current.format_split_id;
+        const bool consecutive_ids = current_id_end >= 0 &&
+                                     current_id_end < std::numeric_limits<int64_t>::max() &&
+                                     next.format_split_id == current_id_end + 1;
+        // Coalescing changes only scheduling granularity. Exact format ids remain attached so byte
+        // padding or skipped row groups cannot change which rows a child owns.
+        const bool fits_target = valid_ranges && current.file_context == next.file_context &&
+                                 consecutive_ids && next_start >= current_start &&
+                                 next_end >= current_end && next_end - current_start <= target_size;
+        if (fits_target) {
+            current.size = cast_set<int64_t>(next_end - current_start);
+            extend_format_split_id_range(&current, next);
+        } else {
+            merged.push_back(std::move(current));
+            current = std::move(next);
+        }
+    }
+    merged.push_back(std::move(current));
+
+    if (merged.size() > 1) {
+        auto& previous = merged[merged.size() - 2];
+        auto& tail = merged.back();
+        const bool valid_ranges = previous.start_offset >= 0 && previous.size >= 0 &&
+                                  tail.start_offset >= 0 && tail.size >= 0;
+        const uint64_t previous_start =
+                valid_ranges ? static_cast<uint64_t>(previous.start_offset) : 0;
+        const uint64_t previous_end = valid_ranges ? previous_start + previous.size : 0;
+        const uint64_t tail_start = valid_ranges ? static_cast<uint64_t>(tail.start_offset) : 0;
+        const uint64_t tail_end = valid_ranges ? tail_start + tail.size : 0;
+        const uint64_t combined_size = valid_ranges ? tail_end - previous_start : 0;
+        const int64_t previous_id_end = previous.format_split_id_end >= 0
+                                                ? previous.format_split_id_end
+                                                : previous.format_split_id;
+        const bool consecutive_ids = previous_id_end >= 0 &&
+                                     previous_id_end < std::numeric_limits<int64_t>::max() &&
+                                     tail.format_split_id == previous_id_end + 1;
+        // Avoid a tiny final task only when the ownership envelopes touch. A pruned gap must not
+        // inflate its predecessor far beyond the FE target.
+        if (valid_ranges && previous.file_context == tail.file_context && consecutive_ids &&
+            previous.size <= target_split_size && tail.size <= (target_split_size - 1) / 2 &&
+            tail_start <= previous_end && tail_end >= previous_end &&
+            combined_size <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            previous.size = static_cast<int64_t>(combined_size);
+            extend_format_split_id_range(&previous, tail);
+            merged.pop_back();
+        }
+    }
+    return merged;
 }
 
 template <typename T, typename Formatter>
@@ -1238,8 +1323,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
-                _file_context_registry, _current_task->file_context,
-                _current_task->format_split_id);
+                _file_context_registry, _current_task->file_context, _current_task->format_split_id,
+                _current_task->format_split_id_end);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
@@ -1365,6 +1450,7 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     _current_task->data_file = create_file_description(options.current_range);
     _current_task->file_context = options.file_context;
     _current_task->format_split_id = options.format_split_id;
+    _current_task->format_split_id_end = options.format_split_id_end;
     _current_file_description = *_current_task->data_file;
     // A table-level row count is only equivalent to scanning the split when no row predicate is
     // active and no predicate can arrive later. The metadata path can return several batches for
@@ -1479,6 +1565,11 @@ Status TableReader::build_physical_splits(const FileScanSplit& source_split,
         static_cast<void>(close_current_reader());
         return status;
     }
+    const auto& source_range = source_split.source_identity_range();
+    if (source_range.__isset.target_split_size && source_range.target_split_size > 0) {
+        physical_splits = coalesce_physical_splits(std::move(physical_splits),
+                                                   source_range.target_split_size);
+    }
     if (!*was_split || physical_splits.size() == 1) {
         // Reuse the fully planned reader when refinement is unnecessary. Besides avoiding another
         // footer parse, this preserves the request snapshot whose footer pruning selected the
@@ -1508,6 +1599,7 @@ Status TableReader::build_physical_splits(const FileScanSplit& source_split,
         child.file_context = std::move(physical_split.file_context);
         child.condition_cache_split_context = condition_cache_split_context;
         child.format_split_id = physical_split.format_split_id;
+        child.format_split_id_end = physical_split.format_split_id_end;
         splits->push_back(std::move(child));
     }
     return close_current_reader();

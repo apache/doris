@@ -49,7 +49,7 @@ public:
                   bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
                   FileContextRegistry* file_context_registry = nullptr,
                   std::shared_ptr<const FileContext> file_context = nullptr,
-                  int64_t format_split_id = -1);
+                  int64_t format_split_id = -1, int64_t format_split_id_end = -1);
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;
@@ -105,6 +105,7 @@ private:
     FileContextRegistry* _file_context_registry = nullptr;
     std::shared_ptr<const FileContext> _file_context;
     int64_t _format_split_id = -1;
+    int64_t _format_split_id_end = -1;
 };
 
 } // namespace doris::format::parquet

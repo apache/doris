@@ -142,9 +142,10 @@ private:
 
 struct ParquetScanRange {
     int64_t start_offset = 0;
-    int64_t size = -1;         // -1 means read the whole file
-    int64_t file_size = -1;    // -1 means unknown
-    int64_t row_group_id = -1; // BE-generated splits select one row group without Thrift changes
+    int64_t size = -1;             // -1 means read the whole file
+    int64_t file_size = -1;        // -1 means unknown
+    int64_t row_group_id = -1;     // First exact row group selected by a BE-generated split.
+    int64_t row_group_id_end = -1; // Inclusive end for a coalesced consecutive row-group range.
 };
 
 struct RowGroupReadPlan {

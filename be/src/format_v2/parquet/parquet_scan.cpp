@@ -661,7 +661,11 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
     DORIS_CHECK(selected_row_groups != nullptr);
     DORIS_CHECK(row_group_first_rows.size() == metadata.row_groups.size());
     if (scan_range.start_offset < 0 || scan_range.size < -1 || scan_range.row_group_id < -1 ||
+        scan_range.row_group_id_end < -1 ||
         scan_range.row_group_id >= cast_set<int64_t>(metadata.row_groups.size()) ||
+        (scan_range.row_group_id_end >= 0 &&
+         (scan_range.row_group_id < 0 || scan_range.row_group_id_end < scan_range.row_group_id ||
+          scan_range.row_group_id_end >= cast_set<int64_t>(metadata.row_groups.size()))) ||
         (scan_range.size >= 0 &&
          scan_range.start_offset > std::numeric_limits<int64_t>::max() - scan_range.size)) {
         return Status::Corruption("Invalid Parquet scan range [{}, {})", scan_range.start_offset,
@@ -669,7 +673,15 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
     }
     selected_row_groups->clear();
     if (scan_range.row_group_id >= 0) {
-        selected_row_groups->push_back(cast_set<int>(scan_range.row_group_id));
+        const int64_t row_group_id_end = scan_range.row_group_id_end >= 0
+                                                 ? scan_range.row_group_id_end
+                                                 : scan_range.row_group_id;
+        selected_row_groups->reserve(
+                cast_set<size_t>(row_group_id_end - scan_range.row_group_id + 1));
+        for (int64_t row_group_id = scan_range.row_group_id; row_group_id <= row_group_id_end;
+             ++row_group_id) {
+            selected_row_groups->push_back(cast_set<int>(row_group_id));
+        }
         return Status::OK();
     }
     const uint64_t range_start = static_cast<uint64_t>(scan_range.start_offset);

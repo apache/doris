@@ -70,6 +70,7 @@ struct PhysicalFileSplit {
     int64_t size = -1;
     std::shared_ptr<const FileContext> file_context;
     int64_t format_split_id = -1;
+    int64_t format_split_id_end = -1;
 };
 
 struct FileScanRequest {
