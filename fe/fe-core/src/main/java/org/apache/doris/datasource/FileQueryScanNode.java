@@ -521,6 +521,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // override it with the actual format carried by an individual split.
         rangeDesc.setFormatType(params.getFormatType());
         setScanParams(rangeDesc, fileSplit);
+        setFileParentTargetSplitSize(rangeDesc, fileSplit);
         rangeDesc.setFileCacheAdmission(admissionResult);
 
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
@@ -530,6 +531,15 @@ public abstract class FileQueryScanNode extends FileScanNode {
         location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
         curLocations.addToLocations(location);
         return curLocations;
+    }
+
+    static void setFileParentTargetSplitSize(TFileRangeDesc rangeDesc, FileSplit fileSplit) {
+        // Child-task granularity must follow the same effective target that FE used when planning
+        // splits, rather than an independently configured BE value.
+        if (rangeDesc.isSetIsFileParent() && rangeDesc.isIsFileParent()
+                && fileSplit.targetSplitSize != null && fileSplit.targetSplitSize > 0) {
+            rangeDesc.setTargetSplitSize(fileSplit.targetSplitSize);
+        }
     }
 
     private void setLocationPropertiesIfNecessary(Backend selectedBackend, TFileType locationType,

@@ -591,9 +591,11 @@ Status ParquetReader::build_split_tasks(const TFileRangeDesc& parent,
     const size_t file_size = _file_description->file_size < 0
                                      ? _state->file_context.native_file->size()
                                      : cast_set<size_t>(_file_description->file_size);
+    const int64_t target_split_size =
+            parent.__isset.target_split_size ? parent.target_split_size : 0;
     std::vector<ParquetScanRange> split_ranges;
-    RETURN_IF_ERROR(
-            detail::build_native_row_group_split_ranges(metadata, file_size, &split_ranges));
+    RETURN_IF_ERROR(detail::build_native_row_group_split_ranges(metadata, file_size,
+                                                                target_split_size, &split_ranges));
     io::FileReaderSPtr staged_file;
     if (!split_ranges.empty()) {
         if (auto in_memory_file = std::dynamic_pointer_cast<io::InMemoryFileReader>(

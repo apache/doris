@@ -665,6 +665,8 @@ struct TFileRangeDesc {
     16: optional bool file_cache_admission;
     // FileScannerV2 parses this physical-file task once and publishes row-group child tasks.
     17: optional bool is_file_parent;
+    // FE's effective split target in bytes for coalescing row groups into FileScannerV2 children.
+    18: optional i64 target_split_size;
 }
 
 struct TSplitSource {

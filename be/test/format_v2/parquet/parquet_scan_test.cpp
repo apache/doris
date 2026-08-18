@@ -108,6 +108,20 @@ const ColumnString& string_data_column(const IColumn& column) {
     return assert_cast<const ColumnString&>(column);
 }
 
+tparquet::RowGroup make_row_group_with_range(int64_t offset, int64_t size) {
+    tparquet::ColumnMetaData column;
+    column.__set_type(tparquet::Type::INT32);
+    column.__set_data_page_offset(offset);
+    column.__set_dictionary_page_offset(-1);
+    column.__set_total_compressed_size(size);
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(std::move(column));
+    tparquet::RowGroup row_group;
+    row_group.__set_num_rows(1);
+    row_group.__set_columns({std::move(chunk)});
+    return row_group;
+}
+
 TEST(ParquetScanMetadataSafetyTest, CheckedChunkRangesDrivePrefetchAndSplitAssignment) {
     tparquet::FileMetaData metadata;
     tparquet::SchemaElement root;
@@ -170,23 +184,11 @@ TEST(ParquetScanMetadataSafetyTest, OldParquetMrRowGroupsUseUnpaddedSplitOwnersh
     tparquet::FileMetaData metadata;
     metadata.__set_created_by("parquet-mr version 1.2.8 (build test)");
 
-    auto make_row_group = [](int64_t offset) {
-        tparquet::ColumnMetaData column;
-        column.__set_type(tparquet::Type::INT32);
-        column.__set_data_page_offset(offset);
-        column.__set_dictionary_page_offset(-1);
-        column.__set_total_compressed_size(20);
-        tparquet::ColumnChunk chunk;
-        chunk.__set_meta_data(std::move(column));
-        tparquet::RowGroup row_group;
-        row_group.__set_num_rows(1);
-        row_group.__set_columns({std::move(chunk)});
-        return row_group;
-    };
-    metadata.__set_row_groups({make_row_group(100), make_row_group(120)});
+    metadata.__set_row_groups(
+            {make_row_group_with_range(100, 20), make_row_group_with_range(120, 20)});
 
     std::vector<format::parquet::ParquetScanRange> split_ranges;
-    ASSERT_TRUE(format::parquet::detail::build_native_row_group_split_ranges(metadata, 240,
+    ASSERT_TRUE(format::parquet::detail::build_native_row_group_split_ranges(metadata, 240, 0,
                                                                              &split_ranges)
                         .ok());
     ASSERT_EQ(split_ranges.size(), 2);
@@ -210,6 +212,39 @@ TEST(ParquetScanMetadataSafetyTest, OldParquetMrRowGroupsUseUnpaddedSplitOwnersh
                         metadata, second_split, &first_rows, &selected)
                         .ok());
     EXPECT_EQ(selected, std::vector<int>({1}));
+}
+
+TEST(ParquetScanMetadataSafetyTest, RowGroupSplitsRespectTargetSizeAndMergeTinyTail) {
+    tparquet::FileMetaData metadata;
+    metadata.__set_row_groups({make_row_group_with_range(0, 20), make_row_group_with_range(20, 20),
+                               make_row_group_with_range(40, 20), make_row_group_with_range(60, 20),
+                               make_row_group_with_range(80, 10)});
+
+    std::vector<format::parquet::ParquetScanRange> split_ranges;
+    ASSERT_TRUE(format::parquet::detail::build_native_row_group_split_ranges(metadata, 100, 40,
+                                                                             &split_ranges)
+                        .ok());
+    ASSERT_EQ(split_ranges.size(), 2);
+    EXPECT_EQ(split_ranges[0].start_offset, 0);
+    EXPECT_EQ(split_ranges[0].size, 40);
+    EXPECT_EQ(split_ranges[1].start_offset, 40);
+    EXPECT_EQ(split_ranges[1].size, 50);
+}
+
+TEST(ParquetScanMetadataSafetyTest, RowGroupSplitKeepsOversizedGroupIndivisible) {
+    tparquet::FileMetaData metadata;
+    metadata.__set_row_groups(
+            {make_row_group_with_range(0, 60), make_row_group_with_range(60, 20)});
+
+    std::vector<format::parquet::ParquetScanRange> split_ranges;
+    ASSERT_TRUE(format::parquet::detail::build_native_row_group_split_ranges(metadata, 100, 40,
+                                                                             &split_ranges)
+                        .ok());
+    ASSERT_EQ(split_ranges.size(), 2);
+    EXPECT_EQ(split_ranges[0].start_offset, 0);
+    EXPECT_EQ(split_ranges[0].size, 60);
+    EXPECT_EQ(split_ranges[1].start_offset, 60);
+    EXPECT_EQ(split_ranges[1].size, 20);
 }
 
 class Int32ZoneMapExpr final : public VExpr {

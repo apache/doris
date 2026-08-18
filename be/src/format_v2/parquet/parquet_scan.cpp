@@ -597,6 +597,7 @@ Status build_native_prefetch_ranges(
 namespace detail {
 
 Status build_native_row_group_split_ranges(const tparquet::FileMetaData& metadata, size_t file_size,
+                                           int64_t target_split_size,
                                            std::vector<ParquetScanRange>* ranges) {
     DORIS_CHECK(ranges != nullptr);
     ranges->clear();
@@ -626,6 +627,49 @@ Status build_native_row_group_split_ranges(const tparquet::FileMetaData& metadat
                            .size = cast_set<int64_t>(group_end - group_start),
                            .file_size = cast_set<int64_t>(file_size)});
     }
+    if (target_split_size <= 0 || ranges->size() < 2) {
+        return Status::OK();
+    }
+
+    std::vector<ParquetScanRange> merged_ranges;
+    merged_ranges.reserve(ranges->size());
+    ParquetScanRange current = ranges->front();
+    const uint64_t target_size = static_cast<uint64_t>(target_split_size);
+    for (size_t i = 1; i < ranges->size(); ++i) {
+        const auto& next = (*ranges)[i];
+        const uint64_t current_end = static_cast<uint64_t>(current.start_offset) + current.size;
+        const uint64_t next_end = static_cast<uint64_t>(next.start_offset) + next.size;
+        // Only raw, non-overlapping row-group extents participate in coalescing. Read padding is
+        // deliberately excluded so every row group remains owned by exactly one child task.
+        const bool ordered = static_cast<uint64_t>(next.start_offset) >= current_end;
+        const bool fits_target =
+                ordered && next_end - static_cast<uint64_t>(current.start_offset) <= target_size;
+        if (fits_target) {
+            current.size =
+                    cast_set<int64_t>(next_end - static_cast<uint64_t>(current.start_offset));
+        } else {
+            merged_ranges.push_back(current);
+            current = next;
+        }
+    }
+    merged_ranges.push_back(current);
+
+    if (merged_ranges.size() > 1) {
+        const auto& tail = merged_ranges.back();
+        auto& previous = merged_ranges[merged_ranges.size() - 2];
+        const uint64_t previous_end = static_cast<uint64_t>(previous.start_offset) + previous.size;
+        const uint64_t tail_end = static_cast<uint64_t>(tail.start_offset) + tail.size;
+        const uint64_t combined_size = tail_end - static_cast<uint64_t>(previous.start_offset);
+        // Avoid scheduling a tiny tail task, but merge only adjacent ownership ranges so a gap
+        // cannot inflate the previous task far beyond the FE target.
+        if (tail.size <= (target_split_size - 1) / 2 &&
+            static_cast<uint64_t>(tail.start_offset) == previous_end &&
+            combined_size <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            previous.size = static_cast<int64_t>(combined_size);
+            merged_ranges.pop_back();
+        }
+    }
+    *ranges = std::move(merged_ranges);
     return Status::OK();
 }
 

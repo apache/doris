@@ -3459,6 +3459,12 @@ TEST_F(NewParquetReaderTest, FileParentBuildsRowGroupTasksWithSharedFooterMetada
                   "s3://bucket/delete-vector");
     }
 
+    TFileRangeDesc coalesced_parent = parent;
+    coalesced_parent.__set_target_split_size(parent.size);
+    std::vector<FileScanSplitTask> coalesced_children;
+    ASSERT_TRUE(parent_reader->build_split_tasks(coalesced_parent, &coalesced_children).ok());
+    ASSERT_EQ(coalesced_children.size(), 1);
+
     ASSERT_TRUE(parent_reader->close().ok());
     parent_reader.reset();
 

@@ -883,7 +883,10 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         if (isBatchMode()) {
             if (sessionVariable.enableFileScannerV2) {
-                return preserveParquetFileParents(scan.planFiles(), sessionVariable.getMaxSplitSize());
+                // FileSplit transports this exact FE planning target to FileScannerV2 parent
+                // tasks; keep it even on this early-return planning path.
+                targetSplitSize = sessionVariable.getMaxSplitSize();
+                return preserveParquetFileParents(scan.planFiles(), targetSplitSize);
             }
             // Currently iceberg batch split mode will use max split size.
             // TODO: dynamic split size in batch split mode need to customize iceberg splitter.
