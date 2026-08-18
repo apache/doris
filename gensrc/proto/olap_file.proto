@@ -177,6 +177,10 @@ message RowsetMetaPB {
     
     optional bool is_recycled = 1013; // for recycler mark rowset as recycled
     optional string job_id = 1014;
+
+    // Actual inverted-index format used by this rowset's files. It is independent
+    // from the shared (index_id, schema_version) schema key.
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 1018;
 }
 
 message SchemaDictKeyList {
@@ -291,6 +295,10 @@ message RowsetMetaCloudPB {
 
     optional bool is_recycled = 112;
     optional string job_id = 113;
+
+    // Actual inverted-index format used by this rowset's files. It is independent
+    // from the shared (index_id, schema_version) schema key.
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 117;
 }
 
 message SegmentStatisticsPB {
@@ -671,6 +679,8 @@ message TabletMetaPB {
     optional string table_name = 1003;
     optional int64 ttl_seconds = 1004;
     optional int32 schema_version = 1005; // index_id, schema_version -> schema
+    // Immutable format of this tablet's inverted-index files.
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 1006;
 }
 
 message TabletMetaCloudPB {
@@ -726,6 +736,8 @@ message TabletMetaCloudPB {
     optional string table_name = 101;
     optional int64 ttl_seconds = 102;
     optional int32 schema_version = 103; // index_id, schema_version -> schema
+    // Immutable format of this tablet's inverted-index files.
+    optional InvertedIndexStorageFormatPB inverted_index_storage_format = 104;
 }
 
 message OLAPRawDeltaHeaderMessage {
