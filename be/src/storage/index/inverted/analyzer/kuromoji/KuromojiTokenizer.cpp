@@ -17,7 +17,10 @@
 
 #include "storage/index/inverted/analyzer/kuromoji/KuromojiTokenizer.h"
 
+#include <unicode/ucasemap.h>
+
 #include <algorithm>
+#include <string>
 #include <string_view>
 
 #include "common/exception.h"
@@ -62,26 +65,66 @@ void ascii_lower(std::string& s) {
     }
 }
 
-// Decode the first UTF-8 code point of text[start, start+len].
+// Unicode-aware lowercasing via ICU, matching Doris's shared LowerCaseFilter
+// (ΜΈΓΑ -> μέγα, ÜBER -> über) so kuromoji folds the same way as every other
+// analyzer and an indexed term matches its lowercased query. The UCaseMap is
+// immutable after open, so a process-wide instance is safe to share. Falls back
+// to ASCII-only folding only if ICU is unavailable.
+void unicode_lower(std::string& s) {
+    if (s.empty()) {
+        return;
+    }
+    static UCaseMap* ucsm = []() -> UCaseMap* {
+        UErrorCode st = U_ZERO_ERROR;
+        UCaseMap* m = ucasemap_open("", 0, &st);
+        return U_SUCCESS(st) ? m : nullptr;
+    }();
+    if (ucsm == nullptr) {
+        ascii_lower(s);
+        return;
+    }
+    std::string out(s.size() + 16, '\0');
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        UErrorCode st = U_ZERO_ERROR;
+        int32_t n = ucasemap_utf8ToLower(ucsm, out.data(), static_cast<int32_t>(out.size()),
+                                         s.data(), static_cast<int32_t>(s.size()), &st);
+        if (st == U_BUFFER_OVERFLOW_ERROR && n > 0) {
+            out.resize(static_cast<std::size_t>(n)); // retry once with the exact size
+            continue;
+        }
+        if (U_SUCCESS(st) && n >= 0) {
+            out.resize(static_cast<std::size_t>(n));
+            s = std::move(out);
+        }
+        return;
+    }
+}
+
+// Decode the first UTF-8 code point of text[start, start+len). Validates
+// continuation bytes and falls back to the lead byte on malformed input, so it
+// classifies the same boundaries the Viterbi decoder (decode_utf8) produced.
 char32_t first_codepoint(std::string_view text, uint32_t start, uint32_t len) {
     if (len == 0 || start >= text.size()) {
         return 0;
     }
     const auto b0 = static_cast<unsigned char>(text[start]);
     const std::size_t avail = std::min<std::size_t>(len, text.size() - start);
-    auto cont = [&](uint32_t i) { return static_cast<unsigned char>(text[start + i]) & 0x3FU; };
+    auto cont = [&](uint32_t i) {
+        return (static_cast<unsigned char>(text[start + i]) & 0xC0U) == 0x80U;
+    };
+    auto low6 = [&](uint32_t i) { return static_cast<unsigned char>(text[start + i]) & 0x3FU; };
     if (b0 < 0x80) {
         return b0;
     }
-    if ((b0 >> 5) == 0x6 && avail >= 2) {
-        return static_cast<char32_t>(((b0 & 0x1FU) << 6) | cont(1));
+    if ((b0 >> 5) == 0x6 && avail >= 2 && cont(1)) {
+        return static_cast<char32_t>(((b0 & 0x1FU) << 6) | low6(1));
     }
-    if ((b0 >> 4) == 0xE && avail >= 3) {
-        return static_cast<char32_t>(((b0 & 0x0FU) << 12) | (cont(1) << 6) | cont(2));
+    if ((b0 >> 4) == 0xE && avail >= 3 && cont(1) && cont(2)) {
+        return static_cast<char32_t>(((b0 & 0x0FU) << 12) | (low6(1) << 6) | low6(2));
     }
-    if ((b0 >> 3) == 0x1E && avail >= 4) {
-        return static_cast<char32_t>(((b0 & 0x07U) << 18) | (cont(1) << 12) | (cont(2) << 6) |
-                                     cont(3));
+    if ((b0 >> 3) == 0x1E && avail >= 4 && cont(1) && cont(2) && cont(3)) {
+        return static_cast<char32_t>(((b0 & 0x07U) << 18) | (low6(1) << 12) | (low6(2) << 6) |
+                                     low6(3));
     }
     return b0;
 }
@@ -140,7 +183,7 @@ void KuromojiTokenizer::reset(lucene::util::Reader* reader) {
         term = inverted_index::kuromoji::cjk_width_normalize(
                 term); // full-width ASCII -> ASCII before lowercase
         if (this->lowercase) {
-            ascii_lower(term);
+            unicode_lower(term); // Unicode-aware, matching the shared LowerCaseFilter
         }
         if (!term.empty()) {
             tokens_text_.push_back(std::move(term));
