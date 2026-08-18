@@ -910,6 +910,25 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
+    boolean isTaskLagGreaterThanMaxBatchRows(Map<Integer, Long> partitionIdToOffset) {
+        long remainingRows = Math.max(maxBatchRows, RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS);
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            Long latestOffset = cachedPartitionWithLatestOffsets.get(entry.getKey());
+            if (latestOffset == null) {
+                continue;
+            }
+            long partitionLag = latestOffset - entry.getValue();
+            if (partitionLag <= 0) {
+                continue;
+            }
+            if (partitionLag > remainingRows) {
+                return true;
+            }
+            remainingRows -= partitionLag;
+        }
+        return false;
+    }
+
     // check if given partitions has more data to consume.
     // 'partitionIdToOffset' to the offset to be consumed.
     public boolean hasMoreDataToConsume(UUID taskId, Map<Integer, Long> partitionIdToOffset) throws UserException {
