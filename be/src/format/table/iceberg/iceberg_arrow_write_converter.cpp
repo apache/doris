@@ -21,6 +21,7 @@
 #include <arrow/array/builder_nested.h>
 #include <arrow/extension_type.h>
 #include <arrow/type.h>
+#include <arrow/util/key_value_metadata.h>
 
 #include <array>
 #include <cstring>
