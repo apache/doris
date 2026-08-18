@@ -63,11 +63,18 @@ private:
         JniContext() = default;
 
         Status close() {
-            if (!open_successes) {
-                LOG_WARNING("maybe open failed, need check the reason");
-                return Status::OK(); //maybe open failed, so can't call some jni
-            }
             if (is_closed) {
+                return Status::OK();
+            }
+            // Not gated on open_successes: _open_udf() creates the Java executor before it
+            // resolves any method id, so a failure in between leaves an executor that only this
+            // can close. What has to be bound is the close id itself, which _open_udf() resolves
+            // first for exactly this reason.
+            if (executor.uninitialized() || executor_cl.uninitialized() ||
+                executor_close_id.uninitialized()) {
+                if (!open_successes) {
+                    LOG_WARNING("maybe open failed, need check the reason");
+                }
                 return Status::OK();
             }
             JNIEnv* env = nullptr;

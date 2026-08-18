@@ -99,17 +99,19 @@ std::string scan_class_path() {
     return class_path;
 }
 
-// The two signals that ask the BE to shut down. Its handler for them does nothing but
-// raise the flag main() waits on, so the shutdown stays orderly: running queries are
-// drained and the process leaves through _exit(), which is what keeps the global
-// destructors from running underneath threads that are still working.
+// The signals the BE keeps for itself and installs its own handlers for in init_signals():
+// SIGINT and SIGTERM ask it to shut down - the handler raises the flag main() waits on, so
+// the shutdown stays orderly: running queries are drained and the process leaves through
+// _exit(), which is what keeps the global destructors from running underneath threads that
+// are still working - and SIGQUIT is held so that it does nothing, because its default
+// action is to terminate the process and dump core (see init_signals()).
 //
-// A starting JVM installs handlers of its own for both, and its handler turns a shutdown
-// signal into a Java Shutdown.exit() - an ::exit() call made from a JVM thread. That runs
-// the global destructors while the BE is still serving, and BE singletons have been seen
-// freed out from under a live compaction thread this way. The BE has always kept these two
-// for itself; it used to do so by creating the JVM before init_signals(), which no longer
-// holds now that the JVM is created on demand.
+// A starting JVM installs handlers of its own for all three, and its handler turns a
+// shutdown signal into a Java Shutdown.exit() - an ::exit() call made from a JVM thread.
+// That runs the global destructors while the BE is still serving, and BE singletons have
+// been seen freed out from under a live compaction thread this way. The BE has always kept
+// SIGINT and SIGTERM for itself; it used to do so by creating the JVM before
+// init_signals(), which no longer holds now that the JVM is created on demand.
 //
 // Our own JVM is created with -Xrs, so it never installs them in the first place. This guard
 // is for the JVM we do not configure: libhdfs creates one from LIBHDFS_OPTS when it finds no
@@ -121,29 +123,29 @@ std::string scan_class_path() {
 // Only these two. The JVM needs SIGSEGV, SIGBUS, SIGILL and SIGFPE for its implicit null
 // checks and safepoint polls; taking those back would break it. SIGHUP is left to the JVM as
 // well, which is what the eager-JVM order did too.
-constexpr int SHUTDOWN_SIGNALS[] = {SIGINT, SIGTERM};
-constexpr size_t SHUTDOWN_SIGNAL_COUNT = std::size(SHUTDOWN_SIGNALS);
+constexpr int BE_OWNED_SIGNALS[] = {SIGINT, SIGTERM, SIGQUIT};
+constexpr size_t BE_OWNED_SIGNAL_COUNT = std::size(BE_OWNED_SIGNALS);
 
-class ShutdownSignalGuard {
+class BeOwnedSignalGuard {
 public:
-    ShutdownSignalGuard() {
-        for (size_t i = 0; i < SHUTDOWN_SIGNAL_COUNT; ++i) {
-            _saved_valid[i] = sigaction(SHUTDOWN_SIGNALS[i], nullptr, &_saved[i]) == 0;
+    BeOwnedSignalGuard() {
+        for (size_t i = 0; i < BE_OWNED_SIGNAL_COUNT; ++i) {
+            _saved_valid[i] = sigaction(BE_OWNED_SIGNALS[i], nullptr, &_saved[i]) == 0;
             if (!_saved_valid[i]) {
-                LOG(WARNING) << "failed to read the handler of signal " << SHUTDOWN_SIGNALS[i]
+                LOG(WARNING) << "failed to read the handler of signal " << BE_OWNED_SIGNALS[i]
                              << " before starting the JVM, errno=" << errno
                              << "; the JVM is about to take this signal over";
             }
         }
     }
 
-    ~ShutdownSignalGuard() {
-        for (size_t i = 0; i < SHUTDOWN_SIGNAL_COUNT; ++i) {
+    ~BeOwnedSignalGuard() {
+        for (size_t i = 0; i < BE_OWNED_SIGNAL_COUNT; ++i) {
             if (!_saved_valid[i]) {
                 continue;
             }
-            if (sigaction(SHUTDOWN_SIGNALS[i], &_saved[i], nullptr) != 0) {
-                LOG(WARNING) << "failed to restore the handler of signal " << SHUTDOWN_SIGNALS[i]
+            if (sigaction(BE_OWNED_SIGNALS[i], &_saved[i], nullptr) != 0) {
+                LOG(WARNING) << "failed to restore the handler of signal " << BE_OWNED_SIGNALS[i]
                              << " after starting the JVM, errno=" << errno
                              << "; the JVM now owns this signal and shutting the BE down with "
                                 "it will not be graceful";
@@ -151,12 +153,12 @@ public:
         }
     }
 
-    ShutdownSignalGuard(const ShutdownSignalGuard&) = delete;
-    ShutdownSignalGuard& operator=(const ShutdownSignalGuard&) = delete;
+    BeOwnedSignalGuard(const BeOwnedSignalGuard&) = delete;
+    BeOwnedSignalGuard& operator=(const BeOwnedSignalGuard&) = delete;
 
 private:
-    struct sigaction _saved[SHUTDOWN_SIGNAL_COUNT] = {};
-    bool _saved_valid[SHUTDOWN_SIGNAL_COUNT] = {};
+    struct sigaction _saved[BE_OWNED_SIGNAL_COUNT] = {};
+    bool _saved_valid[BE_OWNED_SIGNAL_COUNT] = {};
 };
 
 } // namespace
@@ -222,11 +224,15 @@ std::vector<std::string> JvmLauncher::_build_options() {
     // The JVM must not install handlers for SIGINT/SIGTERM/SIGHUP: its handler turns a shutdown
     // signal into Java's Shutdown.exit(), an ::exit() from a JVM thread that runs the global
     // destructors while the BE is still serving. Restoring the handlers around bootstrap (see
-    // ShutdownSignalGuard) only narrows that window - this closes it, for the whole life of the
+    // BeOwnedSignalGuard) only narrows that window - this closes it, for the whole life of the
     // process. Appended last so that it also wins over a JAVA_OPTS that says otherwise.
     //
     // What this costs: no Java shutdown hooks on those signals, which is the point, and no JVM
-    // thread dump from SIGQUIT. jcmd and jstack, which attach instead of signalling, still work.
+    // thread dump from SIGQUIT - the JVM does not install its handler for that one either. That
+    // is why the BE installs one of its own in init_signals(): SIGQUIT's default action is to
+    // terminate the process and dump core, so leaving it at SIG_DFL would turn the operator's
+    // habitual `kill -3 <be_pid>` from "print the thread dump" into "kill the BE". jcmd and
+    // jstack, which attach instead of signalling, are the way to get a Java thread dump now.
     options.push_back("-Xrs");
     return options;
 }
@@ -269,9 +275,13 @@ Status JvmLauncher::_create_jvm() {
         return Status::JniError("Failed to look up the JVM of this process, code={}", rv);
     }
     if (num_vms > 0) {
-        // Somebody got there first - in practice libhdfs, whose entry points create a JVM
-        // of their own when they do not find one. Its options are the same ones we would
-        // have passed, so the VM is usable as it is.
+        // Somebody got there first - in practice libhdfs, whose entry points create a JVM of
+        // their own when they do not find one, out of CLASSPATH and LIBHDFS_OPTS. Those are the
+        // same two the options below are built from, so the VM is usable, but it is NOT
+        // identically configured: the five settings this launcher adds - -Xrs, the krb5 conf
+        // path, the two doris.jni.* directories and the process-reaper stack size - are missing
+        // from it. The branch is unreachable today, because every libhdfs entry point in the BE
+        // runs behind ensure_jvm(); it is here for the case where that stops being true.
         _vm = created_vms[0];
         LOG(INFO) << "Reuse the JVM that already exists in this process.";
         return Status::OK();
@@ -287,16 +297,19 @@ Status JvmLauncher::_create_jvm() {
     vm_args.version = JNI_VERSION_1_8;
     vm_args.options = jvm_options.data();
     vm_args.nOptions = cast_set<jint>(options.size());
-    // Unknown options are dropped rather than rejected, which is how libhdfs created the
-    // JVM of every deployed BE so far. Rejecting them would turn one stale JVM option in
-    // be.conf into a BE without any Java feature at all. The options that are dropped
-    // this way show up in the log line below.
+    // Options the JVM does not recognize at all are dropped rather than rejected, which is
+    // how libhdfs created the JVM of every deployed BE so far - it passed JNI_TRUE too, so
+    // this is not a change for any running deployment. It only covers unrecognized -X and
+    // _ options: one HotSpot recognizes but cannot parse the value of, a mistyped -Xmx8gb
+    // among them, still fails JNI_CreateJavaVM with JNI_EINVAL. That failure is cached for
+    // the life of the process (see ensure_jvm), which disables every Java feature and every
+    // HDFS access with it, so it is reported at ERROR below rather than as a warning.
     vm_args.ignoreUnrecognized = JNI_TRUE;
 
     JNIEnv* env = nullptr;
     jint res = JNI_OK;
     {
-        ShutdownSignalGuard shutdown_signals;
+        BeOwnedSignalGuard be_owned_signals;
         res = JNI_CreateJavaVM(&_vm, reinterpret_cast<void**>(&env), &vm_args);
     }
     if (res != JNI_OK) {
@@ -308,8 +321,13 @@ Status JvmLauncher::_create_jvm() {
             LOG(INFO) << "Reuse the JVM another thread created while we were creating ours.";
             return Status::OK();
         }
-        return Status::JniError("Failed to create the JVM, code={}, options=[{}]", res,
-                                join_options(options));
+        Status failure = Status::JniError(
+                "Failed to create the JVM, code={}, options=[{}]. Every Java feature of this BE "
+                "and all HDFS access are disabled until it is restarted; a JVM option this "
+                "process cannot parse - a mistyped -Xmx among them - is the usual cause.",
+                res, join_options(options));
+        LOG(ERROR) << failure;
+        return failure;
     }
     LOG(INFO) << "Created the JVM with options: " << join_options(options);
 
@@ -331,7 +349,7 @@ Status JvmLauncher::_bootstrap() {
     {
         // Guarded as well: getJNIEnv() is libhdfs' own entry point for creating a VM when it
         // finds none. Ours exists by now, so this is belt and braces.
-        ShutdownSignalGuard shutdown_signals;
+        BeOwnedSignalGuard be_owned_signals;
         if (getJNIEnv() == nullptr) {
             LOG(WARNING) << "libhdfs failed to attach the bootstrap thread to the JVM; its thread "
                             "exit hook may now run after ours";
@@ -340,6 +358,27 @@ Status JvmLauncher::_bootstrap() {
 
     if (int rc = pthread_key_create(&_detach_key, &JvmLauncher::_detach_current_thread); rc != 0) {
         return Status::JniError("Failed to register the JVM thread exit hook, errno={}", rc);
+    }
+
+    // The JNI base belongs to the JVM this just created, so it is resolved here rather than on
+    // whichever thread first asks for a JNIEnv: the native methods Java code links against, the
+    // cached classes, and - the reason this is not merely tidier - DorisMetrics' jvm_* metrics.
+    // Those describe the JVM, and publishing them anywhere else means a BE that has a JVM but
+    // reached it through libhdfs (an HDFS catalog served by the native reader, no JNI table
+    // format and no Java UDF anywhere) exports no jvm_* series at all and has its whole Java
+    // heap counted as untracked memory.
+    //
+    // Attached and cached by hand rather than through attach_current_thread(): that one calls
+    // ensure_jvm(), and we are inside its call_once. Priming the thread-local env is also what
+    // keeps Env::Get() below on its fast path, for the same reason.
+    JNIEnv* env = nullptr;
+    RETURN_IF_ERROR(_attach_current_thread(&env));
+    Env::set_tls_env(env);
+    if (Status status = Util::ensure_jni_base(); !status.ok()) {
+        // The env stays valid, but nothing that reads it may run without the base - so leave
+        // this thread looking unattached, exactly as GetJNIEnvSlowPath() does on failure.
+        Env::reset_tls_env();
+        return status;
     }
     return Status::OK();
 }
@@ -366,9 +405,10 @@ Status JvmLauncher::ensure_jvm() {
 // switch for the connection it goes on to open, but by then the JVM has already been created,
 // and every future caller would have to know to repeat it.
 //
-// Joining does park the calling bthread's worker for as long as the JVM takes to come up. That
-// is what happened before this switch existed too, it happens once per process, and the
-// alternative - a butex wait - would put brpc internals into the launcher.
+// Joining does park the calling bthread's worker for as long as the JVM takes to come up. It
+// happens once per process, and the alternative - a butex wait - would put brpc internals into
+// the launcher. (Before the JVM became lazy there was nothing to park for: it was created in
+// main(), long before any bthread existed.)
 Status JvmLauncher::_bootstrap_on_pthread() {
     if (bthread_self() == 0) { // already a pthread
         return _bootstrap();
@@ -378,7 +418,18 @@ Status JvmLauncher::_bootstrap_on_pthread() {
     std::thread bootstrap([&status]() {
         SCOPED_INIT_THREAD_CONTEXT();
         Thread::set_self_name("jvm_bootstrap");
-        status = _bootstrap();
+        // An exception leaving a std::thread body is std::terminate, and this body walks the
+        // plugin and lib directories: collect_jars() passes an error_code to
+        // recursive_directory_iterator's constructor but not to its operator++, which throws
+        // when a directory becomes unreadable mid-iteration. Same guard, and for the same
+        // reason, as the plugin warmup thread in doris_main.cpp.
+        try {
+            status = _bootstrap();
+        } catch (const std::exception& e) {
+            status = Status::JniError("Failed to create the JVM: {}", e.what());
+        } catch (...) {
+            status = Status::JniError("Failed to create the JVM: unknown exception");
+        }
     });
     bootstrap.join();
     return status;
@@ -386,7 +437,10 @@ Status JvmLauncher::_bootstrap_on_pthread() {
 
 Status JvmLauncher::attach_current_thread(JNIEnv** env) {
     RETURN_IF_ERROR(ensure_jvm());
+    return _attach_current_thread(env);
+}
 
+Status JvmLauncher::_attach_current_thread(JNIEnv** env) {
     JNIEnv* thread_env = nullptr;
     jint rc = _vm->GetEnv(reinterpret_cast<void**>(&thread_env), JNI_VERSION_1_8);
     if (rc == JNI_EDETACHED) {

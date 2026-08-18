@@ -327,6 +327,18 @@ final class PluginRuntime {
             throw new IllegalStateException("no jars in " + dir);
         }
 
+        // The version gate runs here, before a single plugin class is loaded. Going through the
+        // plugin object instead means ServiceLoader has already constructed it and the three
+        // factory getters below have already handed back SPI types - which is precisely what a
+        // mismatched SPI major breaks. The failure then arrives as a LinkageError out of the
+        // catch-all in load(), and the carefully worded message this gate exists to produce never
+        // appears. A jar that declares no service at all is left alone: soleProvider() says that
+        // far better than a version complaint would.
+        PluginApiVersions.Declared declared = PluginApiVersions.declaredByProviderJar(jars);
+        if (declared.providerJarFound()) {
+            checkApiVersion(declared.apiVersion());
+        }
+
         DorisPluginClassLoader classLoader =
                 new DorisPluginClassLoader(name, jars, spiClassLoader, hadoopConfResources);
         if (classLoader.packagesSpiClasses()) {
@@ -347,6 +359,10 @@ final class PluginRuntime {
             udfExecutorFactories = copyOf(plugin.getUdfExecutorFactories());
         }
 
+        // The plugin class's own jar, which is authoritative - the gate above went by whichever
+        // jar carries the service file. Identical in every built plugin; re-checked because the
+        // two can only differ in a hand-assembled directory, and that is exactly where a wrong
+        // answer would be worst.
         String declaredApiVersion = PluginApiVersions.declaredBy(plugin.getClass());
         checkApiVersion(declaredApiVersion);
 

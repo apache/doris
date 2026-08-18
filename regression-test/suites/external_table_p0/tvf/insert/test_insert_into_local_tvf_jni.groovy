@@ -277,6 +277,25 @@ suite("test_insert_into_local_tvf_jni", "p0,external") {
         """
         exception "Java plugin 'no-such-plugin' is not deployed"
     }
+
+    // ============ 7. The named factory has to produce a WRITER ============
+    // Well-formed, and both halves exist - but "jdbc:reader" is a SCANNER factory. Without the kind
+    // check in PluginRegistry::create_writer this reaches the point where JniWriter's method ids are
+    // called on a JniScanner instance; those methods are final, so HotSpot dispatches them
+    // non-virtually against a foreign receiver, which is undefined behaviour rather than an error.
+    // The other negatives above all stop earlier - at parsing, or at "no such name" - so this is the
+    // only one that exercises it.
+    test {
+        sql """
+            INSERT INTO local(
+                "file_path"    = "${basePath}/rejected",
+                "backend_id"   = "${be_id}",
+                "format"       = "csv",
+                "writer_class" = "jdbc:reader"
+            ) SELECT * FROM test_local_tvf_jni_src;
+        """
+        exception "does not produce a writer"
+    }
     // No cleanup here on purpose: the directory is wiped at the start of the suite instead, so the
     // files a failing run wrote are still there to look at.
 }

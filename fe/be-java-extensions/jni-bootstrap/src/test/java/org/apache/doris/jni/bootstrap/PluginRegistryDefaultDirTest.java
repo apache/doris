@@ -21,6 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -77,7 +78,9 @@ public class PluginRegistryDefaultDirTest {
     /** Keep in sync with the BE config jni_plugin_hadoop_conf_dir. */
     @Test
     public void defaultHadoopConfDirLivesUnderPlugins() {
-        Path dir = PluginRegistry.hadoopConfDir();
+        // Null environment, so this asserts the default and not whatever HADOOP_CONF_DIR happens
+        // to be on the machine running it.
+        Path dir = PluginRegistry.hadoopConfDir(null);
         Assertions.assertTrue(dir.endsWith(Paths.get("plugins", "hadoop_conf")), dir.toString());
     }
 
@@ -89,5 +92,36 @@ public class PluginRegistryDefaultDirTest {
 
         Assertions.assertEquals(Paths.get("/somewhere/else"), PluginRegistry.pluginDir());
         Assertions.assertEquals(Paths.get("/somewhere/hadoop"), PluginRegistry.hadoopConfDir());
+    }
+
+    /**
+     * HADOOP_CONF_DIR is how a deployment names the cluster's real hadoop configuration, and
+     * start_be.sh puts it on the SYSTEM class path - which a plugin classloader cannot reach. So
+     * an upgrade to plugin isolation would otherwise take that configuration away from every Java
+     * scanner while the native reader kept it, and an HDFS HA nameservice would stop resolving.
+     */
+    @Test
+    public void hadoopConfDirEnvIsUsedWhenThePluginConfDirIsAbsent(@TempDir Path existing) {
+        Assertions.assertEquals(existing, PluginRegistry.hadoopConfDir(existing.toString()),
+                "an existing HADOOP_CONF_DIR should answer when plugins/hadoop_conf is not there");
+    }
+
+    /**
+     * ...but only as a fallback. A configured property, and an existing plugin conf directory, are
+     * both deliberate statements about where the files are; reading somewhere else instead would
+     * be worse than reading nothing.
+     */
+    @Test
+    public void hadoopConfDirEnvNeverOverridesAConfiguredDirectory(@TempDir Path existing) {
+        System.setProperty(HADOOP_CONF_DIR_PROPERTY, "/somewhere/hadoop");
+        Assertions.assertEquals(Paths.get("/somewhere/hadoop"),
+                PluginRegistry.hadoopConfDir(existing.toString()));
+    }
+
+    /** A HADOOP_CONF_DIR pointing at nothing is not an answer either. */
+    @Test
+    public void missingHadoopConfDirEnvLeavesTheDefaultInPlace() {
+        Path dir = PluginRegistry.hadoopConfDir("/definitely/not/a/directory");
+        Assertions.assertTrue(dir.endsWith(Paths.get("plugins", "hadoop_conf")), dir.toString());
     }
 }

@@ -33,17 +33,43 @@ namespace doris {
 
 namespace {
 
-// The two characters a JSON string may not carry raw. A plugin directory is a BE config, so it
-// cannot contain a control character without the config having been quoted already.
+// The quote, the backslash and every control character - the three things a JSON string may
+// not carry raw. Control characters are not hypothetical here: one of the two callers feeds
+// this a Status::to_string(), and a JNI_ERROR carries a bare newline plus a C++ stack trace,
+// which would make the error response of this endpoint unparseable by whatever is monitoring
+// it. Mirrors PluginRuntime.appendJsonString on the Java side.
 std::string json_string(const std::string& value) {
+    static constexpr char kHex[] = "0123456789abcdef";
     std::string escaped;
     escaped.reserve(value.size() + 2);
     escaped += '"';
     for (char c : value) {
-        if (c == '"' || c == '\\') {
-            escaped += '\\';
+        switch (c) {
+        case '"':
+            escaped += "\\\"";
+            break;
+        case '\\':
+            escaped += "\\\\";
+            break;
+        case '\n':
+            escaped += "\\n";
+            break;
+        case '\r':
+            escaped += "\\r";
+            break;
+        case '\t':
+            escaped += "\\t";
+            break;
+        default:
+            if (static_cast<unsigned char>(c) < 0x20) {
+                escaped += "\\u00";
+                escaped += kHex[(static_cast<unsigned char>(c) >> 4) & 0xF];
+                escaped += kHex[static_cast<unsigned char>(c) & 0xF];
+            } else {
+                escaped += c;
+            }
+            break;
         }
-        escaped += c;
     }
     escaped += '"';
     return escaped;

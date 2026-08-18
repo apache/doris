@@ -132,6 +132,13 @@ def _names(jar):
 
 def check_spi_jar_purity(spi_dir, fail):
     jar = os.path.join(spi_dir, "doris-jni-spi.jar")
+    # Both jars, because the shared layer is both: without doris-jni-bootstrap.jar there is no
+    # loader at all and every Java feature fails at runtime with a FindClass error naming none of
+    # this. Only the SPI jar's contents are checked below - the loader may carry whatever it needs.
+    loader = os.path.join(spi_dir, "doris-jni-bootstrap.jar")
+    if not os.path.isfile(loader):
+        fail("spi-jar-purity",
+             "%s is missing; without the loader no plugin can be loaded at all" % loader)
     if not os.path.isfile(jar):
         fail("spi-jar-purity", "%s is missing; the shared layer was not deployed" % jar)
         return
@@ -261,7 +268,7 @@ def main(argv):
         pdir = os.path.join(plugins_dir, plugin)
         jars = sorted(os.path.join(pdir, f) for f in os.listdir(pdir) if f.endswith(".jar"))
         if not jars:
-            fail("plugin-ships-no-spi", "plugin directory '%s' holds no jar" % plugin)
+            fail("plugin-directory-nonempty", "plugin directory '%s' holds no jar" % plugin)
             continue
         print("checking %-18s %3d jars" % (plugin, len(jars)))
         check_plugin_ships_no_spi(plugin, jars, fail)

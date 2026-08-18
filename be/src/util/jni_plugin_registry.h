@@ -98,7 +98,6 @@ struct ScannerApi {
     GlobalClass cls;
     MethodId open;
     MethodId get_next_batch_meta;
-    MethodId get_table_schema;
     MethodId get_statistics;
     MethodId get_append_data_time;
     MethodId get_create_vector_table_time;

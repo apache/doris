@@ -68,10 +68,13 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
             RETURN_IF_ERROR(Jni::PluginRegistry::create_udf_executor(
                     env, Jni::plugin::JAVA_UDF_SCALAR, ctor_params_bytes, &jni_ctx->executor,
                     &jni_ctx->executor_cl));
-            RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(
-                    env, "evaluate", EXECUTOR_EVALUATE_SIGNATURE, &jni_ctx->executor_evaluate_id));
+            // close before evaluate: the executor object exists from create_udf_executor() on,
+            // so a failure here has to be able to close it, and JniContext::close() can only do
+            // that once this id is bound.
             RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(env, "close", EXECUTOR_CLOSE_SIGNATURE,
                                                             &jni_ctx->executor_close_id));
+            RETURN_IF_ERROR(jni_ctx->executor_cl.get_method(
+                    env, "evaluate", EXECUTOR_EVALUATE_SIGNATURE, &jni_ctx->executor_evaluate_id));
         }
         jni_ctx->open_successes = true;
     }
