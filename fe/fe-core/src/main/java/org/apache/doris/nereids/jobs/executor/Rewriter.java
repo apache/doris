@@ -418,6 +418,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     topDown(new LimitSortToTopN()),
                                     topDown(new SplitLimit()),
                                     custom(RuleType.SET_PREAGG_STATUS, SetPreAggStatus::new),
+                                    // Derive operative columns on the plan recorded for materialized view
+                                    // pre rewrite: the pre rewrite runs a cost-based optimization on this
+                                    // recorded plan to choose the best materialized view, and without
+                                    // operative slots computeOlapScan would fall back to fetching column
+                                    // stats of all table columns. The derivation is repeated before "init
+                                    // join" and at the end of rewrite, where the operative slots of the
+                                    // plans finally stored into the memo are recomputed.
                                     custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new),
                                     custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(false))
                             ),
@@ -681,6 +688,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new PushDownAggThroughJoinOnPkFk()),
                         topDown(new PullUpJoinFromUnionAll())
                 ),
+                // RBO rules that depend on statistics (e.g. InitJoinOrder, SkewJoin, Eager
+                // aggregation, DecomposeRepeatWithPreAggregation, DistinctAggStrategySelector)
+                // must be placed AFTER OperativeColumnDerive: StatsCalculator.computeOlapScan
+                // only fetches column stats of operative slots, so rules running before the
+                // derivation would fetch stats of all table columns, polluting the column stats
+                // cache and wasting time on wide tables.
+                custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new),
                 topic("init join", bottomUp(ImmutableList.of(new InitJoinOrder()))),
                 topic("Eager aggregation",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(
@@ -731,7 +745,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new PruneOlapScanPartition(),
                                 new PruneEmptyPartition(),
                                 // Stream lowering needs the pruned partitions and must finish before
-                                // OperativeColumnDerive treats stream virtual columns as scan slots.
+                                // the final OperativeColumnDerive at the end of rewrite treats stream
+                                // virtual columns as scan slots.
                                 new NormalizeOlapTableStreamScan(),
                                 new PruneFileScanPartition(),
                                 new PushDownFilterIntoSchemaScan(),
@@ -830,6 +845,11 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         )
                 ),
                 topDown(new CollectCteConsumerOutput()),
+                // Re-derive operative columns at the end of rewrite: rules after the early
+                // OperativeColumnDerive (before "init join") may rebuild scans or add virtual
+                // columns (e.g. stream scan normalization, variant virtual column push down),
+                // so the final operative slots are recomputed here for CBO stats derivation and
+                // backend lazy materialization.
                 custom(RuleType.OPERATIVE_COLUMN_DERIVE, OperativeColumnDerive::new)
             )
     );
