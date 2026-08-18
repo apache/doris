@@ -37,6 +37,14 @@ done
 # probe in front of each POST is what makes that safe, so the POSTs themselves keep
 # `-f`: without it a real failure is swallowed and the stack comes up healthy with
 # neither the Doris service definition nor its instance registered.
+#
+# Skipping is enough because the definition does not outlive the stack: start_ranger
+# takes the compose stack down before every up, ranger-mysql keeps its data in the
+# container's own layer with no volume behind it, and the host copy of
+# ranger-servicedef-doris.json is re-downloaded on every start. So a definition that
+# is already here came from the file that is here now. The one case it does not cover
+# is a bare `docker restart` of this container after the file changed on the host;
+# recreate the stack for that.
 if curl -sf -u "${AUTH}" "${ADMIN}/service/plugins/definitions/name/doris" >/dev/null; then
     echo "Doris service definition already registered"
 else
@@ -69,3 +77,10 @@ else
               }
             }"
 fi
+
+# The container healthcheck tests for this, so `compose up --wait` returns when Ranger knows about Doris
+# rather than when its admin port answers - which is the very URL the loop above waits for, and would let a
+# caller start a suite against a Ranger with no Doris service registered. Written last, and under `set -e`,
+# so it can only exist once everything above succeeded. ranger-entrypoint.sh removes it at boot.
+touch /tmp/doris-ranger-ready
+echo "Doris service definition and service instance are in place"

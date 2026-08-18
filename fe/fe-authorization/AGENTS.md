@@ -73,8 +73,23 @@ And three about the modules themselves:
    denial of something that used to be allowed, in plugins nobody rebuilt.
    The frozen set is a computed closure over everything a plugin can see, so a
    change to `fe-authorization-api` moves it exactly as much as one to the spi.
-   A change to `fe-extension-spi` turns all five families' baselines red at once
-   and means bumping all five.
+   Each line carries the declaration kind, the full generic types and, for a
+   member, the modifiers a plugin's compiled code depends on — `default` vs
+   `abstract` above all, since every "silence means refusal" default in this
+   contract is one, and a `default` turned `abstract` is an `AbstractMethodError`
+   in every plugin nobody rebuilt.
+   One exception to the bump: making the *renderer* record more, as the modifiers
+   were added, rewrites every line without any API having changed. Refresh the
+   baseline and do not bump — but prove it is only the rendering by checking that
+   stripping the new part off every new line reproduces the old file exactly. If
+   anything else moved, that part is a real change and does need the bump.
+   The other four families render less than this one does: their baselines carry
+   erased types, no declaration kind, no constructors and no modifiers. So a
+   change to `fe-extension-spi` turns all five red only when it changes a method
+   signature — a `final` removed from `PluginContext`, a constructor added to it
+   or a type parameter changed shows up in this baseline alone. Until those
+   renderers match this one, treat a shared-type change as a five-family bump by
+   reading the change, not by waiting for four more red tests.
 2. **The version property and the build cache.** The version reaches a jar
    through a filtered resource whose *source text* is the literal `${...}`
    placeholder, and maven-build-cache-extension (enabled in `fe/.mvn`) hashes a

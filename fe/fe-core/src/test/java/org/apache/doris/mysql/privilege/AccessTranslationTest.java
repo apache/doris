@@ -35,7 +35,6 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +59,21 @@ public class AccessTranslationTest {
             Privilege.LOAD_PRIV, Privilege.ALTER_PRIV, Privilege.CREATE_PRIV, Privilege.DROP_PRIV,
             Privilege.USAGE_PRIV, Privilege.CLUSTER_USAGE_PRIV, Privilege.STAGE_USAGE_PRIV,
             Privilege.SHOW_VIEW_PRIV);
+
+    /**
+     * The one pair of {@link PrivPredicate} constants that is the same question written twice: both name
+     * {@code ADMIN_PRIV} or {@code USAGE_PRIV}, so nothing can tell them apart and translating either one back
+     * may return the other.
+     *
+     * <p>Written out rather than derived by grouping the constants under
+     * {@code AccessTranslation.requirementOf} - which is the function these cases are about. Derived, a defect
+     * that folded two constants into one question would put both of them in here and hand them the weaker
+     * value check below, so the identity check would switch itself off exactly where it is needed. Pinned, such
+     * a defect fails on the identity check instead. Add a name here only together with the reason the two are
+     * genuinely interchangeable.
+     */
+    private static final Set<String> CONSTANTS_ASKING_THE_SAME_QUESTION =
+            new HashSet<>(Arrays.asList("SHOW_RESOURCES", "SHOW_WORKLOAD_GROUP"));
 
     @Test
     public void testEveryPrivilegeHasAnAction() {
@@ -94,7 +108,9 @@ public class AccessTranslationTest {
         // for every user who depended on them, which is what the behaviour baseline caught the first time
         // this was written.
         Map<String, PrivPredicate> constants = allPrivPredicates();
-        Set<String> askTheSameQuestion = constantsSharingAQuestion(constants);
+        Set<String> askTheSameQuestion = CONSTANTS_ASKING_THE_SAME_QUESTION;
+        Assert.assertTrue("the pinned interchangeable constants no longer exist: " + askTheSameQuestion,
+                constants.keySet().containsAll(askTheSameQuestion));
 
         for (Map.Entry<String, PrivPredicate> constant : constants.entrySet()) {
             PrivPredicate translated =
@@ -242,21 +258,6 @@ public class AccessTranslationTest {
     }
 
     /** The constants some other constant is indistinguishable from: same privileges, same match. */
-    private static Set<String> constantsSharingAQuestion(Map<String, PrivPredicate> constants) {
-        Map<AccessRequirement, List<String>> byQuestion = new HashMap<>();
-        for (Map.Entry<String, PrivPredicate> constant : constants.entrySet()) {
-            byQuestion.computeIfAbsent(AccessTranslation.requirementOf(constant.getValue()),
-                    key -> new ArrayList<>()).add(constant.getKey());
-        }
-        Set<String> shared = new HashSet<>();
-        for (List<String> names : byQuestion.values()) {
-            if (names.size() > 1) {
-                shared.addAll(names);
-            }
-        }
-        return shared;
-    }
-
     private static Map<String, PrivPredicate> allPrivPredicates() {
         Map<String, PrivPredicate> sorted = new TreeMap<>();
         for (Field field : PrivPredicate.class.getDeclaredFields()) {

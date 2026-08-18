@@ -60,7 +60,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
@@ -119,8 +119,7 @@ import java.util.stream.Collectors;
  *       user, resource and access type, not on Ranger's own matching semantics, so nothing here would notice a
  *       real Ranger service declining to match what these rows claim;</li>
  *   <li>the probes go through {@link AccessControllerManager} directly, which leaves out everything the
- *       planner decides: {@code isSkipAuth}, the root/admin exemption from data policies, and the multi-column
- *       mask lookup a query actually makes.</li>
+ *       planner decides: {@code isSkipAuth} and the root/admin exemption from data policies.</li>
  * </ul>
  *
  * <p><b>Regenerating.</b> Run this test; on mismatch it writes the full current matrix next to the build
@@ -330,12 +329,21 @@ public class AccessControlBehaviorBaselineTest extends TestWithFeService {
                                     + " | " + spec.getMergeType() + "]")
                             .collect(Collectors.joining(","))));
         }
-        for (String column : ImmutableList.of(COL_ALLOWED, COL_DENIED)) {
+        // Both columns in one call, which is the shape the contract offers and the only shape production uses:
+        // the planner and the SQL cache both ask for a relation's columns at once. Asked one column at a time,
+        // a source that answers about the first column only, or that keys its answer by something other than
+        // the column name, records the same baseline as a correct one. The rows stay ordered by column and then
+        // by user, so the answers are collected first and rendered in that order.
+        Set<String> maskedColumns = ImmutableSet.of(COL_ALLOWED, COL_DENIED);
+        Map<String, Map<String, DataMaskSpec>> masksByUser = new LinkedHashMap<>();
+        for (String user : USERS) {
+            masksByUser.put(user, manager.evalDataMaskPolicies(identity(user), catalog, DB, TBL, maskedColumns));
+        }
+        for (String column : maskedColumns) {
             for (String user : USERS) {
-                Optional<DataMaskSpec> mask =
-                        manager.evalDataMaskPolicy(identity(user), catalog, DB, TBL, column);
-                lines.add(row(label, catalog, user, "mask:" + column,
-                        mask.map(spec -> spec.getPolicyIdent() + " | " + spec.getMaskSql()).orElse("-")));
+                DataMaskSpec mask = masksByUser.get(user).get(column);
+                lines.add(row(label, catalog, user, "mask:" + column, mask == null ? "-"
+                        : mask.getPolicyIdent() + " | " + mask.getMaskSql()));
             }
         }
     }

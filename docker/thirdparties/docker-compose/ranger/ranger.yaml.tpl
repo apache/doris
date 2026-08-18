@@ -34,10 +34,18 @@ services:
       ranger-solr:
         condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6080"]
-      interval: 30s
+      # The marker, not the admin port. `compose up --wait` returns as soon as this
+      # passes, and what a caller needs is a Ranger that knows about Doris - probing
+      # 6080 is probing the very URL install_doris_service_def.sh waits for, so it
+      # could hand back a "healthy" stack with neither the Doris service definition
+      # nor its service instance registered, and a suite starting then fails in a way
+      # that looks like a policy bug. install_doris_service_def.sh writes the marker
+      # once both are in place; ranger-entrypoint.sh removes it at boot so a
+      # restarted container is not healthy on the previous run's marker.
+      test: ["CMD-SHELL", "test -f /tmp/doris-ranger-ready"]
+      interval: 10s
       timeout: 10s
-      retries: 10
+      retries: 30
       # setup.sh rebuilds the whole admin install on every boot; on a cold
       # machine that runs well past 10 * 30s.
       start_period: 600s

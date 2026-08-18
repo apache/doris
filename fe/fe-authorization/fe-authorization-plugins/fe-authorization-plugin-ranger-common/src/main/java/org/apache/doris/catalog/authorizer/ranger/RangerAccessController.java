@@ -389,24 +389,67 @@ public abstract class RangerAccessController implements AuthorizationPlugin {
         if (StringUtils.isEmpty(maskType)) {
             return Optional.empty();
         }
+        try {
+            return dataMaskOf(policy, maskType, col);
+        } catch (RuntimeException e) {
+            // Reported from this frame because it is the one that knows which column of which table was
+            // asked about, and every refusal below is an administrator's mistake or a service definition
+            // Doris cannot read - a mask type with no Doris equivalent, a payload left blank. Thrown from
+            // where it happens instead, the statement fails on a message naming neither the source, nor the
+            // policy, nor the column, which is the one kind of refusal here a typo can produce.
+            throw new IllegalStateException("authorization source " + name() + " cannot apply the data mask of"
+                    + " ranger policy " + policyIdent(policy) + " to column " + col + " of "
+                    + table.getCatalog() + "." + table.getDatabase() + "." + table.getTable() + ": "
+                    + e.getMessage(), e);
+        }
+    }
+
+    private Optional<DataMaskSpec> dataMaskOf(RangerAccessResult policy, String maskType, String col) {
+        String expression;
         switch (maskType) {
             case "MASK_NULL":
-                return Optional.of(new DataMaskSpec(policyIdent(policy), "NULL"));
+                expression = "NULL";
+                break;
             case "MASK_NONE":
                 return Optional.empty();
             case "CUSTOM":
-                String maskedValue = policy.getMaskedValue();
-                if (StringUtils.isEmpty(maskedValue)) {
-                    return Optional.empty();
-                }
-                return Optional.of(new DataMaskSpec(policyIdent(policy), maskedValue.replace("{col}", col)));
+                expression = policy.getMaskedValue();
+                break;
             default:
-                String transformer = policy.getMaskTypeDef().getTransformer();
-                if (StringUtils.isEmpty(transformer)) {
-                    return Optional.empty();
-                }
-                return Optional.of(new DataMaskSpec(policyIdent(policy), transformer.replace("{col}", col)));
+                expression = dataMaskExpressionOf(policy, maskType);
+                break;
         }
+        if (StringUtils.isEmpty(expression)) {
+            // A mask type carrying no expression at all masks nothing, which is how Ranger's own plugins
+            // read it. Blank but not empty is not the same thing and is not read as that: it reaches
+            // DataMaskSpec, which refuses it, and the caller turns that refusal into a message that names
+            // the policy and the column - the alternative is handing the column back in the clear because
+            // an administrator typed a space.
+            return Optional.empty();
+        }
+        return Optional.of(new DataMaskSpec(policyIdent(policy), expression.replace("{col}", col)));
+    }
+
+    /**
+     * The Doris expression applying a mask type whose payload this class does not write itself.
+     *
+     * <p>Read out of the service definition the plugin downloaded, because that is where a mask type's
+     * expression lives: an operator who edits the transformer of {@code MASK_HASH} in the Doris service
+     * definition has changed what that mask type does, and this has to honour it.
+     *
+     * <p>Overridden by a source whose service definition Doris does not ship, because such a definition
+     * writes those expressions in its own engine's dialect - see {@code RangerHiveAccessController}, where
+     * the stock definition's transformers are Hive UDFs Doris has no function for.
+     */
+    protected String dataMaskExpressionOf(RangerAccessResult policy, String maskType) {
+        if (policy.getMaskTypeDef() == null) {
+            // Ranger answered, and its answer names a mask type the downloaded service definition does not
+            // declare - a definition rolled back, or edited by hand. There is no expression to apply and no
+            // way to know what was meant, so this is a refusal for the same reason a null result is.
+            throw new IllegalStateException("mask type " + maskType + " is not declared by the service"
+                    + " definition this plugin downloaded");
+        }
+        return policy.getMaskTypeDef().getTransformer();
     }
 
     /**

@@ -27,7 +27,7 @@ import org.apache.doris.authorization.spi.AuthorizationContext;
 import org.apache.doris.catalog.authorizer.ranger.RangerAccessController;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.ranger.plugin.policyengine.RangerAccessRequest;
@@ -42,40 +42,61 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 /**
  * A Hive Ranger service governing one catalog: it knows databases, tables and columns, and nothing else Doris
  * has. What it is not asked about it refuses, except for the two kinds it has to let through for a catalog
  * bound to it to be usable at all - the catalog itself, and workload groups, neither of which a Hive service
  * has policies for.
+ *
+ * <p><b>Its data policies are written for another engine.</b> A row filter on a Hive service is free text an
+ * administrator typed into a UI that says "Hive", and a mask type carries an expression the Hive definition
+ * declares - so both arrive in Hive dialect, while {@code RowFilterSpec} and {@code DataMaskSpec} are Doris
+ * dialect. The mask types are translated here, see {@link #DORIS_MASK_EXPRESSIONS}. A row filter cannot be:
+ * it is arbitrary text, and translating SQL is not something this source does. So a row filter on a Hive
+ * service has to be written in SQL Doris reads the same way - {@code ||} above all, which is string
+ * concatenation in Hive and {@code OR} here, so {@code concat()} is the portable spelling. This is in the
+ * release note, because the alternative to saying it is a filter that silently admits rows it was not meant to.
  */
 public class RangerHiveAccessController extends RangerAccessController {
     private static final Logger LOG = LogManager.getLogger(RangerHiveAccessController.class);
 
-    /**
-     * Drains the audit buffers. One thread per load of this class - which is one per plugin directory, since
-     * the loader is child-first - and every catalog bound to a Hive Ranger service schedules its own task on
-     * the timer of the directory it was loaded from.
-     *
-     * <p>Built here rather than through the engine's thread pool manager, which a plugin outside fe-core
-     * cannot reach. What that costs is the pool's entry in the FE thread-pool metrics
-     * ({@code doris_fe_thread_pool} with name {@code ranger-hive-audit-log-flusher-timer}), which no plugin
-     * loaded from its own directory can register into; for a fixed single-thread timer those gauges never
-     * moved.
-     */
-    private static final ScheduledThreadPoolExecutor LOG_FLUSH_TIMER = new ScheduledThreadPoolExecutor(1,
-            new ThreadFactoryBuilder()
-                    .setDaemon(true)
-                    .setNameFormat("ranger-hive-audit-log-flusher-timer-%d")
-                    .build());
-
     /** The name this source is selected by in catalog properties. */
     public static final String NAME = "ranger-hive";
+
+    /** The property naming the Ranger service a binding reads its policies out of. */
+    static final String SERVICE_NAME_PROPERTY = "ranger.service.name";
+
+    /**
+     * What each mask type of the stock Hive service definition means, written in Doris dialect.
+     *
+     * <p>Needed because the expression a Ranger service definition carries is written for the engine the
+     * definition belongs to: the stock Hive definition's transformers are Hive UDFs
+     * ({@code mask_show_last_n}, {@code mask_hash}, and a nine-argument {@code mask}), and Doris has none of
+     * them. Handing one to the planner fails the statement on an unknown function, with nothing in the error
+     * pointing at Ranger - which is what the access type fix in {@link #readAccessTypeName()} would otherwise
+     * have turned a silently unmasked read into.
+     *
+     * <p>The expressions are the ones {@code ranger-servicedef-doris.json} declares for the same mask types,
+     * deliberately: a "Partial mask: show last 4" written in the Ranger UI has to mean the same thing whether
+     * the catalog it governs is bound to this source or to {@code ranger-doris}. Keep the two in step.
+     *
+     * <p>{@code MASK_NULL}, {@code MASK_NONE} and {@code CUSTOM} are absent because Doris writes their
+     * payloads itself, before a transformer is ever consulted. Those three plus these five are every mask
+     * type the stock Hive definition declares, so anything reaching the miss branch of
+     * {@link #dataMaskExpressionOf} is a definition Doris has never seen.
+     */
+    private static final Map<String, String> DORIS_MASK_EXPRESSIONS = ImmutableMap.of(
+            "MASK", "regexp_replace(regexp_replace(regexp_replace({col},'([A-Z])', 'x'),'([a-z])','x'),"
+                    + "'([0-9])','n')",
+            "MASK_SHOW_LAST_4", "LPAD(RIGHT({col}, 4), CHAR_LENGTH({col}), 'X')",
+            "MASK_SHOW_FIRST_4", "RPAD(LEFT({col}, 4), CHAR_LENGTH({col}), 'X')",
+            "MASK_HASH", "hex(sha2({col}, 256))",
+            "MASK_DATE_SHOW_YEAR", "date_trunc({col}, 'year')");
 
     // Never cleared once set: the manager can remove a controller while a query still holds its reference,
     // and the lifecycle fence in RangerAccessController - not a null field - is what keeps that query from
@@ -91,15 +112,34 @@ public class RangerHiveAccessController extends RangerAccessController {
         this(properties, null, context);
     }
 
+    /**
+     * A controller owning the audit stack it reads through, which is how a test or an embedding builds one.
+     * Bindings do not come this way - the factory shares one stack per Ranger service, for the reason
+     * the audit stacks {@link RangerHiveAccessControllerFactory} shares gives.
+     */
     public RangerHiveAccessController(Map<String, String> properties,
             RangerAuthContextListener rangerAuthContextListener, AuthorizationContext context) {
         super(properties, context);
-        String serviceName = properties.get("ranger.service.name");
-        hivePlugin = new RangerHivePlugin(serviceName, rangerAuthContextListener);
-        auditHandler = new RangerHiveAuditHandler(hivePlugin.getConfig());
-        // start a timed log flusher
-        logFlushFuture = LOG_FLUSH_TIMER.scheduleAtFixedRate(
-                new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
+        RangerHiveAuditStack stack = RangerHiveAuditStack.startFor(
+                properties.get(SERVICE_NAME_PROPERTY), rangerAuthContextListener);
+        hivePlugin = stack.getPlugin();
+        auditHandler = stack.getAuditHandler();
+        logFlushFuture = stack.getFlushFuture();
+    }
+
+    /**
+     * A controller over an audit stack somebody else owns, which is how the factory builds every one it hands
+     * out: polling a Ranger service is what the stack costs, so it is shared, while everything a binding
+     * configures - {@link #DEFER_TO_GLOBAL_SCOPE_AUTHORITY} - belongs to the controller and so to the binding.
+     */
+    RangerHiveAccessController(RangerHiveAuditStack stack, Map<String, String> properties,
+            AuthorizationContext context) {
+        super(properties, context);
+        hivePlugin = stack.getPlugin();
+        auditHandler = stack.getAuditHandler();
+        // No flush task of its own: the timer draining this stack belongs to whoever owns the stack, and
+        // cancelling it here would stop auditing for every other binding reading the same service.
+        logFlushFuture = null;
     }
 
     @Override
@@ -107,8 +147,22 @@ public class RangerHiveAccessController extends RangerAccessController {
         return NAME;
     }
 
+    /**
+     * Lets go of this controller, stopping the audit stack once nothing holds it any more.
+     *
+     * <p>The factory hands one controller to every binding configured alike, and one audit stack to every
+     * binding reading the same Ranger service, so a binding going away is on its own no reason to stop
+     * polling: the factory counts the holders and fences the controller when the last one lets go. What it
+     * deliberately does not do is stop the stack - see
+     * the audit stacks {@link RangerHiveAccessControllerFactory} shares.
+     */
     @Override
     public void close() {
+        if (RangerHiveAccessControllerFactory.release(this)) {
+            return;
+        }
+        // Built directly rather than through the factory - a test, or an embedding that owns its own stack -
+        // so there is nobody else to account for and the stack is ours to stop.
         if (!markClosed()) {
             return;
         }
@@ -132,6 +186,15 @@ public class RangerHiveAccessController extends RangerAccessController {
         } catch (Throwable e) {
             LOG.warn("Failed to clean up Ranger Hive plugin", e);
         }
+    }
+
+    /**
+     * Fences this controller off so nothing reaches the Ranger plugin through it again. Idempotent, and the
+     * only thing the factory needs from a controller it is releasing - stopping the audit stack is not the
+     * factory's call either, because the stack outlives any single controller.
+     */
+    void fenceOff() {
+        markClosed();
     }
 
     @Override
@@ -221,7 +284,10 @@ public class RangerHiveAccessController extends RangerAccessController {
         if (accessType == HiveAccessType.USE) {
             request.setAccessType(RangerPolicyEngine.ANY_ACCESS);
         } else {
-            request.setAccessType(accessType.name().toLowerCase());
+            // Locale.ROOT because this spelling has to be the one the Hive service definition declares, and
+            // that is not a property of whoever started the FE: with a Turkish locale the default rules fold
+            // the "I" of INDEX to "ı", an access type no service definition declares.
+            request.setAccessType(accessType.name().toLowerCase(Locale.ROOT));
         }
         return request;
     }
@@ -241,7 +307,22 @@ public class RangerHiveAccessController extends RangerAccessController {
      */
     @Override
     protected String readAccessTypeName() {
-        return HiveAccessType.SELECT.name().toLowerCase();
+        return HiveAccessType.SELECT.name().toLowerCase(Locale.ROOT);
+    }
+
+    /** Translated rather than passed through, for the reason {@link #DORIS_MASK_EXPRESSIONS} gives. */
+    @Override
+    protected String dataMaskExpressionOf(RangerAccessResult policy, String maskType) {
+        String expression = DORIS_MASK_EXPRESSIONS.get(maskType);
+        if (expression == null) {
+            // Refused rather than passed through: the definition's own transformer is Hive dialect, so
+            // reaching here means either a mask type added to the definition after this map was written, or
+            // one Doris cannot express. Both are better as a statement that fails naming the mask type than
+            // as an unknown-function error, and far better than a column returned in the clear.
+            throw new IllegalStateException("mask type " + maskType + " has no Doris equivalent, so the"
+                    + " expression the hive service definition carries for it cannot be applied");
+        }
+        return expression;
     }
 
     @Override
