@@ -26,6 +26,7 @@ import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.common.AuthorizationException;
 
 import com.google.common.collect.ImmutableSet;
+import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -163,8 +164,13 @@ public class InternalAuthorizationPluginTest {
                         SELECT, AccessContext.NONE));
 
         Assert.assertEquals("denied on col1", denied.getMessage());
-        Assert.assertEquals(fromThePrivilegeModel.getMessage(),
-                new AuthorizationException(denied.getMessage()).getMessage());
+        // Carried as the bare wording, not as rendered: the engine wraps this in an AuthorizationException
+        // again on the way out, and that class puts its own error code in front of whatever it is given. The
+        // count is the claim - carrying the rendered form renders the code twice and the user reads both.
+        Assert.assertEquals("the error code is rendered more than once in what the user reads: "
+                        + new AuthorizationException(denied.getMessage()).getMessage(),
+                1, StringUtils.countMatches(
+                        new AuthorizationException(denied.getMessage()).getMessage(), "detailMessage"));
     }
 
     /**

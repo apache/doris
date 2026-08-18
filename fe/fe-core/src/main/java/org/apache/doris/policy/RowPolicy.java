@@ -217,6 +217,9 @@ public class RowPolicy extends Policy {
      * <p>{@code originStmt} holds the whole request, which is not necessarily one statement: a request may
      * carry several separated by semicolons, and {@code stmtIdx} says which one this policy is. Parsing the
      * text as a single statement therefore recovers the wrong policy, or nothing at all.
+     *
+     * <p>A negative index means the statement was never indexed, which only the first can be, so it reads as
+     * 0. An index past the end is a stored policy that cannot be recovered, and says so.
      */
     private CreatePolicyCommand parseCreateStatement() throws AnalysisException {
         NereidsParser nereidsParser = new NereidsParser();
@@ -224,25 +227,27 @@ public class RowPolicy extends Policy {
         // Under the mode a security policy's text is read under rather than the caller's: getFilterSql() can
         // reach here on the thread of the very user this policy restricts, and sql_mode is theirs to set with
         // no privilege at all. See SqlModeHelper#MODE_FOR_POLICY_TEXT.
-        if (stmtIdx <= 0) {
-            return SqlModeHelper.withSqlMode(SqlModeHelper.MODE_FOR_POLICY_TEXT,
-                    () -> (CreatePolicyCommand) nereidsParser.parseSingle(sql));
-        }
+        // Always by index, index 0 included: a request recorded as statement 0 is not therefore one
+        // statement. ConnectProcessor stores the whole request whenever its two splitters disagree on how
+        // many statements it holds, and the first of those still carries index 0.
         List<Pair<LogicalPlan, StatementContext>> statements = SqlModeHelper.withSqlMode(
                 SqlModeHelper.MODE_FOR_POLICY_TEXT, () -> nereidsParser.parseMultiple(sql));
-        if (stmtIdx >= statements.size()) {
+        int index = Math.max(stmtIdx, 0);
+        if (index >= statements.size()) {
             throw new AnalysisException("Invalid row policy [" + getPolicyIdent() + "]: statement " + stmtIdx
                     + " of " + statements.size() + " in " + sql);
         }
-        return (CreatePolicyCommand) statements.get(stmtIdx).first;
+        return (CreatePolicyCommand) statements.get(index).first;
     }
 
     @Override
     public RowPolicy clone() {
-        return new RowPolicy(this.id, this.policyName, this.dbId, this.user, this.roleName, this.originStmt,
-                this.stmtIdx,
-                this.tableId,
-                this.filterType, this.wherePredicate);
+        RowPolicy copy = new RowPolicy(this.id, this.policyName, this.ctlName, this.dbName, this.tableName,
+                this.user, this.roleName, this.originStmt, this.stmtIdx, this.filterType, this.wherePredicate,
+                this.wherePredicateSql);
+        copy.dbId = this.dbId;
+        copy.tableId = this.tableId;
+        return copy;
     }
 
     private boolean checkMatched(String ctlName, String dbName, String tableName, PolicyTypeEnum type,

@@ -51,7 +51,16 @@ public class EngineAuthorizationContext implements AuthorizationContext {
         this.auth = Objects.requireNonNull(auth, "auth is required");
     }
 
-    /** Records which source this context belongs to; called by the manager right after the source is built. */
+    /**
+     * Records which source this context belongs to; called by the manager right after the source is built.
+     *
+     * <p>"Right after" and not "before anyone can reach it": a factory that hands one source to several
+     * bindings publishes it as soon as it has built it, so a second binding can install that source and serve
+     * a query out of it while the thread that built it has not run this line yet. The window is the three
+     * statements between the factory returning and this assignment, and it closes for good the first time
+     * either runs. What lands in it is refused rather than answered, which is why this is left as it is; a
+     * factory must not make the window wider by publishing a source before returning it.
+     */
     public void servedBy(AuthorizationPlugin source) {
         this.servedSource = Objects.requireNonNull(source, "source is required");
     }

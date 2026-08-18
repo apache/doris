@@ -129,6 +129,19 @@ gives up a name the classpath already publishes, under either contract, so the
 not have is a declared API version, so a plugin built against an older Doris is
 admitted with no diagnosis. Do not write new sources against it.
 
+Two things such a plugin has to be rebuilt for. Its data policy methods used to
+answer with `RowFilterPolicy` and `DataMaskPolicy`, types this release deleted;
+both signatures erase, so an old build still loads and still answers every
+privilege check, and only the first query against a table it holds a policy for
+says otherwise - as `NoClassDefFoundError` if the method body names a deleted
+type, otherwise as an `IllegalStateException` naming the source, raised where
+the answer crosses back into the engine. And a `PrivPredicate` it is handed is
+the constant the caller named only where the engine derived the question from
+one; a requirement built for a single statement translates back to a predicate
+built to match, which is equal to no constant and identical to none. Comparing
+with `==` therefore holds for the questions the engine asks by name and for
+nothing else - read `getPrivs()` and `getOp()` for the rest.
+
 **Selection.** Two channels, both naming the source by the string
 `AuthorizationPluginFactory.name()` returns:
 

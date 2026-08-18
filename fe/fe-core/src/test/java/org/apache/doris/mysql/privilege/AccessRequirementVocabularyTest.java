@@ -66,4 +66,26 @@ public class AccessRequirementVocabularyTest {
         VOCABULARY.forEach((requirement, predicate) -> Assertions.assertSame(predicate,
                 AccessTranslation.privPredicateOf(requirement)));
     }
+
+    /**
+     * A requirement the engine derived from a predicate translates back to that very predicate, even where
+     * two predicates are one value.
+     *
+     * <p>{@code SHOW_RESOURCES} and {@code SHOW_WORKLOAD_GROUP} name the same privileges with the same
+     * operator - the only such pair among the constants - so a translation keyed by value can only answer with
+     * one of them, and a controller comparing the predicate it is handed against a constant with {@code ==}
+     * silently loses a branch. Every check carries the requirement object the forward translation produced,
+     * so keying the way back on identity is what keeps the pair apart.
+     */
+    @Test
+    public void testACollidingPredicateSurvivesTheRoundTrip() {
+        Assertions.assertEquals(AccessTranslation.requirementOf(PrivPredicate.SHOW_RESOURCES),
+                AccessTranslation.requirementOf(PrivPredicate.SHOW_WORKLOAD_GROUP),
+                "the two constants no longer name the same actions, so this case guards nothing");
+
+        Assertions.assertSame(PrivPredicate.SHOW_WORKLOAD_GROUP, AccessTranslation.privPredicateOf(
+                AccessTranslation.requirementOf(PrivPredicate.SHOW_WORKLOAD_GROUP)));
+        Assertions.assertSame(PrivPredicate.SHOW_RESOURCES, AccessTranslation.privPredicateOf(
+                AccessTranslation.requirementOf(PrivPredicate.SHOW_RESOURCES)));
+    }
 }

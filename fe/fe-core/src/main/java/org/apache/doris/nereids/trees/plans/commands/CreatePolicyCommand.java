@@ -46,6 +46,8 @@ import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Optional;
@@ -54,6 +56,7 @@ import java.util.Optional;
  * Create policy command use for row policy and storage policy.
  */
 public class CreatePolicyCommand extends Command implements ForwardWithSync {
+    private static final Logger LOG = LogManager.getLogger(CreatePolicyCommand.class);
 
     private final PolicyTypeEnum policyType;
     private final String policyName;
@@ -203,8 +206,19 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
             return wherePredicate.get();
         }
         try {
-            return SqlModeHelper.withSqlMode(SqlModeHelper.MODE_FOR_POLICY_TEXT,
+            Expression underPolicyMode = SqlModeHelper.withSqlMode(SqlModeHelper.MODE_FOR_POLICY_TEXT,
                     () -> new NereidsParser().parseExpression(wherePredicateSql));
+            if (!underPolicyMode.equals(wherePredicate.get())) {
+                // Both modes read the text, and they read it differently. This statement is the only place
+                // that holds both readings, so it is the only place that can say so; the creator's is the one
+                // being dropped, and the operator would otherwise learn that only from a query behaving in a
+                // way SHOW ROW POLICY does not explain.
+                LOG.warn("row policy {} on {} was written under a sql_mode that reads it as [{}], and is"
+                                + " stored as [{}], which is how it is read on every query it restricts:"
+                                + " predicate text [{}]", policyName, tableNameInfo,
+                        wherePredicate.get().toSql(), underPolicyMode.toSql(), wherePredicateSql);
+            }
+            return underPolicyMode;
         } catch (Exception e) {
             throw new AnalysisException("the predicate of a row policy is read under the default sql_mode"
                     + " rather than this session's, because it is read again on every query the policy"

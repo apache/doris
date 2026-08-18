@@ -792,6 +792,10 @@ public class AccessControllerManager {
             // The instance-wide source is shared with the internal catalog and outlives every catalog, so
             // detaching one must never close it. The guard lives here rather than in closeEntry() alone
             // because the dry run of a CREATE CATALOG closes what it built without going through an entry.
+            //
+            // A factory that counts holders is therefore handed more acquisitions than releases for this one
+            // configuration, and that is the point: its entry has to stay held for as long as the FE runs, and
+            // an unbalanced count is what keeps it there. Nothing else reads that count.
             return;
         }
         try {
@@ -1030,10 +1034,13 @@ public class AccessControllerManager {
             }
             // An external catalog bound to a controller of its own keeps no catalog level grants anywhere,
             // so with the check switched off there is nobody left to ask. Every other catalog still goes
-            // through the normal route below.
+            // through the normal route below - the built-in model included, which a catalog may now name as
+            // its own source: naming it binds the catalog to a source that does keep catalog level grants, so
+            // there is somebody to ask and skipping the question would answer yes for every account.
             String className = catalog.isInternalCatalog() ? ""
                     : (String) catalog.getProperties().getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
-            if (!Strings.isNullOrEmpty(className)) {
+            if (!Strings.isNullOrEmpty(className)
+                    && !InternalAuthorizationPlugin.NAME.equalsIgnoreCase(className.trim())) {
                 return true;
             }
         }
@@ -1175,8 +1182,10 @@ public class AccessControllerManager {
     public Optional<DataMaskSpec> evalDataMaskPolicy(UserIdentity currentUser, String
             ctl, String db, String tbl, String col) {
         Objects.requireNonNull(col, "require col object");
+        // Locale.ROOT because that is the locale the batch method keys its answer with; the default locale
+        // would fold a Turkish "I" to a character that key does not have.
         return Optional.ofNullable(evalDataMaskPolicies(currentUser, ctl, db, tbl,
-                Collections.singleton(col)).get(col.toLowerCase()));
+                Collections.singleton(col)).get(col.toLowerCase(Locale.ROOT)));
     }
 
     /**

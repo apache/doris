@@ -41,6 +41,7 @@ import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -114,6 +115,26 @@ public class AuthorizationPluginSurfaceTest {
                         + " <authorization.plugin.api.version> in fe/fe-authorization/pom.xml (and zero its"
                         + " minor).\n"
                         + "Full actual surface:\n" + String.join("\n", actual));
+    }
+
+    /**
+     * The major of the served API version tracks the surface recorded above.
+     *
+     * <p>Written as a literal on purpose. Derived from the pom it would agree with itself whatever the pom
+     * said, and what has to be caught is exactly the commit that refreshes the baseline without touching the
+     * version: a plugin built against the old major would then be admitted and run against a contract it never
+     * compiled against. The sibling gate in {@code ConnectorPluginSurfaceTest} is written the same way.
+     */
+    @Test
+    public void authorizationApiMajorTracksTheRecordedSurfaceChange() throws IOException {
+        Properties version = new Properties();
+        try (InputStream in = AuthorizationPlugin.class.getResourceAsStream(
+                "/META-INF/doris/authorization-plugin-api-version.properties")) {
+            Assertions.assertNotNull(in, "missing authorization plugin API version resource");
+            version.load(in);
+        }
+        // First published surface of this family.
+        Assertions.assertEquals("1.0", version.getProperty("api.version"));
     }
 
     @Test

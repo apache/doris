@@ -51,6 +51,8 @@ public class RangerTest {
     public static class DorisTestPlugin extends RangerBasePlugin {
         /** The access type the last masking lookup asked with; see testDataMaskLookupAsksWithTheReadAccessType. */
         private String lastDataMaskAccessType;
+        /** How many questions reached the policy engine, for the cases about not asking it at all. */
+        private final AtomicInteger requests = new AtomicInteger();
 
         public DorisTestPlugin(String serviceName) {
             super(serviceName, null, null);
@@ -71,6 +73,7 @@ public class RangerTest {
 
         @Override
         public RangerAccessResult isAccessAllowed(RangerAccessRequest request) {
+            requests.incrementAndGet();
             RangerAccessResource resource = request.getResource();
             String ctl = (String) resource.getValue(RangerDorisResource.KEY_CATALOG);
             String db = (String) resource.getValue(RangerDorisResource.KEY_DATABASE);
@@ -117,7 +120,8 @@ public class RangerTest {
             if (!Strings.isNullOrEmpty(wg)) {
                 result.setIsAllowed(wg.equals("wg1"));
             } else if (!Strings.isNullOrEmpty(rs)) {
-                result.setIsAllowed(wg.equals("rs1"));
+                // On rs, not wg: the branch above already established that wg is empty here.
+                result.setIsAllowed(rs.equals("rs1"));
             } else if (!Strings.isNullOrEmpty(col)) {
                 boolean res = ("ctl1".equals(ctl) && "db1".equals(db) && "tbl1".equals(tbl) && "col1".equals(col))
                         || ("ctl1".equals(ctl) && "db1".equals(db) && "tbl1".equals(tbl) && "col2".equals(col));
@@ -322,5 +326,31 @@ public class RangerTest {
     public void testStorageVaultAuth() throws AccessDeniedException {
         check(AuthorizedResource.storageVault("sv1"), USAGE);
         assertRefused(AuthorizedResource.storageVault("sv2"), USAGE);
+    }
+
+    @Test
+    public void testResourceAuth() throws AccessDeniedException {
+        check(AuthorizedResource.resource("rs1"), USAGE);
+        assertRefused(AuthorizedResource.resource("rs2"), USAGE);
+    }
+
+    @Test
+    public void testWorkloadGroupAuth() throws AccessDeniedException {
+        check(AuthorizedResource.workloadGroup("wg1"), USAGE);
+        assertRefused(AuthorizedResource.workloadGroup("wg2"), USAGE);
+    }
+
+    /**
+     * The engine's default workload group is granted without asking Ranger, which is how it behaved before
+     * workload groups were governed at all - every account may run in it.
+     */
+    @Test
+    public void testTheDefaultWorkloadGroupIsNotAskedAbout() throws AccessDeniedException {
+        DorisTestPlugin plugin = new DorisTestPlugin("test");
+        new RangerDorisAccessController(plugin, NOTHING_GRANTED_ELSEWHERE)
+                .checkPrivilege(USER, AuthorizedResource.workloadGroup("normal"), USAGE, AccessContext.NONE);
+
+        Assertions.assertEquals(0, plugin.requests.get(),
+                "the default workload group was put to the policy engine");
     }
 }

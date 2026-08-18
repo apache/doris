@@ -28,6 +28,7 @@ import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.common.AuthorizationException;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -189,8 +190,16 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
     @Override
     public List<RowFilterSpec> getRowFilters(AuthorizedSubject subject, AuthorizedResource.Table table,
             AccessContext context) {
-        return controller.evalRowFilterPolicies(AccessTranslation.userIdentityOf(subject), table.getCatalog(),
-                table.getDatabase(), table.getTable());
+        List<RowFilterSpec> filters = controller.evalRowFilterPolicies(
+                AccessTranslation.userIdentityOf(subject), table.getCatalog(), table.getDatabase(),
+                table.getTable());
+        // Through a wildcard so that reading an element compiles to no cast of our own: the checked crossing
+        // below has to be what reports a wrong type, not a checkcast javac inserted a frame earlier.
+        List<?> answered = filters == null ? Collections.emptyList() : filters;
+        for (Object filter : answered) {
+            checkedCrossing(filter, RowFilterSpec.class, "evalRowFilterPolicies", table);
+        }
+        return filters;
     }
 
     @Override
@@ -202,11 +211,40 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
             // One question per column, which is what the older interface offers. A source reached over the
             // network pays for that per column of every table in the statement; implementing the batch
             // method directly is how a plugin stops paying it.
-            Optional<DataMaskSpec> mask = controller.evalDataMaskPolicy(currentUser, table.getCatalog(),
+            Optional<?> mask = controller.evalDataMaskPolicy(currentUser, table.getCatalog(),
                     table.getDatabase(), table.getTable(), column);
-            mask.ifPresent(spec -> masks.put(column, spec));
+            if (mask != null && mask.isPresent()) {
+                Object spec = mask.get();
+                checkedCrossing(spec, DataMaskSpec.class, "evalDataMaskPolicy", table);
+                masks.put(column, (DataMaskSpec) spec);
+            }
         }
         return masks;
+    }
+
+    /**
+     * Refuses what a controller compiled against the older data policy types answers with, naming the source
+     * and what it has to do about it.
+     *
+     * <p>Both signatures erase to {@code Optional} and {@code List}, so a controller built against
+     * {@code RowFilterPolicy} and {@code DataMaskPolicy} - types this release deleted - still loads, still
+     * answers every {@code check*Priv}, and still runs this method body to completion; what it hands back is
+     * only ever looked at by whoever consumes it. For row filters that is a Nereids rule, several frames away
+     * and past everything that could say which source produced this, so the operator's first sign of it is a
+     * bare {@code ClassCastException} out of a planner class. The check belongs at the boundary the object
+     * crosses, and the message has to be the one that says "recompile your access controller".
+     */
+    private <T> void checkedCrossing(Object answered, Class<T> expected, String method,
+            AuthorizedResource.Table table) {
+        if (expected.isInstance(answered)) {
+            return;
+        }
+        throw new IllegalStateException("authorization source " + name + " answered " + method + " for "
+                + table + " with " + (answered == null ? "null" : answered.getClass().getName())
+                + " rather than " + expected.getName() + ". An access controller built against a Doris release"
+                + " that still had org.apache.doris.mysql.privilege.RowFilterPolicy and DataMaskPolicy has to"
+                + " be recompiled against " + RowFilterSpec.class.getName() + " and "
+                + DataMaskSpec.class.getName() + " before it can answer data policies again.");
     }
 
     @Override

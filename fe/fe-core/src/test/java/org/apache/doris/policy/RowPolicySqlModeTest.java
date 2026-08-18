@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.PlanRewriter;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -140,6 +141,104 @@ public class RowPolicySqlModeTest extends TestWithFeService {
             Assertions.assertTrue(onlyFilterConjunctPlannedFor(USER) instanceof Or);
         } finally {
             dropPolicy("DROP ROW POLICY p_plain ON " + TBL);
+        }
+    }
+
+    /**
+     * A {@code SET_VAR} hint inside the policy text does not take the caller's {@code sql_mode} away.
+     *
+     * <p>The fixed mode used to be written into the live {@code SessionVariable} for the duration of the
+     * parse. Anything the parse itself wrote to {@code sql_mode} then snapshotted the swapped-in value as if
+     * it were the caller's own and restored it as permanent when the statement ended - so a hint in a
+     * predicate the restricted user cannot even see silently dropped that user's {@code sql_mode} for the
+     * rest of the connection, and everything they ran afterwards decoded string literals differently.
+     */
+    @Test
+    public void testAHintInThePolicyTextDoesNotOutliveTheParse() throws Exception {
+        createPolicy("CREATE ROW POLICY p_hint ON " + TBL + " AS PERMISSIVE TO " + USER
+                + " USING (region = 'cn' or region = 'us')");
+        try {
+            useUser(USER);
+            long callerMode = connectContext.getSessionVariable().getSqlMode()
+                    | SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES;
+            connectContext.getSessionVariable().setSqlMode(callerMode);
+
+            // A parse under the fixed mode, with something inside it setting sql_mode - which is what a
+            // SET_VAR hint in a policy's own text does, on this very thread.
+            SqlModeHelper.withSqlMode(SqlModeHelper.MODE_FOR_POLICY_TEXT, () -> {
+                Assertions.assertFalse(SqlModeHelper.hasNoBackSlashEscapes(),
+                        "the policy text was read under the caller's mode rather than the fixed one");
+                connectContext.getSessionVariable().setSqlMode(SqlModeHelper.MODE_PIPES_AS_CONCAT);
+                return null;
+            });
+
+            Assertions.assertEquals(SqlModeHelper.MODE_PIPES_AS_CONCAT,
+                    connectContext.getSessionVariable().getSqlMode(),
+                    "the window put back a mode the session never asked for, so a hint inside policy text"
+                            + " decides this connection's sql_mode from here on");
+        } finally {
+            useUser("root");
+            dropPolicy("DROP ROW POLICY p_hint ON " + TBL);
+        }
+    }
+
+    /**
+     * A policy recovered with no connection on the thread is recovered under the mode it is enforced under.
+     *
+     * <p>Replaying a journal and loading an image both run on such a thread, and the fixed mode used to be a
+     * documented no-op there: what {@code gsonPostProcess} re-derived {@code wherePredicate} from was the
+     * <em>global</em> {@code sql_mode} an operator had set, while the query it governs re-reads the stored
+     * text under the fixed one. {@code SHOW ROW POLICY} would render the first and the query be filtered by
+     * the second, so on any FE that had loaded the policy from an image the two disagreed.
+     *
+     * <p>Asserted on the window itself rather than through a global {@code SET}, because the window is the
+     * whole of it: what a recovery reads is whatever these two readers answer while it runs.
+     */
+    @Test
+    public void testTheFixedModeHoldsWithNoConnectionOnTheThread() {
+        ConnectContext caller = ConnectContext.get();
+        ConnectContext.remove();
+        try {
+            Assertions.assertTrue(SqlModeHelper.withSqlMode(SqlModeHelper.MODE_PIPES_AS_CONCAT,
+                            SqlModeHelper::hasPipeAsConcat),
+                    "the window had no effect without a connection, so a policy recovered by a replay or an"
+                            + " image load is read under the global sql_mode rather than the fixed one");
+            Assertions.assertFalse(SqlModeHelper.withSqlMode(SqlModeHelper.MODE_FOR_POLICY_TEXT,
+                    SqlModeHelper::hasPipeAsConcat));
+            Assertions.assertFalse(SqlModeHelper.hasPipeAsConcat(),
+                    "the window outlived itself");
+        } finally {
+            caller.setThreadLocalInfo();
+        }
+    }
+
+    /**
+     * A policy created inside a multi-statement request is recovered by index, index 0 included.
+     *
+     * <p>{@code ConnectProcessor} records the whole request whenever its two statement splitters disagree on
+     * how many statements it holds, and the first policy in such a request still carries index 0. Parsing that
+     * text as one statement - which is what index 0 used to take as the shortcut - recovers nothing: the
+     * policy loses its predicate, disappears from {@code SHOW ROW POLICY} and refuses every query it governs.
+     */
+    @Test
+    public void testAPolicyAtIndexZeroOfAMultiStatementRequestIsStillRecovered() throws Exception {
+        createPolicy("CREATE ROW POLICY p_idx ON " + TBL + " AS PERMISSIVE TO " + USER
+                + " USING (region = 'cn' or region = 'us')");
+        try {
+            RowPolicy stored = onlyPolicyOfTheUser();
+            String asOneOfSeveral = stored.getOriginStmt() + "; select 1 from " + TBL;
+            RowPolicy recovered = new RowPolicy(stored.getId(), stored.getPolicyName(), "internal", DB, TBL,
+                    stored.getUser(), stored.getRoleName(), asOneOfSeveral, 0, stored.getFilterType(), null);
+
+            recovered.gsonPostProcess();
+
+            Assertions.assertFalse(recovered.isInvalid(),
+                    "a policy recorded as statement 0 of a request holding two lost its predicate, so it is"
+                            + " invisible in SHOW ROW POLICY and refuses every query it governs");
+            Assertions.assertTrue(recovered.getWherePredicate() instanceof Or,
+                    "the wrong statement was recovered: " + recovered.getWherePredicate().toSql());
+        } finally {
+            dropPolicy("DROP ROW POLICY p_idx ON " + TBL);
         }
     }
 
