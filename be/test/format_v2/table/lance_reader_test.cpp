@@ -270,10 +270,10 @@ std::vector<std::pair<int64_t, float>> read_vector_search_rows(LanceTableReader*
     return rows;
 }
 
-GlobalRowLocationV3 decode_lance_row_id(const ColumnString& column, size_t row) {
+GlobalRowLoacationV2 decode_lance_row_id(const ColumnString& column, size_t row) {
     const auto encoded = column.get_data_at(row);
-    EXPECT_EQ(sizeof(GlobalRowLocationV3), encoded.size);
-    GlobalRowLocationV3 location(0, 0, 0);
+    EXPECT_EQ(sizeof(GlobalRowLoacationV2), encoded.size);
+    GlobalRowLoacationV2 location(ROW_VERSION::LANCE_DATASET_ROW_ID, 0, 0, 0);
     if (encoded.size == sizeof(location)) {
         std::memcpy(&location, encoded.data, sizeof(location));
     }
@@ -432,10 +432,11 @@ TEST(LanceTableReaderVectorSearchTest, ReturnsStableGlobalRowIdsAndFetchesPayloa
                     assert_cast<const ColumnString&>(*block.get_by_position(1).column);
             for (size_t row = 0; row < block.rows(); ++row) {
                 const auto location = decode_lance_row_id(global_row_ids, row);
-                EXPECT_EQ(GlobalRowLocationV3::VERSION, location.version);
+                EXPECT_EQ(static_cast<uint8_t>(ROW_VERSION::LANCE_DATASET_ROW_ID),
+                          location.version);
                 EXPECT_EQ(context.backend_id, location.backend_id);
-                EXPECT_EQ(context.file_id, location.file_id);
-                row_ids.emplace(logical_row_ids.get_data()[row], location.row_id);
+                EXPECT_EQ(context.file_id, location.lance_file_id);
+                row_ids.emplace(logical_row_ids.get_data()[row], location.lance_row_id);
             }
         }
         return row_ids;
@@ -520,10 +521,10 @@ TEST(LanceTableReaderVectorSearchTest, ReadsOnlyGlobalRowIdVirtualColumn) {
                 assert_cast<const ColumnString&>(*block.get_by_position(0).column);
         for (size_t row = 0; row < block.rows(); ++row) {
             const auto location = decode_lance_row_id(global_row_ids, row);
-            EXPECT_EQ(GlobalRowLocationV3::VERSION, location.version);
+            EXPECT_EQ(static_cast<uint8_t>(ROW_VERSION::LANCE_DATASET_ROW_ID), location.version);
             EXPECT_EQ(context.backend_id, location.backend_id);
-            EXPECT_EQ(context.file_id, location.file_id);
-            native_row_ids.emplace(location.row_id);
+            EXPECT_EQ(context.file_id, location.lance_file_id);
+            native_row_ids.emplace(location.lance_row_id);
         }
     }
     EXPECT_EQ(2U, native_row_ids.size());

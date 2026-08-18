@@ -841,10 +841,13 @@ message PRequestBlockDesc {
     repeated PSlotDescriptor slots = 2;
     repeated ColumnPB column_descs = 3;
     repeated uint32 file_id = 4;
-    // V2 row locations use uint32 values; V3 preserves native uint64 external row IDs.
+    // FILE_LOCAL_ROW_ID values are uint32; LANCE_DATASET_ROW_ID preserves all 64 bits.
     repeated uint64 row_id = 5;
     optional PTupleDescriptor desc = 6;
     repeated uint32 column_idxs = 7;
+    // Numeric value of ROW_VERSION. Keep this as uint32 so a receiver can detect and reject a
+    // future version that is unknown to its current binary instead of treating it as version 0.
+    optional uint32 row_location_version = 8 [default = 0];
 }
 
 message PTopNLazyMaterializationFileCacheStats {

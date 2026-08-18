@@ -1791,9 +1791,9 @@ public class BindExpression implements AnalysisRuleFactory {
         }
 
         // Each distributed Lance search split returns topK + offset candidates. Wrap the TVF
-        // relation with a Doris TopN to merge them into the snapshot-wide result. Predicates
-        // written outside vector_search() remain above this TopN because the TVF defines the
-        // search boundary: an outer WHERE filters the already selected nearest neighbors.
+        // relation with a Doris TopN to merge them into the snapshot-wide result. The predicate
+        // pushdown rules move an outer WHERE below this synthetic TopN, where it is evaluated as
+        // a Doris scan residual after each fragment's Lance search and before the global TopN.
         VectorSearchTableValuedFunction vectorSearch =
                 (VectorSearchTableValuedFunction) tableValuedFunction.getCatalogFunction();
         Slot distance = relation.getOutput().stream()

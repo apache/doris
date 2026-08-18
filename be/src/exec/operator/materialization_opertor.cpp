@@ -68,45 +68,54 @@ constexpr const char* TOPN_LAZY_MAT_PHASE2_PER_BACKEND_WRITE_CACHE_IO_TIME =
         "TopNLazyMaterializationSecondPhasePerBackendWriteCacheIOTime";
 
 struct MaterializationRowLocation {
+    ROW_VERSION version = ROW_VERSION::FILE_LOCAL_ROW_ID;
     int64_t backend_id = 0;
     uint32_t file_id = 0;
     uint64_t row_id = 0;
 };
 
+Status decode_global_row_location_v2(const StringRef& encoded, ROW_VERSION version,
+                                     MaterializationRowLocation* decoded) {
+    if (encoded.size != sizeof(GlobalRowLoacationV2)) {
+        return Status::InternalError(
+                "invalid global row location size for version {}: actual={}, expected={}",
+                static_cast<int>(version), encoded.size, sizeof(GlobalRowLoacationV2));
+    }
+    GlobalRowLoacationV2 location(GlobalRowLoacationV2::VERSION, 0, 0, 0);
+    std::memcpy(&location, encoded.data, sizeof(location));
+    decoded->version = version;
+    decoded->backend_id = location.backend_id;
+    switch (version) {
+    case ROW_VERSION::FILE_LOCAL_ROW_ID:
+        decoded->file_id = location.file_local.file_id;
+        decoded->row_id = location.file_local.row_id;
+        return Status::OK();
+    case ROW_VERSION::LANCE_DATASET_ROW_ID:
+        decoded->file_id = location.lance_file_id;
+        decoded->row_id = location.lance_row_id;
+        return Status::OK();
+    }
+    return Status::NotSupported("unsupported V2 global row location version: {}",
+                                static_cast<int>(version));
+}
+
 Status decode_materialization_row_location(const StringRef& encoded,
                                            MaterializationRowLocation* decoded) {
-    if (encoded.size == 0) {
+    if (encoded.size < sizeof(uint8_t)) {
         return Status::InternalError("global row location is empty");
     }
 
-    const auto version = static_cast<uint8_t>(encoded.data[0]);
-    if (version == GlobalRowLoacationV2::VERSION) {
-        if (encoded.size != sizeof(GlobalRowLoacationV2)) {
-            return Status::InternalError(
-                    "invalid global row location V2 size: actual={}, expected={}", encoded.size,
-                    sizeof(GlobalRowLoacationV2));
-        }
-        GlobalRowLoacationV2 location(0, 0, 0, 0);
-        std::memcpy(&location, encoded.data, sizeof(location));
-        decoded->backend_id = location.backend_id;
-        decoded->file_id = location.file_id;
-        decoded->row_id = location.row_id;
-        return Status::OK();
+    const auto version_value = static_cast<uint8_t>(encoded.data[0]);
+    const auto version = static_cast<ROW_VERSION>(version_value);
+    // Keep size validation inside each version-family decoder. A future version can therefore
+    // use a different encoded size without being rejected by the current 24-byte V2 contract.
+    switch (version) {
+    case ROW_VERSION::FILE_LOCAL_ROW_ID:
+    case ROW_VERSION::LANCE_DATASET_ROW_ID:
+        return decode_global_row_location_v2(encoded, version, decoded);
     }
-    if (version == GlobalRowLocationV3::VERSION) {
-        if (encoded.size != sizeof(GlobalRowLocationV3)) {
-            return Status::InternalError(
-                    "invalid global row location V3 size: actual={}, expected={}", encoded.size,
-                    sizeof(GlobalRowLocationV3));
-        }
-        GlobalRowLocationV3 location(0, 0, 0);
-        std::memcpy(&location, encoded.data, sizeof(location));
-        decoded->backend_id = location.backend_id;
-        decoded->file_id = location.file_id;
-        decoded->row_id = location.row_id;
-        return Status::OK();
-    }
-    return Status::InternalError("unsupported global row location version: {}", version);
+    return Status::NotSupported("unsupported global row location version: {}, encoded_size={}",
+                                static_cast<int>(version_value), encoded.size);
 }
 
 void update_counter(RuntimeProfile* profile, const std::string& name, TUnit::type unit,
@@ -498,10 +507,19 @@ Status MaterializationSharedState::create_muiltget_result(const Columns& columns
                             "MaterializationSinkOperatorX failed to find rpc_struct, backend_id={}",
                             row_location.backend_id);
                 }
-                rpc_struct->second.request.mutable_request_block_descs(i)->add_row_id(
-                        row_location.row_id);
-                rpc_struct->second.request.mutable_request_block_descs(i)->add_file_id(
-                        row_location.file_id);
+                auto* request_block_desc =
+                        rpc_struct->second.request.mutable_request_block_descs(i);
+                const auto row_location_version = static_cast<uint32_t>(row_location.version);
+                if (request_block_desc->row_id_size() == 0) {
+                    request_block_desc->set_row_location_version(row_location_version);
+                } else if (request_block_desc->row_location_version() != row_location_version) {
+                    return Status::InternalError(
+                            "mixed row location versions in one materialization request: "
+                            "actual={}, expected={}",
+                            row_location_version, request_block_desc->row_location_version());
+                }
+                request_block_desc->add_row_id(row_location.row_id);
+                request_block_desc->add_file_id(row_location.file_id);
                 block_order[j] = row_location.backend_id;
 
                 // Count rows per backend

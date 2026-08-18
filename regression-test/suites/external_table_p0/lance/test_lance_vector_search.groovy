@@ -175,8 +175,9 @@ suite("test_lance_vector_search", "p0,external") {
             ORDER BY _distance, row_id
         """
 
-        // An outer WHERE remains a Doris post-search predicate. Search first selects row_id 1
-        // and 2; filtering for odd retains only row_id 2.
+        // An outer WHERE is a Doris scan postfilter. Each fragment first returns two ANN
+        // candidates, and Doris filters those candidates before the global TopN. This keeps
+        // row_id 2 from the first fragment and row_id 514 from the second fragment.
         qt_post_search_filter """
             SELECT row_id, category, _distance
             FROM ${indexedTopTwo}

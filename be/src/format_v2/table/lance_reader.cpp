@@ -929,8 +929,8 @@ Status LanceTableReader::_append_global_row_ids(const std::shared_ptr<arrow::Arr
     }
     const auto& context = *_global_rowid_context;
     for (size_t row = 0; row < row_count; ++row) {
-        const GlobalRowLocationV3 location(context.backend_id, context.file_id,
-                                           typed_row_ids->Value(row));
+        const GlobalRowLoacationV2 location(ROW_VERSION::LANCE_DATASET_ROW_ID, context.backend_id,
+                                            context.file_id, typed_row_ids->Value(row));
         data_column->insert_data(reinterpret_cast<const char*>(&location), sizeof(location));
     }
     return Status::OK();

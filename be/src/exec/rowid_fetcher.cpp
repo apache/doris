@@ -547,14 +547,37 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
             const auto& request_block_desc = request.request_block_descs(i);
             PMultiGetBlockV2* pblock = response->add_blocks();
             if (request_block_desc.row_id_size() >= 1) {
-                // Since this block belongs to the same table, we only need to take the first type for judgment.
-                auto first_file_id = request_block_desc.file_id(0);
+                if (request_block_desc.file_id_size() != request_block_desc.row_id_size()) {
+                    return Status::InvalidArgument(
+                            "Row-id fetch has mismatched file_id and row_id counts: "
+                            "file_ids={}, row_ids={}",
+                            request_block_desc.file_id_size(), request_block_desc.row_id_size());
+                }
+                const auto row_location_version = request_block_desc.row_location_version();
+                switch (row_location_version) {
+                case static_cast<uint32_t>(ROW_VERSION::FILE_LOCAL_ROW_ID):
+                case static_cast<uint32_t>(ROW_VERSION::LANCE_DATASET_ROW_ID):
+                    break;
+                default:
+                    return Status::NotSupported("unsupported row location version in fetch: {}",
+                                                row_location_version);
+                }
+                // Rows in this request block belong to the same relation. The first mapping is
+                // sufficient to select the internal/external fetch path; individual file IDs
+                // are still used below to group the actual reads.
+                const auto first_file_id = request_block_desc.file_id(0);
                 auto first_file_mapping = id_file_map->get_file_mapping(first_file_id);
                 if (!first_file_mapping) {
                     return Status::InternalError(
-                            "Backend:{} file_mapping not found, query_id: {}, file_id: {}",
+                            "Backend:{} file mapping not found, query_id: {}, file_id: {}",
                             BackendOptions::get_localhost(), print_id(request.query_id()),
                             first_file_id);
+                }
+                if (first_file_mapping->type != FileMappingType::EXTERNAL &&
+                    row_location_version ==
+                            static_cast<uint32_t>(ROW_VERSION::LANCE_DATASET_ROW_ID)) {
+                    return Status::InvalidArgument(
+                            "Lance dataset row IDs require an external file mapping");
                 }
                 file_type_counts[first_file_mapping->type] += request_block_desc.row_id_size();
 
@@ -865,9 +888,24 @@ Status RowIdStorageReader::read_batch_external_row(
         int plan_node_id = external_info.plan_node_id;
         const auto& first_scan_range_desc = external_info.scan_range_desc;
 
-        DCHECK(id_file_map->get_external_scan_params().contains(plan_node_id));
-        const auto* old_scan_params = &(id_file_map->get_external_scan_params().at(plan_node_id));
-        rpc_scan_params = *old_scan_params;
+        const auto& external_scan_params = id_file_map->get_external_scan_params();
+        const auto scan_params = external_scan_params.find(plan_node_id);
+        if (scan_params == external_scan_params.end()) {
+            return Status::InternalError("External scan params not found for plan node id {}",
+                                         plan_node_id);
+        }
+        rpc_scan_params = scan_params->second;
+        if (request_block_desc.row_location_version() ==
+            static_cast<uint32_t>(ROW_VERSION::LANCE_DATASET_ROW_ID)) {
+            const auto format_type = first_scan_range_desc.__isset.format_type
+                                             ? first_scan_range_desc.format_type
+                                             : rpc_scan_params.format_type;
+            if (format_type != TFileFormatType::FORMAT_LANCE) {
+                return Status::InvalidArgument(
+                        "Lance dataset row IDs cannot be fetched with file format {}",
+                        static_cast<int>(format_type));
+            }
+        }
 
         rpc_scan_params.required_slots.clear();
         rpc_scan_params.column_idxs.clear();
@@ -964,8 +1002,8 @@ Status RowIdStorageReader::read_batch_external_row(
         if (scan_rows.contains(scan_range_hash)) {
             scan_rows.at(scan_range_hash).first.emplace(request_block_desc.row_id(j), j);
         } else {
-            std::multimap<uint64_t, size_t> tmp {{request_block_desc.row_id(j), j}};
-            scan_rows.emplace(scan_range_hash, std::make_pair(tmp, file_mapping));
+            std::multimap<uint64_t, size_t> rows {{request_block_desc.row_id(j), j}};
+            scan_rows.emplace(scan_range_hash, std::make_pair(std::move(rows), file_mapping));
         }
     }
 

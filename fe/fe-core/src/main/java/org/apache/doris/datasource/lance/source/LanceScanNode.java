@@ -133,7 +133,8 @@ public class LanceScanNode extends FileQueryScanNode {
         if (isExternalSearch()) {
             // The TVF "filter" property is already serialized in externalSearchRequest and is
             // evaluated by Lance before vector search. Outer WHERE conjuncts have different
-            // semantics: Doris must keep them here and evaluate them after Lance returns TopK.
+            // semantics: keep them as Doris scan residuals. Each fragment first returns its Lance
+            // ANN candidates, then Doris evaluates these conjuncts before the local/global TopN.
         } else {
             LancePredicateConverter.ConversionResult result =
                     new LancePredicateConverter(plannedMetadata.getSchema()).convert(conjuncts);

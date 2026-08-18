@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <limits>
 
 #include "core/column/column_vector.h"
@@ -144,7 +145,7 @@ TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResultWithUint64RowId) 
 
     constexpr uint64_t large_row_id =
             static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 17;
-    GlobalRowLocationV3 location(_backend_id1, 7, large_row_id);
+    GlobalRowLoacationV2 location(ROW_VERSION::LANCE_DATASET_ROW_ID, _backend_id1, 7, large_row_id);
     col_data->insert_data(reinterpret_cast<const char*>(&location), sizeof(location));
     columns.push_back(std::move(rowid_col));
 
@@ -155,8 +156,45 @@ TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResultWithUint64RowId) 
     const auto& request_block = request.request_block_descs(0);
     ASSERT_EQ(request_block.row_id_size(), 1);
     EXPECT_EQ(request_block.row_id(0), large_row_id);
+    ASSERT_EQ(request_block.file_id_size(), 1);
     EXPECT_EQ(request_block.file_id(0), 7);
+    EXPECT_EQ(request_block.row_location_version(),
+              static_cast<uint32_t>(ROW_VERSION::LANCE_DATASET_ROW_ID));
     EXPECT_EQ(_shared_state->block_order_results[0][0], _backend_id1);
+}
+
+TEST_F(MaterializationSharedStateTest, TestRejectUnknownRowLocationVersionWithFutureSize) {
+    Columns columns;
+    auto rowid_col = _string_type->create_column();
+    auto* col_data = reinterpret_cast<ColumnString*>(rowid_col.get());
+
+    std::array<char, sizeof(GlobalRowLoacationV2) + 8> future_location {};
+    future_location[0] = 99;
+    col_data->insert_data(future_location.data(), future_location.size());
+    columns.push_back(std::move(rowid_col));
+
+    const Status st = _shared_state->create_muiltget_result(columns, false, false);
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("unsupported global row location version: 99"),
+              std::string::npos);
+    EXPECT_NE(st.to_string().find("encoded_size=32"), std::string::npos);
+}
+
+TEST_F(MaterializationSharedStateTest, TestRejectKnownRowLocationVersionWithInvalidSize) {
+    Columns columns;
+    auto rowid_col = _string_type->create_column();
+    auto* col_data = reinterpret_cast<ColumnString*>(rowid_col.get());
+
+    std::array<char, sizeof(GlobalRowLoacationV2) + 1> invalid_location {};
+    invalid_location[0] = static_cast<char>(ROW_VERSION::LANCE_DATASET_ROW_ID);
+    col_data->insert_data(invalid_location.data(), invalid_location.size());
+    columns.push_back(std::move(rowid_col));
+
+    const Status st = _shared_state->create_muiltget_result(columns, false, false);
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("invalid global row location size for version 1"),
+              std::string::npos);
+    EXPECT_NE(st.to_string().find("actual=25, expected=24"), std::string::npos);
 }
 
 TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {

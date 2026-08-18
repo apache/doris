@@ -180,8 +180,8 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
     for (auto i = 0; i < row_id_string_column.size(); i++) {
         GlobalRowLoacationV2 info =
                 *((GlobalRowLoacationV2*)row_id_string_column.get_data_at(i).data);
-        EXPECT_EQ(info.file_id, 10);
-        EXPECT_EQ(info.row_id, read_lines_tmp.front());
+        EXPECT_EQ(info.file_local.file_id, 10);
+        EXPECT_EQ(info.file_local.row_id, read_lines_tmp.front());
         read_lines_tmp.pop_front();
         EXPECT_EQ(info.backend_id, BackendOptions::get_backend_id());
         EXPECT_EQ(info.version, IdManager::ID_VERSION);
