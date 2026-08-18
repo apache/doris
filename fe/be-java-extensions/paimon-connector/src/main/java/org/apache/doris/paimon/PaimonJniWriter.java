@@ -22,6 +22,7 @@ import org.apache.doris.common.security.authentication.PreExecutionAuthenticator
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.OutOfMemoryException;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
@@ -228,6 +229,14 @@ public class PaimonJniWriter {
                         }
                     }
                     return null;
+                } catch (OutOfMemoryException e) {
+                    throw new RuntimeException(
+                            "PaimonJniWriter Arrow decode exceeded the configured Java Arrow memory limit: "
+                                    + "ipcBytes=" + directBuffer.capacity()
+                                    + ", allocatedBytes=" + allocator.getAllocatedMemory()
+                                    + ", limitBytes=" + allocator.getLimit()
+                                    + ", cause=" + e.getMessage(),
+                            e);
                 } catch (Throwable t) {
                     throw new RuntimeException(
                             "PaimonJniWriter write failed: bytes=" + directBuffer.capacity(), t);

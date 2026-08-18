@@ -417,8 +417,8 @@ Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block
         block.get_by_position(i).name = _sink.column_names[i];
     }
 
-    // Build the Arrow schema once, then convert and send bounded row ranges. This avoids holding
-    // Arrow arrays and an IPC buffer for the entire Doris block at the same time.
+    // Build the Arrow schema once. Common blocks stay on the one-block/one-JNI-call fast path;
+    // only unusually wide blocks are divided into bounded row ranges.
     // Paimon write timestamps are transported as civil-time fields. The Java writer uses the
     // pinned Paimon target type to preserve NTZ values or convert LTZ values with the session zone.
     // Variant V2 is transported losslessly as its value/metadata pair, including nested Variant.
@@ -427,6 +427,14 @@ Status JniPaimonWriter::_write_projected_block(RuntimeState* state, Block& block
 
     const size_t block_rows = block.rows();
     const size_t block_bytes = block.bytes();
+    if (block_bytes <= _arrow_batch_size_bytes) {
+        return _write_row_range(state, block, arrow_schema, 0, block_rows,
+                                std::max<size_t>(1, block_bytes));
+    }
+
+    // Use Doris bytes only to choose an inexpensive initial range size. The encoded IPC size is
+    // checked by _write_row_range(), which adaptively splits an oversized range. This keeps a
+    // single unusually large row from being grouped with otherwise small rows based on an average.
     const size_t average_row_bytes =
             std::max<size_t>(1, block_bytes / block_rows + (block_bytes % block_rows != 0));
     const size_t rows_per_batch = BlockBudget(state->batch_size(), _arrow_batch_size_bytes)
@@ -460,14 +468,14 @@ Status JniPaimonWriter::_write_row_range(RuntimeState* state, const Block& block
         return Status::InternalError("Arrow BufferOutputStream create failed: {}",
                                      out_stream_res.status().ToString());
     }
-    auto out_stream = *out_stream_res;
+    auto out_stream = std::move(out_stream_res).ValueOrDie();
 
     auto writer_res = arrow::ipc::MakeStreamWriter(out_stream, arrow_schema);
     if (!writer_res.ok()) {
         return Status::InternalError("Arrow StreamWriter create failed: {}",
                                      writer_res.status().ToString());
     }
-    auto ipc_writer = *writer_res;
+    auto ipc_writer = std::move(writer_res).ValueOrDie();
     auto arrow_status = ipc_writer->WriteRecordBatch(*record_batch);
     if (!arrow_status.ok()) {
         return Status::InternalError("Arrow WriteRecordBatch failed: {}", arrow_status.ToString());
@@ -483,13 +491,35 @@ Status JniPaimonWriter::_write_row_range(RuntimeState* state, const Block& block
         return Status::InternalError("Arrow output stream finish failed: {}",
                                      buffer_res.status().ToString());
     }
-    std::shared_ptr<arrow::Buffer> buffer = *buffer_res;
+    std::shared_ptr<arrow::Buffer> buffer = std::move(buffer_res).ValueOrDie();
 
     // Only the finalized IPC buffer must stay alive during the synchronous JNI call. Releasing the
     // Arrow arrays and builders first keeps the C++ peak from spanning Java decoding and writing.
     record_batch.reset();
     ipc_writer.reset();
     out_stream.reset();
+
+    const size_t range_rows = end_row - start_row;
+    const size_t serialized_bytes = static_cast<size_t>(buffer->size());
+    if (serialized_bytes > _arrow_batch_size_bytes && range_rows > 1) {
+        // Doris column bytes are only an estimate of Arrow IPC size and may hide skew. Once the
+        // actual encoded size is known, discard the oversized candidate and retry its two halves.
+        // A one-row range is intentionally not split: it is the smallest writable unit and the
+        // Java allocator still has the other half of its configured limit as headroom.
+        buffer.reset();
+        const size_t middle_row = start_row + range_rows / 2;
+        const size_t average_serialized_row_bytes =
+                serialized_bytes / range_rows + (serialized_bytes % range_rows != 0);
+        const auto estimate_range_bytes = [&](size_t rows) {
+            return average_serialized_row_bytes > _arrow_batch_size_bytes / rows
+                           ? _arrow_batch_size_bytes
+                           : average_serialized_row_bytes * rows;
+        };
+        RETURN_IF_ERROR(_write_row_range(state, block, arrow_schema, start_row, middle_row,
+                                         estimate_range_bytes(middle_row - start_row)));
+        return _write_row_range(state, block, arrow_schema, middle_row, end_row,
+                                estimate_range_bytes(end_row - middle_row));
+    }
 
     // Wrap the IPC buffer in a JNI direct ByteBuffer (zero-copy). Java consumes it synchronously.
     JNIEnv* env = nullptr;
