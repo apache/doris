@@ -31,6 +31,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <utility>
@@ -87,6 +88,7 @@ private:
     std::mutex mutex;
     size_t iceberg_serialized_bytes = 0;
     bool ownership_may_have_transferred = false;
+    std::optional<ExternalFileReportOutcome> terminal_outcome;
     std::vector<std::function<void(ExternalFileReportOutcome)>> report_finalizers;
 };
 

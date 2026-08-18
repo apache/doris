@@ -126,7 +126,7 @@ TEST(RuntimeStateIcebergCommitDataTest, PeriodicReportOmitsExternalCommitData) {
     EXPECT_TRUE(final_params.__isset.mc_commit_datas);
 }
 
-TEST(RuntimeStateIcebergCommitDataTest, RetainsFileCleanupUntilReportAcknowledgement) {
+TEST(RuntimeStateIcebergCommitDataTest, RejectedFileCleanupRunsOnce) {
     RuntimeState coordinator_state;
     RuntimeState task_state;
     auto report_state = std::make_shared<ExternalFileReportState>();
@@ -138,17 +138,6 @@ TEST(RuntimeStateIcebergCommitDataTest, RetainsFileCleanupUntilReportAcknowledge
     coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
     coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
 
-    EXPECT_EQ(1, cleanup_count);
-
-    task_state.add_rejected_external_file_report_cleanup([&] { ++cleanup_count; });
-    coordinator_state.finalize_external_file_report_cleanup(
-            ExternalFileReportOutcome::ACKNOWLEDGED);
-    EXPECT_EQ(1, cleanup_count);
-
-    task_state.add_rejected_external_file_report_cleanup([&] { ++cleanup_count; });
-    coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::AMBIGUOUS);
-    EXPECT_EQ(1, cleanup_count);
-    coordinator_state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
     EXPECT_EQ(1, cleanup_count);
 }
 
@@ -180,6 +169,20 @@ TEST(RuntimeStateIcebergCommitDataTest, FinalizersKeepOwnersUntilAReportOutcome)
 
     EXPECT_EQ(1, acknowledged_count);
     EXPECT_EQ(0, rejected_count);
+}
+
+TEST(RuntimeStateIcebergCommitDataTest, LateFinalizerObservesTerminalReportOutcome) {
+    RuntimeState state;
+    state.finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+    int rejected_count = 0;
+
+    state.add_external_file_report_finalizer([&](ExternalFileReportOutcome outcome) {
+        if (outcome == ExternalFileReportOutcome::REJECTED) {
+            ++rejected_count;
+        }
+    });
+
+    EXPECT_EQ(1, rejected_count);
 }
 
 TEST(RuntimeStateIcebergCommitDataTest, AcknowledgementAfterAmbiguityReleasesOwner) {

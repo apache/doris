@@ -88,6 +88,10 @@ protected:
     static void publish_active_writers(VIcebergTableWriter* writer) {
         writer->_publish_active_writers();
     }
+
+    static std::unique_lock<std::mutex> lock_partition_dispatch(VIcebergTableWriter* writer) {
+        return writer->lock_partition_dispatch();
+    }
 };
 
 TEST_F(VIcebergTableWriterLifecycleTest, RejectsCoordinatorWithoutExternalFileReportAck) {
@@ -175,6 +179,26 @@ TEST_F(VIcebergTableWriterLifecycleTest, LoadedSnapshotRetainsWritersDuringConcu
     replacement_published.set_value();
     reader.get();
     EXPECT_EQ(1, destroyed.load());
+}
+
+TEST_F(VIcebergTableWriterLifecycleTest, MultiPartitionRevocationWaitsForDispatchBarrier) {
+    VIcebergTableWriter writer(make_sink(), {}, nullptr, nullptr);
+    add_writer(&writer, "p=1");
+    add_writer(&writer, "p=2");
+    publish_active_writers(&writer);
+    auto dispatch_lock = lock_partition_dispatch(&writer);
+    std::promise<void> revoke_started;
+
+    auto revoker = std::async(std::launch::async, [&]() {
+        revoke_started.set_value();
+        auto revoke_lock = lock_partition_dispatch(&writer);
+        return writer.active_writers()->size();
+    });
+
+    revoke_started.get_future().wait();
+    EXPECT_EQ(std::future_status::timeout, revoker.wait_for(std::chrono::milliseconds(100)));
+    dispatch_lock.unlock();
+    EXPECT_EQ(2, revoker.get());
 }
 
 } // namespace doris

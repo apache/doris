@@ -2670,6 +2670,38 @@ TEST(TableReaderTest, AnnotateProjectedColumnUsesCurrentHistorySchemaForNestedTy
     EXPECT_EQ(context.schema_column->children[1].children[1].get_identifier_field_id(), 25);
 }
 
+TEST(TableReaderTest, NestedCurrentNameTakesPrecedenceOverSiblingAlias) {
+    auto renamed_field =
+            external_array_field("renamed", 11, external_schema_field("element", 13), {"old"});
+    auto reused_field = external_map_field("old", 12, external_schema_field("key", 14),
+                                           external_schema_field("value", 15));
+    auto parent_field = external_struct_field("s", 10, {renamed_field, reused_field});
+
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(100, {parent_field})});
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto old_type = std::make_shared<DataTypeMap>(string_type, string_type);
+    auto renamed_type = std::make_shared<DataTypeArray>(int_type);
+    auto parent_type = std::make_shared<DataTypeStruct>(DataTypes {old_type, renamed_type},
+                                                        Strings {"old", "renamed"});
+    ColumnDefinition projected = make_table_column(-1, "s", parent_type);
+    ProjectedColumnBuildContext context {.scan_params = &scan_params};
+    TFileScanSlotInfo slot_info;
+    TableReader reader;
+
+    ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &projected).ok());
+
+    ASSERT_TRUE(context.schema_column.has_value());
+    ASSERT_EQ(context.schema_column->children.size(), 2);
+    EXPECT_EQ(TYPE_ARRAY,
+              remove_nullable(context.schema_column->children[0].type)->get_primitive_type());
+    EXPECT_EQ(TYPE_MAP,
+              remove_nullable(context.schema_column->children[1].type)->get_primitive_type());
+}
+
 TEST(TableReaderTest, AnnotateProjectedColumnPrefersCurrentNameOverHistoricalAlias) {
     auto renamed_field = external_schema_field("renamed_b", 1, {"b"});
     renamed_field.field_ptr->__set_name_mapping_is_authoritative(true);
