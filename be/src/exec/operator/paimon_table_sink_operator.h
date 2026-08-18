@@ -70,12 +70,9 @@ private:
 class PaimonTableSinkOperatorX final : public DataSinkOperatorX<PaimonTableSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<PaimonTableSinkLocalState>;
-    PaimonTableSinkOperatorX(ObjectPool* pool, int operator_id, const RowDescriptor& row_desc,
+    PaimonTableSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                              const std::vector<TExpr>& t_output_expr)
-            : Base(operator_id, 0, 0),
-              _row_desc(row_desc),
-              _t_output_expr(t_output_expr),
-              _pool(pool) {}
+            : Base(operator_id, 0, 0), _row_desc(row_desc), _t_output_expr(t_output_expr) {}
 
     Status init(const TDataSink& thrift_sink) override {
         RETURN_IF_ERROR(Base::init(thrift_sink));
@@ -102,7 +99,6 @@ private:
     const RowDescriptor& _row_desc;
     VExprContextSPtrs _output_vexpr_ctxs;
     const std::vector<TExpr>& _t_output_expr;
-    ObjectPool* _pool = nullptr;
 };
 
 } // namespace doris
