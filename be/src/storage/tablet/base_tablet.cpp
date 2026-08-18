@@ -885,13 +885,12 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             if (binlog_ctx.write_binlog_opt().enable) {
                 const auto& src =
                         assert_cast<const ColumnInt64&>(*lsn_block.get_by_position(0).column);
-                auto lsn_ids = std::make_shared<std::vector<int64_t>>();
+                auto lsn_ids = std::make_shared<DorisVector<int64_t>>();
                 lsn_ids->reserve(sort_perm.size());
                 for (auto p : sort_perm) {
                     lsn_ids->emplace_back(src.get_data()[p]);
                 }
-                binlog_ctx.write_binlog_opt().write_binlog_config().insert_seg_lsn(
-                        segment_id, std::move(lsn_ids));
+                binlog_ctx.insert_segment_allocated_lsns(segment_id, std::move(lsn_ids));
             }
         }
         RETURN_IF_ERROR(rowset_writer->flush_single_block(&ordered_block, segment_id));
@@ -1677,6 +1676,7 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         RETURN_IF_ERROR(RowsetFactory::create_empty_group_rowset_writer(&group_writer));
         group_writer->set_data_writer(data_writer_sp);
         group_writer->set_row_binlog_writer(row_binlog_writer_sp);
+        RETURN_IF_ERROR(group_writer->init(group_writer->data_writer()->context()));
         transient_rs_writer = std::move(group_writer);
     }
 

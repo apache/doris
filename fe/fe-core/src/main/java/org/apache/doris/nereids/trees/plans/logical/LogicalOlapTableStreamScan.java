@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -174,6 +175,11 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
             // add stream exclusive virtual columns.
             slots.add(SlotReference.fromColumn(
                     exprIdGenerator.getNextId(), table, Column.STREAM_SEQ_VIRTUAL_COLUMN, qualified()));
+            // Only expose stream LSN when the base table stores row LSN, e.g. dup table with binlog.
+            if (table instanceof OlapTable && ((OlapTable) table).getKeysType() == KeysType.DUP_KEYS) {
+                slots.add(SlotReference.fromColumn(
+                        exprIdGenerator.getNextId(), table, Column.STREAM_LSN_VIRTUAL_COLUMN, qualified()));
+            }
             slots.add(SlotReference.fromColumn(
                     exprIdGenerator.getNextId(), table, Column.STREAM_CHANGE_TYPE_VIRTUAL_COLUMN, qualified()));
         }

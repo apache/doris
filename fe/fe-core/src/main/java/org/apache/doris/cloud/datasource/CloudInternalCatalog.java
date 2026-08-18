@@ -506,6 +506,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         int deleteSign = -1;
         int sequenceCol = -1;
         int commitTsoCol = -1;
+        int rowLsnCol = -1;
         for (int i = 0; i < schemaColumns.size(); i++) {
             Column column = schemaColumns.get(i);
             if (column.isDeleteSignColumn()) {
@@ -517,10 +518,14 @@ public class CloudInternalCatalog extends InternalCatalog {
             if (column.isCommitTsoColumn()) {
                 commitTsoCol = i;
             }
+            if (column.isRowLsnColumn()) {
+                rowLsnCol = i;
+            }
         }
         schemaBuilder.setDeleteSignIdx(deleteSign);
         schemaBuilder.setSequenceColIdx(sequenceCol);
         schemaBuilder.setCommitTsoColIdx(commitTsoCol);
+        schemaBuilder.setRowLsnColIdx(rowLsnCol);
         schemaBuilder.setStoreRowColumn(storeRowColumn);
 
         if (dataSortInfo.getSortType() == TSortType.LEXICAL) {

@@ -114,7 +114,7 @@ Status fill_before_columns(Block& out, const TabletSchema& binlog_schema,
 // LSN is the per-row auto-inc value, and op describes the row change.
 void fill_binlog_system_columns(Block& out, const TabletSchema& binlog_schema,
                                 uint32_t binlog_tso_cid, uint32_t binlog_lsn_cid,
-                                uint32_t binlog_op_cid, const std::vector<int64_t>& lsn_ids,
+                                uint32_t binlog_op_cid, const DorisVector<int64_t>& lsn_ids,
                                 const std::vector<int64_t>& operators, size_t num_rows) {
     std::vector<uint32_t> binlog_cids = {binlog_tso_cid, binlog_lsn_cid, binlog_op_cid};
     Block binlog_system_block = binlog_schema.create_block_by_cids(binlog_cids);
@@ -191,8 +191,8 @@ Status resolve_binlog_context(TransformExecContext& ctx, const Block* block,
         return Status::InternalError<false>(
                 "binlog<row> blocks must be flushed through flush_single_block");
     }
-    c->lsn_ids = cfg.get_seg_lsn(ctx.segment_id);
-    cfg.remove_seg(ctx.segment_id);
+    c->lsn_ids = ctx.rowset_ctx->get_segment_allocated_lsns(ctx.segment_id);
+    ctx.rowset_ctx->remove_segment_allocated_lsns(ctx.segment_id);
     CHECK(c->lsn_ids->size() >= c->num_rows) << c->lsn_ids->size() << " vs " << c->num_rows;
 
     // Preserve the source writer's layout: system columns may be a prefix or
