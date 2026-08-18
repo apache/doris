@@ -30,7 +30,6 @@ import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
@@ -291,7 +290,12 @@ class IvmAggDeltaHandler {
         LogicalJoin<Plan, Plan> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 buildApplyJoinConjuncts(ctx, rawMvScan, mvRowId, delta),
                 mvPlan, delta.topDeltaProject, JoinReorderContext.EMPTY);
-        Plan joinInput = aggMeta.isScalarAgg() ? join : buildNetZeroFilter(join, delta, mvRowId);
+        // The MV-side group count distinguishes "delta row matched no MV row" from "matched a
+        // group whose row-id is NULL" (single-key row-ids may be NULL); COUNT(*) is never NULL
+        // for a stored group, so a NULL mv group count means the delta row is unmatched.
+        Slot mvGroupCount = helper.findSlotByName(rawMvScan.getOutput(),
+                aggMeta.getGroupCountSlot().getName());
+        Plan joinInput = aggMeta.isScalarAgg() ? join : buildNetZeroFilter(join, delta, mvGroupCount);
 
         Map<String, Expression> finalByColumnName = new LinkedHashMap<>();
         Expression newGroupCount = aggExpressionBuilder.assertNonNegative(
@@ -357,7 +361,9 @@ class IvmAggDeltaHandler {
                 conjuncts.add(new NullSafeEqual(mvKey, deltaKey));
             }
         }
-        conjuncts.add(new EqualTo(mvRowId, delta.rowIdSlot));
+        // Row-id may be NULL (single key used directly as largeint), so match with null-safe
+        // equality: a NULL row-id matches the MV row of the NULL-key group.
+        conjuncts.add(new NullSafeEqual(mvRowId, delta.rowIdSlot));
         return conjuncts.build();
     }
 
@@ -398,8 +404,13 @@ class IvmAggDeltaHandler {
         return rest.substring(0, rest.length() - "_COL__".length());
     }
 
-    private LogicalFilter<Plan> buildNetZeroFilter(LogicalJoin<Plan, Plan> join, DeltaPlanParts delta, Slot mvRowId) {
-        Expression filter = new Not(new And(new IsNull(mvRowId),
+    private LogicalFilter<Plan> buildNetZeroFilter(LogicalJoin<Plan, Plan> join, DeltaPlanParts delta,
+            Slot mvGroupCount) {
+        // Drop delta rows that match no MV row and have no net effect (count <= 0). The MV-side
+        // group count is used instead of the row-id because a NULL row-id no longer implies an
+        // unmatched delta row: with a single key used directly as the row-id, the NULL-key group
+        // also has a NULL row-id, but its stored COUNT(*) is still non-NULL.
+        Expression filter = new Not(new And(new IsNull(mvGroupCount),
                 new LessThanEqual(deltaGroupCount(delta), new BigIntLiteral(0))));
         return new LogicalFilter<>(ImmutableSet.of(filter), join);
     }

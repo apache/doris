@@ -397,7 +397,10 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
         Assertions.assertFalse(signature.getCanonicalString().contains("AGG_META"));
         Assertions.assertFalse(signature.getCanonicalString().contains("aggType="));
         Assertions.assertTrue(signature.getCanonicalString().contains(Column.IVM_AGG_COUNT_COL));
-        Assertions.assertTrue(signature.getCanonicalString().contains("__DORIS_IVM_AGG_2_SUM_COL__"));
+        // SUM(id)'s hidden COUNT is materialized; AVG reuses pooled columns (visible SUM and
+        // SUM's hidden COUNT), so no AVG-specific hidden columns appear in the normalized plan
+        Assertions.assertTrue(signature.getCanonicalString().contains("__DORIS_IVM_AGG_1_COUNT_COL__"));
+        Assertions.assertFalse(signature.getCanonicalString().contains("__DORIS_IVM_AGG_2_SUM_COL__"));
     }
 
     @Test

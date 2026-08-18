@@ -23,7 +23,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -376,7 +375,8 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
 
         Assertions.assertFalse(join.getHashJoinConjuncts().isEmpty());
         Expression joinCondition = join.getHashJoinConjuncts().get(0);
-        Assertions.assertInstanceOf(EqualTo.class, joinCondition);
+        // Row-ids may be NULL (single-key row-ids are the key directly), so the join is null-safe.
+        Assertions.assertInstanceOf(NullSafeEqual.class, joinCondition);
         Assertions.assertTrue(joinCondition.toSql().contains(Column.IVM_ROW_ID_COL));
     }
 
@@ -393,11 +393,12 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
                                 && condition.toSql().contains(scan.getOutput().get(0).getName())),
                 "apply join should include a NullSafeEqual on the identity key, but got: "
                         + join.getHashJoinConjuncts());
-        // The row_id conjunct is kept as well.
+        // The row_id conjunct is kept as well, also null-safe: a single-key row-id may be NULL.
         Assertions.assertTrue(join.getHashJoinConjuncts().stream()
-                        .anyMatch(condition -> condition instanceof EqualTo
+                        .anyMatch(condition -> condition instanceof NullSafeEqual
                                 && condition.toSql().contains(Column.IVM_ROW_ID_COL)),
-                "apply join should keep the row_id conjunct, but got: " + join.getHashJoinConjuncts());
+                "apply join should keep a NullSafeEqual row_id conjunct, but got: "
+                        + join.getHashJoinConjuncts());
     }
 
     @Test
@@ -674,10 +675,11 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = getJoin(result);
         Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, join.getJoinType());
 
-        // Join condition should use row_id (which is hash of composite keys)
+        // Join condition should use row_id (which is hash of composite keys), compared null-safely:
+        // a row-id can be NULL when a single group key is used directly as the row-id.
         Assertions.assertFalse(join.getHashJoinConjuncts().isEmpty());
         Expression joinCondition = join.getHashJoinConjuncts().get(0);
-        Assertions.assertInstanceOf(EqualTo.class, joinCondition);
+        Assertions.assertInstanceOf(NullSafeEqual.class, joinCondition);
         Assertions.assertTrue(joinCondition.toSql().contains(Column.IVM_ROW_ID_COL),
                 "Join should be on row_id column");
 
