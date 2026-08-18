@@ -213,7 +213,8 @@ TEST_F(VIcebergMergeSinkTest, TestUpdateProducesDeleteAndInsert) {
 
 TEST_F(VIcebergMergeSinkTest, TestDeleteOnlySkipsVariantDataWriter) {
     ObjectPool pool;
-    MockRuntimeState state;
+    // Delete-only plans still report created delete files, so open must validate report ownership.
+    IcebergWriteMockRuntimeState state;
 
     DataTypes types {std::make_shared<DataTypeInt8>(),
                      std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeString>(),

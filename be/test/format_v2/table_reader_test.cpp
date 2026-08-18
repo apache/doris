@@ -57,6 +57,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/iceberg_scan_semantics.h"
+#include "format_v2/table/iceberg_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -2740,7 +2741,8 @@ TEST(TableReaderTest, IcebergInitialDefaultMetadataOverridesGenericBinaryDefault
             Field::create_field<TYPE_VARBINARY>(StringView("Ej5FZ+ibEtOkVkJmFBdAAA=="))));
     ProjectedColumnBuildContext context {.scan_params = &scan_params};
     TFileScanSlotInfo slot_info;
-    TableReader annotation_reader;
+    // Mirror FileScannerV2 so Iceberg transport metadata is typed before generic mapping.
+    iceberg::IcebergTableReader annotation_reader;
     ASSERT_TRUE(
             annotation_reader.annotate_projected_column(slot_info, &context, &binary_column).ok());
     ASSERT_TRUE(binary_column.initial_default_value.has_value());
@@ -5869,6 +5871,8 @@ TEST(TableReaderTest, ProjectedStructFillsMissingChildWithBinaryInitialDefault) 
                                                         Strings {"id", "missing_child"});
     auto struct_column = make_table_column(100, "s", struct_type);
     struct_column.children = {id_child, missing_child};
+    // Direct TableReader tests must perform the Iceberg annotation stage that scanners provide.
+    ASSERT_TRUE(iceberg::prepare_iceberg_initial_default_exprs(&struct_column).ok());
     std::vector<ColumnDefinition> projected_columns = {struct_column};
 
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
