@@ -387,12 +387,11 @@ Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const Null
     return Status::OK();
 }
 
-Status DataTypeMapSerDe::write_column_to_arrow(const std::shared_ptr<const IDataType>& type,
-                                               const IColumn& column, const NullMap* null_map,
-                                               const std::shared_ptr<arrow::Field>& field,
-                                               arrow::ArrayBuilder* array_builder, int64_t start,
-                                               int64_t end, const cctz::time_zone& ctz,
-                                               const ArrowWriteContext& context) const {
+Status DataTypeMapSerDe::write_column_to_paimon(const std::shared_ptr<const IDataType>& type,
+                                                const IColumn& column, const NullMap* null_map,
+                                                const std::shared_ptr<arrow::Field>& field,
+                                                arrow::ArrayBuilder* array_builder, int64_t start,
+                                                int64_t end, const cctz::time_zone& ctz) const {
     const auto& map_type = assert_cast<const DataTypeMap&>(*type);
     auto& builder = assert_cast<arrow::MapBuilder&>(*array_builder);
     const auto& map_column = assert_cast<const ColumnMap&>(column);
@@ -418,12 +417,53 @@ Status DataTypeMapSerDe::write_column_to_arrow(const std::shared_ptr<const IData
                                  "Can not write null value of map key to arrow.");
         } else {
             RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column, *array_builder));
-            RETURN_IF_ERROR(context.write_column(map_type.get_key_type(), *key_serde,
-                                                 nested_keys_column, nullptr, key_field,
-                                                 key_builder, offsets[r - 1], offsets[r], ctz));
-            RETURN_IF_ERROR(context.write_column(map_type.get_value_type(), *value_serde,
-                                                 nested_values_column, nullptr, value_field,
-                                                 value_builder, offsets[r - 1], offsets[r], ctz));
+            RETURN_IF_ERROR(key_serde->write_column_to_paimon(
+                    map_type.get_key_type(), nested_keys_column, nullptr, key_field, key_builder,
+                    offsets[r - 1], offsets[r], ctz));
+            RETURN_IF_ERROR(value_serde->write_column_to_paimon(
+                    map_type.get_value_type(), nested_values_column, nullptr, value_field,
+                    value_builder, offsets[r - 1], offsets[r], ctz));
+        }
+    }
+    return Status::OK();
+}
+
+Status DataTypeMapSerDe::write_column_to_iceberg(const std::shared_ptr<const IDataType>& type,
+                                                 const IColumn& column, const NullMap* null_map,
+                                                 const std::shared_ptr<arrow::Field>& field,
+                                                 arrow::ArrayBuilder* array_builder, int64_t start,
+                                                 int64_t end, const cctz::time_zone& ctz) const {
+    const auto& map_type = assert_cast<const DataTypeMap&>(*type);
+    auto& builder = assert_cast<arrow::MapBuilder&>(*array_builder);
+    const auto& map_column = assert_cast<const ColumnMap&>(column);
+    const IColumn& nested_keys_column = map_column.get_keys();
+    const IColumn& nested_values_column = map_column.get_values();
+    DCHECK(nested_keys_column.is_nullable());
+    DCHECK(nested_values_column.is_nullable());
+    const auto* keys_nullmap_data =
+            check_and_get_column<ColumnNullable>(nested_keys_column)->get_null_map_data().data();
+    const auto& offsets = map_column.get_offsets();
+    const auto& arrow_map_type = assert_cast<const arrow::MapType&>(*field->type());
+    const auto& key_field = arrow_map_type.key_field();
+    const auto& value_field = arrow_map_type.item_field();
+    auto* key_builder = builder.key_builder();
+    auto* value_builder = builder.item_builder();
+
+    for (size_t r = start; r < end; ++r) {
+        if (null_map != nullptr && (*null_map)[r]) {
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
+        } else if (simd::contain_one(keys_nullmap_data + offsets[r - 1],
+                                     offsets[r] - offsets[r - 1])) {
+            return Status::Error(ErrorCode::INVALID_ARGUMENT,
+                                 "Can not write null value of map key to arrow.");
+        } else {
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(), column, *array_builder));
+            RETURN_IF_ERROR(key_serde->write_column_to_iceberg(
+                    map_type.get_key_type(), nested_keys_column, nullptr, key_field, key_builder,
+                    offsets[r - 1], offsets[r], ctz));
+            RETURN_IF_ERROR(value_serde->write_column_to_iceberg(
+                    map_type.get_value_type(), nested_values_column, nullptr, value_field,
+                    value_builder, offsets[r - 1], offsets[r], ctz));
         }
     }
     return Status::OK();

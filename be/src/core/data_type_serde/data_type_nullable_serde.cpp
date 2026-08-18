@@ -363,17 +363,29 @@ Status DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const
                                                start, end, ctz);
 }
 
-Status DataTypeNullableSerDe::write_column_to_arrow(const std::shared_ptr<const IDataType>& type,
-                                                    const IColumn& column, const NullMap*,
-                                                    const std::shared_ptr<arrow::Field>& field,
-                                                    arrow::ArrayBuilder* array_builder,
-                                                    int64_t start, int64_t end,
-                                                    const cctz::time_zone& ctz,
-                                                    const ArrowWriteContext& context) const {
+Status DataTypeNullableSerDe::write_column_to_paimon(const std::shared_ptr<const IDataType>& type,
+                                                     const IColumn& column, const NullMap*,
+                                                     const std::shared_ptr<arrow::Field>& field,
+                                                     arrow::ArrayBuilder* array_builder,
+                                                     int64_t start, int64_t end,
+                                                     const cctz::time_zone& ctz) const {
     const auto& nullable_type = assert_cast<const DataTypeNullable&>(*type);
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
-    return context.write_column(
-            nullable_type.get_nested_type(), *nested_serde, column_nullable.get_nested_column(),
+    return nested_serde->write_column_to_paimon(
+            nullable_type.get_nested_type(), column_nullable.get_nested_column(),
+            &column_nullable.get_null_map_data(), field, array_builder, start, end, ctz);
+}
+
+Status DataTypeNullableSerDe::write_column_to_iceberg(const std::shared_ptr<const IDataType>& type,
+                                                      const IColumn& column, const NullMap*,
+                                                      const std::shared_ptr<arrow::Field>& field,
+                                                      arrow::ArrayBuilder* array_builder,
+                                                      int64_t start, int64_t end,
+                                                      const cctz::time_zone& ctz) const {
+    const auto& nullable_type = assert_cast<const DataTypeNullable&>(*type);
+    const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
+    return nested_serde->write_column_to_iceberg(
+            nullable_type.get_nested_type(), column_nullable.get_nested_column(),
             &column_nullable.get_null_map_data(), field, array_builder, start, end, ctz);
 }
 
