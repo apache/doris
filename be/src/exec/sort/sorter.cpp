@@ -256,9 +256,9 @@ SorterReserveMemory FullSorter::get_reserve_mem_size_components(RuntimeState* st
                     new_rows > _buffered_block_size || new_block_bytes > _buffered_block_bytes ||
                     new_block_bytes >= sort_threshold_bytes;
         if (sort) {
-            // sort_block keeps the source columns live while materializing a fully permuted destination.
-            reserve.transient_workspace =
-                    saturating_add_size(reserve.transient_workspace, new_block_bytes);
+            // add_sorted_block retains the materialized destination after sorting, while only the
+            // permutation scratch can be reused by the next partition sorter.
+            reserve.retained_sorted_destination = new_block_bytes;
 
             // helping data structures used during sorting
             reserve.transient_workspace = saturating_add_size(

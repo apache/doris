@@ -105,6 +105,7 @@ import org.apache.iceberg.ScanTask;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SplittableScanTask;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
@@ -443,6 +444,28 @@ public class IcebergScanNode extends FileQueryScanNode {
             Schema schema = schemas.get(snapshot.schemaId());
             if (schema != null && visitedSchemaIds.add(snapshot.schemaId())) {
                 reachable.add(schema);
+            }
+            Map<String, String> summary = snapshot.summary();
+            String sourceSnapshotId = summary == null
+                    ? null : summary.get(SnapshotSummary.SOURCE_SNAPSHOT_ID_PROP);
+            if (sourceSnapshotId != null) {
+                Snapshot sourceSnapshot;
+                try {
+                    sourceSnapshot = table.snapshot(Long.parseLong(sourceSnapshotId));
+                } catch (NumberFormatException e) {
+                    sourceSnapshot = null;
+                }
+                if (sourceSnapshot == null || !schemas.containsKey(sourceSnapshot.schemaId())) {
+                    // A cherry-picked snapshot can contribute live files outside the selected
+                    // parent chain; unverifiable provenance must conservatively gate all schemas.
+                    for (Schema historicalSchema : schemas.values()) {
+                        if (visitedSchemaIds.add(historicalSchema.schemaId())) {
+                            reachable.add(historicalSchema);
+                        }
+                    }
+                } else if (visitedSchemaIds.add(sourceSnapshot.schemaId())) {
+                    reachable.add(schemas.get(sourceSnapshot.schemaId()));
+                }
             }
             Long parentId = snapshot.parentId();
             snapshot = parentId == null ? null : table.snapshot(parentId);

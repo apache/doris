@@ -25,8 +25,11 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/iceberg_sorter_reserve_memory.h"
+#include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 #include "exec/sink/writer/iceberg/vpartition_writer_base.h"
+#include "format/table/iceberg/partition_spec_parser.h"
+#include "format/table/iceberg/schema_parser.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -91,6 +94,28 @@ protected:
 
     static std::unique_lock<std::mutex> lock_partition_dispatch(VIcebergTableWriter* writer) {
         return writer->lock_partition_dispatch();
+    }
+
+    static void initialize_static_partition_metadata(VIcebergTableWriter* writer,
+                                                     std::shared_ptr<iceberg::Schema> schema,
+                                                     std::unique_ptr<iceberg::PartitionSpec> spec) {
+        writer->_schema = std::move(schema);
+        writer->_partition_spec = std::move(spec);
+        writer->_init_static_partition_values();
+    }
+};
+
+class VIcebergSortWriterTest : public testing::Test {
+protected:
+    static void observe_block(VIcebergSortWriter* writer, RuntimeState* state, const Block& block) {
+        writer->_runtime_state = state;
+        writer->_update_spill_block_batch_row_count(block);
+    }
+
+    static size_t max_row_bytes(const VIcebergSortWriter& writer) { return writer._max_row_bytes; }
+
+    static int32_t spill_batch_rows(const VIcebergSortWriter& writer) {
+        return writer._get_spill_batch_size();
     }
 };
 
@@ -199,6 +224,56 @@ TEST_F(VIcebergTableWriterLifecycleTest, MultiPartitionRevocationWaitsForDispatc
     EXPECT_EQ(std::future_status::timeout, revoker.wait_for(std::chrono::milliseconds(100)));
     dispatch_lock.unlock();
     EXPECT_EQ(2, revoker.get());
+}
+
+TEST_F(VIcebergTableWriterLifecycleTest, RejectsStaticNestedIdentityPartition) {
+    TDataSink sink = make_sink();
+    sink.iceberg_table_sink.__set_static_partition_values({{"region", "us-east"}});
+    VIcebergTableWriter writer(sink, {}, nullptr, nullptr);
+    const std::string schema_json = R"({
+        "type":"struct","schema-id":0,"fields":[
+          {"id":1,"name":"payload","required":true,"type":{
+            "type":"struct","fields":[
+              {"id":2,"name":"region","required":true,"type":"string"}
+            ]
+          }}
+        ]
+    })";
+    auto schema = iceberg::SchemaParser::from_json(schema_json);
+    auto shared_schema = std::shared_ptr<iceberg::Schema>(std::move(schema));
+    const std::string spec_json = R"({
+        "spec-id":0,"fields":[
+          {"name":"region","transform":"identity","source-id":2,"field-id":1000}
+        ]
+    })";
+    auto spec = iceberg::PartitionSpecParser::from_json(shared_schema, spec_json);
+
+    try {
+        initialize_static_partition_metadata(&writer, std::move(shared_schema), std::move(spec));
+        FAIL() << "nested static partition source must be rejected";
+    } catch (const doris::Exception& e) {
+        EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, e.code());
+        EXPECT_NE(std::string::npos, e.message().find("nested source column"));
+    }
+}
+
+TEST_F(VIcebergSortWriterTest, TracksLargestMaterializedRowInsteadOfBlockAverage) {
+    constexpr size_t LARGE_ROW_BYTES = 16 * 1024 * 1024;
+    auto strings = ColumnString::create();
+    std::string large_value(LARGE_ROW_BYTES, 'x');
+    strings->insert_data(large_value.data(), large_value.size());
+    for (size_t i = 0; i < 4096; ++i) {
+        strings->insert_data("x", 1);
+    }
+    Block block;
+    block.insert({std::move(strings), std::make_shared<DataTypeString>(), "payload"});
+    RuntimeState state;
+    VIcebergSortWriter writer(nullptr, TSortInfo(), 64 * 1024 * 1024);
+
+    observe_block(&writer, &state, block);
+
+    EXPECT_GE(max_row_bytes(writer), LARGE_ROW_BYTES);
+    EXPECT_EQ(1, spill_batch_rows(writer));
 }
 
 } // namespace doris
