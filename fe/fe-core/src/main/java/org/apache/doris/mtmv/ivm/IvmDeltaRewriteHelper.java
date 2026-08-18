@@ -63,7 +63,7 @@ public class IvmDeltaRewriteHelper {
     private IvmDeltaRewriteHelper() {
     }
 
-    Slot findSlotByName(List<Slot> slots, String name) {
+    public Slot findSlotByName(List<Slot> slots, String name) {
         Slot slot = findSlotByNameOrNull(slots, name);
         if (slot == null) {
             throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,

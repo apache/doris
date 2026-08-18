@@ -26,13 +26,17 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash3128;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -60,6 +64,11 @@ import java.util.Map;
 import java.util.Optional;
 
 class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
+
+    private static final String JOIN_LEFT_MATCH_COL =
+            Column.IVM_HIDDEN_COLUMN_PREFIX + "JOIN_LEFT_MATCH_COL__";
+    private static final String JOIN_RIGHT_MATCH_COL =
+            Column.IVM_HIDDEN_COLUMN_PREFIX + "JOIN_RIGHT_MATCH_COL__";
 
     private LogicalOlapScan buildMowScan(long tableId, String name) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, name, 0, KeysType.UNIQUE_KEYS);
@@ -751,5 +760,262 @@ class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
 
         Assertions.assertFalse(isComposedRowIdDeterministic(join),
                 "DUP × DUP cross join should be non-deterministic");
+    }
+
+    /**
+     * Extract the slot from the second encoding of a buildRowIdHash key, i.e. the slot inside
+     * {@code Cast(IsNull(slot) AS VARCHAR)} at odd child positions (1, 3, 5, ...).
+     * Returns null when the position does not encode a bare slot (e.g. a nested composed hash).
+     */
+    private Slot slotOfIsNullEncoding(Expression expr) {
+        if (expr instanceof Cast && ((Cast) expr).child() instanceof IsNull
+                && ((IsNull) ((Cast) expr).child()).child() instanceof Slot) {
+            return (Slot) ((IsNull) ((Cast) expr).child()).child();
+        }
+        return null;
+    }
+
+    /**
+     * Assert the compose hash encodes its keys in the given order. buildRowIdHash emits two
+     * arguments per key, and the second one (odd index) always carries the key slot under
+     * {@code Cast(IsNull(slot) AS VARCHAR)}.
+     */
+    private void assertComposeHashKeyOrder(MurmurHash3128 hash, String... expectedKeyNames) {
+        List<Expression> children = hash.children();
+        Assertions.assertEquals(expectedKeyNames.length * 2, children.size(),
+                "each compose hash key is encoded as two arguments");
+        for (int i = 0; i < expectedKeyNames.length; i++) {
+            Slot slot = slotOfIsNullEncoding(children.get(i * 2 + 1));
+            Assertions.assertNotNull(slot, "hash key " + i + " should be encoded as a slot");
+            Assertions.assertEquals(expectedKeyNames[i], slot.getName(),
+                    "compose hash keys should be encoded in order");
+        }
+    }
+
+    /**
+     * Find the compose project's MurmurHash3128 row-id expression in the normalized plan.
+     * Returns null when the row-id is not a MurmurHash3128 (e.g. an aggregate rebuilt it).
+     */
+    private MurmurHash3128 findComposedRowIdHash(Plan normalized) {
+        List<LogicalProject<?>> projects = normalized.collectToList(p -> p instanceof LogicalProject);
+        for (LogicalProject<?> project : projects) {
+            for (NamedExpression ne : project.getProjects()) {
+                if (ne instanceof Alias && Column.IVM_ROW_ID_COL.equals(ne.getName())
+                        && ((Alias) ne).child() instanceof MurmurHash3128) {
+                    return (MurmurHash3128) ((Alias) ne).child();
+                }
+            }
+        }
+        return null;
+    }
+
+    private long countMatchFlagProjects(Plan plan, String flagColumnName) {
+        return plan.collectToList(p -> p instanceof LogicalProject
+                && ((LogicalProject<?>) p).getOutput().stream()
+                        .anyMatch(s -> flagColumnName.equals(s.getName()))).size();
+    }
+
+    /**
+     * Find the topmost compose project (outputs __DORIS_IVM_ROW_ID_COL__), whose child is the
+     * outermost join of the normalized plan.
+     */
+    private LogicalProject<?> findComposeProject(Plan normalized) {
+        List<LogicalProject<?>> projects = normalized.collectToList(p -> p instanceof LogicalProject);
+        for (LogicalProject<?> project : projects) {
+            boolean hasRowId = project.getProjects().stream()
+                    .anyMatch(ne -> ne instanceof Alias && Column.IVM_ROW_ID_COL.equals(ne.getName()));
+            if (hasRowId) {
+                return project;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The join below the compose project must expose the injected match flags in its output
+     * (they survive the join's null filling), while every compose project must consume them.
+     */
+    private void assertJoinOutputHasMatchFlags(Plan normalized, boolean expectLeftFlag, boolean expectRightFlag) {
+        LogicalProject<?> composeProject = findComposeProject(normalized);
+        Assertions.assertNotNull(composeProject, "normalized plan should have a compose project");
+        Assertions.assertTrue(composeProject.child() instanceof LogicalJoin,
+                "compose project child should be the composed join");
+        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) composeProject.child();
+        Assertions.assertEquals(expectLeftFlag,
+                join.getOutput().stream().anyMatch(s -> JOIN_LEFT_MATCH_COL.equals(s.getName())),
+                "join output should " + (expectLeftFlag ? "" : "not ") + "contain the left match flag");
+        Assertions.assertEquals(expectRightFlag,
+                join.getOutput().stream().anyMatch(s -> JOIN_RIGHT_MATCH_COL.equals(s.getName())),
+                "join output should " + (expectRightFlag ? "" : "not ") + "contain the right match flag");
+    }
+
+    /**
+     * Every compose project (the one above the join that computes the composed row-id) must
+     * consume the match flags: its output must not contain left/right match flag columns.
+     */
+    private void assertComposeProjectsConsumeMatchFlags(Plan normalized) {
+        List<LogicalProject<?>> projects = normalized.collectToList(p -> p instanceof LogicalProject);
+        for (LogicalProject<?> project : projects) {
+            boolean hasRowId = project.getProjects().stream()
+                    .anyMatch(ne -> ne instanceof Alias && Column.IVM_ROW_ID_COL.equals(ne.getName()));
+            if (!hasRowId) {
+                continue;
+            }
+            Assertions.assertTrue(project.getOutput().stream()
+                            .noneMatch(s -> JOIN_LEFT_MATCH_COL.equals(s.getName())
+                                    || JOIN_RIGHT_MATCH_COL.equals(s.getName())),
+                    "compose project must not output match flags");
+        }
+    }
+
+    @Test
+    void testNormalizeLeftOuterJoinInjectsRightMatchFlag() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
+
+        IvmRewriteResult result = getRewriteResult(join);
+        Plan normalized = result.getNormalizedPlan();
+
+        // Null side (right) gets a match flag project; preserved side (left) does not.
+        Assertions.assertEquals(1, countMatchFlagProjects(normalized, JOIN_RIGHT_MATCH_COL),
+                "LEFT_OUTER_JOIN should inject one right match flag project");
+        Assertions.assertEquals(0, countMatchFlagProjects(normalized, JOIN_LEFT_MATCH_COL),
+                "LEFT_OUTER_JOIN should not inject a left match flag");
+        // The flag survives the join output and is consumed by the compose project above it.
+        assertJoinOutputHasMatchFlags(normalized, false, true);
+        assertComposeProjectsConsumeMatchFlags(normalized);
+        // The flag never leaks into the final output.
+        Assertions.assertTrue(normalized.getOutput().stream()
+                        .noneMatch(s -> JOIN_LEFT_MATCH_COL.equals(s.getName())
+                                || JOIN_RIGHT_MATCH_COL.equals(s.getName())),
+                "match flags must not leak into the normalized output");
+        // Compose hash = hash(l_rid, r_rid, r_flag): 3 keys x 2 encodings each = 6 args.
+        MurmurHash3128 hash = findComposedRowIdHash(normalized);
+        Assertions.assertNotNull(hash, "composed row-id should be a MurmurHash3128");
+        Assertions.assertEquals(6, hash.children().size(),
+                "LOJ compose should hash left_rid, right_rid and right match flag");
+        assertComposeHashKeyOrder(hash, Column.IVM_ROW_ID_COL, Column.IVM_ROW_ID_COL, JOIN_RIGHT_MATCH_COL);
+    }
+
+    @Test
+    void testNormalizeRightOuterJoinInjectsLeftMatchFlag() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
+                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
+
+        IvmRewriteResult result = getRewriteResult(join);
+        Plan normalized = result.getNormalizedPlan();
+
+        Assertions.assertEquals(1, countMatchFlagProjects(normalized, JOIN_LEFT_MATCH_COL),
+                "RIGHT_OUTER_JOIN should inject one left match flag project");
+        Assertions.assertEquals(0, countMatchFlagProjects(normalized, JOIN_RIGHT_MATCH_COL),
+                "RIGHT_OUTER_JOIN should not inject a right match flag");
+        assertJoinOutputHasMatchFlags(normalized, true, false);
+        assertComposeProjectsConsumeMatchFlags(normalized);
+        Assertions.assertTrue(normalized.getOutput().stream()
+                        .noneMatch(s -> JOIN_LEFT_MATCH_COL.equals(s.getName())
+                                || JOIN_RIGHT_MATCH_COL.equals(s.getName())),
+                "match flags must not leak into the normalized output");
+        MurmurHash3128 hash = findComposedRowIdHash(normalized);
+        Assertions.assertNotNull(hash, "composed row-id should be a MurmurHash3128");
+        Assertions.assertEquals(6, hash.children().size(),
+                "ROJ compose should hash left_rid, left match flag and right_rid");
+        assertComposeHashKeyOrder(hash, Column.IVM_ROW_ID_COL, JOIN_LEFT_MATCH_COL, Column.IVM_ROW_ID_COL);
+    }
+
+    @Test
+    void testNormalizeFullOuterJoinInjectsBothMatchFlags() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
+                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
+
+        IvmRewriteResult result = getRewriteResult(join);
+        Plan normalized = result.getNormalizedPlan();
+
+        Assertions.assertEquals(1, countMatchFlagProjects(normalized, JOIN_LEFT_MATCH_COL),
+                "FULL_OUTER_JOIN should inject a left match flag project");
+        Assertions.assertEquals(1, countMatchFlagProjects(normalized, JOIN_RIGHT_MATCH_COL),
+                "FULL_OUTER_JOIN should inject a right match flag project");
+        assertJoinOutputHasMatchFlags(normalized, true, true);
+        assertComposeProjectsConsumeMatchFlags(normalized);
+        Assertions.assertTrue(normalized.getOutput().stream()
+                        .noneMatch(s -> JOIN_LEFT_MATCH_COL.equals(s.getName())
+                                || JOIN_RIGHT_MATCH_COL.equals(s.getName())),
+                "match flags must not leak into the normalized output");
+        // Compose hash = hash(l_rid, l_flag, r_rid, r_flag): 4 keys x 2 encodings = 8 args.
+        MurmurHash3128 hash = findComposedRowIdHash(normalized);
+        Assertions.assertNotNull(hash, "composed row-id should be a MurmurHash3128");
+        Assertions.assertEquals(8, hash.children().size(),
+                "FULL OUTER JOIN compose should hash both row-ids and both match flags");
+        assertComposeHashKeyOrder(hash, Column.IVM_ROW_ID_COL, JOIN_LEFT_MATCH_COL,
+                Column.IVM_ROW_ID_COL, JOIN_RIGHT_MATCH_COL);
+    }
+
+    @Test
+    void testNormalizeInnerJoinHasNoMatchFlag() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
+
+        IvmRewriteResult result = getRewriteResult(join);
+        Plan normalized = result.getNormalizedPlan();
+
+        Assertions.assertEquals(0, countMatchFlagProjects(normalized, JOIN_LEFT_MATCH_COL)
+                        + countMatchFlagProjects(normalized, JOIN_RIGHT_MATCH_COL),
+                "INNER_JOIN should not inject any match flag");
+        assertJoinOutputHasMatchFlags(normalized, false, false);
+        assertComposeProjectsConsumeMatchFlags(normalized);
+        // Compose hash stays hash(l_rid, r_rid): 2 keys x 2 encodings = 4 args.
+        MurmurHash3128 hash = findComposedRowIdHash(normalized);
+        Assertions.assertNotNull(hash, "composed row-id should be a MurmurHash3128");
+        Assertions.assertEquals(4, hash.children().size(),
+                "INNER_JOIN compose should hash only left_rid and right_rid");
+        assertComposeHashKeyOrder(hash, Column.IVM_ROW_ID_COL, Column.IVM_ROW_ID_COL);
+    }
+
+    @Test
+    void testNormalizeNestedLeftOuterJoinFlagsDoNotCollide() {
+        LogicalOlapScan scanA = buildMowScan(1, "a");
+        LogicalOlapScan scanB = buildMowScan(2, "b");
+        LogicalOlapScan scanC = buildMowScan(3, "c");
+        LogicalJoin<?, ?> inner = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanB, scanC, JoinReorderContext.EMPTY);
+        LogicalJoin<?, ?> outer = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(), scanA, inner, JoinReorderContext.EMPTY);
+
+        IvmRewriteResult result = getRewriteResult(outer);
+        Plan normalized = result.getNormalizedPlan();
+
+        // The inner LOJ injects and consumes its own right flag; the outer LOJ injects a new one.
+        // Both projects use the same column name, so exactly two right-flag projects survive.
+        Assertions.assertEquals(2, countMatchFlagProjects(normalized, JOIN_RIGHT_MATCH_COL),
+                "nested LOJ should inject a right flag per join level");
+        Assertions.assertEquals(0, countMatchFlagProjects(normalized, JOIN_LEFT_MATCH_COL),
+                "nested LOJ should not inject left flags");
+        // The outermost join output carries only the outer flag; both compose projects consume flags.
+        assertJoinOutputHasMatchFlags(normalized, false, true);
+        assertComposeProjectsConsumeMatchFlags(normalized);
+        Assertions.assertTrue(normalized.getOutput().stream()
+                        .noneMatch(s -> JOIN_LEFT_MATCH_COL.equals(s.getName())
+                                || JOIN_RIGHT_MATCH_COL.equals(s.getName())),
+                "match flags must not leak into the normalized output");
+        // The outer compose hashes (a_rid, inner_composed_rid, outer_right_flag): the middle
+        // key references the inner composed row-id slot (projected by the inner compose project).
+        MurmurHash3128 hash = findComposedRowIdHash(normalized);
+        Assertions.assertNotNull(hash, "composed row-id should be a MurmurHash3128");
+        List<Expression> hashChildren = hash.children();
+        Assertions.assertEquals(6, hashChildren.size(),
+                "outer LOJ compose should hash left_rid, inner row-id and right match flag");
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, slotOfIsNullEncoding(hashChildren.get(1)).getName(),
+                "first outer compose key is the left child row-id");
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, slotOfIsNullEncoding(hashChildren.get(3)).getName(),
+                "middle outer compose key is the inner composed row-id slot");
+        Assertions.assertEquals(JOIN_RIGHT_MATCH_COL, slotOfIsNullEncoding(hashChildren.get(5)).getName(),
+                "last outer compose key is the outer right match flag");
     }
 }
