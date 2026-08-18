@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
@@ -477,5 +478,49 @@ public class JoinUtils {
         // other conjuncts should use join output slot
         return AdjustNullable.doVisitLogicalJoin(
                 join, equalConjunctsSlotMap, false, false);
+    }
+
+    /**
+     * whether any hash or other conjunct of the join contains a NoneMovableFunction (e.g.
+     * assert_true) or a volatile expression. such conjuncts must not be moved onto a different
+     * join edge by join reorder rules: they would be evaluated on a different (superset or
+     * pruned) row set, which changes their error behavior or results.
+     */
+    public static boolean hasSensitiveConjunct(LogicalJoin<?, ?> join) {
+        for (Expression conjunct : join.getHashJoinConjuncts()) {
+            if (conjunct.containsNoneMovableOrVolatile()) {
+                return true;
+            }
+        }
+        for (Expression conjunct : join.getOtherJoinConjuncts()) {
+            if (conjunct.containsNoneMovableOrVolatile()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * whether any logical expression of the group contains a NoneMovableFunction (e.g.
+     * assert_true) or a volatile expression.
+     */
+    public static boolean groupContainsSensitiveExpression(GroupPlan groupPlan) {
+        return groupPlan.getGroup().getLogicalExpressions().stream()
+                .anyMatch(groupExpression -> planContainsSensitiveExpression(groupExpression.getPlan()));
+    }
+
+    private static boolean planContainsSensitiveExpression(Plan plan) {
+        if (plan.getExpressions().stream().anyMatch(Expression::containsNoneMovableOrVolatile)) {
+            return true;
+        }
+        for (Plan child : plan.children()) {
+            // do not expand nested GroupPlans: the sensitive expression sits in the subquery
+            // plan's filter/project node one level up in this tree, and walking into the memo
+            // DAG could revisit groups and cycle
+            if (!(child instanceof GroupPlan) && planContainsSensitiveExpression(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
