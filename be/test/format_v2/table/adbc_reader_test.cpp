@@ -40,6 +40,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "format_v2/file_reader.h"
@@ -174,6 +175,46 @@ std::shared_ptr<arrow::RecordBatch> make_list_view_batch() {
     EXPECT_TRUE(values_builder.Finish(&values).ok());
 
     auto array = arrow::ListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    auto schema = arrow::schema({arrow::field("c_array", array->type())});
+    return arrow::RecordBatch::Make(schema, 2, {array});
+}
+
+std::shared_ptr<arrow::RecordBatch> make_nullable_list_view_batch(bool large_offsets) {
+    std::shared_ptr<arrow::Array> offsets;
+    if (large_offsets) {
+        arrow::Int64Builder offsets_builder;
+        EXPECT_TRUE(offsets_builder.Append(0).ok());
+        EXPECT_TRUE(offsets_builder.AppendNull().ok());
+        EXPECT_TRUE(offsets_builder.Finish(&offsets).ok());
+    } else {
+        arrow::Int32Builder offsets_builder;
+        EXPECT_TRUE(offsets_builder.Append(0).ok());
+        EXPECT_TRUE(offsets_builder.AppendNull().ok());
+        EXPECT_TRUE(offsets_builder.Finish(&offsets).ok());
+    }
+
+    std::shared_ptr<arrow::Array> sizes;
+    if (large_offsets) {
+        arrow::Int64Builder sizes_builder;
+        EXPECT_TRUE(sizes_builder.AppendValues({1, 0}).ok());
+        EXPECT_TRUE(sizes_builder.Finish(&sizes).ok());
+    } else {
+        arrow::Int32Builder sizes_builder;
+        EXPECT_TRUE(sizes_builder.AppendValues({1, 0}).ok());
+        EXPECT_TRUE(sizes_builder.Finish(&sizes).ok());
+    }
+
+    arrow::Int32Builder values_builder;
+    EXPECT_TRUE(values_builder.Append(10).ok());
+    std::shared_ptr<arrow::Array> values;
+    EXPECT_TRUE(values_builder.Finish(&values).ok());
+
+    std::shared_ptr<arrow::Array> array;
+    if (large_offsets) {
+        array = arrow::LargeListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    } else {
+        array = arrow::ListViewArray::FromArrays(*offsets, *sizes, *values).ValueOrDie();
+    }
     auto schema = arrow::schema({arrow::field("c_array", array->type())});
     return arrow::RecordBatch::Make(schema, 2, {array});
 }
@@ -373,6 +414,56 @@ TEST(AdbcReaderTest, NormalizesListViewBeforeMaterializing) {
 
     ASSERT_TRUE(reader->close().ok());
     EXPECT_EQ(*close_count, 1);
+}
+
+void assert_required_array_rejects_null_list_view(bool large_offsets) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = int_array_slot(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile(large_offsets ? "adbc_reader_required_large_list_view_test"
+                                         : "adbc_reader_required_list_view_test");
+    auto close_count = std::make_shared<int>(0);
+
+    auto reader = create_reader(
+            &profile, fake_adbc_range(), slots,
+            [close_count, large_offsets](const TFileRangeDesc&, std::unique_ptr<AdbcStream>* out) {
+                *out = std::make_unique<BatchAdbcStream>(
+                        std::vector<std::shared_ptr<arrow::RecordBatch>> {
+                                make_nullable_list_view_batch(large_offsets)},
+                        close_count);
+                return Status::OK();
+            });
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder builder(request.get());
+    ASSERT_TRUE(builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    ASSERT_TRUE(reader->open(request).ok());
+
+    const auto required_type = remove_nullable(schema[0].type);
+    ASSERT_FALSE(required_type->is_nullable());
+    Block block;
+    block.insert({required_type->create_column(), required_type, schema[0].name});
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("c_array"), std::string::npos) << status.to_string();
+    EXPECT_NE(status.to_string().find("non-nullable"), std::string::npos) << status.to_string();
+
+    ASSERT_TRUE(reader->close().ok());
+    EXPECT_EQ(*close_count, 1);
+}
+
+TEST(AdbcReaderTest, RejectsNullListViewForRequiredArray) {
+    assert_required_array_rejects_null_list_view(false);
+}
+
+TEST(AdbcReaderTest, RejectsNullLargeListViewForRequiredArray) {
+    assert_required_array_rejects_null_list_view(true);
 }
 
 // An all-null int64 array standing in for a TEXT column, which is what a source that infers Arrow

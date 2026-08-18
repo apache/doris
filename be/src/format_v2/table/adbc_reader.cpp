@@ -656,6 +656,14 @@ Status AdbcFileReader::_materialize_arrow_column(const std::string& column_name,
     auto& columns = columns_guard.mutable_columns();
     const auto& target_type = columns_guard.get_datatype_by_position(block_position.value());
 
+    // The cached FE target remains authoritative when a source schema changes mid-cache-window;
+    // otherwise SerDes without a null map can silently turn source nulls into default values.
+    if (array->null_count() > 0 && !target_type->is_nullable()) {
+        return Status::InternalError(
+                "ADBC Arrow column '{}' contains {} null rows for non-nullable Doris type {}",
+                column_name, array->null_count(), target_type->get_name());
+    }
+
     // An all-null column arrives with a type that says nothing about the column.
     //
     // A source that infers Arrow types from the VALUES it returns -- rather than from the declared
