@@ -44,6 +44,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -335,7 +336,9 @@ class IvmNormalizeMTMVTest {
         LogicalProject<?> project = (LogicalProject<?>) result;
         Assertions.assertInstanceOf(Alias.class, project.getProjects().get(0));
         Alias rowIdAlias = (Alias) project.getProjects().get(0);
-        Assertions.assertInstanceOf(MurmurHash3128.class, rowIdAlias.child());
+        // The single INT key widens losslessly to largeint, so the row-id is a direct cast
+        Assertions.assertInstanceOf(Cast.class, rowIdAlias.child());
+        Assertions.assertEquals(LargeIntType.INSTANCE, rowIdAlias.child().getDataType());
         Assertions.assertEquals(
                 IvmUtil.buildRowIdHash(ImmutableList.of(aggScan.getOutput().get(0))).toSql(),
                 rowIdAlias.child().toSql());
@@ -555,9 +558,12 @@ class IvmNormalizeMTMVTest {
         Assertions.assertEquals(IvmUtil.ivmAggHiddenColumnName(0, "COUNT"), outputNames.get(4));
         Assertions.assertEquals(5, outputNames.size());
 
-        // row-id expression is a 128-bit hash over the group key.
+        // The single INT group key widens losslessly to largeint, so the row-id is a direct cast
+        // (no hash) and is NULL exactly when the key is NULL.
         Alias rowIdAlias = (Alias) topProject.getProjects().get(0);
-        Assertions.assertInstanceOf(MurmurHash3128.class, rowIdAlias.child());
+        Assertions.assertInstanceOf(Cast.class, rowIdAlias.child());
+        Assertions.assertEquals(LargeIntType.INSTANCE, rowIdAlias.child().getDataType());
+        Assertions.assertEquals(scan.getOutput().get(0), ((Cast) rowIdAlias.child()).child());
 
         // IvmRewriteResult has aggMeta
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
@@ -690,8 +696,13 @@ class IvmNormalizeMTMVTest {
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "COUNT")));
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(1, "SUM")));
         Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(1, "COUNT")));
-        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(2, "SUM")));
-        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(2, "COUNT")));
+        // AVG reuses the pooled columns: hidden SUM reuses the visible SUM column (s), hidden
+        // COUNT reuses SUM's hidden COUNT column — no new AVG-specific hidden columns
+        Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(2, "SUM")));
+        Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(2, "COUNT")));
+        Assertions.assertEquals("s", t2.getHiddenStateSlot(IvmAggStateKey.SUM).getName());
+        Assertions.assertEquals(IvmUtil.ivmAggHiddenColumnName(1, "COUNT"),
+                t2.getHiddenStateSlot(IvmAggStateKey.COUNT).getName());
     }
 
     @Test
@@ -835,7 +846,9 @@ class IvmNormalizeMTMVTest {
         Set<String> outputNames = topProject.getOutput().stream()
                 .map(Slot::getName).collect(Collectors.toSet());
         Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(0, "BITMAP_UNION")));
-        Assertions.assertTrue(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(1, "BITMAP_UNION")));
+        // BITMAP_UNION_COUNT reuses the pooled BITMAP_UNION visible column (bu) as its hidden state
+        Assertions.assertFalse(outputNames.contains(IvmUtil.ivmAggHiddenColumnName(1, "BITMAP_UNION")));
+        Assertions.assertEquals("bu", countTarget.getHiddenStateSlot(IvmAggStateKey.BITMAP_UNION).getName());
     }
 
     @Test

@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
@@ -132,13 +133,19 @@ public class IvmUtil {
      * Builds a null-safe deterministic row-id expression from key expressions:
      * <ul>
      *   <li>Empty list (scalar agg): returns {@code LargeIntLiteral(0)}</li>
-     *   <li>Non-empty (grouped agg): returns
+     *   <li>Single key that widens losslessly to largeint: returns {@code cast(key AS LARGEINT)}
+     *       directly instead of hashing it, which avoids hash collisions and makes the row-id
+     *       NULL exactly when the key is NULL</li>
+     *   <li>Otherwise: returns
      *       {@code murmur_hash3_128(ifnull(k1,''), isnull(k1), ifnull(k2,''), isnull(k2), ...)}</li>
      * </ul>
      *
-     * <p>Each key produces two hash arguments: {@code ifnull(cast(key AS VARCHAR), '')} to prevent
-     * NULL propagation in the hash function, and {@code cast(isnull(key) AS VARCHAR)} to distinguish
-     * groups that differ only in which positions are NULL (e.g. (NULL,'x') vs ('x',NULL)).
+     * <p>In the hash path, each key produces two hash arguments: {@code ifnull(cast(key AS VARCHAR), '')}
+     * to prevent NULL propagation in the hash function, and {@code cast(isnull(key) AS VARCHAR)} to
+     * distinguish groups that differ only in which positions are NULL (e.g. (NULL,'x') vs ('x',NULL)).
+     *
+     * <p>Because the single-key path may return NULL, callers must treat row-ids as nullable
+     * (e.g. use null-safe equality when joining on row-id).
      *
      * <p>Used by both normalize (IvmNormalizeMTMV) and delta rewrite (IvmAggDeltaHandler)
      * to ensure row-id derivation is identical.
@@ -149,6 +156,16 @@ public class IvmUtil {
         }
         if (keyExprs.isEmpty()) {
             return new LargeIntLiteral(BigInteger.ZERO);
+        }
+        // A single key that widens losslessly to largeint becomes the row-id directly: no hash
+        // means no collision, and the row-id is NULL exactly when the key is NULL. A key that is
+        // already largeint (e.g. a chained MV's stored row-id) is passed through without a Cast.
+        if (keyExprs.size() == 1) {
+            Expression key = keyExprs.get(0);
+            if (key.getDataType().isInjectiveCastTo(LargeIntType.INSTANCE)) {
+                return key.getDataType().equals(LargeIntType.INSTANCE) ? key
+                        : new Cast(key, LargeIntType.INSTANCE);
+            }
         }
         // For each key, emit two hash arguments:
         //   1. ifnull(cast(key AS VARCHAR), '') — coalesces NULL to '' so hash never receives NULL
