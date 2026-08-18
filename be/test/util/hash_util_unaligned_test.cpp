@@ -53,4 +53,54 @@ TEST(HashUtilUnalignedTest, MurmurHash2FromMisalignedBuffers) {
     }
 }
 
+// Same guard for HashUtil::crc_hash, which feeds word loads to _mm_crc32_u32
+// (sse2neon on aarch64). Reference is computed on the aligned copy.
+TEST(HashUtilUnalignedTest, CrcHashFromMisalignedBuffers) {
+    std::mt19937_64 rng(20260815);
+    for (int len : {1, 7, 8, 9, 15, 16, 17, 64, 100, 1000}) {
+        std::vector<uint8_t> backing(len + 16);
+        uint8_t* aligned_base =
+                reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(backing.data()) + 7) &
+                                           ~7ULL);
+        std::vector<uint8_t> content(len);
+        for (auto& b : content) {
+            b = static_cast<uint8_t>(rng());
+        }
+        const uint32_t seed = 0x9e3779b9U;
+        // reference on aligned copy
+        memcpy(aligned_base, content.data(), len);
+        uint32_t ref = HashUtil::crc_hash(aligned_base, len, seed);
+        for (int offset = 1; offset < 8; ++offset) {
+            memcpy(aligned_base + offset, content.data(), len);
+            uint32_t got = HashUtil::crc_hash(aligned_base + offset, len, seed);
+            EXPECT_EQ(ref, got) << "len=" << len << " offset=" << offset;
+        }
+    }
+}
+
+// Same guard for HashUtil::crc_hash64, the 64-bit variant built on the same
+// _mm_crc32_* word loads.
+TEST(HashUtilUnalignedTest, CrcHash64FromMisalignedBuffers) {
+    std::mt19937_64 rng(20260815);
+    for (int len : {1, 7, 8, 9, 15, 16, 17, 64, 100, 1000}) {
+        std::vector<uint8_t> backing(len + 16);
+        uint8_t* aligned_base =
+                reinterpret_cast<uint8_t*>((reinterpret_cast<uintptr_t>(backing.data()) + 7) &
+                                           ~7ULL);
+        std::vector<uint8_t> content(len);
+        for (auto& b : content) {
+            b = static_cast<uint8_t>(rng());
+        }
+        const uint64_t seed = 0x9e3779b97f4a7c15ULL;
+        // reference on aligned copy
+        memcpy(aligned_base, content.data(), len);
+        uint64_t ref = HashUtil::crc_hash64(aligned_base, len, seed);
+        for (int offset = 1; offset < 8; ++offset) {
+            memcpy(aligned_base + offset, content.data(), len);
+            uint64_t got = HashUtil::crc_hash64(aligned_base + offset, len, seed);
+            EXPECT_EQ(ref, got) << "len=" << len << " offset=" << offset;
+        }
+    }
+}
+
 } // namespace doris
