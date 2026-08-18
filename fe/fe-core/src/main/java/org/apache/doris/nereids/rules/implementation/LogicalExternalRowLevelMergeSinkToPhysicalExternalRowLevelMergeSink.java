@@ -40,6 +40,7 @@ public class LogicalExternalRowLevelMergeSinkToPhysicalExternalRowLevelMergeSink
                     sink.getBoundWriteMetadataIdentity(),
                     sink.getCols(),
                     sink.getOutputExprs(),
+                    sink.isWritesDataFiles(),
                     sink.isRequireMergeCardinalityCheck(),
                     Optional.empty(),
                     sink.getLogicalProperties(),

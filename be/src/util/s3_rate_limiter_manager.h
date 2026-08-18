@@ -84,7 +84,8 @@ private:
     std::array<std::unique_ptr<S3RateLimiterHolder>, 2> _bytes_limiters;
 };
 
-// RAII admission for one logical object storage request.
+// RAII admission for one logical object-storage call. RateLimitedObjStorageClient constructs the
+// guard before forwarding the call to its inner client.
 //
 // The constructor charges the QPS bucket (may sleep when throttled; rejected only by
 // the legacy token_limit cumulative cap) and then reserves `estimated_bytes` from the

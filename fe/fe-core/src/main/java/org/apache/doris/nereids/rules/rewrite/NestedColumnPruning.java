@@ -724,6 +724,11 @@ public class NestedColumnPruning implements CustomRewriter {
                 // Any other sub-path on a string column means full data is needed.
                 accessAll = true;
                 return;
+            } else if (type.isVariantType()) {
+                // Variant object keys stay in the serialized access path. Keeping the terminal type
+                // here lets BE project a shredded leaf without inventing static schema fields.
+                accessAll = true;
+                return;
             } else if (isRoot) {
                 children.get(path.get(accessIndex).toLowerCase()).setAccessByPath(path, accessIndex + 1, pathType);
                 return;

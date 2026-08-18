@@ -504,10 +504,10 @@ HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.6.6-for-doris"
 HADOOP_LIBS_MD5SUM="13b66d5f2abffd1740e692b65df5962e"
 
 # libhdfs 3.4
-HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.2-for-doris.tar.gz"
-HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.2-for-doris.tar.gz"
-HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.2-for-doris"
-HADOOP_LIBS_3_4_MD5SUM="b649508cdff5c8603abd659b754a2796"
+HADOOP_LIBS_3_4_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/hadoop-3.4.2.4-for-doris.tar.gz"
+HADOOP_LIBS_3_4_NAME="hadoop-3.4.2.4-for-doris.tar.gz"
+HADOOP_LIBS_3_4_SOURCE="doris-thirdparty-hadoop-3.4.2.4-for-doris"
+HADOOP_LIBS_3_4_MD5SUM="729a7ef9126f65255d1da124a88ffd50"
 
 # AvxToNeon
 AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
@@ -589,10 +589,10 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.2.tar.gz"
-LANCE_C_NAME="lance-c-v0.1.2.tar.gz"
-LANCE_C_SOURCE="lance-c-0.1.2"
-LANCE_C_MD5SUM="eb6ec9bc63fa5245864282f24b521d0b"
+LANCE_C_DOWNLOAD="https://github.com/lance-format/lance-c/archive/refs/tags/v0.1.6.tar.gz"
+LANCE_C_NAME="lance-c-v0.1.6.tar.gz"
+LANCE_C_SOURCE="lance-c-0.1.6"
+LANCE_C_MD5SUM="1599faa2532d9ce963db1188f7435a56"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(

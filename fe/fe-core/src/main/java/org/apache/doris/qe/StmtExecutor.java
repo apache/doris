@@ -351,6 +351,14 @@ public class StmtExecutor {
         builder.defaultCatalog(context.getCurrentCatalog().getName());
         builder.defaultDb(context.getDatabase());
         builder.workloadGroup(context.getWorkloadGroupName());
+        String queryBackendSelection = context.getBackendSelectionProfile().getQuerySummary();
+        if (queryBackendSelection != null) {
+            builder.queryBackendSelection(queryBackendSelection);
+        }
+        String loadBackendSelection = context.getBackendSelectionProfile().getLoadSummary();
+        if (loadBackendSelection != null) {
+            builder.loadBackendSelection(loadBackendSelection);
+        }
         builder.sqlStatement(originStmt == null ? "" : originStmt.originStmt);
         builder.isCached(isCached ? "Yes" : "No");
 
@@ -463,7 +471,8 @@ public class StmtExecutor {
 
         // this is a query stmt, but this non-master FE can not read, forward it to master
         if (isQuery() && !Env.getCurrentEnv().isMaster()
-                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries)) {
+                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries
+                        || context.getSessionVariable().isForceForwardAllQueries())) {
             return true;
         }
 

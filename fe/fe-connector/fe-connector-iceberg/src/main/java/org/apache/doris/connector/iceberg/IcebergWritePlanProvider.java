@@ -104,6 +104,8 @@ import java.util.stream.Collectors;
  */
 public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
+    private static final int SUPPORT_NESTED_PARTITION_WRITE_EXEC_VERSION = 12;
+
     // Legacy IcebergUtils compression-codec property keys (connector-local copies; iceberg SDK has no
     // constant for the doris/spark-sql forms).
     private static final String COMPRESSION_CODEC = "compression-codec";
@@ -167,6 +169,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
     @Override
     public ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle) {
+        validateWriteSchema(handle);
         IcebergTableHandle tableHandle = (IcebergTableHandle) handle.getTableHandle();
         IcebergConnectorTransaction transaction = currentTransaction(session);
 
@@ -176,6 +179,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // transaction switches on at commit time (Append vs ReplacePartitions / OverwriteFiles).
         IcebergWriteSchemaContext schemaContext = handle.getWriteOperation() == WriteOperation.REWRITE
                 ? null : resolveWriteSchema(session, tableHandle, handle.getBranchName());
+        validateNestedPartitionWriteCompatibility(handle, schemaContext);
         IcebergWriteContext writeContext = buildWriteContext(handle, schemaContext);
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
         Table table = transaction.getTable();
@@ -221,7 +225,10 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
             case MERGE: {
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK);
                 dataSink.setIcebergMergeSink(buildMergeSink(table, tableHandle, rewritableDeletes,
-                        handle.isRequireMergeCardinalityCheck(), schemaContext));
+                        handle.isWritesDataFiles(), handle.isRequireMergeCardinalityCheck(),
+                        handle.getBoundTargetColumns().stream()
+                                .anyMatch(column -> containsVariant(column.getType())),
+                        schemaContext));
                 return new ConnectorSinkPlan(dataSink);
             }
             case REWRITE: {
@@ -364,6 +371,54 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 || "VARBINARY".equals(typeName)
                 || "DATETIMEV2".equals(typeName)
                 || "TIMESTAMPTZ".equals(typeName);
+    }
+
+    static void validateWriteSchema(List<ConnectorColumn> columns, boolean writesDataFiles) {
+        if (!writesDataFiles) {
+            return;
+        }
+        if (columns.stream().anyMatch(column -> containsVariant(column.getType()))) {
+            // Reject the whole data-file write: validating only selected columns would let an
+            // unchanged Variant target flow through a writer that cannot preserve its physical identity.
+            throw new DorisConnectorException(
+                    "Iceberg VARIANT columns are read-only and cannot be written");
+        }
+    }
+
+    static void validateWriteSchema(ConnectorWriteHandle handle) {
+        // The explicit INSERT column list can omit an unchanged Variant column, but the data writer
+        // still binds the complete target schema and therefore must validate that complete shape.
+        validateWriteSchema(handle.getBoundTargetColumns(), handle.isWritesDataFiles());
+    }
+
+    private static void validateNestedPartitionWriteCompatibility(
+            ConnectorWriteHandle handle, IcebergWriteSchemaContext schemaContext) {
+        WriteOperation operation = handle.getWriteOperation();
+        // Only DELETE avoids the old data-writer path; old MERGE initializes it even when the
+        // finalized plan reports that no data files will be produced.
+        boolean writesDataFiles = operation != WriteOperation.DELETE
+                && (operation != WriteOperation.UPDATE || handle.isWritesDataFiles());
+        if (!writesDataFiles || schemaContext == null
+                || handle.getBeExecVersion() >= SUPPORT_NESTED_PARTITION_WRITE_EXEC_VERSION) {
+            return;
+        }
+        Set<Integer> topLevelIds = schemaContext.getSchema().columns().stream()
+                .map(NestedField::fieldId).collect(Collectors.toSet());
+        if (schemaContext.getPartitionSpec().fields().stream()
+                .anyMatch(field -> !topLevelIds.contains(field.sourceId()))) {
+            // Old writers resolve partition sources only from top-level IDs and ignore nested source paths.
+            throw new DorisConnectorException(
+                    "Iceberg nested partition writes are unavailable during rolling upgrade");
+        }
+    }
+
+    private static boolean containsVariant(ConnectorType type) {
+        String typeName = type.getTypeName();
+        if ("VARIANT".equalsIgnoreCase(typeName)
+                || "VARIANT_COMPUTE_V2".equalsIgnoreCase(typeName)) {
+            return true;
+        }
+        return type.getChildren().stream().anyMatch(IcebergWritePlanProvider::containsVariant);
     }
 
     @Override
@@ -711,9 +766,13 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         if (handle.isOverwrite()) {
             throw new DorisConnectorException("REWRITE writes cannot be overwrite operations");
         }
-        TIcebergTableSink tSink = buildSink(table, tableHandle, handle,
-                IcebergWriteSchemaContext.create(table, tableHandle.getTableName(), Optional.empty(),
-                        mappingVarbinaryEnabled(), mappingTimestampTzEnabled()));
+        IcebergWriteSchemaContext rewriteSchemaContext = IcebergWriteSchemaContext.create(
+                table, tableHandle.getTableName(), Optional.empty(),
+                mappingVarbinaryEnabled(), mappingTimestampTzEnabled());
+        // REWRITE resolves its schema after beginWrite, so its rolling-upgrade fence must run here
+        // against the same partition spec that the compaction sink will actually use.
+        validateNestedPartitionWriteCompatibility(handle, rewriteSchemaContext);
+        TIcebergTableSink tSink = buildSink(table, tableHandle, handle, rewriteSchemaContext);
         tSink.setWriteType(TIcebergWriteType.REWRITE);
         if (IcebergWriterHelper.getFormatVersion(table) >= 3) {
             // iceberg v3 format requires the row-lineage fields when rewriting data files.
@@ -778,7 +837,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      */
     private TIcebergMergeSink buildMergeSink(Table table, IcebergTableHandle tableHandle,
             Map<String, List<TIcebergDeleteFileDesc>> rewritableDeletes,
-            boolean requireMergeCardinalityCheck, IcebergWriteSchemaContext schemaContext) {
+            boolean writesDataFiles, boolean requireMergeCardinalityCheck,
+            boolean hasVariantSchema,
+            IcebergWriteSchemaContext schemaContext) {
         TIcebergMergeSink tSink = new TIcebergMergeSink();
         tSink.setDbName(tableHandle.getDbName());
         tSink.setTbName(tableHandle.getTableName());
@@ -792,6 +853,8 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 IcebergWriterHelper.shouldCollectColumnStats(schemaContext, schema));
         // #66112: UPDATE and SQL MERGE share this sink, but only SQL MERGE has the one-source-row invariant.
         tSink.setRequireMergeCardinalityCheck(requireMergeCardinalityCheck);
+        tSink.setWritesDataFiles(writesDataFiles);
+        tSink.setHasVariantSchema(hasVariantSchema);
 
         PartitionSpec partitionSpec = schemaContext.getPartitionSpec();
         if (partitionSpec.isPartitioned()) {

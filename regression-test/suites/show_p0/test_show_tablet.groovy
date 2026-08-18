@@ -89,7 +89,9 @@ suite("test_show_tablet") {
     def descIds = new ArrayList(ascIds)
     Collections.reverse(descIds)
 
-    // without ORDER BY the rows come back ordered by (TabletId, ReplicaId)
+    // Without ORDER BY and without LIMIT every tablet is collected anyway, so the whole result
+    // is returned ordered by (TabletId, ReplicaId). Note this holds only for the unbounded
+    // result -- see the LIMIT cases below, where no ordering is promised.
     assertEquals(ascIds, allIds)
 
     // ORDER BY without LIMIT returns every tablet
@@ -105,26 +107,36 @@ suite("test_show_tablet") {
     res = sql """SHOW TABLETS FROM show_tablets_multi_part_t ORDER BY TabletId DESC LIMIT 2, 3"""
     assertEquals(descIds.subList(2, 5), res.collect { it[0] as long })
 
-    // Without ORDER BY the scan stops as soon as enough rows are gathered, so LIMIT returns a
-    // prefix of the scan rather than the globally smallest tablet ids. Only the row count and
-    // the ordering inside the returned prefix are guaranteed.
-    def assertPrefixOfTable = { rows, expectedSize ->
+    // Without ORDER BY the scan stops as soon as enough rows are gathered, so what comes back is
+    // an arbitrary subset of the table -- which partition is walked first is not defined. The
+    // rows are deliberately not sorted either, because sorting an arbitrary subset would make it
+    // look like the globally smallest tablet ids. Only the row count and the fact that the rows
+    // belong to this table are guaranteed.
+    def assertAnySubsetOfTable = { rows, expectedSize ->
         assertEquals(expectedSize, rows.size())
         def ids = rows.collect { it[0] as long }
-        def sortedIds = new ArrayList(ids)
-        Collections.sort(sortedIds)
-        assertEquals(sortedIds, ids)
         assertTrue(allIds.containsAll(ids))
     }
 
     res = sql """SHOW TABLETS FROM show_tablets_multi_part_t LIMIT 3"""
-    assertPrefixOfTable(res, 3)
+    assertAnySubsetOfTable(res, 3)
 
     res = sql """SHOW TABLETS FROM show_tablets_multi_part_t LIMIT 2, 3"""
-    assertPrefixOfTable(res, 3)
+    assertAnySubsetOfTable(res, 3)
 
     // an offset past the end of the result yields no row
     res = sql """SHOW TABLETS FROM show_tablets_multi_part_t LIMIT ${allTablets.size()}, 3"""
+    assertTrue(res.isEmpty())
+
+    // LIMIT 0 asks for no row and must not fall back to "no limit at all", with or without
+    // an OFFSET and with or without an ORDER BY
+    res = sql """SHOW TABLETS FROM show_tablets_multi_part_t LIMIT 0"""
+    assertTrue(res.isEmpty())
+
+    res = sql """SHOW TABLETS FROM show_tablets_multi_part_t LIMIT 2, 0"""
+    assertTrue(res.isEmpty())
+
+    res = sql """SHOW TABLETS FROM show_tablets_multi_part_t ORDER BY TabletId DESC LIMIT 0"""
     assertTrue(res.isEmpty())
 
     sql """drop table if exists show_tablets_multi_part_t;"""

@@ -2372,6 +2372,10 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
+        # hadoop_libs, the 3.3.6 fork, stays Linux-only: it carries none of the macOS fixes
+        # apache/doris-thirdparty#407 made to the 3.4 fork, and nothing built here reads its
+        # hadoop_hdfs/ prefix - the cloud module, its only other consumer, is Linux-only too.
+        read -r -a packages <<<"${packages[*]} hadoop_libs_3_4"
     elif [[ "$(uname -s)" == 'Linux' ]]; then
         read -r -a packages <<<"${packages[*]} hadoop_libs"
         read -r -a packages <<<"${packages[*]} hadoop_libs_3_4"

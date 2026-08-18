@@ -72,6 +72,7 @@ def main():
     counts = {h: 0 for h in headers}
     pch_deps = set()
     objects = 0
+    unity_objects = 0
 
     proc = subprocess.Popen(["ninja", "-C", args.build_dir, "-t", "deps"],
                             stdout=subprocess.PIPE, text=True, errors="replace",
@@ -79,7 +80,7 @@ def main():
     target, target_is_pch, hits = None, False, set()
 
     def flush():
-        nonlocal objects
+        nonlocal objects, unity_objects
         if target is None:
             return
         if target_is_pch:
@@ -89,6 +90,8 @@ def main():
                 counts[h] += 1
         if target.endswith((".o", ".obj")):
             objects += 1
+            if "/Unity/unity_" in target:
+                unity_objects += 1
 
     for line in proc.stdout:
         if line[:1] not in (" ", "\t", "\n"):
@@ -105,6 +108,10 @@ def main():
     proc.wait()
 
     print(f"{objects:,} object targets in the deps database\n")
+    if unity_objects:
+        print(f"note: {unity_objects:,} of them are unity TUs, so the sources they batch "
+              "count once per\n      batch instead of once per file. For per-file counts "
+              "rebuild with ENABLE_UNITY_BUILD=OFF.\n")
     print(f"{'header':58s} {'dependents':>10s}   via PCH (= rebuilds everything)")
     for h in headers:
         flag = "YES" if h in pch_deps else "no"

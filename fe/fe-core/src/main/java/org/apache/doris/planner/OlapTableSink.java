@@ -64,6 +64,8 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
@@ -352,6 +354,7 @@ public class OlapTableSink extends DataSink {
         }
         strBuilder.append(prefix + "  TUPLE ID: " + tupleDescriptor.getId() + "\n");
         strBuilder.append(prefix + "  " + DataPartition.RANDOM.getExplainString(explainLevel));
+        appendSinkSelectionExplain(strBuilder, prefix);
         boolean isPartialUpdate = uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT;
         strBuilder.append(prefix + "  IS_PARTIAL_UPDATE: " + isPartialUpdate);
         if (isPartialUpdate) {
@@ -364,6 +367,17 @@ public class OlapTableSink extends DataSink {
             strBuilder.append("\n" + prefix + "  PARTIAL_UPDATE_NEW_KEY_BEHAVIOR: " + partialUpdateNewKeyPolicy);
         }
         return strBuilder.toString();
+    }
+
+    private void appendSinkSelectionExplain(StringBuilder strBuilder, String prefix) {
+        BackendSelection.SelectionHint decision =
+                BackendSelectionManager.resolveLoadSelectionHint(ConnectContext.get());
+        if (decision == null) {
+            return;
+        }
+        strBuilder.append(prefix).append("  sink backend selection: preferred=").append(decision.getPreferredKey())
+                .append(", mode=").append(decision.getMode())
+                .append(", source=").append(decision.getReason()).append("\n");
     }
 
     @Override
@@ -1182,7 +1196,8 @@ public class OlapTableSink extends DataSink {
 
     // In non-cloud mode the binlog tablet must be on the same disk as its base tablet (cloud mode
     // does not need this), so keep only the (backend, pathHash) entries shared by both tablets.
-    private Multimap<Long, Long> getBinlogColocatedReplicaBackendPathMap(Tablet baseTablet, Tablet rowBinlogTablet)
+    public static Multimap<Long, Long> getBinlogColocatedReplicaBackendPathMap(
+            Tablet baseTablet, Tablet rowBinlogTablet)
             throws UserException {
         Multimap<Long, Long> baseBePathsMap = baseTablet.getNormalReplicaBackendPathMap();
         Multimap<Long, Long> binlogBePathsMap = rowBinlogTablet.getNormalReplicaBackendPathMap();

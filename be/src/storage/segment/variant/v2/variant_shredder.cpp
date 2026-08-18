@@ -35,6 +35,7 @@
 #include "exec/common/variant_util.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/json/path_in_data.h"
 #include "util/jsonb_writer.h"
 
 namespace doris::segment_v2 {
@@ -50,10 +51,6 @@ PathInData normalize_doc_publication_path(const PathInData& path) {
         }
     }
     return PathInData(path.get_path(), path.get_is_typed());
-}
-
-size_t path_allocated_bytes(const PathInData& path) {
-    return path.get_path().capacity() + path.get_parts().capacity() * sizeof(PathInData::Part);
 }
 
 } // namespace

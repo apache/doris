@@ -17,6 +17,11 @@
 
 #pragma once
 
+#include <array>
+#include <map>
+#include <optional>
+
+#include "storage/index/inverted/analyzer/analyzer_provider.h"
 #include "storage/index/inverted/analyzer/custom_analyzer_config.h"
 #include "storage/index/inverted/char_filter/char_filter_factory.h"
 #include "storage/index/inverted/setting.h"
@@ -25,6 +30,7 @@
 
 namespace doris::segment_v2::inverted_index {
 
+class CommonWordSet;
 class CustomAnalyzer;
 using CustomAnalyzerPtr = std::shared_ptr<CustomAnalyzer>;
 
@@ -60,7 +66,12 @@ public:
     TokenStream* tokenStream(const TCHAR* fieldName, const ReaderPtr& reader) override;
     TokenStream* reusableTokenStream(const TCHAR* fieldName, const ReaderPtr& reader) override;
 
-    static CustomAnalyzerPtr build_custom_analyzer(const CustomAnalyzerConfigPtr& config);
+    static CustomAnalyzerPtr build_custom_analyzer(const ImmutableCustomAnalyzerConfigPtr& config);
+    static CustomAnalyzerPtr build_custom_analyzer(const ImmutableCustomAnalyzerConfigPtr& config,
+                                                   AnalysisPurpose purpose);
+    static CustomAnalyzerPtr build_custom_analyzer(
+            const ImmutableCustomAnalyzerConfigPtr& config, AnalysisPurpose purpose,
+            const std::shared_ptr<const CommonWordSet>& common_words);
 
 private:
     ReaderPtr init_reader(ReaderPtr reader);
@@ -71,6 +82,41 @@ private:
     std::vector<TokenFilterFactoryPtr> _token_filters;
 
     TokenStreamComponentsPtr _reuse_token_stream;
+};
+
+class CustomAnalyzerProvider final : public AnalyzerProvider {
+public:
+    // The CommonGrams word list is not a parameter: it is the BE-local
+    // CommonWordSet::default_word_set(), and the dictionary identity stamped into segments comes
+    // from that set's content. An index policy cannot choose either one.
+    explicit CustomAnalyzerProvider(ImmutableCustomAnalyzerConfigPtr config,
+                                    std::map<std::string, std::string> outer_char_filter_map = {});
+
+    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer(
+            AnalysisPurpose purpose) const override;
+    std::string_view base_analyzer_fingerprint() const override {
+        return _base_analyzer_fingerprint;
+    }
+    bool uses_common_grams() const override { return _uses_common_grams; }
+    const CommonGramsQueryIdentity* common_grams_identity() const override {
+        return _common_grams_identity ? &*_common_grams_identity : nullptr;
+    }
+    const CommonWordSet* common_grams_word_set() const override {
+        return _uses_common_grams ? _common_words.get() : nullptr;
+    }
+    const std::shared_ptr<const CommonWordSet>& common_words() const { return _common_words; }
+
+    static std::string calculate_base_analyzer_fingerprint(
+            const ImmutableCustomAnalyzerConfigPtr& config,
+            const std::map<std::string, std::string>& outer_char_filter_map = {});
+
+private:
+    ImmutableCustomAnalyzerConfigPtr _config;
+    const std::string _base_analyzer_fingerprint;
+    std::shared_ptr<const CommonWordSet> _common_words;
+    bool _uses_common_grams = false;
+    std::optional<CommonGramsQueryIdentity> _common_grams_identity;
+    std::array<std::shared_ptr<lucene::analysis::Analyzer>, 5> _analyzers;
 };
 
 } // namespace doris::segment_v2::inverted_index

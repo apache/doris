@@ -914,10 +914,6 @@ size_t dotted_path_depth(const PathInData& path) {
     return path.get_parts().size();
 }
 
-size_t path_allocated_bytes(const PathInData& path) {
-    return path.get_path().capacity() + path.get_parts().capacity() * sizeof(PathInData::Part);
-}
-
 size_t recursive_null_count(const IColumn& column) {
     if (const auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         size_t count = 0;

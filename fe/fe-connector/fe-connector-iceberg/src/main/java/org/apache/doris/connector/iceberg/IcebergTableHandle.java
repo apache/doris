@@ -59,7 +59,7 @@ public class IcebergTableHandle implements ConnectorTableHandle {
 
     private static final long serialVersionUID = 1L;
 
-    /** Sentinel for "no snapshot / latest schema" — mirrors legacy {@code IcebergUtils.UNKNOWN_SNAPSHOT_ID}. */
+    /** Numeric sentinel shared by no pin and an explicit empty pin; {@link #snapshotResolved} distinguishes them. */
     private static final long NO_PIN = -1L;
 
     private final String dbName;
@@ -151,7 +151,7 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         return tableName;
     }
 
-    /** The pinned snapshot id, or {@code -1} when there is no snapshot-id pin. */
+    /** The pinned snapshot id, or {@code -1} when no snapshot exists or no snapshot-id pin is present. */
     public long getSnapshotId() {
         return snapshotId;
     }
@@ -181,8 +181,13 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         return sysTableName != null;
     }
 
-    /** Whether this handle carries an explicit MVCC / time-travel pin (a snapshot id or a tag/branch ref). */
+    /** Whether this handle selects an Iceberg snapshot or ref that the scan can apply. */
     public boolean hasSnapshotPin() {
+        return snapshotId >= 0 || ref != null;
+    }
+
+    /** Whether the pin selects an Iceberg snapshot/ref rather than the explicit empty-table state. */
+    public boolean hasSnapshotSelection() {
         return snapshotId >= 0 || ref != null;
     }
 

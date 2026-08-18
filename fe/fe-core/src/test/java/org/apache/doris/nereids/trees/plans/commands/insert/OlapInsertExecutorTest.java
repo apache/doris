@@ -181,6 +181,33 @@ class OlapInsertExecutorTest {
         }
     }
 
+    @Test
+    void testBeforeExecFailureUsesTheNormalAbortAndCleanupPath() throws Exception {
+        ConnectContext ctx = createExecutorContext();
+        Coordinator coordinator = createCoordinator();
+        GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+        TransactionState txnState = Mockito.mock(TransactionState.class);
+        LoadManager loadManager = Mockito.mock(LoadManager.class);
+        Env currentEnv = createCurrentEnv(loadManager);
+        StmtExecutor stmtExecutor = createStmtExecutor();
+
+        try (MockedStatic<EnvFactory> envFactoryMock = Mockito.mockStatic(EnvFactory.class);
+                MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            prepareFactoryMocks(envFactoryMock, envMock, coordinator, txnMgr, txnState, currentEnv);
+            ctx.setEnv(currentEnv);
+
+            OlapInsertExecutor executor = createExecutorWithBeforeExecFailure(ctx);
+            executor.txnId = 10004L;
+
+            Assertions.assertDoesNotThrow(() -> executor.executeSingleInsert(stmtExecutor));
+            Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+            Assertions.assertTrue(ctx.getState().getErrorMessage().contains("beforeExec failure"));
+            Mockito.verify(txnMgr).abortTransaction(1L, 10004L, "beforeExec failure");
+            Mockito.verify(coordinator).close();
+            Mockito.verify(stmtExecutor).updateProfile(true);
+        }
+    }
+
     // Build a fresh context per case so insertResult and QueryState do not leak between tests.
     private ConnectContext createExecutorContext() {
         ConnectContext ctx = new ConnectContext();
@@ -254,6 +281,25 @@ class OlapInsertExecutorTest {
 
         return new OlapInsertExecutor(ctx, table, "label_test", Mockito.mock(NereidsPlanner.class),
                 Optional.empty(), false, 0L);
+    }
+
+    private OlapInsertExecutor createExecutorWithBeforeExecFailure(ConnectContext ctx) {
+        Database database = Mockito.mock(Database.class);
+        Mockito.when(database.getFullName()).thenReturn("test_db");
+        Mockito.when(database.getId()).thenReturn(1L);
+
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(table.getName()).thenReturn("test_tbl");
+        Mockito.when(table.getId()).thenReturn(2L);
+
+        return new OlapInsertExecutor(ctx, table, "label_test", Mockito.mock(NereidsPlanner.class),
+                Optional.empty(), false, 0L) {
+            @Override
+            protected void beforeExec() {
+                throw new RuntimeException("beforeExec failure");
+            }
+        };
     }
 
     // Redirect coordinator creation and transaction access to mocks so the test stays deterministic.

@@ -170,7 +170,11 @@ under the License.
                         <propertyExpansion>config_loc=${maven.multiModuleProjectDirectory}/check/checkstyle</propertyExpansion>
                         <excludes>
                             **/apache/doris/thrift/**/*,
-                            **/apache/parquet/**/*
+                            **/apache/parquet/**/*,
+                            <!-- be-java-extensions/hadoop-deps' verbatim copy of
+                                 org.apache.hadoop.fs.FileSystem. Scoped to fs/ so that
+                                 fe-connector-hms' org/apache/hadoop/hive/** stays checked. -->
+                            **/apache/hadoop/fs/**/*
                         </excludes>
                     </configuration>
                     <executions>
