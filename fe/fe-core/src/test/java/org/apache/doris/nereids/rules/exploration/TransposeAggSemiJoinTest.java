@@ -19,7 +19,11 @@ package org.apache.doris.nereids.rules.exploration;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -74,5 +78,34 @@ class TransposeAggSemiJoinTest implements MemoPatternMatchSupported {
                 .applyExploration(TransposeAggSemiJoin.INSTANCE.build())
                 .getAllPlan().size();
         Assertions.assertEquals(1, size);
+    }
+
+    @Test
+    void testTransposeAggSemiJoinProjectRejectedWhenProjectContainsNoneMovableFunction() {
+        /*
+         * agg(project(assert_true(t1.id > 0))(t1 LEFT SEMI JOIN t2)): the transpose would
+         * move the project below the aggregate and above the semi join's left input, so the
+         * assertion would run on rows the semi join removes (t1 rows with no t2 match),
+         * turning returned rows into errors. the transpose must be rejected.
+         */
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .projectExprs(ImmutableList.of(
+                        scan1.getOutput().get(0),
+                        scan1.getOutput().get(1),
+                        new Alias(new AssertTrue(
+                                new GreaterThan(scan1.getOutput().get(0), Literal.of(0)),
+                                new StringLiteral("msg")), "ok")
+                ))
+                .aggGroupUsingIndex(ImmutableList.of(0),
+                        ImmutableList.of(
+                                scan1.getOutput().get(0),
+                                new Alias(new Sum(scan1.getOutput().get(1)), "sum")
+                        )
+                )
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(TransposeAggSemiJoinProject.INSTANCE.build())
+                .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
     }
 }

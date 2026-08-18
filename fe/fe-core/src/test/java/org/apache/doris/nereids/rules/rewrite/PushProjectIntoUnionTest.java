@@ -158,6 +158,46 @@ public class PushProjectIntoUnionTest {
                 rewritten.treeString());
     }
 
+    /**
+     * A project that references the assertion-backed UNION slot twice must never be pushed into
+     * the union: the push-down would copy the NoneMovableFunction and evaluate it twice,
+     * violating the no-duplication contract. this case fails on a volatile-only guard (the
+     * assertion is not volatile, so the guarded-slots check never triggers); the NoneMovable
+     * guard must reject it. the rule must not fire.
+     */
+    @Test
+    public void testDoNotPushProjectIntoUnionWithNoneMovableConstReferencedTwice() {
+        SlotReference s = new SlotReference(new ExprId(10), "s",
+                IntegerType.INSTANCE, true, ImmutableList.of());
+        SlotReference x = new SlotReference(new ExprId(11), "x",
+                BooleanType.INSTANCE, true, ImmutableList.of());
+        // constant row: s = 1, x = assert_true(false) — a required assertion that throws.
+        NamedExpression rowS = new Alias(new ExprId(1), new IntegerLiteral(1), "1");
+        NamedExpression rowX = new Alias(new ExprId(2), new AssertTrue(
+                BooleanLiteral.of(false), new StringLiteral("msg")), "x");
+        LogicalUnion union = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(s, x),
+                ImmutableList.of(),
+                ImmutableList.of(ImmutableList.of(rowS, rowX)),
+                false,
+                ImmutableList.of());
+        // parent project references x twice: pushing it into the union would copy the assertion.
+        LogicalProject<LogicalUnion> project = new LogicalProject<>(
+                ImmutableList.<NamedExpression>of(
+                        new Alias(new ExprId(100), x, "a"),
+                        new Alias(new ExprId(101), x, "b")),
+                union);
+
+        Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), project)
+                .applyTopDown(new PushProjectIntoUnion())
+                .getPlan();
+
+        // the rule must not fire: the project stays above the union.
+        Assertions.assertTrue(rewritten instanceof LogicalProject, rewritten.treeString());
+        Assertions.assertTrue(((LogicalProject<?>) rewritten).child() instanceof LogicalUnion,
+                rewritten.treeString());
+    }
+
     private LogicalUnion findUnion(Plan p) {
         if (p instanceof LogicalUnion) {
             return (LogicalUnion) p;
