@@ -744,6 +744,52 @@ TEST(BkdCorruptionTest, AbsurdPointsPerLeafIsRejectedAtOpen) {
     }
 }
 
+TEST(BkdCorruptionTest, SelfConsistentSplitAboveGlobalMaximumIsRejectedBeforeQueryRouting) {
+    std::vector<Point> points;
+    for (uint32_t i = 0; i < 20; ++i) {
+        points.push_back(Point {static_cast<int64_t>(i), i});
+    }
+    Image original;
+    ASSERT_TRUE(build_image(points, 10, &original).ok());
+    const std::vector<uint8_t> data_bytes(
+            original.bytes.begin() + static_cast<long>(original.data_begin),
+            original.bytes.begin() + static_cast<long>(original.data_begin + original.data_size));
+    IndexPayload payload;
+    ASSERT_TRUE(parse_payload(payload_of(original.index_bytes()), &payload));
+    ASSERT_EQ(payload.leaf_count, 2U);
+
+    ByteSource tail {Slice(payload.tail)};
+    Slice min_value;
+    Slice max_value;
+    Slice old_split;
+    Slice directory;
+    ASSERT_TRUE(tail.get_bytes(kBytesPerDim, &min_value).ok());
+    ASSERT_TRUE(tail.get_bytes(kBytesPerDim, &max_value).ok());
+    ASSERT_TRUE(tail.get_bytes(kBytesPerDim, &old_split).ok());
+    ASSERT_TRUE(tail.get_bytes(tail.remaining(), &directory).ok());
+    ASSERT_EQ(std::memcmp(min_value.data(), sortable_bigint(0).data(), kBytesPerDim), 0);
+    ASSERT_EQ(std::memcmp(max_value.data(), sortable_bigint(19).data(), kBytesPerDim), 0);
+    ASSERT_EQ(std::memcmp(old_split.data(), sortable_bigint(10).data(), kBytesPerDim), 0);
+
+    const std::vector<uint8_t> malformed_split = sortable_bigint(30);
+    ByteSink rebuilt;
+    rebuilt.put_bytes(min_value);
+    rebuilt.put_bytes(max_value);
+    rebuilt.put_bytes(Slice(malformed_split));
+    rebuilt.put_bytes(directory);
+    payload.tail = rebuilt.take();
+    const Image damaged = assemble(reframe(encode_payload(payload)), data_bytes);
+
+    // Before the open-time invariant was enforced, this CRC-valid image opened
+    // successfully and a point lookup for 15 silently returned no rows: split 30
+    // routed the query to leaf 0 while doc 15 remained in leaf 1.
+    MemoryFileReader file(damaged.bytes);
+    std::unique_ptr<BkdReader> reader;
+    const Status status = BkdReader::open(&file, damaged.sections, &reader);
+    EXPECT_TRUE(is_rejected(status, "split above global maximum"));
+    EXPECT_EQ(reader, nullptr);
+}
+
 TEST(BkdCorruptionTest, InflatedLeafBlockLengthFieldsAreRejectedAtQueryTime) {
     // A leaf block starts with { point_count varint32, value_mode u8,
     // common_prefix_len varint32, ... } and ends with { docid_block_offset
