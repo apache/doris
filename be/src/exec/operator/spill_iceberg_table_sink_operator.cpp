@@ -136,6 +136,7 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
     std::vector<IcebergSorterReserveMemory> per_partition_reservations;
     const size_t incoming_rows = block == nullptr ? 0 : block->rows();
     const size_t incoming_bytes = block == nullptr ? 0 : block->allocated_bytes();
+    auto dispatch_lock = _writer->lock_partition_dispatch();
     auto active_writers = _writer->active_writers();
     per_partition_reservations.reserve(active_writers->size());
     for (const auto& writer : *active_writers) {
@@ -163,6 +164,7 @@ size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* sta
         return 0;
     }
     size_t revocable_size = 0;
+    auto dispatch_lock = _writer->lock_partition_dispatch();
     // Retain the published container while the async writer may replace the current snapshot.
     auto active_writers = _writer->active_writers();
     for (const auto& writer : *active_writers) {
@@ -178,6 +180,7 @@ Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
     if (!_writer) {
         return Status::OK();
     }
+    auto dispatch_lock = _writer->lock_partition_dispatch();
     std::shared_ptr<IPartitionWriterBase> largest_writer;
     size_t largest_size = 0;
     // Retain the snapshot while the async writer may publish a replacement.

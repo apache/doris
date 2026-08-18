@@ -19,6 +19,8 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include <mutex>
+
 #include "common/atomic_shared_ptr.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
@@ -75,6 +77,10 @@ public:
     using ActiveWriterSnapshot = std::vector<std::shared_ptr<IPartitionWriterBase>>;
     std::shared_ptr<ActiveWriterSnapshot> active_writers() const { return _active_writers.load(); }
 
+    [[nodiscard]] std::unique_lock<std::mutex> lock_partition_dispatch() const {
+        return std::unique_lock(_partition_dispatch_mutex);
+    }
+
 private:
     FRIEND_TEST(VIcebergTableWriterTest, RejectMissingPartitionSource);
     FRIEND_TEST(VIcebergTableWriterTest, ResolvesNestedPartitionSource);
@@ -83,6 +89,9 @@ private:
 
     // The spill thread needs every partition sorter while the async writer exclusively owns the map.
     doris::atomic_shared_ptr<ActiveWriterSnapshot> _active_writers;
+    // Keep a memory revocation from sorting one partition while async dispatch sorts another; the
+    // admission reservation only budgets one shared sorting workspace for the whole table writer.
+    mutable std::mutex _partition_dispatch_mutex;
     class IcebergPartitionColumn {
     public:
         IcebergPartitionColumn(const iceberg::PartitionField& field,

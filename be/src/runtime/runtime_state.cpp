@@ -136,14 +136,28 @@ void RuntimeState::add_rejected_external_file_report_cleanup(std::function<void(
 
 void RuntimeState::add_external_file_report_finalizer(
         std::function<void(ExternalFileReportOutcome)> finalizer) {
-    std::lock_guard lock(_external_file_report_state->mutex);
-    _external_file_report_state->report_finalizers.emplace_back(std::move(finalizer));
+    std::optional<ExternalFileReportOutcome> terminal_outcome;
+    {
+        std::lock_guard lock(_external_file_report_state->mutex);
+        terminal_outcome = _external_file_report_state->terminal_outcome;
+        if (!terminal_outcome.has_value()) {
+            _external_file_report_state->report_finalizers.emplace_back(std::move(finalizer));
+        }
+    }
+    // Async writers can register after cancellation has completed the final report; replaying the
+    // terminal result is what keeps their file ownership from escaping cleanup.
+    if (terminal_outcome.has_value()) {
+        finalizer(*terminal_outcome);
+    }
 }
 
 void RuntimeState::finalize_external_file_report_cleanup(ExternalFileReportOutcome outcome) {
     std::vector<std::function<void(ExternalFileReportOutcome)>> finalizers;
     {
         std::lock_guard lock(_external_file_report_state->mutex);
+        if (_external_file_report_state->terminal_outcome.has_value()) {
+            return;
+        }
         if (outcome == ExternalFileReportOutcome::AMBIGUOUS) {
             // Once an ACK can have been lost, a later rejection cannot prove FE never accepted the files.
             _external_file_report_state->ownership_may_have_transferred = true;
@@ -153,6 +167,7 @@ void RuntimeState::finalize_external_file_report_cleanup(ExternalFileReportOutco
             _external_file_report_state->ownership_may_have_transferred) {
             return;
         }
+        _external_file_report_state->terminal_outcome = outcome;
         finalizers.swap(_external_file_report_state->report_finalizers);
     }
     for (auto& finalizer : finalizers) {

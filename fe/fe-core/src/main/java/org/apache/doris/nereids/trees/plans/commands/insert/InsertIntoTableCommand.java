@@ -264,8 +264,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         int retryTimes = 0;
         ctx.getStatementContext().setIsInsert(true);
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
-            // Each attempt must repin MVCC metadata or it can reuse the schema that triggered the retry.
-            ctx.getStatementContext().resetMvccSnapshots();
+            prepareMvccSnapshotsForPlanAttempt(ctx.getStatementContext(), retryTimes);
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
             // check auth
@@ -341,6 +340,14 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
         throw new AnalysisException("Insert plan failed. Could not get target table lock.");
+    }
+
+    static void prepareMvccSnapshotsForPlanAttempt(StatementContext statementContext, int attempt) {
+        if (attempt > 1) {
+            // MTMV injects snapshot fences before the first attempt; only a failed planner attempt
+            // may be cleared so its stale metadata cannot leak into the retry.
+            statementContext.resetMvccSnapshots();
+        }
     }
 
     /**

@@ -383,8 +383,22 @@ bool external_field_matches_name(const schema::external::TField& field, const st
 
 DataTypePtr find_struct_child_type_by_external_field(const DataTypeStruct& struct_type,
                                                      const schema::external::TField& field) {
+    // A sibling may reuse an old name after a rename, so current names must win globally before
+    // any historical alias is allowed to select a complex fallback type.
+    if (field.__isset.name) {
+        for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
+            if (to_lower(field.name) == to_lower(struct_type.get_element_name(field_idx))) {
+                return struct_type.get_element(field_idx);
+            }
+        }
+    }
+    if (!field.__isset.name_mapping) {
+        return nullptr;
+    }
     for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
-        if (external_field_matches_name(field, struct_type.get_element_name(field_idx))) {
+        if (std::ranges::any_of(field.name_mapping, [&](const std::string& alias) {
+                return to_lower(alias) == to_lower(struct_type.get_element_name(field_idx));
+            })) {
             return struct_type.get_element(field_idx);
         }
     }

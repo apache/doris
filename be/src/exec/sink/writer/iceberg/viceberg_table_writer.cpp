@@ -331,6 +331,7 @@ Status VIcebergTableWriter::_process_row_lineage_columns(Block& block) {
 }
 
 Status VIcebergTableWriter::_write_prepared_block(Block& output_block) {
+    auto dispatch_lock = lock_partition_dispatch();
     RETURN_IF_ERROR(_process_row_lineage_columns(output_block));
 
     std::unordered_map<std::shared_ptr<IPartitionWriterBase>, IColumn::Permutation>
@@ -554,6 +555,7 @@ void VIcebergTableWriter::_publish_active_writers() {
 }
 
 Status VIcebergTableWriter::close(Status status) {
+    auto dispatch_lock = lock_partition_dispatch();
     Status result_status;
     int64_t partitions_to_writers_size = _partitions_to_writers.size();
     {
