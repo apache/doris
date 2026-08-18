@@ -1295,7 +1295,7 @@ DEFINE_mInt32(async_file_cache_write_workers_per_disk, "16");
 // A positive value is the BE-wide queued+active task ownership limit. The successfully initialized
 // cache instances receive equal shares. -1 selects max(1 GiB, 1% of the BE memory limit) before
 // that split.
-DEFINE_mInt64(async_file_cache_write_max_pending_bytes, "1073741824"); // 1 GiB
+DEFINE_mInt64(async_file_cache_write_max_pending_bytes, "-1");
 DEFINE_mBool(enable_async_file_cache_write_inflight_write_buffer_index, "true");
 DEFINE_Int32(async_file_cache_write_inflight_write_buffer_index_shard_count, "64");
 DEFINE_Validator(async_file_cache_write_workers_per_disk,
