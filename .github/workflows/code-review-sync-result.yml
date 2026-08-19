@@ -39,6 +39,7 @@ jobs:
 
           pr_info="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
           head_sha="$(jq -r '.head.sha' <<<"$pr_info")"
+          live_base_sha="$(jq -r '.base.sha' <<<"$pr_info")"
           pr_state="$(jq -r '.state' <<<"$pr_info")"
           if [ "$pr_state" != "open" ]; then
             echo "Review comment ignored: pull request is ${pr_state}."
@@ -58,11 +59,42 @@ jobs:
             exit 0
           fi
 
-          if validation_output="$(python3 .github/scripts/validate_review_pass_comment.py \
+          if ! reviewed_base_sha="$(python3 .github/scripts/validate_review_pass_comment.py \
+              extract-base --comment-file "$comment_file")"; then
+            echo "Review comment ignored: cannot read its reviewed base."
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! base_compare="$(gh api \
+              "repos/${REPO}/compare/${reviewed_base_sha}...${live_base_sha}")"; then
+            echo "Review comment ignored: cannot compare its base with the current PR base."
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base_compare_status="$(jq -r '.status' <<<"$base_compare")"
+          if [ "$reviewed_base_sha" = "$live_base_sha" ]; then
+            reviewed_base_committed_at=""
+            live_base_committed_at=""
+          else
+            if ! reviewed_base_committed_at="$(gh api \
+                "repos/${REPO}/commits/${reviewed_base_sha}" --jq '.commit.committer.date')" || \
+               ! live_base_committed_at="$(gh api \
+                "repos/${REPO}/commits/${live_base_sha}" --jq '.commit.committer.date')"; then
+              echo "Review comment ignored: cannot resolve base commit times."
+              echo "valid=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          if validation_output="$(python3 .github/scripts/validate_review_pass_comment.py validate \
               --comment-file "$comment_file" \
               --repository "$REPO" \
               --pr-number "$PR_NUMBER" \
               --head-sha "$head_sha" \
+              --live-base-sha "$live_base_sha" \
+              --base-compare-status "$base_compare_status" \
+              --reviewed-base-committed-at "$reviewed_base_committed_at" \
+              --live-base-committed-at "$live_base_committed_at" \
               --comment-author "$COMMENT_AUTHOR" 2>&1)"; then
             echo "$validation_output"
             echo "valid=true" >> "$GITHUB_OUTPUT"
