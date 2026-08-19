@@ -24,6 +24,7 @@ suite("test_row_binlog_flexible_partial_update") {
                 id INT,
                 v1 INT NOT NULL DEFAULT "0",
                 v2 VARCHAR(16) NULL DEFAULT "default",
+                v3 INT NULL,
                 seq INT
             )
             UNIQUE KEY(id)
@@ -42,9 +43,12 @@ suite("test_row_binlog_flexible_partial_update") {
 
         sql """
             INSERT INTO ${tableName} VALUES
-                (1, 10, 'a', 100),
-                (2, 20, 'b', 100),
-                (4, 40, 'd', 100)
+                (1, 10, 'a', 101, 100),
+                (2, 20, 'b', 102, 100),
+                (4, 40, 'd', 104, 100),
+                (5, 50, 'e', 105, 500),
+                (6, 60, 'f', 106, 500),
+                (7, 70, 'g', 107, 100)
         """
 
         def flexibleRows = """
@@ -63,7 +67,76 @@ suite("test_row_binlog_flexible_partial_update") {
             inputStream new ByteArrayInputStream(flexibleRows.getBytes())
             time 20000
         }
+
+        // A single lower-sequence update loses to the visible row. It must neither change the
+        // base table nor produce a visible Row Binlog change.
+        streamLoad {
+            table tableName
+            set "format", "json"
+            set "read_json_by_line", "true"
+            set "strict_mode", "false"
+            set "unique_key_update_mode", "UPDATE_FLEXIBLE_COLUMNS"
+            inputStream new ByteArrayInputStream(
+                    '{"id":5,"v1":5000,"seq":400}'.getBytes())
+            time 20000
+        }
+
+        // The same rule applies to a lower-sequence delete.
+        streamLoad {
+            table tableName
+            set "format", "json"
+            set "read_json_by_line", "true"
+            set "strict_mode", "false"
+            set "unique_key_update_mode", "UPDATE_FLEXIBLE_COLUMNS"
+            inputStream new ByteArrayInputStream(
+                    '{"id":6,"__DORIS_DELETE_SIGN__":1,"seq":400}'.getBytes())
+            time 20000
+        }
+
+        // DELETE followed by INSERT for an existing key in one load keeps the old row as BEFORE,
+        // but omitted AFTER columns use default/null instead of resurrecting historical values.
+        def deleteThenInsertRows = """
+            {"id":7,"__DORIS_DELETE_SIGN__":1,"seq":150}
+            {"id":7,"seq":160}
+        """.stripIndent().trim()
+        streamLoad {
+            table tableName
+            set "format", "json"
+            set "read_json_by_line", "true"
+            set "strict_mode", "false"
+            set "unique_key_update_mode", "UPDATE_FLEXIBLE_COLUMNS"
+            inputStream new ByteArrayInputStream(deleteThenInsertRows.getBytes())
+            time 20000
+        }
         sql "sync"
+
+        order_qt_flexible_rejected_sequence_visible """
+            SELECT id, v1, v2, v3, seq
+            FROM ${tableName}
+            WHERE id IN (5, 6)
+            ORDER BY id
+        """
+
+        qt_flexible_rejected_sequence_binlog """
+            SELECT id, v1, v2, v3, seq, __DORIS_BINLOG_OP__
+            FROM binlog("table" = "${tableName}")
+            WHERE id IN (5, 6)
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+        """
+
+        order_qt_flexible_delete_then_insert_visible """
+            SELECT id, v1, v2, v3, seq
+            FROM ${tableName}
+            WHERE id = 7
+        """
+
+        qt_flexible_delete_then_insert_binlog """
+            SELECT __DORIS_BINLOG_OP__, id, v1, v2, v3, seq,
+                   __BEFORE__v1__, __BEFORE__v2__, __BEFORE__v3__, __BEFORE__seq__
+            FROM binlog("table" = "${tableName}")
+            WHERE id = 7
+            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+        """
 
         order_qt_flexible_visible """
             SELECT id, v1, v2, seq

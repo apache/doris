@@ -217,10 +217,15 @@ public:
                               std::vector<IOlapColumnDataAccessor*>& key_columns);
     Status convert_seq_column(Block* block, size_t row_pos, size_t num_rows,
                               IOlapColumnDataAccessor*& seq_column);
+    // Optional sidecars are aggregated and filtered with `block`; on return each element is
+    // aligned with the corresponding row in the final block. A non-zero
+    // `insert_after_delete_flags` entry marks the surviving INSERT of a same-batch
+    // DELETE-then-INSERT pair.
     Status aggregate_for_flexible_partial_update(
             Block* block, size_t num_rows, const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-            std::vector<int64_t>* row_lsns = nullptr);
+            std::vector<int64_t>* row_lsns = nullptr,
+            std::vector<uint8_t>* insert_after_delete_flags = nullptr);
 
 private:
     Status aggregate_for_sequence_column(
@@ -233,7 +238,7 @@ private:
             Block* block, size_t num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-            std::vector<int64_t>* row_lsns);
+            std::vector<int64_t>* row_lsns, std::vector<uint8_t>* insert_after_delete_flags);
     Status filter_block(Block* block, size_t num_rows, MutableColumnPtr filter_column,
                         int duplicate_rows, std::string col_name);
 

@@ -155,8 +155,11 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
     return Status::OK();
 }
 
+// NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity): Keep the
+// probe, aligned sidecar aggregation, and history-read plan in one snapshot-consistent operation.
 Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
-        Block* block, std::shared_ptr<MowContext> mow_context, std::vector<int64_t>* row_lsns) {
+        Block* block, std::shared_ptr<MowContext> mow_context,
+        std::vector<int64_t>* row_lsns) { // NOLINT(readability-non-const-parameter): in/out sidecar
     auto& tablet_schema = _context.tablet_schema;
     if (_context.partial_update_info == nullptr ||
         !_context.partial_update_info->is_flexible_partial_update()) {
@@ -193,12 +196,15 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
                                *_context.partial_update_info, *_key_encoder, probe, *_row_fetcher);
 
     size_t num_rows = block->rows();
+    std::vector<uint8_t> insert_after_delete_flags;
     RETURN_IF_ERROR(aggregator.aggregate_for_flexible_partial_update(
-            block, num_rows, specified_rowsets, segment_caches, row_lsns));
+            block, num_rows, specified_rowsets, segment_caches, row_lsns,
+            &insert_after_delete_flags));
     num_rows = block->rows();
     if (num_rows == 0) {
         return Status::OK();
     }
+    DCHECK_EQ(insert_after_delete_flags.size(), num_rows);
 
     std::vector<IOlapColumnDataAccessor*> key_columns;
     RETURN_IF_ERROR(aggregator.convert_pk_columns(block, 0, num_rows, key_columns));
@@ -211,6 +217,12 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
     const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
     DCHECK(delete_signs != nullptr);
 
+    const bool schema_has_seq = tablet_schema->has_sequence_col();
+    const int32_t seq_col_unique_id =
+            schema_has_seq ? tablet_schema->column(tablet_schema->sequence_col_idx()).unique_id()
+                           : -1;
+    const int32_t delete_sign_col_unique_id =
+            tablet_schema->column(tablet_schema->delete_sign_idx()).unique_id();
     Block full_block = tablet_schema->create_block();
     for (size_t cid = 0; cid < tablet_schema->num_key_columns(); ++cid) {
         const auto& input_column = block->get_by_position(cid);
@@ -219,12 +231,6 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
         full_column.type = input_column.type;
     }
 
-    const bool schema_has_seq = tablet_schema->has_sequence_col();
-    const int32_t seq_col_unique_id =
-            schema_has_seq ? tablet_schema->column(tablet_schema->sequence_col_idx()).unique_id()
-                           : -1;
-    const int32_t delete_sign_col_unique_id =
-            tablet_schema->column(tablet_schema->delete_sign_idx()).unique_id();
     bool has_default_or_nullable = false;
     std::vector<bool> use_default_or_null_flag;
     use_default_or_null_flag.reserve(num_rows);
@@ -241,6 +247,8 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
         ProbeOutcome outcome =
                 DORIS_TRY(probe.probe(key, /*segment_pos=*/pos, row_has_seq, have_delete_sign,
                                       specified_rowsets, segment_caches, discarded_stats));
+        const bool insert_after_delete = insert_after_delete_flags[pos] != 0;
+        DCHECK(!insert_after_delete || !have_delete_sign);
         if (outcome.result == KeyProbeResult::NOT_FOUND && !have_delete_sign) {
             RETURN_IF_ERROR(_context.partial_update_info->handle_new_key(
                     *tablet_schema,
@@ -251,13 +259,20 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
                     &skip_bitmaps->at(pos)));
         }
 
-        has_default_or_nullable |= outcome.use_default_or_null;
-        use_default_or_null_flag.emplace_back(outcome.use_default_or_null);
-        if (!outcome.use_default_or_null) {
+        const bool use_default_or_null = outcome.use_default_or_null || insert_after_delete;
+        has_default_or_nullable |= use_default_or_null;
+        use_default_or_null_flag.emplace_back(use_default_or_null);
+        if (!use_default_or_null) {
             _row_fetcher->pin_rowset(outcome.rowset);
             _row_fetcher->plan_flexible_read(outcome.loc, pos, skip_bitmaps->at(pos));
             // The same location supplies the optional BEFORE image and the old delete sign used
             // to distinguish an append after a tombstone from an update.
+            _row_fetcher->plan_fixed_read(outcome.loc, pos);
+        } else if (insert_after_delete && outcome.result != KeyProbeResult::NOT_FOUND) {
+            // The base writer treats this row as a new row for missing-column fill, but the net
+            // CDC change still replaces the live row that existed before this load. Keep its
+            // BEFORE image while preventing old values from leaking into AFTER.
+            _row_fetcher->pin_rowset(outcome.rowset);
             _row_fetcher->plan_fixed_read(outcome.loc, pos);
         }
         _operators.emplace_back(

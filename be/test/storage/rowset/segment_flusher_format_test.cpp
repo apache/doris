@@ -1379,10 +1379,10 @@ Result<Block> create_flexible_row_binlog_update_block(const TabletSchemaSPtr& sc
     DORIS_CHECK_GE(schema->skip_bitmap_col_idx(), 0);
     DORIS_CHECK(schema->has_sequence_col());
 
-    constexpr std::array<int, 7> keys {0, 0, 1, 2, 10, 11, 11};
-    constexpr std::array<int, 7> v1_values {7000, 0, 0, 7002, 0, 0, 0};
-    constexpr std::array<int64_t, 7> v2_values {0, 8000, 8001, 8002, 0, 0, 8011};
-    constexpr std::array<int, 7> sequence_values {6000, 0, 6001, 6002, 6010, 6011, 0};
+    constexpr std::array<int, 9> keys {0, 0, 1, 2, 3, 3, 10, 11, 11};
+    constexpr std::array<int, 9> v1_values {7000, 0, 0, 7002, 0, 0, 0, 0, 0};
+    constexpr std::array<int64_t, 9> v2_values {0, 8000, 8001, 8002, 0, 0, 0, 0, 8011};
+    constexpr std::array<int, 9> sequence_values {6000, 0, 6001, 6002, 6003, 6004, 6010, 6011, 0};
 
     Block block = schema->create_block();
     auto* skip_bitmap = assert_cast<ColumnBitmap*>(
@@ -1403,8 +1403,9 @@ Result<Block> create_flexible_row_binlog_update_block(const TabletSchemaSPtr& sc
                 RETURN_IF_ERROR_RESULT(append_text_value(&block, column_index,
                                                          std::to_string(sequence_values[row])));
             } else if (name == DELETE_SIGN) {
+                const bool is_delete = row == 4 || row == 6 || row == 7;
                 RETURN_IF_ERROR_RESULT(
-                        append_text_value(&block, column_index, row == 4 || row == 5 ? "1" : "0"));
+                        append_text_value(&block, column_index, is_delete ? "1" : "0"));
             } else if (name != SKIP_BITMAP_COL) {
                 block.get_by_position(column_index).column->assert_mutable()->insert_default();
             }
@@ -1417,17 +1418,66 @@ Result<Block> create_flexible_row_binlog_update_block(const TabletSchemaSPtr& sc
             skipped_columns.add(static_cast<uint64_t>(
                     schema->column(static_cast<size_t>(column_index)).unique_id()));
         };
-        if (row == 0 || row == 4 || row == 5) {
+        if (row == 0 || row == 4 || row == 5 || row == 6 || row == 7) {
             skip("v2");
         }
-        if (row == 1 || row == 2 || row == 4 || row == 5 || row == 6) {
+        if (row == 1 || row == 2 || row == 4 || row == 5 || row == 6 || row == 7 || row == 8) {
             skip("v1");
         }
-        if (row == 1 || row == 6) {
+        if (row == 1 || row == 8) {
             skip(SEQUENCE_COL);
         }
-        if (row != 4 && row != 5) {
+        if (row != 4 && row != 6 && row != 7) {
             skip(DELETE_SIGN);
+        }
+        skip_bitmap->insert_value(std::move(skipped_columns));
+    }
+    return block;
+}
+
+struct FlexibleSequenceRow {
+    int key;
+    int v1;
+    int64_t v2;
+    int sequence;
+    bool is_delete;
+};
+
+Result<Block> create_flexible_sequence_block(const TabletSchemaSPtr& schema,
+                                             const std::vector<FlexibleSequenceRow>& rows) {
+    DORIS_CHECK_GE(schema->skip_bitmap_col_idx(), 0);
+    DORIS_CHECK(schema->has_sequence_col());
+
+    Block block = schema->create_block();
+    auto* skip_bitmap = assert_cast<ColumnBitmap*>(
+            block.get_by_position(schema->skip_bitmap_col_idx()).column->assert_mutable().get());
+    const auto delete_sign_unique_id = schema->column(schema->delete_sign_idx()).unique_id();
+    for (const auto& row : rows) {
+        for (size_t column_index = 0; column_index < block.columns(); ++column_index) {
+            const auto& name = block.get_by_position(column_index).name;
+            if (name == "k1") {
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, std::to_string(row.key)));
+            } else if (name == "v1") {
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, std::to_string(row.v1)));
+            } else if (name == "v2") {
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, std::to_string(row.v2)));
+            } else if (name == SEQUENCE_COL) {
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, std::to_string(row.sequence)));
+            } else if (name == DELETE_SIGN) {
+                RETURN_IF_ERROR_RESULT(
+                        append_text_value(&block, column_index, row.is_delete ? "1" : "0"));
+            } else if (name != SKIP_BITMAP_COL) {
+                block.get_by_position(column_index).column->assert_mutable()->insert_default();
+            }
+        }
+
+        BitmapValue skipped_columns;
+        if (!row.is_delete) {
+            skipped_columns.add(static_cast<uint64_t>(delete_sign_unique_id));
         }
         skip_bitmap->insert_value(std::move(skipped_columns));
     }
@@ -2459,29 +2509,30 @@ Status verify_flexible_row_binlog_segment(const TabletSharedPtr& tablet,
         return block_result.error();
     }
     const auto& block = block_result.value();
-    if (block.rows() != 5) {
-        return Status::InternalError("{} has {} rows, expected 5", case_name, block.rows());
+    if (block.rows() != 6) {
+        return Status::InternalError("{} has {} rows, expected 6", case_name, block.rows());
     }
 
-    constexpr std::array<Int32, 5> keys {0, 1, 2, 10, 11};
-    constexpr std::array<Int32, 5> after_v1 {7000, 3001, 7002, 3010, 3011};
-    constexpr std::array<Int64, 5> after_v2 {8000, 8001, 8002, 4010, 8011};
-    constexpr std::array<Int64, 5> operations {ROW_BINLOG_UPDATE, ROW_BINLOG_UPDATE,
-                                               ROW_BINLOG_APPEND, ROW_BINLOG_DELETE,
-                                               ROW_BINLOG_UPDATE};
-    constexpr std::array<Int64, 5> lsns {1001, 1002, 1003, 1004, 1006};
+    constexpr std::array<Int32, 6> keys {0, 1, 2, 3, 10, 11};
+    constexpr std::array<Int32, 6> after_v1 {7000, 3001, 7002, 0, 3010, 0};
+    constexpr std::array<Int64, 6> after_v2 {8000, 8001, 8002, 0, 4010, 8011};
+    constexpr std::array<Int64, 6> operations {ROW_BINLOG_UPDATE, ROW_BINLOG_UPDATE,
+                                               ROW_BINLOG_APPEND, ROW_BINLOG_APPEND,
+                                               ROW_BINLOG_DELETE, ROW_BINLOG_UPDATE};
+    constexpr std::array<Int64, 6> lsns {1001, 1002, 1003, 1005, 1006, 1008};
     for (size_t row = 0; row < block.rows(); ++row) {
         RETURN_IF_ERROR(
                 verify_segment_field(block, "k1", row, Field::create_field<TYPE_INT>(keys[row])));
         RETURN_IF_ERROR(verify_segment_field(block, "v1", row,
                                              Field::create_field<TYPE_INT>(after_v1[row])));
-        RETURN_IF_ERROR(verify_segment_field(block, "v2", row,
-                                             Field::create_field<TYPE_BIGINT>(after_v2[row])));
+        RETURN_IF_ERROR(verify_segment_field(
+                block, "v2", row,
+                row == 3 ? Field {} : Field::create_field<TYPE_BIGINT>(after_v2[row])));
         RETURN_IF_ERROR(verify_segment_field(block, BINLOG_OP_COL, row,
                                              Field::create_field<TYPE_BIGINT>(operations[row])));
         RETURN_IF_ERROR(verify_segment_field(block, BINLOG_LSN_COL, row,
                                              Field::create_field<TYPE_BIGINT>(lsns[row])));
-        if (row == 2) {
+        if (row == 2 || row == 3) {
             RETURN_IF_ERROR(verify_segment_field(block, "__BEFORE__v1__", row, Field {}));
             RETURN_IF_ERROR(verify_segment_field(block, "__BEFORE__v2__", row, Field {}));
         } else {
@@ -3065,6 +3116,9 @@ protected:
             DORIS_CHECK(it != columns.end());
             return *it;
         };
+        if (flexible_partial_update) {
+            find_source_column("v1").__set_default_value("0");
+        }
         find_source_column("v2").__set_is_allow_null(true);
         if (enable_mow) {
             find_source_column(DELETE_SIGN).__set_visible(false);
@@ -3200,6 +3254,66 @@ protected:
         SegmentFlusher flusher(context, segment_files, index_files);
         RETURN_IF_ERROR(flusher.flush_single_block(&block, 0));
         return flusher.close();
+    }
+
+    Status flush_blocks_without_golden(
+            std::string_view case_name, const TabletSchemaSPtr& schema, std::vector<Block> blocks,
+            bool enable_vertical_writer, bool enable_unique_key_merge_on_write,
+            const std::function<void(RowsetWriterContext&)>& configure_context,
+            std::shared_ptr<TestSegmentCollector>* output_collector) const {
+        const auto directory = fmt::format("{}/{}", kTestDir, case_name);
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(directory));
+        auto file_writer_creator =
+                std::make_shared<LocalSegmentFileWriterCreator>(directory, schema);
+        auto segment_collector = std::make_shared<TestSegmentCollector>();
+        RowsetWriterContext context;
+        context.tablet_schema = schema;
+        context.tablet_path = directory;
+        context.tablet_id = 10001;
+        context.rowset_id.init(10002);
+        context.max_rows_per_segment = 1024;
+        context.write_type = DataWriteType::TYPE_DIRECT;
+        context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write;
+        context.file_writer_creator = file_writer_creator;
+        context.segment_collector = segment_collector;
+        configure_context(context);
+
+        config::enable_vertical_segment_writer = enable_vertical_writer;
+        auto* sync_point = SyncPoint::get_instance();
+        const bool sync_point_was_enabled = sync_point->get_enable();
+        sync_point->enable_processing();
+        Defer restore_sync_point {[sync_point, sync_point_was_enabled] {
+            if (!sync_point_was_enabled) {
+                sync_point->disable_processing();
+            }
+        }};
+        std::vector<uint32_t> vertical_segment_ids;
+        SyncPoint::CallbackGuard vertical_writer_guard;
+        sync_point->set_call_back(
+                "SegmentFlusher::flush_vertical_segment_writer",
+                [&vertical_segment_ids](auto&& args) {
+                    vertical_segment_ids.push_back(*try_any_cast<uint32_t*>(args[0]));
+                },
+                &vertical_writer_guard);
+
+        SegmentFileCollection segment_files;
+        InvertedIndexFileCollection index_files;
+        SegmentFlusher flusher(context, segment_files, index_files);
+        for (size_t segment_id = 0; segment_id < blocks.size(); ++segment_id) {
+            RETURN_IF_ERROR(
+                    flusher.flush_single_block(&blocks[segment_id], cast_set<int32_t>(segment_id)));
+        }
+        RETURN_IF_ERROR(flusher.close());
+        const auto expected_vertical_segment_ids =
+                enable_vertical_writer ? segment_collector->segment_ids : std::vector<uint32_t> {};
+        if (vertical_segment_ids != expected_vertical_segment_ids) {
+            return Status::InternalError(
+                    "unexpected Segment writer path for {}: expected {} vertical flushes, "
+                    "observed {}",
+                    case_name, expected_vertical_segment_ids.size(), vertical_segment_ids.size());
+        }
+        *output_collector = std::move(segment_collector);
+        return Status::OK();
     }
 
     void configure_partial_update_context(
@@ -3367,12 +3481,140 @@ TEST_F(SegmentFlusherTransformFormatTest,
             case_name, tablets.binlog_tablet->tablet_schema(), std::move(block_result).value(),
             [this, tablets, partial_update_info, history](RowsetWriterContext& context) {
                 configure_row_binlog_context(context, tablets.source_tablet, tablets.binlog_tablet,
-                                             partial_update_info, history, true, 7);
+                                             partial_update_info, history, true, 9);
             });
     ASSERT_TRUE(flush_status.ok()) << flush_status;
 
     const auto verify_status = verify_flexible_row_binlog_segment(tablets.binlog_tablet, case_name);
     ASSERT_TRUE(verify_status.ok()) << verify_status;
+}
+
+TEST_F(SegmentFlusherTransformFormatTest,
+       FlexiblePartialUpdateRowBinlogKeepsSequenceLoserAlignedWithBaseRowId) {
+    const auto tablets = create_binlog_tablets(22009, true, false, true, true);
+    ASSERT_NE(tablets.source_tablet, nullptr);
+    ASSERT_NE(tablets.binlog_tablet, nullptr);
+
+    auto history_result =
+            write_mow_history(tablets.source_tablet, tablets.source_tablet->tablet_schema(), 31013);
+    ASSERT_TRUE(history_result.has_value()) << history_result.error();
+    std::vector<RowsetSharedPtr> history {history_result.value()};
+
+    auto partial_update_info = std::make_shared<PartialUpdateInfo>();
+    ASSERT_TRUE(partial_update_info
+                        ->init(tablets.source_tablet->tablet_id(), 1,
+                               *tablets.source_tablet->tablet_schema(),
+                               UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS,
+                               PartialUpdateNewRowPolicyPB::APPEND, {}, false, 0, 0, "UTC", "")
+                        .ok());
+
+    const std::vector<FlexibleSequenceRow> rows {
+            {.key = 0, .v1 = 9000, .v2 = 9900, .sequence = 4999, .is_delete = false},
+            {.key = 1, .v1 = 9001, .v2 = 9901, .sequence = 5000, .is_delete = true},
+            {.key = 2, .v1 = 9002, .v2 = 9902, .sequence = 6002, .is_delete = false},
+    };
+    auto base_block_result =
+            create_flexible_sequence_block(tablets.source_tablet->tablet_schema(), rows);
+    ASSERT_TRUE(base_block_result.has_value()) << base_block_result.error();
+    auto binlog_block_result =
+            create_flexible_sequence_block(tablets.source_tablet->tablet_schema(), rows);
+    ASSERT_TRUE(binlog_block_result.has_value()) << binlog_block_result.error();
+
+    auto mow_context = make_mow_context(tablets.source_tablet->tablet_id(), history);
+    constexpr std::string_view base_case_name = "mow_flexible_sequence_alignment_base";
+    std::shared_ptr<TestSegmentCollector> base_collector;
+    auto base_flush_status = flush_blocks_without_golden(
+            base_case_name, tablets.source_tablet->tablet_schema(),
+            {std::move(base_block_result).value()}, false, true,
+            [this, tablets, partial_update_info, history,
+             mow_context](RowsetWriterContext& context) {
+                configure_partial_update_context(context, tablets.source_tablet,
+                                                 partial_update_info, history);
+                context.mow_context = mow_context;
+            },
+            &base_collector);
+    ASSERT_TRUE(base_flush_status.ok()) << base_flush_status;
+    ASSERT_NE(base_collector, nullptr);
+    ASSERT_EQ(base_collector->segment_ids, (std::vector<uint32_t> {0}));
+    ASSERT_EQ(base_collector->segment_statistics.size(), 1);
+    ASSERT_EQ(base_collector->segment_statistics[0].row_num, 3);
+
+    RowsetId writing_rowset_id;
+    writing_rowset_id.init(10002);
+    EXPECT_TRUE(mow_context->delete_bitmap->contains(
+            {writing_rowset_id, 0, DeleteBitmap::TEMP_VERSION_COMMON}, 0));
+    EXPECT_TRUE(mow_context->delete_bitmap->contains(
+            {writing_rowset_id, 0, DeleteBitmap::TEMP_VERSION_COMMON}, 1));
+    EXPECT_FALSE(mow_context->delete_bitmap->contains(
+            {writing_rowset_id, 0, DeleteBitmap::TEMP_VERSION_COMMON}, 2));
+
+    RowsetWriterContext base_read_context;
+    base_read_context.tablet_schema = tablets.source_tablet->tablet_schema();
+    base_read_context.tablet_id = tablets.source_tablet->tablet_id();
+    base_read_context.rowset_id = writing_rowset_id;
+    auto base_segment =
+            read_logical_segment(fmt::format("{}/{}/segment_0.dat", kTestDir, base_case_name), 0,
+                                 tablets.source_tablet->tablet_schema(), base_read_context, true);
+    ASSERT_TRUE(base_segment.has_value()) << base_segment.error();
+    ASSERT_EQ(base_segment->block.rows(), 3);
+    EXPECT_TRUE(verify_segment_field(base_segment->block, "k1", 0,
+                                     Field::create_field<TYPE_INT>(Int32(0)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(base_segment->block, "k1", 1,
+                                     Field::create_field<TYPE_INT>(Int32(1)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(base_segment->block, "k1", 2,
+                                     Field::create_field<TYPE_INT>(Int32(2)))
+                        .ok());
+
+    constexpr std::string_view binlog_case_name = "mow_flexible_sequence_alignment_binlog";
+    std::shared_ptr<TestSegmentCollector> binlog_collector;
+    auto binlog_flush_status = flush_blocks_without_golden(
+            binlog_case_name, tablets.binlog_tablet->tablet_schema(),
+            {std::move(binlog_block_result).value()}, false, false,
+            [this, tablets, partial_update_info, history,
+             mow_context](RowsetWriterContext& context) {
+                configure_row_binlog_context(context, tablets.source_tablet, tablets.binlog_tablet,
+                                             partial_update_info, history, false, 3);
+                context.write_binlog_opt().write_binlog_config().source.mow_context = mow_context;
+            },
+            &binlog_collector);
+    ASSERT_TRUE(binlog_flush_status.ok()) << binlog_flush_status;
+    ASSERT_NE(binlog_collector, nullptr);
+    ASSERT_EQ(binlog_collector->segment_ids, (std::vector<uint32_t> {0}));
+    ASSERT_EQ(binlog_collector->segment_statistics.size(), 1);
+    ASSERT_EQ(binlog_collector->segment_statistics[0].row_num, 3);
+
+    auto binlog_segment = read_row_binlog_segment(tablets.binlog_tablet, binlog_case_name, 0);
+    ASSERT_TRUE(binlog_segment.has_value()) << binlog_segment.error();
+    ASSERT_EQ(binlog_segment->rows(), 3);
+    EXPECT_TRUE(
+            verify_segment_field(*binlog_segment, "k1", 0, Field::create_field<TYPE_INT>(Int32(0)))
+                    .ok());
+    EXPECT_TRUE(
+            verify_segment_field(*binlog_segment, "k1", 1, Field::create_field<TYPE_INT>(Int32(1)))
+                    .ok());
+    EXPECT_TRUE(
+            verify_segment_field(*binlog_segment, "k1", 2, Field::create_field<TYPE_INT>(Int32(2)))
+                    .ok());
+    EXPECT_TRUE(verify_segment_field(*binlog_segment, BINLOG_LSN_COL, 0,
+                                     Field::create_field<TYPE_BIGINT>(Int64(1000)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(*binlog_segment, BINLOG_OP_COL, 0,
+                                     Field::create_field<TYPE_BIGINT>(Int64(ROW_BINLOG_UPDATE)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(*binlog_segment, BINLOG_LSN_COL, 1,
+                                     Field::create_field<TYPE_BIGINT>(Int64(1001)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(*binlog_segment, BINLOG_OP_COL, 1,
+                                     Field::create_field<TYPE_BIGINT>(Int64(ROW_BINLOG_DELETE)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(*binlog_segment, BINLOG_LSN_COL, 2,
+                                     Field::create_field<TYPE_BIGINT>(Int64(1002)))
+                        .ok());
+    EXPECT_TRUE(verify_segment_field(*binlog_segment, BINLOG_OP_COL, 2,
+                                     Field::create_field<TYPE_BIGINT>(Int64(ROW_BINLOG_APPEND)))
+                        .ok());
 }
 
 TEST_F(SegmentFlusherFormatTest, VariantLogicalComparisonPreservesScalarTypes) {
