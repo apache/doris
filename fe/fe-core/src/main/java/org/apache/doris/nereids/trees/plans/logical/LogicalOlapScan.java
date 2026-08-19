@@ -963,6 +963,19 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     @Override
     public void computeUnique(DataTrait.Builder builder) {
+        // Raw-version reads expose superseded rows: with skipDeleteBitmap, rows replaced by
+        // later versions are read; with read_mor_as_dup_tables, MOR tables are read as DUP and
+        // expose every version. Uniqueness — including the table-level constraints imported by
+        // super.computeUnique() — does not hold for the data actually read, so suppress it here
+        // before super runs; otherwise the raw-version guard below would return after the
+        // constraint was already registered.
+        if (getTable().getKeysType() == KeysType.UNIQUE_KEYS
+                && (ConnectContext.get().getSessionVariable().skipDeleteBitmap
+                    || (getTable().isMorTable()
+                        && ConnectContext.get().getSessionVariable().isReadMorAsDupEnabled(
+                            getTable().getQualifiedDbName(), getTable().getName())))) {
+            return;
+        }
         super.computeUnique(builder);
         if (this.selectedIndexId != getTable().getBaseIndexId()) {
             /*
@@ -1010,19 +1023,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             builder.addUniqueSlot(originalPlan.getLogicalProperties().getTrait());
             builder.replaceUniqueBy(constructReplaceMap(mtmv));
         } else if (getTable().getKeysType().isAggregationFamily() && !getTable().isRandomDistribution()) {
-            // When skipDeleteBitmap is set to true, in the unique model, rows that are replaced due to having the same
-            // unique key will also be read. As a result, the uniqueness of the unique key cannot be guaranteed.
-            if (ConnectContext.get().getSessionVariable().skipDeleteBitmap
-                    && getTable().getKeysType() == KeysType.UNIQUE_KEYS) {
-                return;
-            }
-            // When readMorAsDup is enabled, MOR tables are read as DUP, so uniqueness cannot be guaranteed.
-            if (getTable().getKeysType() == KeysType.UNIQUE_KEYS
-                    && getTable().isMorTable()
-                    && ConnectContext.get().getSessionVariable().isReadMorAsDupEnabled(
-                        getTable().getQualifiedDbName(), getTable().getName())) {
-                return;
-            }
+            // raw-version guards (skipDeleteBitmap / read_mor_as_dup_tables) are checked at the
+            // top of this method, before super.computeUnique() imports table-level constraints
             ImmutableSet.Builder<Slot> uniqSlots = ImmutableSet.builderWithExpectedSize(outputSet.size());
             for (Slot slot : outputSet) {
                 if (!(slot instanceof SlotReference)) {
