@@ -59,8 +59,7 @@ struct PaimonJniWriterOpenMode {
 /// common backend contract.
 class JniPaimonWriteBackend final : public IPaimonWriteBackend {
 public:
-    explicit JniPaimonWriteBackend(std::shared_ptr<PaimonWriterMemoryLease> memory_lease)
-            : _memory_lease(std::move(memory_lease)) {}
+    explicit JniPaimonWriteBackend(std::unique_ptr<PaimonWriterMemoryLease> memory_lease);
     ~JniPaimonWriteBackend() override;
 
     Status open(const TPaimonTableSink& sink, RuntimeState* state,
@@ -85,7 +84,7 @@ private:
     jmethodID _close_id = nullptr;
 
     TPaimonTableSink _sink;
-    std::shared_ptr<PaimonWriterMemoryLease> _memory_lease;
+    std::unique_ptr<PaimonWriterMemoryLease> _memory_lease;
     std::unique_ptr<PaimonJniMemoryManager> _memory_manager;
     int64_t _arrow_memory_limit_bytes = 0;
     RuntimeProfile::Counter* _native_page_memory_limit = nullptr;

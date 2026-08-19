@@ -39,30 +39,32 @@ class PaimonWriterMemoryLease;
 /// manager alive for at least as long as the Java writer can access its
 /// callback handle.
 ///
-/// The limit comes from an operator-scoped writer lease. A LocalState must own
-/// the complete lease before entering the synchronous Java writer, so JNI page
-/// allocation never waits while holding only part of its Paimon memory pool.
-/// The manager accounts only for pages allocated by this callback; Java heap
-/// and other Paimon-managed memory remain under their respective runtimes.
+/// The limit comes from an operator-scoped writer lease. The first JNI page
+/// request synchronously acquires the complete lease before allocating a page,
+/// so waiting never happens while the writer holds only part of its Paimon
+/// memory pool. The manager accounts only for pages allocated by this callback;
+/// Java heap and other Paimon-managed memory remain under their respective
+/// runtimes.
 class PaimonJniMemoryManager {
 public:
     ~PaimonJniMemoryManager();
 
-    /// Construct a manager backed by an already granted writer lease.
+    /// Construct a manager backed by a writer lease.
     ///
     /// The query must provide both a memory tracker and QueryContext.  The
     /// latter supplies the ResourceContext used whenever allocation/freeing
     /// crosses into a JNI-created thread.
-    static Status create(RuntimeState* state, std::shared_ptr<PaimonWriterMemoryLease> memory_lease,
+    static Status create(RuntimeState* state, std::unique_ptr<PaimonWriterMemoryLease> memory_lease,
                          std::unique_ptr<PaimonJniMemoryManager>* manager);
     /// Register the static JNI callback used by PaimonJniWriter.
     static Status register_natives(JNIEnv* env, jclass writer_class);
 
     /// Allocate one native page and return it as a direct ByteBuffer.
     ///
-    /// Admission and waiting happen before the synchronous Java writer is opened. If Doris rejects
-    /// an actual allocation after admission, this method leaves no accounting entry behind and
-    /// reports the error through the JNI environment. The returned buffer remains
+    /// The first call synchronously waits for the complete writer budget before allocating any
+    /// page. If Doris rejects an actual allocation after admission, this method leaves no
+    /// accounting entry behind and reports the error through the JNI environment. The returned
+    /// buffer remains
     /// valid until the manager is destroyed (or allocation of that page is
     /// rolled back because NewDirectByteBuffer failed).
     jobject allocate_page(JNIEnv* env, jint bytes);

@@ -17,12 +17,13 @@
 
 #include "exec/sink/writer/paimon/ffi_paimon_write_backend.h"
 #include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
+#include "exec/sink/writer/paimon/paimon_sink_memory_allocator.h"
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
 
 namespace doris {
 
 Status PaimonWriteBackendFactory::create(const TPaimonTableSink& sink,
-                                         std::shared_ptr<PaimonWriterMemoryLease> memory_lease,
+                                         std::unique_ptr<PaimonWriterMemoryLease> memory_lease,
                                          std::unique_ptr<IPaimonWriteBackend>* backend) {
     switch (select_backend_type(sink)) {
     case PaimonBackendType::JNI:

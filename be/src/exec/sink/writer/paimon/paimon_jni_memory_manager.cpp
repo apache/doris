@@ -41,7 +41,7 @@ namespace doris {
 class PaimonJniMemoryManager::Impl {
 public:
     Impl(std::shared_ptr<ResourceContext> resource_context,
-         std::shared_ptr<PaimonWriterMemoryLease> memory_lease)
+         std::unique_ptr<PaimonWriterMemoryLease> memory_lease)
             : _resource_context(std::move(resource_context)),
               _memory_lease(std::move(memory_lease)),
               _memory_limit(_memory_lease->memory_limit()) {
@@ -68,13 +68,21 @@ public:
         if (!release_status.ok()) {
             _memory_lease->poison(release_status);
         }
-        _memory_lease->release();
+        _memory_lease.reset();
     }
 
     jobject allocate_page(JNIEnv* env, jint bytes) {
         if (bytes <= 0) {
             throw Exception(Status::InvalidArgument(
                     "Paimon JNI memory page size must be positive, actual={}", bytes));
+        }
+
+        // Synchronously acquire the complete writer budget at the first real JNI page request.
+        // A waiting writer owns no Paimon native pages, so concurrent writers cannot each hold a
+        // partial pool while waiting for the others to release memory.
+        auto acquire_status = _memory_lease->acquire(_resource_context->task_controller());
+        if (!acquire_status.ok()) {
+            throw Exception(acquire_status);
         }
 
         // Reserve the writer-local budget before entering the allocator. This
@@ -238,8 +246,8 @@ private:
 
     // Query resource context used for all native allocator operations.
     std::shared_ptr<ResourceContext> _resource_context;
-    // Keeps the operator admission lease until every Java-backed page has been released.
-    std::shared_ptr<PaimonWriterMemoryLease> _memory_lease;
+    // Owns the operator admission lease until every Java-backed page has been released.
+    std::unique_ptr<PaimonWriterMemoryLease> _memory_lease;
     // Immutable per-writer cap granted by the operator-scoped allocator.
     const int64_t _memory_limit;
     // Doris allocator used instead of JVM/Arrow allocation so native pages are
@@ -304,7 +312,7 @@ PaimonJniMemoryManager::PaimonJniMemoryManager(std::unique_ptr<Impl> impl)
 PaimonJniMemoryManager::~PaimonJniMemoryManager() = default;
 
 Status PaimonJniMemoryManager::create(RuntimeState* state,
-                                      std::shared_ptr<PaimonWriterMemoryLease> memory_lease,
+                                      std::unique_ptr<PaimonWriterMemoryLease> memory_lease,
                                       std::unique_ptr<PaimonJniMemoryManager>* manager) {
     DORIS_CHECK(state != nullptr);
     DORIS_CHECK(manager != nullptr);
@@ -314,7 +322,6 @@ Status PaimonJniMemoryManager::create(RuntimeState* state,
     }
 
     DORIS_CHECK(memory_lease != nullptr);
-    RETURN_IF_ERROR(memory_lease->check_ready());
 
     // ResourceContext is retained by Impl for the manager's whole lifetime so JNI callbacks stay
     // associated with the query even if Paimon invokes one from a Java-created thread.

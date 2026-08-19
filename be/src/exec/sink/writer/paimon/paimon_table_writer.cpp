@@ -21,18 +21,21 @@
 #include "common/logging.h"
 #include "core/block/block.h"
 #include "core/block/materialize_block.h"
+#include "exec/sink/writer/paimon/paimon_sink_memory_allocator.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
 
 PaimonTableWriter::PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs,
-                                     std::shared_ptr<PaimonWriterMemoryLease> memory_lease)
+                                     std::unique_ptr<PaimonWriterMemoryLease> memory_lease)
         : _t_sink(std::move(t_sink)),
           _output_expr_ctxs(output_exprs),
           _memory_lease(std::move(memory_lease)) {
     DCHECK(_t_sink.__isset.paimon_table_sink);
 }
+
+PaimonTableWriter::~PaimonTableWriter() = default;
 
 Status PaimonTableWriter::_projection_block(Block& input_block, Block* output_block) {
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_expr_ctxs,
@@ -43,27 +46,24 @@ Status PaimonTableWriter::_projection_block(Block& input_block, Block* output_bl
 
 Status PaimonTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _state = state;
-    _operator_profile = profile;
 
     // Register profile counters
-    _written_rows_counter = ADD_COUNTER(_operator_profile, "WrittenRows", TUnit::UNIT);
-    _written_bytes_counter = ADD_COUNTER(_operator_profile, "WrittenBytes", TUnit::BYTES);
-    _send_data_timer = ADD_TIMER(_operator_profile, "SendDataTime");
-    _project_timer = ADD_CHILD_TIMER(_operator_profile, "ProjectTime", "SendDataTime");
-    _file_store_write_timer =
-            ADD_CHILD_TIMER(_operator_profile, "FileStoreWriteTime", "SendDataTime");
-    _open_timer = ADD_TIMER(_operator_profile, "OpenTime");
-    _close_timer = ADD_TIMER(_operator_profile, "CloseTime");
-    _prepare_commit_timer = ADD_TIMER(_operator_profile, "PrepareCommitTime");
-    _commit_payload_count = ADD_COUNTER(_operator_profile, "CommitPayloadCount", TUnit::UNIT);
-    _commit_payload_bytes_counter =
-            ADD_COUNTER(_operator_profile, "CommitPayloadBytes", TUnit::BYTES);
+    _written_rows_counter = ADD_COUNTER(profile, "WrittenRows", TUnit::UNIT);
+    _written_bytes_counter = ADD_COUNTER(profile, "WrittenBytes", TUnit::BYTES);
+    _send_data_timer = ADD_TIMER(profile, "SendDataTime");
+    _project_timer = ADD_CHILD_TIMER(profile, "ProjectTime", "SendDataTime");
+    _file_store_write_timer = ADD_CHILD_TIMER(profile, "FileStoreWriteTime", "SendDataTime");
+    _open_timer = ADD_TIMER(profile, "OpenTime");
+    _close_timer = ADD_TIMER(profile, "CloseTime");
+    _prepare_commit_timer = ADD_TIMER(profile, "PrepareCommitTime");
+    _commit_payload_count = ADD_COUNTER(profile, "CommitPayloadCount", TUnit::UNIT);
+    _commit_payload_bytes_counter = ADD_COUNTER(profile, "CommitPayloadBytes", TUnit::BYTES);
 
     SCOPED_TIMER(_open_timer);
 
     // Step 1: Create the backend (JNI or FFI) based on the sink configuration.
-    RETURN_IF_ERROR(
-            PaimonWriteBackendFactory::create(_t_sink.paimon_table_sink, _memory_lease, &_backend));
+    RETURN_IF_ERROR(PaimonWriteBackendFactory::create(_t_sink.paimon_table_sink,
+                                                      std::move(_memory_lease), &_backend));
     DCHECK(_backend);
     // Step 2: Open the backend — for JNI this loads the Java class and calls PaimonJniWriter.open().
     RETURN_IF_ERROR(_backend->open(_t_sink.paimon_table_sink, state, profile));
@@ -92,15 +92,15 @@ Status PaimonTableWriter::write(RuntimeState* state, Block& block) {
 
     COUNTER_UPDATE(_written_rows_counter, block.rows());
     COUNTER_UPDATE(_written_bytes_counter, block.bytes());
-    _state->update_num_rows_load_total(block.rows());
-    _state->update_num_bytes_load_total(block.bytes());
+    state->update_num_rows_load_total(block.rows());
+    state->update_num_bytes_load_total(block.bytes());
 
     // Step 2: Delegate to the backend writer (JNI or FFI). For the JNI path
     // this converts Block → Arrow IPC → direct buffer → Java PaimonJniWriter.
     DCHECK(_writer);
     {
         SCOPED_TIMER(_file_store_write_timer);
-        RETURN_IF_ERROR(_writer->write(_state, output_block));
+        RETURN_IF_ERROR(_writer->write(state, output_block));
     }
     _written_rows += block.rows();
     return Status::OK();

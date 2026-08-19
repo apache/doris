@@ -17,35 +17,33 @@
 
 #pragma once
 
-#include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <memory>
 #include <mutex>
-#include <unordered_map>
-#include <vector>
+#include <utility>
 
 #include "common/status.h"
-#include "exec/pipeline/dependency.h"
 
 namespace doris {
 
 class RuntimeState;
+class TaskController;
 class PaimonWriterMemoryLease;
 
 /// Operator-scoped admission controller for Paimon writer memory.
 ///
-/// A writer receives its complete Paimon-page budget plus Arrow headroom before
-/// it enters the synchronous JNI writer. This avoids page-level resource
-/// cycles: an admitted writer never waits for another writer while already
-/// holding part of its Paimon pool.
+/// The first JNI page allocation synchronously acquires the writer's complete
+/// Paimon-page budget plus Arrow headroom. A writer that cannot acquire the
+/// complete budget waits without holding any Paimon native pages, avoiding
+/// page-level resource cycles between concurrent writers.
 class PaimonSinkMemoryAllocator : public std::enable_shared_from_this<PaimonSinkMemoryAllocator> {
 public:
     static Status create(RuntimeState* state,
                          std::shared_ptr<PaimonSinkMemoryAllocator>* allocator);
 
-    Status register_writer(const DependencySPtr& dependency,
-                           std::shared_ptr<PaimonWriterMemoryLease>* lease);
+    Status create_lease(std::unique_ptr<PaimonWriterMemoryLease>* lease);
 
     /// Prevent new writers from entering and wake current waiters with error.
     void poison(const Status& status);
@@ -53,32 +51,27 @@ public:
 private:
     friend class PaimonWriterMemoryLease;
 
-    struct Waiter {
-        uint64_t writer_id;
-        std::weak_ptr<PaimonWriterMemoryLease> lease;
-    };
-
     PaimonSinkMemoryAllocator(int64_t total_budget, int64_t writer_budget,
                               int64_t page_memory_limit)
             : _total_budget(total_budget),
               _writer_budget(writer_budget),
               _page_memory_limit(page_memory_limit) {}
 
-    Status _check_lease(uint64_t writer_id) const;
-    void _release_lease(uint64_t writer_id);
+    Status _acquire_lease(PaimonWriterMemoryLease* lease, TaskController* task_controller);
+    void _release_lease(PaimonWriterMemoryLease* lease);
 
     const int64_t _total_budget;
     const int64_t _writer_budget;
     const int64_t _page_memory_limit;
 
-    mutable std::mutex _mutex;
+    std::mutex _mutex;
+    std::condition_variable _cv;
     uint64_t _next_writer_id = 1;
     // Logical admission budget, not a Doris MemTracker reservation. Actual pages are still
     // allocated and accounted by PaimonJniMemoryManager after the lease is granted.
     int64_t _leased_bytes = 0;
     Status _status;
-    std::unordered_map<uint64_t, std::weak_ptr<PaimonWriterMemoryLease>> _active_leases;
-    std::deque<Waiter> _waiters;
+    std::deque<uint64_t> _waiters;
 };
 
 /// One local-state writer's claim on the shared operator memory budget.
@@ -87,31 +80,25 @@ public:
     ~PaimonWriterMemoryLease();
 
     int64_t memory_limit() const { return _memory_limit; }
-    bool granted() const { return _granted.load(std::memory_order_acquire); }
-    Status check_ready() const;
+    Status acquire(TaskController* task_controller);
 
-    /// Idempotently return this writer's complete lease to the operator pool.
-    void release();
     void poison(const Status& status);
 
 private:
     friend class PaimonSinkMemoryAllocator;
 
     PaimonWriterMemoryLease(std::shared_ptr<PaimonSinkMemoryAllocator> allocator,
-                            uint64_t writer_id, int64_t memory_limit, DependencySPtr dependency)
+                            uint64_t writer_id, int64_t memory_limit)
             : _allocator(std::move(allocator)),
               _writer_id(writer_id),
-              _memory_limit(memory_limit),
-              _dependency(std::move(dependency)) {}
-
-    void _grant() { _granted.store(true, std::memory_order_release); }
+              _memory_limit(memory_limit) {}
 
     std::shared_ptr<PaimonSinkMemoryAllocator> _allocator;
     const uint64_t _writer_id;
     const int64_t _memory_limit;
-    DependencySPtr _dependency;
-    std::atomic<bool> _granted = false;
-    std::atomic<bool> _released = false;
+    // Both fields are protected by the allocator mutex.
+    bool _waiting = false;
+    bool _acquired = false;
 };
 
 } // namespace doris

@@ -20,12 +20,10 @@
 #include <gen_cpp/DataSinks_types.h>
 
 #include <memory>
-#include <string>
 
 #include "common/status.h"
 #include "core/block/block.h"
 #include "exec/sink/writer/paimon/paimon_write_backend.h"
-#include "exec/sink/writer/result_writer.h"
 #include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_profile.h"
 
@@ -65,20 +63,18 @@ class PaimonWriterMemoryLease;
 ///          → collect TPaimonCommitMessage[] (DPCM-framed serialized messages)
 ///          → RuntimeState::add_paimon_commit_messages()
 ///          → RPC to FE Coordinator → PaimonTransaction
-class PaimonTableWriter final : public ResultWriter {
+class PaimonTableWriter final {
 public:
     PaimonTableWriter(TDataSink t_sink, const VExprContextSPtrs& output_exprs,
-                      std::shared_ptr<PaimonWriterMemoryLease> memory_lease);
+                      std::unique_ptr<PaimonWriterMemoryLease> memory_lease);
 
-    ~PaimonTableWriter() override = default;
-
-    Status init(RuntimeState*) override { return Status::OK(); }
+    ~PaimonTableWriter();
 
     Status open(RuntimeState* state, RuntimeProfile* profile);
 
-    Status write(RuntimeState* state, Block& block) override;
+    Status write(RuntimeState* state, Block& block);
 
-    Status close(Status status) override;
+    Status close(Status status);
 
 private:
     Status _projection_block(Block& input_block, Block* output_block);
@@ -86,8 +82,8 @@ private:
     TDataSink _t_sink;
     const VExprContextSPtrs& _output_expr_ctxs;
     RuntimeState* _state = nullptr;
-    RuntimeProfile* _operator_profile = nullptr;
-    std::shared_ptr<PaimonWriterMemoryLease> _memory_lease;
+    std::unique_ptr<PaimonWriterMemoryLease> _memory_lease;
+    int64_t _written_rows = 0;
 
     // Backend owns the JNI/FFI connection and creates the writer adapter.
     // Both are scoped to this PaimonTableWriter (one per LocalState).

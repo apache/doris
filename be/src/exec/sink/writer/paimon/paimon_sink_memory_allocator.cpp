@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_state.h"
+#include "runtime/workload_management/task_controller.h"
 #include "util/pretty_printer.h"
 
 namespace doris {
@@ -67,120 +68,99 @@ Status PaimonSinkMemoryAllocator::create(RuntimeState* state,
     return Status::OK();
 }
 
-Status PaimonSinkMemoryAllocator::register_writer(const DependencySPtr& dependency,
-                                                  std::shared_ptr<PaimonWriterMemoryLease>* lease) {
-    DORIS_CHECK(dependency != nullptr);
+Status PaimonSinkMemoryAllocator::create_lease(std::unique_ptr<PaimonWriterMemoryLease>* lease) {
     DORIS_CHECK(lease != nullptr);
 
-    bool granted = false;
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (!_status.ok()) {
-            return _status;
-        }
-
-        const uint64_t writer_id = _next_writer_id++;
-        auto new_lease = std::shared_ptr<PaimonWriterMemoryLease>(new PaimonWriterMemoryLease(
-                shared_from_this(), writer_id, _page_memory_limit, dependency));
-        if (_leased_bytes <= _total_budget - _writer_budget) {
-            _leased_bytes += _writer_budget;
-            _active_leases.emplace(writer_id, new_lease);
-            new_lease->_grant();
-            granted = true;
-        } else {
-            dependency->block();
-            _waiters.push_back({writer_id, new_lease});
-        }
-        *lease = std::move(new_lease);
-    }
-
-    if (granted) {
-        dependency->set_ready();
-    }
-    return Status::OK();
-}
-
-Status PaimonSinkMemoryAllocator::_check_lease(uint64_t writer_id) const {
     std::lock_guard<std::mutex> lock(_mutex);
     if (!_status.ok()) {
         return _status;
     }
-    if (!_active_leases.contains(writer_id)) {
-        return Status::InternalError("Paimon writer memory lease {} is not active", writer_id);
-    }
+
+    const uint64_t writer_id = _next_writer_id++;
+    auto new_lease = std::unique_ptr<PaimonWriterMemoryLease>(
+            new PaimonWriterMemoryLease(shared_from_this(), writer_id, _page_memory_limit));
+    *lease = std::move(new_lease);
     return Status::OK();
 }
 
-void PaimonSinkMemoryAllocator::_release_lease(uint64_t writer_id) {
-    std::vector<DependencySPtr> ready_dependencies;
+Status PaimonSinkMemoryAllocator::_acquire_lease(PaimonWriterMemoryLease* lease,
+                                                 TaskController* task_controller) {
+    DORIS_CHECK(lease != nullptr);
+    DORIS_CHECK(task_controller != nullptr);
+    std::unique_lock<std::mutex> lock(_mutex);
+    if (lease->_acquired) {
+        return Status::OK();
+    }
+    if (!lease->_waiting) {
+        lease->_waiting = true;
+        _waiters.push_back(lease->_writer_id);
+    }
+
+    while (true) {
+        if (!_status.ok()) {
+            std::erase(_waiters, lease->_writer_id);
+            lease->_waiting = false;
+            return _status;
+        }
+        if (task_controller->is_cancelled()) {
+            std::erase(_waiters, lease->_writer_id);
+            lease->_waiting = false;
+            _cv.notify_all();
+            return Status::Cancelled(
+                    "Paimon writer memory allocation stopped because the query was cancelled");
+        }
+        if (lease->_acquired) {
+            return Status::OK();
+        }
+
+        if (!_waiters.empty() && _waiters.front() == lease->_writer_id &&
+            _leased_bytes <= _total_budget - _writer_budget) {
+            _waiters.pop_front();
+            lease->_waiting = false;
+            lease->_acquired = true;
+            _leased_bytes += _writer_budget;
+            // Wake another callback of the same writer, if Java issued concurrent page requests.
+            _cv.notify_all();
+            return Status::OK();
+        }
+        _cv.wait(lock);
+    }
+}
+
+void PaimonSinkMemoryAllocator::_release_lease(PaimonWriterMemoryLease* lease) {
+    DORIS_CHECK(lease != nullptr);
     {
         std::lock_guard<std::mutex> lock(_mutex);
-        auto active_it = _active_leases.find(writer_id);
-        if (active_it != _active_leases.end()) {
-            _active_leases.erase(active_it);
+        if (lease->_acquired) {
             _leased_bytes -= _writer_budget;
-        } else {
-            std::erase_if(_waiters,
-                          [&](const Waiter& waiter) { return waiter.writer_id == writer_id; });
+            lease->_acquired = false;
         }
-
-        while (_status.ok() && !_waiters.empty() &&
-               _leased_bytes <= _total_budget - _writer_budget) {
-            Waiter waiter = _waiters.front();
-            _waiters.pop_front();
-            auto next_lease = waiter.lease.lock();
-            if (next_lease == nullptr || next_lease->_released.load(std::memory_order_acquire)) {
-                continue;
-            }
-            _leased_bytes += _writer_budget;
-            _active_leases.emplace(waiter.writer_id, next_lease);
-            next_lease->_grant();
-            ready_dependencies.push_back(next_lease->_dependency);
+        if (lease->_waiting) {
+            std::erase(_waiters, lease->_writer_id);
+            lease->_waiting = false;
         }
     }
-
-    for (const auto& dependency : ready_dependencies) {
-        dependency->set_ready();
-    }
+    _cv.notify_all();
 }
 
 void PaimonSinkMemoryAllocator::poison(const Status& status) {
     DORIS_CHECK(!status.ok());
-    std::vector<DependencySPtr> ready_dependencies;
     {
         std::lock_guard<std::mutex> lock(_mutex);
         if (!_status.ok()) {
             return;
         }
         _status = status;
-        for (const auto& waiter : _waiters) {
-            if (auto lease = waiter.lease.lock()) {
-                ready_dependencies.push_back(lease->_dependency);
-            }
-        }
-        _waiters.clear();
     }
-    for (const auto& dependency : ready_dependencies) {
-        dependency->set_ready();
-    }
+    _cv.notify_all();
 }
 
 PaimonWriterMemoryLease::~PaimonWriterMemoryLease() {
-    release();
+    _allocator->_release_lease(this);
 }
 
-Status PaimonWriterMemoryLease::check_ready() const {
-    RETURN_IF_ERROR(_allocator->_check_lease(_writer_id));
-    if (!granted()) {
-        return Status::InternalError("Paimon writer memory lease is not ready");
-    }
-    return Status::OK();
-}
-
-void PaimonWriterMemoryLease::release() {
-    if (!_released.exchange(true, std::memory_order_acq_rel)) {
-        _allocator->_release_lease(_writer_id);
-    }
+Status PaimonWriterMemoryLease::acquire(TaskController* task_controller) {
+    return _allocator->_acquire_lease(this, task_controller);
 }
 
 void PaimonWriterMemoryLease::poison(const Status& status) {

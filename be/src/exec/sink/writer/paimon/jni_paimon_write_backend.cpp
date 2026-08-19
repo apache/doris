@@ -38,6 +38,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
+#include "exec/sink/writer/paimon/paimon_sink_memory_allocator.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "runtime/exec_env.h"
@@ -158,6 +159,9 @@ PaimonJniWriterOpenMode PaimonJniWriterOpenMode::from_write_mode(
             static_cast<jboolean>(write_mode == TPaimonWriteMode::CHANGELOG)};
 }
 
+JniPaimonWriteBackend::JniPaimonWriteBackend(std::unique_ptr<PaimonWriterMemoryLease> memory_lease)
+        : _memory_lease(std::move(memory_lease)) {}
+
 JniPaimonWriteBackend::~JniPaimonWriteBackend() {
     Status st = close();
     if (!st.ok()) {
@@ -168,6 +172,7 @@ JniPaimonWriteBackend::~JniPaimonWriteBackend() {
 Status JniPaimonWriteBackend::close() {
     if (_jni_writer_obj == nullptr && _jni_writer_cls == nullptr) {
         _memory_manager.reset();
+        _memory_lease.reset();
         _opened = false;
         return Status::OK();
     }
@@ -297,7 +302,8 @@ Status JniPaimonWriteBackend::open(const TPaimonTableSink& sink, RuntimeState* s
 
     _arrow_memory_limit_bytes = config::paimon_jni_writer_arrow_memory_limit_bytes;
     DORIS_CHECK(_memory_lease != nullptr);
-    RETURN_IF_ERROR(PaimonJniMemoryManager::create(state, _memory_lease, &_memory_manager));
+    RETURN_IF_ERROR(
+            PaimonJniMemoryManager::create(state, std::move(_memory_lease), &_memory_manager));
     RuntimeProfile* jni_profile = profile->create_child("JniPaimonWriteBackend", true, true);
     _native_page_memory_limit = ADD_COUNTER(jni_profile, "NativePageMemoryLimit", TUnit::BYTES);
     _native_page_memory_peak = ADD_COUNTER(jni_profile, "NativePageMemoryPeak", TUnit::BYTES);

@@ -20,7 +20,6 @@
 #include <gen_cpp/DataSinks_types.h>
 
 #include <memory>
-#include <string>
 
 #include "common/status.h"
 #include "core/block/block.h"
@@ -60,14 +59,11 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
 
     [[nodiscard]] bool is_blockable() const override { return true; }
-    std::vector<Dependency*> dependencies() const override { return {_memory_dependency.get()}; }
 
 private:
     friend class PaimonTableSinkOperatorX;
 
     VExprContextSPtrs _output_vexpr_ctxs;
-    DependencySPtr _memory_dependency;
-    std::shared_ptr<PaimonWriterMemoryLease> _memory_lease;
     std::unique_ptr<PaimonTableWriter> _writer;
 };
 
