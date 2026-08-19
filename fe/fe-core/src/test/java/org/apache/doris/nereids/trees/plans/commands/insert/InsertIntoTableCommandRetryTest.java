@@ -52,6 +52,37 @@ public class InsertIntoTableCommandRetryTest extends TestWithFeService {
     }
 
     @Test
+    public void testFirstAttemptResetsPreviousInsertPlanningState() throws Exception {
+        String sql = "insert into insert_retry_test.target select 1, 2 where false";
+        connectContext.setQueryId(new TUniqueId(1, 2));
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        ((InsertIntoTableCommand) new NereidsParser().parseSingle(sql))
+                .initPlan(connectContext, executor, false);
+
+        connectContext.getStatementContext().getMvCanRewritePartitionsMap().put(
+                new BaseTableInfo(new TableNameInfo("internal", "db", "mv")),
+                Collections.singleton(Mockito.mock(Partition.class)));
+        InsertIntoTableCommand parsedCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+        TableIf targetTable = Env.getCurrentInternalCatalog().getDbOrMetaException("insert_retry_test")
+                .getTableOrMetaException("target");
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                parsedCommand, PlanType.INSERT_INTO_TABLE_COMMAND) {
+            @Override
+            protected TableIf getTargetTableIf(ConnectContext ctx, List<String> qualifiedTargetTableName) {
+                Assertions.assertTrue(ctx.getStatementContext().getMvCanRewritePartitionsMap().isEmpty());
+                return targetTable;
+            }
+
+            @Override
+            protected boolean needAuthCheck(TableIf targetTableIf) {
+                return false;
+            }
+        };
+
+        command.initPlan(connectContext, executor, false);
+    }
+
+    @Test
     public void testInternalReplanResetsMaterializedViewPlanningState() throws Exception {
         String sql = "insert into insert_retry_test.target select 1, 2 where false";
         InsertIntoTableCommand parsedCommand = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
