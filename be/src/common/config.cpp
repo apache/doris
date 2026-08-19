@@ -1683,6 +1683,22 @@ DEFINE_String(jni_plugin_dir, "${DORIS_HOME}/plugins/jni");
 // Nothing has to be here: a catalog that carries its hadoop properties explicitly needs no file.
 DEFINE_String(jni_plugin_hadoop_conf_dir, "${DORIS_HOME}/plugins/hadoop_conf");
 
+// Third-party hadoop FileSystem implementations shared by every Java plugin: JindoFS for oss://
+// and oss-hdfs://, JuiceFS for jfs://. One subdirectory per filesystem, each holding its jars.
+//
+// Shared rather than bundled into each plugin because no plugin declares them - hadoop reaches a
+// filesystem by class name out of a Configuration, so nothing links against them - and because
+// the JuiceFS Hadoop SDK is a 180 MB fat jar that would have to be copied into every plugin that
+// might read a table on it. PluginRuntime appends the jars found here to each plugin's own
+// classpath, AFTER the plugin's jars, so a plugin's own hadoop still wins; each plugin loads its
+// own copy in its own classloader, so the isolation is unchanged. This is also the directory
+// bin/start_be.sh puts on the system class path for the native libhdfs reader, which needs the
+// same jars for the same schemes - one copy on disk serves both.
+//
+// Nothing has to be here: both filesystems are opt-in build flags (DISABLE_BUILD_JINDOFS=OFF,
+// DISABLE_BUILD_JUICEFS=OFF), and a build without them leaves this directory absent.
+DEFINE_String(jni_plugin_fs_dir, "${DORIS_HOME}/plugins/jni_fs");
+
 // Whether to load every deployed plugin at startup rather than on the query that first needs
 // one. Off by default: warming a plugin keeps its whole jar closure open for the life of the
 // process - one classloader per plugin, holding every jar in its directory - which is several

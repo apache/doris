@@ -49,6 +49,20 @@ pass every check here, and still fail at runtime. The only thing that proves a c
 is loading the plugin out of the deployed directory for real. Treat a green run as "no
 STATICALLY visible hole", nothing more.
 
+BUNDLED THIRD-PARTY FILESYSTEMS are the sharpest edge of that, and have drawn blood twice. A
+plugin packages hadoop-huaweicloud or hadoop-azure for one URI scheme; hadoop reaches it by class
+NAME out of a Configuration, so no Doris class references it and the closure walk never enters it.
+Its own dependencies are then invisible too - hadoop-huaweicloud calls commons-lang 2.x from
+seven classes and carries no copy, which used to come from the shared preload classpath and now
+has to be declared by each plugin that bundles it. The per-plugin
+resolvesEveryFilesystemSchemeAScanCanArriveOn tests do not close the gap either: getFileSystemClass
+returns a Class without linking it, so a provider whose own dependencies are missing still
+resolves. Whenever a plugin gains a filesystem jar, read ITS constant pool, not just Doris's.
+
+The shared filesystem directory (plugins/jni_fs, appended to every plugin classloader for
+jindofs/juicefs) is outside this check entirely: it is not a plugin directory, so nothing here
+looks at it and nothing here accounts for classes a plugin resolves out of it.
+
 Exit status: 0 if every check passes, 1 if any fails, 2 if the tree or the tools are unusable.
 """
 import collections
@@ -271,13 +285,21 @@ def check_api_version_stamp(plugin, jars, served, fail):
     is a deployment-time "built against plugin API 2.0 but this BE serves 3.0" on a jar that was
     never built against 2.0 at all.
 
-    Only the jar declaring the service is checked, because that is the only one the loader reads.
+    Only the jar declaring the service is FAILED on, because that is the only one the loader reads.
+
+    Every other stamped jar in the directory is reported as a warning instead. Nothing at runtime
+    reads those stamps, so a mismatch there is not a defect in the deployed tree - but it is a
+    reliable sign of a jar that was not rebuilt, which nothing else in this script can see (this
+    check opens one jar per plugin, the closure check does not care when a class was compiled).
+    That is not hypothetical: a tree where every jar was stamped 3.0 except one left over at 2.0
+    passed all five checks, and the leftover was a stale build artifact, not a deliberate one.
     """
     if served is None:
         fail("api-version-stamp",
              "the SPI jar carries no %s; the version gate has nothing to compare against"
              % API_VERSION_RESOURCE)
         return
+    _warn_stale_stamps(plugin, jars, served)
     for jar in jars:
         if SERVICE_ENTRY not in _names(jar):
             continue
@@ -295,6 +317,24 @@ def check_api_version_stamp(plugin, jars, served, fail):
                  % (plugin, os.path.basename(jar), API_VERSION_ATTRIBUTE, declared, served))
         return
     # No provider jar at all is the sole-provider check's verdict to give, not this one's.
+
+
+def _warn_stale_stamps(plugin, jars, served):
+    """Stamped jars that do NOT declare the service and disagree with the served version.
+
+    A warning, never a failure: the loader reads the service jar's stamp and nothing else, so
+    asserting on these would be asserting on something no runtime consults - and a plugin is
+    free to bundle a third-party jar that carries its own unrelated build stamps.
+    """
+    for jar in jars:
+        if SERVICE_ENTRY in _names(jar):
+            continue
+        declared = _manifest_attribute(jar, API_VERSION_ATTRIBUTE)
+        if declared is not None and declared != served:
+            print("  WARN plugin '%s': %s is stamped %s=%s while this build serves %s. Nothing "
+                  "reads that stamp, so this is not a failure - but it usually means the jar was "
+                  "not rebuilt." % (plugin, os.path.basename(jar), API_VERSION_ATTRIBUTE,
+                                    declared, served))
 
 
 def _doris_owned(jars):
@@ -383,7 +423,11 @@ def main(argv):
         sys.stderr.write("no plugin directories under %s\n" % plugins_dir)
         # Not "could not run" when the shared layer has already been found broken: 2 is mapped to a
         # WARN by build.sh, which would report a real SPI failure as a check that did not happen.
-        return 1 if failures else 2
+        # When there ARE failures this falls through to the reporting tail instead of returning
+        # here, because this is the only place they get printed and build.sh says "see above".
+        if not failures:
+            return 2
+        plugins = []
     for plugin in plugins:
         pdir = os.path.join(plugins_dir, plugin)
         jars = sorted(os.path.join(pdir, f) for f in os.listdir(pdir) if f.endswith(".jar"))

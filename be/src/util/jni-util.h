@@ -25,6 +25,7 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <optional>
 #include <string>
 
 #include "common/status.h"
@@ -1213,6 +1214,13 @@ public:
         }
         return Status::OK();
     }
+
+    // The outcome of the one attempt to resolve the JNI base, or nullopt when nothing has
+    // attempted it yet. Public, unlike ensure_jni_base() below, precisely because it never
+    // triggers the attempt: this is what a reader that must not create a JVM asks - the
+    // /api/jni_plugin_status endpoint, which exists to answer "why is Java not working here"
+    // and would otherwise have to start a JVM to find out.
+    static std::optional<Status> jni_base_outcome();
 
 private:
     // Resolves everything the BE needs from the JVM before it can call any Java code: the

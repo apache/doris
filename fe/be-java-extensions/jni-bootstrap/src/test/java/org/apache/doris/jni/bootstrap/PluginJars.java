@@ -87,6 +87,54 @@ final class PluginJars {
         Files.write(pluginDir.resolve(fileName), content);
     }
 
+    /**
+     * A jar carrying one loadable class of the given name and nothing else.
+     *
+     * <p>The bytes are a minimal class file assembled here rather than copied off the test
+     * classpath, because these cases need a class name that exists NOWHERE else - the point is to
+     * prove which directory a class came from, and a copy of a class the test classloader can also
+     * reach proves nothing.
+     */
+    static void addClassJar(Path dir, String jarName, String className) throws IOException {
+        try (JarOutputStream jar = new JarOutputStream(
+                Files.newOutputStream(dir.resolve(jarName)), new Manifest())) {
+            write(jar, className.replace('.', '/') + ".class", emptyClass(className));
+        }
+    }
+
+    /**
+     * A class file for {@code className}: public, extends Object, no members.
+     *
+     * <p>JVMS 4.1, hand-assembled. Constant pool of four entries - this class, its name, Object,
+     * its name - then the access flags, the two class references and four empty counts.
+     */
+    private static byte[] emptyClass(String className) throws IOException {
+        String internal = className.replace('.', '/');
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try (java.io.DataOutputStream out = new java.io.DataOutputStream(bytes)) {
+            out.writeInt(0xCAFEBABE);
+            out.writeShort(0);  // minor
+            out.writeShort(52); // major: Java 8, readable by every JDK this builds on
+            out.writeShort(5);  // constant_pool_count = entries + 1
+            out.writeByte(7);   // #1 CONSTANT_Class
+            out.writeShort(2);
+            out.writeByte(1);   // #2 CONSTANT_Utf8
+            out.writeUTF(internal);
+            out.writeByte(7);   // #3 CONSTANT_Class
+            out.writeShort(4);
+            out.writeByte(1);   // #4 CONSTANT_Utf8
+            out.writeUTF("java/lang/Object");
+            out.writeShort(0x0021); // ACC_PUBLIC | ACC_SUPER
+            out.writeShort(1);  // this_class
+            out.writeShort(3);  // super_class
+            out.writeShort(0);  // interfaces
+            out.writeShort(0);  // fields
+            out.writeShort(0);  // methods
+            out.writeShort(0);  // attributes
+        }
+        return bytes.toByteArray();
+    }
+
     /** Packs BE's own SPI classes into the plugin, the mistake a provided-scope dependency avoids. */
     static void addSpiClass(Path pluginDir, String jarName) throws IOException {
         String resource = DorisPlugin.class.getName().replace('.', '/') + ".class";

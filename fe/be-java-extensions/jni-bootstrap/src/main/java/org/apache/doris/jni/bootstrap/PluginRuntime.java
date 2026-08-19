@@ -32,6 +32,7 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -64,22 +65,88 @@ final class PluginRuntime {
     private final Path pluginDir;
     private final ClassLoader spiClassLoader;
     private final ClassLoader hadoopConfResources;
+    private final Path fsDir;
     private final ConcurrentHashMap<String, PluginHandle> plugins = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Object> loadLocks = new ConcurrentHashMap<>();
 
     PluginRuntime(Path pluginDir, ClassLoader spiClassLoader) {
-        this(pluginDir, spiClassLoader, null);
+        this(pluginDir, spiClassLoader, null, null);
+    }
+
+    PluginRuntime(Path pluginDir, ClassLoader spiClassLoader, Path hadoopConfDir) {
+        this(pluginDir, spiClassLoader, hadoopConfDir, null);
     }
 
     /**
      * @param hadoopConfDir directory whose files every plugin can read as classpath resources, so
      *                      that a hadoop {@code Configuration} built inside a plugin finds
      *                      {@code core-site.xml} and friends. Null when there is none.
+     * @param fsDir         directory of third-party hadoop {@code FileSystem} jars every plugin
+     *                      may need; see {@link #sharedFilesystemJars()}. Null when there is none.
      */
-    PluginRuntime(Path pluginDir, ClassLoader spiClassLoader, Path hadoopConfDir) {
+    PluginRuntime(Path pluginDir, ClassLoader spiClassLoader, Path hadoopConfDir, Path fsDir) {
         this.pluginDir = Objects.requireNonNull(pluginDir, "pluginDir");
         this.spiClassLoader = Objects.requireNonNull(spiClassLoader, "spiClassLoader");
         this.hadoopConfResources = hadoopConfLoader(hadoopConfDir);
+        this.fsDir = fsDir;
+    }
+
+    /**
+     * Jars appended to EVERY plugin's classpath, after that plugin's own.
+     *
+     * <p>What lives here: third-party hadoop {@code FileSystem} implementations that no plugin
+     * declares as a dependency because none of them is written against it - JindoFS serves
+     * {@code oss://} and {@code oss-hdfs://}, JuiceFS serves {@code jfs://}, and hadoop reaches
+     * both by class name out of a {@code Configuration}. Both are opt-in build flags
+     * ({@code DISABLE_BUILD_JINDOFS=OFF}, {@code DISABLE_BUILD_JUICEFS=OFF}), so on a default
+     * build this directory is absent and this method returns nothing.
+     *
+     * <p>Why shared rather than bundled per plugin. Before the plugins were isolated these jars
+     * sat on the system classpath, which every scanner could reach, so any table format could read
+     * a table on any of those filesystems. A plugin classloader cannot reach that classpath by
+     * design, and the alternative - copying the jars into each plugin directory - does not scale:
+     * the JuiceFS Hadoop SDK is a 180 MB fat jar that carries jersey, checkerframework and
+     * javax.ws.rs, which collide with about 1500 classes already in a lake-format plugin. One
+     * directory read by every plugin costs one copy on disk and produces no collisions to
+     * adjudicate.
+     *
+     * <p>APPENDED, never prepended: these fat jars carry stray copies of third-party classes (and
+     * three {@code org.apache.hadoop.fs} ones), and a plugin's own hadoop must win. That is the
+     * same rule {@code bin/start_be.sh} applies when it puts them after {@code lib/hadoop_hdfs}
+     * on the system classpath for libhdfs.
+     *
+     * <p>ISOLATION IS PRESERVED: each plugin loads its own copy of these classes in its own
+     * classloader, exactly as it does for hadoop-common. Nothing is shared but the files.
+     *
+     * <p>CAVEAT, unchanged from when build.sh copied the JindoFS jars into two plugin directories:
+     * jindo-core carries a native library, and a JVM binds one of those to exactly one
+     * classloader. A BE that reads {@code oss://} through two different plugins at once makes the
+     * second bind, which fails. This is inherent to plugin isolation rather than to this
+     * directory - a single shared loader for these jars is not possible, since they need the
+     * hadoop that lives inside each plugin.
+     */
+    private List<URL> sharedFilesystemJars() {
+        if (fsDir == null || !Files.isDirectory(fsDir)) {
+            return List.of();
+        }
+        List<URL> jars = new ArrayList<>();
+        try (DirectoryStream<Path> entries = Files.newDirectoryStream(fsDir)) {
+            for (Path entry : entries) {
+                if (Files.isDirectory(entry)) {
+                    jars.addAll(jarsIn(entry));
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            // Never fatal: a plugin without these jars loses the schemes they serve and keeps
+            // everything else, which is strictly better than failing to load at all.
+            LOG.log(Level.WARNING, "Cannot list the shared filesystem directory " + fsDir + ": " + e);
+            return List.of();
+        }
+        // One subdirectory per filesystem (jindofs, juicefs), so sort across all of them for the
+        // same reason jarsIn sorts within one: a duplicate class must resolve the same way on
+        // every node.
+        jars.sort(Comparator.comparing(URL::toString));
+        return jars;
     }
 
     /**
@@ -232,12 +299,27 @@ final class PluginRuntime {
 
     /**
      * Loads every deployed plugin, so that a broken deployment is reported at startup rather than
-     * by the first user query. Never throws: each plugin's failure is already contained in its
-     * handle.
+     * by the first user query. Never throws.
+     *
+     * <p>Two different failures have to be contained for that to hold. A plugin that cannot be
+     * loaded is already contained in its handle. A directory whose NAME {@code plugin()} rejects
+     * is not: {@code deployedPluginNames()} is a raw directory listing and a backslash is a legal
+     * character in a POSIX file name, so {@code requirePluginName} throws before the handle
+     * exists. Unhandled, one such directory would abandon the warmup of every plugin after it -
+     * and since {@code '\\'} sorts below every lowercase letter, usually of all of them.
      */
     void warmup() {
         for (String name : deployedPluginNames()) {
-            plugin(name);
+            try {
+                plugin(name);
+            } catch (RuntimeException e) {
+                // Recorded rather than only logged, so the rejected directory shows up in the
+                // status JSON next to the plugins that did load - otherwise the only trace of it
+                // is this line, and the operator's question is "where did my plugin go".
+                LOG.log(Level.WARNING, "skipping '" + name + "' under " + pluginDir
+                        + " during warmup: " + e);
+                plugins.putIfAbsent(name, PluginHandle.failed(name, JniUtil.throwableToString(e)));
+            }
         }
     }
 
@@ -339,8 +421,21 @@ final class PluginRuntime {
             checkApiVersion(declared.apiVersion());
         }
 
+        // Appended only now, after the version gate: the shared filesystem jars are not part of
+        // this plugin's API contract, they declare no service, and declaredByProviderJar would
+        // read every one of them looking for a service entry they cannot have. A directory holding
+        // nothing but these is still "no jars in ..." above, because it is not a plugin.
+        List<URL> classpath = jars;
+        List<URL> sharedFs = sharedFilesystemJars();
+        if (!sharedFs.isEmpty()) {
+            classpath = new ArrayList<>(jars);
+            classpath.addAll(sharedFs);
+            LOG.fine(() -> "Java plugin '" + name + "' also reads " + sharedFs.size()
+                    + " shared filesystem jar(s) from " + fsDir);
+        }
+
         DorisPluginClassLoader classLoader =
-                new DorisPluginClassLoader(name, jars, spiClassLoader, hadoopConfResources);
+                new DorisPluginClassLoader(name, classpath, spiClassLoader, hadoopConfResources);
         if (classLoader.packagesSpiClasses()) {
             throw new IllegalStateException("the plugin packages the SPI itself. jni-spi must be declared"
                     + " with <scope>provided</scope>; a bundled copy produces classes BE cannot exchange"

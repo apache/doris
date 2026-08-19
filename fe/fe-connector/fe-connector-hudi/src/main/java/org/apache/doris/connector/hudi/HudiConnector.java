@@ -35,6 +35,7 @@ import org.apache.doris.kerberos.KerberosAuthSpec;
 import org.apache.doris.kerberos.KerberosAuthenticationConfig;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -96,9 +97,17 @@ public class HudiConnector implements Connector {
     private volatile boolean pluginAuthComputed;
 
     // One UGI per distinct catalog configuration, which is what keys Hadoop's FileSystem cache to the
-    // credentials that opened it. See fileSystemScope(). Static and never evicted on purpose: an entry is
-    // one UGI, there is one per catalog, and dropping one would strand the filesystems cached under it -
-    // a REFRESH CATALOG rebuilds this connector and must land on the SAME scope, not a fresh one.
+    // credentials that opened it. See fileSystemScope().
+    //
+    // Static, because a REFRESH CATALOG rebuilds this connector and must land on the SAME scope rather
+    // than a fresh one - dropping the entry there would strand every filesystem cached under it.
+    //
+    // Keyed by catalog id AND configuration digest, not by the digest alone, so that ALTER CATALOG is
+    // distinguishable from REFRESH CATALOG: it changes the very properties the digest is computed from,
+    // producing a new entry while the old one - and the filesystems Hadoop cached under its UGI - would
+    // otherwise sit there for the life of the FE. Those filesystems are exactly the resource this
+    // feature's own javadoc blames for "OutOfMemoryError: unable to create native thread". A new entry
+    // for a catalog id therefore closes the previous one for that same id.
     private static final ConcurrentHashMap<String, UserGroupInformation> FS_SCOPES = new ConcurrentHashMap<>();
     private volatile UserGroupInformation fsScope;
     private volatile boolean fsScopeComputed;
@@ -325,12 +334,46 @@ public class HudiConnector implements Connector {
     private UserGroupInformation buildFileSystemScope() {
         try {
             String userName = UserGroupInformation.getCurrentUser().getUserName();
-            return FS_SCOPES.computeIfAbsent(fileSystemScopeKey(properties),
-                    key -> UserGroupInformation.createRemoteUser(userName));
+            String key = fileSystemScopeKey(context.getCatalogId(), properties);
+            UserGroupInformation scope = FS_SCOPES.computeIfAbsent(key,
+                    absent -> UserGroupInformation.createRemoteUser(userName));
+            releaseSupersededScopes(context.getCatalogId(), key);
+            return scope;
         } catch (Exception e) {
             LOG.warn("failed to derive a FileSystem scope for catalog '{}', keeping the shared one",
                     context.getCatalogName(), e);
             return null;
+        }
+    }
+
+    /**
+     * Drops every scope this catalog id used to have, and closes the filesystems cached under them.
+     *
+     * <p>Reached only after ALTER CATALOG: a REFRESH rebuilds the connector from the same properties,
+     * so the digest is the same, the key is the same and there is nothing superseded. An ALTER changes
+     * the properties, so the new key is a different one and the old scope will never be asked for
+     * again - along with every {@code FileSystem} Hadoop cached under its UGI, each holding an SDK
+     * client whose scheduled executor keeps its own worker threads alive.
+     *
+     * <p>{@code closeAllForUGI} is safe here for the same reason the scope exists: the UGI is unique
+     * to one catalog configuration, so nothing else can be reading a filesystem cached under it.
+     * Failures are logged and swallowed - a leak is better than a failed query.
+     */
+    private static void releaseSupersededScopes(long catalogId, String currentKey) {
+        String prefix = catalogId + "/";
+        for (Map.Entry<String, UserGroupInformation> entry : FS_SCOPES.entrySet()) {
+            if (!entry.getKey().startsWith(prefix) || entry.getKey().equals(currentKey)) {
+                continue;
+            }
+            if (!FS_SCOPES.remove(entry.getKey(), entry.getValue())) {
+                continue;
+            }
+            try {
+                FileSystem.closeAllForUGI(entry.getValue());
+            } catch (Exception | LinkageError e) {
+                LOG.warn("failed to close the filesystems of a superseded scope for catalog id {}",
+                        catalogId, e);
+            }
         }
     }
 
@@ -357,13 +400,22 @@ public class HudiConnector implements Connector {
      * Identifies a catalog configuration so {@link #FS_SCOPES} hands the same UGI to two connectors exactly
      * when they may share a filesystem. Digested rather than used directly because the properties hold
      * credentials and a map key is easy to print by accident.
+     *
+     * <p>Prefixed with the catalog id, which is what makes a superseded entry findable: the digest alone
+     * says whether two configurations match, not which catalog they belong to, so an ALTER CATALOG would
+     * leave an orphan nothing could attribute. The id is stable across ALTER and REFRESH and is not a
+     * secret.
      */
-    static String fileSystemScopeKey(Map<String, String> properties) throws NoSuchAlgorithmException {
+    static String fileSystemScopeKey(long catalogId, Map<String, String> properties)
+            throws NoSuchAlgorithmException {
         StringBuilder canonical = new StringBuilder();
         new TreeMap<>(properties).forEach((k, v) -> canonical.append(k).append('=').append(v).append('\n'));
+        // Falls through to the digest below; the id is prepended to the finished key, not digested,
+        // so that releaseSupersededScopes can find every entry of one catalog by prefix.
         byte[] digest = MessageDigest.getInstance("SHA-256")
                 .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
         StringBuilder hex = new StringBuilder(digest.length * 2);
+        hex.append(catalogId).append('/');
         for (byte b : digest) {
             hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
         }

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -70,6 +71,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.stream.Collectors;
 
 /**
  * Tests for {@link PluginDrivenMvccExternalTable}, the generic MVCC/MTMV-capable plugin table.
@@ -874,14 +876,18 @@ public class PluginDrivenMvccExternalTableTest {
         Mockito.verify(f.metadata, Mockito.never())
                 .listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
 
-        // The pinned schema must be the AT-SNAPSHOT schema (column "v1"), NOT the latest fixture
-        // schema (column "dt"). MUTATION: pinning the latest schema instead of the at-snapshot one
+        // The pinned schema must be the AT-SNAPSHOT schema, NOT the latest fixture schema: it
+        // carries "v1", which the latest schema does not have, and its "dt" is STRING where the
+        // latest one is DATEV2. MUTATION: pinning the latest schema instead of the at-snapshot one
         // makes this red.
         PluginDrivenSchemaCacheValue pinned = (PluginDrivenSchemaCacheValue) pin.getPinnedSchema();
         Assertions.assertNotNull(pinned);
-        Assertions.assertEquals(1, pinned.getSchema().size());
-        Assertions.assertEquals("v1", pinned.getSchema().get(0).getName(),
+        Assertions.assertEquals(Arrays.asList("v1", "dt"),
+                pinned.getSchema().stream().map(Column::getName).collect(Collectors.toList()),
                 "the pinned schema must reflect getTableSchema(..., snapshot), not the latest schema");
+        Assertions.assertEquals(Collections.singletonList("dt"),
+                pinned.getPartitionColumns().stream().map(Column::getName)
+                        .collect(Collectors.toList()));
     }
 
     /**
@@ -915,6 +921,21 @@ public class PluginDrivenMvccExternalTableTest {
                 Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
         // The pinned schema is unaffected by which listing was used.
         Assertions.assertEquals(Fixture.TT_SCHEMA_ID, pin.getSchemaId());
+
+        // ...and the items are TYPED by the pinned schema, not by the latest one. The fixture's
+        // at-snapshot "dt" is STRING and its latest "dt" is DATEV2, so the literal in the built key
+        // says which schema did the typing. MUTATION: typing this listing with getPartitionColumns()
+        // - the latest schema, which is what this branch used to do - makes the literal DATEV2.
+        //
+        // This is load-bearing beyond the type. The two schemas do not have to agree on WHICH
+        // columns partition the table, and when they disagree the arity check inside
+        // toListPartitionItem throws per partition, is caught, and the pin comes back empty - a
+        // silent degrade to UNPARTITIONED with one WARN per partition as the only signal.
+        ListPartitionItem item = (ListPartitionItem) pin.getNameToPartitionItem().get("dt=2024-01-01");
+        Assertions.assertEquals(1, item.getItems().size());
+        Assertions.assertEquals(PrimitiveType.STRING,
+                item.getItems().get(0).getKeys().get(0).getType().getPrimitiveType(),
+                "the pinned listing must be typed by the PINNED schema's partition columns");
     }
 
     @Test
@@ -1516,16 +1537,33 @@ public class PluginDrivenMvccExternalTableTest {
 
             if (timeTravel) {
                 // resolveTimeTravel succeeds; applySnapshot returns the branch-aware pinnedHandle;
-                // getTableSchema(..,snapshot) returns the AT-SNAPSHOT schema (column "v1"), distinct
-                // from the latest schema (column "dt"). fromRemoteColumnName is identity.
+                // getTableSchema(..,snapshot) returns the AT-SNAPSHOT schema, distinct from the
+                // latest schema in both of the ways that matter. fromRemoteColumnName is identity.
+                //
+                // Column "v1" is there and "dt" is not, in the latest schema: that is what proves
+                // the pin carries the schema AT the snapshot rather than today's.
+                //
+                // "dt" is there TOO, and declared a partition column, because a snapshot-aware
+                // connector's pinned listing is typed by this schema (see listPartitions in the
+                // pinned branch). Without it pinnedSchema.getPartitionColumns() is empty, every
+                // listed partition fails the value/type arity check, and the pin silently comes
+                // back with no partitions at all - which is what a fixture carrying no partition
+                // column asserts by accident.
+                //
+                // Its type is STRING while the latest "dt" is DATEV2, so the two are distinguishable
+                // in a built PartitionKey: that is what lets a test assert WHICH schema typed the
+                // partition items. Both parse "2024-01-01", so neither typing loses the partition
+                // and the difference shows up as a type rather than as an absence.
                 Mockito.when(metadata.resolveTimeTravel(Mockito.eq(session), Mockito.eq(handle),
                         Mockito.any())).thenReturn(Optional.of(resolvedSnapshot));
                 Mockito.when(metadata.applySnapshot(session, handle, resolvedSnapshot))
                         .thenReturn(pinnedHandle);
                 ConnectorTableSchema atSchema = new ConnectorTableSchema("REMOTE_TBL",
-                        Collections.singletonList(new ConnectorColumn("v1", ConnectorType.of("INT"),
-                                "", true, null)),
-                        "", Collections.emptyMap());
+                        Arrays.asList(
+                                new ConnectorColumn("v1", ConnectorType.of("INT"), "", true, null),
+                                new ConnectorColumn("dt", ConnectorType.of("STRING"), "", true, null)),
+                        "", Collections.singletonMap(
+                                ConnectorTableSchema.PARTITION_COLUMNS_KEY, "dt"));
                 Mockito.when(metadata.getTableSchema(Mockito.eq(session), Mockito.any(),
                         Mockito.any(ConnectorMvccSnapshot.class))).thenReturn(atSchema);
                 Mockito.when(metadata.fromRemoteColumnName(Mockito.eq(session), Mockito.any(),

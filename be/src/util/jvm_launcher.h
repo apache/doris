@@ -62,7 +62,11 @@ public:
     // about the plugin SPI - Jni::Env::Get() is the entry point that checks that too.
     static Status attach_current_thread(JNIEnv** env);
 
-    // The VM of this process, nullptr until ensure_jvm() has succeeded.
+    // The VM of this process, nullptr until this process has one. Deliberately not "until
+    // ensure_jvm() has succeeded": _bootstrap() has two error paths after JNI_CreateJavaVM
+    // returns, so a failed ensure_jvm() can leave a live VM behind. "Does a JVM exist" is both
+    // what this can actually answer and what its callers - the tests asserting that a code path
+    // creates none - are asking.
     static JavaVM* vm() { return _vm; }
 
 private:

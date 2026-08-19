@@ -1204,7 +1204,20 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/fe.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
-    rm -rf "${DORIS_OUTPUT}/fe/lib"/*
+    # Everything EXCEPT jindofs/ and juicefs/, which post-build.sh installs below and only when
+    # DISABLE_BUILD_JINDOFS/JUICEFS=OFF asks it to. Wiping them here regardless would mean a plain
+    # --fe rebuild deletes the jars an earlier build installed and does not put them back, leaving
+    # a FE that resolved oss-hdfs:// and jfs:// yesterday unable to today. Same rule as the BE side
+    # far below: a third-party filesystem directory is only cleared behind the switch that
+    # repopulates it.
+    find "${DORIS_OUTPUT}/fe/lib" -mindepth 1 -maxdepth 1 \
+        ! -name jindofs ! -name juicefs -exec rm -rf {} +
+    if [[ "${BUILD_JUICEFS}" == 'ON' ]]; then
+        rm -rf "${DORIS_OUTPUT}/fe/lib/juicefs"
+    fi
+    if [[ "${BUILD_JINDOFS}" == 'ON' ]]; then
+        rm -rf "${DORIS_OUTPUT}/fe/lib/jindofs"
+    fi
     unzip -q -o "${DORIS_HOME}/fe/fe-core/target/doris-fe-lib.zip" -d "${DORIS_OUTPUT}/fe/lib"
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do
@@ -1571,54 +1584,46 @@ EOF
     # above - and behind the same switch that repopulates them, so that a rebuild without
     # DISABLE_BUILD_JUICEFS/JINDOFS=OFF leaves the jars an earlier build installed alone instead of
     # deleting them and not putting them back.
+    #
+    # plugins/jni_fs/<name> is where these now go, because two things read them: the native libhdfs
+    # reader through start_be.sh's system class path, and every Java plugin through PluginRegistry,
+    # which appends them to the plugin's own classpath. The older lib/<name> is left alone on
+    # purpose - start_be.sh still reads it as a fallback so an in-place upgrade keeps resolving
+    # oss-hdfs:// and jfs:// for the native reader until the new tree is laid down.
     if [[ "${BUILD_JUICEFS}" == 'ON' ]]; then
-        rm -rf "${DORIS_OUTPUT}/be/lib/juicefs"
+        rm -rf "${DORIS_OUTPUT}/be/plugins/jni_fs/juicefs"
     fi
     if [[ "${BUILD_JINDOFS}" == 'ON' ]]; then
-        rm -rf "${DORIS_OUTPUT}/be/lib/jindofs"
+        rm -rf "${DORIS_OUTPUT}/be/plugins/jni_fs/jindofs"
     fi
 
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
     bash "${DORIS_HOME}/post-build.sh" --be --output "${DORIS_OUTPUT}"
 
-    # lib/{jindofs,juicefs} is what start_be.sh puts on the system classpath, which is where the
-    # hadoop drop that C++ libhdfs loads lives - and resolving oss-hdfs:// and jfs:// for that
-    # reader is what these two jars are packaged for.
+    # plugins/jni_fs/{jindofs,juicefs} serves two readers, and nothing is copied anywhere.
     #
-    # The JindoFS jars are ALSO copied into the plugin directories whose poms declare a dependency
-    # on them, because a plugin classloader cannot see the system classpath: paimon-scanner ships
-    # paimon-jindo, a 24KB adapter naming com.aliyun.jindodata.* as the implementation for oss://,
-    # and iceberg-metadata-scanner points fs.oss.impl at the same classes. Without their own copy
-    # those declarations resolve to nothing and every oss:// table on those scanners fails at
-    # runtime. The FE made the same call for its paimon connector plugin (see the RC-4 block far
-    # above), for the same reason.
+    # start_be.sh puts it on the system classpath, where the hadoop drop that C++ libhdfs loads
+    # lives - resolving oss-hdfs:// and jfs:// for that reader is what these jars were originally
+    # packaged for. PluginRegistry ALSO appends them to each Java plugin's own classpath (BE config
+    # jni_plugin_fs_dir), because a plugin classloader cannot see the system classpath: without
+    # them paimon-scanner's paimon-jindo adapter and iceberg-metadata-scanner's fs.oss.impl resolve
+    # to nothing, and no plugin at all can open a jfs:// path. This build used to copy the JindoFS
+    # jars into the iceberg and paimon plugin directories for that reason; appending one shared
+    # directory covers every plugin instead, costs no disk, and adds no duplicate classes for the
+    # check below to adjudicate - which matters because the JuiceFS SDK is a 180 MB fat jar that
+    # collides with about 1500 classes in a lake-format plugin.
     #
-    # CAVEAT, the same one recorded there: jindo-core carries a native library, and a JVM binds one
-    # of those to exactly one classloader. A process that loads jindo from a plugin AND through
-    # libhdfs from the system classpath makes the second bind, which fails - so this is safe only
-    # while a single BE does not use both paths at once. Naturally gated: a no-op unless jindofs was
-    # packaged at all (DISABLE_BUILD_JINDOFS=OFF).
-    #
-    # Behind the BUILD_BE_JAVA_EXTENSIONS guard, and reaching the directories through
-    # BE_JAVA_PLUGINS_DIR - which only that branch sets - rather than through a literal path. The
-    # duplicate-class check below is behind the same guard, so a copy outside it would edit plugin
-    # directories a previous build left behind with nothing checking the result.
-    if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 && -d "${DORIS_OUTPUT}/be/lib/jindofs" ]]; then
-        for jindo_plugin in iceberg paimon; do
-            jindo_plugin_dir="${BE_JAVA_PLUGINS_DIR}/${jindo_plugin}"
-            if [[ -d "${jindo_plugin_dir}" ]] && compgen -G "${DORIS_OUTPUT}/be/lib/jindofs/*.jar" > /dev/null; then
-                echo "Copy JindoFS jars to ${jindo_plugin_dir}"
-                cp -p "${DORIS_OUTPUT}/be/lib/jindofs"/*.jar "${jindo_plugin_dir}/"
-            fi
-        done
-        unset jindo_plugin jindo_plugin_dir
-    fi
+    # CAVEAT, unchanged by that: jindo-core carries a native library, and a JVM binds one of those
+    # to exactly one classloader. A process that reaches jindo from two plugins at once, or from a
+    # plugin AND through libhdfs, makes the second bind and it fails. That is inherent to plugin
+    # isolation - a single shared loader for these jars is impossible, since they need the hadoop
+    # that lives inside each plugin.
 
-    # The layout the isolation rests on, checked on the tree that was just deployed - after the
-    # JindoFS copy above, so what the check sees is what a BE will load: the SPI jars carry nothing
-    # but the SPI, no plugin ships a copy of them, no plugin directory holds the same class twice,
-    # every plugin's dependency closure is complete, and the jar declaring the service carries the
-    # API version this build serves. Four of the five have caught a real regression, and none of
+    # The layout the isolation rests on, checked on the tree that was just deployed, so what the
+    # check sees is what a BE will load: the SPI jars carry nothing but the SPI, no plugin ships a
+    # copy of them, no plugin directory holds the same class twice, every plugin's dependency
+    # closure is complete, and the jar declaring the service carries the API version this build
+    # serves. Four of the five have caught a real regression, and none of
     # them is visible in a compiler error - a dependency that turns into <scope>provided</scope>
     # by accident builds fine and fails in a user's query.
     #

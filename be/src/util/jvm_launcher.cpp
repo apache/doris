@@ -92,6 +92,12 @@ std::string scan_class_path() {
     std::string class_path = doris_home + "/conf/";
     collect_jars(doris_home + "/lib", &class_path);
     collect_jars(doris_home + "/custom_lib", &class_path);
+    // Named separately because it is the one thing libhdfs needs that does NOT live under lib/:
+    // the third-party filesystem jars moved to plugins/jni_fs when the Java plugins started
+    // reading them too (BE config jni_plugin_fs_dir, which this fallback cannot consult - it runs
+    // before config is loaded in the cases it exists for). Leaving it out would silently drop
+    // oss-hdfs:// and jfs:// for exactly the processes this branch serves.
+    collect_jars(doris_home + "/plugins/jni_fs", &class_path);
 
     const std::string hadoop_conf_dir = env_value("HADOOP_CONF_DIR");
     if (!hadoop_conf_dir.empty()) {
@@ -216,12 +222,14 @@ std::vector<std::string> JvmLauncher::_build_options() {
     options.push_back("-Djava.security.krb5.conf=" + config::kerberos_krb5_conf_path);
     options.push_back(fmt::format("-Djdk.lang.processReaperUseDefaultStackSize={}",
                                   config::jdk_process_reaper_use_default_stack_size));
-    // Where PluginRegistry looks for plugins, and where it lets them read hadoop configuration
-    // files from. Both travel as system properties rather than through the startup script because
-    // the values are BE configs and this is the one place that turns BE config into JVM options;
-    // passing them from the script as well would be two sources for one path.
+    // Where PluginRegistry looks for plugins, where it lets them read hadoop configuration files
+    // from, and where it finds the third-party filesystem jars every plugin may need. All three
+    // travel as system properties rather than through the startup script because the values are BE
+    // configs and this is the one place that turns BE config into JVM options; passing them from
+    // the script as well would be two sources for one path.
     options.push_back("-Ddoris.jni.plugin.dir=" + config::jni_plugin_dir);
     options.push_back("-Ddoris.jni.hadoop.conf.dir=" + config::jni_plugin_hadoop_conf_dir);
+    options.push_back("-Ddoris.jni.fs.dir=" + config::jni_plugin_fs_dir);
     // The JVM must not install handlers for SIGINT/SIGTERM/SIGHUP: its handler turns a shutdown
     // signal into Java's Shutdown.exit(), an ::exit() from a JVM thread that runs the global
     // destructors while the BE is still serving. Restoring the handlers around bootstrap (see
@@ -279,8 +287,8 @@ Status JvmLauncher::_create_jvm() {
         // Somebody got there first - in practice libhdfs, whose entry points create a JVM of
         // their own when they do not find one, out of CLASSPATH and LIBHDFS_OPTS. Those are the
         // same two the options below are built from, so the VM is usable, but it is NOT
-        // identically configured: the five settings this launcher adds - -Xrs, the krb5 conf
-        // path, the two doris.jni.* directories and the process-reaper stack size - are missing
+        // identically configured: the six settings this launcher adds - -Xrs, the krb5 conf
+        // path, the three doris.jni.* directories and the process-reaper stack size - are missing
         // from it. The branch is unreachable today, because every libhdfs entry point in the BE
         // runs behind ensure_jvm(); it is here for the case where that stops being true.
         _vm = created_vms[0];

@@ -176,35 +176,25 @@ suite("test_jdbc_connection_validation", "p0,external") {
             "driver_class" = "${driver_class}"
         );
     """
-    // Pinned rather than asserted non-empty: doris_test.ex_tb0 is created and filled by the docker
-    // fixture with exactly five rows, so reading a different number means the catalog the tester
-    // validated is not the one being read.
-    qt_rows_after_default_test """ select count(*) from jdbc_conn_ok.doris_test.ex_tb0 """
-
-    // 7. Same, but re-created explicitly with test_connection=true, so the BE test is
-    //    requested rather than defaulted into.
-    sql """ drop catalog if exists jdbc_conn_ok """
-    sql """
-        create catalog jdbc_conn_ok properties (
-            "type"="jdbc",
-            "user"="root",
-            "password"="123456",
-            "jdbc_url" = "${base_url}",
-            "driver_url" = "${driver_url}",
-            "driver_class" = "${driver_class}",
-            "test_connection" = "true"
-        );
-    """
-    qt_rows_after_explicit_test """ select count(*) from jdbc_conn_ok.doris_test.ex_tb0 """
-
-    // 8. Proof that 6 and 7 were not vacuous.
+    // 6b. Proof that 6 was not vacuous, checked BEFORE the first read of this catalog.
     //
     //    A successful CREATE CATALOG is only evidence that the BE test ran if the BE test ran at
     //    all: executePendingBeTests() returns silently when the payload it was handed is empty, so
     //    a regression that stops queueing the BE test leaves every create above passing and every
     //    "this covers the BE factory" claim in this file untrue. Loading the jdbc plugin is a side
     //    effect only the BE side has, and /api/jni_plugin_status reports it without starting
-    //    anything - so it is what separates "the BE ran the tester" from "nobody asked it to".
+    //    anything.
+    //
+    //    HERE, between the CREATE and the first scan, and not at the end of the suite: BE serves
+    //    the scanner and the connection tester out of the SAME jdbc plugin directory, and
+    //    statusJson() reports per plugin rather than per factory. After a scan the plugin is
+    //    loaded either way, so the check could no longer fail - which is what it was doing at the
+    //    end of this file.
+    //
+    //    HONEST LIMIT, since it cannot be closed from here: this discriminates only while no
+    //    earlier jdbc case has loaded the plugin on the same BE, so it is a check that can stop
+    //    discriminating without saying so. Making it exact needs a per-factory counter on the BE
+    //    side, which /api/jni_plugin_status does not report today.
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
@@ -234,6 +224,27 @@ suite("test_jdbc_connection_validation", "p0,external") {
     assertTrue(anyBackendLoadedJdbc,
             "no backend has the jdbc plugin loaded, so the BE-side connection test never ran and "
             + "the successful creates above prove nothing about the (jdbc, connection-tester) factory")
+
+    // Pinned rather than asserted non-empty: doris_test.ex_tb0 is created and filled by the docker
+    // fixture with exactly five rows, so reading a different number means the catalog the tester
+    // validated is not the one being read.
+    qt_rows_after_default_test """ select count(*) from jdbc_conn_ok.doris_test.ex_tb0 """
+
+    // 7. Same, but re-created explicitly with test_connection=true, so the BE test is
+    //    requested rather than defaulted into.
+    sql """ drop catalog if exists jdbc_conn_ok """
+    sql """
+        create catalog jdbc_conn_ok properties (
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "${base_url}",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "${driver_class}",
+            "test_connection" = "true"
+        );
+    """
+    qt_rows_after_explicit_test """ select count(*) from jdbc_conn_ok.doris_test.ex_tb0 """
 
     // No drops here on purpose: every catalog this suite uses is dropped at the top instead, so a
     // failing run leaves its catalogs behind to be inspected.
