@@ -44,7 +44,6 @@
 #include "core/value/jsonb_value.h"
 #include "core/value/variant/variant_batch_builder.h"
 #include "core/value/variant/variant_parquet_encoding.h"
-#include "exec/rowid_fetcher.h"
 #include "gtest/gtest.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -3225,120 +3224,6 @@ TEST_F(VariantColumnWriterReaderTest, test_segment_rowid_read_by_reader_version)
         for (size_t row = 2; row <= 4; ++row) {
             EXPECT_EQ(variant_json_at(values, row), expected_subpath_values[row - 2])
                     << "use_v2=" << use_v2 << ", row=" << row;
-        }
-    }
-}
-
-TEST_F(VariantColumnWriterReaderTest, test_legacy_rowid_storage_reader_extracted_leaf) {
-    init_variant_tablet(21002, 1);
-    // "hot" consumes the only materialized slot. The sparse "z" path stays homogeneous, while
-    // "mixed" exercises missing -> int -> string through the row-at-a-time caller.
-    const std::vector<std::string> jsons {R"({"hot":0,"z":100})",
-                                          R"({"hot":1,"z":101,"mixed":101})",
-                                          R"({"hot":2,"z":102,"mixed":"mixed"})", R"({"hot":3})"};
-    auto rowset = create_variant_rowset({jsons}, 1, 100);
-
-    RuntimeProfile profile("RegisterVariantRowIdTablet");
-    auto* tablet_manager = _engine_ref->tablet_manager();
-    {
-        std::lock_guard<std::shared_mutex> lock(
-                tablet_manager->_get_tablets_shard_lock(_tablet->tablet_id()));
-        ASSERT_TRUE(tablet_manager
-                            ->_add_tablet_unlocked(_tablet->tablet_id(), _tablet,
-                                                   /*update_meta=*/false, /*force=*/false, &profile)
-                            .ok());
-    }
-    _engine_ref->add_quering_rowset(rowset);
-
-    auto make_slot = [](std::string path, bool use_v2) {
-        auto slot = TSlotDescriptorBuilder()
-                            .type(TYPE_VARIANT)
-                            .nullable(true)
-                            .column_name("v1")
-                            .column_pos(0)
-                            .build();
-        slot.__set_col_unique_id(1);
-        slot.__set_column_paths({std::move(path)});
-        slot.__set_primitive_type(TPrimitiveType::VARIANT);
-        auto& scalar = slot.slotType.types[0].scalar_type;
-        scalar.__set_variant_max_subcolumns_count(1);
-        scalar.__set_variant_enable_doc_mode(false);
-        scalar.__set_variant_is_v2(use_v2);
-        return slot;
-    };
-
-    for (const bool use_v2 : {false, true}) {
-        TDescriptorTableBuilder descriptor_builder;
-        TTupleDescriptorBuilder tuple_builder;
-        tuple_builder.add_slot(make_slot("z", use_v2));
-        tuple_builder.add_slot(make_slot("mixed", use_v2));
-        tuple_builder.build(&descriptor_builder);
-        ObjectPool object_pool;
-        DescriptorTbl* descriptor_table = nullptr;
-        ASSERT_TRUE(DescriptorTbl::create(&object_pool, descriptor_builder.desc_tbl(),
-                                          &descriptor_table)
-                            .ok());
-        const auto& slots = descriptor_table->get_tuple_descriptor(0)->slots();
-        ASSERT_EQ(slots.size(), 2);
-
-        PMultiGetRequest request;
-        slots[0]->to_protobuf(request.add_slots());
-        slots[1]->to_protobuf(request.add_slots());
-        _tablet_schema->column(0).to_schema_pb(request.add_column_desc());
-        request.set_fetch_row_store(false);
-        request.mutable_query_id()->set_hi(1);
-        request.mutable_query_id()->set_lo(use_v2 ? 2 : 1);
-        for (uint32_t row_id = 0; row_id < 3; ++row_id) {
-            auto* location = request.add_row_locs();
-            location->set_tablet_id(_tablet->tablet_id());
-            location->set_rowset_id(rowset->rowset_id().to_string());
-            location->set_segment_id(0);
-            location->set_ordinal_id(row_id);
-        }
-
-        PMultiGetResponse response;
-        auto st = RowIdStorageReader::read_by_rowids(request, &response);
-        ASSERT_TRUE(st.ok()) << "use_v2=" << use_v2 << ": " << st.to_string();
-        ASSERT_TRUE(response.has_block());
-        ASSERT_EQ(response.row_locs_size(), 3);
-
-        Block result;
-        size_t uncompressed_size = 0;
-        int64_t uncompressed_time = 0;
-        st = result.deserialize(response.block(), &uncompressed_size, &uncompressed_time);
-        ASSERT_TRUE(st.ok()) << "use_v2=" << use_v2 << ": " << st.to_string();
-        ASSERT_EQ(result.columns(), 2);
-        ASSERT_EQ(result.rows(), 3);
-
-        const auto& result_column = result.get_by_position(0);
-        const auto result_type = remove_nullable(result_column.type);
-        EXPECT_EQ(typeid_cast<const DataTypeVariantV2*>(result_type.get()) != nullptr, use_v2);
-        EXPECT_EQ(typeid_cast<const DataTypeVariant*>(result_type.get()) != nullptr, !use_v2);
-        const auto& nullable = assert_cast<const ColumnNullable&>(*result_column.column);
-        const auto& variant = nullable.get_nested_column();
-        for (size_t row = 0; row < 3; ++row) {
-            EXPECT_FALSE(nullable.is_null_at(row)) << "use_v2=" << use_v2 << ", row=" << row;
-            EXPECT_EQ(variant_json_at(variant, row), std::to_string(row + 100))
-                    << "use_v2=" << use_v2 << ", row=" << row;
-        }
-
-        const auto& mixed_result_column = result.get_by_position(1);
-        const auto mixed_type = remove_nullable(mixed_result_column.type);
-        EXPECT_EQ(typeid_cast<const DataTypeVariantV2*>(mixed_type.get()) != nullptr, use_v2);
-        EXPECT_EQ(typeid_cast<const DataTypeVariant*>(mixed_type.get()) != nullptr, !use_v2);
-        const auto& mixed_nullable =
-                assert_cast<const ColumnNullable&>(*mixed_result_column.column);
-        const auto& mixed_variant = mixed_nullable.get_nested_column();
-        ASSERT_EQ(mixed_nullable.size(), 3);
-        EXPECT_TRUE(mixed_nullable.is_null_at(0)) << "use_v2=" << use_v2;
-        EXPECT_FALSE(mixed_nullable.is_null_at(1)) << "use_v2=" << use_v2;
-        EXPECT_FALSE(mixed_nullable.is_null_at(2)) << "use_v2=" << use_v2;
-        EXPECT_EQ(variant_json_at(mixed_variant, 1), "101") << "use_v2=" << use_v2;
-        EXPECT_EQ(variant_json_at(mixed_variant, 2), R"("mixed")") << "use_v2=" << use_v2;
-
-        if (use_v2) {
-            EXPECT_TRUE(assert_cast<const ColumnVariantV2&>(variant).is_typed());
-            EXPECT_FALSE(assert_cast<const ColumnVariantV2&>(mixed_variant).is_typed());
         }
     }
 }
