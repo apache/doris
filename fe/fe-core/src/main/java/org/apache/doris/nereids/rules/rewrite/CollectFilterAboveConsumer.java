@@ -38,7 +38,10 @@ public class CollectFilterAboveConsumer extends OneRewriteRuleFactory {
             LogicalCTEConsumer cteConsumer = filter.child();
             Set<Expression> exprs = filter.getConjuncts();
             for (Expression expr : exprs) {
-                if (expr.containsVolatileExpression()) {
+                // a NoneMovableFunction (e.g. assert_true) must not be pushed into the CTE
+                // producer: the producer is shared and evaluated once, so assert_true would
+                // run on a different domain (and possibly for unrelated consumers).
+                if (expr.containsNoneMovableOrVolatile()) {
                     continue;
                 }
                 Expression rewrittenExpr = expr.rewriteUp(e -> {

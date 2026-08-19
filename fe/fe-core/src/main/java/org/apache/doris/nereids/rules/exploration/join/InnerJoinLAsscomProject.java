@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import java.util.HashSet;
@@ -63,7 +64,14 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                         .when(topJoin -> checkReorder(topJoin, topJoin.left().child(),
                                 enableLeftZigZag))
                         .whenNot(join -> join.hasDistributeHint() || join.left().child().hasDistributeHint())
-                        .when(join -> join.left().isAllSlots()))
+                        .when(join -> join.left().isAllSlots())
+                        // the reorder redistributes every conjunct of both joins onto a
+                        // different edge: a NoneMovableFunction (assert_true) or volatile
+                        // conjunct referencing B moves from (A join B)'s A x B evaluation to
+                        // (A join C) join B, where A rows pruned by C no longer reach it and
+                        // its required error is suppressed. reject the reorder then.
+                        .whenNot(topJoin -> JoinUtils.hasSensitiveConjunct(topJoin)
+                                || JoinUtils.hasSensitiveConjunct(topJoin.left().child())))
                 .then(topProject -> {
                     LogicalJoin<LogicalProject<LogicalJoin<GroupPlan, GroupPlan>>, GroupPlan> topJoin
                             = topProject.child();

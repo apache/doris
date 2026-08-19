@@ -37,6 +37,12 @@ public class TransposeAggSemiJoinProject extends OneExplorationRuleFactory {
     public Rule build() {
         return logicalAggregate(logicalProject(
                 logicalJoin().when(join -> join.getJoinType().isLeftSemiOrAntiJoin() && !join.isMarkJoin())))
+                // the transpose moves the project from above the semi/anti join (where it is
+                // evaluated on the pruned rows) to below the aggregate (where it is evaluated
+                // on all left rows, before the join prunes): a NoneMovableFunction (assert_true)
+                // or volatile expression there would run on rows the join removes, turning
+                // returned rows into errors. reject the transpose then.
+                .whenNot(agg -> agg.child().containsNoneMovableOrVolatile())
                 .then(agg -> {
                     LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = agg.child();
                     LogicalJoin<GroupPlan, GroupPlan> join = project.child();

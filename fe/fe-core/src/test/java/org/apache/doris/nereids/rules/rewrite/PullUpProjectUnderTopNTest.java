@@ -17,8 +17,13 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -31,6 +36,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
@@ -57,6 +63,32 @@ class PullUpProjectUnderTopNTest implements MemoPatternMatchSupported {
                 .matches(
                         logicalProject(
                                 logicalTopN(
+                                        logicalJoin()
+                                )
+                        )
+                );
+    }
+
+    /**
+     * A project computing a NoneMovableFunction (assert_true) must not be pulled above the
+     * top-N: rows pruned by the top-N would stop evaluating the assertion, changing its error
+     * behavior.
+     */
+    @Test
+    void testNotPullUpProjectWithNoneMovableFunction() {
+        Alias assertAlias = new Alias(new AssertTrue(
+                new GreaterThan(scan1.getOutput().get(0), new IntegerLiteral(0)),
+                new StringLiteral("msg")), "x");
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, ImmutableList.of())
+                .projectExprs(ImmutableList.of(assertAlias, scan2.getOutput().get(0)))
+                .topN(5, 0, ImmutableList.of(1))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new PullUpProjectUnderTopN())
+                .matchesFromRoot(
+                        logicalTopN(
+                                logicalProject(
                                         logicalJoin()
                                 )
                         )

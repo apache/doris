@@ -145,4 +145,45 @@ suite ("subquery_unnesting") {
         FROM (SELECT 1 AS x) t
         WHERE 1 NOT IN (SELECT CAST(NULL AS INT));
     """
+
+    // =====================================================================
+    // post-lowering transpose fence regression: in the JOIN path an ON conjunct list with
+    // the EXISTS first (built as the LOWER apply on the right child) and the IN second
+    // (built as the HIGHER apply, the eliminable target) produces, after the IN's mark
+    // join is eliminated into a plain SemiIN over a RETAINED bottom EXISTS mark join, a
+    // shape that SemiJoinSemiJoinTransposeProject could swap: the SemiIN would move BELOW
+    // the mark semi join, so the mark semi join's RHS (assert_true in transp_e) would be
+    // evaluated only on the rows that survive the SemiIN and its error could be suppressed.
+    // the transpose rule must reject that when the bottom semi join's right subtree contains
+    // a NoneMovableFunction (assert_true), so the error is still raised. the IN itself is
+    // still validly eliminated (its own subquery transp_c is always evaluated).
+    sql "drop table if exists transp_t1"
+    sql "drop table if exists transp_t2"
+    sql "drop table if exists transp_c"
+    sql "drop table if exists transp_e"
+    sql """create table transp_t1 (k bigint) DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table transp_t2 (k bigint, x bigint) DUPLICATE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table transp_c (c bigint) DUPLICATE KEY(c)
+            DISTRIBUTED BY HASH(c) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """create table transp_e (x bigint, y bigint) DUPLICATE KEY(x)
+            DISTRIBUTED BY HASH(x) BUCKETS 1 PROPERTIES('replication_num'='1');"""
+    sql """insert into transp_t1 values (0);"""
+    sql """insert into transp_t2 values (1,10),(2,20),(3,30);"""
+    sql """insert into transp_c values (2),(3);"""
+    sql """insert into transp_e values (10,0),(20,1),(30,1);"""
+    // transp_t2 row (1,10) is NOT in transp_c and its EXISTS group has y=0, so it triggers
+    // 'eassert' exactly when the EXISTS is evaluated before the SemiIN pruning (the
+    // retained/transpose-guarded form); the semi-swapped form would suppress it
+    test {
+        sql """select transp_t2.k from transp_t1
+                join transp_t2 on exists (select 1 from transp_e
+                        where transp_e.x = transp_t2.x
+                          and assert_true(transp_e.y > 0, 'eassert'))
+                    and transp_t2.k in (select c from transp_c
+                        where assert_true(c > 0, 'cassert'))
+                order by transp_t2.k;"""
+        exception "eassert"
+    }
 }

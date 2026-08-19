@@ -26,9 +26,11 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
@@ -117,6 +119,42 @@ class PushDownFilterThroughWindowTest extends TestWithFeService implements MemoP
         LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scan);
         // rand() > 0 — empty input slots; would have satisfied containsAll(empty) check.
         Expression filterPredicate = new GreaterThan(new Random(), Literal.of(0));
+
+        LogicalPlan plan = new LogicalPlanBuilder(window)
+                .filter(filterPredicate)
+                .build();
+        PlanChecker.from(context, plan)
+                .applyTopDown(new PushDownFilterThroughWindow())
+                .matchesFromRoot(
+                        logicalFilter(
+                                logicalWindow(
+                                        logicalOlapScan()
+                                )
+                        ).when(f -> f.getConjuncts().contains(filterPredicate))
+                );
+    }
+
+    /**
+     * A filter conjunct containing a NoneMovableFunction (e.g. assert_true) must NOT be pushed
+     * below a window node: the window partition changes which rows assert_true is evaluated on.
+     */
+    @Test
+    void testDoNotPushNoneMovableFunctionThroughWindow() {
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        NamedExpression age = scan.getOutput().get(3).toSlot();
+        List<Expression> partitionKeyList = ImmutableList.of(age);
+        WindowFrame windowFrame = new WindowFrame(WindowFrame.FrameUnitsType.ROWS,
+                WindowFrame.FrameBoundary.newPrecedingBoundary(),
+                WindowFrame.FrameBoundary.newCurrentRowBoundary());
+        WindowExpression window1 = new WindowExpression(new RowNumber(), partitionKeyList,
+                Lists.newArrayList(), windowFrame);
+        Alias windowAlias1 = new Alias(window1, window1.toSql());
+        List<NamedExpression> expressions = Lists.newArrayList(windowAlias1);
+        LogicalWindow<LogicalOlapScan> window = new LogicalWindow<>(expressions, scan);
+        // age is a partition key so the slot check would pass, but the NoneMovableFunction
+        // must still prevent the push-down.
+        Expression filterPredicate = new AssertTrue(
+                new GreaterThan(age, Literal.of(0)), new StringLiteral("msg"));
 
         LogicalPlan plan = new LogicalPlanBuilder(window)
                 .filter(filterPredicate)

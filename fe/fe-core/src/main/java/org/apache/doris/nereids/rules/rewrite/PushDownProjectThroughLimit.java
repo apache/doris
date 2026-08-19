@@ -49,10 +49,16 @@ public class PushDownProjectThroughLimit extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalProject(logicalLimit()).thenApply(ctx -> {
-            LogicalProject<LogicalLimit<Plan>> logicalProject = ctx.root;
-            LogicalLimit<Plan> logicalLimit = logicalProject.child();
-            return logicalLimit.withChildren(logicalProject.withChildren(logicalLimit.child()));
-        }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_LIMIT);
+        return logicalProject(logicalLimit())
+                // a project computing a NoneMovableFunction (e.g. assert_true) or a volatile
+                // expression must not be pushed below the limit: the limit prunes rows, so the
+                // expression would be evaluated on fewer rows and a required error could be
+                // suppressed.
+                .whenNot(p -> p.containsNoneMovableOrVolatile())
+                .thenApply(ctx -> {
+                    LogicalProject<LogicalLimit<Plan>> logicalProject = ctx.root;
+                    LogicalLimit<Plan> logicalLimit = logicalProject.child();
+                    return logicalLimit.withChildren(logicalProject.withChildren(logicalLimit.child()));
+                }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_LIMIT);
     }
 }

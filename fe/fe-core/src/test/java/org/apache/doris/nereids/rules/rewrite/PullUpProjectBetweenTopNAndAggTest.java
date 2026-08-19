@@ -29,46 +29,42 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-class PushDownProjectThroughLimitTest implements MemoPatternMatchSupported {
-
-    @Test
-    void testPushdownProjectThroughLimit() {
-        LogicalPlan project = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
-                .limit(1, 1)
-                .project(ImmutableList.of(0)) // id
-                .build();
-
-        PlanChecker.from(MemoTestUtils.createConnectContext(), project)
-                .applyTopDown(new PushDownProjectThroughLimit())
-                .matches(
-                        logicalLimit(logicalProject())
-                );
-    }
+class PullUpProjectBetweenTopNAndAggTest implements MemoPatternMatchSupported {
 
     /**
-     * A project that computes a NoneMovableFunction (assert_true) must not be pushed below the
-     * limit: the limit prunes rows, so assert_true would be evaluated on fewer rows.
+     * A project computing a NoneMovableFunction (assert_true) must not be pulled above the
+     * top-N: rows pruned by the top-N would stop evaluating the assertion, changing its error
+     * behavior.
      */
     @Test
-    void testDoNotPushProjectWithNoneMovableFunction() {
+    void testNotPullUpProjectWithNoneMovableFunction() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().enableCompressMaterialize = true;
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-        Alias assertAlias = new Alias(new AssertTrue(
-                new GreaterThan(scan.getOutput().get(0), new IntegerLiteral(0)),
-                new StringLiteral("msg")), "x");
-        LogicalPlan project = new LogicalPlanBuilder(scan)
-                .limit(1, 1)
-                .projectExprs(ImmutableList.of(assertAlias, scan.getOutput().get(0)))
+        LogicalPlan agg = new LogicalPlanBuilder(scan)
+                .aggAllUsingIndex(ImmutableList.of(0), ImmutableList.of(0))
                 .build();
-
-        PlanChecker.from(MemoTestUtils.createConnectContext(), project)
-                .applyTopDown(new PushDownProjectThroughLimit())
-                .matches(
-                        logicalProject(
-                                logicalLimit(logicalOlapScan())
+        Alias assertAlias = new Alias(new AssertTrue(
+                new GreaterThan(agg.getOutput().get(0), new IntegerLiteral(0)),
+                new StringLiteral("msg")), "x");
+        LogicalPlan plan = new LogicalPlanBuilder(agg)
+                .projectExprs(ImmutableList.of(assertAlias, agg.getOutput().get(0)))
+                .topN(5, 0, ImmutableList.of(1))
+                .build();
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(new PullUpProjectBetweenTopNAndAgg())
+                .matchesFromRoot(
+                        logicalTopN(
+                                logicalProject(
+                                        logicalAggregate(
+                                                logicalOlapScan()
+                                        )
+                                )
                         )
                 );
     }

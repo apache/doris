@@ -97,7 +97,9 @@ public class PushDownFilterThroughWindow extends OneRewriteRuleFactory {
         // changes the value of every window function (row_number, rank, sum, ...). In addition,
         // a predicate like `rand() > 0.5` has empty input slots, so `containsAll(emptySet)`
         // would otherwise wrongly return true.
-        return !conjunct.containsVolatileExpression()
+        // A NoneMovableFunction (e.g. assert_true) must not be pushed either: the window
+        // partition changes which rows assert_true is evaluated on.
+        return !conjunct.containsNoneMovableOrVolatile()
                 && commonPartitionKeys.containsAll(conjunct.getInputSlots());
     }
 }

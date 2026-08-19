@@ -21,6 +21,11 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -32,6 +37,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -349,5 +355,64 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
                                         leafPlan()).whenNot(join -> join.getJoinType().isCrossJoin()))
                                 .whenNot(join -> join.getJoinType().isCrossJoin()))
                 .printlnTree();
+    }
+
+    /**
+     * A filter containing a NoneMovableFunction (assert_true) must prevent ReorderJoin from
+     * collecting the filter conjuncts into the join and redistributing them below the join:
+     * the child would evaluate assert_true on a superset of rows.
+     */
+    @Test
+    public void testNotReorderJoinWithNoneMovableFunction() {
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(scan1.getOutput().get(0), new IntegerLiteral(0)), new StringLiteral("msg"));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .filter(assertTrueExpr)
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new ReorderJoin())
+                .matchesFromRoot(
+                        logicalFilter(
+                                logicalJoin(logicalOlapScan(), logicalOlapScan())
+                        ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(assertTrueExpr)))
+                );
+    }
+
+    /**
+     * A NoneMovableFunction (assert_true) stored on an inner join's own ON predicate must make
+     * that join a boundary: the reorder must not flatten it and move the assertion onto a
+     * different edge, where it would be evaluated on a superset of rows.
+     * <pre>
+     * Join(other: assert_true(A.x = C.x))
+     *   Join(hash: A.k = B.k)
+     *     A
+     *     B
+     *   C
+     * </pre>
+     */
+    @Test
+    public void testNotReorderJoinWithNoneMovableOnJoinEdge() {
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(scan1.getOutput().get(0), scan3.getOutput().get(0)), new StringLiteral("msg"));
+        LogicalPlan leftJoin = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .build();
+        LogicalPlan plan = new LogicalPlanBuilder(leftJoin)
+                .join(scan3, JoinType.INNER_JOIN,
+                        ImmutableList.of(), ImmutableList.of(assertTrueExpr))
+                .filter(new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0)))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new ReorderJoin())
+                .matchesFromRoot(
+                        logicalFilter(
+                                logicalJoin(
+                                        logicalJoin(logicalOlapScan(), logicalOlapScan()),
+                                        logicalOlapScan()
+                                ).when(join -> join.getOtherJoinConjuncts()
+                                        .equals(ImmutableList.of(assertTrueExpr)))
+                        )
+                );
     }
 }

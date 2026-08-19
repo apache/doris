@@ -907,4 +907,29 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                 );
     }
 
+    @Test
+    public void testDoNotInferNoneMovableFunction() {
+        // assert_true is a NoneMovableFunction: it must not be cloned into the join subtrees,
+        // where it would be evaluated on a different (superset) row set.
+        String sql = "select * from student join score on student.id = score.sid"
+                + " where assert_true(student.id > 1, 'msg')";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        logicalResultSink(
+                                logicalProject(
+                                        logicalFilter(
+                                                logicalJoin(
+                                                        logicalOlapScan(),
+                                                        logicalOlapScan()
+                                                )
+                                        ).when(filter -> filter.getConjuncts().size() == 1
+                                                && filter.getConjuncts().iterator().next()
+                                                        .containsNoneMovableOrVolatile())
+                                )
+                        )
+                );
+    }
+
 }

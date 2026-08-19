@@ -57,7 +57,11 @@ public class PullUpProjectBetweenTopNAndAgg extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalTopN(logicalProject(logicalAggregate()))
+        return logicalTopN(logicalProject(logicalAggregate())
+                // a project computing a NoneMovableFunction (e.g. assert_true) or a volatile
+                // expression must not be pulled above the top-N: rows pruned by the top-N would
+                // stop evaluating the expression, changing its error behavior or results.
+                .whenNot(p -> p.containsNoneMovableOrVolatile()))
                 .when(topN -> ConnectContext.get() != null
                         && ConnectContext.get().getSessionVariable().enableCompressMaterialize)
                 .then(topN -> adjust(topN)).toRule(RuleType.ADJUST_TOPN_PROJECT);

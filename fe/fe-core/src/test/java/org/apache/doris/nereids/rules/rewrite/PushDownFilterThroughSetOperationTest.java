@@ -17,9 +17,16 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -33,9 +40,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -276,5 +286,26 @@ public class PushDownFilterThroughSetOperationTest {
             Assertions.assertInstanceOf(LogicalFilter.class, newChildren.get(1));
             Assertions.assertEquals(regulatorChildrenOutputs, newRegularChildrenOutputs);
         }
+    }
+
+    /**
+     * A NoneMovableFunction conjunct (e.g. assert_true) must stay above an EXCEPT set operation:
+     * the set-op semantics depend on the full branch row sets, so pushing assert_true into a
+     * branch would change which rows it is evaluated on.
+     */
+    @Test
+    public void testNoneMovableConjunctStaysAboveExcept() {
+        LogicalSetOperation setOperation = new LogicalExcept(Qualifier.ALL, outputs, regulatorChildrenOutputs, children);
+        SlotReference c1 = (SlotReference) outputs.get(0);
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(c1, new IntegerLiteral(0)), new StringLiteral("msg"));
+        LogicalFilter<Plan> filter = new LogicalFilter<>(ImmutableSet.of(assertTrueExpr), setOperation);
+
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(new ConnectContext(), filter);
+        Rule rule = new PushDownFilterThroughSetOperation().build();
+        List<Plan> transformed = rule.transform(filter, cascadesContext);
+        Assertions.assertEquals(1, transformed.size());
+        Assertions.assertSame(filter, transformed.get(0),
+                "assert_true conjunct must stay above the EXCEPT, not be pushed into a branch");
     }
 }

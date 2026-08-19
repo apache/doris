@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -39,13 +40,20 @@ import java.util.Set;
 public class PushDownFilterThroughSort extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalFilter(logicalSort()).then(filter -> {
-            LogicalSort<Plan> sort = filter.child();
-            if (checkSlotsConstant(sort.getInputSlots(), filter)) {
-                return new LogicalFilter<>(filter.getConjuncts(), sort.child());
-            }
-            return sort.withChildren(new LogicalFilter<>(filter.getConjuncts(), sort.child()));
-        }).toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_SORT);
+        // a filter containing a NoneMovableFunction (e.g. assert_true) or a volatile expression
+        // must not be pushed below the sort: the sort is blocking and evaluates every input row
+        // before producing its ordered prefix, so the expression would be evaluated on rows that
+        // an outer limit would otherwise have consumed without reaching it, changing its error
+        // behavior or results.
+        return logicalFilter(logicalSort())
+                .whenNot(f -> f.getConjuncts().stream().anyMatch(Expression::containsNoneMovableOrVolatile))
+                .then(filter -> {
+                    LogicalSort<Plan> sort = filter.child();
+                    if (checkSlotsConstant(sort.getInputSlots(), filter)) {
+                        return new LogicalFilter<>(filter.getConjuncts(), sort.child());
+                    }
+                    return sort.withChildren(new LogicalFilter<>(filter.getConjuncts(), sort.child()));
+                }).toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_SORT);
     }
 
     boolean checkSlotsConstant(Set<Slot> slots, LogicalFilter<? extends Plan> filter) {

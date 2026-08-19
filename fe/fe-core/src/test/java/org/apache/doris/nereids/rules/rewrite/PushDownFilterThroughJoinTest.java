@@ -22,7 +22,9 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -224,6 +226,52 @@ public class PushDownFilterThroughJoinTest implements MemoPatternMatchSupported 
                                                 filter -> ImmutableList.copyOf(filter.getConjuncts()).get(0).equals(pushSide))
                                 )
                         )
+                );
+    }
+
+    @Test
+    void testNotPushNoneMovableFunctionThroughJoin() {
+        // assert_true(student.id > 18) references only the left side but must NOT be pushed
+        // to the left child: the child evaluates it on a superset of rows (before the join),
+        // changing its error behavior.
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(rStudent.getOutput().get(0), Literal.of(18)), new StringLiteral("msg"));
+        LogicalPlan plan = new LogicalPlanBuilder(rStudent)
+                .joinEmptyOn(rScore, JoinType.INNER_JOIN)
+                .filter(assertTrueExpr)
+                .build();
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(PushDownFilterThroughJoin.INSTANCE)
+                .matchesFromRoot(
+                        logicalFilter(
+                                logicalJoin(logicalOlapScan(), logicalOlapScan())
+                        ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(assertTrueExpr)))
+                );
+    }
+
+    @Test
+    void testNotConvertNoneMovableEqualToToJoinCondition() {
+        /*
+         * a cross-side EqualTo containing a NoneMovableFunction (assert_true) must not be
+         * converted into a join condition: the join condition is evaluated on a superset of
+         * rows (all A x B pairs) compared with the filter on the join output, which changes
+         * the assertion's error behavior. the base implementation moves it into the join's
+         * otherJoinConjuncts; this implementation must retain it in the filter above the join.
+         */
+        Expression assertTrueExpr = new AssertTrue(
+                new GreaterThan(rScore.getOutput().get(2), Literal.of(60)), new StringLiteral("msg"));
+        Expression equalTo = new EqualTo(rStudent.getOutput().get(0), assertTrueExpr);
+        LogicalPlan plan = new LogicalPlanBuilder(rStudent)
+                .joinEmptyOn(rScore, JoinType.INNER_JOIN)
+                .filter(equalTo)
+                .build();
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(PushDownFilterThroughJoin.INSTANCE)
+                .matchesFromRoot(
+                        logicalFilter(
+                                logicalJoin(logicalOlapScan(), logicalOlapScan())
+                                        .when(join -> join.getOtherJoinConjuncts().isEmpty())
+                        ).when(filter -> filter.getConjuncts().equals(ImmutableSet.of(equalTo)))
                 );
     }
 }

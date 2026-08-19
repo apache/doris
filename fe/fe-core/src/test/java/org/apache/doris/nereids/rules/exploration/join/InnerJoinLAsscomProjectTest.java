@@ -25,7 +25,9 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -90,6 +92,41 @@ class InnerJoinLAsscomProjectTest implements MemoPatternMatchSupported {
                             ).when(project -> project.getProjects().size() == 1)
                         )
                     )
+                );
+    }
+
+    @Test
+    void testRejectedWhenSensitiveConjunct() {
+        /*
+         * the LAsscom reorder must be rejected when a conjunct contains a NoneMovableFunction
+         * (assert_true): the reorder would move the conjunct referencing B from (A join B)'s
+         * A x B evaluation to (A join C) join B, where A rows pruned by C no longer reach it
+         * and its required error is suppressed. the plan keeps the original order.
+         */
+        List<Expression> bottomHashConjunct = ImmutableList.of(
+                new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
+        List<Expression> bottomOtherConjunct = ImmutableList.of(new AssertTrue(
+                new GreaterThan(scan2.getOutput().get(0), new IntegerLiteral(0)), new StringLiteral("msg")));
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, bottomHashConjunct, bottomOtherConjunct)
+                .project(ImmutableList.of(0, 1, 2))
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .projectAll()
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
+                // the transposed shape (A join C) join B must not appear
+                .nonMatch(
+                        logicalProject(
+                                innerLogicalJoin(
+                                        logicalProject(innerLogicalJoin(
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t1")),
+                                                logicalOlapScan().when(scan -> scan.getTable().getName().equals("t3"))
+                                        )),
+                                        logicalProject(group())
+                                )
+                        )
                 );
     }
 
