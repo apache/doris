@@ -27,6 +27,8 @@
 
 #include "common/cast_set.h"
 #include "io/fs/err_utils.h"
+#include "io/hdfs_util.h"
+#include "util/bvar_helper.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"
 namespace doris::io {
@@ -34,6 +36,7 @@ namespace doris::io {
 HdfsFileHandle::~HdfsFileHandle() {
     if (_hdfs_file != nullptr && _fs != nullptr) {
         VLOG_FILE << "hdfsCloseFile() fid=" << _hdfs_file;
+        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_close_latency);
         hdfsCloseFile(_fs, _hdfs_file); // TODO: check return code
     }
     _fs = nullptr;
@@ -57,6 +60,7 @@ Status HdfsFileHandle::init(int64_t file_size) {
 Status HdfsFileHandle::ensure_open() {
     std::call_once(_open_once, [this]() {
         VLOG_DEBUG << "lazy open hdfs file: " << _fname;
+        SCOPED_BVAR_LATENCY(hdfs_bvar::hdfs_open_latency);
         _hdfs_file = hdfsOpenFile(_fs, _fname.c_str(), O_RDONLY, 0, 0, 0);
     });
     if (_hdfs_file == nullptr) {
