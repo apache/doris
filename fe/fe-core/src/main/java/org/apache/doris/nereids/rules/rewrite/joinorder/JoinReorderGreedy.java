@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite.joinorder;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
@@ -24,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -187,7 +189,9 @@ public class JoinReorderGreedy extends JoinOrder {
             join = new LogicalJoin(JoinType.CROSS_JOIN, onPredicates, leftChildPlan, rightChildPlan,
                     new JoinReorderContext());
         } else {
-            join = new LogicalJoin(JoinType.INNER_JOIN, onPredicates, leftChildPlan, rightChildPlan,
+            Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
+                    leftChildPlan.getOutput(), rightChildPlan.getOutput(), onPredicates);
+            join = new LogicalJoin(JoinType.INNER_JOIN, pair.first, pair.second, leftChildPlan, rightChildPlan,
                     new JoinReorderContext());
         }
         return Optional.of(needReverse ? new ExpressionInfo(join, rightGroup, leftGroup)
