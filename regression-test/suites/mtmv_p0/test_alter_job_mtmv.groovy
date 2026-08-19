@@ -63,7 +63,7 @@ suite("test_alter_job_mtmv") {
      sql """
         insert into ${tableName} values(4,"2017-01-15",4);
         """
-    waitingMTMVTaskFinishedByMvNameAllowCancel(mvName)
+    waitingMTMVTaskFinishedByMvNameAllowCancel(mvName, "COMMIT")
 
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
